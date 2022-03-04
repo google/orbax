@@ -19,12 +19,26 @@ import logging
 import time
 from typing import Iterator, List, Optional
 
+import flax.serialization
 import jax
 from jax.experimental import multihost_utils
 import numpy as np
 import tensorflow as tf
+import tensorstore as ts
 
 TMP_DIR_SUFFIX = ".orbax-checkpoint-tmp-"
+
+
+def register_ts_spec_for_serialization():
+  # Register functions with flax.serialization to handle `ts.Spec`.
+  flax.serialization.register_serialization_state(
+      ts.Spec,
+      ty_to_state_dict=lambda t: t.to_json(),
+      # The parameter may have been written to tensorstore or msgpack.
+      # If the former, a dict of the spec will be stored. If the latter it will
+      # be the value itself.
+      ty_from_state_dict=lambda t, s: ts.Spec(s) if isinstance(s, dict) else s,
+      override=True)
 
 
 def is_scalar(x):

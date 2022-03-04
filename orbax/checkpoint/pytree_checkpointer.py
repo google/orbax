@@ -42,11 +42,7 @@ Array = Union[np.ndarray, jnp.ndarray]
 _FLAX_CHECKPOINT_FILE = 'checkpoint'
 
 
-# Register functions with flax.serialization to handle `ts.Spec`.
-flax.serialization.register_serialization_state(
-    ts.Spec,
-    ty_to_state_dict=lambda t: t.to_json(),
-    ty_from_state_dict=lambda t, s: ts.Spec(s))
+utils.register_ts_spec_for_serialization()
 
 
 @dataclasses.dataclass
