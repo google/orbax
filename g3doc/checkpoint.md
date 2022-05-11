@@ -14,17 +14,11 @@ freshness: { owner: 'cpgaffney' reviewed: '2022-05-10' }
 Orbax provides a flexible and customizable for managing checkpoints for various
 different objects.
 
-<!-- BEGIN GOOGLE-INTERNAL -->
-
-The design was originally proposed in
-[go/orbax-checkpoint](https://go/orbax-checkpoint). <!-- END GOOGLE-INTERNAL -->
-
 ### CheckpointManager
 
-[`CheckpointManager`](https://google3/third_party/py/orbax/checkpoint/checkpoint_manager.py)
-is the highest-level object provided by Orbax for checkpointing, and is
-generally the interface that should be most often used to interact with
-checkpoints.
+[`CheckpointManager`]() is the highest-level object provided by Orbax for
+checkpointing, and is generally the interface that should be most often used to
+interact with checkpoints.
 
 This manager allows saving and restoring any object for which a `Checkpointer`
 implementation exists (see [below](#checkpointer)). This may include objects
@@ -111,10 +105,9 @@ Other APIs include:
 
 ### Checkpointer
 
-[`Checkpointer`](https://google3/third_party/py/orbax/checkpoint/checkpointer.py)
-provides an interface which can be implemented to provide support for saving and
-restoring a particular object. Several objects are supported by default in Orbax
-(see [below](#checkpointer-implementations)).
+[`Checkpointer`]() provides an interface which can be implemented to provide
+support for saving and restoring a particular object. Several objects are
+supported by default in Orbax (see [below](#checkpointer-implementations)).
 
 The class provides `save`/`async_save` and `restore`/`async_restore` APIs which
 save or restore an `item` either synchronously or asynchronously to a provided
@@ -130,8 +123,8 @@ running a global sync.
 
 #### PyTreeCheckpointer
 
-[`PyTreeCheckpointer`](https://google3/third_party/py/orbax/checkpoint/pytree_checkpointer.py)
-allows checkpointing PyTrees consisting of scalars, np/jnp arrays, or
+[`PyTreeCheckpointer`]() allows checkpointing PyTrees consisting of scalars,
+np/jnp arrays, or
 [`GlobalDeviceArray`](https://source.corp.google.com/piper///depot/google3/third_party/py/jax/experimental/global_device_array.py)
 (`GDA`). Note that this class provides support for device-partitioned arrays via
 `GDA`. Other values are expected to be replicated across devices.
@@ -183,18 +176,17 @@ restore the object structure.
 
 #### JsonCheckpointer
 
-[`JsonCheckpointer`](https://google3/third_party/py/orbax/checkpoint/json_checkpointer.py)
-is provided as a way to checkpoint nested dictionaries that can be serialized in
-JSON format. This can be useful as a way to store checkpoint metadata. For
-example, `CheckpointManager` uses this class to store the metrics used to
-evaluate relative checkpoint quality.
+[`JsonCheckpointer`]() is provided as a way to checkpoint nested dictionaries
+that can be serialized in JSON format. This can be useful as a way to store
+checkpoint metadata. For example, `CheckpointManager` uses this class to store
+the metrics used to evaluate relative checkpoint quality.
 
 Note that presently, this class does not implement async APIs.
 
 #### DatasetCheckpointer
 
-[`DatasetCheckpointer`](https://google3/third_party/py/orbax/checkpoint/dataset_checkpointer.py)
-is designed for saving and restoring `tf.data.Iterator`. It does this using
+[`DatasetCheckpointer`]() is designed for saving and restoring
+`tf.data.Iterator`. It does this using
 [`tf.train.Checkpoint`](https://www.tensorflow.org/api_docs/python/tf/train/Checkpoint).
 
 Unlike the preceding classes, this class always requires `item` to be provided
@@ -207,11 +199,11 @@ on `tf.train.Checkpoint`.
 
 #### LazyArray
 
-[`LazyArray`](https://google3/third_party/py/orbax/checkpoint/lazy_array.py)
-provides a mechanism for delayed loading of arrays from a checkpoint. If a
-parameter is restored as a `LazyArray` (in `PyTreeCheckpointer`, setting
-`RestoreArgs.lazy = True`), the restored object will not yet have done the work
-of actually loading the parameter from Tensorstore.
+[`LazyArray`]() provides a mechanism for delayed loading of arrays from a
+checkpoint. If a parameter is restored as a `LazyArray` (in
+`PyTreeCheckpointer`, setting `RestoreArgs.lazy = True`), the restored object
+will not yet have done the work of actually loading the parameter from
+Tensorstore.
 
 The actual loading will only be done when `.get()` is called on the `LazyArray`.
 
@@ -222,10 +214,9 @@ typically be small.
 
 #### Transformations
 
-The
-[`transform_utils`](https://google3/third_party/py/orbax/checkpoint/transform_utils.py)
-library provides functions to allow structural PyTree transformations, which can
-facilitate migrations between different checkpoint versions.
+The [`transform_utils`]() library provides functions to allow structural PyTree
+transformations, which can facilitate migrations between different checkpoint
+versions.
 
 The API consists of a `Transform` class and an `apply_transformations` function.
 `Transform` consists of the following elements:
