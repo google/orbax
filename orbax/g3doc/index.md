@@ -1,15 +1,5 @@
 # Orbax
 
-<!-- BEGIN GOOGLE-INTERNAL -->
-
-go/orbax
-
-<!--*
-# Document freshness: For more information, see go/fresh-source.
-freshness: { owner: 'cpgaffney' reviewed: '2022-05-10' }
-*-->
-
-<!-- END GOOGLE-INTERNAL -->
 
 [TOC]
 
@@ -17,6 +7,7 @@ freshness: { owner: 'cpgaffney' reviewed: '2022-05-10' }
 
 Orbax is a library providing training utilities for JAX users. At the moment, it
 only provides a checkpointing library, detailed below.
+
 
 ## Reference
 
