@@ -23,7 +23,7 @@ from flax import traverse_util
 import jax
 from jax.experimental import pjit
 from jax.experimental.gda_serialization import serialization
-from jax.experimental.gda_serialization.google.spec import get_tensorstore_spec
+
 from jax.experimental.global_device_array import GlobalDeviceArray
 from jax.experimental.maps import Mesh
 import jax.numpy as jnp
@@ -159,7 +159,7 @@ def _get_tensorstore_spec(path: str,
 
   if arr_or_spec is None:
     return None
-  tspec = get_tensorstore_spec(path)
+  tspec = serialization.get_tensorstore_spec(path)
   if isinstance(arr_or_spec, GlobalDeviceArray):
     arr = arr_or_spec
     tspec = set_tspec_dtype(arr, tspec)
