@@ -125,7 +125,7 @@ running a global sync.
 
 [`PyTreeCheckpointer`]() allows checkpointing PyTrees consisting of scalars,
 np/jnp arrays, or
-[`GlobalDeviceArray`](https://source.corp.google.com/piper///depot/google3/third_party/py/jax/experimental/global_device_array.py)
+[`GlobalDeviceArray`]()
 (`GDA`). Note that this class provides support for device-partitioned arrays via
 `GDA`. Other values are expected to be replicated across devices.
 
