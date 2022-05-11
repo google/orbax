@@ -81,7 +81,7 @@ class RestoreArgs:
   as_gda: if true, restores the given paramater as a GlobalDeviceArray
     regardless of how it was saved. If the array was not saved as a GDA, mesh
     and mesh_axes are required.
-  meshes: the device mesh that the arra should be restored as. If None, uses a
+  meshes: the device mesh that the array should be restored as. If None, uses a
     linear mesh of jax.devices.
   mesh_axes: the mesh_axes that the array should be restored as. If None, fully
     replicates the array to every device.
