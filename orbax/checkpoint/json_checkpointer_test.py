@@ -13,9 +13,16 @@
 # limitations under the License.
 
 """Tests for JsonCheckpointer."""
+from absl import flags
 from absl.testing import absltest
+import jax
 from orbax.checkpoint.json_checkpointer import JsonCheckpointer
 import tensorflow as tf
+
+# Parse absl flags test_srcdir and test_tmpdir.
+jax.config.parse_flags_with_absl()
+
+FLAGS = flags.FLAGS
 
 
 class JsonCheckpointerTest(absltest.TestCase):
