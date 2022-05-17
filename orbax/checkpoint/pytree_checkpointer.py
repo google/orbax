@@ -81,7 +81,7 @@ class RestoreArgs:
   as_gda: if true, restores the given paramater as a GlobalDeviceArray
     regardless of how it was saved. If the array was not saved as a GDA, mesh
     and mesh_axes are required.
-  meshes: the device mesh that the arra should be restored as. If None, uses a
+  mesh: the device mesh that the array should be restored as. If None, uses a
     linear mesh of jax.devices.
   mesh_axes: the mesh_axes that the array should be restored as. If None, fully
     replicates the array to every device.
@@ -306,9 +306,9 @@ class PyTreeCheckpointer(Checkpointer):
     This operation is compatible with a multi-host, multi-device setting. Array
     values must be represented as `GlobalDeviceArray` or `np.ndarray`.
 
-    After saving, all files will be located in directory/step/
+    After saving, all files will be located in directory/
 
-    Saves an additional file to directory/step/checkpoint on host 0 which
+    Saves an additional file to directory/checkpoint on host 0 which
     contains the serialized structure of `item`, along with any parameters that
     request Flax serialization.
 
