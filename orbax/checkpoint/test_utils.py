@@ -92,16 +92,12 @@ def assert_tree_equal(testclass, expected, actual):
 
 def setup_pytree():
   """Creates a numpy PyTree for testing."""
-  devices = np.asarray(jax.devices())
-  assert len(devices) % 2 == 0
-  arrlen = len(devices) // 2
-
   pytree = {
-      'a': np.arange(2 * arrlen) * 1,
-      'b': np.arange(4 * arrlen) * 2,
+      'a': np.arange(8) * 1,
+      'b': np.arange(16) * 2,
       'c': {
-          'a': np.arange(2 * arrlen).reshape((2, 4)) * 3,
-          'e': np.arange(4 * arrlen).reshape((4, 4)) * 4,
+          'a': np.arange(8).reshape((2, 4)) * 3,
+          'e': np.arange(16).reshape((4, 4)) * 4,
       }
   }
   return pytree
@@ -109,13 +105,9 @@ def setup_pytree():
 
 def setup_gda_pytree():
   """Creates a PyTree of sharded GDAs for testing."""
-  assert jax.process_count() == 2
-
   devices = np.asarray(jax.devices())
-  assert len(devices) % 2 == 0
-  arrlen = len(devices) // 2
 
-  mesh_2d = Mesh(devices.reshape((2, arrlen)), ('x', 'y'))
+  mesh_2d = Mesh(devices.reshape((2, len(devices) // 2)), ('x', 'y'))
   mesh_axes_2d = pjit.PartitionSpec('x', 'y')
   mesh_1d = Mesh(devices, ('x',))
   mesh_axes_1d = pjit.PartitionSpec('x',)
