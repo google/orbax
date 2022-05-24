@@ -17,8 +17,12 @@ from typing import List, Mapping
 
 from absl.testing import absltest
 import flax
+from flax import serialization
+from flax import traverse_util
+import flax.linen as nn
 import jax
 import numpy as np
+from orbax.checkpoint import test_utils
 from orbax.checkpoint import transform_utils
 
 Transform = transform_utils.Transform
@@ -40,6 +44,7 @@ class TransformUtilsTest(absltest.TestCase):
 
   def test_empty(self):
     self.assertDictEqual({}, apply_transformations({}, {}))
+    self.assertDictEqual({}, apply_transformations({'a': 0, 'b': 1}, {}))
 
   def test_no_transform(self):
     transforms = jax.tree_map(lambda _: Transform(), self.original)
@@ -54,17 +59,18 @@ class TransformUtilsTest(absltest.TestCase):
 
   def test_rename(self):
     transforms = {
-        'a1': Transform(origin_name='a'),  # originally named "a"
+        'a1': Transform(original_key='a'),  # originally named "a"
         'c': {
             'a': Transform(),  # unchanged
         },
         # moved from being inside "c"
-        'e1': Transform(origin_name=('c', 'e')),
+        'e1': Transform(original_key=('c', 'e')),
         'f': Transform(in_checkpoint=False),  # newly added
+        'g': Transform(in_checkpoint=False, init_value=100),  # newly added
         # note: dropped "d"
         # copied c/a and moved up
-        'ca1': Transform(origin_name=('c', 'a')),
-        'ca2': Transform(origin_name=('c', 'a')),
+        'ca1': Transform(original_key=('c', 'a')),
+        'ca2': Transform(original_key=('c', 'a')),
     }
     expected = {
         'a1': 0,
@@ -73,6 +79,7 @@ class TransformUtilsTest(absltest.TestCase):
         },
         'e1': 3,
         'f': None,
+        'g': 100,
         'ca1': 2,
         'ca2': 2,
     }
@@ -148,7 +155,7 @@ class TransformUtilsTest(absltest.TestCase):
       f: List[int]  # from a.y
 
     transforms = NewTree(
-        a1=Transform(origin_name='a'),
+        a1=Transform(original_key='a'),
         b=Transform(value_fn=lambda t: t.b * 2),
         c=jax.tree_map(lambda _: Transform(), tree.c),
         d=Transform(in_checkpoint=False),
@@ -177,6 +184,80 @@ class TransformUtilsTest(absltest.TestCase):
 
     jax.tree_multimap(assert_equal, expected_tree,
                       apply_transformations(tree, transforms))
+
+  def test_construct_transformations_from_fallback(self):
+    fallback = dict(self.original)
+    fallback.update({
+        'x': 5,
+        'y': {
+            'z': 10,
+        },
+    })
+    expected = {
+        'a': Transform(),
+        'b': Transform(),
+        'c': {
+            'a': Transform(),
+            'e': Transform(),
+        },
+        'x': Transform(in_checkpoint=False, init_value=5),
+        'y': {
+            'z': Transform(in_checkpoint=False, init_value=10),
+        }
+    }
+    actual = transform_utils.construct_transformations_from_fallback(
+        self.original, fallback)
+    self.assertDictEqual(expected, actual)
+
+  def test_flax_train_state_fallback(self):
+
+    class SmallModel(nn.Module):
+
+      @nn.compact
+      def __call__(self, x):
+        x = x.reshape((x.shape[0], -1))
+        x = nn.Dense(features=8)(x)
+        x = nn.sigmoid(x)
+        x = nn.Dense(features=8)(x)
+        return x
+
+    old_state = test_utils.init_flax_model(SmallModel())
+
+    class LargeModel(nn.Module):
+
+      @nn.compact
+      def __call__(self, x):
+        x = x.reshape((x.shape[0], -1))  # flatten
+        x = nn.Dense(features=8)(x)
+        x = nn.sigmoid(x)
+        x = nn.Dense(features=8)(x)
+        x = nn.sigmoid(x)
+        x = nn.Dense(features=4)(x)
+        return x
+
+    new_state = test_utils.init_flax_model(LargeModel())
+
+    transforms = transform_utils.construct_transformations_from_fallback(
+        old_state, new_state)
+    restored_state = transform_utils.apply_transformations(
+        old_state, transforms)
+
+    old_state_dict = traverse_util.flatten_dict(
+        serialization.to_state_dict(old_state), keep_empty_nodes=True)
+    new_state_dict = traverse_util.flatten_dict(
+        serialization.to_state_dict(new_state), keep_empty_nodes=True)
+
+    expected_state_dict = {}
+    for k, v in new_state_dict.items():
+      if k in old_state_dict:
+        expected_state_dict[k] = old_state_dict[k]
+      else:
+        expected_state_dict[k] = v
+
+    expected_state = serialization.from_state_dict(
+        new_state, traverse_util.unflatten_dict(expected_state_dict))
+
+    test_utils.assert_tree_equal(self, expected_state, restored_state)
 
 
 if __name__ == '__main__':

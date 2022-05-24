@@ -32,7 +32,7 @@ class Transform:
   See `apply_transformations` for usage examples. Transform represents an
   operation on a single key/value pair. For example, the following mapping:
 
-  {'a': Transform(origin_name='b')}
+  {'a': Transform(original_key='b')}
 
   This denotes that the original key was named 'b', but we are changing it to
   'a'.
@@ -43,23 +43,98 @@ class Transform:
 
   This signifies that the new key 'a' is the old key 'b' multiplied by two.
 
-  origin_name: Denotes the original name of the key. Represented using a tuple,
+  original_key: Denotes the original name of the key. Represented using a tuple,
     where each successive element represents a nested key in a nested
     dictionary. May also provide a string, which will be interpreted as a tuple
     of length 1 (no nesting). Note: not needed if value_fn is provided.
   in_checkpoint: Indicates whether a parameter is expected to be present in the
-    saved checkpoint. Will raise an error if the parameter was expected, but is
-    not present.
+    saved checkpointransform. Will raise an error if the parameter was expected,
+    but is not present.
+  init_value: Can only be used in conjunction with `in_checkpoint`. If
+    `in_checkpoint` is False, will use the value provided by `init_value`.
   value_fn: A function accepting a PyTree and returning any value. The PyTree
     argument will be the original PyTree, and the function should return the
     value of the key in the new PyTree.
   """
-  origin_name: Optional[Union[str, Tuple[str]]] = None
-  # TODO(cpgaffney) consider supporting custom init fn for new keys.
+  original_key: Optional[Union[str, Tuple[str]]] = None
   in_checkpoint: bool = True
+  init_value: Optional[Any] = None
   value_fn: Optional[ValueTransformFunction] = None
 
 
+def _is_leaf(x):
+  if isinstance(x, dict):
+    return set(x.keys()) >= {'original_key', 'in_checkpoint', 'value_fn'}
+  return False
+
+
+def _to_transform(x):
+  t = serialization.from_state_dict(Transform(), x)
+  if isinstance(t.original_key, str) or t.original_key is None:
+    return t
+  return t.replace(
+      original_key=tuple([v for k, v in t.original_key.items()]))
+
+
+def construct_transformations_from_fallback(original_tree: PyTree,
+                                            fallback_tree: PyTree) -> PyTree:
+  """Constructs a tree of transformations matching `fallback_tree`.
+
+  Given an `original_tree` and a `fallback_tree` with some keys that are not
+  present in the original, constructs a PyTree of transformations matching
+  `fallback_tree` where the values are `Transform` objects. The resulting
+  transformations PyTree can be used with apply_transformations to initialize
+  elements present in `fallback_tree`.
+
+  For example:
+    original_tree: {
+      'a': 0,
+      'b': 1,
+    }
+    fallback_tree: {
+      'a': 100,
+      'b': 101,
+      'c': 102,
+    }
+    returns: {
+      'a': Transform(),
+      'b': Transform(),
+      'c': Transform(in_checkpoint=False, init_value=102),
+    }
+
+  In a typical example, `original_tree` is restored from an existing checkpoint
+  with no modification, while `fallback_tree` is a tree with additional keys
+  with randomly initialized values.
+
+  Args:
+    original_tree: a PyTree representing the original tree that must be
+      transformed.
+    fallback_tree: a PyTree with additional values that may be used to
+      initialize values not present in the original.
+
+  Returns:
+    A PyTree of `Transform`.
+  """
+  original = traverse_util.flatten_dict(
+      serialization.to_state_dict(original_tree), keep_empty_nodes=True)
+  fallback = traverse_util.flatten_dict(
+      serialization.to_state_dict(fallback_tree), keep_empty_nodes=True)
+
+  transforms = {}
+  for k, v in fallback.items():
+    if isinstance(v, type(traverse_util.empty_node)):
+      transforms[k] = v
+    elif k not in original:
+      transforms[k] = Transform(in_checkpoint=False, init_value=v)
+    else:
+      transforms[k] = Transform()
+
+  return serialization.from_state_dict(fallback_tree,
+                                       traverse_util.unflatten_dict(transforms))
+
+
+# TODO(b/233406904) Add regex support.
+# TODO(b/233407026) Add additional error checking.
 def apply_transformations(original_tree: PyTree,
                           transformations: PyTree) -> PyTree:
   """Applies transformations to a pytree.
@@ -76,22 +151,22 @@ def apply_transformations(original_tree: PyTree,
     },
   }
   transforms = {
-    'a1': Transform(origin_name='a'),  # rename
+    'a1': Transform(original_key='a'),  # rename
     'a1': Transform(value_fn=lambda kv: kv['a']),  # another way of doing above
     'b': {
       'c': Transform(value_fn=lambda kv: kv['b']['c'] * 2)  # doubled original
       # drop b/d
     },
      # Copy original into multiple new keys
-    'c1': Transform(origin_name=('b', 'c')),
-    'c2': Transform(origin_name=('b', 'c')),
+    'c1': Transform(original_key=('b', 'c')),
+    'c2': Transform(original_key=('b', 'c')),
     # one to many mapping
     'x': Transform(value_fn=lambda kv: kv['b']['d'][0]),
     'y': Transform(value_fn=lambda kv: kv['b']['d'][1:]),
     # many to one mapping
     'z': Transform(value_fn=lambda kv: kv['a'] * 2 + sum(kv['b']['d'])),
     # create a new key not in original
-    'new': Transform(in_checkpoint=False),
+    'new': Transform(in_checkpoint=False, init_value=[0, 1, 2]),
   }
 
   Args:
@@ -102,45 +177,38 @@ def apply_transformations(original_tree: PyTree,
   Returns:
     a transformed PyTree with the structure of `transformations`
   """
+  if not transformations:
+    return {}
   original = serialization.to_state_dict(original_tree)
   # convert transformations to structure matching original
   transforms = serialization.to_state_dict(transformations)
 
-  def is_leaf(x):
-    if isinstance(x, dict):
-      return set(x.keys()) >= {'origin_name', 'in_checkpoint', 'value_fn'}
-    return False
-
-  def to_transform(x):
-    t = serialization.from_state_dict(Transform(), x)
-    if isinstance(t.origin_name, str) or t.origin_name is None:
-      return t
-    return t.replace(origin_name=tuple([v for k, v in t.origin_name.items()]))
-
   # Must recover Transform objects, while maintaining state dict structure.
-  transforms = jax.tree_map(to_transform, transforms, is_leaf=is_leaf)
+  transforms = jax.tree_map(_to_transform, transforms, is_leaf=_is_leaf)
 
-  original = traverse_util.flatten_dict(original)
-  transforms = traverse_util.flatten_dict(transforms)
+  original = traverse_util.flatten_dict(original, keep_empty_nodes=True)
+  transforms = traverse_util.flatten_dict(transforms, keep_empty_nodes=True)
 
   new = {}
-  for k, t in transforms.items():
-    if t.in_checkpoint:
-      if t.value_fn is None:
-        origin_name = k
-        if t.origin_name is not None:
-          origin_name = t.origin_name
-        if isinstance(origin_name, str):
-          origin_name = (origin_name,)
-        if origin_name not in original:
+  for key, transform in transforms.items():
+    if isinstance(transform, type(traverse_util.empty_node)):
+      new[key] = transform
+    elif transform.in_checkpoint:
+      if transform.value_fn is None:
+        original_key = key
+        if transform.original_key is not None:
+          original_key = transform.original_key
+        if isinstance(original_key, str):
+          original_key = (original_key,)
+        if original_key not in original:
           raise ValueError(
-              f'Transformation key {origin_name} not found in origin tree (in_checkpoint=True)'
-          )
-        new[k] = original[origin_name]
+              f'Transformation key {original_key} not found in origin tree',
+              '(in_checkpoint=True)')
+        new[key] = original[original_key]
       else:
-        new[k] = t.value_fn(original_tree)
+        new[key] = transform.value_fn(original_tree)
     else:
-      new[k] = None
+      new[key] = transform.init_value
 
   new = traverse_util.unflatten_dict(new)
   structure = jax.tree_map(

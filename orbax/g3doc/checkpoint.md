@@ -219,7 +219,7 @@ facilitate migrations between different checkpoint versions.
 The API consists of a `Transform` class and an `apply_transformations` function.
 `Transform` consists of the following elements:
 
-*   `origin_name`: Denotes the original name of the key. Represented using a
+*   `original_key`: Denotes the original name of the key. Represented using a
     tuple, where each successive element represents a nested key in a nested
     dictionary. May also provide a string, which will be interpreted as a tuple
     of length 1 (no nesting). Note: not needed if value_fn is provided.
@@ -232,7 +232,7 @@ The API consists of a `Transform` class and an `apply_transformations` function.
 
 This can be represented with some simple examples:
 
-`{'a': Transform(origin_name='b')}`
+`{'a': Transform(original_key='b')}`
 
 This denotes that the original key was named 'b', but we are changing it to 'a'.
 
@@ -255,15 +255,15 @@ original_tree = {
   },
 }
 transforms = {
-  'a1': Transform(origin_name='a'),  # rename
+  'a1': Transform(original_key='a'),  # rename
   'a1': Transform(value_fn=lambda kv: kv['a']),  # another way of doing above
   'b': {
     'c': Transform(value_fn=lambda kv: kv['b']['c'] * 2)  # doubled original
     # drop b/d
   },
    # Copy original into multiple new keys
-  'c1': Transform(origin_name=('b', 'c')),
-  'c2': Transform(origin_name=('b', 'c')),
+  'c1': Transform(original_key=('b', 'c')),
+  'c2': Transform(original_key=('b', 'c')),
   # one to many mapping
   'x': Transform(value_fn=lambda kv: kv['b']['d'][0]),
   'y': Transform(value_fn=lambda kv: kv['b']['d'][1:]),
@@ -275,3 +275,43 @@ transforms = {
 
 transformed_tree = apply_transformations(original_tree, transforms)
 ```
+
+Let's consider a real-world example. In this scenario, we have a saved
+checkpoint with parameters such as `layer_0`, `layer_1`, ..., `layer_n`. We
+would like to restore this model for finetuning, but we would like to modify
+some of the layers, perhaps by removing `layer_n` and adding `dense_0`, ...,
+`dense_m` (we'll refer to this modified model as "new model").
+
+The new model may be initialized as a Flax
+[TrainState](https://flax.readthedocs.io/en/latest/flax.training.html#train-state),
+for example.
+
+```py
+params = model.init(
+    jax.random.PRNGKey(0), jnp.ones([1, model.input_size]))
+state = TrainState.create(
+    apply_fn=model.apply, params=params, tx=optimizer)
+```
+
+We can restore the original checkpoint with the following:
+
+```py
+original_state = ckpt_mngr.restore(step)
+'''
+transformations == {
+  'layer_0': Transform(),
+  ...
+  'layer_n-1': Transform(),
+  'dense_0': Transform(in_checkpoint=False, init_value=state['dense_0']),
+  ...
+  'dense_m': Transform(in_checkpoint=False, init_value=state['dense_m']),
+}
+'''
+transformations = construct_transformations_from_fallback(original_state, state)
+# Optional modify some of the transformations as needed.
+transformations['layer_0'] = Transform(value_fn=lambda kv: kv['layer_0'] * 2)
+restored_state = apply_transformations(original_state, transformations)
+```
+
+Now the restored state contains additional layers, which are randomly
+initialized, along with a couple other alterations.

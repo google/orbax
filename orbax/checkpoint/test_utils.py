@@ -13,13 +13,17 @@
 # limitations under the License.
 
 """Utils for orbax tests."""
+
 from typing import List, Optional
 
+from flax.training.train_state import TrainState
 import jax
 from jax.experimental import pjit
 from jax.experimental.global_device_array import GlobalDeviceArray
 from jax.experimental.maps import Mesh
+import jax.numpy as jnp
 import numpy as np
+import optax
 from orbax.checkpoint import pytree_checkpointer
 import tensorflow as tf
 
@@ -147,3 +151,9 @@ def as_gda(arr, mesh, mesh_axes):
     arr = np.asarray(arr)
   return GlobalDeviceArray.from_callback(arr.shape, mesh, mesh_axes,
                                          lambda idx: arr[idx])
+
+
+def init_flax_model(model):
+  params = model.init(jax.random.PRNGKey(0), jnp.ones([8, 8]))
+  tx = optax.adamw(learning_rate=0.001)
+  return TrainState.create(apply_fn=model.apply, params=params, tx=tx)
