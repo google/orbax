@@ -70,6 +70,7 @@ class SaveArgs:
   dtype: Optional[jnp.dtype] = None
 
 
+# TODO(b/233807751): Raise an error if mesh/mesh_axes are None.
 @dataclasses.dataclass
 class RestoreArgs:
   """Extra arguments that can be provided for restoration.
@@ -186,8 +187,9 @@ def _get_tensorstore_spec(path: str,
   return tspec
 
 
-async def _serialize_array(param_info: ParamInfo, save_args: SaveArgs,
-                           arr: Union[ArrayOrScalar, GlobalDeviceArray]):
+async def _serialize_array(
+    param_info: ParamInfo, save_args: SaveArgs,
+    arr: Union[ArrayOrScalar, GlobalDeviceArray]) -> Optional[asyncio.Future]:
   """Writes an array (np.ndarray) or GlobalDeviceArray."""
   tspec = param_info.tspec
   if tspec is None:
@@ -205,7 +207,10 @@ async def _serialize_array(param_info: ParamInfo, save_args: SaveArgs,
   if isinstance(arr, GlobalDeviceArray):
     # origin dtype
     tspec['dtype'] = jnp.dtype(arr.dtype).name
-    return await serialization.async_serialize(arr, tspec)
+    commit_futures = []
+    await serialization.async_serialize(
+        arr, tspec, commit_future=commit_futures)
+    return utils.GroupFuture.gather(*commit_futures)
   # Note: should match ArrayOrScalar defined at the top of the file.
   elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
     if isinstance(arr, (int, float, np.number)):
@@ -219,7 +224,9 @@ async def _serialize_array(param_info: ParamInfo, save_args: SaveArgs,
         context=ts.Context({'file_io_concurrency': {
             'limit': 128
         }}))
-    return await t.write(arr)
+    write_future = t.write(arr)
+    await write_future.copy
+    return write_future.commit
   else:
     raise ValueError(f'Unsupported array type: {type(arr)}')
 
@@ -296,7 +303,7 @@ class PyTreeCheckpointer(Checkpointer):
   async def async_save(self,
                        directory: str,
                        item: PyTree,
-                       save_args: Optional[PyTree] = None):
+                       save_args: Optional[PyTree] = None) -> asyncio.Future:
     """Saves a PyTree from a given training step.
 
     This operation is compatible with a multi-host, multi-device setting. Array
@@ -313,6 +320,10 @@ class PyTreeCheckpointer(Checkpointer):
       item: a PyTree to be saved.
       save_args: a PyTree matching `item` which consists of SaveArgs objects as
         values.
+
+    Returns:
+      A Future that will commit the data to `directory` when awaited. Copying
+      the data from its source will be awaited in this function.
     """
     # convert arbitrary pytree into dictionary
     item = flax.serialization.to_state_dict(item)
@@ -332,7 +343,9 @@ class PyTreeCheckpointer(Checkpointer):
 
     future_tree = jax.tree_map(_serialize_array, param_infos, save_args, item)
     futures, _ = jax.tree_flatten(future_tree)
-    await asyncio.gather(*futures)
+    assert isinstance(futures, list)
+    # await copy futures
+    commit_futures = await asyncio.gather(*futures)
 
     def flax_tree_value(param_info, arg, arr):
       if param_info.tspec is None:
@@ -354,6 +367,8 @@ class PyTreeCheckpointer(Checkpointer):
       with tf.io.gfile.GFile(
           tf.io.gfile.join(directory, _FLAX_CHECKPOINT_FILE), mode='wb') as f:
         f.write(msgpack)
+
+    return utils.GroupFuture.gather(*commit_futures)
 
   async def async_restore(self,
                           directory: str,

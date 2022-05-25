@@ -37,16 +37,25 @@ class Checkpointer(abc.ABC):
       *args: additional arguments for save.
       **kwargs: additional arguments for save.
     """
-    asyncio.run(self.async_save(directory, item, *args, **kwargs))
+
+    async def async_save(*args, **kwargs):
+      future = await self.async_save(*args, **kwargs)
+      await future
+
+    asyncio.run(async_save(directory, item, *args, **kwargs))
     multihost_utils.sync_global_devices('Checkpointer:save')
 
   @abc.abstractmethod
-  async def async_save(self, directory: str, item: Any):
+  async def async_save(self, directory: str, item: Any) -> asyncio.Future:
     """Saves the provided item asynchronously.
 
     Args:
       directory: the directory to save to.
       item: the item to be saved.
+
+    Returns:
+      A Future that will commit the data to `directory` when awaited. This
+      method should await any read/copy operation from the source.
     """
     pass
 

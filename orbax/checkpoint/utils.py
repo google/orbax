@@ -14,6 +14,7 @@
 
 """Utility functions for Orbax."""
 
+import asyncio
 import glob
 import logging
 import time
@@ -42,6 +43,47 @@ def register_ts_spec_for_serialization():
       # be the value itself.
       ty_from_state_dict=lambda t, s: ts.Spec(s) if is_dict(s) else s,
       override=True)
+
+
+class GroupFuture(asyncio.Future):
+  """A group of individual Futures that can be awaited concurrently.
+
+  Provides a convenient way to return multiple Futures as a single one, and to
+  await them concurrently using `await`.
+
+  Example usage:
+
+  async def foo():
+    await asyncio.sleep(2)
+
+  async def bar() -> asyncio.Future:
+    await asyncio.sleep(1)
+    return GroupFuture.gather(foo(), foo())
+
+  f = await bar()
+  await f
+
+  In this example, `await bar()` triggers the 1-second sleep, and then a
+  GroupFuture is returned. The foo() calls are initialized as futures but do not
+  yet run. Only when `await f` is called will the 2-second sleep calls be
+  scheduled concurrently.
+  """
+
+  def __init__(self, *futures):
+    super().__init__()
+    futures = tuple([f for f in futures if f is not None])
+    self.futures = asyncio.gather(*futures)
+    self.futures.add_done_callback(self._done)
+
+  @classmethod
+  def gather(cls, *futures):
+    return cls(*futures)
+
+  def _done(self, f):
+    try:
+      self.set_result(f.result())
+    except asyncio.CancelledError as e:
+      self.set_exception(e)
 
 
 def is_scalar(x):

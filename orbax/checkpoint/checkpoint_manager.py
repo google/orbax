@@ -97,7 +97,8 @@ def _create_save_directories(
 # TODO(cpgaffney) Rely only on async methods when possible.
 async def _call_valid_checkpointer_save(ckptr: Checkpointer, *args, **kwargs):
   try:
-    return await ckptr.async_save(*args, **kwargs)
+    future = await ckptr.async_save(*args, **kwargs)
+    return await future
   except NotImplementedError:
     return ckptr.save(*args, **kwargs)
 
