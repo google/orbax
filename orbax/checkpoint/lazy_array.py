@@ -24,7 +24,6 @@ import numpy as np
 import tensorstore as ts
 
 Array = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray]
-ScalarOrArray = Union[int, float, Array]
 
 
 class LazyArray(abc.ABC):
@@ -58,12 +57,15 @@ class LazyArray(abc.ABC):
   def nbytes(self) -> int:
     return np.prod(self._shape) * self._dtype.itemsize
 
+  def astype(self, dtype: np.dtype) -> 'LazyArray':
+    return type(self)(self._shape, dtype, self._get_fn)  # pytype: disable=not-instantiable
+
   @abc.abstractmethod
-  async def get_async(self) -> ScalarOrArray:
+  async def get_async(self) -> Array:
     raise NotImplementedError
 
   @abc.abstractmethod
-  def get(self) -> ScalarOrArray:
+  def get(self) -> Array:
     raise NotImplementedError
 
   def __repr__(self):
@@ -73,10 +75,12 @@ class LazyArray(abc.ABC):
 class LazyAwaitableArray(LazyArray):
   """Lazily and asynchronously loads an array when the `get_fn` is async."""
 
-  async def get_async(self) -> ScalarOrArray:
-    return await self._get_fn()  # pytype: disable=bad-return-type
+  async def get_async(self) -> Array:
+    arr = await self._get_fn()  # pytype: disable=bad-return-type
+    assert arr.dtype == self.dtype
+    return arr
 
-  def get(self) -> ScalarOrArray:
+  def get(self) -> Array:
     return asyncio.run(self.get_async())
 
   @classmethod
@@ -96,32 +100,15 @@ class LazyAwaitableArray(LazyArray):
 
   @classmethod
   def from_array(cls,
-                 array: ScalarOrArray,
+                 array: np.ndarray,
                  dtype: Optional[jnp.dtype] = None) -> 'LazyAwaitableArray':
     """Create a LazyAwaitableArray based on an array or python number."""
-    if isinstance(array, (np.ndarray, jnp.ndarray, GlobalDeviceArray)):
-      shape = array.shape  # pytype: disable=attribute-error
-      if dtype is None:
-        dtype = array.dtype  # pytype: disable=attribute-error
+    if dtype is None:
+      dtype = array.dtype
     else:
-      shape = ()
-      dtype = jnp.dtype(np.asarray(array).dtype)
-    if dtype is not None:
       dtype = jnp.dtype(dtype)
 
     async def get_fn():
       return array
 
-    return cls(shape, dtype, get_fn)
-
-
-def maybe_get_async(arr):
-
-  async def identity(x):
-    return x
-
-  if isinstance(arr, LazyArray):
-    return arr.get_async()
-  else:
-    return identity(arr)
-
+    return cls(array.shape, dtype, get_fn)
