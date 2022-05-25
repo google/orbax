@@ -108,11 +108,14 @@ async def _maybe_deserialize(args, value, info):
         get_fn=lambda: _deserialize_array(args, info),
         dtype=args.dtype)
   else:  # already initialized as np.ndarray or GDA.
-    if utils.is_scalar(value):
-      value = np.asarray(value)
     if args.dtype is not None:
-      value = value.astype(args.dtype)
+      if utils.is_scalar(value):
+        value = np.asarray(value).astype(args.dtype).item()
+      else:
+        value = value.astype(args.dtype)
     if args.as_gda:
+      if utils.is_scalar(value):
+        value = np.asarray(value)
       shape = args.global_shape or value.shape
       result = GlobalDeviceArray.from_callback(
           shape, args.mesh, args.mesh_axes,
@@ -259,7 +262,10 @@ async def _deserialize_array(
         mesh, mesh_axes, tspec, global_shape=global_shape)
   else:
     t = await ts.open(ts.Spec(tspec), open=True)
-    return await t.read()
+    result = await t.read()
+    if result.ndim == 0:
+      result = result.item()
+    return result
 
 
 class PyTreeCheckpointer(Checkpointer):
@@ -353,10 +359,9 @@ class PyTreeCheckpointer(Checkpointer):
       if arg.use_flax:
         if arg.dtype is not None:
           if utils.is_scalar(arr):
-            arr = np.asarray(arr).astype(arg.dtype)
+            arr = np.asarray(arr).astype(arg.dtype).item()
           else:
             arr = arr.astype(arg.dtype)
-          assert arg.dtype == arr.dtype
         return arr
       else:
         return ts.Spec(param_info.tspec)

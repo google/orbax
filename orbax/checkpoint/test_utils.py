@@ -81,6 +81,9 @@ def assert_tree_equal(testclass, expected, actual):
   """Asserts that two PyTrees are equal, whether they are GDA or np/jnp array."""
 
   def assert_array_equal(v_expected, v_actual):
+    assert isinstance(
+        v_actual, type(v_expected)
+    ), f'Found incompatible types: {type(v_expected)}, {type(v_actual)}'
     if isinstance(v_expected, GlobalDeviceArray):
       testclass.assertIsInstance(v_actual, GlobalDeviceArray)
       testclass.assertEqual(
