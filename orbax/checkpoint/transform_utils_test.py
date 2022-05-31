@@ -43,19 +43,21 @@ class TransformUtilsTest(absltest.TestCase):
     }
 
   def test_empty(self):
-    self.assertDictEqual({}, apply_transformations({}, {}))
-    self.assertDictEqual({}, apply_transformations({'a': 0, 'b': 1}, {}))
+    self.assertDictEqual({}, apply_transformations({}, {}, {}))
+    self.assertDictEqual({}, apply_transformations({'a': 0, 'b': 1}, {}, {}))
+    self.assertDictEqual({'a': 1}, apply_transformations({}, {}, {'a': 1}))
 
   def test_no_transform(self):
     transforms = jax.tree_map(lambda _: Transform(), self.original)
-    self.assertDictEqual(self.original,
-                         apply_transformations(self.original, transforms))
+    self.assertDictEqual(
+        self.original,
+        apply_transformations(self.original, transforms, self.original))
 
   def test_transform_missing_in_original(self):
     original = {'a': 1}
     transforms = {'b': Transform()}
     with self.assertRaises(ValueError):
-      apply_transformations(original, transforms)
+      apply_transformations(original, transforms, {'b': ...})
 
   def test_rename(self):
     transforms = {
@@ -65,8 +67,7 @@ class TransformUtilsTest(absltest.TestCase):
         },
         # moved from being inside "c"
         'e1': Transform(original_key=('c', 'e')),
-        'f': Transform(in_checkpoint=False),  # newly added
-        'g': Transform(in_checkpoint=False, init_value=100),  # newly added
+        'f': Transform(in_original=False),  # newly added
         # note: dropped "d"
         # copied c/a and moved up
         'ca1': Transform(original_key=('c', 'a')),
@@ -79,12 +80,40 @@ class TransformUtilsTest(absltest.TestCase):
         },
         'e1': 3,
         'f': None,
-        'g': 100,
+        'g': 100,  # newly added
         'ca1': 2,
         'ca2': 2,
     }
-    self.assertDictEqual(expected,
-                         apply_transformations(self.original, transforms))
+    self.assertDictEqual(
+        expected, apply_transformations(self.original, transforms, expected))
+
+  def test_partial_transformation(self):
+    transforms = {
+        'a1': Transform(original_key='a'),  # originally named "a"
+        # implicit "a" also gets preserved
+        # implicit copy over "c" subtree
+        # moved from being inside "c"
+        'e1': Transform(original_key=('c', 'e')),
+        'e2': Transform(original_key=('c', 'e')),
+        # copied c/a and moved up
+        'ca1': Transform(original_key=('c', 'a')),
+        'ca2': Transform(original_key=('c', 'a')),
+        # implicit add "f" and "g"
+    }
+    expected = {
+        'a': 0,
+        'a1': 0,
+        'c': {
+            'a': 2,
+            'e': 3,
+        },
+        'e1': 3,
+        'e2': 3,
+        'f': None,
+        'g': 2,
+    }
+    self.assertDictEqual(
+        expected, apply_transformations(self.original, transforms, expected))
 
   def test_partial_restore(self):
     transforms = {
@@ -99,23 +128,25 @@ class TransformUtilsTest(absltest.TestCase):
             'e': 3,
         },
     }
-    self.assertDictEqual(expected,
-                         apply_transformations(self.original, transforms))
+    self.assertDictEqual(
+        expected, apply_transformations(self.original, transforms, expected))
 
   def test_function(self):
     transforms = {
-        'a': Transform(value_fn=lambda kv: kv['a'] * 2 + 20),
+        'a': Transform(multi_value_fn=lambda kv: kv['a'] * 2 + 20),
         # dropped b
         'c': {
             # added together two keys, leaving one remaining
-            'a': Transform(value_fn=lambda kv: kv['c']['a'] + kv['c']['e']),
+            'a':
+                Transform(multi_value_fn=lambda kv: kv['c']['a'] + kv['c']['e']
+                         ),
         },
         # many to many transformation: input two keys -> output two new keys
-        'w': Transform(value_fn=lambda kv: kv['a'] + kv['b']),
-        'x': Transform(value_fn=lambda kv: kv['a'] + kv['b'] * 2),
+        'w': Transform(multi_value_fn=lambda kv: kv['a'] + kv['b']),
+        'x': Transform(multi_value_fn=lambda kv: kv['a'] + kv['b'] * 2),
         # copied a single key into multiple
-        'y': Transform(value_fn=lambda kv: kv['a']),
-        'z': Transform(value_fn=lambda kv: kv['a']),
+        'y': Transform(multi_value_fn=lambda kv: kv['a']),
+        'z': Transform(multi_value_fn=lambda kv: kv['a']),
     }
     expected = {
         'a': 20,
@@ -127,8 +158,8 @@ class TransformUtilsTest(absltest.TestCase):
         'y': 0,
         'z': 0,
     }
-    self.assertDictEqual(expected,
-                         apply_transformations(self.original, transforms))
+    self.assertDictEqual(
+        expected, apply_transformations(self.original, transforms, expected))
 
   def test_non_dict_tree(self):
 
@@ -156,11 +187,11 @@ class TransformUtilsTest(absltest.TestCase):
 
     transforms = NewTree(
         a1=Transform(original_key='a'),
-        b=Transform(value_fn=lambda t: t.b * 2),
+        b=Transform(multi_value_fn=lambda t: t.b * 2),
         c=jax.tree_map(lambda _: Transform(), tree.c),
-        d=Transform(in_checkpoint=False),
-        e=Transform(value_fn=lambda t: t.c.y[0]),
-        f=Transform(value_fn=lambda t: t.c.y[1:]))
+        d=Transform(in_original=False),
+        e=Transform(multi_value_fn=lambda t: t.c.y[0]),
+        f=Transform(multi_value_fn=lambda t: t.c.y[1:]))
     expected_tree = NewTree(
         a1=5,
         b=np.arange(3) * 2,
@@ -183,33 +214,10 @@ class TransformUtilsTest(absltest.TestCase):
         self.assertEqual(a, b)
 
     jax.tree_multimap(assert_equal, expected_tree,
-                      apply_transformations(tree, transforms))
+                      apply_transformations(tree, transforms, expected_tree))
 
-  def test_construct_transformations_from_fallback(self):
-    fallback = dict(self.original)
-    fallback.update({
-        'x': 5,
-        'y': {
-            'z': 10,
-        },
-    })
-    expected = {
-        'a': Transform(),
-        'b': Transform(),
-        'c': {
-            'a': Transform(),
-            'e': Transform(),
-        },
-        'x': Transform(in_checkpoint=False, init_value=5),
-        'y': {
-            'z': Transform(in_checkpoint=False, init_value=10),
-        }
-    }
-    actual = transform_utils.construct_transformations_from_fallback(
-        self.original, fallback)
-    self.assertDictEqual(expected, actual)
-
-  def test_flax_train_state_fallback(self):
+  # TODO(b/233406904) Extend this test once regex support is added.
+  def test_flax_train_state(self):
 
     class SmallModel(nn.Module):
 
@@ -237,11 +245,11 @@ class TransformUtilsTest(absltest.TestCase):
 
     new_state = test_utils.init_flax_model(LargeModel())
 
-    transforms = transform_utils.construct_transformations_from_fallback(
-        old_state, new_state)
-    restored_state = transform_utils.apply_transformations(
-        old_state, transforms)
+    transformations = {}
+    restored_state = apply_transformations(old_state, transformations,
+                                           new_state)
 
+    # Construct expected tree
     old_state_dict = traverse_util.flatten_dict(
         serialization.to_state_dict(old_state), keep_empty_nodes=True)
     new_state_dict = traverse_util.flatten_dict(

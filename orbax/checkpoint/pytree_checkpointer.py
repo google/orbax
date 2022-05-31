@@ -29,7 +29,6 @@ from jax.experimental.maps import Mesh
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import lazy_array
-from orbax.checkpoint import transform_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint.checkpointer import Checkpointer
 import tensorflow as tf
@@ -441,6 +440,4 @@ class PyTreeCheckpointer(Checkpointer):
     restored_state_dict = jax.tree_unflatten(state_dict_def, result)
     # convert back into original object
     restored = flax.serialization.from_state_dict(item, restored_state_dict)
-    if transforms is None:
-      return restored
-    return transform_utils.apply_transformations(restored, transforms)
+    return restored
