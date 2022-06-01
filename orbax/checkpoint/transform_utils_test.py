@@ -29,6 +29,10 @@ Transform = transform_utils.Transform
 apply_transformations = transform_utils.apply_transformations
 
 
+def empty_pytree(tree):
+  return jax.tree_map(lambda x: object(), tree)
+
+
 class TransformUtilsTest(absltest.TestCase):
 
   def setUp(self):
@@ -51,7 +55,8 @@ class TransformUtilsTest(absltest.TestCase):
     transforms = jax.tree_map(lambda _: Transform(), self.original)
     self.assertDictEqual(
         self.original,
-        apply_transformations(self.original, transforms, self.original))
+        apply_transformations(self.original, transforms,
+                              empty_pytree(self.original)))
 
   def test_transform_missing_in_original(self):
     original = {'a': 1}
@@ -66,12 +71,23 @@ class TransformUtilsTest(absltest.TestCase):
             'a': Transform(),  # unchanged
         },
         # moved from being inside "c"
-        'e1': Transform(original_key=('c', 'e')),
+        'e1': Transform(original_key='c/e'),
         'f': Transform(in_original=False),  # newly added
-        # note: dropped "d"
+        # note: dropped "b"
         # copied c/a and moved up
-        'ca1': Transform(original_key=('c', 'a')),
-        'ca2': Transform(original_key=('c', 'a')),
+        'ca1': Transform(original_key='c/a'),
+        'ca2': Transform(original_key='c/a'),
+    }
+    fallback = {
+        'a1': ...,
+        'c': {
+            'a': ...,
+        },
+        'e1': ...,
+        'f': None,
+        'g': 100,  # newly added
+        'ca1': ...,
+        'ca2': ...,
     }
     expected = {
         'a1': 0,
@@ -85,7 +101,7 @@ class TransformUtilsTest(absltest.TestCase):
         'ca2': 2,
     }
     self.assertDictEqual(
-        expected, apply_transformations(self.original, transforms, expected))
+        expected, apply_transformations(self.original, transforms, fallback))
 
   def test_partial_transformation(self):
     transforms = {
@@ -93,12 +109,21 @@ class TransformUtilsTest(absltest.TestCase):
         # implicit "a" also gets preserved
         # implicit copy over "c" subtree
         # moved from being inside "c"
-        'e1': Transform(original_key=('c', 'e')),
-        'e2': Transform(original_key=('c', 'e')),
-        # copied c/a and moved up
-        'ca1': Transform(original_key=('c', 'a')),
-        'ca2': Transform(original_key=('c', 'a')),
+        'e1': Transform(original_key='c/e'),
+        'e2': Transform(original_key='c/e'),
         # implicit add "f" and "g"
+    }
+    fallback = {
+        'a': ...,
+        'a1': ...,
+        'c': {
+            'a': ...,
+            'e': ...,
+        },
+        'e1': ...,
+        'e2': ...,
+        'f': None,
+        'g': 2,
     }
     expected = {
         'a': 0,
@@ -113,7 +138,53 @@ class TransformUtilsTest(absltest.TestCase):
         'g': 2,
     }
     self.assertDictEqual(
-        expected, apply_transformations(self.original, transforms, expected))
+        expected, apply_transformations(self.original, transforms, fallback))
+
+  def test_regex(self):
+    original = {
+        'a1': 1,
+        'c': {
+            'a2': {
+                'd': 2,
+            },
+            'a3': 3,
+        },
+        'd': {
+            'e1': 2,
+            'e2': 4,
+        },
+        'f': {
+            'e3': 6,
+            'e4': {  # note doesn't get matched
+                'a': 1
+            },
+        },
+    }
+    transforms = {
+        r'(.*)x(\d.*)':
+            Transform(original_key=r'\1a\2'),
+        r'(.*)y(\d)':
+            Transform(original_key=r'\1e\2', value_fn=lambda val: val * 2),
+    }
+    expected = {
+        'x1': 1,
+        'c': {
+            'x2': {
+                'd': 2,
+            },
+            'x3': 3,
+        },
+        'd': {
+            'y1': 4,
+            'y2': 8,
+        },
+        'f': {
+            'y3': 12,
+        },
+    }
+    self.assertDictEqual(
+        expected,
+        apply_transformations(original, transforms, empty_pytree(expected)))
 
   def test_partial_restore(self):
     transforms = {
@@ -129,7 +200,9 @@ class TransformUtilsTest(absltest.TestCase):
         },
     }
     self.assertDictEqual(
-        expected, apply_transformations(self.original, transforms, expected))
+        expected,
+        apply_transformations(self.original, transforms,
+                              empty_pytree(expected)))
 
   def test_function(self):
     transforms = {
@@ -159,7 +232,9 @@ class TransformUtilsTest(absltest.TestCase):
         'z': 0,
     }
     self.assertDictEqual(
-        expected, apply_transformations(self.original, transforms, expected))
+        expected,
+        apply_transformations(self.original, transforms,
+                              empty_pytree(expected)))
 
   def test_non_dict_tree(self):
 
@@ -174,7 +249,11 @@ class TransformUtilsTest(absltest.TestCase):
       b: np.ndarray
       c: SubTree
 
-    tree = Tree(a=5, b=np.arange(3), c=SubTree(x={'i': 0, 'j': 1}, y=[4, 5, 6]))
+    tree = Tree(
+        a=10, b=np.arange(3), c=SubTree(x={
+            'i': 0,
+            'j': 1
+        }, y=[4, 5, 6]))
 
     @flax.struct.dataclass
     class NewTree:
@@ -191,15 +270,28 @@ class TransformUtilsTest(absltest.TestCase):
         c=jax.tree_map(lambda _: Transform(), tree.c),
         d=Transform(in_original=False),
         e=Transform(multi_value_fn=lambda t: t.c.y[0]),
-        f=Transform(multi_value_fn=lambda t: t.c.y[1:]))
+        f=[
+            Transform(multi_value_fn=lambda t: t.c.y[1]),
+            Transform(multi_value_fn=lambda t: t.c.y[2])
+        ])
+    fallback_tree = NewTree(
+        a1=None,
+        b=None,
+        c=SubTree(x={
+            'i': None,
+            'j': None
+        }, y=[None, None, None]),
+        d=7,
+        e=None,
+        f=[None, None])
     expected_tree = NewTree(
-        a1=5,
+        a1=10,
         b=np.arange(3) * 2,
         c=SubTree(x={
             'i': 0,
             'j': 1
         }, y=[4, 5, 6]),
-        d=None,
+        d=7,
         e=4,
         f=[5, 6])
 
@@ -214,7 +306,7 @@ class TransformUtilsTest(absltest.TestCase):
         self.assertEqual(a, b)
 
     jax.tree_multimap(assert_equal, expected_tree,
-                      apply_transformations(tree, transforms, expected_tree))
+                      apply_transformations(tree, transforms, fallback_tree))
 
   # TODO(b/233406904) Extend this test once regex support is added.
   def test_flax_train_state(self):
@@ -236,6 +328,8 @@ class TransformUtilsTest(absltest.TestCase):
       @nn.compact
       def __call__(self, x):
         x = x.reshape((x.shape[0], -1))  # flatten
+        x = nn.Dense(features=16)(x)
+        x = nn.sigmoid(x)
         x = nn.Dense(features=8)(x)
         x = nn.sigmoid(x)
         x = nn.Dense(features=8)(x)
@@ -245,25 +339,35 @@ class TransformUtilsTest(absltest.TestCase):
 
     new_state = test_utils.init_flax_model(LargeModel())
 
-    transformations = {}
+    transformations = {
+        # LargeModel layer 0 is a newly inserted layer, thus in_original=False.
+        r'(.*)Dense_0(.*)': Transform(in_original=False),
+        # SmallModel layer 0 maps to LargeModel layer 1
+        r'(.*)Dense_1(.*)': Transform(original_key=r'\1Dense_0\2'),
+        # SmallModel layer 1 maps to LargeModel layer 2
+        r'(.*)Dense_2(.*)': Transform(original_key=r'\1Dense_1\2')
+    }  # Note: LargeModel layer 3 is newly added.
     restored_state = apply_transformations(old_state, transformations,
                                            new_state)
 
     # Construct expected tree
     old_state_dict = traverse_util.flatten_dict(
-        serialization.to_state_dict(old_state), keep_empty_nodes=True)
+        serialization.to_state_dict(old_state), keep_empty_nodes=True, sep='/')
     new_state_dict = traverse_util.flatten_dict(
-        serialization.to_state_dict(new_state), keep_empty_nodes=True)
-
+        serialization.to_state_dict(new_state), keep_empty_nodes=True, sep='/')
     expected_state_dict = {}
     for k, v in new_state_dict.items():
-      if k in old_state_dict:
-        expected_state_dict[k] = old_state_dict[k]
-      else:
+      if 'Dense_1' in k:
+        expected_state_dict[k] = old_state_dict[k.replace('Dense_1', 'Dense_0')]
+      elif 'Dense_2' in k:
+        expected_state_dict[k] = old_state_dict[k.replace('Dense_2', 'Dense_1')]
+      elif 'Dense_' in k:  # layers in new, but not old.
         expected_state_dict[k] = v
+      else:  # extra keys in both, expected is the old value
+        expected_state_dict[k] = old_state_dict[k]
 
     expected_state = serialization.from_state_dict(
-        new_state, traverse_util.unflatten_dict(expected_state_dict))
+        new_state, traverse_util.unflatten_dict(expected_state_dict, sep='/'))
 
     test_utils.assert_tree_equal(self, expected_state, restored_state)
 

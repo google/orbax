@@ -14,6 +14,7 @@
 
 """Provides utils for transforming PyTrees from one version to another."""
 
+import re
 from typing import Any, Callable, Optional, Tuple, Union
 
 import flax
@@ -27,7 +28,7 @@ ValueTransformFunction = Callable[[PyTree], Any]
 
 @flax.struct.dataclass
 class Transform:
-  """A representation of a transformation applied to pytree keys/values.
+  r"""A representation of a transformation applied to pytree keys/values.
 
   See `apply_transformations` for usage examples. Transform represents an
   operation on a single key/value pair. For example, the following mapping:
@@ -35,20 +36,27 @@ class Transform:
   {'a': Transform(original_key='b')}
 
   This denotes that the original key was named 'b', but we are changing it to
-  'a'.
+  'a'. A regex can also be used as follows:
 
-  Similarly, we have the following example:
+  {r'(.*)a(.*)': Transform(original_key=r'\1b\2'}
+
+  This denotes that the key 'b' should be renamed to 'a'. This may apply to
+  multiple different keys at different levels of nesting. The '/' character
+  denotes a successive level of nesting.
+
+  We also have the following example:
 
   {'a': Transform(multi_value_fn=lambda kv: kv['b'] * 2)}
 
   This signifies that the new key 'a' is the old key 'b' multiplied by two.
 
-  original_key: Denotes the original name of the key. Represented using a tuple,
-    where each successive element represents a nested key in a nested
-    dictionary. May also provide a string, which will be interpreted as a tuple
-    of length 1 (no nesting). Note: not needed if multi_value_fn is provided.
+  original_key: Denotes the original name of the key. Represented as a string
+    with '/' denoting successive levels of nesting. If the key corresponding to
+    this Transform is a regex, backreferences (such as \1) will be replaced with
+    the appropriate matched group in the regex. Note: not needed if
+    multi_value_fn is provided.
   in_original: Indicates whether a parameter is expected to be present in the
-    saved checkpointransform. Will raise an error if the parameter was expected,
+    saved checkpoint. Will raise an error if the parameter was expected,
     but is not present.
   value_fn: A function accepting a single value and returning a single value.
     The value provided as an argument is the value of the transformation key in
@@ -80,7 +88,7 @@ def _to_transform(x):
 # TODO(b/233407026) Add additional error checking.
 def apply_transformations(original_tree: PyTree, transformations: PyTree,
                           new_tree: PyTree) -> PyTree:
-  """Applies transformations to a pytree.
+  r"""Applies transformations to a pytree.
 
   Also uses `transformations` to provide structure to the output tree.
 
@@ -93,6 +101,12 @@ def apply_transformations(original_tree: PyTree, transformations: PyTree,
       'd': [0, 1, 2, 3]
     },
     'f': 2,
+    'b1': {
+      'c': 2,
+    },
+    'b2': {
+      'c': 3,
+    },
   }
   transformations = {
     'a1': Transform(original_key='a'),  # rename
@@ -104,13 +118,14 @@ def apply_transformations(original_tree: PyTree, transformations: PyTree,
       # drop b/d
     },
      # Copy original into multiple new keys
-    'c1': Transform(original_key=('b', 'c')),
-    'c2': Transform(original_key=('b', 'c')),
+    'c1': Transform(original_key='b/c'),
+    'c2': Transform(original_key='b/c'),
     # one to many mapping
     'x': Transform(multi_value_fn=lambda kv: kv['b']['d'][0]),
     'y': Transform(multi_value_fn=lambda kv: kv['b']['d'][1:]),
     # many to one mapping
     'z': Transform(multi_value_fn=lambda kv: kv['a'] * 2 + sum(kv['b']['d'])),
+    r'x(\d.*)': Transform(original_key=r'b\1')
   }
 
   # defines the structure of the result
@@ -131,12 +146,19 @@ def apply_transformations(original_tree: PyTree, transformations: PyTree,
     # This value matters since it is not present in original_tree or
     transformations, so the value here will simply be preserved in the result.
     'g': 5,
+    # These are just 'b1', 'b2', but renamed to 'x1', 'x2', with all values
+    copied over.
+    'x1': {
+      'c': 2,
+    }
+    'x2': {
+      'c': 3,
+    }
   }
 
   Args:
     original_tree: a PyTree to be transformed.
-    transformations: a PyTree of Transform objects that should have the same
-      structure as the desired output tree.
+    transformations: a PyTree of Transform objects.
     new_tree: a PyTree defining the structure of the output. A leaf value is
       only relevant if the key is not present in transformations or
       original_tree.
@@ -148,46 +170,48 @@ def apply_transformations(original_tree: PyTree, transformations: PyTree,
     return {}
   original = serialization.to_state_dict(original_tree)
   new = serialization.to_state_dict(new_tree)
-  # convert transformations to structure matching original
+  # convert transformations to state dict
   transforms = serialization.to_state_dict(transformations)
 
   # Must recover Transform objects, while maintaining state dict structure.
   transforms = jax.tree_map(_to_transform, transforms, is_leaf=_is_leaf)
 
-  original = traverse_util.flatten_dict(original, keep_empty_nodes=True)
-  new = traverse_util.flatten_dict(new, keep_empty_nodes=True)
-  transforms = traverse_util.flatten_dict(transforms)
+  original = traverse_util.flatten_dict(
+      original, keep_empty_nodes=True, sep='/')
+  new = traverse_util.flatten_dict(new, keep_empty_nodes=True, sep='/')
+  transforms = traverse_util.flatten_dict(transforms, sep='/')
 
   for key in new:
-    if key in transforms:
-      transform = transforms[key]
-      if not transform.in_original:
-        continue  # do not override existing value of key in new
-      if not (transform.multi_value_fn is None or transform.value_fn is None):
-        raise ValueError(
-            f'Cannot provide both multi_value_fn and value_fn in {transform}')
-      if transform.multi_value_fn is None:
-        if transform.original_key is None:
-          original_key = key
-        else:
-          original_key = transform.original_key
-        if isinstance(original_key, str):
-          original_key = (original_key,)
-        if original_key not in original:
+    transform_found = False
+    for transform_key, transform in transforms.items():
+      match = re.fullmatch(transform_key, key)
+      if match:
+        transform_found = True
+        if not transform.in_original:
+          continue  # do not override existing value of key in new
+        if not (transform.multi_value_fn is None or transform.value_fn is None):
           raise ValueError(
-              f'Transformation key {original_key} not found in origin tree (in_original=True)'
-          )
-        if transform.value_fn is None:
-          value_fn = lambda x: x
+              f'Cannot provide both multi_value_fn and value_fn in {transform}')
+        if transform.multi_value_fn is None:
+          if transform.original_key is None:
+            original_key = key
+          else:
+            original_key = match.expand(transform.original_key)
+          if original_key not in original:
+            raise ValueError(
+                f'Transformation key {original_key} not found in origin tree (in_original=True)'
+            )
+          if transform.value_fn is None:
+            value_fn = lambda x: x
+          else:
+            value_fn = transform.value_fn
+          new[key] = value_fn(original[original_key])
         else:
-          value_fn = transform.value_fn
-        new[key] = value_fn(original[original_key])
-      else:
-        new[key] = transform.multi_value_fn(original_tree)
-    else:
+          new[key] = transform.multi_value_fn(original_tree)
+    if not transform_found:
       # carry over directly from original, otherwise use value from new
       if key in original:
         new[key] = original[key]
 
-  new = traverse_util.unflatten_dict(new)
+  new = traverse_util.unflatten_dict(new, sep='/')
   return serialization.from_state_dict(new_tree, new)
