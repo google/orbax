@@ -77,10 +77,10 @@ class RestoreArgs:
   as_gda: if true, restores the given paramater as a GlobalDeviceArray
     regardless of how it was saved. If the array was not saved as a GDA, mesh
     and mesh_axes are required.
-  mesh: the device mesh that the array should be restored as. If None, uses a
-    linear mesh of jax.devices.
-  mesh_axes: the mesh_axes that the array should be restored as. If None, fully
-    replicates the array to every device.
+  mesh: the device mesh that the array should be restored as. If restoring as
+    GDA, cannot be None.
+  mesh_axes: the mesh_axes that the array should be restored as. If restoring as
+    GDA, cannot be None.
   global_shapes: the global shape that the array should be restored into. If not
     provided, the shape will be restored as written.
   lazy: if True, restores using LazyArray. The actual read operation will not be
@@ -95,6 +95,11 @@ class RestoreArgs:
   global_shape: Optional[Sequence[int]] = None
   lazy: bool = False
   dtype: Optional[jnp.dtype] = None
+
+
+def _validate_restore_args(args: RestoreArgs):
+  if args.mesh is None or args.mesh_axes is None:
+    raise ValueError('Restoring as GDA: `mesh` and `mesh_axes` cannot be None.')
 
 
 async def _maybe_deserialize(args, value, info):
@@ -115,6 +120,7 @@ async def _maybe_deserialize(args, value, info):
     if args.as_gda:
       if utils.is_scalar(value):
         value = np.asarray(value)
+      _validate_restore_args(args)
       shape = args.global_shape or value.shape
       result = GlobalDeviceArray.from_callback(
           shape, args.mesh, args.mesh_axes,
@@ -250,15 +256,12 @@ async def _deserialize_array(
     }
 
   if restore_args.as_gda:
-    mesh = restore_args.mesh
-    mesh_axes = restore_args.mesh_axes
-    global_shape = restore_args.global_shape
-    if mesh is None:
-      mesh = Mesh(np.asarray(jax.devices()), ('devices',))
-    if mesh_axes is None:
-      mesh_axes = pjit.PartitionSpec(None,)
+    _validate_restore_args(restore_args)
     return await serialization.async_deserialize(
-        mesh, mesh_axes, tspec, global_shape=global_shape)
+        restore_args.mesh,
+        restore_args.mesh_axes,
+        tspec,
+        global_shape=restore_args.global_shape)
   else:
     t = await ts.open(ts.Spec(tspec), open=True)
     result = await t.read()
@@ -420,7 +423,8 @@ class PyTreeCheckpointer(Checkpointer):
     state_dict = _msgpack_restore(msgpack)
 
     if restore_args is None:
-      restore_args = jax.tree_map(lambda x: RestoreArgs(), state_dict)
+      restore_args = jax.tree_map(lambda x: RestoreArgs(as_gda=False),
+                                  state_dict)
     else:
       restore_args = flax.serialization.to_state_dict(restore_args)
     cast_dtypes = jax.tree_map(lambda x: x.dtype, restore_args)
