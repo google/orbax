@@ -335,11 +335,7 @@ class PyTreeCheckpointer(Checkpointer):
     """
     # convert arbitrary pytree into dictionary
     item = flax.serialization.to_state_dict(item)
-
-    flat, structure = jax.tree_flatten(
-        jax.tree_map(lazy_array.maybe_get_async, item))
-    flat = await asyncio.gather(*flat)
-    item = jax.tree_unflatten(structure, flat)
+    item = await lazy_array.maybe_get_tree_async(item)
 
     if save_args is None:
       save_args = jax.tree_map(lambda x: SaveArgs(), item)

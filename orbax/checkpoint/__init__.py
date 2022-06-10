@@ -20,7 +20,10 @@ from .checkpoint_manager import CheckpointManagerOptions
 from .checkpointer import Checkpointer
 from .dataset_checkpointer import DatasetCheckpointer
 from .json_checkpointer import JsonCheckpointer
+from orbax.checkpoint import lazy_array
 from .pytree_checkpointer import PyTreeCheckpointer
 from .pytree_checkpointer import RestoreArgs
 from .pytree_checkpointer import SaveArgs
+from .transform_utils import apply_transformations
+from .transform_utils import Transform
 from .utils import checkpoints_iterator

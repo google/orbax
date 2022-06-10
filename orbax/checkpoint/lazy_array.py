@@ -19,6 +19,7 @@ import asyncio
 import logging
 from typing import Callable, Optional, Sequence, Tuple, Union
 
+import jax
 from jax import numpy as jnp
 from jax.experimental.global_device_array import GlobalDeviceArray
 import numpy as np
@@ -123,13 +124,26 @@ class LazyAwaitableArray(LazyArray):
     return cls(shape, dtype, get_fn)
 
 
-def maybe_get_async(arr):
+async def maybe_get_async(arr):
 
   async def identity(x):
     return x
 
   if isinstance(arr, LazyArray):
-    return arr.get_async()
+    return await arr.get_async()
   else:
-    return identity(arr)
+    return await identity(arr)
 
+
+def maybe_get(arr):
+  return asyncio.run(maybe_get_async(arr))
+
+
+async def maybe_get_tree_async(pytree):
+  flat, structure = jax.tree_flatten(jax.tree_map(maybe_get_async, pytree))
+  flat = await asyncio.gather(*flat)
+  return jax.tree_unflatten(structure, flat)
+
+
+def maybe_get_tree(pytree):
+  return asyncio.run(maybe_get_tree_async(pytree))
