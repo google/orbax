@@ -64,6 +64,13 @@ class TransformUtilsTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       apply_transformations(original, transforms, {'b': ...})
 
+  def test_has_value_functions(self):
+    self.assertTrue(
+        transform_utils.has_value_functions(
+            {'a': Transform(original_key='a', value_fn=lambda x: x * 2)}))
+    self.assertFalse(
+        transform_utils.has_value_functions({'a': Transform(original_key='b')}))
+
   def test_rename(self):
     transforms = {
         'a1': Transform(original_key='a'),  # originally named "a"
@@ -362,7 +369,6 @@ class TransformUtilsTest(absltest.TestCase):
     jax.tree_multimap(assert_equal, expected_tree,
                       apply_transformations(tree, transforms, fallback_tree))
 
-  # TODO(b/233406904) Extend this test once regex support is added.
   def test_flax_train_state(self):
 
     class SmallModel(nn.Module):

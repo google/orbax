@@ -29,6 +29,7 @@ from jax.experimental.maps import Mesh
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import lazy_array
+from orbax.checkpoint import transform_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint.checkpointer import Checkpointer
 import tensorflow as tf
@@ -117,7 +118,7 @@ async def _maybe_deserialize(args, value, info):
         value = np.asarray(value).astype(args.dtype).item()
       else:
         value = value.astype(args.dtype)
-    if args.as_gda:
+    if args.as_gda and not isinstance(value, GlobalDeviceArray):
       if utils.is_scalar(value):
         value = np.asarray(value)
       _validate_restore_args(args)
@@ -150,24 +151,14 @@ def _msgpack_restore(msgpack):
   return state_dict
 
 
-def _get_tensorstore_spec(path: str,
-                          arr_or_spec: Union[ArrayOrScalar, GlobalDeviceArray],
-                          cast_dtype: Optional[jnp.dtype] = None):
+def _get_tensorstore_spec(path: str, arr_or_spec: Union[ArrayOrScalar,
+                                                        GlobalDeviceArray]):
   """Gets ts.Spec in json format for the given path and array."""
-
-  def set_tspec_dtype(arr: Array, spec):
-    if cast_dtype is None:
-      spec['dtype'] = jnp.dtype(arr.dtype).name
-    else:
-      spec['dtype'] = jnp.dtype(cast_dtype).name
-    return spec
-
   if arr_or_spec is None:
     return None
   tspec = serialization.get_tensorstore_spec(path)
   if isinstance(arr_or_spec, GlobalDeviceArray):
     arr = arr_or_spec
-    tspec = set_tspec_dtype(arr, tspec)
     tspec['metadata'] = serialization._get_metadata(arr)  # pylint: disable=protected-access
     del tspec['metadata']['dtype']  # pytype: disable=unsupported-operands
   # Note: should match ArrayOrScalar defined at the top of the file.
@@ -176,7 +167,6 @@ def _get_tensorstore_spec(path: str,
     arr = arr_or_spec
     if utils.is_scalar(arr):
       arr = np.asarray(arr)
-    tspec = set_tspec_dtype(arr, tspec)
     tspec['metadata'] = {
         'compressor': {
             'id': 'gzip'
@@ -207,6 +197,13 @@ async def _serialize_array(
       raise ValueError('Cannot serialize GlobalDeviceArray with flax')
     return
 
+  def set_tspec_dtype(arr: Array, spec):
+    if save_args.dtype is None:
+      spec['base']['dtype'] = jnp.dtype(arr.dtype).name
+    else:
+      spec['base']['dtype'] = jnp.dtype(save_args.dtype).name
+    return spec
+
   tspec = {
       'base': tspec,
       'driver': 'cast',
@@ -215,6 +212,8 @@ async def _serialize_array(
   if isinstance(arr, GlobalDeviceArray):
     # origin dtype
     tspec['dtype'] = jnp.dtype(arr.dtype).name
+    # destination dtype
+    tspec = set_tspec_dtype(arr, tspec)
     commit_futures = []
     await serialization.async_serialize(
         arr, tspec, commit_future=commit_futures)
@@ -225,6 +224,8 @@ async def _serialize_array(
       arr = np.asarray(arr)
     # origin dtype
     tspec['dtype'] = jnp.dtype(arr.dtype).name
+    # destination dtype
+    tspec = set_tspec_dtype(arr, tspec)
     t = await ts.open(
         ts.Spec(tspec),
         create=True,
@@ -278,8 +279,7 @@ class PyTreeCheckpointer(Checkpointer):
   `GlobalDeviceArray`, arrays are expected to be non-partitioned.
   """
 
-  def _get_param_infos(self, state_dict: PyTree, directory: str,
-                       cast_dtypes: PyTree) -> PyTree:
+  def _get_param_infos(self, state_dict: PyTree, directory: str) -> PyTree:
     """Returns parameter information for elements in `state_dict`.
 
     At minimum, this method should extract the names of each parameter for
@@ -288,8 +288,6 @@ class PyTreeCheckpointer(Checkpointer):
     Args:
       state_dict: a nested dict to extract information from.
       directory: a directory where checkpoint files are located.
-      cast_dtypes: a nested dict matching state_dict of dtypes to cast the
-        parameters to. Leaves may be None.
 
     Returns:
       A PyTree matching `state_dict` of ParamInfo.
@@ -301,12 +299,11 @@ class PyTreeCheckpointer(Checkpointer):
         for k in traverse_util.flatten_dict(state_dict, keep_empty_nodes=True)
     })
 
-    def _param_info(name, arr_or_spec, cast_dtype):
+    def _param_info(name, arr_or_spec):
       path = tf.io.gfile.join(directory, name)
-      return ParamInfo(name, _get_tensorstore_spec(path, arr_or_spec,
-                                                   cast_dtype))
+      return ParamInfo(name, _get_tensorstore_spec(path, arr_or_spec))
 
-    return jax.tree_map(_param_info, names, state_dict, cast_dtypes)
+    return jax.tree_map(_param_info, names, state_dict)
 
   async def async_save(self,
                        directory: str,
@@ -341,9 +338,8 @@ class PyTreeCheckpointer(Checkpointer):
       save_args = jax.tree_map(lambda x: SaveArgs(), item)
     else:
       save_args = flax.serialization.to_state_dict(save_args)
-    cast_dtypes = jax.tree_map(lambda x: x.dtype, save_args)
 
-    param_infos = self._get_param_infos(item, directory, cast_dtypes)
+    param_infos = self._get_param_infos(item, directory)
 
     future_tree = jax.tree_map(_serialize_array, param_infos, save_args, item)
     futures, _ = jax.tree_flatten(future_tree)
@@ -387,10 +383,12 @@ class PyTreeCheckpointer(Checkpointer):
     Args:
       directory: save location directory.
       item: provides the structure for the restored item. If not provided, will
-        infer the structure from the saved checkpoint.
+        infer the structure from the saved checkpoint. Transformations will not
+        be run.
       restore_args: optional object containing additional arguments for
-        restoration. It should be a PyTree matching the structure of the saved
-        checkpoint, and should contain a RestoreArgs object for every value.
+        restoration. It should be a PyTree matching the structure of `item`, and
+        should contain a RestoreArgs object for every value. If `item` is not
+        provided, should match the structure of the checkpoint.
       transforms: a PyTree of transformations that should be applied to the
         saved item in order to obtain a final structure. See `transform_utils`
         for further information. Note that if `transforms` is provided, all
@@ -404,6 +402,9 @@ class PyTreeCheckpointer(Checkpointer):
 
     Raises:
       FileNotFoundError: `directory` does not exist or is missing required files
+      ValueError: `transforms` is provided without `item`.
+      ValueError: `transforms` contains elements with `value_fn` or
+        `multi_value_fn`.
     """
     if not tf.io.gfile.exists(directory):
       raise FileNotFoundError(
@@ -414,18 +415,28 @@ class PyTreeCheckpointer(Checkpointer):
     with tf.io.gfile.GFile(flax_path, mode='rb') as f:
       msgpack = f.read()
 
-    # Note: because of None values in `state_dict`, do not jax.tree_map with
-    # item in first position. Use param_infos.
+    # Note: because of None values in `state_dict`, avoid jax.tree_map with it
+    # in first position. Use param_infos.
     state_dict = _msgpack_restore(msgpack)
+    param_infos = self._get_param_infos(state_dict, directory)
+
+    if transforms is not None:
+      if item is None:
+        raise ValueError(
+            'If providing `transforms`, must provide `item` matching structure of expected result.'
+        )
+      if transform_utils.has_value_functions(transforms):
+        raise ValueError(
+            'Found disallowed `value_fn` or `multi_value-fn` in `transforms`.')
+      state_dict = flax.serialization.to_state_dict(item)
+      param_infos = transform_utils.apply_transformations(
+          param_infos, transforms, state_dict)
 
     if restore_args is None:
       restore_args = jax.tree_map(lambda x: RestoreArgs(as_gda=False),
                                   state_dict)
     else:
       restore_args = flax.serialization.to_state_dict(restore_args)
-    cast_dtypes = jax.tree_map(lambda x: x.dtype, restore_args)
-
-    param_infos = self._get_param_infos(state_dict, directory, cast_dtypes)
 
     future_arrays = jax.tree_map(
         _maybe_deserialize,

@@ -85,7 +85,22 @@ def _to_transform(x):
   return t.replace(original_key=tuple([v for k, v in t.original_key.items()]))
 
 
-# TODO(b/233406904) Add regex support.
+def has_value_functions(pytree: PyTree) -> bool:
+  """Returns True if a PyTree contains any Transform elements with value_fn or multi_value_fn."""
+  result = False
+
+  def elem_has_value_functions(transform: Transform):
+    nonlocal result
+    if transform.value_fn is not None or transform.multi_value_fn is not None:
+      result = True
+
+  jax.tree_map(
+      elem_has_value_functions,
+      pytree,
+      is_leaf=lambda x: isinstance(x, Transform))
+  return result
+
+
 # TODO(b/233407026) Add additional error checking.
 def apply_transformations(original_tree: PyTree,
                           transformations: PyTree,
