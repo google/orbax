@@ -55,9 +55,10 @@ class Transform:
     this Transform is a regex, backreferences (such as \1) will be replaced with
     the appropriate matched group in the regex. Note: not needed if
     multi_value_fn is provided.
-  in_original: Indicates whether a parameter is expected to be present in the
-    saved checkpoint. Will raise an error if the parameter was expected,
-    but is not present.
+  use_fallback: if True, takes the value from the fallback tree. If
+    `default_to_original=True` in `apply_transformations`, the fallback tree is
+    `new_tree`. If `default_to_original=False` in `apply_transformations`, the
+    fallback tree is `original_tree`.
   value_fn: A function accepting a single value and returning a single value.
     The value provided as an argument is the value of the transformation key in
     the original PyTree.
@@ -66,14 +67,14 @@ class Transform:
     the value of the key in the new PyTree.
   """
   original_key: Optional[Union[str, Tuple[str]]] = None
-  in_original: bool = True
+  use_fallback: bool = False
   value_fn: Optional[Callable[[Any], Any]] = None
   multi_value_fn: Optional[ValueTransformFunction] = None
 
 
 def _is_leaf(x):
   if isinstance(x, dict):
-    return set(x.keys()) >= {'original_key', 'in_original', 'value_fn'}
+    return set(x.keys()) >= {'original_key', 'value_fn', 'multi_value_fn'}
   return False
 
 
@@ -86,8 +87,10 @@ def _to_transform(x):
 
 # TODO(b/233406904) Add regex support.
 # TODO(b/233407026) Add additional error checking.
-def apply_transformations(original_tree: PyTree, transformations: PyTree,
-                          new_tree: PyTree) -> PyTree:
+def apply_transformations(original_tree: PyTree,
+                          transformations: PyTree,
+                          new_tree: PyTree,
+                          default_to_original: Optional[bool] = True) -> PyTree:
   r"""Applies transformations to a pytree.
 
   Also uses `transformations` to provide structure to the output tree.
@@ -162,6 +165,9 @@ def apply_transformations(original_tree: PyTree, transformations: PyTree,
     new_tree: a PyTree defining the structure of the output. A leaf value is
       only relevant if the key is not present in transformations or
       original_tree.
+    default_to_original: If True, the values of keys unspecified in
+      transformations will be taken from `original_tree`. If False, they will be
+      taken from `new_tree`.
 
   Returns:
     a transformed PyTree with the structure of `new_tree`
@@ -187,8 +193,15 @@ def apply_transformations(original_tree: PyTree, transformations: PyTree,
       match = re.fullmatch(transform_key, key)
       if match:
         transform_found = True
-        if not transform.in_original:
-          continue  # do not override existing value of key in new
+        if transform.use_fallback:
+          if not default_to_original:
+            if key not in original:
+              raise ValueError(
+                  f'{key} not found in origin tree (`use_fallback` requested).'
+              )
+            new[key] = original[key]
+          # else simply retain new[key]
+          continue
         if not (transform.multi_value_fn is None or transform.value_fn is None):
           raise ValueError(
               f'Cannot provide both multi_value_fn and value_fn in {transform}')
@@ -199,8 +212,7 @@ def apply_transformations(original_tree: PyTree, transformations: PyTree,
             original_key = match.expand(transform.original_key)
           if original_key not in original:
             raise ValueError(
-                f'Transformation key {original_key} not found in origin tree (in_original=True)'
-            )
+                f'Transformation key {original_key} not found in origin tree.')
           if transform.value_fn is None:
             value_fn = lambda x: x
           else:
@@ -209,9 +221,11 @@ def apply_transformations(original_tree: PyTree, transformations: PyTree,
         else:
           new[key] = transform.multi_value_fn(original_tree)
     if not transform_found:
-      # carry over directly from original, otherwise use value from new
-      if key in original:
-        new[key] = original[key]
+      if default_to_original:
+        # carry over directly from original, otherwise use value from new
+        if key in original:
+          new[key] = original[key]
+      # if default_to_new, do not carry over key from original
 
   new = traverse_util.unflatten_dict(new, sep='/')
   return serialization.from_state_dict(new_tree, new)

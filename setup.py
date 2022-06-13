@@ -43,6 +43,7 @@ setuptools.setup(
         'jax',
         'jaxlib',
         'numpy',
+        'pyyaml',
         'tensorflow',
         'tensorstore >= 0.1.20',
     ],

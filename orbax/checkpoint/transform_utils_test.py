@@ -72,7 +72,7 @@ class TransformUtilsTest(absltest.TestCase):
         },
         # moved from being inside "c"
         'e1': Transform(original_key='c/e'),
-        'f': Transform(in_original=False),  # newly added
+        'f': Transform(use_fallback=True),  # newly added
         # note: dropped "b"
         # copied c/a and moved up
         'ca1': Transform(original_key='c/a'),
@@ -139,6 +139,60 @@ class TransformUtilsTest(absltest.TestCase):
     }
     self.assertDictEqual(
         expected, apply_transformations(self.original, transforms, fallback))
+
+  def test_default_new(self):
+    transforms = {
+        'a': Transform(use_fallback=True),  # use value from original
+        # implicit drop "b"
+        # implicit retain "c/a", "c/a"
+        'b1': Transform(original_key='b'),
+        # implicit add "f" and "g"
+    }
+    new = {
+        'a': ...,
+        'c': {
+            'a': 10,
+            'e': 11,
+        },
+        'b1': ...,
+        'f': None,
+        'g': 2,
+    }
+    expected = {
+        'a': 0,
+        'c': {
+            'a': 10,
+            'e': 11,
+        },
+        'b1': 1,
+        'f': None,
+        'g': 2,
+    }
+    self.assertDictEqual(
+        expected,
+        apply_transformations(
+            self.original, transforms, new, default_to_original=False))
+
+  def test_missing_key_default(self):
+    transforms = {'f': Transform(use_fallback=True)}
+    new = {
+        'a': 2,
+        'b': 3,
+        'c': {
+            'a': 7,
+            'e': 8,
+        },
+        'f': 20,
+    }
+    with self.assertRaises(ValueError):
+      apply_transformations(
+          self.original, transforms, new, default_to_original=False)
+
+    expected = {'a': 0, 'b': 1, 'c': {'a': 2, 'e': 3}, 'f': 20}
+    self.assertDictEqual(
+        expected,
+        apply_transformations(
+            self.original, transforms, new, default_to_original=True))
 
   def test_regex(self):
     original = {
@@ -268,7 +322,7 @@ class TransformUtilsTest(absltest.TestCase):
         a1=Transform(original_key='a'),
         b=Transform(multi_value_fn=lambda t: t.b * 2),
         c=jax.tree_map(lambda _: Transform(), tree.c),
-        d=Transform(in_original=False),
+        d=Transform(use_fallback=True),
         e=Transform(multi_value_fn=lambda t: t.c.y[0]),
         f=[
             Transform(multi_value_fn=lambda t: t.c.y[1]),
@@ -340,8 +394,8 @@ class TransformUtilsTest(absltest.TestCase):
     new_state = test_utils.init_flax_model(LargeModel())
 
     transformations = {
-        # LargeModel layer 0 is a newly inserted layer, thus in_original=False.
-        r'(.*)Dense_0(.*)': Transform(in_original=False),
+        # LargeModel layer 0 is a newly inserted layer, thus use_fallback=True.
+        r'(.*)Dense_0(.*)': Transform(use_fallback=True),
         # SmallModel layer 0 maps to LargeModel layer 1
         r'(.*)Dense_1(.*)': Transform(original_key=r'\1Dense_0\2'),
         # SmallModel layer 1 maps to LargeModel layer 2
@@ -365,6 +419,50 @@ class TransformUtilsTest(absltest.TestCase):
         expected_state_dict[k] = v
       else:  # extra keys in both, expected is the old value
         expected_state_dict[k] = old_state_dict[k]
+
+    expected_state = serialization.from_state_dict(
+        new_state, traverse_util.unflatten_dict(expected_state_dict, sep='/'))
+
+    test_utils.assert_tree_equal(self, expected_state, restored_state)
+
+  def test_flax_train_state_default_new(self):
+
+    class Model(nn.Module):
+
+      @nn.compact
+      def __call__(self, x):
+        x = x.reshape((x.shape[0], -1))  # flatten
+        x = nn.Dense(features=16)(x)
+        x = nn.sigmoid(x)
+        x = nn.Dense(features=8)(x)
+        x = nn.sigmoid(x)
+        x = nn.Dense(features=8)(x)
+        x = nn.sigmoid(x)
+        x = nn.Dense(features=4)(x)
+        return x
+
+    old_state = test_utils.init_flax_model(Model())
+    new_state = test_utils.init_flax_model(Model())
+
+    transformations = {
+        # values default to new_state, use_fallback=True instructs the Transform
+        # to fall back on old_state for this key.
+        r'(.*)Dense_1(.*)': Transform(use_fallback=True),
+    }
+    restored_state = apply_transformations(
+        old_state, transformations, new_state, default_to_original=False)
+
+    # Construct expected tree
+    old_state_dict = traverse_util.flatten_dict(
+        serialization.to_state_dict(old_state), keep_empty_nodes=True, sep='/')
+    new_state_dict = traverse_util.flatten_dict(
+        serialization.to_state_dict(new_state), keep_empty_nodes=True, sep='/')
+    expected_state_dict = {}
+    for k, v in new_state_dict.items():
+      if 'Dense_1' in k:
+        expected_state_dict[k] = old_state_dict[k]
+      else:
+        expected_state_dict[k] = v
 
     expected_state = serialization.from_state_dict(
         new_state, traverse_util.unflatten_dict(expected_state_dict, sep='/'))
