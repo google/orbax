@@ -15,7 +15,6 @@
 """Utility functions for Orbax."""
 
 import asyncio
-import glob
 import logging
 import time
 from typing import Iterator, List, Optional
@@ -90,27 +89,22 @@ def is_scalar(x):
   return isinstance(x, (int, float, np.number))
 
 
-def is_checkpoint_finalized(checkpoint_dir: str, step: int) -> bool:
-  # <directory>/<step>/<name>.orbax-checkpoint-tmp-<timestamp>
-  tmp_dirs = glob.glob(
-      tf.io.gfile.join(checkpoint_dir, str(step), "*" + TMP_DIR_SUFFIX + "*"))
-  return not tmp_dirs
-
-
-def _checkpoint_steps(checkpoint_dir: str) -> List[int]:
-  return [int(x) for x in tf.io.gfile.listdir(checkpoint_dir) if x.isdigit()]
+def is_checkpoint_finalized(checkpoint_dir: str, file: str) -> bool:
+  # <directory>/<step>.orbax-checkpoint-tmp-<timestamp>/<name>
+  return TMP_DIR_SUFFIX not in tf.io.gfile.join(checkpoint_dir, file)
 
 
 def checkpoint_steps(checkpoint_dir: str) -> List[int]:
   return [
-      s for s in _checkpoint_steps(checkpoint_dir)
-      if is_checkpoint_finalized(checkpoint_dir, s)
+      int(s)
+      for s in tf.io.gfile.listdir(checkpoint_dir)
+      if is_checkpoint_finalized(checkpoint_dir, s) and s.isdigit()
   ]
 
 
-def tmp_checkpoint_steps(checkpoint_dir: str) -> List[int]:
+def tmp_checkpoints(checkpoint_dir: str) -> List[str]:
   return [
-      s for s in _checkpoint_steps(checkpoint_dir)
+      s for s in tf.io.gfile.listdir(checkpoint_dir)
       if not is_checkpoint_finalized(checkpoint_dir, s)
   ]
 

@@ -34,8 +34,8 @@ def save_fake_tmp_dir(directory: str,
                       subdirs: Optional[List[str]] = None) -> str:
   """Saves a directory with a tmp folder to simulate preemption."""
   subdirs = subdirs or []
-  path = tf.io.gfile.join(directory, str(step),
-                          item) + '.orbax-checkpoint-tmp-1010101'
+  path = tf.io.gfile.join(directory,
+                          str(step) + '.orbax-checkpoint-tmp-1010101', item)
   tf.io.gfile.makedirs(path)
   for sub in subdirs:
     tf.io.gfile.makedirs(tf.io.gfile.join(path, sub))

@@ -42,10 +42,10 @@ _METRIC_ITEM_NAME = 'metrics'
 def _cleanup_tmp_directories(directory: str):
   """Cleanup steps in `directory` with tmp files, as these are not finalized."""
   if jax.process_index() == 0:
-    steps = utils.tmp_checkpoint_steps(directory)
-    for step in steps:
-      if not utils.is_checkpoint_finalized(directory, step):
-        tf.io.gfile.rmtree(tf.io.gfile.join(directory, str(step)))
+    tmp_files = utils.tmp_checkpoints(directory)
+    for tmp_file in tmp_files:
+      if not utils.is_checkpoint_finalized(directory, tmp_file):
+        tf.io.gfile.rmtree(tf.io.gfile.join(directory, tmp_file))
 
   multihost_utils.sync_global_devices('cleanup_tmp_dirs')
 
@@ -53,14 +53,14 @@ def _cleanup_tmp_directories(directory: str):
 # TODO(cpgaffney) consider moving to common util.
 def _create_save_directories(
     step: int, directory: str,
-    names: Sequence[str]) -> Mapping[str, CheckpointDirs]:
+    names: Sequence[str]) -> CheckpointDirs:
   """Creates a temporary directory for saving at the given path and step.
 
   After completion, the filesystem will have the structure:
 
   directory/
-    step/
-      name.orbax-checkpoint-tmp-<timestamp>/
+    step.orbax-checkpoint-tmp-<timestamp>/
+      name/
 
   Args:
     step: integer step.
@@ -70,28 +70,32 @@ def _create_save_directories(
   Returns:
     A pair of final_dir and tmp_dir (intermediate operations should be written
     to tmp_dir before move to final_dir).
+
+  Raises:
+    ValueError if `names` is empty.
   """
   # Share a timestamp across devices.
   timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
 
-  dirs = {}
+  final_dir = tf.io.gfile.join(directory, str(step))
+  tmp_dir = final_dir + utils.TMP_DIR_SUFFIX + f'{timestamp}'
+
+  if not names:
+    raise ValueError('Must provide non-empty `names`.')
   for name in names:
-    final_dir = tf.io.gfile.join(directory, str(step), name)
-    tmp_dir = final_dir + utils.TMP_DIR_SUFFIX + f'{timestamp}'
+    tmp_subdir = tf.io.gfile.join(tmp_dir, name)
 
     if tf.io.gfile.exists(final_dir):
-      logging.info(
-          'Directory already exists for item: %s at step: %d', name, step)
+      logging.info('Directory already exists for item: %s at step: %d', name,
+                   step)
 
     if jax.process_index() == 0:
-      assert not tf.io.gfile.exists(tmp_dir)
-      tf.io.gfile.makedirs(tmp_dir)
-
-    dirs[name] = (final_dir, tmp_dir)
+      assert not tf.io.gfile.exists(tmp_subdir)
+      tf.io.gfile.makedirs(tmp_subdir)
 
   multihost_utils.sync_global_devices('make_dir')
 
-  return dirs
+  return tmp_dir, final_dir
 
 
 # TODO(cpgaffney) Rely only on async methods when possible.
@@ -298,6 +302,7 @@ class CheckpointManager(AbstractCheckpointManager):
         `options.max_to_keep`).
       force: if True, forces a save regardless of `self.should_save`. Will
         overwrite any existing files in the checkpoint for `step`.
+
     Returns:
       bool indicating whether a save operation was performed
     Raises:
@@ -325,27 +330,29 @@ class CheckpointManager(AbstractCheckpointManager):
 
     # creates tmp_dir given top directory, step number, and a "collection". All
     # files from the same input object should be saved under this collection.
-    dir_pairs = _create_save_directories(step, self._directory,
-                                         list(items.keys()))
-    if not force and dir_pairs.keys() != items.keys():
-      logging.info('Skipping save. Some items at step: %d already exist', step)
-      return False
+    tmp_dir, final_dir = _create_save_directories(step, self._directory,
+                                                  list(items.keys()))
 
     save_ops = []
     saved_keys = []
     for k, item in items.items():
-      if k not in dir_pairs:
+      item_tmp_dir = tf.io.gfile.join(tmp_dir, k)
+      item_final_dir = tf.io.gfile.join(final_dir, k)
+      if not force and tf.io.gfile.exists(item_final_dir):
+        logging.info('Skipping save. Item %s at step: %d already exists', k,
+                     step)
+        return False
+      if not tf.io.gfile.exists(item_tmp_dir):
         raise ValueError(f'Failed to create directory for item "{k}"')
       if k not in self._checkpointers:
         raise ValueError(f'Checkpointer for item "{k}" not found')
-      final_dir, tmp_dir = dir_pairs[k]
 
-      logging.info('Saving checkpoint for step %d to %s', step, tmp_dir)
+      logging.info('Saving checkpoint for step %d to %s', step, item_tmp_dir)
       kwargs = save_kwargs.get(k, {})
       saved_keys += [k]
       save_ops += [
-          _call_valid_checkpointer_save(self._checkpointers[k], tmp_dir, item,
-                                        **kwargs)
+          _call_valid_checkpointer_save(self._checkpointers[k], item_tmp_dir,
+                                        item, **kwargs)
       ]
 
     # schedule save operations to run concurrently
@@ -358,13 +365,11 @@ class CheckpointManager(AbstractCheckpointManager):
 
     # Ensure save operation atomicity
     if jax.process_index() == 0:
-      for k in saved_keys:
-        final_dir, tmp_dir = dir_pairs[k]
-        if not force:
-          assert not tf.io.gfile.exists(final_dir)
-        if tf.io.gfile.exists(final_dir):
-          tf.io.gfile.rmtree(final_dir)
-        tf.io.gfile.rename(tmp_dir, final_dir)
+      if not force:
+        assert not tf.io.gfile.exists(final_dir)
+      if tf.io.gfile.exists(final_dir):
+        tf.io.gfile.rmtree(final_dir)
+      tf.io.gfile.rename(tmp_dir, final_dir)
 
     multihost_utils.sync_global_devices('CheckpointManager:save')
 
