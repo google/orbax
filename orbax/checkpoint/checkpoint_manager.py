@@ -78,17 +78,13 @@ def _create_save_directories(
   timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
 
   final_dir = tf.io.gfile.join(directory, str(step))
+  assert not tf.io.gfile.exists(final_dir)
   tmp_dir = final_dir + utils.TMP_DIR_SUFFIX + f'{timestamp}'
 
   if not names:
     raise ValueError('Must provide non-empty `names`.')
   for name in names:
     tmp_subdir = tf.io.gfile.join(tmp_dir, name)
-
-    if tf.io.gfile.exists(final_dir):
-      logging.info('Directory already exists for item: %s at step: %d', name,
-                   step)
-
     if jax.process_index() == 0:
       assert not tf.io.gfile.exists(tmp_subdir)
       tf.io.gfile.makedirs(tmp_subdir)
@@ -300,11 +296,11 @@ class CheckpointManager(AbstractCheckpointManager):
         set. Allows users to specify a metric value to determine which
         checkpoints are best and should be kept (in conjunction with
         `options.max_to_keep`).
-      force: if True, forces a save regardless of `self.should_save`. Will
-        overwrite any existing files in the checkpoint for `step`.
+      force: if True, forces a save regardless of `self.should_save`.
 
     Returns:
-      bool indicating whether a save operation was performed
+      bool indicating whether a save operation was performed. Will not overwrite
+      existing checkpoints.
     Raises:
       ValueError: if `track_best` was indicated but `metrics` is not provided.
       ValueError: directory creation failed.
@@ -312,6 +308,9 @@ class CheckpointManager(AbstractCheckpointManager):
     """
     if not force and not self.should_save(step):
       logging.info('Skipping save for step: %d', step)
+      return False
+    if step in self.all_steps():
+      logging.info('Checkpoint for step %d already exists.', step)
       return False
 
     if save_kwargs is None:
@@ -337,11 +336,6 @@ class CheckpointManager(AbstractCheckpointManager):
     saved_keys = []
     for k, item in items.items():
       item_tmp_dir = tf.io.gfile.join(tmp_dir, k)
-      item_final_dir = tf.io.gfile.join(final_dir, k)
-      if not force and tf.io.gfile.exists(item_final_dir):
-        logging.info('Skipping save. Item %s at step: %d already exists', k,
-                     step)
-        return False
       if not tf.io.gfile.exists(item_tmp_dir):
         raise ValueError(f'Failed to create directory for item "{k}"')
       if k not in self._checkpointers:
@@ -365,10 +359,7 @@ class CheckpointManager(AbstractCheckpointManager):
 
     # Ensure save operation atomicity
     if jax.process_index() == 0:
-      if not force:
-        assert not tf.io.gfile.exists(final_dir)
-      if tf.io.gfile.exists(final_dir):
-        tf.io.gfile.rmtree(final_dir)
+      assert not tf.io.gfile.exists(final_dir)
       tf.io.gfile.rename(tmp_dir, final_dir)
 
     multihost_utils.sync_global_devices('CheckpointManager:save')
