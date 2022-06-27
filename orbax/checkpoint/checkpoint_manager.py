@@ -487,6 +487,34 @@ class CheckpointManager(AbstractCheckpointManager):
     multihost_utils.sync_global_devices('CheckpointManager:restore')
     return {k: v for k, v in zip(keys, restored)}
 
+  def structure(self) -> Union[Any, Mapping[str, Any]]:
+    """For all Checkpointers, returns the saved structure.
+
+    Calls the `structure` method for each Checkpointer and returns a mapping of
+    each item name to the restored structure. If the manager only manages a
+    single item, a single structure will be returned instead.
+
+    Note that any items for which the corresponding Checkpointer does not have
+    an implemented `structure` method, these items will simply not be contained
+    in the result. If, in this case, there is also only a single item managed,
+    None will be returned.
+
+    Returns:
+      A dictionary mapping name to item structure, or a single item structure.
+    """
+    result = {}
+    for name, ckptr in self._checkpointers.items():
+      try:
+        result[name] = ckptr.structure(
+            tf.io.gfile.join(self._directory, str(self.latest_step()), name))
+      except NotImplementedError:
+        pass
+    if self._single_item:
+      if _DEFAULT_ITEM_NAME not in result:
+        return None
+      return result[_DEFAULT_ITEM_NAME]
+    return result
+
   @property
   def _track_best(self):
     """Returns true if we should track the best checkpoints by given metric."""

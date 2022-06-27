@@ -127,6 +127,23 @@ class AbstractCheckpointManager(abc.ABC):
     pass
 
   @abc.abstractmethod
+  def structure(self) -> Union[Any, Mapping[str, Any]]:
+    """For all Checkpointers, returns the saved structure.
+
+    Calls the `structure` method for each Checkpointer and returns a mapping of
+    each item name to the restored structure. If the manager only manages a
+    single item, a single structure will be returned instead.
+
+    Note that any items for which the corresponding Checkpointer does not have
+    an implemented `structure` method, these items will simply not be contained
+    in the result.
+
+    Returns:
+      A dictionary mapping name to item structure, or a single item structure.
+    """
+    pass
+
+  @abc.abstractmethod
   def all_steps(self) -> Sequence[int]:
     """Returns all steps tracked by the manager.
 

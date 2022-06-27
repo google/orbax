@@ -279,6 +279,9 @@ class PyTreeCheckpointer(Checkpointer):
   `GlobalDeviceArray`, arrays are expected to be non-partitioned.
   """
 
+  def __init__(self):
+    self._structure = None
+
   def _get_param_infos(self, state_dict: PyTree, directory: str) -> PyTree:
     """Returns parameter information for elements in `state_dict`.
 
@@ -409,15 +412,10 @@ class PyTreeCheckpointer(Checkpointer):
     if not tf.io.gfile.exists(directory):
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}')
-    flax_path = tf.io.gfile.join(directory, _FLAX_CHECKPOINT_FILE)
-    if not tf.io.gfile.exists(flax_path):
-      raise FileNotFoundError(f'Checkpoint does not exist at {flax_path}.')
-    with tf.io.gfile.GFile(flax_path, mode='rb') as f:
-      msgpack = f.read()
 
     # Note: because of None values in `state_dict`, avoid jax.tree_map with it
     # in first position. Use param_infos.
-    state_dict = _msgpack_restore(msgpack)
+    state_dict = self.structure(directory)
     param_infos = self._get_param_infos(state_dict, directory)
 
     if transforms is not None:
@@ -452,3 +450,25 @@ class PyTreeCheckpointer(Checkpointer):
     # convert back into original object
     restored = flax.serialization.from_state_dict(item, restored_state_dict)
     return restored
+
+  def structure(self, directory: str) -> PyTree:
+    """Restores the PyTree structure from a Flax checkpoint.
+
+    Args:
+      directory: the directory to restore from.
+
+    Returns:
+      The structure of the checkpointed PyTree.
+
+    Raises:
+      FileNotFoundError: if the flax checkpoint is not found.
+    """
+    if self._structure is not None:
+      return self._structure
+    directory = tf.io.gfile.join(directory, _FLAX_CHECKPOINT_FILE)
+    if not tf.io.gfile.exists(directory):
+      raise FileNotFoundError(f'Checkpoint does not exist at {directory}.')
+    with tf.io.gfile.GFile(directory, mode='rb') as f:
+      msgpack = f.read()
+    self._structure = _msgpack_restore(msgpack)
+    return self._structure

@@ -13,7 +13,6 @@
 # limitations under the License.
 
 """DatasetCheckpointer class. Implementation of Checkpointer interface."""
-
 import jax
 from jax.experimental import multihost_utils
 from orbax.checkpoint.checkpointer import Checkpointer
@@ -26,12 +25,13 @@ class DatasetCheckpointer(Checkpointer):
   """A Checkpointer implementation that handles tf.data.Iterator."""
 
   async def async_save(self, directory: str, item: tf.data.Iterator):
-    raise NotImplementedError('Async save not provided by tf.train.Checkpoint.')
+    raise NotImplementedError(
+        '`async_save` not provided by tf.train.Checkpoint.')
 
   async def async_restore(self, directory: str,
                           item: tf.data.Iterator) -> tf.data.Iterator:
     raise NotImplementedError(
-        'Async restore not provided by tf.train.Checkpoint.')
+        '`async_restore` not provided by tf.train.Checkpoint.')
 
   def save(self, directory: str, item: tf.data.Iterator):
     """Saves the given item.

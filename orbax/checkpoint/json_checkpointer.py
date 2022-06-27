@@ -33,13 +33,14 @@ class JsonCheckpointer(Checkpointer):
     self._filename = filename or 'metadata'
 
   async def async_save(self, directory: str, item: Mapping[str, Any]):
-    raise NotImplementedError('Async save not implemented by JsonCheckpointer.')
+    raise NotImplementedError(
+        '`async_save` not implemented by JsonCheckpointer.')
 
   async def async_restore(self,
                           directory: str,
                           item: Optional[bytes] = None) -> bytes:
     raise NotImplementedError(
-        'Async restore not implemented by JsonCheckpointer.')
+        '`async_restore` not implemented by JsonCheckpointer.')
 
   def save(self, directory: str, item: Mapping[str, Any]):
     """Saves the given item.

@@ -98,3 +98,19 @@ class Checkpointer(abc.ABC):
       The restored item.
     """
     pass
+
+  def structure(self, directory: str) -> Any:
+    """Restores item structure.
+
+    This is intended to provide a lightweight way to access the structure of the
+    item saved at `directory` without fully restoring the item. For example, if
+    the checkpointed item is a PyTree, this method may return the PyTree
+    structure without restoring any of the leaf arrays.
+
+    Args:
+      directory: the directory to restore from.
+
+    Returns:
+      The structure of the checkpointed item.
+    """
+    raise NotImplementedError('`structure` not implemented in Checkpointer.')
