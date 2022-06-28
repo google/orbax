@@ -24,6 +24,7 @@ import jax
 import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import transform_utils
+from orbax.checkpoint import utils
 
 Transform = transform_utils.Transform
 apply_transformations = transform_utils.apply_transformations
@@ -412,9 +413,9 @@ class TransformUtilsTest(absltest.TestCase):
 
     # Construct expected tree
     old_state_dict = traverse_util.flatten_dict(
-        serialization.to_state_dict(old_state), keep_empty_nodes=True, sep='/')
+        utils.to_state_dict(old_state), keep_empty_nodes=True, sep='/')
     new_state_dict = traverse_util.flatten_dict(
-        serialization.to_state_dict(new_state), keep_empty_nodes=True, sep='/')
+        utils.to_state_dict(new_state), keep_empty_nodes=True, sep='/')
     expected_state_dict = {}
     for k, v in new_state_dict.items():
       if 'Dense_1' in k:
@@ -460,9 +461,9 @@ class TransformUtilsTest(absltest.TestCase):
 
     # Construct expected tree
     old_state_dict = traverse_util.flatten_dict(
-        serialization.to_state_dict(old_state), keep_empty_nodes=True, sep='/')
+        utils.to_state_dict(old_state), keep_empty_nodes=True, sep='/')
     new_state_dict = traverse_util.flatten_dict(
-        serialization.to_state_dict(new_state), keep_empty_nodes=True, sep='/')
+        utils.to_state_dict(new_state), keep_empty_nodes=True, sep='/')
     expected_state_dict = {}
     for k, v in new_state_dict.items():
       if 'Dense_1' in k:

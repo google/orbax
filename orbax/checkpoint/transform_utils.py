@@ -21,6 +21,7 @@ import flax
 from flax import serialization
 from flax import traverse_util
 import jax
+from orbax.checkpoint import utils
 
 PyTree = type(jax.tree_structure(None))
 ValueTransformFunction = Callable[[PyTree], Any]
@@ -189,10 +190,10 @@ def apply_transformations(original_tree: PyTree,
   """
   if not new_tree:
     return {}
-  original = serialization.to_state_dict(original_tree)
-  new = serialization.to_state_dict(new_tree)
+  original = utils.to_state_dict(original_tree)
+  new = utils.to_state_dict(new_tree)
   # convert transformations to state dict
-  transforms = serialization.to_state_dict(transformations)
+  transforms = utils.to_state_dict(transformations)
 
   # Must recover Transform objects, while maintaining state dict structure.
   transforms = jax.tree_map(_to_transform, transforms, is_leaf=_is_leaf)
@@ -212,8 +213,7 @@ def apply_transformations(original_tree: PyTree,
           if not default_to_original:
             if key not in original:
               raise ValueError(
-                  f'{key} not found in origin tree (`use_fallback` requested).'
-              )
+                  f'{key} not found in origin tree (`use_fallback` requested).')
             new[key] = original[key]
           # else simply retain new[key]
           continue
@@ -227,7 +227,8 @@ def apply_transformations(original_tree: PyTree,
             original_key = match.expand(transform.original_key)
           if original_key not in original:
             raise ValueError(
-                f'Transformation key {original_key} not found in origin tree.')
+                f'Transformation key "{original_key}" not found in origin tree.'
+            )
           if transform.value_fn is None:
             value_fn = lambda x: x
           else:

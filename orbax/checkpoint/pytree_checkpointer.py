@@ -41,7 +41,6 @@ Array = Union[np.ndarray, jnp.ndarray]
 
 _FLAX_CHECKPOINT_FILE = 'checkpoint'
 
-
 utils.register_ts_spec_for_serialization()
 
 
@@ -133,22 +132,6 @@ async def _maybe_deserialize(args, value, info):
     return result
   else:
     return await result.get_async()
-
-
-def _msgpack_restore(msgpack):
-  """Restores tree serialized using Flax. Converts ts_spec dict to ts.Spec."""
-  state_dict = flax.serialization.msgpack_restore(msgpack)
-
-  def is_leaf(x):
-    if isinstance(x, dict):
-      return set(x.keys()) >= {'driver', 'kvstore'}
-    return False
-
-  state_dict = jax.tree_map(
-      lambda x: ts.Spec(x) if isinstance(x, dict) else x,
-      state_dict,
-      is_leaf=is_leaf)
-  return state_dict
 
 
 def _get_tensorstore_spec(path: str, arr_or_spec: Union[ArrayOrScalar,
@@ -334,13 +317,13 @@ class PyTreeCheckpointer(Checkpointer):
       the data from its source will be awaited in this function.
     """
     # convert arbitrary pytree into dictionary
-    item = flax.serialization.to_state_dict(item)
+    item = utils.to_state_dict(item)
     item = await lazy_array.maybe_get_tree_async(item)
 
     if save_args is None:
       save_args = jax.tree_map(lambda x: SaveArgs(), item)
     else:
-      save_args = flax.serialization.to_state_dict(save_args)
+      save_args = utils.to_state_dict(save_args)
 
     param_infos = self._get_param_infos(item, directory)
 
@@ -426,15 +409,18 @@ class PyTreeCheckpointer(Checkpointer):
       if transform_utils.has_value_functions(transforms):
         raise ValueError(
             'Found disallowed `value_fn` or `multi_value-fn` in `transforms`.')
-      state_dict = flax.serialization.to_state_dict(item)
+      state_dict = transform_utils.apply_transformations(
+          self.structure(directory), transforms, utils.to_state_dict(item))
+      # param_infos must be transformed because the ts.Spec of saved params may
+      # correspond to the original structure rather than the new.
       param_infos = transform_utils.apply_transformations(
-          param_infos, transforms, state_dict)
+          param_infos, transforms, utils.to_state_dict(item))
 
     if restore_args is None:
       restore_args = jax.tree_map(lambda x: RestoreArgs(as_gda=False),
                                   state_dict)
     else:
-      restore_args = flax.serialization.to_state_dict(restore_args)
+      restore_args = utils.to_state_dict(restore_args)
 
     future_arrays = jax.tree_map(
         _maybe_deserialize,
@@ -470,5 +456,5 @@ class PyTreeCheckpointer(Checkpointer):
       raise FileNotFoundError(f'Checkpoint does not exist at {directory}.')
     with tf.io.gfile.GFile(directory, mode='rb') as f:
       msgpack = f.read()
-    self._structure = _msgpack_restore(msgpack)
+    self._structure = utils.msgpack_restore(msgpack)
     return self._structure

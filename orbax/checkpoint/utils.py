@@ -44,6 +44,30 @@ def register_ts_spec_for_serialization():
       override=True)
 
 
+def _rebuild_ts_specs(tree):
+  """Converts any ts_spec dict leaves to ts.Spec object."""
+
+  def is_leaf(x):
+    if isinstance(x, dict):
+      return set(x.keys()) >= {"driver", "kvstore"}
+    return False
+
+  return jax.tree_map(
+      lambda x: ts.Spec(x) if isinstance(x, dict) else x, tree, is_leaf=is_leaf)
+
+
+def msgpack_restore(msgpack):
+  """Restores tree serialized using Flax. Converts ts_spec dict to ts.Spec."""
+  state_dict = flax.serialization.msgpack_restore(msgpack)
+  return _rebuild_ts_specs(state_dict)
+
+
+def to_state_dict(pytree):
+  """Converts tree to state_dict. Converts ts_spec dict to ts.Spec."""
+  state_dict = flax.serialization.to_state_dict(pytree)
+  return _rebuild_ts_specs(state_dict)
+
+
 class GroupFuture(asyncio.Future):
   """A group of individual Futures that can be awaited concurrently.
 
