@@ -18,11 +18,14 @@ from jax.experimental import multihost_utils
 from orbax.checkpoint.checkpointer import Checkpointer
 import tensorflow as tf
 
-_CHECKPOINT_FILE_NAME = 'ckpt'
+_CHECKPOINT_FILENAME = 'ckpt'
 
 
 class DatasetCheckpointer(Checkpointer):
   """A Checkpointer implementation that handles tf.data.Iterator."""
+
+  def __init__(self, checkpoint_filename=_CHECKPOINT_FILENAME):
+    self._checkpoint_filename = checkpoint_filename
 
   async def async_save(self, directory: str, item: tf.data.Iterator):
     raise NotImplementedError(
@@ -44,7 +47,7 @@ class DatasetCheckpointer(Checkpointer):
     """
     if jax.process_index() == 0:
       ckpt = tf.train.Checkpoint(ds=item)
-      ckpt.write(tf.io.gfile.join(directory, _CHECKPOINT_FILE_NAME))
+      ckpt.write(tf.io.gfile.join(directory, self._checkpoint_filename))
     multihost_utils.sync_global_devices('DatasetCheckpointer:save')
 
   def restore(self, directory: str, item: tf.data.Iterator) -> tf.data.Iterator:
@@ -59,5 +62,5 @@ class DatasetCheckpointer(Checkpointer):
     """
     ckpt = tf.train.Checkpoint(ds=item)
     ckpt.read(tf.io.gfile.join(directory,
-                               _CHECKPOINT_FILE_NAME)).assert_consumed()
+                               self._checkpoint_filename)).assert_consumed()
     return item
