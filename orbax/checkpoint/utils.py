@@ -13,11 +13,9 @@
 # limitations under the License.
 
 """Utility functions for Orbax."""
-
-import asyncio
 import logging
 import time
-from typing import Iterator, List, Optional
+from typing import Iterator, List, Optional, Sequence, Tuple
 
 import flax.serialization
 import jax
@@ -26,7 +24,8 @@ import numpy as np
 import tensorflow as tf
 import tensorstore as ts
 
-TMP_DIR_SUFFIX = ".orbax-checkpoint-tmp-"
+TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
+CheckpointDirs = Tuple[str, str]
 
 
 def register_ts_spec_for_serialization():
@@ -49,7 +48,7 @@ def _rebuild_ts_specs(tree):
 
   def is_leaf(x):
     if isinstance(x, dict):
-      return set(x.keys()) >= {"driver", "kvstore"}
+      return set(x.keys()) >= {'driver', 'kvstore'}
     return False
 
   return jax.tree_map(
@@ -68,45 +67,62 @@ def to_state_dict(pytree):
   return _rebuild_ts_specs(state_dict)
 
 
-class GroupFuture(asyncio.Future):
-  """A group of individual Futures that can be awaited concurrently.
+def cleanup_tmp_directories(directory: str):
+  """Cleanup steps in `directory` with tmp files, as these are not finalized."""
+  if jax.process_index() == 0:
+    tmp_files = tmp_checkpoints(directory)
+    for tmp_file in tmp_files:
+      if not is_checkpoint_finalized(directory, tmp_file):
+        tf.io.gfile.rmtree(tf.io.gfile.join(directory, tmp_file))
 
-  Provides a convenient way to return multiple Futures as a single one, and to
-  await them concurrently using `await`.
+  multihost_utils.sync_global_devices('cleanup_tmp_dirs')
 
-  Example usage:
 
-  async def foo():
-    await asyncio.sleep(2)
+def create_save_directories(step: int, directory: str,
+                            names: Sequence[str]) -> CheckpointDirs:
+  """Creates a temporary directory for saving at the given path and step.
 
-  async def bar() -> asyncio.Future:
-    await asyncio.sleep(1)
-    return GroupFuture.gather(foo(), foo())
+  After completion, the filesystem will have the structure:
 
-  f = await bar()
-  await f
+  directory/
+    step.orbax-checkpoint-tmp-<timestamp>/
+      name/
 
-  In this example, `await bar()` triggers the 1-second sleep, and then a
-  GroupFuture is returned. The foo() calls are initialized as futures but do not
-  yet run. Only when `await f` is called will the 2-second sleep calls be
-  scheduled concurrently.
+  Args:
+    step: integer step.
+    directory: directory to create.
+    names: a list of names, where each name corresponds to a savable object
+
+  Returns:
+    A pair of final_dir and tmp_dir (intermediate operations should be written
+    to tmp_dir before move to final_dir).
+
+  Raises:
+    ValueError if `names` is empty.
   """
+  # Share a timestamp across devices.
+  timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
 
-  def __init__(self, *futures):
-    super().__init__()
-    futures = tuple([f for f in futures if f is not None])
-    self.futures = asyncio.gather(*futures)
-    self.futures.add_done_callback(self._done)
+  final_dir = tf.io.gfile.join(directory, str(step))
+  assert not tf.io.gfile.exists(final_dir)
+  tmp_dir = final_dir + TMP_DIR_SUFFIX + f'{timestamp}'
 
-  @classmethod
-  def gather(cls, *futures):
-    return cls(*futures)
+  if not names:
+    raise ValueError('Must provide non-empty `names`.')
+  for name in names:
+    tmp_subdir = tf.io.gfile.join(tmp_dir, name)
 
-  def _done(self, f):
-    try:
-      self.set_result(f.result())
-    except asyncio.CancelledError as e:
-      self.set_exception(e)
+    if tf.io.gfile.exists(final_dir):
+      logging.info('Directory already exists for item: %s at step: %d', name,
+                   step)
+
+    if jax.process_index() == 0:
+      assert not tf.io.gfile.exists(tmp_subdir)
+      tf.io.gfile.makedirs(tmp_subdir)
+
+  multihost_utils.sync_global_devices('make_dir')
+
+  return tmp_dir, final_dir
 
 
 def is_scalar(x):
@@ -151,7 +167,7 @@ def _wait_for_new_checkpoint(checkpoint_dir: str,
   Returns:
     a new checkpoint step, or None if the timeout was reached.
   """
-  logging.info("Waiting for new checkpoint at %s", checkpoint_dir)
+  logging.info('Waiting for new checkpoint at %s', checkpoint_dir)
   stop_time = time.time() + timeout if timeout is not None else None
   while True:
     steps = checkpoint_steps(checkpoint_dir)
@@ -161,7 +177,7 @@ def _wait_for_new_checkpoint(checkpoint_dir: str,
         return None
       time.sleep(seconds_to_sleep)
     else:
-      logging.info("Found new checkpoint step: %d", checkpoint_step)
+      logging.info('Found new checkpoint step: %d', checkpoint_step)
       return checkpoint_step
 
 
@@ -226,7 +242,7 @@ def checkpoints_iterator(checkpoint_dir: str,
     if new_checkpoint_step == -1:
       if not timeout_fn:
         # timed out
-        logging.info("Timed-out waiting for a checkpoint.")
+        logging.info('Timed-out waiting for a checkpoint.')
         return
       if timeout_fn():
         # The timeout_fn indicated that we are truly done.

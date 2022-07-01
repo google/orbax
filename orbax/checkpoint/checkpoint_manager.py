@@ -17,12 +17,10 @@
 import asyncio
 import dataclasses
 import logging
-import time
 from typing import Any, Callable, Mapping, Optional, Sequence, Tuple, Union
 
 import jax
 from jax.experimental import multihost_utils
-import numpy as np
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
 from orbax.checkpoint.checkpointer import Checkpointer
@@ -34,71 +32,15 @@ CheckpointDirs = Tuple[str, str]
 SaveParams = Mapping[str, Any]
 RestoreParams = SaveParams
 
-_DEFAULT_ITEM_NAME = 'default'
-_METRIC_ITEM_NAME = 'metrics'
-
-
-# TODO(cpgaffney) consider moving to common util.
-def _cleanup_tmp_directories(directory: str):
-  """Cleanup steps in `directory` with tmp files, as these are not finalized."""
-  if jax.process_index() == 0:
-    tmp_files = utils.tmp_checkpoints(directory)
-    for tmp_file in tmp_files:
-      if not utils.is_checkpoint_finalized(directory, tmp_file):
-        tf.io.gfile.rmtree(tf.io.gfile.join(directory, tmp_file))
-
-  multihost_utils.sync_global_devices('cleanup_tmp_dirs')
-
-
-# TODO(cpgaffney) consider moving to common util.
-def _create_save_directories(
-    step: int, directory: str,
-    names: Sequence[str]) -> CheckpointDirs:
-  """Creates a temporary directory for saving at the given path and step.
-
-  After completion, the filesystem will have the structure:
-
-  directory/
-    step.orbax-checkpoint-tmp-<timestamp>/
-      name/
-
-  Args:
-    step: integer step.
-    directory: directory to create.
-    names: a list of names, where each name corresponds to a savable object
-
-  Returns:
-    A pair of final_dir and tmp_dir (intermediate operations should be written
-    to tmp_dir before move to final_dir).
-
-  Raises:
-    ValueError if `names` is empty.
-  """
-  # Share a timestamp across devices.
-  timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
-
-  final_dir = tf.io.gfile.join(directory, str(step))
-  assert not tf.io.gfile.exists(final_dir)
-  tmp_dir = final_dir + utils.TMP_DIR_SUFFIX + f'{timestamp}'
-
-  if not names:
-    raise ValueError('Must provide non-empty `names`.')
-  for name in names:
-    tmp_subdir = tf.io.gfile.join(tmp_dir, name)
-    if jax.process_index() == 0:
-      assert not tf.io.gfile.exists(tmp_subdir)
-      tf.io.gfile.makedirs(tmp_subdir)
-
-  multihost_utils.sync_global_devices('make_dir')
-
-  return tmp_dir, final_dir
+DEFAULT_ITEM_NAME = 'default'
+METRIC_ITEM_NAME = 'metrics'
 
 
 # TODO(cpgaffney) Rely only on async methods when possible.
 async def _call_valid_checkpointer_save(ckptr: Checkpointer, *args, **kwargs):
   try:
-    future = await ckptr.async_save(*args, **kwargs)
-    return await future
+    futures = await ckptr.async_save(*args, **kwargs)
+    return await asyncio.gather(*futures)
   except NotImplementedError:
     return ckptr.save(*args, **kwargs)
 
@@ -177,21 +119,21 @@ class CheckpointManager(AbstractCheckpointManager):
     self._single_item = False
     if isinstance(checkpointers, Checkpointer):
       self._single_item = True
-      checkpointers = {_DEFAULT_ITEM_NAME: checkpointers}
-    elif _METRIC_ITEM_NAME in checkpointers:
+      checkpointers = {DEFAULT_ITEM_NAME: checkpointers}
+    elif METRIC_ITEM_NAME in checkpointers:
       raise ValueError(
-          f'Found {_METRIC_ITEM_NAME} in `checkpointers`; this is a reserved key.'
+          f'Found {METRIC_ITEM_NAME} in `checkpointers`; this is a reserved key.'
       )
     self._checkpointers = dict(checkpointers)
-    self._checkpointers[_METRIC_ITEM_NAME] = JsonCheckpointer(
-        filename=_METRIC_ITEM_NAME)
+    self._checkpointers[METRIC_ITEM_NAME] = JsonCheckpointer(
+        filename=METRIC_ITEM_NAME)
     self._last_checkpoint_step = -1
     self._options = options or CheckpointManagerOptions()
     if self._options.best_mode not in ['min', 'max']:
       raise ValueError('`best_mode` must be one of: "min", "max"')
     self._past_metrics = {}
     # Cleanup directories from previous runs that may not have been finalized.
-    _cleanup_tmp_directories(self._directory)
+    utils.cleanup_tmp_directories(self._directory)
 
   @property
   def directory(self):
@@ -316,8 +258,8 @@ class CheckpointManager(AbstractCheckpointManager):
     if save_kwargs is None:
       save_kwargs = {}
     if self._single_item:
-      items = {_DEFAULT_ITEM_NAME: items}
-      save_kwargs = {_DEFAULT_ITEM_NAME: save_kwargs}
+      items = {DEFAULT_ITEM_NAME: items}
+      save_kwargs = {DEFAULT_ITEM_NAME: save_kwargs}
     else:
       items = dict(items)
 
@@ -325,12 +267,12 @@ class CheckpointManager(AbstractCheckpointManager):
       if metrics is None:
         raise ValueError(
             'Requested `tracked_metric`; must provide `metrics` for save.')
-      items[_METRIC_ITEM_NAME] = metrics
+      items[METRIC_ITEM_NAME] = metrics
 
     # creates tmp_dir given top directory, step number, and a "collection". All
     # files from the same input object should be saved under this collection.
-    tmp_dir, final_dir = _create_save_directories(step, self._directory,
-                                                  list(items.keys()))
+    tmp_dir, final_dir = utils.create_save_directories(step, self._directory,
+                                                       list(items.keys()))
 
     save_ops = []
     saved_keys = []
@@ -370,8 +312,8 @@ class CheckpointManager(AbstractCheckpointManager):
       self._populate_past_metrics()
     if jax.process_index() == 0:
       self._remove_old_checkpoints()
-
     multihost_utils.sync_global_devices('CheckpointManager:removed_old')
+
     return True
 
   def restore(self,
@@ -438,17 +380,17 @@ class CheckpointManager(AbstractCheckpointManager):
     if items is None:
       items = {}
     elif self._single_item:
-      items = {_DEFAULT_ITEM_NAME: items}
+      items = {DEFAULT_ITEM_NAME: items}
     if restore_kwargs is None:
       restore_kwargs = {}
     elif self._single_item:
-      restore_kwargs = {_DEFAULT_ITEM_NAME: restore_kwargs}
+      restore_kwargs = {DEFAULT_ITEM_NAME: restore_kwargs}
 
     restored_items = self._restore_impl(
         step, items, restore_kwargs, directory=directory)
 
     if self._single_item:
-      return restored_items[_DEFAULT_ITEM_NAME]
+      return restored_items[DEFAULT_ITEM_NAME]
     return restored_items
 
   def _restore_impl(self,
@@ -465,7 +407,7 @@ class CheckpointManager(AbstractCheckpointManager):
         items) else self._checkpointers.keys()
     for k in item_keys_to_restore:
       # No metrics file expected: do not restore
-      if k == _METRIC_ITEM_NAME and not self._track_best:
+      if k == METRIC_ITEM_NAME and not self._track_best:
         continue
       if k not in self._checkpointers:
         raise ValueError(f'Checkpointer for item "{k}" not found')
@@ -510,9 +452,9 @@ class CheckpointManager(AbstractCheckpointManager):
       except NotImplementedError:
         pass
     if self._single_item:
-      if _DEFAULT_ITEM_NAME not in result:
+      if DEFAULT_ITEM_NAME not in result:
         return None
-      return result[_DEFAULT_ITEM_NAME]
+      return result[DEFAULT_ITEM_NAME]
     return result
 
   @property
@@ -526,7 +468,7 @@ class CheckpointManager(AbstractCheckpointManager):
       if past_step not in self._past_metrics:
         # only restore metrics for past_step
         self._past_metrics[past_step] = self._restore_impl(
-            past_step, {_METRIC_ITEM_NAME: None}, {})[_METRIC_ITEM_NAME]
+            past_step, {METRIC_ITEM_NAME: None}, {})[METRIC_ITEM_NAME]
 
   def _steps_sorted_by_metric(self, steps):
     """Sorts `steps` in order of increasing metric quality."""
@@ -540,7 +482,6 @@ class CheckpointManager(AbstractCheckpointManager):
     if not self._options.max_to_keep:
       return
     existing_steps = sorted(self.all_steps())
-
     if self._track_best:
       # best (to keep) at the end
       existing_steps = self._steps_sorted_by_metric(existing_steps)

@@ -16,7 +16,7 @@
 
 import asyncio
 import dataclasses
-from typing import Any, MutableMapping, Optional, Sequence, Union
+from typing import Any, List, MutableMapping, Optional, Tuple, Union
 
 import flax
 from flax import traverse_util
@@ -92,7 +92,7 @@ class RestoreArgs:
   as_gda: bool = True
   mesh: Optional[Mesh] = None
   mesh_axes: Optional[pjit.PartitionSpec] = None
-  global_shape: Optional[Sequence[int]] = None
+  global_shape: Optional[Tuple[int]] = None
   lazy: bool = False
   dtype: Optional[jnp.dtype] = None
 
@@ -169,8 +169,9 @@ def _get_tensorstore_spec(path: str, arr_or_spec: Union[ArrayOrScalar,
 
 
 async def _serialize_array(
-    param_info: ParamInfo, save_args: SaveArgs,
-    arr: Union[ArrayOrScalar, GlobalDeviceArray]) -> Optional[asyncio.Future]:
+    param_info: ParamInfo, save_args: SaveArgs, arr: Union[ArrayOrScalar,
+                                                           GlobalDeviceArray]
+) -> Optional[List[asyncio.Future]]:
   """Writes an array (np.ndarray) or GlobalDeviceArray."""
   tspec = param_info.tspec
   if tspec is None:
@@ -200,7 +201,7 @@ async def _serialize_array(
     commit_futures = []
     await serialization.async_serialize(
         arr, tspec, commit_future=commit_futures)
-    return utils.GroupFuture.gather(*commit_futures)
+    return commit_futures
   # Note: should match ArrayOrScalar defined at the top of the file.
   elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
     if isinstance(arr, (int, float, np.number)):
@@ -218,7 +219,7 @@ async def _serialize_array(
         }}))
     write_future = t.write(arr)
     await write_future.copy
-    return write_future.commit
+    return [write_future.commit]
   else:
     raise ValueError(f'Unsupported array type: {type(arr)}')
 
@@ -291,10 +292,11 @@ class PyTreeCheckpointer(Checkpointer):
 
     return jax.tree_map(_param_info, names, state_dict)
 
-  async def async_save(self,
-                       directory: str,
-                       item: PyTree,
-                       save_args: Optional[PyTree] = None) -> asyncio.Future:
+  async def async_save(
+      self,
+      directory: str,
+      item: PyTree,
+      save_args: Optional[PyTree] = None) -> Optional[List[asyncio.Future]]:
     """Saves a PyTree from a given training step.
 
     This operation is compatible with a multi-host, multi-device setting. Array
@@ -332,6 +334,7 @@ class PyTreeCheckpointer(Checkpointer):
     assert isinstance(futures, list)
     # await copy futures
     commit_futures = await asyncio.gather(*futures)
+    commit_futures, _ = jax.tree_flatten(commit_futures)
 
     def flax_tree_value(param_info, arg, arr):
       if param_info.tspec is None:
@@ -353,7 +356,7 @@ class PyTreeCheckpointer(Checkpointer):
           tf.io.gfile.join(directory, _FLAX_CHECKPOINT_FILE), mode='wb') as f:
         f.write(msgpack)
 
-    return utils.GroupFuture.gather(*commit_futures)
+    return commit_futures
 
   async def async_restore(self,
                           directory: str,

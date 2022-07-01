@@ -16,7 +16,7 @@
 
 import abc
 import asyncio
-from typing import Any, Optional
+from typing import Any, List, Optional
 from jax.experimental import multihost_utils
 
 
@@ -39,14 +39,15 @@ class Checkpointer(abc.ABC):
     """
 
     async def async_save(*args, **kwargs):
-      future = await self.async_save(*args, **kwargs)
-      await future
+      futures = await self.async_save(*args, **kwargs)
+      await asyncio.gather(*futures)
 
     asyncio.run(async_save(directory, item, *args, **kwargs))
     multihost_utils.sync_global_devices('Checkpointer:save')
 
   @abc.abstractmethod
-  async def async_save(self, directory: str, item: Any) -> asyncio.Future:
+  async def async_save(self, directory: str,
+                       item: Any) -> Optional[List[asyncio.Future]]:
     """Saves the provided item asynchronously.
 
     Args:
