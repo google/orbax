@@ -156,7 +156,7 @@ class CheckpointManager(AbstractCheckpointManager):
       A step (int) or None if no steps are present.
     """
     steps = self.all_steps()
-    return sorted(steps)[-1] if steps else None
+    return max(steps) if steps else None
 
   def best_step(self) -> Optional[int]:
     """Returns the best step saved, as defined by `options.best_fn`.
