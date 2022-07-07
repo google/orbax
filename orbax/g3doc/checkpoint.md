@@ -14,8 +14,8 @@ is the highest-level object provided by Orbax for checkpointing, and is
 generally the interface that should be most often used to interact with
 checkpoints.
 
-This manager allows saving and restoring any object for which a `Checkpointer`
-implementation exists (see [below](#checkpointer)). This may include objects
+This manager allows saving and restoring any object for which a `CheckpointHandler`
+implementation exists (see [below](#checkpointhandler)). This may include objects
 such as [JAX PyTree](https://jax.readthedocs.io/en/latest/pytrees.html),
 [`tf.data.Iterator`](https://www.tensorflow.org/api_docs/python/tf/data/Iterator),
 or JSON-format dictionaries.
@@ -23,7 +23,7 @@ or JSON-format dictionaries.
 Here is a simple usage example:
 
 ```py
-mngr = CheckpointManager('path/to/directory/', PyTreeCheckpointer())
+mngr = CheckpointManager('path/to/directory/', PyTreeCheckpointHandler())
 item = {'a': 0, 'b': {'c': 1, 'd': 2}}
 for step in range(10):
   mngr.save(step, item)
@@ -32,7 +32,7 @@ restored = mngr.restore(step)
 ```
 
 This allows saving and restoring a single PyTree object using a
-`PyTreeCheckpointer`. A more complex case allows managing several different
+`PyTreeCheckpointHandler`. A more complex case allows managing several different
 objects and customizing `CheckpointManager` behavior.
 
 ```py
@@ -40,8 +40,8 @@ def best_fn(metrics: Mapping[str, float]) -> float:
   return metrics['accuracy']
 
 options = CheckpointManagerOptions(max_to_keep=5, best_fn=best_fn, mode='max')
-checkpointers = {'state': PyTreeCheckpointer(), 'dataset': DatasetCheckpointer()}
-mngr = CheckpointManager('path/to/directory/', checkpointers, options=options)
+handlers = {'state': PyTreeCheckpointHandler(), 'dataset': DatasetCheckpointHandler()}
+mngr = CheckpointManager('path/to/directory/', handlers, options=options)
 
 state = {'a': 0, 'b': {'c': 1, 'd': 2}}
 dataset = iter(tf.data.Dataset(range(2)))
@@ -56,19 +56,19 @@ In this example, we begin by specifying options for `CheckpointManager`, which
 instruct it to keep a maximum of 5 checkpoints, and also to track metrics
 associated with each checkpoint.
 
-We can then give a dictionary of checkpointers with unique keys for every item
-we want to save. Each key has a `Checkpointer` object as a value, which
+We can then give a dictionary of handlers with unique keys for every item
+we want to save. Each key has a `CheckpointHandler` object as a value, which
 instructs the `CheckpointManager` how to save the given object. When calling
 `save`, we provide a dictionary with the same keys, each corresponding to an item
 to be saved.
 
 In this multi-object setting, we must also provide a dictionary of items to
 restore. The value may be given as `None` if it is not needed by the underlying
-`Checkpointer` to perform the restore operation. It then returns a dictionary of
+`CheckpointHandler` to perform the restore operation. It then returns a dictionary of
 restored objects with the same keys as provided.
 
-Each `Checkpointer` may accept additional optional arguments. This can be passed
-through from `CheckpointManager` to `Checkpointer` via `save_kwargs` and
+Each `CheckpointHandler` may accept additional optional arguments. This can be passed
+through from `CheckpointManager` to `CheckpointHandler` via `save_kwargs` and
 `restore_kwargs`. For example:
 
 ```py
@@ -84,7 +84,7 @@ mngr.restore(step, items={'state': empty_state, ...},
 
 Both `save_kwargs` and `restore_kwargs` are nested dictionaries where the
 top-level keys correspond to the items to be checkpointed. The values are
-dictionaries of optional arguments that are provided to the `Checkpointer` as
+dictionaries of optional arguments that are provided to the `CheckpointHandler` as
 keyword arguments.
 
 Other APIs include:
@@ -98,12 +98,12 @@ Other APIs include:
     given step. This dependson factors such as the most recent saved step as
     well as
 
-### Checkpointer
+### CheckpointHandler
 
-[`Checkpointer`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/checkpointer.py)
+[`CheckpointHandler`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/checkpoint_handler.py)
 provides an interface which can be implemented to provide support for saving and
 restoring a particular object. Several objects are supported by default in Orbax
-(see [below](#checkpointer-implementations)).
+(see [below](#checkpointhandler-implementations)).
 
 The class provides `save`/`async_save` and `restore`/`async_restore` APIs which
 save or restore an `item` either synchronously or asynchronously to a provided
@@ -115,17 +115,17 @@ allows `CheckpointManager` to schedule operations in parallel. However,
 is provided. By default the sync version simply calls the async version before
 running a global sync.
 
-### Checkpointer Implementations
+### CheckpointHandler Implementations
 
-#### PyTreeCheckpointer
+#### PyTreeCheckpointHandler
 
-[`PyTreeCheckpointer`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/pytree_checkpointer.py)
+[`PyTreeCheckpointHandler`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/pytree_checkpoint_handler.py)
 allows checkpointing PyTrees consisting of scalars, np/jnp arrays, or 
 `GlobalDeviceArray` (`GDA`). Note that this class provides support for 
 device-partitioned arrays via `GDA`. Other values are expected to be replicated
 across devices.
 
-For saving and restoring, `PyTreeCheckpointer` provides optional arguments on a
+For saving and restoring, `PyTreeCheckpointHandler` provides optional arguments on a
 per-element basis via `SaveArgs` and `RestoreArgs`. This means that parameters
 are provided on an individual basis for each element in the PyTree.
 
@@ -155,7 +155,7 @@ are provided on an individual basis for each element in the PyTree.
     restoring. Note that the parameter must be compatible with the given type
     (e.g. jnp.bfloat16 is not compatible with np.ndarray).
 
-`PyTreeCheckpointer` will create an individual directory for each nested key.
+`PyTreeCheckpointHandler` will create an individual directory for each nested key.
 The exact naming of per-parameter directories can be customized by overriding
 `_get_param_infos`. These parameters are saved using
 [Tensorstore](https://google.github.io/tensorstore/). There is an additional
@@ -170,9 +170,9 @@ be recovered from the saved checkpoint if `item` is a dictionary. However, if
 `item` is an object other than `dict`, `item` should be provided in order to
 restore the object structure.
 
-#### JsonCheckpointer
+#### JsonCheckpointHandler
 
-[`JsonCheckpointer`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/json_checkpointer.py)
+[`JsonCheckpointHandler`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/json_checkpoint_handler.py)
 is provided as a way to checkpoint nested dictionaries that can be serialized in
 JSON format. This can be useful as a way to store checkpoint metadata. For
 example, `CheckpointManager` uses this class to store the metrics used to
@@ -180,9 +180,9 @@ evaluate relative checkpoint quality.
 
 Note that presently, this class does not implement async APIs.
 
-#### DatasetCheckpointer
+#### DatasetCheckpointHandler
 
-[`DatasetCheckpointer`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/dataset_checkpointer.py)
+[`DatasetCheckpointHandler`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/dataset_checkpoint_handler.py)
 is designed for saving and restoring `tf.data.Iterator`. It does this using
 [`tf.train.Checkpoint`](https://www.tensorflow.org/api_docs/python/tf/train/Checkpoint).
 
@@ -198,7 +198,7 @@ on `tf.train.Checkpoint`.
 
 [`LazyArray`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/lazy_array.py)
 provides a mechanism for delayed loading of arrays from a checkpoint. If a
-parameter is restored as a `LazyArray` (in `PyTreeCheckpointer`, setting
+parameter is restored as a `LazyArray` (in `PyTreeCheckpointHandler`, setting
 `RestoreArgs.lazy = True`), the restored object will not yet have done the work
 of actually loading the parameter from Tensorstore.
 

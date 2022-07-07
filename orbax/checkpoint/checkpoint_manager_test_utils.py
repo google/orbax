@@ -27,9 +27,9 @@ import numpy as np
 import optax
 from orbax.checkpoint import AsyncCheckpointManager
 from orbax.checkpoint import CheckpointManagerOptions
-from orbax.checkpoint import DatasetCheckpointer
-from orbax.checkpoint import JsonCheckpointer
-from orbax.checkpoint import PyTreeCheckpointer
+from orbax.checkpoint import DatasetCheckpointHandler
+from orbax.checkpoint import JsonCheckpointHandler
+from orbax.checkpoint import PyTreeCheckpointHandler
 from orbax.checkpoint import RestoreArgs
 from orbax.checkpoint import test_utils
 import tensorflow as tf
@@ -90,7 +90,7 @@ class CheckpointManagerTestBase:
     def test_save_restore(self):
       """Basic save and restore test."""
       mngr = self.checkpoint_manager(self.directory,
-                                     {'params': PyTreeCheckpointer()})
+                                     {'params': PyTreeCheckpointHandler()})
       self.assertTrue(mngr.save(0, {'params': self.pytree}))
       self.wait_if_async(mngr)
       restored = self.restore_params(0, mngr)
@@ -99,7 +99,7 @@ class CheckpointManagerTestBase:
     def test_save_restore_no_kwargs(self):
       """Restore with no GDA args."""
       mngr = self.checkpoint_manager(self.directory,
-                                     {'params': PyTreeCheckpointer()})
+                                     {'params': PyTreeCheckpointHandler()})
       self.assertTrue(mngr.save(0, {'params': self.pytree}))
       self.wait_if_async(mngr)
       restored = mngr.restore(0)['params']
@@ -110,14 +110,14 @@ class CheckpointManagerTestBase:
     def test_save_restore_invalid_item(self):
       """Restore with invalid item."""
       mngr = self.checkpoint_manager(self.directory,
-                                     {'params': PyTreeCheckpointer()})
+                                     {'params': PyTreeCheckpointHandler()})
       with self.assertRaises(ValueError):
         mngr.save(0, {'invalid': self.pytree})
       with self.assertRaises(ValueError):
         mngr.restore(0, items={'invalid': None})
 
     def test_save_structure(self):
-      ckptr = PyTreeCheckpointer()
+      ckptr = PyTreeCheckpointHandler()
       mngr = self.checkpoint_manager(self.directory, {'params': ckptr})
       self.assertTrue(mngr.save(0, {'params': self.pytree}))
       self.wait_if_async(mngr)
@@ -129,7 +129,7 @@ class CheckpointManagerTestBase:
     def test_all_steps(self):
       """Test correct steps are saved."""
       mngr = self.checkpoint_manager(self.directory,
-                                     {'params': PyTreeCheckpointer()})
+                                     {'params': PyTreeCheckpointHandler()})
       for step in range(5):
         self.assertTrue(mngr.save(step, {'params': self.pytree}))
       self.wait_if_async(mngr)
@@ -143,7 +143,7 @@ class CheckpointManagerTestBase:
     def test_latest_step(self):
       """Test latest_step."""
       mngr = self.checkpoint_manager(self.directory,
-                                     {'params': PyTreeCheckpointer()})
+                                     {'params': PyTreeCheckpointHandler()})
       for step in range(5):
         self.assertTrue(mngr.save(step, {'params': self.pytree}))
       self.wait_if_async(mngr)
@@ -156,7 +156,7 @@ class CheckpointManagerTestBase:
     def test_ordered_save(self):
       """Test save order enforced."""
       mngr = self.checkpoint_manager(self.directory,
-                                     {'params': PyTreeCheckpointer()})
+                                     {'params': PyTreeCheckpointHandler()})
       self.assertTrue(mngr.save(0, {'params': self.pytree}))
       self.assertTrue(mngr.save(1, {'params': self.pytree}))
       self.wait_if_async(mngr)
@@ -176,7 +176,7 @@ class CheckpointManagerTestBase:
     def test_no_overwrite_existing(self):
       """Test same step does not overwrite."""
       mngr = self.checkpoint_manager(self.directory,
-                                     {'params': PyTreeCheckpointer()})
+                                     {'params': PyTreeCheckpointHandler()})
       self.assertTrue(mngr.save(0, {'params': self.pytree}))
       self.wait_if_async(mngr)
       self.assertFalse(
@@ -190,7 +190,8 @@ class CheckpointManagerTestBase:
       """Test old saves get removed."""
       options = CheckpointManagerOptions(max_to_keep=2)
       mngr = self.checkpoint_manager(
-          self.directory, {'params': PyTreeCheckpointer()}, options=options)
+          self.directory, {'params': PyTreeCheckpointHandler()},
+          options=options)
       for step in range(5):
         self.assertTrue(mngr.save(step, {'params': self.pytree}))
       self.wait_if_async(mngr)
@@ -200,7 +201,8 @@ class CheckpointManagerTestBase:
       """Test save interval > 1."""
       options = CheckpointManagerOptions(save_interval_steps=2)
       mngr = self.checkpoint_manager(
-          self.directory, {'params': PyTreeCheckpointer()}, options=options)
+          self.directory, {'params': PyTreeCheckpointHandler()},
+          options=options)
       for step in range(6):
         saved = mngr.save(step, {'params': self.pytree})
         if step % 2 == 0:
@@ -214,7 +216,8 @@ class CheckpointManagerTestBase:
       """Test saving same step repeatedly."""
       options = CheckpointManagerOptions()
       mngr = self.checkpoint_manager(
-          self.directory, {'params': PyTreeCheckpointer()}, options=options)
+          self.directory, {'params': PyTreeCheckpointHandler()},
+          options=options)
       # checks an earlier bug where a dir is created, second save is skipped,
       # but leaves a dir present, third encounters error because tmp dir still
       # exists.
@@ -233,7 +236,8 @@ class CheckpointManagerTestBase:
       """Test force option."""
       options = CheckpointManagerOptions(save_interval_steps=2)
       mngr = self.checkpoint_manager(
-          self.directory, {'params': PyTreeCheckpointer()}, options=options)
+          self.directory, {'params': PyTreeCheckpointHandler()},
+          options=options)
       for step in range(6):
         saved = mngr.save(step, {'params': self.pytree})
         if step % 2 == 0:
@@ -261,7 +265,7 @@ class CheckpointManagerTestBase:
 
       step = 1
       mngr = self.checkpoint_manager(self.directory,
-                                     {'params': PyTreeCheckpointer()})
+                                     {'params': PyTreeCheckpointHandler()})
       self.assertTrue(mngr.save(step, {'params': self.pytree}))
       self.wait_if_async(mngr)
 
@@ -272,7 +276,7 @@ class CheckpointManagerTestBase:
 
     def test_save_single_item(self):
       """Test managing single item."""
-      mngr = self.checkpoint_manager(self.directory, PyTreeCheckpointer())
+      mngr = self.checkpoint_manager(self.directory, PyTreeCheckpointHandler())
       self.assertTrue(mngr.save(0, self.pytree))
       self.wait_if_async(mngr)
       restored = mngr.restore(
@@ -284,9 +288,9 @@ class CheckpointManagerTestBase:
       """Test multiple different items."""
       mngr = self.checkpoint_manager(
           self.directory, {
-              'params': PyTreeCheckpointer(),
-              'dataset': DatasetCheckpointer(),
-              'metadata': JsonCheckpointer(filename='metadata'),
+              'params': PyTreeCheckpointHandler(),
+              'dataset': DatasetCheckpointHandler(),
+              'metadata': JsonCheckpointHandler(filename='metadata'),
           })
 
       metadata = {
@@ -343,7 +347,7 @@ class CheckpointManagerTestBase:
           best_fn=metric_fn, best_mode=mode, max_to_keep=2)
 
       mngr = self.checkpoint_manager(
-          self.directory, PyTreeCheckpointer(), options=options)
+          self.directory, PyTreeCheckpointHandler(), options=options)
       for step in range(5):
         metrics = {k: v[step] for k, v in all_metrics.items()}
         self.assertTrue(mngr.save(step, self.pytree, metrics=metrics))
@@ -352,7 +356,7 @@ class CheckpointManagerTestBase:
       # simulate preemption - force new CheckpointManager to load
       # self._past_metrics from file.
       mngr = self.checkpoint_manager(
-          self.directory, PyTreeCheckpointer(), options=options)
+          self.directory, PyTreeCheckpointHandler(), options=options)
       for step in range(5, 10):
         metrics = {k: v[step] for k, v in all_metrics.items()}
         self.assertTrue(mngr.save(step, self.pytree, metrics=metrics))
@@ -394,7 +398,7 @@ class CheckpointManagerTestBase:
           lambda _: RestoreArgs(mesh=mesh, mesh_axes=mesh_axes), state_shape)
 
       mngr = self.checkpoint_manager(self.directory, {
-          'state': PyTreeCheckpointer(),
+          'state': PyTreeCheckpointHandler(),
       })
       self.assertTrue(mngr.save(0, {
           'state': state,
@@ -413,13 +417,13 @@ class CheckpointManagerTestBase:
     def test_restore_independent(self):
       """Test restore from secondary location."""
       # simulates pretrained checkpoint stored elsewhere
-      secondary_mngr = self.checkpoint_manager(self.secondary_directory,
-                                               {'params': PyTreeCheckpointer()})
+      secondary_mngr = self.checkpoint_manager(
+          self.secondary_directory, {'params': PyTreeCheckpointHandler()})
       self.assertTrue(secondary_mngr.save(0, {'params': self.pytree}))
       self.wait_if_async(secondary_mngr)
 
       mngr = self.checkpoint_manager(self.directory,
-                                     {'params': PyTreeCheckpointer()})
+                                     {'params': PyTreeCheckpointHandler()})
       pytree_restore_args = jax.tree_map(
           lambda mesh, axes: RestoreArgs(mesh=mesh, mesh_axes=axes),
           self.mesh_tree, self.axes_tree)

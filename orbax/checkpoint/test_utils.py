@@ -24,7 +24,7 @@ from jax.experimental.maps import Mesh
 import jax.numpy as jnp
 import numpy as np
 import optax
-from orbax.checkpoint import pytree_checkpointer
+from orbax.checkpoint import pytree_checkpoint_handler
 import tensorflow as tf
 
 
@@ -146,7 +146,8 @@ def setup_gda_pytree():
 
 def is_leaf(x):
   return isinstance(x, np.ndarray) or isinstance(x, Mesh) or isinstance(
-      x, pjit.PartitionSpec) or isinstance(x, pytree_checkpointer.ParamInfo)
+      x, pjit.PartitionSpec) or isinstance(x,
+                                           pytree_checkpoint_handler.ParamInfo)
 
 
 def as_gda(arr, mesh, mesh_axes):

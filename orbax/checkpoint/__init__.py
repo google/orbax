@@ -15,19 +15,15 @@
 """Defines exported symbols for the `orbax` package."""
 
 from .abstract_checkpoint_manager import AbstractCheckpointManager
+from .checkpoint_handler import CheckpointHandler
 from .checkpoint_manager import CheckpointManager
 from .checkpoint_manager import CheckpointManagerOptions
-from .checkpointer import Checkpointer
-from .dataset_checkpointer import DatasetCheckpointer
-from .json_checkpointer import JsonCheckpointer
+from .dataset_checkpoint_handler import DatasetCheckpointHandler
+from .json_checkpoint_handler import JsonCheckpointHandler
 from orbax.checkpoint import lazy_array
-from .pytree_checkpointer import PyTreeCheckpointer
-from .pytree_checkpointer import RestoreArgs
-from .pytree_checkpointer import SaveArgs
+from .pytree_checkpoint_handler import PyTreeCheckpointHandler
+from .pytree_checkpoint_handler import RestoreArgs
+from .pytree_checkpoint_handler import SaveArgs
 from .transform_utils import apply_transformations
 from .transform_utils import Transform
 from .utils import checkpoints_iterator
-
-# TODO(cpgaffney) Remove when handler classes are fully rolled out.
-CheckpointHandler = Checkpointer
-PyTreeCheckpointHandler = PyTreeCheckpointer

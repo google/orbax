@@ -12,35 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""JsonCheckpointer class. Implementation of Checkpointer interface."""
+"""JsonCheckpointHandler class.
+
+Implementation of CheckpointHandler interface.
+"""
 import json
 from typing import Any, Mapping, Optional
 
-from orbax.checkpoint.checkpointer import Checkpointer
+from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 import tensorflow as tf
 
 
-class JsonCheckpointer(Checkpointer):
+class JsonCheckpointHandler(CheckpointHandler):
   """Saves nested dictionary using json."""
 
   def __init__(self, filename: Optional[str] = None):
-    """Initializes JsonCheckpointer.
+    """Initializes JsonCheckpointHandler.
 
     Args:
       filename: optional file name given to the written file; defaults to
         'metadata'
     """
     self._filename = filename or 'metadata'
-
-  async def async_save(self, directory: str, item: Mapping[str, Any]):
-    raise NotImplementedError(
-        '`async_save` not implemented by JsonCheckpointer.')
-
-  async def async_restore(self,
-                          directory: str,
-                          item: Optional[bytes] = None) -> bytes:
-    raise NotImplementedError(
-        '`async_restore` not implemented by JsonCheckpointer.')
 
   def save(self, directory: str, item: Mapping[str, Any]):
     """Saves the given item.
@@ -70,3 +63,7 @@ class JsonCheckpointer(Checkpointer):
     with tf.io.gfile.GFile(path, mode='r') as f:
       text = f.read()
     return json.loads(text)
+
+  def structure(self, directory: str) -> Any:
+    """Unimplemented. See parent class."""
+    return NotImplementedError

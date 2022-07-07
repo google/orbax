@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""PyTreeCheckpointer class. Implementation of Checkpointer interface."""
+"""PyTreeCheckpointHandler class.
+
+Implementation of CheckpointHandler interface.
+"""
 
 import asyncio
 import dataclasses
@@ -21,6 +24,7 @@ from typing import Any, List, MutableMapping, Optional, Tuple, Union
 import flax
 from flax import traverse_util
 import jax
+from jax.experimental import multihost_utils
 from jax.experimental import pjit
 from jax.experimental.gda_serialization import serialization
 
@@ -31,7 +35,8 @@ import numpy as np
 from orbax.checkpoint import lazy_array
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import utils
-from orbax.checkpoint.checkpointer import Checkpointer
+from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
+from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 import tensorflow as tf
 import tensorstore as ts
 
@@ -169,9 +174,9 @@ def _get_tensorstore_spec(path: str, arr_or_spec: Union[ArrayOrScalar,
 
 
 async def _serialize_array(
-    param_info: ParamInfo, save_args: SaveArgs, arr: Union[ArrayOrScalar,
-                                                           GlobalDeviceArray]
-) -> Optional[List[asyncio.Future]]:
+    param_info: ParamInfo, save_args: SaveArgs,
+    arr: Union[ArrayOrScalar,
+               GlobalDeviceArray]) -> Optional[List[asyncio.Future]]:
   """Writes an array (np.ndarray) or GlobalDeviceArray."""
   tspec = param_info.tspec
   if tspec is None:
@@ -255,8 +260,8 @@ async def _deserialize_array(
     return result
 
 
-class PyTreeCheckpointer(Checkpointer):
-  """A Checkpointer implementation for any PyTree structure.
+class PyTreeCheckpointHandler(CheckpointHandler, AsyncCheckpointHandler):
+  """A CheckpointHandler implementation for any PyTree structure.
 
   The PyTree is assumed to be a nested dictionary with array values represented
   as `GlobalDeviceArray` objects or `np.ndarray` or `jnp.ndarray`. If not
@@ -358,11 +363,30 @@ class PyTreeCheckpointer(Checkpointer):
 
     return commit_futures
 
-  async def async_restore(self,
-                          directory: str,
-                          item: Optional[PyTree] = None,
-                          restore_args: Optional[PyTree] = None,
-                          transforms: Optional[PyTree] = None) -> PyTree:
+  def save(self, directory: str, item: Any, *args, **kwargs):
+    """Saves the provided item.
+
+    See async_save.
+
+    Args:
+      directory: the directory to save to.
+      item: the item to be saved.
+      *args: additional arguments for save.
+      **kwargs: additional arguments for save.
+    """
+
+    async def async_save(*args, **kwargs):
+      futures = await self.async_save(*args, **kwargs)
+      await asyncio.gather(*futures)
+
+    asyncio.run(async_save(directory, item, *args, **kwargs))
+    multihost_utils.sync_global_devices('PyTreeCheckpointHandler:save')
+
+  def restore(self,
+              directory: str,
+              item: Optional[PyTree] = None,
+              restore_args: Optional[PyTree] = None,
+              transforms: Optional[PyTree] = None) -> PyTree:
     """Restores a PyTree from the checkpoint directory at the given step.
 
     Optional arguments meshes and mesh_axes define how each array in the
@@ -433,11 +457,17 @@ class PyTreeCheckpointer(Checkpointer):
         is_leaf=lambda args: isinstance(args, RestoreArgs) or not args)
 
     future_arrays, state_dict_def = jax.tree_flatten(future_arrays)
-    result = await asyncio.gather(*future_arrays)
+
+    async def _async_restore(future_arrays):
+      return await asyncio.gather(*future_arrays)
+
+    result = asyncio.run(_async_restore(future_arrays))
 
     restored_state_dict = jax.tree_unflatten(state_dict_def, result)
     # convert back into original object
     restored = flax.serialization.from_state_dict(item, restored_state_dict)
+
+    multihost_utils.sync_global_devices('PyTreeCheckpointHandler:restore')
     return restored
 
   def structure(self, directory: str) -> PyTree:

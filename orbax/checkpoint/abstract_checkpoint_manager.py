@@ -22,20 +22,22 @@ RestoreParams = SaveParams
 
 
 class AbstractCheckpointManager(abc.ABC):
-  """An interface that manages multiple Checkpointer classes.
+  """An interface that manages multiple CheckpointHandler classes.
 
   CheckpointManager coordinates save/restore operations across multiple
-  Checkpointer classes, and also provides useful methods describing checkpoint
+  CheckpointHandler classes, and also provides useful methods describing
+  checkpoint
   states.
 
   For example, CheckpointManager may be responsible for managing a parameter
   state in the form of a PyTree and a dataset iterator state in the form of
   tf.data.Iterator.
 
-  Each item should be handled by a separate Checkpointer.
+  Each item should be handled by a separate CheckpointHandler.
 
-  For instance, item "a" is handled by Checkpointer A, while item "b" is handled
-  by Checkpointer B.
+  For instance, item "a" is handled by CheckpointHandler A, while item "b" is
+  handled
+  by CheckpointHandler B.
   """
 
   @abc.abstractmethod
@@ -54,27 +56,28 @@ class AbstractCheckpointManager(abc.ABC):
       ...
     }
     Each of these values is a saveable item that should be written with a
-    specific Checkpointer.
+    specific CheckpointHandler.
 
     Similarly, save_kwargs takes the form:
     {
       'params': {
-        <kwargs for PyTreeCheckpointer.save>
+        <kwargs for PyTreeCheckpointHandler.save>
       },
       'dataset': {
-        <kwargs for DatasetCheckpointer.save>
+        <kwargs for DatasetCheckpointHandler.save>
       }
       ...
     }
     The dict of kwargs for each key in save_kwargs is provided as extra
-    arguments to the save method of the corresponding Checkpointer.
+    arguments to the save method of the corresponding CheckpointHandler.
 
     Args:
       step: current step, int
       items: a savable object, or a dictionary of object name to savable object.
-      save_kwargs: save kwargs for a single Checkpointer, or a dictionary of
-        object name to kwargs needed by the Checkpointer implementation to save
-        the object.
+      save_kwargs: save kwargs for a single CheckpointHandler, or a dictionary
+        of object name to kwargs needed by the CheckpointHandler implementation
+        to save the object.
+
     Returns:
       bool indicating whether save was performed or not.
     """
@@ -97,29 +100,30 @@ class AbstractCheckpointManager(abc.ABC):
       ...
     }
     Each of these values is a restoreable item that should be read with a
-    specific Checkpointer. Implementations should support items=None, and the
+    specific CheckpointHandler. Implementations should support items=None, and
+    the
     ability to restore an item which is not provided in this dict.
 
     Similarly, restore_kwargs takes the form:
     {
       'params': {
-        <kwargs for PyTreeCheckpointer.restore>
+        <kwargs for PyTreeCheckpointHandler.restore>
       },
       'dataset': {
-        <kwargs for DatasetCheckpointer.restore>
+        <kwargs for DatasetCheckpointHandler.restore>
       }
       ...
     }
     The dict of kwargs for each key in restore_kwargs is provided as extra
-    arguments to the restore method of the corresponding Checkpointer.
+    arguments to the restore method of the corresponding CheckpointHandler.
 
     Args:
       step: current step, int
       items: a restoreable object, or a dictionary of object name to restoreable
         object.
-      restore_kwargs: restore kwargs for a single Checkpointer, or a dictionary
-        of object name to kwargs needed by the Checkpointer implementation to
-        restore the object.
+      restore_kwargs: restore kwargs for a single CheckpointHandler, or a
+        dictionary of object name to kwargs needed by the CheckpointHandler
+        implementation to restore the object.
 
     Returns:
       A dictionary mapping name to restored object, or a single restored object.
@@ -128,13 +132,15 @@ class AbstractCheckpointManager(abc.ABC):
 
   @abc.abstractmethod
   def structure(self) -> Union[Any, Mapping[str, Any]]:
-    """For all Checkpointers, returns the saved structure.
+    """For all CheckpointHandlers, returns the saved structure.
 
-    Calls the `structure` method for each Checkpointer and returns a mapping of
+    Calls the `structure` method for each CheckpointHandler and returns a
+    mapping of
     each item name to the restored structure. If the manager only manages a
     single item, a single structure will be returned instead.
 
-    Note that any items for which the corresponding Checkpointer does not have
+    Note that any items for which the corresponding CheckpointHandler does not
+    have
     an implemented `structure` method, these items will simply not be contained
     in the result.
 

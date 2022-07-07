@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for JsonCheckpointer."""
+"""Tests for DatasetCheckpointHandler."""
+
 from absl import flags
 from absl.testing import absltest
 import jax
-from orbax.checkpoint.json_checkpointer import JsonCheckpointer
+from orbax.checkpoint.dataset_checkpoint_handler import DatasetCheckpointHandler
 import tensorflow as tf
 
 # Parse absl flags test_srcdir and test_tmpdir.
@@ -25,29 +26,23 @@ jax.config.parse_flags_with_absl()
 FLAGS = flags.FLAGS
 
 
-class JsonCheckpointerTest(absltest.TestCase):
+class DatasetCheckpointHandlerTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
+
     self.directory = self.create_tempdir(name='checkpointing_test').full_path
+    self.dataset = tf.data.Dataset.range(64)
 
   def test_save_restore(self):
-    item = {'a': 1, 'b': {'c': 'test1', 'b': 'test2'}, 'd': 5.5}
-    ckptr = JsonCheckpointer()
-    ckptr.save(self.directory, item)
-    restored = ckptr.restore(self.directory)
-    self.assertEqual(item, restored)
-
-  def test_save_restore_filename(self):
-    item = {'a': 1, 'b': {'c': 'test1', 'b': 'test2'}, 'd': 5.5}
-    ckptr = JsonCheckpointer(filename='file')
-    ckptr.save(self.directory, item)
-    restored = ckptr.restore(self.directory)
-    self.assertEqual(item, restored)
-    self.assertTrue(
-        tf.io.gfile.exists(tf.io.gfile.join(self.directory, 'file')))
-    self.assertFalse(
-        tf.io.gfile.exists(tf.io.gfile.join(self.directory, 'metadata')))
+    ckptr = DatasetCheckpointHandler()
+    iterator = iter(self.dataset)
+    # change iterator state
+    for _ in range(10):
+      next(iterator)
+    ckptr.save(self.directory, iterator)
+    restored = ckptr.restore(self.directory, iter(self.dataset))
+    self.assertEqual(10, next(restored).numpy())
 
 
 if __name__ == '__main__':
