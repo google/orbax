@@ -27,3 +27,7 @@ from .pytree_checkpointer import SaveArgs
 from .transform_utils import apply_transformations
 from .transform_utils import Transform
 from .utils import checkpoints_iterator
+
+# TODO(cpgaffney) Remove when handler classes are fully rolled out.
+CheckpointHandler = Checkpointer
+PyTreeCheckpointHandler = PyTreeCheckpointer
