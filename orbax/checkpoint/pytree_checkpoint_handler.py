@@ -36,7 +36,6 @@ from orbax.checkpoint import lazy_array
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
-from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 import tensorflow as tf
 import tensorstore as ts
 
@@ -260,7 +259,7 @@ async def _deserialize_array(
     return result
 
 
-class PyTreeCheckpointHandler(CheckpointHandler, AsyncCheckpointHandler):
+class PyTreeCheckpointHandler(AsyncCheckpointHandler):
   """A CheckpointHandler implementation for any PyTree structure.
 
   The PyTree is assumed to be a nested dictionary with array values represented
