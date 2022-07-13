@@ -22,6 +22,9 @@ class CheckpointHandler(abc.ABC):
   """An interface providing save/restore methods used on a savable item.
 
   Item may be a PyTree, Dataset, or any other supported object.
+
+  NOTE: Users should avoid using CheckpointHandler independently. Use
+  Checkpointer or CheckpointManager.
   """
 
   @abc.abstractmethod
