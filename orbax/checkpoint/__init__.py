@@ -18,6 +18,7 @@ from .abstract_checkpoint_manager import AbstractCheckpointManager
 from .checkpoint_handler import CheckpointHandler
 from .checkpoint_manager import CheckpointManager
 from .checkpoint_manager import CheckpointManagerOptions
+from .checkpointer import Checkpointer
 from .dataset_checkpoint_handler import DatasetCheckpointHandler
 from .json_checkpoint_handler import JsonCheckpointHandler
 from orbax.checkpoint import lazy_array
