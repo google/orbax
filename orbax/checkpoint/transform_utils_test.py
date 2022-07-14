@@ -367,8 +367,8 @@ class TransformUtilsTest(absltest.TestCase):
       else:
         self.assertEqual(a, b)
 
-    jax.tree_multimap(assert_equal, expected_tree,
-                      apply_transformations(tree, transforms, fallback_tree))
+    jax.tree_map(assert_equal, expected_tree,
+                 apply_transformations(tree, transforms, fallback_tree))
 
   def test_flax_train_state(self):
 

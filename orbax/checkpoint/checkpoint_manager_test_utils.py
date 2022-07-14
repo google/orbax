@@ -52,7 +52,7 @@ class CheckpointManagerTestBase:
       pytree, mesh_tree, axes_tree = test_utils.setup_gda_pytree()
       doubled_pytree = test_utils.apply_function(pytree, lambda x: x * 2)
 
-      self.empty_pytree = jax.tree_multimap(
+      self.empty_pytree = jax.tree_map(
           lambda x: object(), pytree, is_leaf=test_utils.is_leaf)
       self.pytree = pytree
       self.doubled_pytree = doubled_pytree

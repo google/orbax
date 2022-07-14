@@ -139,7 +139,7 @@ def setup_gda_pytree():
       }
   }
 
-  pytree = jax.tree_multimap(
+  pytree = jax.tree_map(
       as_gda, pytree, mesh_tree, axes_tree, is_leaf=is_leaf)
   return pytree, mesh_tree, axes_tree
 
