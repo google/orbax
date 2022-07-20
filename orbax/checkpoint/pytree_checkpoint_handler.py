@@ -107,6 +107,15 @@ def _validate_restore_args(args: RestoreArgs):
     raise ValueError('Restoring as GDA: `mesh` and `mesh_axes` cannot be None.')
 
 
+async def _create_param_save_dir(param_info: ParamInfo):
+  tspec = param_info.tspec
+  if tspec is None:
+    return
+  path = tspec['kvstore']['path']
+  if jax.process_index() == 0:
+    await utils.async_makedirs(path)
+
+
 async def _maybe_deserialize(args, value, info):
   """Deserialize from tensorstore or return value if already deserialized."""
   if value is None:
@@ -323,7 +332,7 @@ class PyTreeCheckpointHandler(CheckpointHandler, AsyncCheckpointHandler):
       A Future that will commit the data to `directory` when awaited. Copying
       the data from its source will be awaited in this function.
     """
-    # convert arbitrary pytree into dictionary
+    # Convert arbitrary pytree into dictionary.
     item = utils.to_state_dict(item)
     item = await lazy_array.maybe_get_tree_async(item)
 
@@ -333,11 +342,16 @@ class PyTreeCheckpointHandler(CheckpointHandler, AsyncCheckpointHandler):
       save_args = utils.to_state_dict(save_args)
 
     param_infos = self._get_param_infos(item, directory)
+    # Create directories in parallel.
+    await asyncio.gather(
+        *jax.tree_flatten(jax.tree_map(_create_param_save_dir, param_infos))[0])
+    multihost_utils.sync_global_devices(
+        'PyTreeCheckpointHandler:create_param_save_dirs')
 
     future_tree = jax.tree_map(_serialize_array, param_infos, save_args, item)
     futures, _ = jax.tree_flatten(future_tree)
     assert isinstance(futures, list)
-    # await copy futures
+    # Await copy futures.
     commit_futures = await asyncio.gather(*futures)
     commit_futures, _ = jax.tree_flatten(commit_futures)
 

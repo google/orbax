@@ -13,6 +13,8 @@
 # limitations under the License.
 
 """Utility functions for Orbax."""
+import asyncio
+import functools
 import logging
 import time
 from typing import Iterator, List, Optional, Sequence, Tuple
@@ -26,6 +28,23 @@ import tensorstore as ts
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 CheckpointDirs = Tuple[str, str]
+
+
+def _wrap(func):
+  """Wraps a function to make it async."""
+
+  @functools.wraps(func)
+  async def run(*args, loop=None, executor=None, **kwargs):
+    if loop is None:
+      loop = asyncio.get_event_loop()
+    partial_func = functools.partial(func, *args, **kwargs)
+    return await loop.run_in_executor(executor, partial_func)
+
+  return run
+
+
+# TODO(cpgaffney): This functionality should be provided by an external library.
+async_makedirs = _wrap(tf.io.gfile.makedirs)
 
 
 def register_ts_spec_for_serialization():
