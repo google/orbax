@@ -19,6 +19,7 @@ Implementation of CheckpointHandler interface.
 
 import asyncio
 import dataclasses
+import functools
 from typing import Any, List, MutableMapping, Optional, Tuple, Union
 
 import flax
@@ -43,6 +44,7 @@ import tensorstore as ts
 PyTree = type(jax.tree_structure(None))
 ArrayOrScalar = Union[int, float, np.number, np.ndarray, jnp.ndarray]
 Array = Union[np.ndarray, jnp.ndarray]
+ArrayOrSpec = Union[ts.Spec, dict, ArrayOrScalar, GlobalDeviceArray, utils.Leaf]
 
 _FLAX_CHECKPOINT_FILE = 'checkpoint'
 
@@ -102,6 +104,13 @@ class RestoreArgs:
   dtype: Optional[jnp.dtype] = None
 
 
+def _validate_save_args(args: SaveArgs, enable_flax: bool):
+  if args.use_flax and not enable_flax:
+    raise ValueError(
+        'Saving with flax disabled for this handler, but saving with flax was requested for at least one parameter.'
+    )
+
+
 def _validate_restore_args(args: RestoreArgs):
   if args.mesh is None or args.mesh_axes is None:
     raise ValueError('Restoring as GDA: `mesh` and `mesh_axes` cannot be None.')
@@ -120,7 +129,7 @@ async def _maybe_deserialize(args, value, info):
   """Deserialize from tensorstore or return value if already deserialized."""
   if value is None:
     return {}
-  if isinstance(value, ts.Spec):
+  if isinstance(value, (ts.Spec, utils.Leaf)):
     result = lazy_array.LazyAwaitableArray.from_tensor_store_spec(
         ts.Spec(info.tspec),
         get_fn=lambda: _deserialize_array(args, info),
@@ -148,8 +157,7 @@ async def _maybe_deserialize(args, value, info):
     return await result.get_async()
 
 
-def _get_tensorstore_spec(path: str, arr_or_spec: Union[ArrayOrScalar,
-                                                        GlobalDeviceArray]):
+def _get_tensorstore_spec(path: str, arr_or_spec: ArrayOrSpec):
   """Gets ts.Spec in json format for the given path and array."""
   if arr_or_spec is None:
     return None
@@ -172,14 +180,33 @@ def _get_tensorstore_spec(path: str, arr_or_spec: Union[ArrayOrScalar,
         'chunks': arr.shape,  # pytype: disable=attribute-error
     }
   elif isinstance(arr_or_spec, ts.Spec):
-    tspec = arr_or_spec.to_json()
+    tspec = arr_or_spec.to_json()  # pytype: disable=attribute-error
     tspec['kvstore']['path'] = path
   elif isinstance(arr_or_spec, dict):
     assert not arr_or_spec  # expected empty
     tspec = None
+  elif isinstance(arr_or_spec, utils.Leaf):
+    # Cannot be used when saving a tree.
+    # utils.Leaf is a dummy value only used during restore.
+    pass
   else:
     raise ValueError(f'Unsupported array type: {type(arr_or_spec)}')
   return tspec
+
+
+def _get_flax_tree_value(param_info, arg, arr):
+  """Get leaf value for Flax checkpoint."""
+  if param_info.tspec is None:
+    return None
+  if arg.use_flax:
+    if arg.dtype is not None:
+      if utils.is_scalar(arr):
+        arr = np.asarray(arr).astype(arg.dtype).item()
+      else:
+        arr = arr.astype(arg.dtype)
+    return arr
+  else:
+    return ts.Spec(param_info.tspec)
 
 
 async def _serialize_array(
@@ -277,8 +304,9 @@ class PyTreeCheckpointHandler(CheckpointHandler, AsyncCheckpointHandler):
   `GlobalDeviceArray`, arrays are expected to be non-partitioned.
   """
 
-  def __init__(self):
+  def __init__(self, enable_flax=True):
     self._structure = None
+    self._enable_flax = enable_flax
 
   def _get_param_infos(self, state_dict: PyTree, directory: str) -> PyTree:
     """Returns parameter information for elements in `state_dict`.
@@ -340,6 +368,9 @@ class PyTreeCheckpointHandler(CheckpointHandler, AsyncCheckpointHandler):
       save_args = jax.tree_map(lambda x: SaveArgs(), item)
     else:
       save_args = utils.to_state_dict(save_args)
+    jax.tree_map(
+        functools.partial(_validate_save_args, enable_flax=self._enable_flax),
+        save_args)
 
     param_infos = self._get_param_infos(item, directory)
     # Create directories in parallel.
@@ -355,21 +386,9 @@ class PyTreeCheckpointHandler(CheckpointHandler, AsyncCheckpointHandler):
     commit_futures = await asyncio.gather(*futures)
     commit_futures, _ = jax.tree_flatten(commit_futures)
 
-    def flax_tree_value(param_info, arg, arr):
-      if param_info.tspec is None:
-        return None
-      if arg.use_flax:
-        if arg.dtype is not None:
-          if utils.is_scalar(arr):
-            arr = np.asarray(arr).astype(arg.dtype).item()
-          else:
-            arr = arr.astype(arg.dtype)
-        return arr
-      else:
-        return ts.Spec(param_info.tspec)
-
-    if jax.process_index() == 0:
-      flax_item = jax.tree_map(flax_tree_value, param_infos, save_args, item)
+    if self._enable_flax and jax.process_index() == 0:
+      flax_item = jax.tree_map(_get_flax_tree_value, param_infos, save_args,
+                               item)
       msgpack = flax.serialization.to_bytes(flax_item)
       with tf.io.gfile.GFile(
           tf.io.gfile.join(directory, _FLAX_CHECKPOINT_FILE), mode='wb') as f:
@@ -498,10 +517,14 @@ class PyTreeCheckpointHandler(CheckpointHandler, AsyncCheckpointHandler):
     """
     if self._structure is not None:
       return self._structure
-    directory = tf.io.gfile.join(directory, _FLAX_CHECKPOINT_FILE)
-    if not tf.io.gfile.exists(directory):
-      raise FileNotFoundError(f'Checkpoint does not exist at {directory}.')
-    with tf.io.gfile.GFile(directory, mode='rb') as f:
-      msgpack = f.read()
-    self._structure = utils.msgpack_restore(msgpack)
+    flax_file = tf.io.gfile.join(directory, _FLAX_CHECKPOINT_FILE)
+    if tf.io.gfile.exists(flax_file):
+      with tf.io.gfile.GFile(flax_file, mode='rb') as f:
+        msgpack = f.read()
+      self._structure = utils.msgpack_restore(msgpack)
+    else:
+      if self._enable_flax:
+        raise FileNotFoundError(f'Checkpoint does not exist at {directory}.')
+      else:
+        self._structure = utils.pytree_structure(directory)
     return self._structure

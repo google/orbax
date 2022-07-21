@@ -28,6 +28,7 @@ import tensorstore as ts
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 CheckpointDirs = Tuple[str, str]
+PyTree = type(jax.tree_structure(None))
 
 
 def _wrap(func):
@@ -60,6 +61,37 @@ def register_ts_spec_for_serialization():
       # be the value itself.
       ty_from_state_dict=lambda t, s: ts.Spec(s) if is_dict(s) else s,
       override=True)
+
+
+class Leaf:
+  pass
+
+
+def pytree_structure(directory: str) -> PyTree:
+  """Reconstruct state dict from saved model format in `directory`."""
+
+  def add_nested_key(subtree, nested_key):
+    if not nested_key:
+      return subtree
+
+    current = nested_key[0]
+
+    if len(nested_key) == 1:
+      assert current not in subtree
+      subtree[current] = Leaf()
+      return subtree
+
+    subkeys = nested_key[1:]
+    if current not in subtree:
+      subtree[current] = {}
+    subtree[current] = add_nested_key(subtree[current], subkeys)
+    return subtree
+
+  keys = tf.io.gfile.listdir(directory)
+  tree = {}
+  for k in keys:
+    tree = add_nested_key(tree, k.split('.'))
+  return tree
 
 
 def _rebuild_ts_specs(tree):

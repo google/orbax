@@ -44,8 +44,8 @@ class LazyArray(abc.ABC):
 
   def __init__(self, shape: Sequence[int], dtype: jnp.dtype,
                get_fn: Callable[[], np.ndarray]):
-    self._shape = tuple(shape)
-    self._dtype = jnp.dtype(dtype)
+    self._shape = tuple(shape) if shape is not None else shape
+    self._dtype = jnp.dtype(dtype) if dtype is not None else dtype
     self._get_fn = get_fn
 
   @property
@@ -96,9 +96,14 @@ class LazyAwaitableArray(LazyArray):
       dtype: Optional[jnp.dtype] = None) -> 'LazyAwaitableArray':
     """Create a LazyAwaitableArray based on a tensorstore.Spec."""
     ts_spec = ts_spec.to_json()
-    shape = ts_spec['metadata']['shape']
+    shape = None
+    if 'metadata' in ts_spec:
+      if 'shape' in ts_spec['metadata']:
+        shape = ts_spec['metadata']['shape']
+    dtype = None
     if dtype is None:
-      dtype = jnp.dtype(ts_spec['dtype'])
+      if 'dtype' in ts_spec:
+        dtype = jnp.dtype(ts_spec['dtype'])
     else:
       dtype = jnp.dtype(dtype)
     return cls(shape, dtype, get_fn)
