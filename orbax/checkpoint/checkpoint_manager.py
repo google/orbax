@@ -303,9 +303,13 @@ class CheckpointManager(AbstractCheckpointManager):
     if self._track_best:
       self._past_metrics[step] = metrics
       self._populate_past_metrics()
+    # Prevent checkpoints from being cleaned up while metrics are populated.
+    multihost_utils.sync_global_devices(
+        'CheckpointManager:_populate_past_metrics')
     if jax.process_index() == 0:
       self._remove_old_checkpoints()
-    multihost_utils.sync_global_devices('CheckpointManager:removed_old')
+    multihost_utils.sync_global_devices(
+        'CheckpointManager:_remove_old_checkpoints')
 
     return True
 
