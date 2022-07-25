@@ -35,13 +35,13 @@ class DatasetCheckpointHandlerTest(absltest.TestCase):
     self.dataset = tf.data.Dataset.range(64)
 
   def test_save_restore(self):
-    ckptr = DatasetCheckpointHandler()
+    checkpointer = DatasetCheckpointHandler()
     iterator = iter(self.dataset)
-    # change iterator state
+    # Change iterator state to check restoration of original state.
     for _ in range(10):
       next(iterator)
-    ckptr.save(self.directory, iterator)
-    restored = ckptr.restore(self.directory, iter(self.dataset))
+    checkpointer.save(self.directory, iterator)
+    restored = checkpointer.restore(self.directory, iter(self.dataset))
     self.assertEqual(10, next(restored).numpy())
 
 

@@ -37,7 +37,6 @@ from orbax.checkpoint import lazy_array
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
-from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 import tensorflow as tf
 import tensorstore as ts
 
@@ -134,7 +133,7 @@ async def _maybe_deserialize(args, value, info):
         ts.Spec(info.tspec),
         get_fn=lambda: _deserialize_array(args, info),
         dtype=args.dtype)
-  else:  # already initialized as np.ndarray or GDA.
+  else:  # Already initialized as np.ndarray or GDA.
     if args.dtype is not None:
       if utils.is_scalar(value):
         value = np.asarray(value).astype(args.dtype).item()
@@ -235,9 +234,9 @@ async def _serialize_array(
   }
 
   if isinstance(arr, GlobalDeviceArray):
-    # origin dtype
+    # Origin dtype.
     tspec['dtype'] = jnp.dtype(arr.dtype).name
-    # destination dtype
+    # Destination dtype.
     tspec = set_tspec_dtype(arr, tspec)
     commit_futures = []
     await serialization.async_serialize(
@@ -247,9 +246,9 @@ async def _serialize_array(
   elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
     if isinstance(arr, (int, float, np.number)):
       arr = np.asarray(arr)
-    # origin dtype
+    # Origin dtype.
     tspec['dtype'] = jnp.dtype(arr.dtype).name
-    # destination dtype
+    # Destination dtype.
     tspec = set_tspec_dtype(arr, tspec)
     t = await ts.open(
         ts.Spec(tspec),
@@ -271,7 +270,7 @@ async def _deserialize_array(
   """Writes an array (np.ndarray) or GlobalDeviceArray."""
   tspec = param_info.tspec
   if not tf.io.gfile.listdir(tspec['kvstore']['path']):
-    # empty dictionaries are written as directories containing no files.
+    # Empty dictionaries are written as directories containing no files.
     return {}
 
   if restore_args.dtype is not None:
@@ -296,7 +295,7 @@ async def _deserialize_array(
     return result
 
 
-class PyTreeCheckpointHandler(CheckpointHandler, AsyncCheckpointHandler):
+class PyTreeCheckpointHandler(AsyncCheckpointHandler):
   """A CheckpointHandler implementation for any PyTree structure.
 
   The PyTree is assumed to be a nested dictionary with array values represented
@@ -497,7 +496,7 @@ class PyTreeCheckpointHandler(CheckpointHandler, AsyncCheckpointHandler):
     result = asyncio.run(_async_restore(future_arrays))
 
     restored_state_dict = jax.tree_unflatten(state_dict_def, result)
-    # convert back into original object
+    # Convert back into original object.
     restored = flax.serialization.from_state_dict(item, restored_state_dict)
 
     multihost_utils.sync_global_devices('PyTreeCheckpointHandler:restore')

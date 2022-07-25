@@ -12,18 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Defines exported symbols for the `orbax` package."""
+"""Defines exported symbols for the `orbax` packageorbax.checkpoint."""
 
-from .abstract_checkpoint_manager import AbstractCheckpointManager
-from .checkpoint_handler import CheckpointHandler
-from .checkpoint_manager import CheckpointManager
-from .checkpoint_manager import CheckpointManagerOptions
-from .dataset_checkpoint_handler import DatasetCheckpointHandler
-from .json_checkpoint_handler import JsonCheckpointHandler
 from orbax.checkpoint import lazy_array
-from .pytree_checkpoint_handler import PyTreeCheckpointHandler
-from .pytree_checkpoint_handler import RestoreArgs
-from .pytree_checkpoint_handler import SaveArgs
-from .transform_utils import apply_transformations
-from .transform_utils import Transform
-from .utils import checkpoints_iterator
+from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
+from orbax.checkpoint.checkpoint_handler import CheckpointHandler
+from orbax.checkpoint.checkpoint_manager import CheckpointManager
+from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
+from orbax.checkpoint.checkpointer import Checkpointer
+from orbax.checkpoint.dataset_checkpoint_handler import DatasetCheckpointHandler
+from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
+from orbax.checkpoint.pytree_checkpoint_handler import PyTreeCheckpointHandler
+from orbax.checkpoint.pytree_checkpoint_handler import RestoreArgs
+from orbax.checkpoint.pytree_checkpoint_handler import SaveArgs
+from orbax.checkpoint.transform_utils import apply_transformations
+from orbax.checkpoint.transform_utils import Transform
+from orbax.checkpoint.utils import checkpoints_iterator

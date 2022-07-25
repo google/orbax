@@ -448,7 +448,7 @@ params = model.init(
 new_state = TrainState.create(
     apply_fn=model.apply, params=params, tx=optimizer)
 # Restore original state.
-original_state = ckpt_mngr.restore(step)
+original_state = manager.restore(step)
 ```
 
 ```py

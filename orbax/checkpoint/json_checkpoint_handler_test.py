@@ -33,16 +33,16 @@ class JsonCheckpointHandlerTest(absltest.TestCase):
 
   def test_save_restore(self):
     item = {'a': 1, 'b': {'c': 'test1', 'b': 'test2'}, 'd': 5.5}
-    ckptr = JsonCheckpointHandler()
-    ckptr.save(self.directory, item)
-    restored = ckptr.restore(self.directory)
+    checkpointer = JsonCheckpointHandler()
+    checkpointer.save(self.directory, item)
+    restored = checkpointer.restore(self.directory)
     self.assertEqual(item, restored)
 
   def test_save_restore_filename(self):
     item = {'a': 1, 'b': {'c': 'test1', 'b': 'test2'}, 'd': 5.5}
-    ckptr = JsonCheckpointHandler(filename='file')
-    ckptr.save(self.directory, item)
-    restored = ckptr.restore(self.directory)
+    checkpointer = JsonCheckpointHandler(filename='file')
+    checkpointer.save(self.directory, item)
+    restored = checkpointer.restore(self.directory)
     self.assertEqual(item, restored)
     self.assertTrue(
         tf.io.gfile.exists(tf.io.gfile.join(self.directory, 'file')))

@@ -23,8 +23,9 @@ import jax
 from jax.experimental import multihost_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
-from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
+from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
+from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
 import tensorflow as tf
 
@@ -32,17 +33,25 @@ PyTree = type(jax.tree_structure(None))
 CheckpointDirs = Tuple[str, str]
 SaveParams = Mapping[str, Any]
 RestoreParams = SaveParams
+HandlerOrCheckpointer = Union[CheckpointHandler, AbstractCheckpointer]
 
 DEFAULT_ITEM_NAME = 'default'
 METRIC_ITEM_NAME = 'metrics'
 
 
-async def _call_valid_handler_save(handler: CheckpointHandler, *args, **kwargs):
-  if isinstance(handler, AsyncCheckpointHandler):
-    futures = await handler.async_save(*args, **kwargs)
+def is_async_checkpointer(checkpointer: Checkpointer):
+  # TODO(cpgaffney): add dependency on AsyncCheckpointer when AsyncManager is
+  # open-sourced in JAX.
+  return checkpointer.__class__.__name__ == 'AsyncCheckpointer'
+
+
+async def _call_valid_checkpointer_save(checkpointer: Checkpointer, *args,
+                                        **kwargs):
+  if is_async_checkpointer(checkpointer):
+    futures = await checkpointer.async_save(*args, **kwargs)  # pytype: disable=attribute-error
     return await asyncio.gather(*futures)
   else:
-    return handler.save(*args, **kwargs)
+    return checkpointer.save(*args, **kwargs)
 
 
 @dataclasses.dataclass
@@ -73,8 +82,8 @@ class CheckpointManagerOptions:
 class CheckpointManager(AbstractCheckpointManager):
   """A generic, synchronous CheckpointManager implementation.
 
-  Allows a user to save and restore objects for which a CheckpointHandler
-  implementation exists (e.g. PyTreeCheckpointHandler for PyTrees). The class
+  Allows a user to save and restore objects for which a Checkpointer
+  implementation exists (e.g. PyTreeCheckpointer for PyTrees). The class
   keeps
   track of multiple checkpointable objects in the following structure:
 
@@ -94,31 +103,46 @@ class CheckpointManager(AbstractCheckpointManager):
   def __init__(
       self,
       directory: str,
-      handlers: Union[CheckpointHandler, Mapping[str, CheckpointHandler]],
+      # TODO(b/238651177): Disallow CheckpointHandler after T5X is migrated.
+      checkpointers: Union[HandlerOrCheckpointer,
+                           Mapping[str, HandlerOrCheckpointer]],
       options: Optional[CheckpointManagerOptions] = None,
   ):
     """CheckpointManager constructor.
 
     Args:
       directory: the top level directory in which to save all files.
-      handlers: a mapping of object name to CheckpointHandler object. For
+      checkpointers: a mapping of object name to Checkpointer object. For
         example, `items` provided to `save` below should have keys matching the
-        keys in this argument. Alternatively, a single CheckpointHandler may be
+        keys in this argument. Alternatively, a single Checkpointer may be
         provided, in which See below for more details.
      options: CheckpointManagerOptions. May be provided to specify additional
        arugments. If None, uses default values of CheckpointManagerOptions.
     """
     self._directory = directory
     self._single_item = False
-    if isinstance(handlers, CheckpointHandler):
+    if isinstance(checkpointers, AbstractCheckpointer):
       self._single_item = True
-      handlers = {DEFAULT_ITEM_NAME: handlers}
-    elif METRIC_ITEM_NAME in handlers:
+      # TODO(b/238651177): Disallow CheckpointHandler after T5X is migrated.
+      if isinstance(checkpointers, CheckpointHandler):
+        checkpointers = Checkpointer(checkpointers)
+      checkpointers = {DEFAULT_ITEM_NAME: checkpointers}
+    elif isinstance(checkpointers, dict):
+      if METRIC_ITEM_NAME in checkpointers:
+        raise ValueError(
+            f'Found {METRIC_ITEM_NAME} in `checkpointers`; this is a reserved key.'
+        )
+      for k, checkpointer in checkpointers.items():
+        # TODO(b/238651177) Disallow CheckpointHandler after T5X is migrated.
+        # Also assert that elements are AbstractCheckpointer.
+        if isinstance(checkpointer, CheckpointHandler):
+          checkpointers[k] = Checkpointer(checkpointer)
+    else:
       raise ValueError(
-          f'Found {METRIC_ITEM_NAME} in `handlers`; this is a reserved key.')
-    self._handlers = dict(handlers)
-    self._handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
-        filename=METRIC_ITEM_NAME)
+          f'Invalid type for `checkpointers`. Found {checkpointers}.')
+    self._checkpointers = checkpointers
+    self._checkpointers[METRIC_ITEM_NAME] = Checkpointer(
+        JsonCheckpointHandler(filename=METRIC_ITEM_NAME))
     self._last_checkpoint_step = -1
     self._options = options or CheckpointManagerOptions()
     if self._options.best_mode not in ['min', 'max']:
@@ -191,8 +215,8 @@ class CheckpointManager(AbstractCheckpointManager):
     """Saves the provided items.
 
     Items and save_kwargs must have a top-level structure matching that of
-    self._handlers, meaning that for every key in items and save_kwargs, a
-    corresponding key must be present in self._handlers.
+    self._checkpointers, meaning that for every key in items and save_kwargs, a
+    corresponding key must be present in self._checkpointers.
 
     Items takes a form similar to the following:
     {
@@ -215,16 +239,16 @@ class CheckpointManager(AbstractCheckpointManager):
     for saving that item. If not provided at all, it is assumed that no items
     need extra kwargs for saving.
 
-    Note that if a single CheckpointHandler was provided at construction time,
+    Note that if a single Checkpointer was provided at construction time,
     `items` must be a singular saveable object, and `save_kwargs` must be the
-    kwargs needed by a single CheckpointHandler.
+    kwargs needed by a single Checkpointer.
 
     Args:
       step: current step, int
       items: a savable object, or a dictionary of object name to savable object.
-      save_kwargs: save kwargs for a single CheckpointHandler, or a dictionary
-        of object name to kwargs needed by the CheckpointHandler implementation
-        to save the object.
+      save_kwargs: save kwargs for a single Checkpointer, or a dictionary of
+        object name to kwargs needed by the Checkpointer implementation to save
+        the object.
       metrics: a dictionary of metric name (string) to numeric value to be
         tracked along with this checkpoint. Required if `options.best_fn` is
         set. Allows users to specify a metric value to determine which
@@ -238,7 +262,7 @@ class CheckpointManager(AbstractCheckpointManager):
     Raises:
       ValueError: if `track_best` was indicated but `metrics` is not provided.
       ValueError: directory creation failed.
-      ValueError: if an item is provided for which no `CheckpointHandler` is
+      ValueError: if an item is provided for which no `Checkpointer` is
       found.
     """
     if not force and not self.should_save(step):
@@ -247,6 +271,15 @@ class CheckpointManager(AbstractCheckpointManager):
     if step in self.all_steps():
       logging.info('Checkpoint for step %d already exists.', step)
       return False
+
+    self._last_checkpoint_step = step
+    if self._track_best:
+      self._past_metrics[step] = metrics
+      self._populate_past_metrics()
+
+    # Wait for ongoing saves to complete. Only applicable if some of the
+    # checkpointers are AsyncCheckpointers.
+    self.wait_until_finished()
 
     if save_kwargs is None:
       save_kwargs = {}
@@ -262,54 +295,22 @@ class CheckpointManager(AbstractCheckpointManager):
             'Requested `tracked_metric`; must provide `metrics` for save.')
       items[METRIC_ITEM_NAME] = metrics
 
-    # creates tmp_dir given top directory, step number, and a "collection". All
-    # files from the same input object should be saved under this collection.
-    tmp_dir, final_dir = utils.create_save_directories(step, self._directory,
-                                                       list(items.keys()))
-
-    save_ops = []
-    saved_keys = []
     for k, item in items.items():
-      item_tmp_dir = tf.io.gfile.join(tmp_dir, k)
-      if not tf.io.gfile.exists(item_tmp_dir):
-        raise ValueError(f'Failed to create directory for item "{k}"')
-      if k not in self._handlers:
-        raise ValueError(f'CheckpointHandler for item "{k}" not found')
+      # Gets save dirs given top directory, step number, and a "collection". All
+      # files from the same input object should be saved under this collection.
+      final_dir = utils.get_save_directory(step, self._directory, k)
+      if k not in self._checkpointers:
+        raise ValueError(f'Checkpointer for item "{k}" not found')
 
-      logging.info('Saving checkpoint for step %d to %s', step, item_tmp_dir)
       kwargs = save_kwargs.get(k, {})
-      saved_keys += [k]
-      save_ops += [
-          _call_valid_handler_save(self._handlers[k], item_tmp_dir, item,
-                                   **kwargs)
-      ]
+      self._checkpointers[k].save(final_dir, item, **kwargs)
 
-    # schedule save operations to run concurrently
-    async def _save(ops):
-      return await asyncio.gather(*ops)
-
-    if save_ops:
-      asyncio.run(_save(save_ops))
-    multihost_utils.sync_global_devices('CheckpointManager:write')
-
-    # Ensure save operation atomicity
-    if jax.process_index() == 0:
-      assert not tf.io.gfile.exists(final_dir)
-      tf.io.gfile.rename(tmp_dir, final_dir)
-
-    multihost_utils.sync_global_devices('CheckpointManager:save')
-
-    self._last_checkpoint_step = step
-    if self._track_best:
-      self._past_metrics[step] = metrics
-      self._populate_past_metrics()
-    # Prevent checkpoints from being cleaned up while metrics are populated.
-    multihost_utils.sync_global_devices(
-        'CheckpointManager:_populate_past_metrics')
-    if jax.process_index() == 0:
-      self._remove_old_checkpoints()
-    multihost_utils.sync_global_devices(
-        'CheckpointManager:_remove_old_checkpoints')
+    all_checkpointers_are_sync = all(
+        not is_async_checkpointer(checkpointer)
+        for checkpointer in self._checkpointers.values())
+    # If any are async, must wait until all saves are complete before finalize.
+    if all_checkpointers_are_sync:
+      self._finalize()
 
     return True
 
@@ -323,9 +324,9 @@ class CheckpointManager(AbstractCheckpointManager):
     """Restores from the given step and provided items.
 
     Items and restore_kwargs must have a top-level structure matching that of
-    self._handlers, meaning that for every key in items and restore_kwargs,
+    self._checkpointers, meaning that for every key in items and restore_kwargs,
     a
-    corresponding key must be present in self._handlers.
+    corresponding key must be present in self._checkpointers.
 
     Items takes a form similar to the following:
     {
@@ -334,10 +335,10 @@ class CheckpointManager(AbstractCheckpointManager):
       ...
     }
     Items may not be provided at all, in which case it the items restored are
-    those specified in self._handlers, and item=None is provided to
-    CheckpointHandler.restore. Similarly, an item may be omitted from `items`,
+    those specified in self._checkpointers, and item=None is provided to
+    Checkpointer.restore. Similarly, an item may be omitted from `items`,
     in
-    which case item=None will be provided to CheckpointHandler.restore.
+    which case item=None will be provided to Checkpointer.restore.
 
     Similarly, restore_kwargs takes the form:
     {
@@ -351,29 +352,28 @@ class CheckpointManager(AbstractCheckpointManager):
       ...
     }
     The kwargs under 'params' correspond to PyTreeCheckpointHandler.restore. If
-    a
-    key is not present in restore_kwargs, it is assumed that no kwargs are
+    a key is not present in restore_kwargs, it is assumed that no kwargs are
     needed for restoring that item. If not provided at all, it is assumed that
     no items need extra kwargs for restoring.
 
-    Note that if a single CheckpointHandler was provided at construction time,
+    Note that if a single Checkpointer was provided at construction time,
     `items` must be a singular saveable object, and `restore_kwargs` must be the
-    kwargs needed by a single CheckpointHandler.
+    kwargs needed by a single Checkpointer.
 
     Args:
       step: current step, int
       items: a restoreable object, or a dictionary of object name to restorable
         object.
-      restore_kwargs: restore kwargs for a single CheckpointHandler, or a
-        dictionary of object name to kwargs needed by the CheckpointHandler
-        implementation to restore the object.
+      restore_kwargs: restore kwargs for a single Checkpointer, or a dictionary
+        of object name to kwargs needed by the Checkpointer implementation to
+        restore the object.
       directory: if provided, uses the given directory rather than the
         `directory` property of this class. Can be used to restore checkpoints
         from an independent location.
 
     Returns:
-      A dictionary matching the structure of self._handlers, with one
-      object returned for each CheckpointHandler, or a single restored object,
+      A dictionary matching the structure of self._checkpointers, with one
+      object returned for each Checkpointer, or a single restored object,
       if a
       single item is being tracked by this manager.
     """
@@ -400,47 +400,43 @@ class CheckpointManager(AbstractCheckpointManager):
                     directory: Optional[str] = None) -> Mapping[str, Any]:
     """Restores only the provided items, or all items if empty."""
     directory = directory or self.directory
-    keys = []
     restored = {}
-    item_keys_to_restore = items.keys() if len(items) else self._handlers.keys()
+    item_keys_to_restore = items.keys() or self._checkpointers.keys()
     for k in item_keys_to_restore:
       # No metrics file expected: do not restore
       if k == METRIC_ITEM_NAME and not self._track_best:
         continue
-      if k not in self._handlers:
-        raise ValueError(f'CheckpointHandler for item "{k}" not found')
+      if k not in self._checkpointers:
+        raise ValueError(f'Checkpointer for item "{k}" not found')
       item = items.get(k, None)
       kwargs = restore_kwargs.get(k, {})
-      path = tf.io.gfile.join(directory, str(step), k)
-      keys += [k]
-      restored[k] = self._handlers[k].restore(path, item, **kwargs)
-
+      path = utils.get_save_directory(step, directory, k)
+      restored[k] = self._checkpointers[k].restore(path, item=item, **kwargs)
     return restored
 
   def structure(self) -> Union[Any, Mapping[str, Any]]:
-    """For all CheckpointHandlers, returns the saved structure.
+    """For all Checkpointers, returns the saved structure.
 
-    Calls the `structure` method for each CheckpointHandler and returns a
-    mapping of
-    each item name to the restored structure. If the manager only manages a
-    single item, a single structure will be returned instead.
+    Calls the `structure` method for each Checkpointer and returns a
+    mapping of each item name to the restored structure. If the manager only
+    manages a single item, a single structure will be returned instead.
 
-    Note that any items for which the corresponding CheckpointHandler does not
-    have
-    an implemented `structure` method, these items will simply not be contained
-    in the result. If, in this case, there is also only a single item managed,
-    None will be returned.
+    Note that any items for which the corresponding Checkpointer does not
+    have an implemented `structure` method, these items will simply not be
+    contained in the result. If, in this case, there is also only a single item
+    managed, None will be returned.
 
     Returns:
       A dictionary mapping name to item structure, or a single item structure.
     """
     result = {}
-    for name, handler in self._handlers.items():
-      try:
-        result[name] = handler.structure(
-            tf.io.gfile.join(self._directory, str(self.latest_step()), name))
-      except NotImplementedError:
-        pass
+    for name, checkpointer in self._checkpointers.items():
+      structure = checkpointer.structure(
+          tf.io.gfile.join(self._directory, str(self.latest_step()), name))
+      # If None, then the item has no defined structure, and should be excluded.
+      # May be empty, which would simply represent a valid, but empty structure.
+      if structure is not None:
+        result[name] = structure
     if self._single_item:
       if DEFAULT_ITEM_NAME not in result:
         return None
@@ -456,7 +452,7 @@ class CheckpointManager(AbstractCheckpointManager):
     """Loads metrics for past steps if not already set in `_past_metrics`."""
     for past_step in self.all_steps():
       if past_step not in self._past_metrics:
-        # only restore metrics for past_step
+        # Only restore metrics for past_step.
         self._past_metrics[past_step] = self._restore_impl(
             past_step, {METRIC_ITEM_NAME: None}, {})[METRIC_ITEM_NAME]
 
@@ -471,10 +467,12 @@ class CheckpointManager(AbstractCheckpointManager):
     """Keeps the `max_to_keep` most recent checkpoint steps."""
     if not self._options.max_to_keep:
       return
-    existing_steps = sorted(self.all_steps())
+    existing_steps = self.all_steps()
     if self._track_best:
-      # best (to keep) at the end
+      # Best steps (to keep) are at the end, after sorting.
       existing_steps = self._steps_sorted_by_metric(existing_steps)
+    else:
+      existing_steps = sorted(existing_steps)
 
     to_remove = len(existing_steps) - self._options.max_to_keep
     if to_remove <= 0:
@@ -482,3 +480,28 @@ class CheckpointManager(AbstractCheckpointManager):
     for step in existing_steps[:to_remove]:
       # TODO(cpgaffney) optimize.
       tf.io.gfile.rmtree(tf.io.gfile.join(self._directory, str(step)))
+
+  def wait_until_finished(self):
+    """Blocks until any incomplete save operations are completed.
+
+    Cleans up old checkpoints.
+
+    Note that this method will typically be a no-op if all checkpointers are
+    synchronous, since old checkpoints are already cleaned up immediately after
+    completing `save`, and there is no background thread to wait for.
+
+    If some checkpointers are of type AsyncCheckpointer, however, this method
+    will wait until each of these checkpointers is finished. Only at this point
+    can old checkpoints be cleaned up, since previously some checkpoints may
+    have been incomplete.
+    """
+    for checkpointer in self._checkpointers.values():
+      if is_async_checkpointer(checkpointer):
+        checkpointer.wait_until_finished()  # pytype: disable=attribute-error
+    self._finalize()
+
+  def _finalize(self):
+    """Cleans up old checkpoints and synchronizes hosts."""
+    if jax.process_index() == 0:
+      self._remove_old_checkpoints()
+    multihost_utils.sync_global_devices('CheckpointManager:removed_old')

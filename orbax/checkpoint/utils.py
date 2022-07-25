@@ -17,7 +17,7 @@ import asyncio
 import functools
 import logging
 import time
-from typing import Iterator, List, Optional, Sequence, Tuple
+from typing import Iterator, List, Optional, Tuple
 
 import flax.serialization
 import jax
@@ -129,51 +129,24 @@ def cleanup_tmp_directories(directory: str):
   multihost_utils.sync_global_devices('cleanup_tmp_dirs')
 
 
-def create_save_directories(step: int, directory: str,
-                            names: Sequence[str]) -> CheckpointDirs:
-  """Creates a temporary directory for saving at the given path and step.
+def get_save_directory(step: int, directory: str, name: str) -> str:
+  """Returns the standardized path to a save directory for a single item."""
+  return tf.io.gfile.join(directory, str(step), name)
 
-  After completion, the filesystem will have the structure:
 
-  directory/
-    step.orbax-checkpoint-tmp-<timestamp>/
-      name/
-
-  Args:
-    step: integer step.
-    directory: directory to create.
-    names: a list of names, where each name corresponds to a savable object
-
-  Returns:
-    A pair of final_dir and tmp_dir (intermediate operations should be written
-    to tmp_dir before move to final_dir).
-
-  Raises:
-    ValueError if `names` is empty.
-  """
+def create_tmp_directory(final_dir: str) -> str:
+  """Creates a temporary directory for saving at the given path."""
   # Share a timestamp across devices.
   timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
-
-  final_dir = tf.io.gfile.join(directory, str(step))
-  assert not tf.io.gfile.exists(final_dir)
   tmp_dir = final_dir + TMP_DIR_SUFFIX + f'{timestamp}'
 
-  if not names:
-    raise ValueError('Must provide non-empty `names`.')
-  for name in names:
-    tmp_subdir = tf.io.gfile.join(tmp_dir, name)
-
-    if tf.io.gfile.exists(final_dir):
-      logging.info('Directory already exists for item: %s at step: %d', name,
-                   step)
-
-    if jax.process_index() == 0:
-      assert not tf.io.gfile.exists(tmp_subdir)
-      tf.io.gfile.makedirs(tmp_subdir)
+  if jax.process_index() == 0:
+    assert not tf.io.gfile.exists(tmp_dir)
+    tf.io.gfile.makedirs(tmp_dir)
 
   multihost_utils.sync_global_devices('make_dir')
 
-  return tmp_dir, final_dir
+  return tmp_dir
 
 
 def is_scalar(x):
