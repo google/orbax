@@ -24,7 +24,6 @@ from jax.experimental import multihost_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
-from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
 import tensorflow as tf
@@ -33,7 +32,6 @@ PyTree = type(jax.tree_structure(None))
 CheckpointDirs = Tuple[str, str]
 SaveParams = Mapping[str, Any]
 RestoreParams = SaveParams
-HandlerOrCheckpointer = Union[CheckpointHandler, AbstractCheckpointer]
 
 DEFAULT_ITEM_NAME = 'default'
 METRIC_ITEM_NAME = 'metrics'
@@ -103,9 +101,8 @@ class CheckpointManager(AbstractCheckpointManager):
   def __init__(
       self,
       directory: str,
-      # TODO(b/238651177): Disallow CheckpointHandler after T5X is migrated.
-      checkpointers: Union[HandlerOrCheckpointer,
-                           Mapping[str, HandlerOrCheckpointer]],
+      checkpointers: Union[AbstractCheckpointer, Mapping[str,
+                                                         AbstractCheckpointer]],
       options: Optional[CheckpointManagerOptions] = None,
   ):
     """CheckpointManager constructor.
@@ -123,20 +120,12 @@ class CheckpointManager(AbstractCheckpointManager):
     self._single_item = False
     if isinstance(checkpointers, AbstractCheckpointer):
       self._single_item = True
-      # TODO(b/238651177): Disallow CheckpointHandler after T5X is migrated.
-      if isinstance(checkpointers, CheckpointHandler):
-        checkpointers = Checkpointer(checkpointers)
       checkpointers = {DEFAULT_ITEM_NAME: checkpointers}
     elif isinstance(checkpointers, dict):
       if METRIC_ITEM_NAME in checkpointers:
         raise ValueError(
             f'Found {METRIC_ITEM_NAME} in `checkpointers`; this is a reserved key.'
         )
-      for k, checkpointer in checkpointers.items():
-        # TODO(b/238651177) Disallow CheckpointHandler after T5X is migrated.
-        # Also assert that elements are AbstractCheckpointer.
-        if isinstance(checkpointer, CheckpointHandler):
-          checkpointers[k] = Checkpointer(checkpointer)
     else:
       raise ValueError(
           f'Invalid type for `checkpointers`. Found {checkpointers}.')
