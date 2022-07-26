@@ -307,6 +307,14 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     self._structure = None
     self._enable_flax = enable_flax
 
+  def _get_param_names(self, state_dict: PyTree) -> PyTree:
+    """Gets parameter names for PyTree elements."""
+    names = traverse_util.unflatten_dict({
+        k: '.'.join(k)
+        for k in traverse_util.flatten_dict(state_dict, keep_empty_nodes=True)
+    })
+    return names
+
   def _get_param_infos(self, state_dict: PyTree, directory: str) -> PyTree:
     """Returns parameter information for elements in `state_dict`.
 
@@ -322,10 +330,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     """
     if not state_dict:
       raise ValueError('Found empty state_dict')
-    names = traverse_util.unflatten_dict({
-        k: '.'.join(k)
-        for k in traverse_util.flatten_dict(state_dict, keep_empty_nodes=True)
-    })
+    names = self._get_param_names(state_dict)
 
     def _param_info(name, arr_or_spec):
       path = tf.io.gfile.join(directory, name)
