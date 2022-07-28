@@ -16,8 +16,10 @@
 
 Implementation of CheckpointHandler interface.
 """
+import os
 from typing import Any
 
+from etils import epath
 import jax
 from jax.experimental import multihost_utils
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
@@ -32,7 +34,7 @@ class DatasetCheckpointHandler(CheckpointHandler):
   def __init__(self, checkpoint_filename=_CHECKPOINT_FILENAME):
     self._checkpoint_filename = checkpoint_filename
 
-  def save(self, directory: str, item: tf.data.Iterator):
+  def save(self, directory: epath.Path, item: tf.data.Iterator):
     """Saves the given item.
 
     In a multihost setting, only saves on host 0.
@@ -43,10 +45,11 @@ class DatasetCheckpointHandler(CheckpointHandler):
     """
     if jax.process_index() == 0:
       ckpt = tf.train.Checkpoint(ds=item)
-      ckpt.write(tf.io.gfile.join(directory, self._checkpoint_filename))
+      ckpt.write(os.fspath(directory / self._checkpoint_filename))
     multihost_utils.sync_global_devices('DatasetCheckpointHandler:save')
 
-  def restore(self, directory: str, item: tf.data.Iterator) -> tf.data.Iterator:
+  def restore(self, directory: epath.Path,
+              item: tf.data.Iterator) -> tf.data.Iterator:
     """Restores the given item.
 
     Args:
@@ -57,10 +60,10 @@ class DatasetCheckpointHandler(CheckpointHandler):
       a tf.data.Iterator restored from `directory`.
     """
     ckpt = tf.train.Checkpoint(ds=item)
-    ckpt.read(tf.io.gfile.join(directory,
-                               self._checkpoint_filename)).assert_consumed()
+    ckpt.read(os.fspath(directory /
+                        self._checkpoint_filename)).assert_consumed()
     return item
 
-  def structure(self, directory: str) -> Any:
+  def structure(self, directory: epath.Path) -> Any:
     """Unimplemented. See parent class."""
     return NotImplementedError

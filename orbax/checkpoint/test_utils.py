@@ -16,8 +16,10 @@
 
 from typing import List, Optional
 
+from etils import epath
 from flax.training.train_state import TrainState
 import jax
+from jax.experimental import multihost_utils
 from jax.experimental import pjit
 from jax.experimental.global_device_array import GlobalDeviceArray
 from jax.experimental.maps import Mesh
@@ -25,20 +27,20 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 from orbax.checkpoint import pytree_checkpoint_handler
-import tensorflow as tf
 
 
-def save_fake_tmp_dir(directory: str,
+def save_fake_tmp_dir(directory: epath.Path,
                       step: int,
                       item: str,
-                      subdirs: Optional[List[str]] = None) -> str:
+                      subdirs: Optional[List[str]] = None) -> epath.Path:
   """Saves a directory with a tmp folder to simulate preemption."""
   subdirs = subdirs or []
-  path = tf.io.gfile.join(directory,
-                          str(step) + '.orbax-checkpoint-tmp-1010101', item)
-  tf.io.gfile.makedirs(path)
-  for sub in subdirs:
-    tf.io.gfile.makedirs(tf.io.gfile.join(path, sub))
+  path = directory / (str(step) + '.orbax-checkpoint-tmp-1010101') / item
+  if jax.process_index() == 0:
+    path.mkdir(parents=True)
+    for sub in subdirs:
+      (path / sub).mkdir(parents=True)
+  multihost_utils.sync_global_devices('save_fake_tmp_dir')
   return path
 
 

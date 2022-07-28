@@ -20,8 +20,10 @@ Implementation of CheckpointHandler interface.
 import asyncio
 import dataclasses
 import functools
+import os
 from typing import Any, List, MutableMapping, Optional, Tuple, Union
 
+from etils import epath
 import flax
 from flax import traverse_util
 import jax
@@ -37,7 +39,6 @@ from orbax.checkpoint import lazy_array
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
-import tensorflow as tf
 import tensorstore as ts
 
 PyTree = type(jax.tree_structure(None))
@@ -121,7 +122,7 @@ async def _create_param_save_dir(param_info: ParamInfo):
     return
   path = tspec['kvstore']['path']
   if jax.process_index() == 0:
-    await utils.async_makedirs(path)
+    await utils.async_makedirs(epath.Path(path))
 
 
 async def _maybe_deserialize(args, value, info):
@@ -156,10 +157,11 @@ async def _maybe_deserialize(args, value, info):
     return await result.get_async()
 
 
-def _get_tensorstore_spec(path: str, arr_or_spec: ArrayOrSpec):
+def _get_tensorstore_spec(path: epath.Path, arr_or_spec: ArrayOrSpec):
   """Gets ts.Spec in json format for the given path and array."""
   if arr_or_spec is None:
     return None
+  path = os.fspath(path)
   tspec = serialization.get_tensorstore_spec(path)
   if isinstance(arr_or_spec, GlobalDeviceArray):
     arr = arr_or_spec
@@ -269,7 +271,7 @@ async def _deserialize_array(
     param_info: ParamInfo) -> Union[ArrayOrScalar, GlobalDeviceArray]:
   """Writes an array (np.ndarray) or GlobalDeviceArray."""
   tspec = param_info.tspec
-  if not tf.io.gfile.listdir(tspec['kvstore']['path']):
+  if not epath.Path(tspec['kvstore']['path']).iterdir():
     # Empty dictionaries are written as directories containing no files.
     return {}
 
@@ -315,7 +317,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     })
     return names
 
-  def _get_param_infos(self, state_dict: PyTree, directory: str) -> PyTree:
+  def _get_param_infos(self, state_dict: PyTree,
+                       directory: epath.Path) -> PyTree:
     """Returns parameter information for elements in `state_dict`.
 
     At minimum, this method should extract the names of each parameter for
@@ -333,14 +336,14 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     names = self._get_param_names(state_dict)
 
     def _param_info(name, arr_or_spec):
-      path = tf.io.gfile.join(directory, name)
+      path = directory / name
       return ParamInfo(name, _get_tensorstore_spec(path, arr_or_spec))
 
     return jax.tree_map(_param_info, names, state_dict)
 
   async def async_save(
       self,
-      directory: str,
+      directory: epath.Path,
       item: PyTree,
       save_args: Optional[PyTree] = None) -> Optional[List[asyncio.Future]]:
     """Saves a PyTree from a given training step.
@@ -394,13 +397,11 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       flax_item = jax.tree_map(_get_flax_tree_value, param_infos, save_args,
                                item)
       msgpack = flax.serialization.to_bytes(flax_item)
-      with tf.io.gfile.GFile(
-          tf.io.gfile.join(directory, _FLAX_CHECKPOINT_FILE), mode='wb') as f:
-        f.write(msgpack)
+      (directory / _FLAX_CHECKPOINT_FILE).write_bytes(msgpack)
 
     return commit_futures
 
-  def save(self, directory: str, item: Any, *args, **kwargs):
+  def save(self, directory: epath.Path, item: Any, *args, **kwargs):
     """Saves the provided item.
 
     See async_save.
@@ -420,7 +421,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     multihost_utils.sync_global_devices('PyTreeCheckpointHandler:save')
 
   def restore(self,
-              directory: str,
+              directory: epath.Path,
               item: Optional[PyTree] = None,
               restore_args: Optional[PyTree] = None,
               transforms: Optional[PyTree] = None) -> PyTree:
@@ -456,7 +457,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       ValueError: `transforms` contains elements with `value_fn` or
         `multi_value_fn`.
     """
-    if not tf.io.gfile.exists(directory):
+    if not directory.exists():
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}')
 
@@ -507,7 +508,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     multihost_utils.sync_global_devices('PyTreeCheckpointHandler:restore')
     return restored
 
-  def structure(self, directory: str) -> PyTree:
+  def structure(self, directory: epath.Path) -> PyTree:
     """Restores the PyTree structure from a Flax checkpoint.
 
     Args:
@@ -521,10 +522,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     """
     if self._structure is not None:
       return self._structure
-    flax_file = tf.io.gfile.join(directory, _FLAX_CHECKPOINT_FILE)
-    if tf.io.gfile.exists(flax_file):
-      with tf.io.gfile.GFile(flax_file, mode='rb') as f:
-        msgpack = f.read()
+    flax_file = directory / _FLAX_CHECKPOINT_FILE
+    if flax_file.exists():
+      msgpack = flax_file.read_bytes()
       self._structure = utils.msgpack_restore(msgpack)
     else:
       if self._enable_flax:

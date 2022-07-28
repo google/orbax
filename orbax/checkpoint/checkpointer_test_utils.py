@@ -14,6 +14,7 @@
 
 """Common tests for AbstractCheckpointManager subclasses."""
 from absl.testing import parameterized
+from etils import epath
 from flax import linen as nn
 from flax.training.train_state import TrainState
 import jax
@@ -57,8 +58,8 @@ class CheckpointerTestBase:
           lambda mesh, axes: RestoreArgs(mesh=mesh, mesh_axes=axes),
           self.mesh_tree, self.axes_tree)
       self.dataset = tf.data.Dataset.range(64)
-      self.directory = self.create_tempdir(name='checkpointing_test').full_path
-      self.directory = tf.io.gfile.join(self.directory, 'ckpt')
+      self.directory = epath.Path(
+          self.create_tempdir(name='checkpointing_test').full_path) / 'ckpt'
 
       multihost_utils.sync_global_devices('CheckpointerTest:setup_complete')
 
@@ -101,7 +102,7 @@ class CheckpointerTestBase:
       self.wait_if_async(checkpointer)
       structure = checkpointer.structure(self.directory)
       handler = PyTreeCheckpointHandler()
-      expected = checkpointer.structure(handler.structure(self.directory))
+      expected = handler.structure(self.directory)
       test_utils.assert_tree_equal(self, expected, structure)
 
     def test_no_overwrite_existing(self):

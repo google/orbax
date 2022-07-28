@@ -15,14 +15,14 @@
 """Synchronous Checkpointer implementation."""
 
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
+from etils import epath
 import jax
 from jax.experimental import multihost_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
-import tensorflow as tf
 
 
 class Checkpointer(AbstractCheckpointer):
@@ -36,7 +36,7 @@ class Checkpointer(AbstractCheckpointer):
     self._handler = handler
 
   def save(self,
-           directory: str,
+           directory: Union[str, epath.Path],
            item: Any,
            *args,
            force: bool = False,
@@ -57,10 +57,11 @@ class Checkpointer(AbstractCheckpointer):
     Raises:
       ValueError if the provided directory already exists.
     """
-    if tf.io.gfile.exists(directory):
+    directory = epath.Path(directory)
+    if directory.exists():
       if force:
         if jax.process_index() == 0:
-          tf.io.gfile.rmtree(directory)
+          utils.rmtree(directory)
       else:
         raise ValueError(f'Destination {directory} already exists.')
     logging.info('Saving item to %s.', directory)
@@ -71,19 +72,21 @@ class Checkpointer(AbstractCheckpointer):
 
     # Ensure save operation atomicity.
     if jax.process_index() == 0:
-      tf.io.gfile.rename(tmpdir, directory)
+      tmpdir.rename(directory)
     multihost_utils.sync_global_devices('Checkpointer:save')
 
   def restore(self,
-              directory: str,
+              directory: Union[str, epath.Path],
               *args,
               item: Optional[Any] = None,
               **kwargs) -> Any:
     """See superclass documentation."""
+    directory = epath.Path(directory)
     return self._handler.restore(directory, *args, item=item, **kwargs)
 
-  def structure(self, directory: str) -> Optional[Any]:
+  def structure(self, directory: Union[str, epath.Path]) -> Optional[Any]:
     """See superclass documentation."""
+    directory = epath.Path(directory)
     try:
       return self._handler.structure(directory)
     except NotImplementedError:

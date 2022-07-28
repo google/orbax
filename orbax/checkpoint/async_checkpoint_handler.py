@@ -17,6 +17,7 @@
 import abc
 import asyncio
 from typing import Any, Optional, List
+from etils import epath
 
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 
@@ -25,7 +26,7 @@ class AsyncCheckpointHandler(CheckpointHandler):
   """An interface providing async methods that can be used with CheckpointHandler."""
 
   @abc.abstractmethod
-  async def async_save(self, directory: str, item: Any, *args,
+  async def async_save(self, directory: epath.Path, item: Any, *args,
                        **kwargs) -> Optional[List[asyncio.Future]]:
     """Constructs a save operation.
 

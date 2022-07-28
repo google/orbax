@@ -16,6 +16,7 @@
 
 from absl import flags
 from absl.testing import absltest
+from etils import epath
 import jax
 from orbax.checkpoint.dataset_checkpoint_handler import DatasetCheckpointHandler
 import tensorflow as tf
@@ -31,7 +32,8 @@ class DatasetCheckpointHandlerTest(absltest.TestCase):
   def setUp(self):
     super().setUp()
 
-    self.directory = self.create_tempdir(name='checkpointing_test').full_path
+    self.directory = epath.Path(
+        self.create_tempdir(name='checkpointing_test').full_path)
     self.dataset = tf.data.Dataset.range(64)
 
   def test_save_restore(self):

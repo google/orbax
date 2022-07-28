@@ -17,24 +17,23 @@
 import asyncio
 import functools
 import logging
-from typing import Any
+from typing import Any, Union
 
+from etils import epath
 import jax
 from jax.experimental.gda_serialization.serialization import AsyncManager
 from orbax.checkpoint import utils
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint.checkpointer import Checkpointer
-import tensorflow as tf
 
 
-def on_commit_callback(temp_ckpt_dir, final_ckpt_dir):
+def _on_commit_callback(temp_ckpt_dir, final_ckpt_dir):
   if temp_ckpt_dir == final_ckpt_dir:
-    with tf.io.gfile.GFile(
-        tf.io.gfile.join(final_ckpt_dir, 'commit_success.txt'), 'w') as f:
-      f.write(f'Checkpoint commit was successful to {final_ckpt_dir}')
+    (final_ckpt_dir / 'commit_success.txt'
+    ).write_text(f'Checkpoint commit was successful to {final_ckpt_dir}')
   else:
     logging.info('Renaming %s to %s', temp_ckpt_dir, final_ckpt_dir)
-    tf.io.gfile.rename(temp_ckpt_dir, final_ckpt_dir)
+    temp_ckpt_dir.rename(final_ckpt_dir)
     logging.info('Finished saving checkpoint to `%s`.', final_ckpt_dir)
 
 
@@ -55,7 +54,7 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     self._handler = handler
     AsyncManager.__init__(self)
 
-  def save(self, directory: str, item: Any, *args, **kwargs):
+  def save(self, directory: Union[str, epath.Path], item: Any, *args, **kwargs):
     """Saves the given item to the provided directory.
 
     Delegates to the underlying CheckpointHandler. Ensures save operation
@@ -72,7 +71,8 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     Raises:
       ValueError if the provided directory already exists.
     """
-    if tf.io.gfile.exists(directory):
+    directory = epath.Path(directory)
+    if directory.exists():
       raise ValueError(f'Destination {directory} already exists.')
 
     logging.info('Saving item to %s. Waiting for thread to finish save.',
@@ -89,4 +89,4 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     self._add_futures(commit_ops)
     # Directory is the final directory
     self._start_async_commit(
-        functools.partial(on_commit_callback, tmpdir, directory))
+        functools.partial(_on_commit_callback, tmpdir, directory))

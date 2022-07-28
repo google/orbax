@@ -16,6 +16,7 @@
 
 import abc
 from typing import Any, Optional
+from etils import epath
 
 
 class CheckpointHandler(abc.ABC):
@@ -28,7 +29,7 @@ class CheckpointHandler(abc.ABC):
   """
 
   @abc.abstractmethod
-  def save(self, directory: str, item: Any, *args, **kwargs):
+  def save(self, directory: epath.Path, item: Any, *args, **kwargs):
     """Saves the provided item synchronously.
 
     Args:
@@ -41,7 +42,7 @@ class CheckpointHandler(abc.ABC):
 
   @abc.abstractmethod
   def restore(self,
-              directory: str,
+              directory: epath.Path,
               item: Optional[Any] = None,
               **kwargs) -> Any:
     """Restores the provided item synchronously.
@@ -57,7 +58,7 @@ class CheckpointHandler(abc.ABC):
     pass
 
   @abc.abstractmethod
-  def structure(self, directory: str) -> Any:
+  def structure(self, directory: epath.Path) -> Any:
     """Returns the structure of the item.
 
     This should represent the checkpointed item format without needing to fully

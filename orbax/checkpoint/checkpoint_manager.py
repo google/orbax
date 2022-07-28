@@ -19,6 +19,7 @@ import dataclasses
 import logging
 from typing import Any, Callable, Mapping, Optional, Sequence, Tuple, Union
 
+from etils import epath
 import jax
 from jax.experimental import multihost_utils
 from orbax.checkpoint import utils
@@ -26,7 +27,6 @@ from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManag
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
-import tensorflow as tf
 
 PyTree = type(jax.tree_structure(None))
 CheckpointDirs = Tuple[str, str]
@@ -100,7 +100,7 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def __init__(
       self,
-      directory: str,
+      directory: Union[str, epath.Path],
       checkpointers: Union[AbstractCheckpointer, Mapping[str,
                                                          AbstractCheckpointer]],
       options: Optional[CheckpointManagerOptions] = None,
@@ -116,7 +116,7 @@ class CheckpointManager(AbstractCheckpointManager):
      options: CheckpointManagerOptions. May be provided to specify additional
        arugments. If None, uses default values of CheckpointManagerOptions.
     """
-    self._directory = directory
+    self._directory = epath.Path(directory)
     self._single_item = False
     if isinstance(checkpointers, AbstractCheckpointer):
       self._single_item = True
@@ -141,7 +141,7 @@ class CheckpointManager(AbstractCheckpointManager):
     utils.cleanup_tmp_directories(self._directory)
 
   @property
-  def directory(self):
+  def directory(self) -> epath.Path:
     return self._directory
 
   def all_steps(self) -> Sequence[int]:
@@ -303,13 +303,14 @@ class CheckpointManager(AbstractCheckpointManager):
 
     return True
 
-  def restore(self,
-              step: int,
-              items: Optional[Union[Any, Mapping[str, Any]]] = None,
-              restore_kwargs: Optional[Union[RestoreParams,
-                                             Mapping[str,
-                                                     RestoreParams]]] = None,
-              directory: Optional[str] = None) -> Union[Any, Mapping[str, Any]]:
+  def restore(
+      self,
+      step: int,
+      items: Optional[Union[Any, Mapping[str, Any]]] = None,
+      restore_kwargs: Optional[Union[RestoreParams,
+                                     Mapping[str, RestoreParams]]] = None,
+      directory: Optional[Union[str, epath.Path]] = None
+  ) -> Union[Any, Mapping[str, Any]]:
     """Restores from the given step and provided items.
 
     Items and restore_kwargs must have a top-level structure matching that of
@@ -382,13 +383,17 @@ class CheckpointManager(AbstractCheckpointManager):
       return restored_items[DEFAULT_ITEM_NAME]
     return restored_items
 
-  def _restore_impl(self,
-                    step: int,
-                    items: Mapping[str, Any],
-                    restore_kwargs: Mapping[str, RestoreParams],
-                    directory: Optional[str] = None) -> Mapping[str, Any]:
+  def _restore_impl(
+      self,
+      step: int,
+      items: Mapping[str, Any],
+      restore_kwargs: Mapping[str, RestoreParams],
+      directory: Optional[Union[str, epath.Path]] = None) -> Mapping[str, Any]:
     """Restores only the provided items, or all items if empty."""
-    directory = directory or self.directory
+    if directory is None:
+      directory = self.directory
+    else:
+      directory = epath.Path(directory)
     restored = {}
     item_keys_to_restore = items.keys() or self._checkpointers.keys()
     for k in item_keys_to_restore:
@@ -420,8 +425,8 @@ class CheckpointManager(AbstractCheckpointManager):
     """
     result = {}
     for name, checkpointer in self._checkpointers.items():
-      structure = checkpointer.structure(
-          tf.io.gfile.join(self._directory, str(self.latest_step()), name))
+      structure = checkpointer.structure(self._directory /
+                                         str(self.latest_step()) / name)
       # If None, then the item has no defined structure, and should be excluded.
       # May be empty, which would simply represent a valid, but empty structure.
       if structure is not None:
@@ -468,7 +473,7 @@ class CheckpointManager(AbstractCheckpointManager):
       return
     for step in existing_steps[:to_remove]:
       # TODO(cpgaffney) optimize.
-      tf.io.gfile.rmtree(tf.io.gfile.join(self._directory, str(step)))
+      utils.rmtree(self._directory / str(step))
 
   def wait_until_finished(self):
     """Blocks until any incomplete save operations are completed.

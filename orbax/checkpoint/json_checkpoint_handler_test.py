@@ -15,9 +15,9 @@
 """Tests for JsonCheckpointHandler."""
 from absl import flags
 from absl.testing import absltest
+from etils import epath
 import jax
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
-import tensorflow as tf
 
 # Parse absl flags test_srcdir and test_tmpdir.
 jax.config.parse_flags_with_absl()
@@ -29,7 +29,8 @@ class JsonCheckpointHandlerTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.directory = self.create_tempdir(name='checkpointing_test').full_path
+    self.directory = epath.Path(
+        self.create_tempdir(name='checkpointing_test').full_path)
 
   def test_save_restore(self):
     item = {'a': 1, 'b': {'c': 'test1', 'b': 'test2'}, 'd': 5.5}
@@ -44,10 +45,8 @@ class JsonCheckpointHandlerTest(absltest.TestCase):
     checkpointer.save(self.directory, item)
     restored = checkpointer.restore(self.directory)
     self.assertEqual(item, restored)
-    self.assertTrue(
-        tf.io.gfile.exists(tf.io.gfile.join(self.directory, 'file')))
-    self.assertFalse(
-        tf.io.gfile.exists(tf.io.gfile.join(self.directory, 'metadata')))
+    self.assertTrue((self.directory / 'file').exists())
+    self.assertFalse((self.directory / 'metadata').exists())
 
 
 if __name__ == '__main__':

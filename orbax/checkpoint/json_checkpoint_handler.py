@@ -19,8 +19,8 @@ Implementation of CheckpointHandler interface.
 import json
 from typing import Any, Mapping, Optional
 
+from etils import epath
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
-import tensorflow as tf
 
 
 class JsonCheckpointHandler(CheckpointHandler):
@@ -35,18 +35,19 @@ class JsonCheckpointHandler(CheckpointHandler):
     """
     self._filename = filename or 'metadata'
 
-  def save(self, directory: str, item: Mapping[str, Any]):
+  def save(self, directory: epath.Path, item: Mapping[str, Any]):
     """Saves the given item.
 
     Args:
       directory: save location directory.
       item: nested dictionary.
     """
-    path = tf.io.gfile.join(directory, self._filename)
-    with tf.io.gfile.GFile(path, mode='w') as f:
-      f.write(json.dumps(item))
+    path = directory / self._filename
+    path.write_text(json.dumps(item))
 
-  def restore(self, directory: str, item: Optional[bytes] = None) -> bytes:
+  def restore(self,
+              directory: epath.Path,
+              item: Optional[bytes] = None) -> bytes:
     """Restores json mapping from directory.
 
     `item` is unused.
@@ -59,11 +60,9 @@ class JsonCheckpointHandler(CheckpointHandler):
       Binary data read from `directory`.
     """
     del item
-    path = tf.io.gfile.join(directory, self._filename)
-    with tf.io.gfile.GFile(path, mode='r') as f:
-      text = f.read()
-    return json.loads(text)
+    path = directory / self._filename
+    return json.loads(path.read_text())
 
-  def structure(self, directory: str) -> Any:
+  def structure(self, directory: epath.Path) -> Any:
     """Unimplemented. See parent class."""
     return NotImplementedError

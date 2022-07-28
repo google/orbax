@@ -16,19 +16,21 @@
 import asyncio
 import functools
 import logging
+import os
 import time
-from typing import Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple, Union
 
+from etils import epath
 import flax.serialization
 import jax
 from jax.experimental import multihost_utils
 import numpy as np
-import tensorflow as tf
 import tensorstore as ts
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 CheckpointDirs = Tuple[str, str]
 PyTree = type(jax.tree_structure(None))
+Path = Union[str, epath.Path]
 
 
 def _wrap(func):
@@ -45,7 +47,8 @@ def _wrap(func):
 
 
 # TODO(cpgaffney): This functionality should be provided by an external library.
-async_makedirs = _wrap(tf.io.gfile.makedirs)
+def async_makedirs(path, *args, **kwargs):
+  return _wrap(path.mkdir)(*args, **kwargs)
 
 
 def register_ts_spec_for_serialization():
@@ -63,12 +66,23 @@ def register_ts_spec_for_serialization():
       override=True)
 
 
+def rmtree(path: epath.Path):
+  """Recursively removes non-empty directory."""
+  for child in path.iterdir():
+    if child.is_file():
+      child.unlink()
+    else:
+      rmtree(child)
+  path.rmdir()
+
+
 class Leaf:
   pass
 
 
-def pytree_structure(directory: str) -> PyTree:
+def pytree_structure(directory: Path) -> PyTree:
   """Reconstruct state dict from saved model format in `directory`."""
+  directory = epath.Path(directory)
 
   def add_nested_key(subtree, nested_key):
     if not nested_key:
@@ -87,10 +101,10 @@ def pytree_structure(directory: str) -> PyTree:
     subtree[current] = add_nested_key(subtree[current], subkeys)
     return subtree
 
-  keys = tf.io.gfile.listdir(directory)
+  keys = directory.iterdir()
   tree = {}
   for k in keys:
-    tree = add_nested_key(tree, k.split('.'))
+    tree = add_nested_key(tree, k.name.split('.'))
   return tree
 
 
@@ -118,31 +132,35 @@ def to_state_dict(pytree):
   return _rebuild_ts_specs(state_dict)
 
 
-def cleanup_tmp_directories(directory: str):
+def cleanup_tmp_directories(directory: Path):
   """Cleanup steps in `directory` with tmp files, as these are not finalized."""
+  directory = epath.Path(directory)
   if jax.process_index() == 0:
     tmp_files = tmp_checkpoints(directory)
     for tmp_file in tmp_files:
-      if not is_checkpoint_finalized(directory, tmp_file):
-        tf.io.gfile.rmtree(tf.io.gfile.join(directory, tmp_file))
+      if not is_checkpoint_finalized(tmp_file):
+        rmtree(directory / tmp_file)
 
   multihost_utils.sync_global_devices('cleanup_tmp_dirs')
 
 
-def get_save_directory(step: int, directory: str, name: str) -> str:
+def get_save_directory(step: int, directory: Path, name: str) -> epath.Path:
   """Returns the standardized path to a save directory for a single item."""
-  return tf.io.gfile.join(directory, str(step), name)
+  directory = epath.Path(directory)
+  return directory / str(step) / name
 
 
-def create_tmp_directory(final_dir: str) -> str:
+def create_tmp_directory(final_dir: Path) -> epath.Path:
   """Creates a temporary directory for saving at the given path."""
   # Share a timestamp across devices.
+  final_dir = epath.Path(final_dir)
   timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
-  tmp_dir = final_dir + TMP_DIR_SUFFIX + f'{timestamp}'
+  tmp_dir = epath.Path(final_dir.parent) / (
+      final_dir.name + TMP_DIR_SUFFIX + f'{timestamp}')
 
   if jax.process_index() == 0:
-    assert not tf.io.gfile.exists(tmp_dir)
-    tf.io.gfile.makedirs(tmp_dir)
+    assert not tmp_dir.exists()
+    tmp_dir.mkdir(parents=True)
 
   multihost_utils.sync_global_devices('make_dir')
 
@@ -153,27 +171,29 @@ def is_scalar(x):
   return isinstance(x, (int, float, np.number))
 
 
-def is_checkpoint_finalized(checkpoint_dir: str, file: str) -> bool:
-  # <directory>/<step>.orbax-checkpoint-tmp-<timestamp>/<name>
-  return TMP_DIR_SUFFIX not in tf.io.gfile.join(checkpoint_dir, file)
+def is_checkpoint_finalized(path: Path) -> bool:
+  # <directory>/<step>/<name>.orbax-checkpoint-tmp-<timestamp>
+  path = epath.Path(path)
+  return TMP_DIR_SUFFIX not in path.name
 
 
-def checkpoint_steps(checkpoint_dir: str) -> List[int]:
+def checkpoint_steps(checkpoint_dir: Path) -> List[int]:
+  checkpoint_dir = epath.Path(checkpoint_dir)
   return [
-      int(s)
-      for s in tf.io.gfile.listdir(checkpoint_dir)
-      if is_checkpoint_finalized(checkpoint_dir, s) and s.isdigit()
+      int(os.fspath(s.name))
+      for s in checkpoint_dir.iterdir()
+      if is_checkpoint_finalized(s) and os.fspath(s.name).isdigit()
   ]
 
 
-def tmp_checkpoints(checkpoint_dir: str) -> List[str]:
+def tmp_checkpoints(checkpoint_dir: Path) -> List[str]:
+  checkpoint_dir = epath.Path(checkpoint_dir)
   return [
-      s for s in tf.io.gfile.listdir(checkpoint_dir)
-      if not is_checkpoint_finalized(checkpoint_dir, s)
+      s.name for s in checkpoint_dir.iterdir() if not is_checkpoint_finalized(s)
   ]
 
 
-def _wait_for_new_checkpoint(checkpoint_dir: str,
+def _wait_for_new_checkpoint(checkpoint_dir: epath.Path,
                              last_checkpoint_step: Optional[int],
                              seconds_to_sleep: int = 1,
                              timeout: Optional[int] = None):
@@ -205,7 +225,7 @@ def _wait_for_new_checkpoint(checkpoint_dir: str,
       return checkpoint_step
 
 
-def checkpoints_iterator(checkpoint_dir: str,
+def checkpoints_iterator(checkpoint_dir: Path,
                          min_interval_secs=0,
                          timeout=None,
                          timeout_fn=None) -> Iterator[int]:
@@ -254,6 +274,7 @@ def checkpoints_iterator(checkpoint_dir: str,
   Yields:
     Integer step numbers of the latest checkpoints as they arrive.
   """
+  checkpoint_dir = epath.Path(checkpoint_dir)
   checkpoint_step = None
   while True:
     new_checkpoint_step = 0
