@@ -127,7 +127,7 @@ async def _create_param_save_dir(param_info: ParamInfo):
 
 async def _maybe_deserialize(args, value, info):
   """Deserialize from tensorstore or return value if already deserialized."""
-  if value is None:
+  if value is None or (isinstance(value, dict) and not value):
     return {}
   if isinstance(value, (ts.Spec, utils.Leaf)):
     result = lazy_array.LazyAwaitableArray.from_tensor_store_spec(

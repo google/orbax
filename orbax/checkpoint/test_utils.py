@@ -162,4 +162,5 @@ def as_gda(arr, mesh, mesh_axes):
 def init_flax_model(model):
   params = model.init(jax.random.PRNGKey(0), jnp.ones([8, 8]))
   tx = optax.adamw(learning_rate=0.001)
-  return TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+  state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+  return jax.tree_map(np.asarray, state)
