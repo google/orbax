@@ -246,20 +246,19 @@ class CheckpointManager(AbstractCheckpointManager):
       force: if True, forces a save regardless of `self.should_save`.
 
     Returns:
-      bool indicating whether a save operation was performed. Will not overwrite
-      existing checkpoints.
+      bool indicating whether a save operation was performed.
     Raises:
       ValueError: if `track_best` was indicated but `metrics` is not provided.
       ValueError: directory creation failed.
       ValueError: if an item is provided for which no `Checkpointer` is
       found.
+      ValueError: if the checkpoint already exists.
     """
     if not force and not self.should_save(step):
       logging.info('Skipping save for step: %d', step)
       return False
     if step in self.all_steps():
-      logging.info('Checkpoint for step %d already exists.', step)
-      return False
+      raise ValueError(f'Checkpoint for step {step} already exists.')
 
     self._last_checkpoint_step = step
     if self._track_best:
