@@ -271,9 +271,6 @@ async def _deserialize_array(
     param_info: ParamInfo) -> Union[ArrayOrScalar, GlobalDeviceArray]:
   """Writes an array (np.ndarray) or GlobalDeviceArray."""
   tspec = param_info.tspec
-  if not epath.Path(tspec['kvstore']['path']).iterdir():
-    # Empty dictionaries are written as directories containing no files.
-    return {}
 
   if restore_args.dtype is not None:
     tspec = {
@@ -309,37 +306,38 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     self._structure = None
     self._enable_flax = enable_flax
 
-  def _get_param_names(self, state_dict: PyTree) -> PyTree:
+  def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
+    state_dict = utils.to_state_dict(item)
     names = traverse_util.unflatten_dict({
         k: '.'.join(k)
         for k in traverse_util.flatten_dict(state_dict, keep_empty_nodes=True)
     })
-    return names
+    r = flax.serialization.from_state_dict(item, names)
+    return r
 
-  def _get_param_infos(self, state_dict: PyTree,
-                       directory: epath.Path) -> PyTree:
-    """Returns parameter information for elements in `state_dict`.
+  def _get_param_infos(self, item: PyTree, directory: epath.Path) -> PyTree:
+    """Returns parameter information for elements in `item`.
 
     At minimum, this method should extract the names of each parameter for
     saving/restoring.
 
     Args:
-      state_dict: a nested dict to extract information from.
+      item: a PyTree to extract information from.
       directory: a directory where checkpoint files are located.
 
     Returns:
-      A PyTree matching `state_dict` of ParamInfo.
+      A PyTree matching `item` of ParamInfo.
     """
-    if not state_dict:
-      raise ValueError('Found empty state_dict')
-    names = self._get_param_names(state_dict)
+    if not item:
+      raise ValueError('Found empty item')
+    names = self._get_param_names(item)
 
     def _param_info(name, arr_or_spec):
       path = directory / name
       return ParamInfo(name, _get_tensorstore_spec(path, arr_or_spec))
 
-    return jax.tree_map(_param_info, names, state_dict)
+    return jax.tree_map(_param_info, names, item)
 
   async def async_save(
       self,
@@ -367,8 +365,6 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       A Future that will commit the data to `directory` when awaited. Copying
       the data from its source will be awaited in this function.
     """
-    # Convert arbitrary pytree into dictionary.
-    item = utils.to_state_dict(item)
     item = await lazy_array.maybe_get_tree_async(item)
 
     if save_args is None:
@@ -424,7 +420,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
               directory: epath.Path,
               item: Optional[PyTree] = None,
               restore_args: Optional[PyTree] = None,
-              transforms: Optional[PyTree] = None) -> PyTree:
+              transforms: Optional[PyTree] = None,
+              transforms_default_to_original: bool = True) -> PyTree:
     """Restores a PyTree from the checkpoint directory at the given step.
 
     Optional arguments meshes and mesh_axes define how each array in the
@@ -445,6 +442,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         for further information. Note that if `transforms` is provided, all
         other arguments are structured relative to the saved object, not to the
         restored object post-transformation.
+      transforms_default_to_original: See transform_utils.apply_transformations.
 
     Returns:
       A PyTree matching the structure of `item` with restored array values as
@@ -461,52 +459,51 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}')
 
-    # Note: because of None values in `state_dict`, avoid jax.tree_map with it
-    # in first position. Use param_infos.
-    state_dict = self.structure(directory)
-    param_infos = self._get_param_infos(state_dict, directory)
-
-    if transforms is not None:
-      if item is None:
+    structure = self.structure(directory)
+    param_infos = self._get_param_infos(structure, directory)
+    if item is None:
+      if transforms is not None:
         raise ValueError(
             'If providing `transforms`, must provide `item` matching structure of expected result.'
         )
-      if transform_utils.has_value_functions(transforms):
-        raise ValueError(
-            'Found disallowed `value_fn` or `multi_value-fn` in `transforms`.')
-      state_dict = transform_utils.apply_transformations(
-          self.structure(directory), transforms, utils.to_state_dict(item))
-      # param_infos must be transformed because the ts.Spec of saved params may
-      # correspond to the original structure rather than the new.
-      param_infos = transform_utils.apply_transformations(
-          param_infos, transforms, utils.to_state_dict(item))
+      item = structure
+    else:
+      if transforms is None:
+        item = flax.serialization.from_state_dict(item, structure)
+        param_infos = flax.serialization.from_state_dict(item, param_infos)
+      else:
+        if transform_utils.has_value_functions(transforms):
+          raise ValueError(
+              'Found disallowed `value_fn` or `multi_value_fn` in `transforms`.'
+          )
+        item = transform_utils.apply_transformations(
+            structure, transforms, item, transforms_default_to_original)
+        # param_infos must be transformed because the ts.Spec of saved params
+        # may correspond to the original structure rather than the new.
+        param_infos = transform_utils.apply_transformations(
+            param_infos, transforms, item, transforms_default_to_original)
 
     if restore_args is None:
-      restore_args = jax.tree_map(lambda x: RestoreArgs(as_gda=False),
-                                  state_dict)
-    else:
-      restore_args = utils.to_state_dict(restore_args)
+      restore_args = jax.tree_map(lambda x: RestoreArgs(as_gda=False), item)
 
     future_arrays = jax.tree_map(
         _maybe_deserialize,
         restore_args,
-        state_dict,
+        item,
         param_infos,
         is_leaf=lambda args: isinstance(args, RestoreArgs) or not args)
 
-    future_arrays, state_dict_def = jax.tree_flatten(future_arrays)
+    future_arrays, item_def = jax.tree_flatten(future_arrays)
 
     async def _async_restore(future_arrays):
       return await asyncio.gather(*future_arrays)
 
     result = asyncio.run(_async_restore(future_arrays))
 
-    restored_state_dict = jax.tree_unflatten(state_dict_def, result)
-    # Convert back into original object.
-    restored = flax.serialization.from_state_dict(item, restored_state_dict)
+    restored_item = jax.tree_unflatten(item_def, result)
 
     multihost_utils.sync_global_devices('PyTreeCheckpointHandler:restore')
-    return restored
+    return restored_item
 
   def structure(self, directory: epath.Path) -> PyTree:
     """Restores the PyTree structure from a Flax checkpoint.
