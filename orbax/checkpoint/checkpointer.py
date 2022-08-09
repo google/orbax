@@ -64,9 +64,10 @@ class Checkpointer(AbstractCheckpointer):
           utils.rmtree(directory)
       else:
         raise ValueError(f'Destination {directory} already exists.')
-    logging.info('Saving item to %s.', directory)
 
     tmpdir = utils.create_tmp_directory(directory)
+    logging.info('Saving item to %s.', tmpdir)
+
     self._handler.save(tmpdir, item, *args, **kwargs)
     multihost_utils.sync_global_devices('Checkpointer:write')
 
@@ -74,6 +75,7 @@ class Checkpointer(AbstractCheckpointer):
     if jax.process_index() == 0:
       tmpdir.rename(directory)
     multihost_utils.sync_global_devices('Checkpointer:save')
+    logging.info('Finished saving item to %s.', directory)
 
   def restore(self,
               directory: Union[str, epath.Path],
@@ -81,8 +83,11 @@ class Checkpointer(AbstractCheckpointer):
               item: Optional[Any] = None,
               **kwargs) -> Any:
     """See superclass documentation."""
+    logging.info('Beginning restore from %s.', directory)
     directory = epath.Path(directory)
-    return self._handler.restore(directory, *args, item=item, **kwargs)
+    restored = self._handler.restore(directory, *args, item=item, **kwargs)
+    logging.info('Finished restore from %s.', directory)
+    return restored
 
   def structure(self, directory: Union[str, epath.Path]) -> Optional[Any]:
     """See superclass documentation."""
