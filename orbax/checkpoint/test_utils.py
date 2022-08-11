@@ -29,6 +29,7 @@ import numpy as np
 import optax
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import transform_utils
+from orbax.checkpoint import utils
 
 
 def save_fake_tmp_dir(directory: epath.Path,
@@ -37,7 +38,10 @@ def save_fake_tmp_dir(directory: epath.Path,
                       subdirs: Optional[List[str]] = None) -> epath.Path:
   """Saves a directory with a tmp folder to simulate preemption."""
   subdirs = subdirs or []
-  path = directory / (str(step) + '.orbax-checkpoint-tmp-1010101') / item
+  suffix = ''
+  if not utils.is_gcs_path(directory):
+    suffix = '.orbax-checkpoint-tmp-1010101'
+  path = directory / str(step) / (item + suffix)
   if jax.process_index() == 0:
     path.mkdir(parents=True)
     for sub in subdirs:

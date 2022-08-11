@@ -27,16 +27,6 @@ from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint.checkpointer import Checkpointer
 
 
-def _on_commit_callback(temp_ckpt_dir, final_ckpt_dir):
-  if temp_ckpt_dir == final_ckpt_dir:
-    (final_ckpt_dir / 'commit_success.txt'
-    ).write_text(f'Checkpoint commit was successful to {final_ckpt_dir}')
-  else:
-    logging.info('Renaming %s to %s', temp_ckpt_dir, final_ckpt_dir)
-    temp_ckpt_dir.rename(final_ckpt_dir)
-    logging.info('Finished saving checkpoint to `%s`.', final_ckpt_dir)
-
-
 # TODO(b/238758658): Eliminate GDA dependency by moving AsyncManager to a
 # different location.
 class AsyncCheckpointer(Checkpointer, AsyncManager):
@@ -89,4 +79,4 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     self._add_futures(commit_ops)
     # Directory is the final directory
     self._start_async_commit(
-        functools.partial(_on_commit_callback, tmpdir, directory))
+        functools.partial(utils.ensure_atomic_save, tmpdir, directory))

@@ -72,7 +72,7 @@ class Checkpointer(AbstractCheckpointer):
 
     # Ensure save operation atomicity.
     if jax.process_index() == 0:
-      tmpdir.rename(directory)
+      utils.ensure_atomic_save(tmpdir, directory)
     multihost_utils.sync_global_devices('Checkpointer:save')
 
   def restore(self,
@@ -82,6 +82,10 @@ class Checkpointer(AbstractCheckpointer):
               **kwargs) -> Any:
     """See superclass documentation."""
     directory = epath.Path(directory)
+    if not directory.exists():
+      raise FileNotFoundError(f'Checkpoint at {directory} not found.')
+    if not utils.is_checkpoint_finalized(directory):
+      raise ValueError(f'Found incomplete checkpoint at {directory}.')
     return self._handler.restore(directory, *args, item=item, **kwargs)
 
   def structure(self, directory: Union[str, epath.Path]) -> Optional[Any]:

@@ -27,7 +27,9 @@ from jax.experimental import multihost_utils
 import numpy as np
 import tensorstore as ts
 
-TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
+_TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
+_COMMIT_SUCCESS_FILE = 'commit_success.txt'
+_GCS_PATH_PREFIX = 'gs://'
 CheckpointDirs = Tuple[str, str]
 PyTree = type(jax.tree_structure(None))
 Path = Union[str, epath.Path]
@@ -142,10 +144,13 @@ def cleanup_tmp_directories(directory: Path):
   if jax.process_index() == 0:
     tmp_files = tmp_checkpoints(directory)
     for tmp_file in tmp_files:
-      if not is_checkpoint_finalized(tmp_file):
-        rmtree(directory / tmp_file)
+      rmtree(directory / tmp_file)
 
   multihost_utils.sync_global_devices('cleanup_tmp_dirs')
+
+
+def is_gcs_path(path: epath.Path):
+  return os.fspath(path).startswith(_GCS_PATH_PREFIX)
 
 
 def get_save_directory(step: int, directory: Path, name: str) -> epath.Path:
@@ -158,9 +163,13 @@ def create_tmp_directory(final_dir: Path) -> epath.Path:
   """Creates a temporary directory for saving at the given path."""
   # Share a timestamp across devices.
   final_dir = epath.Path(final_dir)
+  # Renames are not atomic in GCS. Save directly to final_dir and rely on commit
+  # completion file to indicate success.
+  if is_gcs_path(final_dir):
+    return final_dir
   timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
   tmp_dir = epath.Path(final_dir.parent) / (
-      final_dir.name + TMP_DIR_SUFFIX + f'{timestamp}')
+      final_dir.name + _TMP_DIR_SUFFIX + f'{timestamp}')
 
   if jax.process_index() == 0:
     assert not tmp_dir.exists()
@@ -171,14 +180,50 @@ def create_tmp_directory(final_dir: Path) -> epath.Path:
   return tmp_dir
 
 
+def ensure_atomic_save(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path):
+  """Finalizes atomic save by renaming tmp_dir or writing a success file."""
+  if temp_ckpt_dir == final_ckpt_dir:
+    (final_ckpt_dir / _COMMIT_SUCCESS_FILE
+    ).write_text(f'Checkpoint commit was successful to {final_ckpt_dir}')
+  else:
+    logging.info('Renaming %s to %s', temp_ckpt_dir, final_ckpt_dir)
+    temp_ckpt_dir.rename(final_ckpt_dir)
+    logging.info('Finished saving checkpoint to `%s`.', final_ckpt_dir)
+
+
 def is_scalar(x):
   return isinstance(x, (int, float, np.number))
 
 
 def is_checkpoint_finalized(path: Path) -> bool:
-  # <directory>/<step>/<name>.orbax-checkpoint-tmp-<timestamp>
+  """Determines if the checkpoint path is finalized.
+
+  Path takes the form:
+  <directory>/<step>/
+    <name1>.orbax-checkpoint-tmp-<timestamp>  # not finalized
+    <name2>  # finalized
+
+  Alternatively:
+  gs://<directory>/<step>/
+    <name1>  # finalized
+      commit_success.txt
+      ...
+    <name2>  # not finalized
+      ...
+
+  Args:
+    path: Path to step directory.
+
+  Returns:
+    True if the checkpoint is finalized.
+  """
   path = epath.Path(path)
-  return TMP_DIR_SUFFIX not in path.name
+  for subpath in path.iterdir():
+    if is_gcs_path(subpath) and not (subpath / _COMMIT_SUCCESS_FILE).exists():
+      return False
+    if _TMP_DIR_SUFFIX in subpath.name:
+      return False
+  return True
 
 
 def checkpoint_steps(checkpoint_dir: Path) -> List[int]:
