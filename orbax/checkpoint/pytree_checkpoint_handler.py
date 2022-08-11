@@ -21,6 +21,7 @@ import asyncio
 import dataclasses
 import functools
 import os
+import re
 from typing import Any, List, MutableMapping, Optional, Tuple, Union
 
 from etils import epath
@@ -42,9 +43,10 @@ from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 import tensorstore as ts
 
 PyTree = type(jax.tree_structure(None))
-ArrayOrScalar = Union[int, float, np.number, np.ndarray, jnp.ndarray]
-Array = Union[np.ndarray, jnp.ndarray]
-ArrayOrSpec = Union[ts.Spec, dict, ArrayOrScalar, GlobalDeviceArray, utils.Leaf]
+ArrayOrScalar = Union[int, float, np.number, np.ndarray, jnp.ndarray,
+                      GlobalDeviceArray]
+Array = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray]
+StructureLeaf = Union[str, dict, ts.Spec, ArrayOrScalar]
 
 _FLAX_CHECKPOINT_FILE = 'checkpoint'
 
@@ -58,7 +60,7 @@ class ParamInfo:
   name: name of the parameter.
   tspec: Tensorstore spec in JSON format.
   """
-  name: str
+  name: Optional[str]
   tspec: Optional[MutableMapping[str, Any]]
 
 
@@ -157,20 +159,17 @@ async def _maybe_deserialize(args, value, info):
     return await result.get_async()
 
 
-def _get_tensorstore_spec(path: epath.Path, arr_or_spec: ArrayOrSpec):
+def _get_array_tensorstore_spec(path: epath.Path, arr: ArrayOrScalar):
   """Gets ts.Spec in json format for the given path and array."""
-  if arr_or_spec is None:
+  if arr is None:
     return None
   path = os.fspath(path)
   tspec = serialization.get_tensorstore_spec(path)
-  if isinstance(arr_or_spec, GlobalDeviceArray):
-    arr = arr_or_spec
+  if isinstance(arr, GlobalDeviceArray):
     tspec['metadata'] = serialization._get_metadata(arr)  # pylint: disable=protected-access
     del tspec['metadata']['dtype']  # pytype: disable=unsupported-operands
   # Note: should match ArrayOrScalar defined at the top of the file.
-  elif isinstance(arr_or_spec,
-                  (int, float, np.number, np.ndarray, jnp.ndarray)):
-    arr = arr_or_spec
+  elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
     if utils.is_scalar(arr):
       arr = np.asarray(arr)
     tspec['metadata'] = {
@@ -180,19 +179,37 @@ def _get_tensorstore_spec(path: epath.Path, arr_or_spec: ArrayOrSpec):
         'shape': arr.shape,  # pytype: disable=attribute-error
         'chunks': arr.shape,  # pytype: disable=attribute-error
     }
-  elif isinstance(arr_or_spec, ts.Spec):
-    tspec = arr_or_spec.to_json()  # pytype: disable=attribute-error
-    tspec['kvstore']['path'] = path
-  elif isinstance(arr_or_spec, dict):
-    assert not arr_or_spec  # expected empty
-    tspec = None
-  elif isinstance(arr_or_spec, utils.Leaf):
-    # Cannot be used when saving a tree.
-    # utils.Leaf is a dummy value only used during restore.
-    pass
   else:
-    raise ValueError(f'Unsupported array type: {type(arr_or_spec)}')
+    raise ValueError(f'Unsupported array type: {type(arr)}')
   return tspec
+
+
+def _get_param_infos_from_structure(directory: epath.Path,
+                                    structure: PyTree) -> PyTree:
+  """Construct ParamInfos based on structure()."""
+
+  def _get_param_info(leaf):
+    if leaf is None:
+      tspec = None
+    elif isinstance(leaf, dict):
+      tspec = None
+    elif isinstance(leaf, epath.Path):
+      # Leaf is a param name.
+      path = os.fspath(directory / leaf)
+      tspec = serialization.get_tensorstore_spec(path)
+    elif isinstance(leaf, ts.Spec):
+      tspec = leaf.to_json()  # pytype: disable=attribute-error
+      # Skip '.', since we need special regex handling for this char.
+      pattern = r'\.' + utils.TMP_DIR_SUFFIX[1:] + r'\d+'
+      tspec['kvstore']['path'] = re.sub(pattern, '', tspec['kvstore']['path'])
+    elif isinstance(leaf, (int, float, np.number, np.ndarray, jnp.ndarray)):
+      # Array already restored, do not need ts.Spec.
+      tspec = None
+    else:
+      raise ValueError(f'Unsupported type: {type(leaf)}')
+    return ParamInfo(name=None, tspec=tspec)
+
+  return jax.tree_map(_get_param_info, structure)
 
 
 def _get_flax_tree_value(param_info, arg, arr):
@@ -335,7 +352,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     def _param_info(name, arr_or_spec):
       path = directory / name
-      return ParamInfo(name, _get_tensorstore_spec(path, arr_or_spec))
+      return ParamInfo(name, _get_array_tensorstore_spec(path, arr_or_spec))
 
     return jax.tree_map(_param_info, names, item)
 
@@ -460,7 +477,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
           f'Requested directory for restore does not exist at {directory}')
 
     structure = self.structure(directory)
-    param_infos = self._get_param_infos(structure, directory)
+    param_infos = _get_param_infos_from_structure(directory, structure)
     if item is None:
       if transforms is not None:
         raise ValueError(
@@ -512,7 +529,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       directory: the directory to restore from.
 
     Returns:
-      The structure of the checkpointed PyTree.
+      The structure of the checkpointed PyTree. Leaves may be of type
+      StructureLeaf.
 
     Raises:
       FileNotFoundError: if the flax checkpoint is not found.

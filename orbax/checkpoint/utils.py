@@ -27,7 +27,7 @@ from jax.experimental import multihost_utils
 import numpy as np
 import tensorstore as ts
 
-_TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
+TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
 _GCS_PATH_PREFIX = 'gs://'
 CheckpointDirs = Tuple[str, str]
@@ -82,15 +82,14 @@ def rmtree(path: epath.Path):
   path.rmdir()
 
 
-class Leaf:
-  pass
+Leaf = epath.Path
 
 
 def pytree_structure(directory: Path) -> PyTree:
   """Reconstruct state dict from saved model format in `directory`."""
   directory = epath.Path(directory)
 
-  def add_nested_key(subtree, nested_key):
+  def add_nested_key(subtree, nested_key, full_name):
     if not nested_key:
       return subtree
 
@@ -98,19 +97,19 @@ def pytree_structure(directory: Path) -> PyTree:
 
     if len(nested_key) == 1:
       assert current not in subtree
-      subtree[current] = Leaf()
+      subtree[current] = full_name
       return subtree
 
     subkeys = nested_key[1:]
     if current not in subtree:
       subtree[current] = {}
-    subtree[current] = add_nested_key(subtree[current], subkeys)
+    subtree[current] = add_nested_key(subtree[current], subkeys, full_name)
     return subtree
 
   keys = directory.iterdir()
   tree = {}
   for k in keys:
-    tree = add_nested_key(tree, k.name.split('.'))
+    tree = add_nested_key(tree, k.name.split('.'), k)
   return tree
 
 
@@ -169,7 +168,7 @@ def create_tmp_directory(final_dir: Path) -> epath.Path:
     return final_dir
   timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
   tmp_dir = epath.Path(final_dir.parent) / (
-      final_dir.name + _TMP_DIR_SUFFIX + f'{timestamp}')
+      final_dir.name + TMP_DIR_SUFFIX + f'{timestamp}')
 
   if jax.process_index() == 0:
     assert not tmp_dir.exists()
@@ -221,7 +220,7 @@ def is_checkpoint_finalized(path: Path) -> bool:
   for subpath in path.iterdir():
     if is_gcs_path(subpath) and not (subpath / _COMMIT_SUCCESS_FILE).exists():
       return False
-    if _TMP_DIR_SUFFIX in subpath.name:
+    if TMP_DIR_SUFFIX in subpath.name:
       return False
   return True
 
