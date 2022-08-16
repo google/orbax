@@ -17,6 +17,7 @@
 from orbax.checkpoint import lazy_array
 from orbax.checkpoint import test_utils
 from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
+from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler

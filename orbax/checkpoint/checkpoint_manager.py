@@ -37,14 +37,14 @@ DEFAULT_ITEM_NAME = 'default'
 METRIC_ITEM_NAME = 'metrics'
 
 
-def is_async_checkpointer(checkpointer: Checkpointer):
+def is_async_checkpointer(checkpointer: AbstractCheckpointer):
   # TODO(cpgaffney): add dependency on AsyncCheckpointer when AsyncManager is
   # open-sourced in JAX.
   return checkpointer.__class__.__name__ == 'AsyncCheckpointer'
 
 
-async def _call_valid_checkpointer_save(checkpointer: Checkpointer, *args,
-                                        **kwargs):
+async def _call_valid_checkpointer_save(checkpointer: AbstractCheckpointer,
+                                        *args, **kwargs):
   if is_async_checkpointer(checkpointer):
     futures = await checkpointer.async_save(*args, **kwargs)  # pytype: disable=attribute-error
     return await asyncio.gather(*futures)
