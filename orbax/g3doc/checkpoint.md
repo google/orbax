@@ -9,7 +9,7 @@ different objects.
 
 ## CheckpointManager
 
-[`CheckpointManager`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/checkpoint_manager.py)
+[`CheckpointManager`](https://github.com/google/orbax/tree/main/orbax/checkpoint/checkpoint_manager.py)
 is the highest-level object provided by Orbax for checkpointing, and is
 generally the interface that should be most often used to interact with
 checkpoints.
@@ -141,7 +141,7 @@ Other APIs include:
 
 ## Checkpointer
 
-[`Checkpointer`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/checkpointer.py)
+[`Checkpointer`](https://github.com/google/orbax/tree/main/orbax/checkpoint/checkpointer.py)
 serves as an intermediate layer between the high-level APIs of
 `CheckpointManager` and the lower-level, per-type logic of `CheckpointHandler`.
 It's purpose is to provide a no-frills way to atomically save an individual
@@ -161,7 +161,7 @@ will be atomic.
 
 ### AsyncCheckpointer
 
-[`AsyncCheckpointer`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/async_checkpointer.py)
+[`AsyncCheckpointer`](https://github.com/google/orbax/tree/main/orbax/checkpoint/async_checkpointer.py)
 is similar in almost every way to `Checkpointer`, but the save operation happens
 in a background thread, while returning immediately to allow the main thread to
 do something else. However, the operation is guaranteed to be eventually atomic.
@@ -178,7 +178,7 @@ save operations.
 IMPORTANT: `CheckpointHandler` is not intended to be used alone, but only in
 conjunction with `Checkpointer` or `CheckpointManager`.
 
-[`CheckpointHandler`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/checkpoint_handler.py)
+[`CheckpointHandler`](https://github.com/google/orbax/tree/main/orbax/checkpoint/checkpoint_handler.py)
 provides an interface which can be implemented to provide support for saving and
 restoring a particular object. Several objects are supported by default in Orbax
 (see [below](#checkpointhandler-implementations)).
@@ -190,7 +190,7 @@ atomic, since this functionality is handled by `Checkpointer`.
 ### AsyncCheckpointHandler
 
 A special interface inheriting from `CheckpointHandler`,
-[`AsyncCheckpointHandler`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/async_checkpoint_handler.py)
+[`AsyncCheckpointHandler`](https://github.com/google/orbax/tree/main/orbax/checkpoint/async_checkpoint_handler.py)
 provides an additional async method called `async_save`, which has a similar
 interface to `save`, but with significant differences.
 
@@ -205,7 +205,7 @@ method by calling `async_save`.
 
 ### PyTreeCheckpointHandler
 
-[`PyTreeCheckpointHandler`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/pytree_checkpoint_handler.py)
+[`PyTreeCheckpointHandler`](https://github.com/google/orbax/tree/main/orbax/checkpoint/pytree_checkpoint_handler.py)
 allows checkpointing PyTrees consisting of scalars, np/jnp arrays, or
 `GlobalDeviceArray` (`GDA`). Note that this class provides support for
 device-partitioned arrays via `GDA`. Other values are expected to be replicated
@@ -261,7 +261,7 @@ restore the object structure.
 
 ### JsonCheckpointHandler
 
-[`JsonCheckpointHandler`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/json_checkpoint_handler.py)
+[`JsonCheckpointHandler`](https://github.com/google/orbax/tree/main/orbax/checkpoint/json_checkpoint_handler.py)
 is provided as a way to checkpoint nested dictionaries that can be serialized in
 JSON format. This can be useful as a way to store checkpoint metadata. For
 example, `CheckpointManager` uses this class to store the metrics used to
@@ -271,7 +271,7 @@ Note that presently, this class does not implement async APIs.
 
 ### DatasetCheckpointHandler
 
-[`DatasetCheckpointHandler`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/dataset_checkpoint_handler.py)
+[`DatasetCheckpointHandler`](https://github.com/google/orbax/tree/main/orbax/checkpoint/dataset_checkpoint_handler.py)
 is designed for saving and restoring `tf.data.Iterator`. It does this using
 [`tf.train.Checkpoint`](https://www.tensorflow.org/api_docs/python/tf/train/Checkpoint).
 
@@ -286,7 +286,7 @@ on `tf.train.Checkpoint`.
 
 ### LazyArray
 
-[`LazyArray`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/lazy_array.py)
+[`LazyArray`](https://github.com/google/orbax/tree/main/orbax/checkpoint/lazy_array.py)
 provides a mechanism for delayed loading of arrays from a checkpoint. If a
 parameter is restored as a `LazyArray` (in `PyTreeCheckpointHandler`, setting
 `RestoreArgs.lazy = True`), the restored object will not yet have done the work
@@ -302,7 +302,7 @@ typically be small.
 ### Transformations
 
 The
-[`transform_utils`](http://https://github.com/google/orbax/tree/main/orbax/checkpoint/transform_utils.py)
+[`transform_utils`](https://github.com/google/orbax/tree/main/orbax/checkpoint/transform_utils.py)
 library provides functions to allow structural PyTree transformations, which can
 facilitate migrations between different checkpoint versions.
 
