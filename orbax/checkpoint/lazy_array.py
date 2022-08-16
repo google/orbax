@@ -145,9 +145,10 @@ def maybe_get(arr):
 
 
 async def maybe_get_tree_async(pytree):
-  flat, structure = jax.tree_flatten(jax.tree_map(maybe_get_async, pytree))
+  flat, structure = jax.tree_util.tree_flatten(
+      jax.tree_util.tree_map(maybe_get_async, pytree))
   flat = await asyncio.gather(*flat)
-  return jax.tree_unflatten(structure, flat)
+  return jax.tree_util.tree_unflatten(structure, flat)
 
 
 def maybe_get_tree(pytree):

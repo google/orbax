@@ -73,7 +73,7 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     # Run copy ops.
     commit_ops = asyncio.run(
         self._handler.async_save(tmpdir, item, *args, **kwargs))
-    commit_ops, _ = jax.tree_flatten(commit_ops)
+    commit_ops, _ = jax.tree_util.tree_flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
 
     self._add_futures(commit_ops)

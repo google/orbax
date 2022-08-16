@@ -82,7 +82,7 @@ def apply_function(gda_tree, function):
       result = pjitted(gda)
     return result
 
-  return jax.tree_map(f, gda_tree)
+  return jax.tree_util.tree_map(f, gda_tree)
 
 
 def assert_tree_equal(testclass, expected, actual):
@@ -102,7 +102,7 @@ def assert_tree_equal(testclass, expected, actual):
     else:
       np.testing.assert_array_equal(v_expected, v_actual)
 
-  jax.tree_map(assert_array_equal, expected, actual, is_leaf=is_leaf)
+  jax.tree_util.tree_map(assert_array_equal, expected, actual, is_leaf=is_leaf)
 
 
 def setup_pytree():
@@ -147,7 +147,7 @@ def setup_gda_pytree():
       }
   }
 
-  pytree = jax.tree_map(
+  pytree = jax.tree_util.tree_map(
       as_gda, pytree, mesh_tree, axes_tree, is_leaf=is_leaf)
   return pytree, mesh_tree, axes_tree
 
@@ -169,7 +169,7 @@ def init_flax_model(model):
   params = model.init(jax.random.PRNGKey(0), jnp.ones([8, 8]))
   tx = optax.adamw(learning_rate=0.001)
   state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-  return jax.tree_map(np.asarray, state)
+  return jax.tree_util.tree_map(np.asarray, state)
 
 
 def _filter(mask_tree, *other_trees):
@@ -190,7 +190,7 @@ def _filter(mask_tree, *other_trees):
 
 
 def _preprocess_helper(mask_tree, *other_trees):
-  return jax.tree_map(
+  return jax.tree_util.tree_map(
       _filter, mask_tree, *other_trees, is_leaf=lambda x: isinstance(x, dict))
 
 

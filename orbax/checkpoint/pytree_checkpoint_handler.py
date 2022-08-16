@@ -42,7 +42,7 @@ from orbax.checkpoint import utils
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 import tensorstore as ts
 
-PyTree = type(jax.tree_structure(None))
+PyTree = type(jax.tree_util.tree_structure(None))
 ArrayOrScalar = Union[int, float, np.number, np.ndarray, jnp.ndarray,
                       GlobalDeviceArray]
 Array = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray]
@@ -209,7 +209,7 @@ def _get_param_infos_from_structure(directory: epath.Path,
       raise ValueError(f'Unsupported type: {type(leaf)}')
     return ParamInfo(name=None, tspec=tspec)
 
-  return jax.tree_map(_get_param_info, structure)
+  return jax.tree_util.tree_map(_get_param_info, structure)
 
 
 def _get_flax_tree_value(param_info, arg, arr):
@@ -354,7 +354,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       path = directory / name
       return ParamInfo(name, _get_array_tensorstore_spec(path, arr_or_spec))
 
-    return jax.tree_map(_param_info, names, item)
+    return jax.tree_util.tree_map(_param_info, names, item)
 
   async def async_save(
       self,
@@ -385,30 +385,31 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     item = await lazy_array.maybe_get_tree_async(item)
 
     if save_args is None:
-      save_args = jax.tree_map(lambda x: SaveArgs(), item)
+      save_args = jax.tree_util.tree_map(lambda x: SaveArgs(), item)
     else:
       save_args = utils.to_state_dict(save_args)
-    jax.tree_map(
+    jax.tree_util.tree_map(
         functools.partial(_validate_save_args, enable_flax=self._enable_flax),
         save_args)
 
     param_infos = self._get_param_infos(item, directory)
     # Create directories in parallel.
-    await asyncio.gather(
-        *jax.tree_flatten(jax.tree_map(_create_param_save_dir, param_infos))[0])
+    await asyncio.gather(*jax.tree_util.tree_flatten(
+        jax.tree_util.tree_map(_create_param_save_dir, param_infos))[0])
     multihost_utils.sync_global_devices(
         'PyTreeCheckpointHandler:create_param_save_dirs')
 
-    future_tree = jax.tree_map(_serialize_array, param_infos, save_args, item)
-    futures, _ = jax.tree_flatten(future_tree)
+    future_tree = jax.tree_util.tree_map(_serialize_array, param_infos,
+                                         save_args, item)
+    futures, _ = jax.tree_util.tree_flatten(future_tree)
     assert isinstance(futures, list)
     # Await copy futures.
     commit_futures = await asyncio.gather(*futures)
-    commit_futures, _ = jax.tree_flatten(commit_futures)
+    commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
 
     if self._enable_flax and jax.process_index() == 0:
-      flax_item = jax.tree_map(_get_flax_tree_value, param_infos, save_args,
-                               item)
+      flax_item = jax.tree_util.tree_map(_get_flax_tree_value, param_infos,
+                                         save_args, item)
       msgpack = flax.serialization.to_bytes(flax_item)
       (directory / _FLAX_CHECKPOINT_FILE).write_bytes(msgpack)
 
@@ -501,23 +502,24 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
             param_infos, transforms, item, transforms_default_to_original)
 
     if restore_args is None:
-      restore_args = jax.tree_map(lambda x: RestoreArgs(as_gda=False), item)
+      restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(as_gda=False),
+                                            item)
 
-    future_arrays = jax.tree_map(
+    future_arrays = jax.tree_util.tree_map(
         _maybe_deserialize,
         restore_args,
         item,
         param_infos,
         is_leaf=lambda args: isinstance(args, RestoreArgs) or not args)
 
-    future_arrays, item_def = jax.tree_flatten(future_arrays)
+    future_arrays, item_def = jax.tree_util.tree_flatten(future_arrays)
 
     async def _async_restore(future_arrays):
       return await asyncio.gather(*future_arrays)
 
     result = asyncio.run(_async_restore(future_arrays))
 
-    restored_item = jax.tree_unflatten(item_def, result)
+    restored_item = jax.tree_util.tree_unflatten(item_def, result)
 
     multihost_utils.sync_global_devices('PyTreeCheckpointHandler:restore')
     return restored_item

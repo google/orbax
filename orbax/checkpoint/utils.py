@@ -31,7 +31,7 @@ TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
 _GCS_PATH_PREFIX = 'gs://'
 CheckpointDirs = Tuple[str, str]
-PyTree = type(jax.tree_structure(None))
+PyTree = type(jax.tree_util.tree_structure(None))
 Path = Union[str, epath.Path]
 
 
@@ -121,7 +121,7 @@ def _rebuild_ts_specs(tree):
       return set(x.keys()) >= {'driver', 'kvstore'}
     return False
 
-  return jax.tree_map(
+  return jax.tree_util.tree_map(
       lambda x: ts.Spec(x) if isinstance(x, dict) else x, tree, is_leaf=is_leaf)
 
 

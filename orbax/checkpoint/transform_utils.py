@@ -23,7 +23,7 @@ from flax import traverse_util
 import jax
 from orbax.checkpoint import utils
 
-PyTree = type(jax.tree_structure(None))
+PyTree = type(jax.tree_util.tree_structure(None))
 ValueTransformFunction = Callable[[PyTree], Any]
 
 
@@ -95,7 +95,7 @@ def has_value_functions(pytree: PyTree) -> bool:
     if transform.value_fn is not None or transform.multi_value_fn is not None:
       result = True
 
-  jax.tree_map(
+  jax.tree_util.tree_map(
       elem_has_value_functions,
       pytree,
       is_leaf=lambda x: isinstance(x, Transform))
@@ -196,7 +196,8 @@ def apply_transformations(original_tree: PyTree,
   transforms = utils.to_state_dict(transformations)
 
   # Must recover Transform objects, while maintaining state dict structure.
-  transforms = jax.tree_map(_to_transform, transforms, is_leaf=_is_leaf)
+  transforms = jax.tree_util.tree_map(
+      _to_transform, transforms, is_leaf=_is_leaf)
 
   original = traverse_util.flatten_dict(
       original, keep_empty_nodes=True, sep='/')

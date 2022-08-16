@@ -30,7 +30,7 @@ from orbax.checkpoint import RestoreArgs
 from orbax.checkpoint import test_utils
 import tensorflow as tf
 
-PyTree = type(jax.tree_structure(None))
+PyTree = type(jax.tree_util.tree_structure(None))
 jax.config.update('jax_parallel_functions_output_gda', True)
 
 
@@ -48,13 +48,13 @@ class CheckpointerTestBase:
       pytree, mesh_tree, axes_tree = test_utils.setup_gda_pytree()
       doubled_pytree = test_utils.apply_function(pytree, lambda x: x * 2)
 
-      self.empty_pytree = jax.tree_map(
+      self.empty_pytree = jax.tree_util.tree_map(
           lambda x: object(), pytree, is_leaf=test_utils.is_leaf)
       self.pytree = pytree
       self.doubled_pytree = doubled_pytree
       self.mesh_tree = mesh_tree
       self.axes_tree = axes_tree
-      self.pytree_restore_args = jax.tree_map(
+      self.pytree_restore_args = jax.tree_util.tree_map(
           lambda mesh, axes: RestoreArgs(mesh=mesh, mesh_axes=axes),
           self.mesh_tree, self.axes_tree)
       self.dataset = tf.data.Dataset.range(64)
@@ -86,8 +86,9 @@ class CheckpointerTestBase:
       checkpointer.save(self.directory, self.pytree)
       self.wait_if_async(checkpointer)
       restored = checkpointer.restore(self.directory)
-      expected = jax.tree_map(test_utils.replicate_gda, self.pytree)
-      expected = jax.tree_map(lambda x: np.asarray(x.local_data(0)), expected)
+      expected = jax.tree_util.tree_map(test_utils.replicate_gda, self.pytree)
+      expected = jax.tree_util.tree_map(lambda x: np.asarray(x.local_data(0)),
+                                        expected)
       test_utils.assert_tree_equal(self, expected, restored)
 
     def test_restore_missing_path(self):
@@ -162,7 +163,7 @@ class CheckpointerTestBase:
       processed_state, processed_state_shape = test_utils.preprocess_flax_pytree(
           state, state, state_shape)
 
-      restore_args = jax.tree_map(
+      restore_args = jax.tree_util.tree_map(
           lambda _: RestoreArgs(mesh=mesh, mesh_axes=mesh_axes),
           processed_state_shape)
 

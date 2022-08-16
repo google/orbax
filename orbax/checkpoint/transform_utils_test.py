@@ -31,7 +31,7 @@ apply_transformations = transform_utils.apply_transformations
 
 
 def empty_pytree(tree):
-  return jax.tree_map(lambda x: object(), tree)
+  return jax.tree_util.tree_map(lambda x: object(), tree)
 
 
 class TransformUtilsTest(absltest.TestCase):
@@ -53,7 +53,7 @@ class TransformUtilsTest(absltest.TestCase):
     self.assertDictEqual({'a': 1}, apply_transformations({}, {}, {'a': 1}))
 
   def test_no_transform(self):
-    transforms = jax.tree_map(lambda _: Transform(), self.original)
+    transforms = jax.tree_util.tree_map(lambda _: Transform(), self.original)
     self.assertDictEqual(
         self.original,
         apply_transformations(self.original, transforms,
@@ -329,7 +329,7 @@ class TransformUtilsTest(absltest.TestCase):
     transforms = NewTree(
         a1=Transform(original_key='a'),
         b=Transform(multi_value_fn=lambda t: t.b * 2),
-        c=jax.tree_map(lambda _: Transform(), tree.c),
+        c=jax.tree_util.tree_map(lambda _: Transform(), tree.c),
         d=Transform(use_fallback=True),
         e=Transform(multi_value_fn=lambda t: t.c.y[0]),
         f=[
@@ -367,8 +367,9 @@ class TransformUtilsTest(absltest.TestCase):
       else:
         self.assertEqual(a, b)
 
-    jax.tree_map(assert_equal, expected_tree,
-                 apply_transformations(tree, transforms, fallback_tree))
+    jax.tree_util.tree_map(
+        assert_equal, expected_tree,
+        apply_transformations(tree, transforms, fallback_tree))
 
   def test_flax_train_state(self):
 
