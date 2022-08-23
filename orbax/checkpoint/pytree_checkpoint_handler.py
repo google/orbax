@@ -386,8 +386,6 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     if save_args is None:
       save_args = jax.tree_util.tree_map(lambda x: SaveArgs(), item)
-    else:
-      save_args = utils.to_state_dict(save_args)
     jax.tree_util.tree_map(
         functools.partial(_validate_save_args, enable_flax=self._enable_flax),
         save_args)
