@@ -19,7 +19,6 @@ import dataclasses
 import datetime
 import logging
 import os
-import time
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
 
 from etils import epath
@@ -64,8 +63,12 @@ class CheckpointManagerOptions:
   max_to_keep: if provided, specifies the maximum number of checkpoints to
     keep. Older checkpoints are removed. By default, does not remove any old
     checkpoints.
-  keep_time: If set, ensures that any checkpoints within the given time interval
-    are preserved, overriding max_to_keep if necessary.
+  keep_time_interval: When more than max_to_keep checkpoints are present,
+    an older checkpoint that would ordinarily be deleted will be preserved if it
+    has been at least `keep_time_interval` since the previous preserved
+    checkpoint. The default setting of `None` does not preserve any checkpoints
+    in this way. For example, this may be used to ensure checkpoints are
+    retained at a frequency of approximately than one per hour.
   best_fn: if set, maintains checkpoints based on the quality of given
     metrics rather than recency. The function should accept a PyTree of metrics,
     and return a scalar value that can be used to determine the quality score
@@ -78,7 +81,7 @@ class CheckpointManagerOptions:
   """
   save_interval_steps: int = 1
   max_to_keep: Optional[int] = None
-  keep_time: Optional[datetime.timedelta] = None
+  keep_time_interval: Optional[datetime.timedelta] = None
   best_fn: Optional[Callable[[PyTree], float]] = None
   best_mode: str = 'max'
 
@@ -151,10 +154,16 @@ class CheckpointManager(AbstractCheckpointManager):
       raise ValueError('`best_mode` must be one of: "min", "max"')
     # Cleanup directories from previous runs that may not have been finalized.
     utils.cleanup_tmp_directories(self._directory)
-    self._checkpoint_infos = self._create_checkpoint_infos()
+    self._checkpoints = self._create_checkpoints()
     # Even if there are existing checkpoints, last_checkpoint_info should be
     # None since the most recent step might not be saved.
-    self._last_checkpoint_info = None
+    self._last_checkpoint = None
+    # Used for preserving checkpoints based on time interval. Be cautious if
+    # using in a broader context.
+    if self._checkpoints and self._options.keep_time_interval is not None:
+      self._last_preserved_checkpoint = self._checkpoints[-1]
+    else:
+      self._last_preserved_checkpoint = None
 
   @property
   def directory(self) -> epath.Path:
@@ -166,7 +175,7 @@ class CheckpointManager(AbstractCheckpointManager):
     Returns:
       A sequence of steps (integers)
     """
-    return [info.step for info in self._checkpoint_infos]
+    return [info.step for info in self._checkpoints]
 
   def latest_step(self) -> Optional[int]:
     """Returns the latest step saved.
@@ -189,9 +198,9 @@ class CheckpointManager(AbstractCheckpointManager):
     """
     if not self._track_best:
       return self.latest_step()
-    if not self._checkpoint_infos:
+    if not self._checkpoints:
       return None
-    return self._sort_checkpoints_by_metrics(self._checkpoint_infos)[-1].step
+    return self._sort_checkpoints_by_metrics(self._checkpoints)[-1].step
 
   def should_save(self, step: int) -> bool:
     """Returns True if a checkpoint should be saved for the current step.
@@ -205,7 +214,7 @@ class CheckpointManager(AbstractCheckpointManager):
       True if the checkpoint should be saved.
     """
     last_checkpoint_step = (
-        self._last_checkpoint_info.step if self._last_checkpoint_info else -1)
+        self._last_checkpoint.step if self._last_checkpoint else -1)
     return step > last_checkpoint_step and (
         last_checkpoint_step == -1 or
         step == self._options.save_interval_steps + last_checkpoint_step)
@@ -305,7 +314,7 @@ class CheckpointManager(AbstractCheckpointManager):
       self._checkpointers[k].save(final_dir, item, **kwargs)
 
     self._add_checkpoint_info(step, metrics)
-    self._last_checkpoint_info = self._checkpoint_infos[-1]
+    self._last_checkpoint = self._checkpoints[-1]
     all_checkpointers_are_sync = all(
         not is_async_checkpointer(checkpointer)
         for checkpointer in self._checkpointers.values())
@@ -454,7 +463,7 @@ class CheckpointManager(AbstractCheckpointManager):
     """Returns true if we should track the best checkpoints by given metric."""
     return self._options.best_fn is not None
 
-  def _create_checkpoint_infos(self) -> List[CheckpointInfo]:
+  def _create_checkpoints(self) -> List[CheckpointInfo]:
     """Create a list of CheckpointInfo for existing checkpoints.
 
     If none are present, returns empty list.
@@ -486,51 +495,56 @@ class CheckpointManager(AbstractCheckpointManager):
     ]
 
   def _add_checkpoint_info(self, step, metrics):
-    self._checkpoint_infos.append(
-        CheckpointInfo(step, datetime.datetime.fromtimestamp(time.time()),
-                       metrics))
+    self._checkpoints.append(
+        CheckpointInfo(step, datetime.datetime.utcnow(), metrics))
+    if self._last_preserved_checkpoint is None:
+      self._last_preserved_checkpoint = self._checkpoints[-1]
 
   def _sort_checkpoints_by_metrics(
-      self, checkpoint_infos: List[CheckpointInfo]) -> List[CheckpointInfo]:
-    """Sorts `checkpoint_infos` in order of increasing metric quality."""
+      self, checkpoints: List[CheckpointInfo]) -> List[CheckpointInfo]:
+    """Sorts `checkpoints` in order of increasing metric quality."""
     return sorted(
-        checkpoint_infos,
+        checkpoints,
         key=lambda info: self._options.best_fn(info.metrics),
         reverse=(self._options.best_mode == 'min'))
 
   def _remove_old_checkpoints(self):
     """Keeps the `max_to_keep` most recent checkpoint steps."""
-    if not self._options.max_to_keep and not self._options.keep_time:
+    if not self._options.max_to_keep and not self._options.keep_time_interval:
       return
     if self._track_best:
       # Best steps (to keep) are at the end, after sorting.
-      sorted_checkpoints = self._sort_checkpoints_by_metrics(
-          self._checkpoint_infos)
+      sorted_checkpoints = self._sort_checkpoints_by_metrics(self._checkpoints)
     else:
-      sorted_checkpoints = sorted(
-          self._checkpoint_infos, key=lambda info: info.step)
+      sorted_checkpoints = sorted(self._checkpoints, key=lambda info: info.step)
 
     to_remove = len(sorted_checkpoints) - self._options.max_to_keep
     if to_remove <= 0:
       return
-    for _ in range(to_remove):
-      info = sorted_checkpoints[0]
-      # Keep checkpoints if they are more recent than keep_time interval.
-      current_timestamp = datetime.datetime.fromtimestamp(time.time())
-      if (self._options.keep_time is not None and
-          info.time >= current_timestamp - self._options.keep_time):
-        continue
+    maybe_delete = sorted_checkpoints[:to_remove]
+    for i, info in enumerate(maybe_delete):
+      if (self._options.keep_time_interval is not None and
+          self._last_preserved_checkpoint is not None):
+        # Preserve if the checkpoint is older than the most recent preserved
+        # checkpoint OR if its time is greater than the last preserved time plus
+        # plus the given interval.
+        if info.time <= self._last_preserved_checkpoint.time:
+          continue
+        elif (info.time >= self._last_preserved_checkpoint.time +
+              self._options.keep_time_interval):
+          self._last_preserved_checkpoint = info
+          continue
+
       # TODO(cpgaffney) optimize.
       if jax.process_index() == 0:
         utils.rmtree(self._directory / str(info.step))
-      sorted_checkpoints.pop(0)
+      del sorted_checkpoints[i]
 
     if self._track_best:
       # Maintain in ascending step order.
-      self._checkpoint_infos = sorted(
-          sorted_checkpoints, key=lambda info: info.step)
+      self._checkpoints = sorted(sorted_checkpoints, key=lambda info: info.step)
     else:
-      self._checkpoint_infos = sorted_checkpoints
+      self._checkpoints = sorted_checkpoints
 
   def wait_until_finished(self):
     """Blocks until any incomplete save operations are completed.
