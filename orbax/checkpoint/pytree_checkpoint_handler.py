@@ -327,8 +327,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     """Gets parameter names for PyTree elements."""
     state_dict = utils.to_state_dict(item)
     names = traverse_util.unflatten_dict({
-        k: '.'.join(k)
-        for k in traverse_util.flatten_dict(state_dict, keep_empty_nodes=True)
+        k: dict() if v == traverse_util.empty_node else '.'.join(k)
+        for k, v in traverse_util.flatten_dict(state_dict, keep_empty_nodes=True).items()
     })
     r = flax.serialization.from_state_dict(item, names)
     return r
