@@ -213,11 +213,22 @@ class CheckpointManager(AbstractCheckpointManager):
     Returns:
       True if the checkpoint should be saved.
     """
+    # Check whether to save an on-demand checkpoint due to preemption.
+    if (jax.config.jax_coordination_service and
+        multihost_utils.reached_preemption_sync_point(step)):
+      return True
     last_checkpoint_step = (
         self._last_checkpoint.step if self._last_checkpoint else -1)
-    return step > last_checkpoint_step and (
+    # Ensure current step is between the last step and next step (accounting for
+    # save interval). The `last_checkpoint_step` may not be initialized, in
+    # which case we should save. Otherwise, step must fall on the specified
+    # save interval. This condition accounts for the possibility of saving
+    # on preemption, in which case we want to maintain the same save period as
+    # if preemption had not happened.
+    return last_checkpoint_step < step and (
         last_checkpoint_step == -1 or
-        step == self._options.save_interval_steps + last_checkpoint_step)
+        (step <= last_checkpoint_step + self._options.save_interval_steps and
+         step % self._options.save_interval_steps == 0))
 
   def save(self,
            step: int,
