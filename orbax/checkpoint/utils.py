@@ -152,10 +152,15 @@ def is_gcs_path(path: epath.Path):
   return os.fspath(path).startswith(_GCS_PATH_PREFIX)
 
 
-def get_save_directory(step: int, directory: Path, name: str) -> epath.Path:
+def get_save_directory(step: int,
+                       directory: Path,
+                       name: Optional[str] = None) -> epath.Path:
   """Returns the standardized path to a save directory for a single item."""
   directory = epath.Path(directory)
-  return directory / str(step) / name
+  result = directory / str(step)
+  if name is not None:
+    result /= name
+  return result
 
 
 def create_tmp_directory(final_dir: Path) -> epath.Path:

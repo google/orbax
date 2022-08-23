@@ -175,7 +175,7 @@ class CheckpointManager(AbstractCheckpointManager):
     Returns:
       A sequence of steps (integers)
     """
-    return [info.step for info in self._checkpoints]
+    return utils.checkpoint_steps(self.directory)
 
   def latest_step(self) -> Optional[int]:
     """Returns the latest step saved.
@@ -218,6 +218,13 @@ class CheckpointManager(AbstractCheckpointManager):
     return step > last_checkpoint_step and (
         last_checkpoint_step == -1 or
         step == self._options.save_interval_steps + last_checkpoint_step)
+
+  def _get_save_directory(self,
+                          step: int,
+                          directory: epath.Path,
+                          key_name: Optional[str] = None) -> epath.Path:
+    """Returns the standardized path to a save directory for a single item."""
+    return utils.get_save_directory(step, directory, name=key_name)
 
   def save(self,
            step: int,
@@ -306,7 +313,7 @@ class CheckpointManager(AbstractCheckpointManager):
     for k, item in items.items():
       # Gets save dirs given top directory, step number, and a "collection". All
       # files from the same input object should be saved under this collection.
-      final_dir = utils.get_save_directory(step, self._directory, k)
+      final_dir = self._get_save_directory(step, self._directory, k)
       if k not in self._checkpointers:
         raise ValueError(f'Checkpointer for item "{k}" not found')
 
@@ -425,7 +432,7 @@ class CheckpointManager(AbstractCheckpointManager):
         raise ValueError(f'Checkpointer for item "{k}" not found')
       item = items.get(k, None)
       kwargs = restore_kwargs.get(k, {})
-      path = utils.get_save_directory(step, directory, k)
+      path = self._get_save_directory(step, directory, k)
       restored[k] = self._checkpointers[k].restore(path, item=item, **kwargs)
     return restored
 
@@ -446,8 +453,8 @@ class CheckpointManager(AbstractCheckpointManager):
     """
     result = {}
     for name, checkpointer in self._checkpointers.items():
-      structure = checkpointer.structure(self._directory /
-                                         str(self.latest_step()) / name)
+      structure = checkpointer.structure(
+          self._get_save_directory(self.latest_step(), self.directory, name))
       # If None, then the item has no defined structure, and should be excluded.
       # May be empty, which would simply represent a valid, but empty structure.
       if structure is not None:
@@ -471,14 +478,14 @@ class CheckpointManager(AbstractCheckpointManager):
     Returns:
       a list of CheckpointInfo, sorted by increasing step.
     """
-    steps = sorted(utils.checkpoint_steps(self.directory))
+    steps = sorted(self.all_steps())
     if not steps:
       return []
 
     times = [
         datetime.datetime.fromtimestamp(
-            os.stat(os.fspath(self.directory / str(step))).st_ctime)
-        for step in steps
+            os.stat(os.fspath(self._get_save_directory(
+                step, self.directory))).st_ctime) for step in steps
     ]
 
     def get_metrics(step):
@@ -508,6 +515,10 @@ class CheckpointManager(AbstractCheckpointManager):
         key=lambda info: self._options.best_fn(info.metrics),
         reverse=(self._options.best_mode == 'min'))
 
+  def _delete_directory(self, step: int):
+    if jax.process_index() == 0:
+      utils.rmtree(self._get_save_directory(step, self.directory))
+
   def _remove_old_checkpoints(self):
     """Keeps the `max_to_keep` most recent checkpoint steps."""
     if not self._options.max_to_keep and not self._options.keep_time_interval:
@@ -522,29 +533,33 @@ class CheckpointManager(AbstractCheckpointManager):
     if to_remove <= 0:
       return
     maybe_delete = sorted_checkpoints[:to_remove]
-    for i, info in enumerate(maybe_delete):
+    active_checkpoints = sorted_checkpoints[to_remove:]
+
+    kept_checkpoints = []
+    for info in maybe_delete:
       if (self._options.keep_time_interval is not None and
           self._last_preserved_checkpoint is not None):
         # Preserve if the checkpoint is older than the most recent preserved
         # checkpoint OR if its time is greater than the last preserved time plus
         # plus the given interval.
         if info.time <= self._last_preserved_checkpoint.time:
+          kept_checkpoints.append(info)
           continue
         elif (info.time >= self._last_preserved_checkpoint.time +
               self._options.keep_time_interval):
           self._last_preserved_checkpoint = info
+          kept_checkpoints.append(info)
           continue
 
       # TODO(cpgaffney) optimize.
-      if jax.process_index() == 0:
-        utils.rmtree(self._directory / str(info.step))
-      del sorted_checkpoints[i]
+      self._delete_directory(info.step)
 
+    kept_checkpoints += active_checkpoints
     if self._track_best:
       # Maintain in ascending step order.
-      self._checkpoints = sorted(sorted_checkpoints, key=lambda info: info.step)
+      self._checkpoints = sorted(kept_checkpoints, key=lambda info: info.step)
     else:
-      self._checkpoints = sorted_checkpoints
+      self._checkpoints = kept_checkpoints
 
   def wait_until_finished(self):
     """Blocks until any incomplete save operations are completed.
