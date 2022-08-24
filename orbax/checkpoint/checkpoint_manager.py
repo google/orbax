@@ -155,14 +155,18 @@ class CheckpointManager(AbstractCheckpointManager):
     # Cleanup directories from previous runs that may not have been finalized.
     utils.cleanup_tmp_directories(self._directory)
     self._checkpoints = self._create_checkpoints()
-    # Even if there are existing checkpoints, last_checkpoint_info should be
-    # None since the most recent step might not be saved.
-    self._last_checkpoint = None
-    # Used for preserving checkpoints based on time interval. Be cautious if
-    # using in a broader context.
-    if self._checkpoints and self._options.keep_time_interval is not None:
+    # The distinction between _last_checkpoint and _last_preserved_checkpoint is
+    # necessary because some checkpoints may not be kept in the long run, in
+    # which case the two values may diverge. _last_preserved_checkpoint cannot
+    # be determined until we know which checkpoints will not be saved but
+    # ultimately discarded.
+    # _last_preserved_checkpoint is used for preserving checkpoints based on
+    # time interval. Be cautious if using in a broader context.
+    if self._checkpoints:
+      self._last_checkpoint = self._checkpoints[-1]
       self._last_preserved_checkpoint = self._checkpoints[-1]
     else:
+      self._last_checkpoint = None
       self._last_preserved_checkpoint = None
 
   @property
@@ -218,17 +222,16 @@ class CheckpointManager(AbstractCheckpointManager):
         multihost_utils.reached_preemption_sync_point(step)):
       return True
     last_checkpoint_step = (
-        self._last_checkpoint.step if self._last_checkpoint else -1)
+        self._last_checkpoint.step if self._last_checkpoint else None)
     # Ensure current step is between the last step and next step (accounting for
     # save interval). The `last_checkpoint_step` may not be initialized, in
     # which case we should save. Otherwise, step must fall on the specified
     # save interval. This condition accounts for the possibility of saving
     # on preemption, in which case we want to maintain the same save period as
     # if preemption had not happened.
-    return last_checkpoint_step < step and (
-        last_checkpoint_step == -1 or
-        (step <= last_checkpoint_step + self._options.save_interval_steps and
-         step % self._options.save_interval_steps == 0))
+    return last_checkpoint_step is None or (
+        last_checkpoint_step < step and
+        step % self._options.save_interval_steps == 0)
 
   def _get_save_directory(self,
                           step: int,
@@ -332,7 +335,6 @@ class CheckpointManager(AbstractCheckpointManager):
       self._checkpointers[k].save(final_dir, item, **kwargs)
 
     self._add_checkpoint_info(step, metrics)
-    self._last_checkpoint = self._checkpoints[-1]
     all_checkpointers_are_sync = all(
         not is_async_checkpointer(checkpointer)
         for checkpointer in self._checkpointers.values())
@@ -523,6 +525,9 @@ class CheckpointManager(AbstractCheckpointManager):
   def _add_checkpoint_info(self, step, metrics):
     self._checkpoints.append(
         CheckpointInfo(step, datetime.datetime.utcnow(), metrics))
+    self._last_checkpoint = self._checkpoints[-1]
+    # Only None if this is the very first checkpoint. First checkpoint is
+    # always preserved.
     if self._last_preserved_checkpoint is None:
       self._last_preserved_checkpoint = self._checkpoints[-1]
 
