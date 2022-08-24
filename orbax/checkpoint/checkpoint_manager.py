@@ -468,6 +468,9 @@ class CheckpointManager(AbstractCheckpointManager):
       raise ValueError(
           'No existing checkpoint; structure cannot be determined.')
     for name, checkpointer in self._checkpointers.items():
+      # No metrics file expected: do not restore
+      if name == METRIC_ITEM_NAME and not self._track_best:
+        continue
       structure = checkpointer.structure(
           self._get_save_directory(step, self.directory, name))
       # If None, then the item has no defined structure, and should be excluded.
@@ -504,9 +507,10 @@ class CheckpointManager(AbstractCheckpointManager):
     ]
 
     def get_metrics(step):
-      restored = self._restore_impl(step, {METRIC_ITEM_NAME: None}, {})
-      if METRIC_ITEM_NAME in restored:
-        return restored[METRIC_ITEM_NAME]
+      if self._track_best:
+        restored = self._restore_impl(step, {METRIC_ITEM_NAME: None}, {})
+        if METRIC_ITEM_NAME in restored:
+          return restored[METRIC_ITEM_NAME]
       return None
 
     metrics = [get_metrics(step) for step in steps]
