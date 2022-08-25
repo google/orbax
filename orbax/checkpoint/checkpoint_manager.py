@@ -604,6 +604,15 @@ class CheckpointManager(AbstractCheckpointManager):
         checkpointer.wait_until_finished()  # pytype: disable=attribute-error
     self._finalize()
 
+  def check_for_errors(self):
+    """Checks for any outstanding errors in completed asynchronous save operations.
+
+    Delegates to underlying Checkpointer.
+    """
+    for checkpointer in self._checkpointers.values():
+      if is_async_checkpointer(checkpointer):
+        checkpointer.check_for_errors()  # pytype: disable=attribute-error
+
   def _finalize(self):
     """Cleans up old checkpoints and synchronizes hosts."""
     self._remove_old_checkpoints()
