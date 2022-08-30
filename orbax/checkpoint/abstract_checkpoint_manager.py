@@ -187,3 +187,11 @@ class AbstractCheckpointManager(abc.ABC):
     No-op if save is synchronous.
     """
     pass
+
+  @abc.abstractmethod
+  def check_for_errors(self):
+    """Checks for any outstanding errors in completed asynchronous save operations.
+
+    Delegates to underlying Checkpointer.
+    """
+    pass
