@@ -51,7 +51,7 @@ def _wrap(func):
 # TODO(cpgaffney): This functionality should be provided by an external library.
 def async_makedirs(path,
                    *args,
-                   parents: bool = True,
+                   parents: bool = False,
                    exist_ok: bool = True,
                    **kwargs):
   return _wrap(path.mkdir)(*args, parents=parents, exist_ok=exist_ok, **kwargs)
@@ -170,10 +170,11 @@ def create_tmp_directory(final_dir: Path) -> epath.Path:
   # Renames are not atomic in GCS. Save directly to final_dir and rely on commit
   # completion file to indicate success.
   if is_gcs_path(final_dir):
-    return final_dir
-  timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
-  tmp_dir = epath.Path(final_dir.parent) / (
-      final_dir.name + TMP_DIR_SUFFIX + f'{timestamp}')
+    tmp_dir = final_dir
+  else:
+    timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
+    tmp_dir = epath.Path(final_dir.parent) / (
+        final_dir.name + TMP_DIR_SUFFIX + f'{timestamp}')
 
   if jax.process_index() == 0:
     assert not tmp_dir.exists()
