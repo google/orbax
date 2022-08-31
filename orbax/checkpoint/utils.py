@@ -170,6 +170,9 @@ def create_tmp_directory(final_dir: Path) -> epath.Path:
   # Renames are not atomic in GCS. Save directly to final_dir and rely on commit
   # completion file to indicate success.
   if is_gcs_path(final_dir):
+    # Sync needed to prevent an error since caller may think the directory
+    # exists from a previous save, rather than just having been created.
+    multihost_utils.sync_global_devices('create_tmp_directory:pre')
     tmp_dir = final_dir
   else:
     timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
@@ -180,7 +183,7 @@ def create_tmp_directory(final_dir: Path) -> epath.Path:
     assert not tmp_dir.exists()
     tmp_dir.mkdir(parents=True)
 
-  multihost_utils.sync_global_devices('make_dir')
+  multihost_utils.sync_global_devices('create_tmp_directory')
 
   return tmp_dir
 

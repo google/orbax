@@ -303,12 +303,13 @@ class CheckpointManager(AbstractCheckpointManager):
     if not force and not self.should_save(step):
       logging.info('Skipping save for step: %d', step)
       return False
-    if step in self.all_steps():
-      raise ValueError(f'Checkpoint for step {step} already exists.')
 
     # Wait for ongoing saves to complete. Only applicable if some of the
     # checkpointers are AsyncCheckpointers.
     self.wait_until_finished()
+
+    if step in self.all_steps():
+      raise ValueError(f'Checkpoint for step {step} already exists.')
 
     if save_kwargs is None:
       save_kwargs = {}
