@@ -179,7 +179,7 @@ class CheckpointManager(AbstractCheckpointManager):
     Returns:
       A sequence of steps (integers)
     """
-    return utils.checkpoint_steps(self.directory)
+    return [ckpt.step for ckpt in self._checkpoints]
 
   def latest_step(self) -> Optional[int]:
     """Returns the latest step saved.
@@ -499,7 +499,7 @@ class CheckpointManager(AbstractCheckpointManager):
     Returns:
       a list of CheckpointInfo, sorted by increasing step.
     """
-    steps = sorted(self.all_steps())
+    steps = sorted(utils.checkpoint_steps(self.directory))
     if not steps:
       return []
 
@@ -552,7 +552,8 @@ class CheckpointManager(AbstractCheckpointManager):
       # Best steps (to keep) are at the end, after sorting.
       sorted_checkpoints = self._sort_checkpoints_by_metrics(self._checkpoints)
     else:
-      sorted_checkpoints = sorted(self._checkpoints, key=lambda info: info.step)
+      # checkpoints already sorted by ascending step
+      sorted_checkpoints = self._checkpoints
 
     to_remove = len(sorted_checkpoints) - self._options.max_to_keep
     if to_remove <= 0:
