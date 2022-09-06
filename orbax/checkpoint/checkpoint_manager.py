@@ -18,7 +18,6 @@ import asyncio
 import dataclasses
 import datetime
 import logging
-import os
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
 
 from etils import epath
@@ -505,8 +504,8 @@ class CheckpointManager(AbstractCheckpointManager):
 
     times = [
         datetime.datetime.fromtimestamp(
-            os.stat(os.fspath(self._get_save_directory(
-                step, self.directory))).st_ctime) for step in steps
+            self._get_save_directory(step, self.directory).stat().mtime)
+        for step in steps
     ]
 
     def get_metrics(step):
