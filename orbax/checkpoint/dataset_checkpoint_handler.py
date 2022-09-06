@@ -31,25 +31,21 @@ _CHECKPOINT_FILENAME = 'ckpt'
 class DatasetCheckpointHandler(CheckpointHandler):
   """A CheckpointHandler implementation that handles tf.data.Iterator."""
 
-  def __init__(self, checkpoint_filename=_CHECKPOINT_FILENAME):
+  def __init__(self, checkpoint_filename: str = _CHECKPOINT_FILENAME):
     self._checkpoint_filename = checkpoint_filename
 
   def save(self, directory: epath.Path, item: tf.data.Iterator):
     """Saves the given item.
-
-    In a multihost setting, only saves on host 0.
 
     Args:
       directory: save location directory.
       item: a tf.data.Iterator to be saved.
     """
     if jax.process_count() > 1:
-      raise ValueError(
-          'DatasetCheckpointerHandler only supports single-host right now. '
-          'Multi-host compatible checkpoint is WIP.')
-    if jax.process_index() == 0:
-      ckpt = tf.train.Checkpoint(ds=item)
-      ckpt.write(os.fspath(directory / self._checkpoint_filename))
+      directory /= f'process_{jax.process_index()}-of-{jax.process_count()}'
+      directory.mkdir(parents=False, exist_ok=False)
+    ckpt = tf.train.Checkpoint(ds=item)
+    ckpt.write(os.fspath(directory / self._checkpoint_filename))
     multihost_utils.sync_global_devices('DatasetCheckpointHandler:save')
 
   def restore(self, directory: epath.Path,
@@ -64,9 +60,7 @@ class DatasetCheckpointHandler(CheckpointHandler):
       a tf.data.Iterator restored from `directory`.
     """
     if jax.process_count() > 1:
-      raise ValueError(
-          'DatasetCheckpointerHandler only supports single-host right now. '
-          'Multi-host compatible checkpoint is WIP.')
+      directory /= f'process_{jax.process_index()}-of-{jax.process_count()}'
     ckpt = tf.train.Checkpoint(ds=item)
     ckpt.read(os.fspath(directory /
                         self._checkpoint_filename)).assert_consumed()
