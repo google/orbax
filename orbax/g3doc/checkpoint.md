@@ -281,7 +281,6 @@ when restoring (in the other classes it is optional or unused).
 Note that presently, this class does not implement async APIs, since it relies
 on `tf.train.Checkpoint`.
 
-
 ## Utilities
 
 ### LazyArray
