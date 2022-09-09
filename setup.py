@@ -22,7 +22,7 @@ with open('README.md') as fp:
 
 setuptools.setup(
     name='orbax',
-    version='0.0.8',
+    version='0.0.9',
     description='Orbax',
     long_description=_LONG_DESCRIPTION,
     long_description_content_type='text/markdown',
