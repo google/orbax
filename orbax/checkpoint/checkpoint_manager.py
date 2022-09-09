@@ -299,13 +299,16 @@ class CheckpointManager(AbstractCheckpointManager):
       found.
       ValueError: if the checkpoint already exists.
     """
+    logging.info('here_1')
     if not force and not self.should_save(step):
       logging.info('Skipping save for step: %d', step)
       return False
 
+    logging.info('here_2')
     # Wait for ongoing saves to complete. Only applicable if some of the
     # checkpointers are AsyncCheckpointers.
     self.wait_until_finished()
+    logging.info('here_3')
 
     if step in self.all_steps():
       raise ValueError(f'Checkpoint for step {step} already exists.')
@@ -324,24 +327,31 @@ class CheckpointManager(AbstractCheckpointManager):
             'Requested `tracked_metric`; must provide `metrics` for save.')
       items[METRIC_ITEM_NAME] = metrics
 
+    logging.info('here_4')
     for k, item in items.items():
+      logging.info('here_4.0')
       # Gets save dirs given top directory, step number, and a "collection". All
       # files from the same input object should be saved under this collection.
       final_dir = self._get_save_directory(step, self._directory, k)
+      logging.info('here_4.1')
       if k not in self._checkpointers:
         raise ValueError(f'Checkpointer for item "{k}" not found')
 
       kwargs = save_kwargs.get(k, {})
+      logging.info('here_4.2')
       self._checkpointers[k].save(final_dir, item, **kwargs)
+      logging.info('here_4.3')
 
+    logging.info('here_5')
     self._add_checkpoint_info(step, metrics)
     all_checkpointers_are_sync = all(
         not is_async_checkpointer(checkpointer)
         for checkpointer in self._checkpointers.values())
     # If any are async, must wait until all saves are complete before finalize.
+    logging.info(self._checkpoints)
     if all_checkpointers_are_sync:
       self._finalize()
-
+    logging.info('here_6')
     return True
 
   def restore(
@@ -530,6 +540,7 @@ class CheckpointManager(AbstractCheckpointManager):
     # always preserved.
     if self._last_preserved_checkpoint is None:
       self._last_preserved_checkpoint = self._checkpoints[-1]
+    logging.info(self._checkpoints)
 
   def _sort_checkpoints_by_metrics(
       self, checkpoints: List[CheckpointInfo]) -> List[CheckpointInfo]:
