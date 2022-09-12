@@ -21,12 +21,13 @@ from typing import Callable, Optional, Sequence, Tuple, Union
 
 import jax
 from jax import numpy as jnp
+from jax.experimental import array as jax_array
 from jax.experimental.global_device_array import GlobalDeviceArray
 import numpy as np
 import tensorstore as ts
 
-Array = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray]
-ScalarOrArray = Union[int, float, Array]
+ArrayType = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray, jax_array.Array]
+ScalarOrArrayType = Union[int, float, ArrayType]
 
 
 class LazyArray(abc.ABC):
@@ -64,11 +65,11 @@ class LazyArray(abc.ABC):
     return type(self)(self._shape, dtype, self._get_fn)  # pytype: disable=not-instantiable
 
   @abc.abstractmethod
-  async def get_async(self) -> ScalarOrArray:
+  async def get_async(self) -> ScalarOrArrayType:
     raise NotImplementedError
 
   @abc.abstractmethod
-  def get(self) -> ScalarOrArray:
+  def get(self) -> ScalarOrArrayType:
     raise NotImplementedError
 
   def __repr__(self):
@@ -78,10 +79,10 @@ class LazyArray(abc.ABC):
 class LazyAwaitableArray(LazyArray):
   """Lazily and asynchronously loads an array when the `get_fn` is async."""
 
-  async def get_async(self) -> ScalarOrArray:
+  async def get_async(self) -> ScalarOrArrayType:
     return await self._get_fn()  # pytype: disable=bad-return-type
 
-  def get(self) -> ScalarOrArray:
+  def get(self) -> ScalarOrArrayType:
     return asyncio.run(self.get_async())
 
   def astype(self, dtype: np.dtype) -> 'LazyArray':
@@ -110,7 +111,7 @@ class LazyAwaitableArray(LazyArray):
 
   @classmethod
   def from_array(cls,
-                 array: ScalarOrArray,
+                 array: ScalarOrArrayType,
                  dtype: Optional[jnp.dtype] = None) -> 'LazyAwaitableArray':
     """Create a LazyAwaitableArray based on an array or python number."""
     if isinstance(array, (np.ndarray, jnp.ndarray, GlobalDeviceArray)):

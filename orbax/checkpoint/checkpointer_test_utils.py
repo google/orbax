@@ -45,7 +45,7 @@ class CheckpointerTestBase:
 
     def setUp(self):
       super().setUp()
-      pytree, mesh_tree, axes_tree = test_utils.setup_gda_pytree()
+      pytree, mesh_tree, axes_tree = test_utils.setup_sharded_pytree()
       doubled_pytree = test_utils.apply_function(pytree, lambda x: x * 2)
 
       self.empty_pytree = jax.tree_util.tree_map(
@@ -86,7 +86,8 @@ class CheckpointerTestBase:
       checkpointer.save(self.directory, self.pytree)
       self.wait_if_async(checkpointer)
       restored = checkpointer.restore(self.directory)
-      expected = jax.tree_util.tree_map(test_utils.replicate_gda, self.pytree)
+      expected = jax.tree_util.tree_map(test_utils.replicate_sharded_array,
+                                        self.pytree)
       expected = jax.tree_util.tree_map(lambda x: np.asarray(x.local_data(0)),
                                         expected)
       test_utils.assert_tree_equal(self, expected, restored)

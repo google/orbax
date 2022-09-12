@@ -28,12 +28,14 @@ from etils import epath
 import flax
 from flax import traverse_util
 import jax
+from jax.experimental import array as jax_array
 from jax.experimental import multihost_utils
 from jax.experimental import pjit
 from jax.experimental.gda_serialization import serialization
 
 from jax.experimental.global_device_array import GlobalDeviceArray
 from jax.experimental.maps import Mesh
+from jax.experimental.sharding import MeshPspecSharding
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import lazy_array
@@ -43,10 +45,10 @@ from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 import tensorstore as ts
 
 PyTree = type(jax.tree_util.tree_structure(None))
-ArrayOrScalar = Union[int, float, np.number, np.ndarray, jnp.ndarray,
-                      GlobalDeviceArray]
-Array = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray]
-StructureLeaf = Union[str, dict, ts.Spec, ArrayOrScalar]
+ArrayOrScalarType = Union[int, float, np.number, np.ndarray, jnp.ndarray,
+                          GlobalDeviceArray, jax_array.Array]
+ArrayType = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray, jax_array.Array]
+StructureLeaf = Union[str, dict, ts.Spec, ArrayOrScalarType]
 
 _FLAX_CHECKPOINT_FILE = 'checkpoint'
 
@@ -84,8 +86,9 @@ class RestoreArgs:
   """Extra arguments that can be provided for restoration.
 
   as_gda: if true, restores the given paramater as a GlobalDeviceArray
-    regardless of how it was saved. If the array was not saved as a GDA, mesh
-    and mesh_axes are required.
+    regardless of how it was saved. Mesh and mesh_axes are required.
+  as_jax_array: if true, restores the given paramater as a JAX Array type
+    regardless of how it was saved. Mesh and mesh_axes are required.
   mesh: the device mesh that the array should be restored as. If restoring as
     GDA, cannot be None.
   mesh_axes: the mesh_axes that the array should be restored as. If restoring as
@@ -99,6 +102,7 @@ class RestoreArgs:
     jnp.bfloat16 is not compatible with np.ndarray).
   """
   as_gda: bool = True
+  as_jax_array: bool = False
   mesh: Optional[Mesh] = None
   mesh_axes: Optional[pjit.PartitionSpec] = None
   global_shape: Optional[Tuple[int]] = None
@@ -115,7 +119,9 @@ def _validate_save_args(args: SaveArgs, enable_flax: bool):
 
 def _validate_restore_args(args: RestoreArgs):
   if args.mesh is None or args.mesh_axes is None:
-    raise ValueError('Restoring as GDA: `mesh` and `mesh_axes` cannot be None.')
+    raise ValueError(
+        'Sharding of GlobalDeviceArray/Array cannot be None. Provide `mesh` and `mesh_axes`.'
+    )
 
 
 async def _create_param_save_dir(param_info: ParamInfo):
@@ -136,7 +142,7 @@ async def _maybe_deserialize(args, value, info):
         ts.Spec(info.tspec),
         get_fn=lambda: _deserialize_array(args, info),
         dtype=args.dtype)
-  else:  # Already initialized as np.ndarray or GDA.
+  else:  # Already initialized as np.ndarray or GDA or jax_array.Array.
     if args.dtype is not None:
       if utils.is_scalar(value):
         value = np.asarray(value).astype(args.dtype).item()
@@ -150,6 +156,14 @@ async def _maybe_deserialize(args, value, info):
       result = GlobalDeviceArray.from_callback(
           shape, args.mesh, args.mesh_axes,
           lambda idx: value[idx].astype(value.dtype))
+    elif args.as_jax_array and not isinstance(value, jax_array.Array):
+      if utils.is_scalar(value):
+        value = np.asarray(value)
+      _validate_restore_args(args)
+      shape = args.global_shape or value.shape
+      result = jax_array.make_array_from_callback(
+          shape, MeshPspecSharding(args.mesh, args.mesh_axes),
+          lambda idx: value[idx].astype(value.dtype))
     else:
       result = value
     result = lazy_array.LazyAwaitableArray.from_array(result, dtype=args.dtype)
@@ -159,16 +173,16 @@ async def _maybe_deserialize(args, value, info):
     return await result.get_async()
 
 
-def _get_array_tensorstore_spec(path: epath.Path, arr: ArrayOrScalar):
-  """Gets ts.Spec in json format for the given path and array."""
+def _get_array_tensorstore_spec(path: epath.Path, arr: ArrayOrScalarType):
+  """Gets ts.Spec in json format for the given path and jax_array."""
   if arr is None:
     return None
   path = os.fspath(path)
   tspec = serialization.get_tensorstore_spec(path)
-  if isinstance(arr, GlobalDeviceArray):
+  if isinstance(arr, (GlobalDeviceArray, jax_array.Array)):
     tspec['metadata'] = serialization._get_metadata(arr)  # pylint: disable=protected-access
     del tspec['metadata']['dtype']  # pytype: disable=unsupported-operands
-  # Note: should match ArrayOrScalar defined at the top of the file.
+  # Note: should match ArrayOrScalarType defined at the top of the file.
   elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
     if utils.is_scalar(arr):
       arr = np.asarray(arr)
@@ -228,9 +242,9 @@ def _get_flax_tree_value(param_info, arg, arr):
 
 
 async def _serialize_array(
-    param_info: ParamInfo, save_args: SaveArgs,
-    arr: Union[ArrayOrScalar,
-               GlobalDeviceArray]) -> Optional[List[asyncio.Future]]:
+    param_info: ParamInfo, save_args: SaveArgs, arr: Union[ArrayOrScalarType,
+                                                           GlobalDeviceArray]
+) -> Optional[List[asyncio.Future]]:
   """Writes an array (np.ndarray) or GlobalDeviceArray."""
   tspec = param_info.tspec
   if tspec is None:
@@ -240,7 +254,7 @@ async def _serialize_array(
       raise ValueError('Cannot serialize GlobalDeviceArray with flax')
     return
 
-  def set_tspec_dtype(arr: Array, spec):
+  def set_tspec_dtype(arr: ArrayType, spec):
     if save_args.dtype is None:
       spec['base']['dtype'] = jnp.dtype(arr.dtype).name
     else:
@@ -252,7 +266,7 @@ async def _serialize_array(
       'driver': 'cast',
   }
 
-  if isinstance(arr, GlobalDeviceArray):
+  if isinstance(arr, (GlobalDeviceArray, jax_array.Array)):
     # Origin dtype.
     tspec['dtype'] = jnp.dtype(arr.dtype).name
     # Destination dtype.
@@ -261,7 +275,7 @@ async def _serialize_array(
     await serialization.async_serialize(
         arr, tspec, commit_future=commit_futures)
     return commit_futures
-  # Note: should match ArrayOrScalar defined at the top of the file.
+  # Note: should match ArrayOrScalarType defined at the top of the file.
   elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
     if isinstance(arr, (int, float, np.number)):
       arr = np.asarray(arr)
@@ -285,7 +299,7 @@ async def _serialize_array(
 
 async def _deserialize_array(
     restore_args: RestoreArgs,
-    param_info: ParamInfo) -> Union[ArrayOrScalar, GlobalDeviceArray]:
+    param_info: ParamInfo) -> Union[ArrayOrScalarType, GlobalDeviceArray]:
   """Writes an array (np.ndarray) or GlobalDeviceArray."""
   tspec = param_info.tspec
 
@@ -296,7 +310,7 @@ async def _deserialize_array(
         'dtype': jnp.dtype(restore_args.dtype).name,
     }
 
-  if restore_args.as_gda:
+  if restore_args.as_gda or restore_args.as_jax_array:
     _validate_restore_args(restore_args)
     return await serialization.async_deserialize(
         restore_args.mesh,
