@@ -22,7 +22,7 @@ import dataclasses
 import functools
 import os
 import re
-from typing import Any, List, MutableMapping, Optional, Tuple, Union
+from typing import Any, cast, List, MutableMapping, Optional, Tuple, Union
 
 from etils import epath
 import flax
@@ -268,7 +268,8 @@ async def _serialize_array(
 
   if isinstance(arr, (GlobalDeviceArray, jax_array.Array)):
     # Origin dtype.
-    tspec['dtype'] = jnp.dtype(arr.dtype).name
+    tspec['dtype'] = jnp.dtype(
+        cast(Union[GlobalDeviceArray, jax_array.Array], arr).dtype).name
     # Destination dtype.
     tspec = set_tspec_dtype(arr, tspec)
     commit_futures = []
