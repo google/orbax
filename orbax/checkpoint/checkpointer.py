@@ -86,6 +86,7 @@ class Checkpointer(AbstractCheckpointer):
       raise FileNotFoundError(f'Checkpoint at {directory} not found.')
     if not utils.is_checkpoint_finalized(directory):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
+    logging.info('Restoring item from %s.', directory)
     return self._handler.restore(directory, *args, item=item, **kwargs)
 
   def structure(self, directory: Union[str, epath.Path]) -> Optional[Any]:
