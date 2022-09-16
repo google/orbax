@@ -152,7 +152,7 @@ class CheckpointManager(AbstractCheckpointManager):
     if self._options.best_mode not in ['min', 'max']:
       raise ValueError('`best_mode` must be one of: "min", "max"')
     # Cleanup directories from previous runs that may not have been finalized.
-    utils.cleanup_tmp_directories(self._directory)
+    self._cleanup_tmp_directories()
     self._checkpoints = self._create_checkpoints()
     # The distinction between _last_checkpoint and _last_preserved_checkpoint is
     # necessary because some checkpoints may not be kept in the long run, in
@@ -538,6 +538,9 @@ class CheckpointManager(AbstractCheckpointManager):
         checkpoints,
         key=lambda info: self._options.best_fn(info.metrics),
         reverse=(self._options.best_mode == 'min'))
+
+  def _cleanup_tmp_directories(self):
+    utils.cleanup_tmp_directories(self.directory)
 
   def _delete_directory(self, step: int):
     if jax.process_index() == 0:
