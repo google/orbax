@@ -552,7 +552,10 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     Raises:
       FileNotFoundError: if the flax checkpoint is not found.
     """
-    if self._structure is not None:
+    # If enable_flax, structure may contain real values and needs to change.
+    # Otherwise, since the structure itself should remain constant, it can be
+    # cached.
+    if not self._enable_flax and self._structure is not None:
       return self._structure
     flax_file = directory / _FLAX_CHECKPOINT_FILE
     if flax_file.exists():
