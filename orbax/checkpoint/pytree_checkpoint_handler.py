@@ -207,7 +207,7 @@ def _get_param_infos_from_structure(directory: epath.Path,
       tspec = None
     elif isinstance(leaf, dict):
       tspec = None
-    elif isinstance(leaf, utils.Leaf):
+    elif isinstance(leaf, epath.Path):
       # Leaf is a param name.
       path = os.fspath(directory / leaf)
       tspec = serialization.get_tensorstore_spec(path)
