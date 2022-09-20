@@ -82,14 +82,14 @@ def rmtree(path: epath.Path):
   path.rmdir()
 
 
-Leaf = epath.Path
+Leaf = str
 
 
 def pytree_structure(directory: Path) -> PyTree:
   """Reconstruct state dict from saved model format in `directory`."""
   directory = epath.Path(directory)
 
-  def add_nested_key(subtree, nested_key, full_name):
+  def add_nested_key(subtree, nested_key, key_name):
     if not nested_key:
       return subtree
 
@@ -97,19 +97,19 @@ def pytree_structure(directory: Path) -> PyTree:
 
     if len(nested_key) == 1:
       assert current not in subtree
-      subtree[current] = full_name
+      subtree[current] = key_name
       return subtree
 
     subkeys = nested_key[1:]
     if current not in subtree:
       subtree[current] = {}
-    subtree[current] = add_nested_key(subtree[current], subkeys, full_name)
+    subtree[current] = add_nested_key(subtree[current], subkeys, key_name)
     return subtree
 
   keys = directory.iterdir()
   tree = {}
   for k in keys:
-    tree = add_nested_key(tree, k.name.split('.'), k)
+    tree = add_nested_key(tree, k.name.split('.'), k.name)
   return tree
 
 
