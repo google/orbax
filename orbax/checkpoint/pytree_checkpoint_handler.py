@@ -18,6 +18,7 @@ Implementation of CheckpointHandler interface.
 """
 
 import asyncio
+from concurrent import futures
 import dataclasses
 import functools
 import os
@@ -45,6 +46,7 @@ from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 import tensorstore as ts
 
 PyTree = type(jax.tree_util.tree_structure(None))
+Future = futures.Future[None]
 ArrayOrScalarType = Union[int, float, np.number, np.ndarray, jnp.ndarray,
                           GlobalDeviceArray, jax_array.Array]
 ArrayType = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray, jax_array.Array]
@@ -242,9 +244,9 @@ def _get_flax_tree_value(param_info, arg, arr):
 
 
 async def _serialize_array(
-    param_info: ParamInfo, save_args: SaveArgs, arr: Union[ArrayOrScalarType,
-                                                           GlobalDeviceArray]
-) -> Optional[List[asyncio.Future]]:
+    param_info: ParamInfo, save_args: SaveArgs,
+    arr: Union[ArrayOrScalarType,
+               GlobalDeviceArray]) -> Optional[List[ts.Future]]:
   """Writes an array (np.ndarray) or GlobalDeviceArray."""
   tspec = param_info.tspec
   if tspec is None:
@@ -375,7 +377,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       self,
       directory: epath.Path,
       item: PyTree,
-      save_args: Optional[PyTree] = None) -> Optional[List[asyncio.Future]]:
+      save_args: Optional[PyTree] = None) -> Optional[List[Future]]:
     """Saves a PyTree from a given training step.
 
     This operation is compatible with a multi-host, multi-device setting. Array
@@ -416,10 +418,10 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     future_tree = jax.tree_util.tree_map(_serialize_array, param_infos,
                                          save_args, item)
-    futures, _ = jax.tree_util.tree_flatten(future_tree)
-    assert isinstance(futures, list)
+    copy_futures, _ = jax.tree_util.tree_flatten(future_tree)
+    assert isinstance(copy_futures, list)
     # Await copy futures.
-    commit_futures = await asyncio.gather(*futures)
+    commit_futures = await asyncio.gather(*copy_futures)
     commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
 
     if self._enable_flax and jax.process_index() == 0:
@@ -443,8 +445,11 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     """
 
     async def async_save(*args, **kwargs):
-      futures = await self.async_save(*args, **kwargs)
-      await asyncio.gather(*futures)
+      commit_futures = await self.async_save(*args, **kwargs)
+      # Futures are already running, so sequential waiting is equivalent to
+      # concurrent waiting.
+      for future in commit_futures:
+        future.result()  # Block on result.
 
     asyncio.run(async_save(directory, item, *args, **kwargs))
     multihost_utils.sync_global_devices('PyTreeCheckpointHandler:save')

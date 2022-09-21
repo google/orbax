@@ -15,11 +15,13 @@
 """AsyncCheckpointHandler interface."""
 
 import abc
-import asyncio
-from typing import Any, Optional, List
-from etils import epath
+from concurrent import futures
+from typing import Any, List, Optional
 
+from etils import epath
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
+
+Future = futures.Future[None]
 
 
 class AsyncCheckpointHandler(CheckpointHandler):
@@ -27,7 +29,7 @@ class AsyncCheckpointHandler(CheckpointHandler):
 
   @abc.abstractmethod
   async def async_save(self, directory: epath.Path, item: Any, *args,
-                       **kwargs) -> Optional[List[asyncio.Future]]:
+                       **kwargs) -> Optional[List[Future]]:
     """Constructs a save operation.
 
     Synchronously awaits a copy of the item, before returning commit futures
