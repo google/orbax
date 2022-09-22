@@ -15,13 +15,11 @@
 """AsyncCheckpointHandler interface."""
 
 import abc
-from concurrent import futures
 from typing import Any, List, Optional
 
 from etils import epath
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
-
-Future = futures.Future[None]
+from orbax.checkpoint.future import Future
 
 
 class AsyncCheckpointHandler(CheckpointHandler):

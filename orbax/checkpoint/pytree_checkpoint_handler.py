@@ -18,12 +18,11 @@ Implementation of CheckpointHandler interface.
 """
 
 import asyncio
-from concurrent import futures
 import dataclasses
 import functools
 import os
 import re
-from typing import Any, cast, List, MutableMapping, Optional, Tuple, Union
+from typing import Any, List, MutableMapping, Optional, Tuple, Union, cast
 
 from etils import epath
 import flax
@@ -43,10 +42,10 @@ from orbax.checkpoint import lazy_array
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
+from orbax.checkpoint.future import Future
 import tensorstore as ts
 
 PyTree = type(jax.tree_util.tree_structure(None))
-Future = futures.Future[None]
 ArrayOrScalarType = Union[int, float, np.number, np.ndarray, jnp.ndarray,
                           GlobalDeviceArray, jax_array.Array]
 ArrayType = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray, jax_array.Array]
