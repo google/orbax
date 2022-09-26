@@ -47,8 +47,8 @@ import tensorstore as ts
 
 PyTree = type(jax.tree_util.tree_structure(None))
 ArrayOrScalarType = Union[int, float, np.number, np.ndarray, jnp.ndarray,
-                          GlobalDeviceArray, jax_array.Array]
-ArrayType = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray, jax_array.Array]
+                          GlobalDeviceArray, jax.Array]
+ArrayType = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray, jax.Array]
 StructureLeaf = Union[str, dict, ts.Spec, ArrayOrScalarType]
 
 _FLAX_CHECKPOINT_FILE = 'checkpoint'
@@ -157,7 +157,7 @@ async def _maybe_deserialize(args, value, info):
       result = GlobalDeviceArray.from_callback(
           shape, args.mesh, args.mesh_axes,
           lambda idx: value[idx].astype(value.dtype))
-    elif args.as_jax_array and not isinstance(value, jax_array.Array):
+    elif args.as_jax_array and not isinstance(value, jax.Array):
       if utils.is_scalar(value):
         value = np.asarray(value)
       _validate_restore_args(args)
@@ -180,7 +180,8 @@ def _get_array_tensorstore_spec(path: epath.Path, arr: ArrayOrScalarType):
     return None
   path = os.fspath(path)
   tspec = serialization.get_tensorstore_spec(path)
-  if isinstance(arr, (GlobalDeviceArray, jax_array.Array)):
+  if (isinstance(arr, GlobalDeviceArray) or
+      (jax.config.jax_array and isinstance(arr, jax.Array))):
     tspec['metadata'] = serialization._get_metadata(arr)  # pylint: disable=protected-access
     del tspec['metadata']['dtype']  # pytype: disable=unsupported-operands
   # Note: should match ArrayOrScalarType defined at the top of the file.
@@ -267,10 +268,11 @@ async def _serialize_array(
       'driver': 'cast',
   }
 
-  if isinstance(arr, (GlobalDeviceArray, jax_array.Array)):
+  if isinstance(arr, GlobalDeviceArray) or (jax.config.jax_array and
+                                            isinstance(arr, jax.Array)):
     # Origin dtype.
     tspec['dtype'] = jnp.dtype(
-        cast(Union[GlobalDeviceArray, jax_array.Array], arr).dtype).name
+        cast(Union[GlobalDeviceArray, jax.Array], arr).dtype).name
     # Destination dtype.
     tspec = set_tspec_dtype(arr, tspec)
     commit_futures = []
