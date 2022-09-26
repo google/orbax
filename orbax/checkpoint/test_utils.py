@@ -52,7 +52,7 @@ def save_fake_tmp_dir(directory: epath.Path,
   return path
 
 
-def replicate_sharded_array(arr: Union[GlobalDeviceArray, jax_array.Array]):
+def replicate_sharded_array(arr: Union[GlobalDeviceArray, jax.Array]):
   """Returns the input array, but replicated across all devices."""
   if isinstance(arr, GlobalDeviceArray):
     mesh_axes = pjit.PartitionSpec(None,)
@@ -62,7 +62,7 @@ def replicate_sharded_array(arr: Union[GlobalDeviceArray, jax_array.Array]):
         out_axis_resources=mesh_axes)
     with arr.mesh:
       result = fn(arr)
-  elif isinstance(arr, jax_array.Array):
+  elif jax.config.jax_array and isinstance(arr, jax.Array):
     mesh = Mesh(np.asarray(jax.devices()), ('x',))
     replicated_sharding = MeshPspecSharding(mesh, pjit.PartitionSpec(None,))
     result = pjit.pjit(lambda x: x, out_axis_resources=replicated_sharding)(arr)
@@ -110,7 +110,7 @@ def assert_tree_equal(testclass, expected, actual):
       for shard_expected, shard_actual in zip(v_expected.local_shards,
                                               v_actual.local_shards):
         np.testing.assert_array_equal(shard_expected.data, shard_actual.data)
-    elif isinstance(v_expected, jax_array.Array):
+    elif jax.config.jax_array and isinstance(v_expected, jax.Array):
       testclass.assertEqual(
           len(v_expected.addressable_shards), len(v_actual.addressable_shards))
       for shard_expected, shard_actual in zip(v_expected.addressable_shards,
