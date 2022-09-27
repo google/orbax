@@ -28,14 +28,12 @@ from etils import epath
 import flax
 from flax import traverse_util
 import jax
-from jax.experimental import array as jax_array
 from jax.experimental import multihost_utils
 from jax.experimental import pjit
 from jax.experimental.gda_serialization import serialization
 
 from jax.experimental.global_device_array import GlobalDeviceArray
 from jax.experimental.maps import Mesh
-from jax.experimental.sharding import MeshPspecSharding
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import lazy_array
@@ -44,6 +42,16 @@ from orbax.checkpoint import utils
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint.future import Future
 import tensorstore as ts
+
+# TODO(orbax-dev): Remove this when jax>=0.3.19
+# pylint: disable=g-import-not-at-top,bare-except
+try:
+  from jax import sharding
+  from jax import make_array_from_callback
+except ImportError:
+  from jax.experimental import sharding  # pytype: disable=import-error
+  from jax.experimental.array import make_array_from_callback  # pytype: disable=import-error
+# pylint: enable=g-import-not-at-top,bare-except
 
 PyTree = type(jax.tree_util.tree_structure(None))
 ArrayOrScalarType = Union[int, float, np.number, np.ndarray, jnp.ndarray,
@@ -162,8 +170,8 @@ async def _maybe_deserialize(args, value, info):
         value = np.asarray(value)
       _validate_restore_args(args)
       shape = args.global_shape or value.shape
-      result = jax_array.make_array_from_callback(
-          shape, MeshPspecSharding(args.mesh, args.mesh_axes),
+      result = make_array_from_callback(
+          shape, sharding.MeshPspecSharding(args.mesh, args.mesh_axes),
           lambda idx: value[idx].astype(value.dtype))
     else:
       result = value

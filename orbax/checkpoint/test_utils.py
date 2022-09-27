@@ -20,18 +20,26 @@ from etils import epath
 import flax.serialization
 from flax.training.train_state import TrainState
 import jax
-from jax.experimental import array as jax_array
 from jax.experimental import multihost_utils
 from jax.experimental import pjit
 from jax.experimental.global_device_array import GlobalDeviceArray
 from jax.experimental.maps import Mesh
-from jax.experimental.sharding import MeshPspecSharding
 import jax.numpy as jnp
 import numpy as np
 import optax
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import utils
+
+# TODO(orbax-dev): Remove this when jax>=0.3.19
+# pylint: disable=g-import-not-at-top,bare-except
+try:
+  from jax import sharding
+  from jax import make_array_from_callback
+except ImportError:
+  from jax.experimental import sharding  # pytype: disable=import-error
+  from jax.experimental.array import make_array_from_callback  # pytype: disable=import-error
+# pylint: enable=g-import-not-at-top,bare-except
 
 
 def save_fake_tmp_dir(directory: epath.Path,
@@ -64,7 +72,8 @@ def replicate_sharded_array(arr: Union[GlobalDeviceArray, jax.Array]):
       result = fn(arr)
   elif jax.config.jax_array and isinstance(arr, jax.Array):
     mesh = Mesh(np.asarray(jax.devices()), ('x',))
-    replicated_sharding = MeshPspecSharding(mesh, pjit.PartitionSpec(None,))
+    replicated_sharding = sharding.MeshPspecSharding(mesh,
+                                                     pjit.PartitionSpec(None,))
     result = pjit.pjit(lambda x: x, out_axis_resources=replicated_sharding)(arr)
   else:
     raise ValueError('Must enable either GDA or JAX Array')
@@ -184,8 +193,9 @@ def create_sharded_array(arr, mesh, mesh_axes):
     return GlobalDeviceArray.from_callback(arr.shape, mesh, mesh_axes,
                                            lambda idx: arr[idx])
   elif jax.config.jax_array:
-    return jax_array.make_array_from_callback(
-        arr.shape, MeshPspecSharding(mesh, mesh_axes), lambda idx: arr[idx])
+    return make_array_from_callback(
+        arr.shape, sharding.MeshPspecSharding(mesh, mesh_axes),
+        lambda idx: arr[idx])
   else:
     raise ValueError('Must enable either GDA or JAX Array')
 
