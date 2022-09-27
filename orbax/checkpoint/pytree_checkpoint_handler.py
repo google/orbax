@@ -127,10 +127,18 @@ def _validate_save_args(args: SaveArgs, enable_flax: bool):
 
 
 def _validate_restore_args(args: RestoreArgs):
+  """Validates RestoreArgs object."""
   if args.mesh is None or args.mesh_axes is None:
     raise ValueError(
         'Sharding of GlobalDeviceArray/Array cannot be None. Provide `mesh` and `mesh_axes`.'
     )
+  if args.as_gda and not jax.config.jax_parallel_functions_output_gda:
+    raise ValueError('Requested restoration as GDA, but GDA is not enabled.')
+  if args.as_jax_array and not jax.config.jax_array:
+    raise ValueError(
+        'Requested restoration as JAX Array, but jax.Array is not enabled.')
+  if jax.config.jax_parallel_functions_output_gda and jax.config.jax_array:
+    raise ValueError('Cannot enable both GDA and jax.Array.')
 
 
 async def _create_param_save_dir(param_info: ParamInfo):
