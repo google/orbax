@@ -190,32 +190,6 @@ async def _maybe_deserialize(args, value, info):
     return await result.get_async()
 
 
-def _get_array_tensorstore_spec(path: epath.Path, arr: ArrayOrScalarType):
-  """Gets ts.Spec in json format for the given path and jax_array."""
-  if arr is None:
-    return None
-  path = os.fspath(path)
-  tspec = serialization.get_tensorstore_spec(path)
-  if (isinstance(arr, GlobalDeviceArray) or
-      (jax.config.jax_array and isinstance(arr, jax.Array))):
-    tspec['metadata'] = serialization._get_metadata(arr)  # pylint: disable=protected-access
-    del tspec['metadata']['dtype']  # pytype: disable=unsupported-operands
-  # Note: should match ArrayOrScalarType defined at the top of the file.
-  elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
-    if utils.is_scalar(arr):
-      arr = np.asarray(arr)
-    tspec['metadata'] = {
-        'compressor': {
-            'id': 'gzip'
-        },
-        'shape': arr.shape,  # pytype: disable=attribute-error
-        'chunks': arr.shape,  # pytype: disable=attribute-error
-    }
-  else:
-    raise ValueError(f'Unsupported array type: {type(arr)}')
-  return tspec
-
-
 def _get_param_infos_from_structure(directory: epath.Path,
                                     structure: PyTree) -> PyTree:
   """Construct ParamInfos based on structure()."""
@@ -259,64 +233,6 @@ def _get_flax_tree_value(param_info, arg, arr):
     return ts.Spec(param_info.tspec)
 
 
-async def _serialize_array(
-    param_info: ParamInfo, save_args: SaveArgs,
-    arr: Union[ArrayOrScalarType,
-               GlobalDeviceArray]) -> Optional[List[ts.Future]]:
-  """Writes an array (np.ndarray) or GlobalDeviceArray."""
-  tspec = param_info.tspec
-  if tspec is None:
-    return
-  if save_args.use_flax:
-    if isinstance(arr, GlobalDeviceArray):
-      raise ValueError('Cannot serialize GlobalDeviceArray with flax')
-    return
-
-  def set_tspec_dtype(arr: ArrayType, spec):
-    if save_args.dtype is None:
-      spec['base']['dtype'] = jnp.dtype(arr.dtype).name
-    else:
-      spec['base']['dtype'] = jnp.dtype(save_args.dtype).name
-    return spec
-
-  tspec = {
-      'base': tspec,
-      'driver': 'cast',
-  }
-
-  if isinstance(arr, GlobalDeviceArray) or (jax.config.jax_array and
-                                            isinstance(arr, jax.Array)):
-    # Origin dtype.
-    tspec['dtype'] = jnp.dtype(
-        cast(Union[GlobalDeviceArray, jax.Array], arr).dtype).name
-    # Destination dtype.
-    tspec = set_tspec_dtype(arr, tspec)
-    commit_futures = []
-    await serialization.async_serialize(
-        arr, tspec, commit_future=commit_futures)
-    return commit_futures
-  # Note: should match ArrayOrScalarType defined at the top of the file.
-  elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
-    if isinstance(arr, (int, float, np.number)):
-      arr = np.asarray(arr)
-    # Origin dtype.
-    tspec['dtype'] = jnp.dtype(arr.dtype).name
-    # Destination dtype.
-    tspec = set_tspec_dtype(arr, tspec)
-    t = await ts.open(
-        ts.Spec(tspec),
-        create=True,
-        open=True,
-        context=ts.Context({'file_io_concurrency': {
-            'limit': 128
-        }}))
-    write_future = t.write(arr)
-    await write_future.copy
-    return [write_future.commit]
-  else:
-    raise ValueError(f'Unsupported array type: {type(arr)}')
-
-
 async def _deserialize_array(
     restore_args: RestoreArgs,
     param_info: ParamInfo) -> Union[ArrayOrScalarType, GlobalDeviceArray]:
@@ -356,6 +272,89 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
   def __init__(self, enable_flax=True):
     self._enable_flax = enable_flax
 
+  async def _serialize_array(
+      self, param_info: ParamInfo, save_args: SaveArgs,
+      arr: Union[ArrayOrScalarType,
+                 GlobalDeviceArray]) -> Optional[List[ts.Future]]:
+    """Writes an array (np.ndarray) or GlobalDeviceArray."""
+    tspec = param_info.tspec
+    if tspec is None:
+      return
+    if save_args.use_flax:
+      if isinstance(arr, GlobalDeviceArray):
+        raise ValueError('Cannot serialize GlobalDeviceArray with flax')
+      return
+
+    def set_tspec_dtype(arr: ArrayType, spec):
+      if save_args.dtype is None:
+        spec['base']['dtype'] = jnp.dtype(arr.dtype).name
+      else:
+        spec['base']['dtype'] = jnp.dtype(save_args.dtype).name
+      return spec
+
+    tspec = {
+        'base': tspec,
+        'driver': 'cast',
+    }
+
+    if isinstance(arr, GlobalDeviceArray) or (jax.config.jax_array and
+                                              isinstance(arr, jax.Array)):
+      # Origin dtype.
+      tspec['dtype'] = jnp.dtype(
+          cast(Union[GlobalDeviceArray, jax.Array], arr).dtype).name
+      # Destination dtype.
+      tspec = set_tspec_dtype(arr, tspec)
+      commit_futures = []
+      await serialization.async_serialize(
+          arr, tspec, commit_future=commit_futures)
+      return commit_futures
+    # Note: should match ArrayOrScalarType defined at the top of the file.
+    elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
+      if isinstance(arr, (int, float, np.number)):
+        arr = np.asarray(arr)
+      # Origin dtype.
+      tspec['dtype'] = jnp.dtype(arr.dtype).name
+      # Destination dtype.
+      tspec = set_tspec_dtype(arr, tspec)
+      t = await ts.open(
+          ts.Spec(tspec),
+          create=True,
+          open=True,
+          context=ts.Context({'file_io_concurrency': {
+              'limit': 128
+          }}))
+      write_future = t.write(arr)
+      await write_future.copy
+      return [write_future.commit]
+    else:
+      raise ValueError(f'Unsupported array type: {type(arr)}')
+
+  def _get_array_tensorstore_spec(self, path: epath.Path,
+                                  arr: ArrayOrScalarType):
+    """Gets ts.Spec in json format for the given path and jax_array."""
+    if arr is None:
+      return None
+    path = os.fspath(path)
+    tspec = serialization.get_tensorstore_spec(path)
+    if (isinstance(arr, GlobalDeviceArray) or
+        (jax.config.jax_array and isinstance(arr, jax.Array))):
+      tspec['metadata'] = serialization._get_metadata(arr)  # pylint: disable=protected-access
+      del tspec['metadata']['dtype']  # pytype: disable=unsupported-operands
+    # Note: should match ArrayOrScalarType defined at the top of the file.
+    elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
+      if utils.is_scalar(arr):
+        arr = np.asarray(arr)
+      tspec['metadata'] = {
+          'compressor': {
+              'id': 'gzip'
+          },
+          'shape': arr.shape,  # pytype: disable=attribute-error
+          'chunks': arr.shape,  # pytype: disable=attribute-error
+      }
+    else:
+      raise ValueError(f'Unsupported array type: {type(arr)}')
+    return tspec
+
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
     state_dict = utils.to_state_dict(item)
@@ -385,7 +384,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     def _param_info(name, arr_or_spec):
       path = directory / name
-      return ParamInfo(name, _get_array_tensorstore_spec(path, arr_or_spec))
+      return ParamInfo(name,
+                       self._get_array_tensorstore_spec(path, arr_or_spec))
 
     return jax.tree_util.tree_map(_param_info, names, item)
 
@@ -432,7 +432,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     multihost_utils.sync_global_devices(
         'PyTreeCheckpointHandler:create_param_save_dirs')
 
-    future_tree = jax.tree_util.tree_map(_serialize_array, param_infos,
+    future_tree = jax.tree_util.tree_map(self._serialize_array, param_infos,
                                          save_args, item)
     copy_futures, _ = jax.tree_util.tree_flatten(future_tree)
     assert isinstance(copy_futures, list)
@@ -469,6 +469,46 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     asyncio.run(async_save(directory, item, *args, **kwargs))
     multihost_utils.sync_global_devices('PyTreeCheckpointHandler:save')
+
+  async def _maybe_deserialize(self, args, value, info):
+    """Deserialize from tensorstore or return value if already deserialized."""
+    if value is None or (isinstance(value, dict) and not value):
+      return {}
+    if isinstance(value, (ts.Spec, utils.Leaf)):
+      result = lazy_array.LazyAwaitableArray.from_tensor_store_spec(
+          ts.Spec(info.tspec),
+          get_fn=lambda: _deserialize_array(args, info),
+          dtype=args.dtype)
+    else:  # Already initialized as np.ndarray or GDA or jax_array.Array.
+      if args.dtype is not None:
+        if utils.is_scalar(value):
+          value = np.asarray(value).astype(args.dtype).item()
+        else:
+          value = value.astype(args.dtype)
+      if args.as_gda and not isinstance(value, GlobalDeviceArray):
+        if utils.is_scalar(value):
+          value = np.asarray(value)
+        _validate_restore_args(args)
+        shape = args.global_shape or value.shape
+        result = GlobalDeviceArray.from_callback(
+            shape, args.mesh, args.mesh_axes,
+            lambda idx: value[idx].astype(value.dtype))
+      elif args.as_jax_array and not isinstance(value, jax.Array):
+        if utils.is_scalar(value):
+          value = np.asarray(value)
+        _validate_restore_args(args)
+        shape = args.global_shape or value.shape
+        result = make_array_from_callback(
+            shape, sharding.MeshPspecSharding(args.mesh, args.mesh_axes),
+            lambda idx: value[idx].astype(value.dtype))
+      else:
+        result = value
+      result = lazy_array.LazyAwaitableArray.from_array(
+          result, dtype=args.dtype)
+    if args.lazy:
+      return result
+    else:
+      return await result.get_async()
 
   def restore(self,
               directory: epath.Path,
@@ -542,7 +582,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
                                             item)
 
     future_arrays = jax.tree_util.tree_map(
-        _maybe_deserialize,
+        self._maybe_deserialize,
         restore_args,
         item,
         param_infos,
