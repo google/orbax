@@ -228,9 +228,10 @@ parameters are provided on an individual basis for each element in the PyTree.
 
 `RestoreArgs` parameters include:
 
-*   `as_gda`: if true, restores the given paramater as a GlobalDeviceArray
-    regardless of how it was saved. If the array was not saved as a GDA, mesh
-    and mesh_axes are required.
+*   `as_jax_array`: if true, restores the given parameter as a GlobalDeviceArray
+    or jax.Array (depending on the setting of jax.config) regardless of how it
+    was saved. If the array was not saved as a GDA, mesh and mesh_axes are
+    required.
 *   `mesh`: the device mesh that the array should be restored as. If None, uses
     a linear mesh of jax.devices.
 *   `mesh_axes`: the mesh_axes that the array should be restored as. If None,

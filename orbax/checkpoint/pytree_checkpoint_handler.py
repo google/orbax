@@ -94,14 +94,14 @@ class SaveArgs:
 class RestoreArgs:
   """Extra arguments that can be provided for restoration.
 
-  as_gda: if true, restores the given paramater as a GlobalDeviceArray
-    regardless of how it was saved. Mesh and mesh_axes are required.
   as_jax_array: if true, restores the given paramater as a JAX Array type
-    regardless of how it was saved. Mesh and mesh_axes are required.
+    regardless of how it was saved. Mesh and mesh_axes are required. Will
+    restore as either jax.Array or GDA depending on the setting of the
+    corresponding jax.config.
   mesh: the device mesh that the array should be restored as. If restoring as
-    GDA, cannot be None.
+    Jax Array, cannot be None.
   mesh_axes: the mesh_axes that the array should be restored as. If restoring as
-    GDA, cannot be None.
+    Jax Array, cannot be None.
   global_shapes: the global shape that the array should be restored into. If not
     provided, the shape will be restored as written.
   lazy: if True, restores using LazyArray. The actual read operation will not be
@@ -110,8 +110,7 @@ class RestoreArgs:
     Note that the parameter must be compatible with the given type (e.g.
     jnp.bfloat16 is not compatible with np.ndarray).
   """
-  as_gda: bool = True
-  as_jax_array: bool = False
+  as_jax_array: bool = True
   mesh: Optional[Mesh] = None
   mesh_axes: Optional[pjit.PartitionSpec] = None
   global_shape: Optional[Tuple[int]] = None
@@ -132,13 +131,6 @@ def _validate_restore_args(args: RestoreArgs):
     raise ValueError(
         'Sharding of GlobalDeviceArray/Array cannot be None. Provide `mesh` and `mesh_axes`.'
     )
-  if args.as_gda and not jax.config.jax_parallel_functions_output_gda:
-    raise ValueError('Requested restoration as GDA, but GDA is not enabled.')
-  if args.as_jax_array and not jax.config.jax_array:
-    raise ValueError(
-        'Requested restoration as JAX Array, but jax.Array is not enabled.')
-  if jax.config.jax_parallel_functions_output_gda and jax.config.jax_array:
-    raise ValueError('Cannot enable both GDA and jax.Array.')
 
 
 async def _create_param_save_dir(param_info: ParamInfo):
@@ -148,46 +140,6 @@ async def _create_param_save_dir(param_info: ParamInfo):
   path = tspec['kvstore']['path']
   if jax.process_index() == 0:
     await utils.async_makedirs(epath.Path(path))
-
-
-async def _maybe_deserialize(args, value, info):
-  """Deserialize from tensorstore or return value if already deserialized."""
-  if value is None or (isinstance(value, dict) and not value):
-    return {}
-  if isinstance(value, (ts.Spec, utils.Leaf)):
-    result = lazy_array.LazyAwaitableArray.from_tensor_store_spec(
-        ts.Spec(info.tspec),
-        get_fn=lambda: _deserialize_array(args, info),
-        dtype=args.dtype)
-  else:  # Already initialized as np.ndarray or GDA or jax_array.Array.
-    if args.dtype is not None:
-      if utils.is_scalar(value):
-        value = np.asarray(value).astype(args.dtype).item()
-      else:
-        value = value.astype(args.dtype)
-    if args.as_gda and not isinstance(value, GlobalDeviceArray):
-      if utils.is_scalar(value):
-        value = np.asarray(value)
-      _validate_restore_args(args)
-      shape = args.global_shape or value.shape
-      result = GlobalDeviceArray.from_callback(
-          shape, args.mesh, args.mesh_axes,
-          lambda idx: value[idx].astype(value.dtype))
-    elif args.as_jax_array and not isinstance(value, jax.Array):
-      if utils.is_scalar(value):
-        value = np.asarray(value)
-      _validate_restore_args(args)
-      shape = args.global_shape or value.shape
-      result = make_array_from_callback(
-          shape, sharding.MeshPspecSharding(args.mesh, args.mesh_axes),
-          lambda idx: value[idx].astype(value.dtype))
-    else:
-      result = value
-    result = lazy_array.LazyAwaitableArray.from_array(result, dtype=args.dtype)
-  if args.lazy:
-    return result
-  else:
-    return await result.get_async()
 
 
 def _get_param_infos_from_structure(directory: epath.Path,
@@ -246,7 +198,7 @@ async def _deserialize_array(
         'dtype': jnp.dtype(restore_args.dtype).name,
     }
 
-  if restore_args.as_gda or restore_args.as_jax_array:
+  if restore_args.as_jax_array:
     _validate_restore_args(restore_args)
     return await serialization.async_deserialize(
         restore_args.mesh,
@@ -270,6 +222,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
   """
 
   def __init__(self, enable_flax=True):
+    if jax.config.jax_parallel_functions_output_gda and jax.config.jax_array:
+      raise ValueError('Cannot enable both GDA and jax.Array.')
     self._enable_flax = enable_flax
 
   async def _serialize_array(
@@ -485,22 +439,24 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
           value = np.asarray(value).astype(args.dtype).item()
         else:
           value = value.astype(args.dtype)
-      if args.as_gda and not isinstance(value, GlobalDeviceArray):
+      if args.as_jax_array and not isinstance(value,
+                                              (jax.Array, GlobalDeviceArray)):
         if utils.is_scalar(value):
           value = np.asarray(value)
         _validate_restore_args(args)
         shape = args.global_shape or value.shape
-        result = GlobalDeviceArray.from_callback(
-            shape, args.mesh, args.mesh_axes,
-            lambda idx: value[idx].astype(value.dtype))
-      elif args.as_jax_array and not isinstance(value, jax.Array):
-        if utils.is_scalar(value):
-          value = np.asarray(value)
-        _validate_restore_args(args)
-        shape = args.global_shape or value.shape
-        result = make_array_from_callback(
-            shape, sharding.MeshPspecSharding(args.mesh, args.mesh_axes),
-            lambda idx: value[idx].astype(value.dtype))
+        if jax.config.jax_parallel_functions_output_gda:
+          result = GlobalDeviceArray.from_callback(
+              shape, args.mesh, args.mesh_axes,
+              lambda idx: value[idx].astype(value.dtype))
+        elif jax.config.jax_array:
+          result = make_array_from_callback(
+              shape, sharding.MeshPspecSharding(args.mesh, args.mesh_axes),
+              lambda idx: value[idx].astype(value.dtype))
+        else:
+          raise ValueError(
+              'Requested restoration as JAX Array, but neither jax.Array nor GlobalDeviceArray was enabled.'
+          )
       else:
         result = value
       result = lazy_array.LazyAwaitableArray.from_array(
@@ -540,8 +496,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     Returns:
       A PyTree matching the structure of `item` with restored array values as
-      `GlobalDeviceArray` if `as_gda` or `np.ndarray` otherwise. If `lazy`
-      restoration is enabled, `LazyArray` will be returned.
+      `GlobalDeviceArray` or `jax.Array` if `as_jax_array` or `np.ndarray`
+      otherwise. If `lazy` restoration is enabled, `LazyArray` will be returned.
 
     Raises:
       FileNotFoundError: `directory` does not exist or is missing required files
@@ -578,8 +534,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
             param_infos, transforms, item, transforms_default_to_original)
 
     if restore_args is None:
-      restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(as_gda=False),
-                                            item)
+      restore_args = jax.tree_util.tree_map(
+          lambda x: RestoreArgs(as_jax_array=False), item)
 
     future_arrays = jax.tree_util.tree_map(
         self._maybe_deserialize,
