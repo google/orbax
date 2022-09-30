@@ -430,9 +430,9 @@ but not in the new, it will be dropped in the result.
 #### Examples
 
 Let's consider a real-world example. In this scenario, we have a saved
-checkpoint with parameters `layer_0`, `layer_1`. We want to restore this
-checkpoint, with modifications, into a model for training with layers `layer_0`,
-`layer_1`, `layer_2`, `layer_3`.
+checkpoint with parameters `Dense_0`, `Dense_1`. We want to restore this
+checkpoint, with modifications, into a model for training with layers `Dense_0`,
+`Dense_1`, `Dense_2`, `Dense_3`.
 
 In this example, we will map original layers 0 and 1 onto the new layers 1 and
 2, respectively. We want the new layers 0 and 3 to be initialized randomly, or
@@ -454,11 +454,11 @@ original_state = manager.restore(step)
 ```py
  transformations = {
       # NewModel layer 0 is a newly inserted layer, thus use_fallback=True.
-      r'(.*)layer_0(.*)': Transform(use_fallback=True),
+      r'(.*)Dense_0(.*)': Transform(use_fallback=True),
       # OriginalModel layer 0 maps to NewModel layer 1
-      r'(.*)layer_1(.*)': Transform(original_key=r'\1layer_0\2'),
+      r'(.*)Dense_1(.*)': Transform(original_key=r'\1Dense_0\2'),
       # OriginalModel layer 1 maps to NewModel layer 2
-      r'(.*)layer_2(.*)': Transform(original_key=r'\1layer_1\2')
+      r'(.*)Dense_2(.*)': Transform(original_key=r'\1Dense_1\2')
   }  # Note: NewModel layer 3 is newly added.
   restored_state = apply_transformations(original_state, transformations, new_state)
 ```
@@ -469,12 +469,12 @@ For layer 0, we want to instruct the function to ignore what's in
 `original_state`, and to instead use the value from `new_state`. For this, we
 set `use_fallback=True`.
 
-For `layer_1` and `layer_2`, we simple provide a regex mapping the original name
-of the key (`layer_0` and `layer_1`, respectively) to their new values using the
+For `Dense_1` and `Dense_2`, we simple provide a regex mapping the original name
+of the key (`Dense_0` and `Dense_1`, respectively) to their new values using the
 `original_key` field. Note that we can use a regex to match any key containing
 the desired pattern, since a PyTree checkpoint will typically represent a single
 layer with multiple different arrays, each containing the pattern.
 
-Finally, we can simply omit `layer_3` from `transformations`, as the `layer_3`
+Finally, we can simply omit `Dense_3` from `transformations`, as the `Dense_3`
 was provided as a key in `new_state` and the function will simply take the value
 from `new_state` and put it in the result.
