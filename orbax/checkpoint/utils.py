@@ -15,11 +15,11 @@
 """Utility functions for Orbax."""
 import asyncio
 import functools
-import logging
 import os
 import time
 from typing import Iterator, List, Optional, Tuple, Union
 
+from absl import logging
 from etils import epath
 import flax.serialization
 import jax

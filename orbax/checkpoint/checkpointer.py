@@ -14,9 +14,9 @@
 
 """Synchronous Checkpointer implementation."""
 
-import logging
 from typing import Any, Optional, Union
 
+from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils

@@ -17,9 +17,9 @@
 import asyncio
 import dataclasses
 import datetime
-import logging
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
 
+from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
@@ -28,6 +28,7 @@ from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManag
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
+
 
 PyTree = type(jax.tree_util.tree_structure(None))
 CheckpointDirs = Tuple[str, str]

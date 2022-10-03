@@ -16,9 +16,9 @@
 
 import asyncio
 import functools
-import logging
 from typing import Any, Union
 
+from absl import logging
 from etils import epath
 import jax
 from jax.experimental.gda_serialization.serialization import AsyncManager

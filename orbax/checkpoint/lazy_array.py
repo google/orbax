@@ -16,14 +16,15 @@
 
 import abc
 import asyncio
-import logging
 from typing import Callable, Optional, Sequence, Tuple, Union
 
+from absl import logging
 import jax
 from jax import numpy as jnp
 from jax.experimental.global_device_array import GlobalDeviceArray
 import numpy as np
 import tensorstore as ts
+
 
 ArrayType = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray, jax.Array]
 ScalarOrArrayType = Union[int, float, ArrayType]
