@@ -40,9 +40,9 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
   CheckpointHandler to deal with type-specific logic.
   """
 
-  def __init__(self, handler: AsyncCheckpointHandler):
+  def __init__(self, handler: AsyncCheckpointHandler, timeout_secs: int = 300):
     self._handler = handler
-    AsyncManager.__init__(self)
+    AsyncManager.__init__(self, timeout_secs=timeout_secs)
 
   def save(self, directory: Union[str, epath.Path], item: Any, *args, **kwargs):
     """Saves the given item to the provided directory.
