@@ -200,11 +200,9 @@ async def _deserialize_array(
 
   if restore_args.as_jax_array:
     _validate_restore_args(restore_args)
+    s = sharding.MeshPspecSharding(restore_args.mesh, restore_args.mesh_axes)
     return await serialization.async_deserialize(
-        restore_args.mesh,
-        restore_args.mesh_axes,
-        tspec,
-        global_shape=restore_args.global_shape)
+        s, tspec, global_shape=restore_args.global_shape)
   else:
     t = await ts.open(ts.Spec(tspec), open=True)
     result = await t.read()
