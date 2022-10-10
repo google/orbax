@@ -31,7 +31,10 @@ from orbax.checkpoint import test_utils
 import tensorflow as tf
 
 PyTree = type(jax.tree_util.tree_structure(None))
-jax.config.update('jax_parallel_functions_output_gda', True)
+if jax.config.jax_array:
+  jax.config.update('jax_parallel_functions_output_gda', False)
+else:
+  jax.config.update('jax_parallel_functions_output_gda', True)
 
 
 class CheckpointerTestBase:
@@ -88,8 +91,8 @@ class CheckpointerTestBase:
       restored = checkpointer.restore(self.directory)
       expected = jax.tree_util.tree_map(test_utils.replicate_sharded_array,
                                         self.pytree)
-      expected = jax.tree_util.tree_map(lambda x: np.asarray(x.local_data(0)),
-                                        expected)
+      expected = jax.tree_util.tree_map(
+          lambda x: np.asarray(x.addressable_data(0)), expected)
       test_utils.assert_tree_equal(self, expected, restored)
 
     def test_restore_missing_path(self):
