@@ -29,8 +29,8 @@ class AbstractCheckpointManager(abc.ABC):
   checkpoint states.
 
   For example, CheckpointManager may be responsible for managing a parameter
-  state in the form of a PyTree and a dataset iterator state in the form of
-  tf.data.Iterator.
+  state in the form of a PyTree and arbitrary other objects for which an
+  appropriate CheckpointHandler implementation is provided.
 
   Each item should be handled by a separate Checkpointer.
 
@@ -50,7 +50,7 @@ class AbstractCheckpointManager(abc.ABC):
     Items may a form similar to the following:
     {
       'params': PyTree(),
-      'dataset': tf.data.Iterator(),
+      'metadata': <nested k/v pairs>,
       ...
     }
     Each of these values is a saveable item that should be written with a
@@ -61,8 +61,8 @@ class AbstractCheckpointManager(abc.ABC):
       'params': {
         <kwargs for PyTreeCheckpointHandler.save>
       },
-      'dataset': {
-        <kwargs for DatasetCheckpointHandler.save>
+      'metadata': {
+        <kwargs for JsonCheckpointHandler.save>
       }
       ...
     }
@@ -94,7 +94,7 @@ class AbstractCheckpointManager(abc.ABC):
     Items may a form similar to the following:
     {
       'params': PyTree(),
-      'dataset': tf.data.Iterator(),
+      'metadata': <nested k/v pairs>,
       ...
     }
     Each of these values is a restoreable item that should be read with a
@@ -106,8 +106,8 @@ class AbstractCheckpointManager(abc.ABC):
       'params': {
         <kwargs for PyTreeCheckpointHandler.restore>
       },
-      'dataset': {
-        <kwargs for DatasetCheckpointHandler.restore>
+      'metadata': {
+        <kwargs for JsonCheckpointHandler.restore>
       }
       ...
     }

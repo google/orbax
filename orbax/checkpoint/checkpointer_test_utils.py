@@ -28,7 +28,6 @@ from orbax.checkpoint import AsyncCheckpointer
 from orbax.checkpoint import PyTreeCheckpointHandler
 from orbax.checkpoint import RestoreArgs
 from orbax.checkpoint import test_utils
-import tensorflow as tf
 
 PyTree = type(jax.tree_util.tree_structure(None))
 if jax.config.jax_array:
@@ -60,7 +59,6 @@ class CheckpointerTestBase:
       self.pytree_restore_args = jax.tree_util.tree_map(
           lambda mesh, axes: RestoreArgs(mesh=mesh, mesh_axes=axes),
           self.mesh_tree, self.axes_tree)
-      self.dataset = tf.data.Dataset.range(64)
       self.directory = epath.Path(
           self.create_tempdir(name='checkpointing_test').full_path) / 'ckpt'
 

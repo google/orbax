@@ -106,7 +106,7 @@ class CheckpointManager(AbstractCheckpointManager):
     0/    (step)
       params/    (first saveable)
         ...
-      dataset/    (second saveable)
+      metadata/    (second saveable)
         ...
     1/    (step)
       ...
@@ -256,7 +256,7 @@ class CheckpointManager(AbstractCheckpointManager):
     Items takes a form similar to the following:
     {
       'params': PyTree(),
-      'dataset': tf.data.Iterator(),
+      'metadata': <nested k/v>,
       ...
     }
     Similarly, save_kwargs takes the form:
@@ -264,8 +264,8 @@ class CheckpointManager(AbstractCheckpointManager):
       'params': {
         <kwargs for PyTreeCheckpointHandler.save>
       },
-      'dataset': {
-        <kwargs for DatasetCheckpointHandler.save>
+      'metadata': {
+        <kwargs for JsonCheckpointHandler.save>
       }
       ...
     }
@@ -363,7 +363,7 @@ class CheckpointManager(AbstractCheckpointManager):
     Items takes a form similar to the following:
     {
       'params': PyTree(),
-      'dataset': tf.data.Iterator(),
+      'metadata': <nested k/v>,
       ...
     }
     Items may not be provided at all, in which case it the items restored are
@@ -378,8 +378,8 @@ class CheckpointManager(AbstractCheckpointManager):
         'meshes': PyTree(),
         'mesh_axes': PyTree(),
       },
-      'dataset': {
-        <kwargs for DatasetCheckpointHandler.save>
+      'metadata': {
+        <kwargs for JsonCheckpointHandler.save>
       }
       ...
     }

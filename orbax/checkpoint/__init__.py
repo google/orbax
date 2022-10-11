@@ -24,7 +24,6 @@ from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
 from orbax.checkpoint.checkpointer import Checkpointer
-from orbax.checkpoint.dataset_checkpoint_handler import DatasetCheckpointHandler
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
 from orbax.checkpoint.pytree_checkpoint_handler import PyTreeCheckpointHandler
 from orbax.checkpoint.pytree_checkpoint_handler import RestoreArgs
