@@ -115,9 +115,9 @@ def assert_tree_equal(testclass, expected, actual):
     testclass.assertIsInstance(v_actual, type(v_expected))
     if isinstance(v_expected, GlobalDeviceArray):
       testclass.assertEqual(
-          len(v_expected.local_shards), len(v_actual.local_shards))
-      for shard_expected, shard_actual in zip(v_expected.local_shards,
-                                              v_actual.local_shards):
+          len(v_expected.addressable_shards), len(v_actual.addressable_shards))
+      for shard_expected, shard_actual in zip(v_expected.addressable_shards,
+                                              v_actual.addressable_shards):
         np.testing.assert_array_equal(shard_expected.data, shard_actual.data)
     elif jax.config.jax_array and isinstance(v_expected, jax.Array):
       testclass.assertEqual(
