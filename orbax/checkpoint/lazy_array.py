@@ -114,7 +114,8 @@ class LazyAwaitableArray(LazyArray):
                  array: ScalarOrArrayType,
                  dtype: Optional[jnp.dtype] = None) -> 'LazyAwaitableArray':
     """Create a LazyAwaitableArray based on an array or python number."""
-    if isinstance(array, (np.ndarray, jnp.ndarray, GlobalDeviceArray)):
+    if isinstance(array,
+                  (np.ndarray, jnp.ndarray, GlobalDeviceArray, jax.Array)):
       shape = array.shape  # pytype: disable=attribute-error
       if dtype is None:
         dtype = array.dtype  # pytype: disable=attribute-error
