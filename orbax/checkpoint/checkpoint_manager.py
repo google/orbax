@@ -77,6 +77,8 @@ class CheckpointManagerOptions:
     function.
   best_mode: one of ['max', 'min']. The best metric is determine on the basis of
     this value.
+  step_prefix: if provided, step directories will take the form
+    f'{step_prefix}_<step>'. Otherwise, they will simply be an integer <step>.
 
   """
   save_interval_steps: int = 1
@@ -84,6 +86,7 @@ class CheckpointManagerOptions:
   keep_time_interval: Optional[datetime.timedelta] = None
   best_fn: Optional[Callable[[PyTree], float]] = None
   best_mode: str = 'max'
+  step_prefix: Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -238,7 +241,8 @@ class CheckpointManager(AbstractCheckpointManager):
                           directory: epath.Path,
                           key_name: Optional[str] = None) -> epath.Path:
     """Returns the standardized path to a save directory for a single item."""
-    return utils.get_save_directory(step, directory, name=key_name)
+    return utils.get_save_directory(
+        step, directory, name=key_name, step_prefix=self._options.step_prefix)
 
   def save(self,
            step: int,

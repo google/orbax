@@ -154,10 +154,14 @@ def is_gcs_path(path: epath.Path):
 
 def get_save_directory(step: int,
                        directory: Path,
-                       name: Optional[str] = None) -> epath.Path:
+                       name: Optional[str] = None,
+                       step_prefix: Optional[str] = None) -> epath.Path:
   """Returns the standardized path to a save directory for a single item."""
   directory = epath.Path(directory)
-  result = directory / str(step)
+  if step_prefix is None:
+    result = directory / str(step)
+  else:
+    result = directory / f'{step_prefix}_{step}'
   if name is not None:
     result /= name
   return result
