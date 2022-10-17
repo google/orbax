@@ -142,6 +142,25 @@ async def _create_param_save_dir(param_info: ParamInfo):
     await utils.async_makedirs(epath.Path(path))
 
 
+def _array_cast(arr, dtype):
+  if dtype is not None:
+    if utils.is_scalar(arr):
+      arr = np.asarray(arr).astype(dtype).item()
+    else:
+      arr = arr.astype(dtype)
+  return arr
+
+
+def _get_param_names(item: PyTree) -> PyTree:
+  """Gets parameter names for PyTree elements."""
+  state_dict = utils.to_state_dict(item)
+  names = traverse_util.unflatten_dict({
+      k: '.'.join(k)
+      for k in traverse_util.flatten_dict(state_dict, keep_empty_nodes=True)
+  })
+  return flax.serialization.from_state_dict(item, names)
+
+
 def _get_param_infos_from_structure(directory: epath.Path,
                                     structure: PyTree) -> PyTree:
   """Construct ParamInfos based on structure()."""
@@ -209,6 +228,55 @@ async def _deserialize_array(
     if result.ndim == 0:
       result = result.item()
     return result
+
+
+def _transform_structure(
+    item: PyTree, restored: PyTree, param_infos: PyTree, transforms: PyTree,
+    transforms_default_to_original: bool) -> Tuple[PyTree, PyTree]:
+  """Transforms `restored` and `param_infos` into the structure of `item`.
+
+  After restoring a checkpoint structure (represented by `restored`), we must
+  transform it to match the structure of `item` and fill in any missing values.
+
+  Note that `param_infos` must also be transformed since parameter names and
+  other information is computed based on the PyTree structure. We first create
+  `param_infos` based on the checkpoint structure, otherwise we would not find
+  some parameters after doing transformations and rearranging the tree
+  structure.
+
+  Args:
+    item: a PyTree representing the result structure ("new tree structure").
+    restored: a PyTree representing the original tree structure.
+    param_infos: A PyTree of ParamInfo having the same structure as `restored`.
+    transforms: provides instructions on how to transform the input trees. See
+      transform_utils.
+    transforms_default_to_original: See transform_utils.
+
+  Returns:
+    A pair of `item`, `param_infos` which have been transformed from the
+    original trees using `transforms`.
+  """
+  if item is None:
+    if transforms is not None:
+      msg = ('If providing `transforms`, must provide `item` matching structure'
+             ' of expected result.')
+      raise ValueError(msg)
+    item = restored
+  else:
+    if transforms is None:
+      item = flax.serialization.from_state_dict(item, restored)
+      param_infos = flax.serialization.from_state_dict(item, param_infos)
+    else:
+      if transform_utils.has_value_functions(transforms):
+        raise ValueError(
+            'Found disallowed `value_fn` or `multi_value_fn` in `transforms`.')
+      item = transform_utils.apply_transformations(
+          restored, transforms, item, transforms_default_to_original)
+      # param_infos must be transformed because the ts.Spec of saved params
+      # may correspond to the original structure rather than the new.
+      param_infos = transform_utils.apply_transformations(
+          param_infos, transforms, item, transforms_default_to_original)
+  return item, param_infos
 
 
 class PyTreeCheckpointHandler(AsyncCheckpointHandler):
@@ -309,13 +377,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
-    state_dict = utils.to_state_dict(item)
-    names = traverse_util.unflatten_dict({
-        k: '.'.join(k)
-        for k in traverse_util.flatten_dict(state_dict, keep_empty_nodes=True)
-    })
-    r = flax.serialization.from_state_dict(item, names)
-    return r
+    return _get_param_names(item)
 
   def _get_param_infos(self, item: PyTree, directory: epath.Path) -> PyTree:
     """Returns parameter information for elements in `item`.
@@ -432,11 +494,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
           get_fn=lambda: _deserialize_array(args, info),
           dtype=args.dtype)
     else:  # Already initialized as np.ndarray or GDA or jax_array.Array.
-      if args.dtype is not None:
-        if utils.is_scalar(value):
-          value = np.asarray(value).astype(args.dtype).item()
-        else:
-          value = value.astype(args.dtype)
+      value = _array_cast(value, args.dtype)
       if args.as_jax_array and not isinstance(value,
                                               (jax.Array, GlobalDeviceArray)):
         if utils.is_scalar(value):
@@ -509,27 +567,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     structure = self.structure(directory)
     param_infos = _get_param_infos_from_structure(directory, structure)
-    if item is None:
-      if transforms is not None:
-        raise ValueError(
-            'If providing `transforms`, must provide `item` matching structure of expected result.'
-        )
-      item = structure
-    else:
-      if transforms is None:
-        item = flax.serialization.from_state_dict(item, structure)
-        param_infos = flax.serialization.from_state_dict(item, param_infos)
-      else:
-        if transform_utils.has_value_functions(transforms):
-          raise ValueError(
-              'Found disallowed `value_fn` or `multi_value_fn` in `transforms`.'
-          )
-        item = transform_utils.apply_transformations(
-            structure, transforms, item, transforms_default_to_original)
-        # param_infos must be transformed because the ts.Spec of saved params
-        # may correspond to the original structure rather than the new.
-        param_infos = transform_utils.apply_transformations(
-            param_infos, transforms, item, transforms_default_to_original)
+    item, param_infos = _transform_structure(item, structure, param_infos,
+                                             transforms,
+                                             transforms_default_to_original)
 
     if restore_args is None:
       restore_args = jax.tree_util.tree_map(
