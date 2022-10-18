@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Provides utils for PytreeCheckpointHandler."""
+"""Provides definitions for TypeHandler and implementations."""
 
 import abc
 import dataclasses
@@ -182,25 +182,3 @@ def get_type_handler(ty: Any) -> TypeHandler:
     raise ValueError(
         f'Unkown type: "{ty.__name__}". Must register a TypeHandler.')
   return _TYPE_HANDLER_REGISTRY[ty]
-
-
-class AggregateHandler(abc.ABC):
-  """Interface for reading and writing a PyTree using a specific format."""
-
-  @abc.abstractmethod
-  async def serialize(self, directory: epath.Path, item: PyTreeDef):
-    """Serializes and writes `item` to a given `directory`.
-
-    The function is compatible with a multihost setting, but does not include
-    extra logic to ensure atomicity.
-
-    Args:
-      directory: the folder to which the item should be written.
-      item: a PyTree.
-    """
-    pass
-
-  @abc.abstractmethod
-  def deserialize(self, directory: epath.Path) -> PyTreeDef:
-    """Reads and deserializes a PyTree from the given directory."""
-    pass
