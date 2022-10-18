@@ -24,6 +24,7 @@ import os
 import re
 from typing import Any, List, MutableMapping, Optional, Tuple, Union, cast
 
+from absl import logging
 from etils import epath
 import flax
 from flax import traverse_util
@@ -289,7 +290,13 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
   def __init__(self, enable_flax=True):
     if jax.config.jax_parallel_functions_output_gda and jax.config.jax_array:
-      raise ValueError('Cannot enable both GDA and jax.Array.')
+      logging.warning(
+          '`jax_parallel_functions_output_gda` and `jax_array` '
+          'flags are both `True`, so flipping the '
+          '`jax_parallel_functions_output_gda` flag to False. To remove this '
+          'warning, please set `jax_parallel_functions_output_gda` flag to '
+          'False in your project.')
+      jax.config.update('jax_parallel_functions_output_gda', False)
     self._enable_flax = enable_flax
 
   async def _serialize_array(
