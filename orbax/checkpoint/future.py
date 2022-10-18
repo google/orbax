@@ -14,7 +14,8 @@
 
 """Orbax Future class used for duck typing."""
 
-from typing import Any, Optional, Protocol
+from typing import Any, Optional
+from typing_extensions import Protocol
 
 
 class Future(Protocol):
