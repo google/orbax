@@ -1,6 +1,6 @@
 # Orbax
 
-[Orbax](https://github.com/google/orbax/blob/main/orbax/docsindex.md) is a
+[Orbax](https://github.com/google/orbax/blob/main/docs/index.md) is a
 library providing common utilities for JAX users.
 
 ## Checkpointing
@@ -11,7 +11,7 @@ asynchronous checkpointing, various types, and various storage formats.
 We aim to provide a highly customizable and composable API which maximizes
 flexibility for diverse use cases.
 
-To get started, check out our [documentation](https://github.com/google/orbax/blob/main/orbax/docscheckpoint.md).
+To get started, check out our [documentation](https://github.com/google/orbax/blob/main/docs/checkpoint.md).
 
-Check out our [colab](http://colab.research.google.com/github/google/orbax/blob/main/orbax//checkpoint/orbax_checkpoint.ipynb/checkpoint/orbax_checkpoint.ipynb) for a hands-on introduction.
+Check out our [colab](http://colab.research.google.com/github/google/orbax/blob/main/orbax//checkpoint/orbax_checkpoint.ipynb) for a hands-on introduction.
 
