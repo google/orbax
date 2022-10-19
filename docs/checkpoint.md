@@ -1,12 +1,16 @@
 # Checkpointing
 
-https://github.com/google/orbax/blob/main/orbax/docscheckpoint.md
+https://github.com/google/orbax/blob/main/orbax/docs/checkpoint.md
 
 
 ## Introduction
 
 Orbax provides a flexible and customizable for managing checkpoints for various
 different objects.
+
+Check out our
+[colab](http://colab.research.google.com/github/google/orbax/blob/main/orbax//checkpoint/orbax_checkpoint.ipynb/checkpoint/orbax_checkpoint.ipynb)
+for some hands-on examples.
 
 
 ## CheckpointManager
