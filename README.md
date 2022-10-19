@@ -12,3 +12,6 @@ We aim to provide a highly customizable and composable API which maximizes
 flexibility for diverse use cases.
 
 To get started, check out our [documentation](https://github.com/google/orbax/blob/main/orbax/docscheckpoint.md).
+
+Also see our [colab](https://github.com/google/orbax/tree/main/orbax/checkpoint/orbax_checkpoint.ipynb) for a hands-on introduction.
+
