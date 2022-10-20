@@ -133,9 +133,10 @@ def _validate_restore_args(args: RestoreArgs):
     )
 
 
-async def _create_param_save_dir(param_info: ParamInfo):
+async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
   tspec = param_info.tspec
-  if tspec is None:
+  # Directory will be unused.
+  if tspec is None or args.use_flax:
     return
   path = tspec['kvstore']['path']
   if jax.process_index() == 0:
@@ -443,7 +444,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     param_infos = self._get_param_infos(item, directory)
     # Create directories in parallel.
     await asyncio.gather(*jax.tree_util.tree_flatten(
-        jax.tree_util.tree_map(_create_param_save_dir, param_infos))[0])
+        jax.tree_util.tree_map(_create_param_save_dir, param_infos, save_args))
+                         [0])
     multihost_utils.sync_global_devices(
         'PyTreeCheckpointHandler:create_param_save_dirs')
 
