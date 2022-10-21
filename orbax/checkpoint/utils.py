@@ -82,6 +82,9 @@ def rmtree(path: epath.Path):
   path.rmdir()
 
 
+Leaf = str
+
+
 def pytree_structure(directory: Path) -> PyTree:
   """Reconstruct state dict from saved model format in `directory`."""
   directory = epath.Path(directory)

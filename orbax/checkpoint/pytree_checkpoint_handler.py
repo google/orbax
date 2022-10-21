@@ -21,6 +21,7 @@ import asyncio
 import dataclasses
 import functools
 import os
+import re
 from typing import Any, List, MutableMapping, Optional, Tuple, Union, cast
 
 from absl import logging
@@ -171,10 +172,16 @@ def _get_param_infos_from_structure(directory: epath.Path,
       tspec = None
     elif isinstance(leaf, dict):
       tspec = None
-    elif isinstance(leaf, str):
+    elif isinstance(leaf, utils.Leaf):
       # Leaf is a param name.
       path = os.fspath(directory / leaf)
       tspec = serialization.get_tensorstore_spec(path)
+    # The following is kept for backwards compatibility.
+    elif isinstance(leaf, ts.Spec):
+      tspec = leaf.to_json()  # pytype: disable=attribute-error
+      # Skip '.', since we need special regex handling for this char.
+      pattern = r'\.' + utils.TMP_DIR_SUFFIX[1:] + r'\d+'
+      tspec['kvstore']['path'] = re.sub(pattern, '', tspec['kvstore']['path'])
     elif isinstance(leaf, (int, float, np.number, np.ndarray, jnp.ndarray)):
       # Array already restored, do not need ts.Spec.
       tspec = None
@@ -491,7 +498,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     """Deserialize from tensorstore or return value if already deserialized."""
     if value is None or (isinstance(value, dict) and not value):
       return {}
-    if isinstance(value, str):
+    if isinstance(value, (utils.Leaf, ts.Spec)):
       result = lazy_array.LazyAwaitableArray.from_tensor_store_spec(
           ts.Spec(info.tspec),
           get_fn=lambda: _deserialize_array(args, info),
