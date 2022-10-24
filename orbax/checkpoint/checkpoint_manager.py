@@ -26,6 +26,7 @@ from jax.experimental import multihost_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
+from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
 from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
 
@@ -40,9 +41,7 @@ METRIC_ITEM_NAME = 'metrics'
 
 
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
-  # TODO(cpgaffney): add dependency on AsyncCheckpointer when AsyncManager is
-  # open-sourced in JAX.
-  return checkpointer.__class__.__name__ == 'AsyncCheckpointer'
+  return isinstance(checkpointer, AsyncCheckpointer)
 
 
 async def _call_valid_checkpointer_save(checkpointer: AbstractCheckpointer,
