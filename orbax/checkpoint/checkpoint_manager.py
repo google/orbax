@@ -69,6 +69,8 @@ class CheckpointManagerOptions:
     checkpoint. The default setting of `None` does not preserve any checkpoints
     in this way. For example, this may be used to ensure checkpoints are
     retained at a frequency of approximately than one per hour.
+  keep_period: If set, will not delete any checkpoint where checkpoint_step %
+    keep_period == 0.
   best_fn: if set, maintains checkpoints based on the quality of given
     metrics rather than recency. The function should accept a PyTree of metrics,
     and return a scalar value that can be used to determine the quality score
@@ -84,6 +86,7 @@ class CheckpointManagerOptions:
   save_interval_steps: int = 1
   max_to_keep: Optional[int] = None
   keep_time_interval: Optional[datetime.timedelta] = None
+  keep_period: Optional[int] = None
   best_fn: Optional[Callable[[PyTree], float]] = None
   best_mode: str = 'max'
   step_prefix: Optional[str] = None
@@ -583,6 +586,10 @@ class CheckpointManager(AbstractCheckpointManager):
           self._last_preserved_checkpoint = info
           kept_checkpoints.append(info)
           continue
+
+      if self._options.keep_period is not None and info.step % self._options.keep_period == 0:
+        kept_checkpoints.append(info)
+        continue
 
       # TODO(cpgaffney) optimize.
       self._delete_directory(info.step)
