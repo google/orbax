@@ -24,9 +24,9 @@ from jax.experimental.maps import Mesh
 import jax.numpy as jnp
 import numpy as np
 import optax
-from orbax.checkpoint import ArrayRestoreArgs
 from orbax.checkpoint import AsyncCheckpointer
 from orbax.checkpoint import PyTreeCheckpointHandler
+from orbax.checkpoint import RestoreArgs
 from orbax.checkpoint import test_utils
 
 PyTree = type(jax.tree_util.tree_structure(None))
@@ -57,7 +57,7 @@ class CheckpointerTestBase:
       self.mesh_tree = mesh_tree
       self.axes_tree = axes_tree
       self.pytree_restore_args = jax.tree_util.tree_map(
-          lambda mesh, axes: ArrayRestoreArgs(mesh=mesh, mesh_axes=axes),
+          lambda mesh, axes: RestoreArgs(mesh=mesh, mesh_axes=axes),
           self.mesh_tree, self.axes_tree)
       self.directory = epath.Path(
           self.create_tempdir(name='checkpointing_test').full_path) / 'ckpt'
@@ -166,7 +166,7 @@ class CheckpointerTestBase:
           state, state, state_shape)
 
       restore_args = jax.tree_util.tree_map(
-          lambda _: ArrayRestoreArgs(mesh=mesh, mesh_axes=mesh_axes),
+          lambda _: RestoreArgs(mesh=mesh, mesh_axes=mesh_axes),
           processed_state_shape)
 
       checkpointer = self.checkpointer(PyTreeCheckpointHandler())

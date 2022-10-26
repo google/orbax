@@ -12,28 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Provides utils for PytreeCheckpointHandler."""
+"""Provides definitions for TypeHandler and implementations."""
 
 import abc
 import dataclasses
-import os
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional
 
 from etils import epath
 import jax
-from jax._src.device_array import DeviceArray
-from jax.experimental import pjit
-from jax.experimental.gda_serialization import serialization
-
-from jax.experimental.global_device_array import GlobalDeviceArray
-from jax.experimental.maps import Mesh
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint.future import Future
-import tensorstore as ts
 
 PyTreeDef = jax.tree_util.PyTreeDef
-Scalar = Union[int, float, np.number]
 
 
 @dataclasses.dataclass
@@ -73,16 +64,16 @@ class RestoreArgs:
 
   lazy: if True, restores using LazyArray. The actual read operation will not be
     performed until `get` is called for the restored LazyArray.
-  restore_type: Specifies the object type of the restored parameter. The type
-    must have a corresponding TypeHandler for restoration. Ignored if the
-    parameter is restored from an aggregated checkpoint file.
+  restore_type: Specifies the type of the restored parameter. The type must have
+    a corresponding TypeHandler for restoration. Ignored if the parameter is
+    restored from an aggregated checkpoint file.
   dtype: if provided, casts the parameter to the given dtype after restoring.
     Note that the parameter must be compatible with the given type (e.g.
     jnp.bfloat16 is not compatible with np.ndarray).
   """
   lazy: bool = False
-  # TODO(b/253238305) Consider deprecating this in favor of saving type
-  # information in checkpoint metadata.
+  # TODO(b/253238305) Deprecate this in favor of saving type information in
+  # checkpoint.
   restore_type: Any = np.ndarray
   dtype: Optional[jnp.dtype] = None
 
@@ -152,199 +143,16 @@ class TypeHandler(abc.ABC):
     pass
 
 
-def _get_cast_tspec_serialize(tspec, value, args):
-  """Creates a Tensorstore spec for casting a param during serialize."""
-  tspec = {
-      'base': tspec,
-      'driver': 'cast',
-  }
-  # Origin dtype.
-  tspec['dtype'] = jnp.dtype(value.dtype).name
-  # Destination dtype.
-  if args.dtype is None:
-    tspec['base']['dtype'] = jnp.dtype(value.dtype).name
-  else:
-    tspec['base']['dtype'] = jnp.dtype(args.dtype).name
-  return tspec
-
-
-def _get_cast_tspec_deserialize(tspec, args):
-  """Creates a Tensorstore spec for casting a param during deserialize."""
-  if args.dtype is not None:
-    tspec = {
-        'base': tspec,
-        'driver': 'cast',
-        'dtype': jnp.dtype(args.dtype).name,
-    }
-  return tspec
-
-
-class NumpyHandler(TypeHandler):
-  """Provides an implementation of TypeHandler for replicated numpy arrays."""
-
-  def param_info(self, directory: epath.Path, name: str,
-                 value: np.ndarray) -> ParamInfo:
-    """See superclass documentation."""
-    path = os.fspath(directory / name)
-    tspec = serialization.get_tensorstore_spec(path)
-    tspec['metadata'] = {
-        'compressor': {
-            'id': 'gzip'
-        },
-        'shape': value.shape,
-        'chunks': value.shape,
-    }
-    return ParamInfo(name=name, tspec=tspec)
-
-  async def serialize(self,
-                      value: np.ndarray,
-                      info: ParamInfo,
-                      args: Optional[SaveArgs] = None) -> List[Future]:
-    """Uses Tensorstore to serialize a numpy array."""
-    if args is None:
-      args = SaveArgs()
-    tspec = _get_cast_tspec_serialize(info.tspec, value, args)
-    t = await ts.open(
-        ts.Spec(tspec),
-        create=True,
-        open=True,
-        context=ts.Context({'file_io_concurrency': {
-            'limit': 128
-        }}))
-    write_future = t.write(value)
-    await write_future.copy
-    return [write_future.commit]
-
-  async def deserialize(self,
-                        info: ParamInfo,
-                        args: Optional[RestoreArgs] = None) -> np.ndarray:
-    """Deserializes the array using Tensorstore."""
-    if args is None:
-      args = RestoreArgs()
-    tspec = _get_cast_tspec_deserialize(info.tspec, args)
-    t = await ts.open(ts.Spec(tspec), open=True)
-    return await t.read()
-
-
-class ScalarHandler(NumpyHandler):
-  """A wrapper around NumpyHandler to deal with scalar types (int, float, etc.).
-  """
-
-  def param_info(self, directory: epath.Path, name: str,
-                 value: Scalar) -> ParamInfo:
-    """See superclass documentation."""
-    return super().param_info(directory, name, np.asarray(value))
-
-  async def serialize(self,
-                      value: Scalar,
-                      info: ParamInfo,
-                      args: Optional[SaveArgs] = None) -> List[Future]:
-    """See superclass documentation."""
-    value = np.asarray(value)
-    return await super().serialize(value, info, args)
-
-  async def deserialize(self,
-                        info: ParamInfo,
-                        args: Optional[RestoreArgs] = None) -> np.ndarray:
-    """See superclass documentation."""
-    result = await super().deserialize(info, args)
-    if result.ndim != 0:
-      raise ValueError('Restored result is not a scalar.')
-    return result.item()
-
-
-@dataclasses.dataclass
-class ArrayRestoreArgs(RestoreArgs):
-  """Arguments used when restoring with ArrayHandler.
-
-  mesh: the device mesh that the array should be restored as. Cannot be None.
-  mesh_axes: the mesh_axes that the array should be restored as. Cannot be None.
-  global_shapes: the global shape that the array should be restored into. If not
-    provided, the shape will be restored as written.
-  """
-  restore_type: Any = GlobalDeviceArray
-  mesh: Optional[Mesh] = None
-  mesh_axes: Optional[pjit.PartitionSpec] = None
-  global_shape: Optional[Tuple[int]] = None
-
-
-class ArrayHandler(TypeHandler):
-  """An implementation of TypeHandler for jax.Array and GlobalDeviceArray."""
-
-  def param_info(self, directory: epath.Path, name: str,
-                 value: Union[jax.Array, GlobalDeviceArray]) -> ParamInfo:
-    """See superclass documentation."""
-    path = os.fspath(directory / name)
-    tspec: Dict[str, Any] = serialization.get_tensorstore_spec(path)
-    tspec['metadata'] = serialization._get_metadata(value)  # pylint: disable=protected-access
-    del tspec['metadata']['dtype']
-    return ParamInfo(name=name, tspec=tspec)
-
-  async def serialize(self,
-                      value: Union[jax.Array, GlobalDeviceArray],
-                      info: ParamInfo,
-                      args: Optional[SaveArgs] = None) -> List[Future]:
-    """See superclass documentation."""
-    if args is None:
-      args = SaveArgs()
-    tspec = _get_cast_tspec_serialize(info.tspec, value, args)
-    commit_futures = []
-    await serialization.async_serialize(
-        value, tspec, commit_future=commit_futures)
-    return commit_futures
-
-  async def deserialize(self,
-                        info: ParamInfo,
-                        args: Optional[RestoreArgs] = None) -> Any:
-    """See superclass documentation.
-
-    Args:
-      info: ParamInfo.
-      args: must be of type `ArrayRestoreArgs`.
-
-    Returns:
-      The deserialized parameter.
-
-    Raises:
-      ValueError if `args` is not provided.
-      ValueError if `args.mesh` or `args.mesh_axes` are not provided.
-    """
-    if args is None:
-      raise ValueError(
-          'Must provide ArrayRestoreArgs to restore as GDA or jax.Array.')
-    args = cast(ArrayRestoreArgs, args)
-    if args.mesh is None or args.mesh_axes is None:
-      raise ValueError(
-          'Sharding of GlobalDeviceArray/Array cannot be None. Provide `mesh` and `mesh_axes`.'
-      )
-    tspec = _get_cast_tspec_deserialize(info.tspec, args)
-    s = jax.sharding.MeshPspecSharding(args.mesh, args.mesh_axes)
-    return await serialization.async_deserialize(
-        s, tspec, global_shape=args.global_shape)
-
-
-_TYPE_REGISTRY = [
-    (lambda ty: issubclass(ty, int), ScalarHandler()),
-    (lambda ty: issubclass(ty, float), ScalarHandler()),
-    (lambda ty: issubclass(ty, np.number), ScalarHandler()),
-    (lambda ty: issubclass(ty, np.ndarray), NumpyHandler()),
-    (lambda ty: issubclass(ty, DeviceArray), NumpyHandler()),
-    (lambda ty: issubclass(ty, GlobalDeviceArray), ArrayHandler()),
-    (lambda ty: issubclass(ty, jax.Array) and jax.config.jax_array,
-     ArrayHandler()),
-]
+_TYPE_HANDLER_REGISTRY = {}
 
 
 def register_type_handler(ty: Any,
-                          func: Callable[[Any], bool],
                           handler: TypeHandler,
                           override: bool = False):
   """Registers a type for serialization/deserialization with a given handler.
 
   Args:
-    ty: A type to register.
-    func: A function that accepts a type and returns True if the type should be
-      handled by the provided TypeHandler.
+    ty: an object type to register.
     handler: a TypeHandler capable of reading and writing parameters of type
       `ty`.
     override: if True, will override an existing mapping of type to handler.
@@ -352,13 +160,10 @@ def register_type_handler(ty: Any,
   Raises:
     ValueError if a type is already registered and override is False.
   """
-  try:
-    handler = get_type_handler(ty)
-  except ValueError:
-    handler = None
-  if handler is not None and not override:
-    raise ValueError(f'A TypeHandler for "{ty}" is already registered.')
-  _TYPE_REGISTRY.append((func, handler))
+  if ty in _TYPE_HANDLER_REGISTRY and not override:
+    raise ValueError(
+        f'A TypeHandler for "{ty.__name__}" is already registered.')
+  _TYPE_HANDLER_REGISTRY[ty] = handler
 
 
 def get_type_handler(ty: Any) -> TypeHandler:
@@ -373,7 +178,7 @@ def get_type_handler(ty: Any) -> TypeHandler:
   Raises:
     ValueError if the given type has no registered handler.
   """
-  for func, handler in _TYPE_REGISTRY:
-    if func(ty):
-      return handler
-  raise ValueError(f'Unknown type: "{ty}". Must register a TypeHandler.')
+  if ty not in _TYPE_HANDLER_REGISTRY:
+    raise ValueError(
+        f'Unkown type: "{ty.__name__}". Must register a TypeHandler.')
+  return _TYPE_HANDLER_REGISTRY[ty]
