@@ -82,6 +82,7 @@ def rmtree(path: epath.Path):
   path.rmdir()
 
 
+# TODO(b/254053659): Define Leaf to be a non-string value.
 Leaf = str
 
 
