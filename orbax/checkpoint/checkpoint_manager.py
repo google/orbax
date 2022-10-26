@@ -122,7 +122,7 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def __init__(
       self,
-      directory: Union[str, epath.Path],
+      directory: epath.PathLike,
       checkpointers: Union[AbstractCheckpointer, Mapping[str,
                                                          AbstractCheckpointer]],
       options: Optional[CheckpointManagerOptions] = None,
@@ -357,7 +357,7 @@ class CheckpointManager(AbstractCheckpointManager):
       items: Optional[Union[Any, Mapping[str, Any]]] = None,
       restore_kwargs: Optional[Union[RestoreParams,
                                      Mapping[str, RestoreParams]]] = None,
-      directory: Optional[Union[str, epath.Path]] = None
+      directory: Optional[epath.PathLike] = None
   ) -> Union[Any, Mapping[str, Any]]:
     """Restores from the given step and provided items.
 
@@ -436,7 +436,7 @@ class CheckpointManager(AbstractCheckpointManager):
       step: int,
       items: Mapping[str, Any],
       restore_kwargs: Mapping[str, RestoreParams],
-      directory: Optional[Union[str, epath.Path]] = None) -> Mapping[str, Any]:
+      directory: Optional[epath.PathLike] = None) -> Mapping[str, Any]:
     """Restores only the provided items, or all items if empty."""
     if directory is None:
       directory = self.directory
