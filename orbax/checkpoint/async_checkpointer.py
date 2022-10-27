@@ -16,7 +16,7 @@
 
 import asyncio
 import functools
-from typing import Any, Union
+from typing import Any, Union, Optional
 
 from absl import logging
 from etils import epath
@@ -80,3 +80,12 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     # Directory is the final directory
     self._start_async_commit(
         functools.partial(utils.ensure_atomic_save, tmpdir, directory))
+
+  def restore(self,
+              directory: Union[str, epath.Path],
+              *args,
+              item: Optional[Any] = None,
+              **kwargs) -> Any:
+    """See superclass documentation."""
+    self.wait_until_finished()
+    return super().restore(directory, *args, item=item, **kwargs)
