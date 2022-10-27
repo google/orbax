@@ -122,7 +122,7 @@ class CheckpointerTestBase:
       test_utils.assert_tree_equal(self, expected, restored)
 
     def test_overwrite_existing(self):
-      """Test same step does not overwrite."""
+      """Test overwrite existing path."""
       checkpointer = self.checkpointer(PyTreeCheckpointHandler())
       checkpointer.save(self.directory, self.pytree)
       self.wait_if_async(checkpointer)

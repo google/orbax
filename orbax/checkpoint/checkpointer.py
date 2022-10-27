@@ -58,10 +58,14 @@ class Checkpointer(AbstractCheckpointer):
       ValueError if the provided directory already exists.
     """
     directory = epath.Path(directory)
+    # TODO(cpgaffney) Support GCS + force.
+    if force and utils.is_gcs_path(directory):
+      raise ValueError('Force not yet supported on GCS.')
     if directory.exists():
       if force:
-        if jax.process_index() == 0:
-          utils.rmtree(directory)
+        logging.warning(
+            'Destination %s already exists. With `force=True` it will be overwritten.',
+            directory)
       else:
         raise ValueError(f'Destination {directory} already exists.')
     logging.info('Saving item to %s.', directory)
@@ -72,8 +76,7 @@ class Checkpointer(AbstractCheckpointer):
 
     # Ensure save operation atomicity.
     if jax.process_index() == 0:
-      utils.ensure_atomic_save(tmpdir, directory)
-    multihost_utils.sync_global_devices('Checkpointer:save')
+      utils.ensure_atomic_save(tmpdir, directory, force=force)
 
   def restore(self,
               directory: Union[str, epath.Path],

@@ -44,7 +44,12 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     self._handler = handler
     AsyncManager.__init__(self, timeout_secs=timeout_secs)
 
-  def save(self, directory: Union[str, epath.Path], item: Any, *args, **kwargs):
+  def save(self,
+           directory: Union[str, epath.Path],
+           item: Any,
+           *args,
+           force: bool = False,
+           **kwargs):
     """Saves the given item to the provided directory.
 
     Delegates to the underlying CheckpointHandler. Ensures save operation
@@ -55,6 +60,7 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
       directory: a path to which to save.
       item: an object to save, supported by a CheckpointHandler.
       *args: additional args to provide to the CheckpointHandler's save method.
+      force: if True, allows overwriting an existing directory.
       **kwargs: additional keyword args to provide to the CheckpointHandler's
         save method.
 
@@ -62,8 +68,16 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
       ValueError if the provided directory already exists.
     """
     directory = epath.Path(directory)
+    # TODO(cpgaffney) Support GCS + force.
+    if force and utils.is_gcs_path(directory):
+      raise ValueError('Force not yet supported on GCS.')
     if directory.exists():
-      raise ValueError(f'Destination {directory} already exists.')
+      if force:
+        logging.warning(
+            'Destination %s already exists. With `force=True` it will be overwritten.',
+            directory)
+      else:
+        raise ValueError(f'Destination {directory} already exists.')
 
     logging.info('Saving item to %s. Waiting for thread to finish save.',
                  directory)
