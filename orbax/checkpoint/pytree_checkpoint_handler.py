@@ -18,11 +18,10 @@ Implementation of CheckpointHandler interface.
 """
 
 import asyncio
-import dataclasses
 import functools
 import os
 import re
-from typing import Any, List, MutableMapping, Optional, Tuple, Union, cast
+from typing import Any, List, Optional, Tuple
 
 from absl import logging
 from etils import epath
@@ -30,114 +29,45 @@ import flax
 from flax import traverse_util
 import jax
 from jax.experimental import multihost_utils
-from jax.experimental import pjit
-from jax.experimental.gda_serialization import serialization
 
-from jax.experimental.global_device_array import GlobalDeviceArray
-from jax.experimental.maps import Mesh
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import lazy_array
 from orbax.checkpoint import transform_utils
+from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint.future import Future
 import tensorstore as ts
 
-# TODO(orbax-dev): Remove this when jax>=0.3.19
-# pylint: disable=g-import-not-at-top,bare-except
-try:
-  from jax import sharding
-  from jax import make_array_from_callback
-except ImportError:
-  from jax.experimental import sharding  # pytype: disable=import-error
-  from jax.experimental.array import make_array_from_callback  # pytype: disable=import-error
-# pylint: enable=g-import-not-at-top,bare-except
 
 PyTree = type(jax.tree_util.tree_structure(None))
-ArrayOrScalarType = Union[int, float, np.number, np.ndarray, jnp.ndarray,
-                          GlobalDeviceArray, jax.Array]
-ArrayType = Union[np.ndarray, jnp.ndarray, GlobalDeviceArray, jax.Array]
-StructureLeaf = Union[str, dict, ts.Spec, ArrayOrScalarType]
+RestoreArgs = type_handlers.RestoreArgs
+ArrayRestoreArgs = type_handlers.ArrayRestoreArgs
+SaveArgs = type_handlers.SaveArgs
+ParamInfo = type_handlers.ParamInfo
+TypeHandler = type_handlers.TypeHandler
+AggregateHandler = aggregate_handlers.AggregateHandler
+MsgpackHandler = aggregate_handlers.MsgpackHandler
 
-_FLAX_CHECKPOINT_FILE = 'checkpoint'
+_TYPE_METADATA_FILE = 'type_metadata'
+_CHECKPOINT_FILE = 'checkpoint'
 
 utils.register_ts_spec_for_serialization()
 
 
-@dataclasses.dataclass
-class ParamInfo:
-  """Information describing a parameter in a PyTree.
-
-  name: name of the parameter.
-  tspec: Tensorstore spec in JSON format.
-  """
-  name: Optional[str]
-  tspec: Optional[MutableMapping[str, Any]]
-
-
-@dataclasses.dataclass
-class SaveArgs:
-  """Extra arguments that can be provided for saving.
-
-  use_flax: if true, saves the given parameter using flax.serialization to a
-    unified checkpoint file. Must be false if the given array value is a GDA.
-  dtype: if provided, casts the parameter to the given dtype before saving.
-    Note that the parameter must be compatible with the given type (e.g.
-    jnp.bfloat16 is not compatible with np.ndarray).
-  """
-  use_flax: bool = False
-  dtype: Optional[jnp.dtype] = None
-
-
-# TODO(b/233807751): Raise an error if mesh/mesh_axes are None.
-@dataclasses.dataclass
-class RestoreArgs:
-  """Extra arguments that can be provided for restoration.
-
-  as_jax_array: if true, restores the given paramater as a JAX Array type
-    regardless of how it was saved. Mesh and mesh_axes are required. Will
-    restore as either jax.Array or GDA depending on the setting of the
-    corresponding jax.config.
-  mesh: the device mesh that the array should be restored as. If restoring as
-    Jax Array, cannot be None.
-  mesh_axes: the mesh_axes that the array should be restored as. If restoring as
-    Jax Array, cannot be None.
-  global_shapes: the global shape that the array should be restored into. If not
-    provided, the shape will be restored as written.
-  lazy: if True, restores using LazyArray. The actual read operation will not be
-    performed until `get` is called for the restored LazyArray
-  dtype: if provided, casts the parameter to the given dtype after restoring.
-    Note that the parameter must be compatible with the given type (e.g.
-    jnp.bfloat16 is not compatible with np.ndarray).
-  """
-  as_jax_array: bool = True
-  mesh: Optional[Mesh] = None
-  mesh_axes: Optional[pjit.PartitionSpec] = None
-  global_shape: Optional[Tuple[int]] = None
-  lazy: bool = False
-  dtype: Optional[jnp.dtype] = None
-
-
-def _validate_save_args(args: SaveArgs, enable_flax: bool):
-  if args.use_flax and not enable_flax:
-    raise ValueError(
-        'Saving with flax disabled for this handler, but saving with flax was requested for at least one parameter.'
-    )
-
-
-def _validate_restore_args(args: RestoreArgs):
-  """Validates RestoreArgs object."""
-  if args.mesh is None or args.mesh_axes is None:
-    raise ValueError(
-        'Sharding of GlobalDeviceArray/Array cannot be None. Provide `mesh` and `mesh_axes`.'
-    )
+def _validate_save_args(args: SaveArgs, enable_aggregation: bool):
+  if args.aggregate and not enable_aggregation:
+    msg = ('Saving to aggregate checkpoint is disabled for this handler, but '
+           'aggregation was requested for at least one parameter.')
+    raise ValueError(msg)
 
 
 async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
   tspec = param_info.tspec
   # Directory will be unused.
-  if tspec is None or args.use_flax:
+  if tspec is None or args.aggregate:
     return
   path = tspec['kvstore']['path']
   if jax.process_index() == 0:
@@ -165,14 +95,11 @@ def _get_param_names(item: PyTree) -> PyTree:
 
 def _get_param_infos_from_structure(directory: epath.Path,
                                     structure: PyTree) -> PyTree:
-  """Construct ParamInfos based on structure()."""
+  """Construct ParamInfos based on a PyTree."""
+  names = _get_param_names(structure)
 
-  def _get_param_info(leaf):
-    if leaf is None:
-      tspec = None
-    elif isinstance(leaf, dict):
-      tspec = None
-    elif isinstance(leaf, utils.Leaf):
+  def _get_param_info(leaf, name):
+    if isinstance(leaf, utils.Leaf):
       # Leaf is a param name.
       path = os.fspath(directory / leaf)
       tspec = serialization.get_tensorstore_spec(path)
@@ -187,50 +114,24 @@ def _get_param_infos_from_structure(directory: epath.Path,
       tspec = None
     else:
       raise ValueError(f'Unsupported type: {type(leaf)}')
-    return ParamInfo(name=None, tspec=tspec)
+    return ParamInfo(name=name, aggregate=(tspec is None), tspec=tspec)
 
-  return jax.tree_util.tree_map(_get_param_info, structure)
-
-
-def _get_flax_tree_value(param_info, arg, arr):
-  """Get leaf value for Flax checkpoint."""
-  if param_info.tspec is None:
-    return None
-  if arg.use_flax:
-    if arg.dtype is not None:
-      if utils.is_scalar(arr):
-        arr = np.asarray(arr).astype(arg.dtype).item()
-      else:
-        arr = arr.astype(arg.dtype)
-    return arr
-  else:
-    return param_info.name
+  return jax.tree_util.tree_map(_get_param_info, structure, names)
 
 
-async def _deserialize_array(
-    restore_args: RestoreArgs,
-    param_info: ParamInfo) -> Union[ArrayOrScalarType, GlobalDeviceArray]:
-  """Writes an array (np.ndarray) or GlobalDeviceArray."""
-  tspec = param_info.tspec
+def _get_tree_for_aggregation(param_infos, save_args, item):
+  """Get tree for aggregated checkpoint."""
 
-  if restore_args.dtype is not None:
-    tspec = {
-        'base': tspec,
-        'driver': 'cast',
-        'dtype': jnp.dtype(restore_args.dtype).name,
-    }
+  def _get_leaf_for_aggregation(param_info, arg, arr):
+    if arg is None:
+      arg = SaveArgs()
+    if arg.aggregate:  # Param was aggregated, return value after cast.
+      return _array_cast(arr, arg.dtype)
+    else:
+      return param_info.name
 
-  if restore_args.as_jax_array:
-    _validate_restore_args(restore_args)
-    s = sharding.MeshPspecSharding(restore_args.mesh, restore_args.mesh_axes)
-    return await serialization.async_deserialize(
-        s, tspec, global_shape=restore_args.global_shape)
-  else:
-    t = await ts.open(ts.Spec(tspec), open=True)
-    result = await t.read()
-    if result.ndim == 0:
-      result = result.item()
-    return result
+  return jax.tree_util.tree_map(_get_leaf_for_aggregation, param_infos,
+                                save_args, item)
 
 
 def _transform_structure(
@@ -279,6 +180,12 @@ def _transform_structure(
       # may correspond to the original structure rather than the new.
       param_infos = transform_utils.apply_transformations(
           param_infos, transforms, item, transforms_default_to_original)
+
+      def _create_param_info_if_already_restored(x):
+        return ParamInfo(aggregate=True) if not isinstance(x, ParamInfo) else x
+
+      param_infos = jax.tree_util.tree_map(
+          _create_param_info_if_already_restored, param_infos)
   return item, param_infos
 
 
@@ -290,7 +197,20 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
   `GlobalDeviceArray`, arrays are expected to be non-partitioned.
   """
 
-  def __init__(self, enable_flax=True):
+  def __init__(
+      self,
+      # TODO(b/255434127) Move to Pax code.
+      enable_aggregation: bool = True,
+      aggregate_filename: Optional[str] = None):
+    """Creates PyTreeCheckpointHandler.
+
+    Args:
+      enable_aggregation: if False, an aggregated checkpoint file storing the
+        PyTree structure will not be created, and the structure must be inferred
+        from the directory layout.
+      aggregate_filename: name that the aggregated checkpoint should be saved
+        as.
+    """
     if jax.config.jax_parallel_functions_output_gda and jax.config.jax_array:
       logging.warning(
           '`jax_parallel_functions_output_gda` and `jax_array` '
@@ -299,96 +219,18 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
           'warning, please set `jax_parallel_functions_output_gda` flag to '
           'False in your project.')
       jax.config.update('jax_parallel_functions_output_gda', False)
-    self._enable_flax = enable_flax
-
-  async def _serialize_array(
-      self, param_info: ParamInfo, save_args: SaveArgs,
-      arr: Union[ArrayOrScalarType,
-                 GlobalDeviceArray]) -> Optional[List[ts.Future]]:
-    """Writes an array (np.ndarray) or GlobalDeviceArray."""
-    tspec = param_info.tspec
-    if tspec is None:
-      return
-    if save_args.use_flax:
-      if isinstance(arr, GlobalDeviceArray):
-        raise ValueError('Cannot serialize GlobalDeviceArray with flax')
-      return
-
-    def set_tspec_dtype(arr: ArrayType, spec):
-      if save_args.dtype is None:
-        spec['base']['dtype'] = jnp.dtype(arr.dtype).name
-      else:
-        spec['base']['dtype'] = jnp.dtype(save_args.dtype).name
-      return spec
-
-    tspec = {
-        'base': tspec,
-        'driver': 'cast',
-    }
-
-    if isinstance(arr, GlobalDeviceArray) or (jax.config.jax_array and
-                                              isinstance(arr, jax.Array)):
-      # Origin dtype.
-      tspec['dtype'] = jnp.dtype(
-          cast(Union[GlobalDeviceArray, jax.Array], arr).dtype).name
-      # Destination dtype.
-      tspec = set_tspec_dtype(arr, tspec)
-      commit_futures = []
-      await serialization.async_serialize(
-          arr, tspec, commit_future=commit_futures)
-      return commit_futures
-    # Note: should match ArrayOrScalarType defined at the top of the file.
-    elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
-      if isinstance(arr, (int, float, np.number)):
-        arr = np.asarray(arr)
-      # Origin dtype.
-      tspec['dtype'] = jnp.dtype(arr.dtype).name
-      # Destination dtype.
-      tspec = set_tspec_dtype(arr, tspec)
-      t = await ts.open(
-          ts.Spec(tspec),
-          create=True,
-          open=True,
-          context=ts.Context({'file_io_concurrency': {
-              'limit': 128
-          }}))
-      write_future = t.write(arr)
-      await write_future.copy
-      return [write_future.commit]
-    else:
-      raise ValueError(f'Unsupported array type: {type(arr)}')
-
-  def _get_array_tensorstore_spec(self, path: epath.Path,
-                                  arr: ArrayOrScalarType):
-    """Gets ts.Spec in json format for the given path and jax_array."""
-    if arr is None:
-      return None
-    path = os.fspath(path)
-    tspec = serialization.get_tensorstore_spec(path)
-    if (isinstance(arr, GlobalDeviceArray) or
-        (jax.config.jax_array and isinstance(arr, jax.Array))):
-      tspec['metadata'] = serialization._get_metadata(arr)  # pylint: disable=protected-access
-      del tspec['metadata']['dtype']  # pytype: disable=unsupported-operands
-    # Note: should match ArrayOrScalarType defined at the top of the file.
-    elif isinstance(arr, (int, float, np.number, np.ndarray, jnp.ndarray)):
-      if utils.is_scalar(arr):
-        arr = np.asarray(arr)
-      tspec['metadata'] = {
-          'compressor': {
-              'id': 'gzip'
-          },
-          'shape': arr.shape,  # pytype: disable=attribute-error
-          'chunks': arr.shape,  # pytype: disable=attribute-error
-      }
-    else:
-      raise ValueError(f'Unsupported array type: {type(arr)}')
-    return tspec
+    self._aggregate_handler = aggregate_handlers.get_aggregate_handler()
+    self._enable_aggregation = enable_aggregation
+    if aggregate_filename is None:
+      aggregate_filename = _CHECKPOINT_FILE
+    self._aggregate_filename = aggregate_filename
 
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
     return _get_param_names(item)
 
-  def _get_param_infos(self, item: PyTree, directory: epath.Path) -> PyTree:
+  def _get_param_infos(self, item: PyTree, directory: epath.Path,
+                       save_args: PyTree) -> PyTree:
     """Returns parameter information for elements in `item`.
 
     At minimum, this method should extract the names of each parameter for
@@ -397,6 +239,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     Args:
       item: a PyTree to extract information from.
       directory: a directory where checkpoint files are located.
+      save_args: PyTree matching item containing SaveArgs.
 
     Returns:
       A PyTree matching `item` of ParamInfo.
@@ -405,12 +248,13 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       raise ValueError('Found empty item')
     names = self._get_param_names(item)
 
-    def _param_info(name, arr_or_spec):
-      path = directory / name
-      return ParamInfo(name,
-                       self._get_array_tensorstore_spec(path, arr_or_spec))
+    def _param_info(name, value, args):
+      if args.aggregate:
+        return ParamInfo(name=name, aggregate=True)
+      return type_handlers.get_type_handler(type(value)).param_info(
+          directory, name, value)
 
-    return jax.tree_util.tree_map(_param_info, names, item)
+    return jax.tree_util.tree_map(_param_info, names, item, save_args)
 
   async def async_save(
       self,
@@ -442,13 +286,12 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     if save_args is None:
       save_args = jax.tree_util.tree_map(lambda x: SaveArgs(), item)
-    else:
-      save_args = utils.to_state_dict(save_args)
     jax.tree_util.tree_map(
-        functools.partial(_validate_save_args, enable_flax=self._enable_flax),
+        functools.partial(
+            _validate_save_args, enable_aggregation=self._enable_aggregation),
         save_args)
 
-    param_infos = self._get_param_infos(item, directory)
+    param_infos = self._get_param_infos(item, directory, save_args)
     # Create directories in parallel.
     await asyncio.gather(*jax.tree_util.tree_flatten(
         jax.tree_util.tree_map(_create_param_save_dir, param_infos, save_args))
@@ -456,24 +299,30 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     multihost_utils.sync_global_devices(
         'PyTreeCheckpointHandler:create_param_save_dirs')
 
-    future_tree = jax.tree_util.tree_map(self._serialize_array, param_infos,
-                                         save_args, item)
+    async def serialize(value, info, args):
+      if args.aggregate:
+        return  # skip serialize now, include in aggregated file
+      handler = type_handlers.get_type_handler(type(value))
+      return await handler.serialize(value, info, args)
+
+    future_tree = jax.tree_util.tree_map(serialize, item, param_infos,
+                                         save_args)
     copy_futures, _ = jax.tree_util.tree_flatten(future_tree)
     assert isinstance(copy_futures, list)
     # Await copy futures.
     commit_futures = await asyncio.gather(*copy_futures)
     commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
 
-    if self._enable_flax and jax.process_index() == 0:
-      flax_item = jax.tree_util.tree_map(_get_flax_tree_value, param_infos,
-                                         save_args, item)
-      msgpack = flax.serialization.to_bytes(flax_item)
-      (directory / _FLAX_CHECKPOINT_FILE).write_bytes(msgpack)
+    ser_item = _get_tree_for_aggregation(param_infos, save_args, item)
+    await self._aggregate_handler.serialize(
+        directory / self._aggregate_filename, ser_item)
 
     return commit_futures
 
   def save(self, directory: epath.Path, item: Any, *args, **kwargs):
     """Saves the provided item.
+
+    Blocks until both copy and commit complete.
 
     See async_save.
 
@@ -494,43 +343,40 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     asyncio.run(async_save(directory, item, *args, **kwargs))
     multihost_utils.sync_global_devices('PyTreeCheckpointHandler:save')
 
-  async def _maybe_deserialize(self, args, value, info):
-    """Deserialize from tensorstore or return value if already deserialized."""
-    if value is None or (isinstance(value, dict) and not value):
-      return {}
-    if isinstance(value, (utils.Leaf, ts.Spec)):
-      result = lazy_array.LazyAwaitableArray.from_tensor_store_spec(
-          ts.Spec(info.tspec),
-          get_fn=lambda: _deserialize_array(args, info),
-          dtype=args.dtype)
-    else:  # Already initialized as np.ndarray or GDA or jax_array.Array.
+  async def _maybe_deserialize(self, info: ParamInfo, value: Any,
+                               args: RestoreArgs) -> Any:
+    """Deserializes using handler or returns already restored value.
+
+    If the ParamInfo indicates that the parameter was aggregated, then it must
+    have already been restored. In this case, we simply perform a cast and
+    convert to LazyArray if requested.
+
+    Otherwise, we deserialize using an appropriate TypeHandler, converting to
+    LazyArray and casting if requested.
+
+    Args:
+      info: ParamInfo
+      value: a tree value which may have already been restored. Not relevant if
+        info.aggregate is False.
+      args: RestoreArgs for TypeHandler restoration.
+
+    Returns:
+      A deserialized parameter.
+    """
+    if info.aggregate:  # Already restored from AggregateHandler.
       value = _array_cast(value, args.dtype)
-      if args.as_jax_array and not isinstance(value,
-                                              (jax.Array, GlobalDeviceArray)):
-        if utils.is_scalar(value):
-          value = np.asarray(value)
-        _validate_restore_args(args)
-        shape = args.global_shape or value.shape
-        if jax.config.jax_parallel_functions_output_gda:
-          result = GlobalDeviceArray.from_callback(
-              shape, args.mesh, args.mesh_axes,
-              lambda idx: value[idx].astype(value.dtype))
-        elif jax.config.jax_array:
-          result = make_array_from_callback(
-              shape, sharding.MeshPspecSharding(args.mesh, args.mesh_axes),
-              lambda idx: value[idx].astype(value.dtype))
-        else:
-          raise ValueError(
-              'Requested restoration as JAX Array, but neither jax.Array nor GlobalDeviceArray was enabled.'
-          )
-      else:
-        result = value
-      result = lazy_array.LazyAwaitableArray.from_array(
-          result, dtype=args.dtype)
-    if args.lazy:
-      return result
-    else:
-      return await result.get_async()
+      if args.lazy:
+        value = lazy_array.LazyAwaitableArray.from_array(
+            value, dtype=args.dtype)
+      return value
+    handler = type_handlers.get_type_handler(args.restore_type)
+    arr = lazy_array.LazyAwaitableArray.from_tensor_store_spec(
+        ts.Spec(info.tspec),
+        get_fn=lambda: handler.deserialize(info, args),
+        dtype=args.dtype)
+    if not args.lazy:
+      arr = await arr.get_async()
+    return arr
 
   def restore(self,
               directory: epath.Path,
@@ -555,9 +401,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         provided, should match the structure of the checkpoint.
       transforms: a PyTree of transformations that should be applied to the
         saved item in order to obtain a final structure. See `transform_utils`
-        for further information. Note that if `transforms` is provided, all
-        other arguments are structured relative to the saved object, not to the
-        restored object post-transformation.
+        for further information.
       transforms_default_to_original: See transform_utils.apply_transformations.
 
     Returns:
@@ -575,55 +419,45 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}')
 
-    structure = self.structure(directory)
-    param_infos = _get_param_infos_from_structure(directory, structure)
-    item, param_infos = _transform_structure(item, structure, param_infos,
+    restored = self.structure(directory)
+    param_infos = _get_param_infos_from_structure(directory, restored)
+    item, param_infos = _transform_structure(item, restored, param_infos,
                                              transforms,
                                              transforms_default_to_original)
 
     if restore_args is None:
-      restore_args = jax.tree_util.tree_map(
-          lambda x: RestoreArgs(as_jax_array=False), item)
+      restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), item)
 
-    future_arrays = jax.tree_util.tree_map(
-        self._maybe_deserialize,
-        restore_args,
-        item,
-        param_infos,
-        is_leaf=lambda args: isinstance(args, RestoreArgs) or not args)
-
+    future_arrays = jax.tree_map(self._maybe_deserialize, param_infos, item,
+                                 restore_args)
     future_arrays, item_def = jax.tree_util.tree_flatten(future_arrays)
 
     async def _async_restore(future_arrays):
       return await asyncio.gather(*future_arrays)
 
     result = asyncio.run(_async_restore(future_arrays))
-
     restored_item = jax.tree_util.tree_unflatten(item_def, result)
 
     multihost_utils.sync_global_devices('PyTreeCheckpointHandler:restore')
     return restored_item
 
   def structure(self, directory: epath.Path) -> PyTree:
-    """Restores the PyTree structure from a Flax checkpoint.
+    """Restores the saved PyTree structure without regard for its leaf values.
 
     Args:
       directory: the directory to restore from.
 
     Returns:
-      The structure of the checkpointed PyTree. Leaves may be of type
-      StructureLeaf.
+      The structure of the checkpointed PyTree. Leaves may be of any type.
 
     Raises:
-      FileNotFoundError: if the flax checkpoint is not found.
+      FileNotFoundError: if the checkpoint is not found.
     """
-    flax_file = directory / _FLAX_CHECKPOINT_FILE
-    if flax_file.exists():
-      msgpack = flax_file.read_bytes()
-      structure = utils.msgpack_restore(msgpack)
+    if (directory / self._aggregate_filename).exists():
+      return self._aggregate_handler.deserialize(directory /
+                                                 self._aggregate_filename)
     else:
-      if self._enable_flax:
+      if self._enable_aggregation:
         raise FileNotFoundError(f'Checkpoint does not exist at {directory}.')
       else:
-        structure = utils.pytree_structure(directory)
-    return structure
+        return utils.pytree_structure(directory)

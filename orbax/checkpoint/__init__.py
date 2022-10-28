@@ -16,6 +16,7 @@
 
 from orbax.checkpoint import lazy_array
 from orbax.checkpoint import test_utils
+from orbax.checkpoint import type_handlers
 from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
@@ -24,7 +25,9 @@ from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
 from orbax.checkpoint.checkpointer import Checkpointer
+from orbax.checkpoint.future import Future
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
+from orbax.checkpoint.pytree_checkpoint_handler import ArrayRestoreArgs
 from orbax.checkpoint.pytree_checkpoint_handler import PyTreeCheckpointHandler
 from orbax.checkpoint.pytree_checkpoint_handler import RestoreArgs
 from orbax.checkpoint.pytree_checkpoint_handler import SaveArgs
