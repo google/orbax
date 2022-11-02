@@ -24,7 +24,7 @@ import jax
 from jax._src.device_array import DeviceArray
 from jax.experimental import pjit
 from jax.experimental.gda_serialization import serialization
-
+from jax.experimental.gda_serialization.serialization import get_tensorstore_spec
 from jax.experimental.global_device_array import GlobalDeviceArray
 from jax.experimental.maps import Mesh
 import jax.numpy as jnp
@@ -186,7 +186,7 @@ class NumpyHandler(TypeHandler):
                  value: np.ndarray) -> ParamInfo:
     """See superclass documentation."""
     path = os.fspath(directory / name)
-    tspec = serialization.get_tensorstore_spec(path)
+    tspec = get_tensorstore_spec(path)
     tspec['metadata'] = {
         'compressor': {
             'id': 'gzip'
@@ -275,7 +275,7 @@ class ArrayHandler(TypeHandler):
                  value: Union[jax.Array, GlobalDeviceArray]) -> ParamInfo:
     """See superclass documentation."""
     path = os.fspath(directory / name)
-    tspec: Dict[str, Any] = serialization.get_tensorstore_spec(path)
+    tspec: Dict[str, Any] = get_tensorstore_spec(path)
     tspec['metadata'] = serialization._get_metadata(value)  # pylint: disable=protected-access
     del tspec['metadata']['dtype']
     return ParamInfo(name=name, tspec=tspec)

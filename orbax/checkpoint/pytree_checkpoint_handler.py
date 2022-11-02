@@ -29,7 +29,7 @@ import flax
 from flax import traverse_util
 import jax
 from jax.experimental import multihost_utils
-
+from jax.experimental.gda_serialization.serialization import get_tensorstore_spec
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
@@ -102,7 +102,7 @@ def _get_param_infos_from_structure(directory: epath.Path,
     if isinstance(leaf, utils.Leaf):
       # Leaf is a param name.
       path = os.fspath(directory / leaf)
-      tspec = serialization.get_tensorstore_spec(path)
+      tspec = get_tensorstore_spec(path)
     # The following is kept for backwards compatibility.
     elif isinstance(leaf, ts.Spec):
       tspec = leaf.to_json()  # pytype: disable=attribute-error
