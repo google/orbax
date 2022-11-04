@@ -19,7 +19,6 @@ import dataclasses
 import datetime
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
 
-from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
@@ -307,7 +306,6 @@ class CheckpointManager(AbstractCheckpointManager):
       ValueError: if the checkpoint already exists.
     """
     if not force and not self.should_save(step):
-      logging.info('Skipping save for step: %d', step)
       return False
 
     # Wait for ongoing saves to complete. Only applicable if some of the
