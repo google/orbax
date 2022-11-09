@@ -14,7 +14,7 @@
 
 """Synchronous Checkpointer implementation."""
 
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 from absl import logging
 from etils import epath
@@ -36,7 +36,7 @@ class Checkpointer(AbstractCheckpointer):
     self._handler = handler
 
   def save(self,
-           directory: Union[str, epath.Path],
+           directory: epath.PathLike,
            item: Any,
            *args,
            force: bool = False,
@@ -76,7 +76,7 @@ class Checkpointer(AbstractCheckpointer):
     multihost_utils.sync_global_devices('Checkpointer:save')
 
   def restore(self,
-              directory: Union[str, epath.Path],
+              directory: epath.PathLike,
               *args,
               item: Optional[Any] = None,
               **kwargs) -> Any:
@@ -89,7 +89,7 @@ class Checkpointer(AbstractCheckpointer):
     logging.info('Restoring item from %s.', directory)
     return self._handler.restore(directory, *args, item=item, **kwargs)
 
-  def structure(self, directory: Union[str, epath.Path]) -> Optional[Any]:
+  def structure(self, directory: epath.PathLike) -> Optional[Any]:
     """See superclass documentation."""
     directory = epath.Path(directory)
     try:

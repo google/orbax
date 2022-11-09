@@ -42,6 +42,7 @@ setuptools.setup(
         'importlib_resources',
         'etils',
         'flax',
+        'importlib_resources',
         'jax',
         'jaxlib',
         'numpy',

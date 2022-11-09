@@ -16,7 +16,7 @@
 
 import asyncio
 import functools
-from typing import Any, Union, Optional
+from typing import Any, Optional
 
 from absl import logging
 from etils import epath
@@ -44,7 +44,7 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     self._handler = handler
     AsyncManager.__init__(self, timeout_secs=timeout_secs)
 
-  def save(self, directory: Union[str, epath.Path], item: Any, *args, **kwargs):
+  def save(self, directory: epath.PathLike, item: Any, *args, **kwargs):
     """Saves the given item to the provided directory.
 
     Delegates to the underlying CheckpointHandler. Ensures save operation
@@ -82,7 +82,7 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
         functools.partial(utils.ensure_atomic_save, tmpdir, directory))
 
   def restore(self,
-              directory: Union[str, epath.Path],
+              directory: epath.PathLike,
               *args,
               item: Optional[Any] = None,
               **kwargs) -> Any:

@@ -15,7 +15,7 @@
 """AbstractCheckpointer."""
 
 import abc
-from typing import Any, Optional, Union
+from typing import Any, Optional
 from etils import epath
 
 
@@ -30,7 +30,7 @@ class AbstractCheckpointer(abc.ABC):
   """
 
   @abc.abstractmethod
-  def save(self, directory: Union[str, epath.Path], item: Any, *args, **kwargs):
+  def save(self, directory: epath.PathLike, item: Any, *args, **kwargs):
     """Saves the given item to the provided directory.
 
     Args:
@@ -44,7 +44,7 @@ class AbstractCheckpointer(abc.ABC):
 
   @abc.abstractmethod
   def restore(self,
-              directory: Union[str, epath.Path],
+              directory: epath.PathLike,
               *args,
               item: Optional[Any] = None,
               **kwargs) -> Any:
@@ -66,7 +66,7 @@ class AbstractCheckpointer(abc.ABC):
     pass
 
   @abc.abstractmethod
-  def structure(self, directory: Union[str, epath.Path]) -> Optional[Any]:
+  def structure(self, directory: epath.PathLike) -> Optional[Any]:
     """The structure of the saved object at `directory`.
 
     Delegates to underlying handler.

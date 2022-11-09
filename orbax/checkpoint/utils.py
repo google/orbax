@@ -17,7 +17,7 @@ import asyncio
 import functools
 import os
 import time
-from typing import Iterator, List, Optional, Tuple, Union
+from typing import Iterator, List, Optional, Tuple
 
 from absl import logging
 from etils import epath
@@ -32,7 +32,6 @@ _COMMIT_SUCCESS_FILE = 'commit_success.txt'
 _GCS_PATH_PREFIX = 'gs://'
 CheckpointDirs = Tuple[str, str]
 PyTree = type(jax.tree_util.tree_structure(None))
-Path = Union[str, epath.Path]
 
 
 def _wrap(func):
@@ -86,7 +85,7 @@ def rmtree(path: epath.Path):
 Leaf = str
 
 
-def pytree_structure(directory: Path) -> PyTree:
+def pytree_structure(directory: epath.PathLike) -> PyTree:
   """Reconstruct state dict from saved model format in `directory`."""
   directory = epath.Path(directory)
 
@@ -138,7 +137,7 @@ def to_state_dict(pytree):
   return _rebuild_ts_specs(state_dict)
 
 
-def cleanup_tmp_directories(directory: Path):
+def cleanup_tmp_directories(directory: epath.PathLike):
   """Cleanup steps in `directory` with tmp files, as these are not finalized."""
   directory = epath.Path(directory)
   if jax.process_index() == 0:
@@ -154,7 +153,7 @@ def is_gcs_path(path: epath.Path):
 
 
 def get_save_directory(step: int,
-                       directory: Path,
+                       directory: epath.PathLike,
                        name: Optional[str] = None,
                        step_prefix: Optional[str] = None) -> epath.Path:
   """Returns the standardized path to a save directory for a single item."""
@@ -168,7 +167,7 @@ def get_save_directory(step: int,
   return result
 
 
-def create_tmp_directory(final_dir: Path) -> epath.Path:
+def create_tmp_directory(final_dir: epath.PathLike) -> epath.Path:
   """Creates a temporary directory for saving at the given path."""
   # Share a timestamp across devices.
   final_dir = epath.Path(final_dir)
@@ -208,7 +207,7 @@ def is_scalar(x):
   return isinstance(x, (int, float, np.number))
 
 
-def is_checkpoint_finalized(path: Path) -> bool:
+def is_checkpoint_finalized(path: epath.PathLike) -> bool:
   """Determines if the checkpoint path is finalized.
 
   Path takes the form:
@@ -239,7 +238,7 @@ def is_checkpoint_finalized(path: Path) -> bool:
   return True
 
 
-def checkpoint_steps(checkpoint_dir: Path) -> List[int]:
+def checkpoint_steps(checkpoint_dir: epath.PathLike) -> List[int]:
   checkpoint_dir = epath.Path(checkpoint_dir)
   return [
       int(os.fspath(s.name))
@@ -248,7 +247,7 @@ def checkpoint_steps(checkpoint_dir: Path) -> List[int]:
   ]
 
 
-def tmp_checkpoints(checkpoint_dir: Path) -> List[str]:
+def tmp_checkpoints(checkpoint_dir: epath.PathLike) -> List[str]:
   checkpoint_dir = epath.Path(checkpoint_dir)
   return [
       s.name for s in checkpoint_dir.iterdir() if not is_checkpoint_finalized(s)
@@ -287,7 +286,7 @@ def _wait_for_new_checkpoint(checkpoint_dir: epath.Path,
       return checkpoint_step
 
 
-def checkpoints_iterator(checkpoint_dir: Path,
+def checkpoints_iterator(checkpoint_dir: epath.PathLike,
                          min_interval_secs=0,
                          timeout=None,
                          timeout_fn=None) -> Iterator[int]:
