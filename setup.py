@@ -39,6 +39,8 @@ setuptools.setup(
         'absl-py',
         'cached_property',
         'dataclasses',
+        'importlib_resources',
+        'etils',
         'flax',
         'jax',
         'jaxlib',
