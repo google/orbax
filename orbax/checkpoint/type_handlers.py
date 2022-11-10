@@ -45,12 +45,13 @@ class ParamInfo:
   internally.
 
   name: name of the parameter.
+  path: A path providing a location where file(s) should be saved. The path is
+    assumed to be a directory.
   aggregate: whether the parameter should be / was aggregated.
-  tspec: Tensorstore spec in JSON format.
   """
   name: Optional[str] = None
+  path: Optional[epath.Path] = None
   aggregate: Optional[bool] = None
-  tspec: Optional[Dict[str, Any]] = None
 
 
 @dataclasses.dataclass
@@ -89,25 +90,6 @@ class RestoreArgs:
 
 class TypeHandler(abc.ABC):
   """Interface for reading and writing a PyTree leaf."""
-
-  # TODO(b/253238305) Consider providing SaveArgs / RestoreArgs.
-  @abc.abstractmethod
-  def param_info(self, directory: epath.Path, name: str,
-                 value: Any) -> ParamInfo:
-    """Determines information necessary to save and restore the parameter.
-
-    Note that the ParamInfo represents internal information not provided by a
-    user.
-
-    Args:
-      directory: filepath where the parameter should be saved.
-      name: name of the parameter.
-      value: the parameter itself.
-
-    Returns:
-      ParamInfo
-    """
-    pass
 
   @abc.abstractmethod
   async def serialize(
@@ -182,19 +164,23 @@ def _get_cast_tspec_deserialize(tspec, args):
 class NumpyHandler(TypeHandler):
   """Provides an implementation of TypeHandler for replicated numpy arrays."""
 
-  def param_info(self, directory: epath.Path, name: str,
-                 value: np.ndarray) -> ParamInfo:
-    """See superclass documentation."""
-    path = os.fspath(directory / name)
-    tspec = get_tensorstore_spec(path)
+  def _get_json_tspec(self,
+                      info: ParamInfo,
+                      value: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    """Gets Tensorstore spec in JSON format."""
+    if info.path is None:
+      raise ValueError('Must construct serialization path.')
+    path = os.fspath(info.path)
+    tspec: Dict[str, Any] = get_tensorstore_spec(path)
     tspec['metadata'] = {
         'compressor': {
             'id': 'gzip'
         },
-        'shape': value.shape,
-        'chunks': value.shape,
     }
-    return ParamInfo(name=name, tspec=tspec)
+    if value is not None:
+      tspec['metadata']['shape'] = value.shape
+      tspec['metadata']['chunks'] = value.shape
+    return tspec
 
   async def serialize(self,
                       value: np.ndarray,
@@ -203,7 +189,8 @@ class NumpyHandler(TypeHandler):
     """Uses Tensorstore to serialize a numpy array."""
     if args is None:
       args = SaveArgs()
-    tspec = _get_cast_tspec_serialize(info.tspec, value, args)
+    tspec = self._get_json_tspec(info, value)
+    tspec = _get_cast_tspec_serialize(tspec, value, args)
     t = await ts.open(
         ts.Spec(tspec),
         create=True,
@@ -221,7 +208,8 @@ class NumpyHandler(TypeHandler):
     """Deserializes the array using Tensorstore."""
     if args is None:
       args = RestoreArgs()
-    tspec = _get_cast_tspec_deserialize(info.tspec, args)
+    tspec = self._get_json_tspec(info)
+    tspec = _get_cast_tspec_deserialize(tspec, args)
     t = await ts.open(ts.Spec(tspec), open=True)
     return await t.read()
 
@@ -229,11 +217,6 @@ class NumpyHandler(TypeHandler):
 class ScalarHandler(NumpyHandler):
   """A wrapper around NumpyHandler to deal with scalar types (int, float, etc.).
   """
-
-  def param_info(self, directory: epath.Path, name: str,
-                 value: Scalar) -> ParamInfo:
-    """See superclass documentation."""
-    return super().param_info(directory, name, np.asarray(value))
 
   async def serialize(self,
                       value: Scalar,
@@ -271,14 +254,18 @@ class ArrayRestoreArgs(RestoreArgs):
 class ArrayHandler(TypeHandler):
   """An implementation of TypeHandler for jax.Array and GlobalDeviceArray."""
 
-  def param_info(self, directory: epath.Path, name: str,
-                 value: Union[jax.Array, GlobalDeviceArray]) -> ParamInfo:
-    """See superclass documentation."""
-    path = os.fspath(directory / name)
+  def _get_json_tspec(self,
+                      info: ParamInfo,
+                      value: Optional[Any] = None) -> Dict[str, Any]:
+    """Gets Tensorstore spec in JSON format."""
+    if info.path is None:
+      raise ValueError('Must construct serialization path.')
+    path = os.fspath(info.path)
     tspec: Dict[str, Any] = get_tensorstore_spec(path)
-    tspec['metadata'] = serialization._get_metadata(value)  # pylint: disable=protected-access
-    del tspec['metadata']['dtype']
-    return ParamInfo(name=name, tspec=tspec)
+    if value is not None:
+      tspec['metadata'] = serialization._get_metadata(value)  # pylint: disable=protected-access
+      del tspec['metadata']['dtype']
+    return tspec
 
   async def serialize(self,
                       value: Union[jax.Array, GlobalDeviceArray],
@@ -287,7 +274,8 @@ class ArrayHandler(TypeHandler):
     """See superclass documentation."""
     if args is None:
       args = SaveArgs()
-    tspec = _get_cast_tspec_serialize(info.tspec, value, args)
+    tspec = self._get_json_tspec(info, value)
+    tspec = _get_cast_tspec_serialize(tspec, value, args)
     commit_futures = []
     await serialization.async_serialize(
         value, tspec, commit_future=commit_futures)
@@ -317,7 +305,8 @@ class ArrayHandler(TypeHandler):
       raise ValueError(
           'Sharding of GlobalDeviceArray/Array cannot be None. Provide `mesh` and `mesh_axes`.'
       )
-    tspec = _get_cast_tspec_deserialize(info.tspec, args)
+    tspec = self._get_json_tspec(info)
+    tspec = _get_cast_tspec_deserialize(tspec, args)
     s = jax.sharding.MeshPspecSharding(args.mesh, args.mesh_axes)
     return await serialization.async_deserialize(
         s, tspec, global_shape=args.global_shape)

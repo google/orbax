@@ -19,7 +19,6 @@ Implementation of CheckpointHandler interface.
 
 import asyncio
 import functools
-import os
 import re
 from typing import Any, List, Optional, Tuple
 
@@ -29,11 +28,10 @@ import flax
 from flax import traverse_util
 import jax
 from jax.experimental import multihost_utils
-from jax.experimental.gda_serialization.serialization import get_tensorstore_spec
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
-from orbax.checkpoint import lazy_array
+from orbax.checkpoint import lazy_utils
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
@@ -65,21 +63,21 @@ def _validate_save_args(args: SaveArgs, enable_aggregation: bool):
 
 
 async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
-  tspec = param_info.tspec
   # Directory will be unused.
-  if tspec is None or args.aggregate:
+  path = param_info.path
+  if path is None or args.aggregate:
     return
-  path = tspec['kvstore']['path']
   if jax.process_index() == 0:
-    await utils.async_makedirs(epath.Path(path))
+    await utils.async_makedirs(path)
 
 
-def _array_cast(arr, dtype):
+def _try_array_cast(arr, dtype):
   if dtype is not None:
     if utils.is_scalar(arr):
       arr = np.asarray(arr).astype(dtype).item()
     else:
-      arr = arr.astype(dtype)
+      if hasattr(arr, 'astype'):
+        arr = arr.astype(dtype)
   return arr
 
 
@@ -101,20 +99,19 @@ def _get_param_infos_from_structure(directory: epath.Path,
   def _get_param_info(leaf, name):
     if isinstance(leaf, utils.Leaf):
       # Leaf is a param name.
-      path = os.fspath(directory / leaf)
-      tspec = get_tensorstore_spec(path)
+      path = directory / leaf
     # The following is kept for backwards compatibility.
     elif isinstance(leaf, ts.Spec):
       tspec = leaf.to_json()  # pytype: disable=attribute-error
       # Skip '.', since we need special regex handling for this char.
       pattern = r'\.' + utils.TMP_DIR_SUFFIX[1:] + r'\d+'
-      tspec['kvstore']['path'] = re.sub(pattern, '', tspec['kvstore']['path'])
+      path = re.sub(pattern, '', tspec['kvstore']['path'])
     elif isinstance(leaf, (int, float, np.number, np.ndarray, jnp.ndarray)):
-      # Array already restored, do not need ts.Spec.
-      tspec = None
+      # Value already restored, do not need ts.Spec.
+      path = None
     else:
       raise ValueError(f'Unsupported type: {type(leaf)}')
-    return ParamInfo(name=name, aggregate=(tspec is None), tspec=tspec)
+    return ParamInfo(name=name, path=path, aggregate=(path is None))
 
   return jax.tree_util.tree_map(_get_param_info, structure, names)
 
@@ -126,7 +123,7 @@ def _get_tree_for_aggregation(param_infos, save_args, item):
     if arg is None:
       arg = SaveArgs()
     if arg.aggregate:  # Param was aggregated, return value after cast.
-      return _array_cast(arr, arg.dtype)
+      return _try_array_cast(arr, arg.dtype)
     else:
       return param_info.name
 
@@ -248,13 +245,11 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       raise ValueError('Found empty item')
     names = self._get_param_names(item)
 
-    def _param_info(name, value, args):
-      if args.aggregate:
-        return ParamInfo(name=name, aggregate=True)
-      return type_handlers.get_type_handler(type(value)).param_info(
-          directory, name, value)
+    def _param_info(name, args):
+      return ParamInfo(
+          name=name, path=(directory / name), aggregate=args.aggregate)
 
-    return jax.tree_util.tree_map(_param_info, names, item, save_args)
+    return jax.tree_util.tree_map(_param_info, names, save_args)
 
   async def async_save(
       self,
@@ -282,7 +277,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       A Future that will commit the data to `directory` when awaited. Copying
       the data from its source will be awaited in this function.
     """
-    item = await lazy_array.maybe_get_tree_async(item)
+    item = await lazy_utils.maybe_get_tree_async(item)
 
     if save_args is None:
       save_args = jax.tree_util.tree_map(lambda x: SaveArgs(), item)
@@ -334,7 +329,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     """
 
     async def async_save(*args, **kwargs):
-      commit_futures = await self.async_save(*args, **kwargs)
+      commit_futures = await self.async_save(*args, **kwargs)  # pytype: disable=bad-return-type
       # Futures are already running, so sequential waiting is equivalent to
       # concurrent waiting.
       for future in commit_futures:
@@ -364,19 +359,16 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       A deserialized parameter.
     """
     if info.aggregate:  # Already restored from AggregateHandler.
-      value = _array_cast(value, args.dtype)
+      value = _try_array_cast(value, args.dtype)
       if args.lazy:
-        value = lazy_array.LazyAwaitableArray.from_array(
-            value, dtype=args.dtype)
+        value = lazy_utils.LazyValue(lazy_utils.identity(value))
       return value
+
     handler = type_handlers.get_type_handler(args.restore_type)
-    arr = lazy_array.LazyAwaitableArray.from_tensor_store_spec(
-        ts.Spec(info.tspec),
-        get_fn=lambda: handler.deserialize(info, args),
-        dtype=args.dtype)
+    value = lazy_utils.LazyValue(lambda: handler.deserialize(info, args))
     if not args.lazy:
-      arr = await arr.get_async()
-    return arr
+      value = await value.get_async()
+    return value
 
   def restore(self,
               directory: epath.Path,
@@ -407,7 +399,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     Returns:
       A PyTree matching the structure of `item` with restored array values as
       `GlobalDeviceArray` or `jax.Array` if `as_jax_array` or `np.ndarray`
-      otherwise. If `lazy` restoration is enabled, `LazyArray` will be returned.
+      otherwise. If `lazy` restoration is enabled, `LazyValue` will be
+      returned.
 
     Raises:
       FileNotFoundError: `directory` does not exist or is missing required files

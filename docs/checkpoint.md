@@ -244,9 +244,9 @@ parameters are provided on an individual basis for each element in the PyTree.
     fully replicates the array to every device.
 *   `global_shapes`: the global shape that the array should be restored into. If
     not provided, the shape will be restored as written.
-*   `lazy`: if True, restores using [LazyArray](#lazyarray). The actual read
+*   `lazy`: if True, restores using [LazyValue](#LazyValue). The actual read
     operation will not be performed until `get` is called for the restored
-    LazyArray
+    LazyValue
 *   `dtype`: if provided, casts the parameter to the given dtype after
     restoring. Note that the parameter must be compatible with the given type
     (e.g. jnp.bfloat16 is not compatible with np.ndarray).
@@ -278,19 +278,19 @@ Note that presently, this class does not implement async APIs.
 
 ## Utilities
 
-### LazyArray
+### LazyValue
 
-[`LazyArray`](https://github.com/google/orbax/tree/main/orbax/checkpoint/lazy_array.py)
-provides a mechanism for delayed loading of arrays from a checkpoint. If a
-parameter is restored as a `LazyArray` (in `PyTreeCheckpointHandler`, setting
+[`LazyValue`](https://github.com/google/orbax/tree/main/orbax/checkpoint/lazy_array.py)
+provides a mechanism for delayed loading of values from a checkpoint. If a
+parameter is restored as a `LazyValue` (in `PyTreeCheckpointHandler`, setting
 `RestoreArgs.lazy = True`), the restored object will not yet have done the work
 of actually loading the parameter from Tensorstore.
 
-The actual loading will only be done when `.get()` is called on the `LazyArray`.
+The actual loading will only be done when `.get()` is called on the `LazyValue`.
 
 Of course, for parameters saved using `flax.serialization` into a file
 containing many parameters, the loading does happen eagerly, regardless of
-whether `LazyArray` is used. However, parameters saved in this way should
+whether `LazyValue` is used. However, parameters saved in this way should
 typically be small.
 
 ### Transformations
