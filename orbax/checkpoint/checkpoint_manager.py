@@ -18,6 +18,7 @@ import asyncio
 import dataclasses
 import datetime
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
+from absl import logging
 
 from etils import epath
 import jax
@@ -95,7 +96,7 @@ class CheckpointInfo:
   """Metadata about a checkpoint."""
   step: int
   time: datetime.datetime
-  metrics: PyTree
+  metrics: Optional[PyTree]
 
 
 class CheckpointManager(AbstractCheckpointManager):
@@ -150,12 +151,15 @@ class CheckpointManager(AbstractCheckpointManager):
     else:
       raise ValueError(
           f'Invalid type for `checkpointers`. Found {checkpointers}.')
+
     self._checkpointers = checkpointers
-    self._checkpointers[METRIC_ITEM_NAME] = Checkpointer(
-        JsonCheckpointHandler(filename=METRIC_ITEM_NAME))
     self._options = options or CheckpointManagerOptions()
     if self._options.best_mode not in ['min', 'max']:
       raise ValueError('`best_mode` must be one of: "min", "max"')
+    if self._track_best:
+      self._checkpointers[METRIC_ITEM_NAME] = Checkpointer(
+          JsonCheckpointHandler(filename=METRIC_ITEM_NAME))
+
     # Cleanup directories from previous runs that may not have been finalized.
     self._cleanup_tmp_directories()
     self._checkpoints = self._create_checkpoints()
@@ -208,7 +212,8 @@ class CheckpointManager(AbstractCheckpointManager):
       return self.latest_step()
     if not self._checkpoints:
       return None
-    return self._sort_checkpoints_by_metrics(self._checkpoints)[-1].step
+    _, sorted_checkpoints = self._sort_checkpoints_by_metrics(self._checkpoints)
+    return sorted_checkpoints[-1].step
 
   def should_save(self, step: int) -> bool:
     """Returns True if a checkpoint should be saved for the current step.
@@ -244,6 +249,48 @@ class CheckpointManager(AbstractCheckpointManager):
     """Returns the standardized path to a save directory for a single item."""
     return utils.get_save_directory(
         step, directory, name=key_name, step_prefix=self._options.step_prefix)
+
+  # TODO(b/256160767) Potentially support updating any item within the
+  # checkpoint. Note that metrics is optional because we anticipate adding
+  # an additional non-optional `item` argument in the future.
+  def update(self, step: int, metrics: Optional[PyTree] = None):
+    """Updates a portion of an already existing checkpoint.
+
+    Currently only metrics can be updated.
+
+    Args:
+      step: step to update
+      metrics: metrics with which to replace the currently saved metrics.
+
+    Raises:
+      ValueError: if metrics is None.
+      ValueError: if metrics tracking is not enabled.
+      ValueError: if the requested step does not exist.
+    """
+    if step not in self.all_steps():
+      raise ValueError('Requested updating a non-existent step.')
+    if metrics is None:
+      raise ValueError('Must provide metrics to update.')
+    if not self._track_best and metrics is not None:
+      raise ValueError(
+          'Requested update metrics without configuring the CheckpointManager to track metrics.'
+      )
+
+    # Wait for ongoing saves to complete. Only applicable if some of the
+    # checkpointers are AsyncCheckpointers.
+    self.wait_until_finished()
+
+    assert METRIC_ITEM_NAME in self._checkpointers
+    final_dir = self._get_save_directory(step, self._directory,
+                                         METRIC_ITEM_NAME)
+    self._checkpointers[METRIC_ITEM_NAME].save(final_dir, metrics)
+
+    # TODO(b/256160767) Update time if the updated item is something other than
+    # metrics.
+    self._update_checkpoint_info(step, metrics, update_time=False)
+    # If any are async, must wait until all saves are complete before finalize.
+    if self._all_checkpointers_are_sync:
+      self._finalize()
 
   def save(self,
            step: int,
@@ -325,9 +372,9 @@ class CheckpointManager(AbstractCheckpointManager):
 
     if self._track_best:
       if metrics is None:
-        raise ValueError(
-            'Requested `tracked_metric`; must provide `metrics` for save.')
-      items[METRIC_ITEM_NAME] = metrics
+        logging.warning('Requested `tracked_metric`; did not provide metrics.')
+      else:
+        items[METRIC_ITEM_NAME] = metrics
 
     for k, item in items.items():
       # Gets save dirs given top directory, step number, and a "collection". All
@@ -340,11 +387,8 @@ class CheckpointManager(AbstractCheckpointManager):
       self._checkpointers[k].save(final_dir, item, **kwargs)
 
     self._add_checkpoint_info(step, metrics)
-    all_checkpointers_are_sync = all(
-        not is_async_checkpointer(checkpointer)
-        for checkpointer in self._checkpointers.values())
     # If any are async, must wait until all saves are complete before finalize.
-    if all_checkpointers_are_sync:
+    if self._all_checkpointers_are_sync:
       self._finalize()
 
     return True
@@ -442,16 +486,20 @@ class CheckpointManager(AbstractCheckpointManager):
       directory = epath.Path(directory)
     restored = {}
     item_keys_to_restore = items.keys() or self._checkpointers.keys()
-    for k in item_keys_to_restore:
-      # No metrics file expected: do not restore
-      if k == METRIC_ITEM_NAME and not self._track_best:
-        continue
-      if k not in self._checkpointers:
-        raise ValueError(f'Checkpointer for item "{k}" not found')
-      item = items.get(k, None)
-      kwargs = restore_kwargs.get(k, {})
-      path = self._get_save_directory(step, directory, k)
-      restored[k] = self._checkpointers[k].restore(path, item=item, **kwargs)
+    for item_name in item_keys_to_restore:
+      path = self._get_save_directory(step, directory, item_name)
+      if item_name == METRIC_ITEM_NAME:
+        assert self._track_best
+        # No metrics file present: not an error.
+        if not path.exists():
+          logging.warning('Missing metrics for step %d', step)
+          continue
+      if item_name not in self._checkpointers:
+        raise ValueError(f'Checkpointer for item "{item_name}" not found')
+      item = items.get(item_name, None)
+      kwargs = restore_kwargs.get(item_name, {})
+      restored[item_name] = self._checkpointers[item_name].restore(
+          path, item=item, **kwargs)
     return restored
 
   def structure(self) -> Union[Any, Mapping[str, Any]]:
@@ -475,11 +523,14 @@ class CheckpointManager(AbstractCheckpointManager):
       raise ValueError(
           'No existing checkpoint; structure cannot be determined.')
     for name, checkpointer in self._checkpointers.items():
-      # No metrics file expected: do not restore
-      if name == METRIC_ITEM_NAME and not self._track_best:
-        continue
-      structure = checkpointer.structure(
-          self._get_save_directory(step, self.directory, name))
+      path = self._get_save_directory(step, self.directory, name)
+      if name == METRIC_ITEM_NAME:
+        assert self._track_best
+        # No metrics file present: not an error.
+        if not path.exists():
+          logging.warning('Missing metrics for step %d', step)
+          continue
+      structure = checkpointer.structure(path)
       # If None, then the item has no defined structure, and should be excluded.
       # May be empty, which would simply represent a valid, but empty structure.
       if structure is not None:
@@ -494,6 +545,11 @@ class CheckpointManager(AbstractCheckpointManager):
   def _track_best(self):
     """Returns true if we should track the best checkpoints by given metric."""
     return self._options.best_fn is not None
+
+  @property
+  def _all_checkpointers_are_sync(self):
+    return all(not is_async_checkpointer(checkpointer)
+               for checkpointer in self._checkpointers.values())
 
   def _create_checkpoints(self) -> List[CheckpointInfo]:
     """Create a list of CheckpointInfo for existing checkpoints.
@@ -529,18 +585,44 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def _add_checkpoint_info(self, step, metrics):
     self._checkpoints.append(
-        CheckpointInfo(step, datetime.datetime.utcnow(), metrics))
+        CheckpointInfo(step, datetime.datetime.now(tz=datetime.timezone.utc),
+                       metrics))
     self._last_checkpoint = self._checkpoints[-1]
     # Only None if this is the very first checkpoint. First checkpoint is
     # always preserved.
     if self._last_preserved_checkpoint is None:
       self._last_preserved_checkpoint = self._checkpoints[-1]
 
+  def _update_checkpoint_info(self, step, metrics, update_time=False):
+    for i, info in enumerate(self._checkpoints):
+      if info.step == step:
+        self._checkpoints[i].metrics = metrics
+        if update_time:
+          self._checkpoints[i].time = datetime.datetime.now(
+              tz=datetime.timezone.utc)
+        return
+    raise ValueError(
+        'Attempting to update a step which is not currently present.')
+
   def _sort_checkpoints_by_metrics(
-      self, checkpoints: List[CheckpointInfo]) -> List[CheckpointInfo]:
-    """Sorts `checkpoints` in order of increasing metric quality."""
-    return sorted(
-        checkpoints,
+      self, checkpoints: List[CheckpointInfo]
+  ) -> Tuple[List[CheckpointInfo], List[CheckpointInfo]]:
+    """Sorts `checkpoints` in order of increasing metric quality.
+
+    Checkpoints without corresponding metrics set will be at the beginning.
+
+    Args:
+      checkpoints: a list of CheckpointInfo.
+
+    Returns:
+      Tuple of CheckpointInfo lists:
+      (checkpoints_without_metrics, checkpoints_sorted_by_metrics)
+    """
+    without_metrics = [info for info in checkpoints if info.metrics is None]
+    with_metrics = [info for info in checkpoints if info.metrics is not None]
+
+    return without_metrics, sorted(
+        with_metrics,
         key=lambda info: self._options.best_fn(info.metrics),
         reverse=(self._options.best_mode == 'min'))
 
@@ -557,16 +639,19 @@ class CheckpointManager(AbstractCheckpointManager):
       return
     if self._track_best:
       # Best steps (to keep) are at the end, after sorting.
-      sorted_checkpoints = self._sort_checkpoints_by_metrics(self._checkpoints)
+      checkpoints_without_metrics, sorted_checkpoints = self._sort_checkpoints_by_metrics(
+          self._checkpoints)
     else:
       # checkpoints already sorted by ascending step
+      checkpoints_without_metrics = []
       sorted_checkpoints = self._checkpoints
 
     to_remove = len(sorted_checkpoints) - self._options.max_to_keep
     if to_remove <= 0:
       return
     maybe_delete = sorted_checkpoints[:to_remove]
-    active_checkpoints = sorted_checkpoints[to_remove:]
+    active_checkpoints = checkpoints_without_metrics + sorted_checkpoints[
+        to_remove:]
 
     kept_checkpoints = []
     for info in maybe_delete:
