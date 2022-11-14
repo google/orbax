@@ -563,9 +563,10 @@ class CheckpointManager(AbstractCheckpointManager):
     if not steps:
       return []
 
+    tz = datetime.timezone.utc
     times = [
         datetime.datetime.fromtimestamp(
-            self._get_save_directory(step, self.directory).stat().mtime)
+            self._get_save_directory(step, self.directory).stat().mtime, tz=tz)
         for step in steps
     ]
 
