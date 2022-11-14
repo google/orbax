@@ -1,0 +1,47 @@
+name: Auto-publish
+
+on: [push, workflow_dispatch]
+
+jobs:
+  pytest-job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - uses: styfle/cancel-workflow-action@0.9.1
+      with:
+        access_token: ${{ github.token }}
+
+    - uses: actions/checkout@v3
+
+    # Install deps
+    - uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+    - run: pip --version
+    - run: pip install -e .[all,dev]
+    - run: pip freeze
+
+    # Run tests
+    - name: Run core tests
+      run: pytest -vv -n auto
+
+  publish-job:
+    # Only try to publish if:
+    # * Repo is self (prevents running from forks)
+    # * Branch is `main`
+    if: |
+      github.repository == 'google/orbax'
+      && github.ref == 'refs/heads/main'
+    needs: pytest-job  # Only publish after tests are successful
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 30
+
+    steps:
+    - uses: etils-actions/pypi-auto-publish@v1
+      with:
+        pypi-token: ${{ secrets.PYPI_API_TOKEN }}
+        gh-token: ${{ secrets.GITHUB_TOKEN }}
+        parse-changelog: true
