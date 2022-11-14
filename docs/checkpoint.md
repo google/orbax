@@ -276,6 +276,61 @@ evaluate relative checkpoint quality.
 
 Note that presently, this class does not implement async APIs.
 
+## TypeHandler and AggregateHandler
+
+These classes represent an internal implementation detail of
+[`PyTreeCheckpointHandler`](#pytreecheckpointhandler) that allows for greater
+customizability for PyTree leaf types and storage media. In the vast majority of
+cases, users can safely ignore `TypeHandler` and `AggregateHandler`. However, if
+a user has a custom object type or specific storage requirements, they may wish
+to customize these classes.
+
+### TypeHandler
+
+[`TypeHandler`](https://github.com/google/orbax/tree/main/orbax/checkpoint/type_handlers.py)
+and [`AggregateHandler`](#aggregatehandler) are classes designed specifically
+for use with [`PyTreeCheckpointHandler`](#pytreecheckpointhandler) that grant
+users greater flexibility when dealing with PyTrees with custom leaf types or
+custom logic for saving these leaves.
+
+For example, standard `TypeHandler` implementations and the types that they
+handle include:
+
+*   `ArrayHandler`: `jax.Array` and `GlobalDeviceArray`
+*   `NumpyHandler`: `np.ndarray`
+*   `ScalarHandler`: `int`, `float`
+
+These default implementations all use Tensorstore to serialize and deserialize
+data.
+
+For most users, `TypeHandler` is an internal implementation detail that need not
+concern them. It will only become relevant if a user has a custom leaf type in a
+PyTree that the wish to save and restore.
+
+`TypeHandler` provides the following APIs:
+
+*   `param_infos`: Constructs internal information (such as tensorstore spec)
+    needed to save the value.
+*   `serialize`: Writes the value to a storage location.
+*   `deserialize`: Reads the value from a storage location.
+
+### AggregateHandler
+
+[`AggregateHandler`](https://github.com/google/orbax/tree/main/orbax/checkpoint/aggregate_handlers.py)
+provides a means for saving multiple parameters in a PyTree into a single file,
+potentially allowing for greater storage space savings. Like
+[`TypeHandler`](#typehandler), this class is also designed for use with
+`PyTreeCheckpointHandler`.
+
+While `TypeHandler` is designed for use with a single value of a specific type,
+`AggregateHandler` must, by definition, work with entire PyTrees. Leaves that
+were already serialized individually (to Tensorstore, perhaps) using a
+`TypeHandler` will be replaced with space-saving dummy values.
+
+The default implementation of `AggregateHandler` is `MsgpackHandler`, which uses
+[`flax.serialization`](https://flax.readthedocs.io/en/latest/api_reference/flax.serialization.html)
+to serialize a PyTree into the msgpack format.
+
 ## Utilities
 
 ### LazyValue
