@@ -193,6 +193,27 @@ The class provides `save` and `restore` APIs which save or restore an `item`
 synchronously given a specific `directory`. The save operation should not be
 atomic, since this functionality is handled by `Checkpointer`.
 
+### Checkpointer vs. CheckpointHandler
+
+The need for a division of labor between `Checkpointer` and `CheckpointHandler`
+is not always obvious, but we have found that the design increases modularity
+and reduces code duplication.
+
+This is most obvious when it comes to async checkpointing. The logic required to
+manage a background thread is complex, and we wish to centralize it in a single
+location rather than requiring every user with a new type to implement
+themselves in their own `CheckpointHandler`. We also wish to provide a
+synchronous `Checkpointer` in a separate implementation rather than requiring
+all users to go through `AsyncCheckpointer`. This object can be much simpler to
+use and understand. However, we need an additional layer represented by the
+`CheckpointHandler` to implement type-specific logic, so that `Checkpointer` and
+`AsyncCheckpointer` may share code.
+
+Finally, atomicity is handled at the `Checkpointer` layer, again so that it need
+not be re-implemented for every custom type. Furthermore, logic ensuring
+atomicity may be implemented in different ways on different file systems,
+therefore requiring a more modular design.
+
 ### AsyncCheckpointHandler
 
 A special interface inheriting from `CheckpointHandler`,
