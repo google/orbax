@@ -17,7 +17,7 @@ jobs:
     # Install deps
     - uses: actions/setup-python@v2
       with:
-        python-version: '3.x'
+        python-version: [3.7, 3.8, 3.9]
     - run: pip --version
     - run: pip install -e .[all,dev]
     - run: pip freeze
