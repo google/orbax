@@ -72,8 +72,8 @@ def replicate_sharded_array(arr: Union[GlobalDeviceArray, jax.Array]):
       result = fn(arr)
   elif jax.config.jax_array and isinstance(arr, jax.Array):
     mesh = Mesh(np.asarray(jax.devices()), ('x',))
-    replicated_sharding = sharding.MeshPspecSharding(mesh,
-                                                     pjit.PartitionSpec(None,))
+    replicated_sharding = sharding.NamedSharding(mesh,
+                                                 pjit.PartitionSpec(None,))
     result = pjit.pjit(lambda x: x, out_axis_resources=replicated_sharding)(arr)
   else:
     raise ValueError('Must enable either GDA or JAX Array')
@@ -193,9 +193,9 @@ def create_sharded_array(arr, mesh, mesh_axes):
     return GlobalDeviceArray.from_callback(arr.shape, mesh, mesh_axes,
                                            lambda idx: arr[idx])
   elif jax.config.jax_array:
-    return make_array_from_callback(
-        arr.shape, sharding.MeshPspecSharding(mesh, mesh_axes),
-        lambda idx: arr[idx])
+    return make_array_from_callback(arr.shape,
+                                    sharding.NamedSharding(mesh, mesh_axes),
+                                    lambda idx: arr[idx])
   else:
     raise ValueError('Must enable either GDA or JAX Array')
 
