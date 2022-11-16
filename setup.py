@@ -38,7 +38,6 @@ setuptools.setup(
     install_requires=[
         'absl-py',
         'cached_property',
-        'dataclasses',
         'importlib_resources',
         'etils',
         'flax',
