@@ -17,6 +17,7 @@
 import re
 from typing import Any, Callable, Optional, Tuple, Union
 
+from absl import logging
 import flax
 from flax import serialization
 from flax import traverse_util
@@ -204,6 +205,8 @@ def apply_transformations(original_tree: PyTree,
   new = traverse_util.flatten_dict(new, keep_empty_nodes=True, sep='/')
   transforms = traverse_util.flatten_dict(transforms, sep='/')
 
+  unmatched_new_keys = []
+
   for key in new:
     transform_found = False
     for transform_key, transform in transforms.items():
@@ -238,11 +241,18 @@ def apply_transformations(original_tree: PyTree,
         else:
           new[key] = transform.multi_value_fn(original_tree)
     if not transform_found:
-      if default_to_original:
-        # carry over directly from original, otherwise use value from new
-        if key in original:
+      if key in original:
+        if default_to_original:
+          # carry over directly from original, otherwise use value from new
           new[key] = original[key]
-      # if default_to_new, do not carry over key from original
+        # if default_to_new, do not carry over key from original
+      else:
+        unmatched_new_keys.append(key)
+
+  if unmatched_new_keys:
+    logging.info('The following keys are not loaded from the original tree '
+                 'after applying specified transforms: %s',
+                 ', '.join(unmatched_new_keys))
 
   new = traverse_util.unflatten_dict(new, sep='/')
   return serialization.from_state_dict(new_tree, new)
