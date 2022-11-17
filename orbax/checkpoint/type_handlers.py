@@ -307,7 +307,7 @@ class ArrayHandler(TypeHandler):
       )
     tspec = self._get_json_tspec(info)
     tspec = _get_cast_tspec_deserialize(tspec, args)
-    s = jax.sharding.MeshPspecSharding(args.mesh, args.mesh_axes)
+    s = jax.sharding.NamedSharding(args.mesh, args.mesh_axes)
     return await serialization.async_deserialize(
         s, tspec, global_shape=args.global_shape)
 
