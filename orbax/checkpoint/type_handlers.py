@@ -254,6 +254,10 @@ class ArrayRestoreArgs(RestoreArgs):
 class ArrayHandler(TypeHandler):
   """An implementation of TypeHandler for jax.Array and GlobalDeviceArray."""
 
+  def __init__(self, concurrent_gb: int = 96):
+    # concurrent_gb: maximum GB to read concurrently. Defaults to 96
+    self._concurrent_gb = concurrent_gb
+
   def _get_json_tspec(self,
                       info: ParamInfo,
                       value: Optional[Any] = None) -> Dict[str, Any]:
@@ -308,8 +312,10 @@ class ArrayHandler(TypeHandler):
     tspec = self._get_json_tspec(info)
     tspec = _get_cast_tspec_deserialize(tspec, args)
     s = jax.sharding.NamedSharding(args.mesh, args.mesh_axes)
+    concurrent_bytes = self._concurrent_gb * 10**9
+    byte_limiter = serialization._LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
     return await serialization.async_deserialize(
-        s, tspec, global_shape=args.global_shape)
+        s, tspec, global_shape=args.global_shape, byte_limiter=byte_limiter)
 
 
 _TYPE_REGISTRY = [
