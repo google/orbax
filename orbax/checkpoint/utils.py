@@ -71,6 +71,7 @@ def register_ts_spec_for_serialization():
       override=True)
 
 
+# TODO(cpgaffney) optimize.
 def rmtree(path: epath.Path):
   """Recursively removes non-empty directory."""
   for child in path.iterdir():

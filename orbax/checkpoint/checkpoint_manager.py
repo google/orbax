@@ -674,7 +674,6 @@ class CheckpointManager(AbstractCheckpointManager):
         kept_checkpoints.append(info)
         continue
 
-      # TODO(cpgaffney) optimize.
       self._delete_directory(info.step)
 
     kept_checkpoints += active_checkpoints

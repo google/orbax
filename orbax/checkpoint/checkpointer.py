@@ -50,7 +50,8 @@ class Checkpointer(AbstractCheckpointer):
       directory: a path to which to save.
       item: an object to save, supported by a CheckpointHandler.
       *args: additional args to provide to the CheckpointHandler's save method.
-      force: if True, allows overwriting an existing directory.
+      force: if True, allows overwriting an existing directory. May add overhead
+        due to the need to delete any existing files.
       **kwargs: additional keyword args to provide to the CheckpointHandler's
         save method.
 
@@ -58,15 +59,16 @@ class Checkpointer(AbstractCheckpointer):
       ValueError if the provided directory already exists.
     """
     directory = epath.Path(directory)
+    logging.info('Saving item to %s.', directory)
     if directory.exists():
       if force:
         if jax.process_index() == 0:
-          utils.rmtree(directory)
+          logging.info('Specified `force`: removing existing directory.')
+          utils.rmtree(directory)  # Post-sync handled by create_tmp_directory.
       else:
         raise ValueError(f'Destination {directory} already exists.')
-    logging.info('Saving item to %s.', directory)
-
     tmpdir = utils.create_tmp_directory(directory)
+
     self._handler.save(tmpdir, item, *args, **kwargs)
     multihost_utils.sync_global_devices('Checkpointer:write')
 

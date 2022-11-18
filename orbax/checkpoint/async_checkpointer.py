@@ -44,7 +44,12 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     self._handler = handler
     AsyncManager.__init__(self, timeout_secs=timeout_secs)
 
-  def save(self, directory: epath.PathLike, item: Any, *args, **kwargs):
+  def save(self,
+           directory: epath.PathLike,
+           item: Any,
+           *args,
+           force: bool = False,
+           **kwargs):
     """Saves the given item to the provided directory.
 
     Delegates to the underlying CheckpointHandler. Ensures save operation
@@ -55,6 +60,8 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
       directory: a path to which to save.
       item: an object to save, supported by a CheckpointHandler.
       *args: additional args to provide to the CheckpointHandler's save method.
+      force: if True, allows overwriting an existing directory. May add overhead
+        due to the need to delete any existing files.
       **kwargs: additional keyword args to provide to the CheckpointHandler's
         save method.
 
@@ -62,14 +69,19 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
       ValueError if the provided directory already exists.
     """
     directory = epath.Path(directory)
-    if directory.exists():
-      raise ValueError(f'Destination {directory} already exists.')
-
     logging.info('Saving item to %s. Waiting for thread to finish save.',
                  directory)
     self.wait_until_finished()
 
+    if directory.exists():
+      if force:
+        if jax.process_index() == 0:
+          logging.info('Specified `force`: removing existing directory.')
+          utils.rmtree(directory)  # Post-sync handled by create_tmp_directory.
+      else:
+        raise ValueError(f'Destination {directory} already exists.')
     tmpdir = utils.create_tmp_directory(directory)
+
     # Run copy ops.
     commit_ops = asyncio.run(
         self._handler.async_save(tmpdir, item, *args, **kwargs))
