@@ -5,6 +5,12 @@ on: [push, workflow_dispatch]
 jobs:
   pytest-job:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # LINT.IfChange
+        python-version: [3.7, 3.8, 3.9]
+        # LINT.ThenChange(build.yml)
+
     timeout-minutes: 30
 
     steps:
@@ -17,7 +23,7 @@ jobs:
     # Install deps
     - uses: actions/setup-python@v2
       with:
-        python-version: [3.7, 3.8, 3.9]
+        python-version: ${{ matrix.python-version }}
     - run: pip --version
     - run: pip install -e .[all,dev]
     - run: pip freeze
