@@ -12,4 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Place holder for orbax package, does nothing.
+"""Orbax API."""
+
+# A new PyPI release will be pushed everytime `__version__` is increased.
+__version__ = '0.0.18'

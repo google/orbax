@@ -3,35 +3,6 @@ name: Auto-publish
 on: [push, workflow_dispatch]
 
 jobs:
-  pytest-job:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # LINT.IfChange
-        python-version: [3.7, 3.8, 3.9]
-        # LINT.ThenChange(build.yml)
-
-    timeout-minutes: 30
-
-    steps:
-    - uses: styfle/cancel-workflow-action@0.9.1
-      with:
-        access_token: ${{ github.token }}
-
-    - uses: actions/checkout@v3
-
-    # Install deps
-    - uses: actions/setup-python@v2
-      with:
-        python-version: ${{ matrix.python-version }}
-    - run: pip --version
-    - run: pip install -e .[all,dev]
-    - run: pip freeze
-
-    # Run tests
-    - name: Run core tests
-      run: pytest -vv -n auto
-
   publish-job:
     # Only try to publish if:
     # * Repo is self (prevents running from forks)
@@ -39,7 +10,6 @@ jobs:
     if: |
       github.repository == 'google/orbax'
       && github.ref == 'refs/heads/main'
-    needs: pytest-job  # Only publish after tests are successful
     runs-on: ubuntu-latest
     permissions:
       contents: write

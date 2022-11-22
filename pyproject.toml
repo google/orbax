@@ -1,0 +1,47 @@
+[build-system]
+requires = ["flit_core >=3.5,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = 'orbax'
+description='Orbax'
+readme = 'README.md'
+license = {file = 'LICENSE'}
+requires-python = '>=3.7'
+authors = [{name = 'Orbax Authors', email='orbax-dev@google.com'}]
+classifiers=[
+    'Development Status :: 4 - Beta',
+    'Intended Audience :: Developers',
+    'Intended Audience :: Science/Research',
+    'License :: OSI Approved :: Apache Software License',
+    'Programming Language :: Python',
+    'Topic :: Scientific/Engineering :: Artificial Intelligence',
+]
+
+keywords = ['JAX machine learning']
+
+dependencies = [
+    'absl-py',
+    'cached_property',
+    'importlib_resources',
+    'etils',
+    'flax',
+    'importlib_resources',
+    'jax',
+    'jaxlib',
+    'numpy',
+    'pytest',
+    'pyyaml',
+    'tensorstore >= 0.1.20',
+]
+
+dynamic = ['version']
+
+[project.urls]
+homepage = 'http://github.com/google/orbax'
+repository = 'http://github.com/google/orbax'
+
+[project.optional-dependencies]
+dev = [
+    'pytest-xdist'
+]
