@@ -229,8 +229,14 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
 
   Returns:
     True if the checkpoint is finalized.
+
+  Raises:
+    ValueError if the provided path is not a directory. Valid checkpoint paths
+    must be a directory.
   """
   path = epath.Path(path)
+  if not path.is_dir():
+    raise ValueError(f'Path {path} is not a directory')
   for subpath in path.iterdir():
     if is_gcs_path(subpath) and not (subpath / _COMMIT_SUCCESS_FILE).exists():
       return False
@@ -242,16 +248,17 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
 def checkpoint_steps(checkpoint_dir: epath.PathLike) -> List[int]:
   checkpoint_dir = epath.Path(checkpoint_dir)
   return [
-      int(os.fspath(s.name))
-      for s in checkpoint_dir.iterdir()
-      if is_checkpoint_finalized(s) and os.fspath(s.name).isdigit()
+      int(os.fspath(s.name)) for s in checkpoint_dir.iterdir() if s.is_dir() and
+      os.fspath(s.name).isdigit() and is_checkpoint_finalized(s)
   ]
 
 
 def tmp_checkpoints(checkpoint_dir: epath.PathLike) -> List[str]:
   checkpoint_dir = epath.Path(checkpoint_dir)
   return [
-      s.name for s in checkpoint_dir.iterdir() if not is_checkpoint_finalized(s)
+      s.name
+      for s in checkpoint_dir.iterdir()
+      if s.is_dir() and not is_checkpoint_finalized(s)
   ]
 
 
