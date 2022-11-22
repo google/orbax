@@ -187,8 +187,7 @@ class NumpyHandler(TypeHandler):
                       info: ParamInfo,
                       args: Optional[SaveArgs] = None) -> List[Future]:
     """Uses Tensorstore to serialize a numpy array."""
-    if args is None:
-      args = SaveArgs()
+    args = args or SaveArgs()
     tspec = self._get_json_tspec(info, value)
     tspec = _get_cast_tspec_serialize(tspec, value, args)
     t = await ts.open(
@@ -206,8 +205,7 @@ class NumpyHandler(TypeHandler):
                         info: ParamInfo,
                         args: Optional[RestoreArgs] = None) -> np.ndarray:
     """Deserializes the array using Tensorstore."""
-    if args is None:
-      args = RestoreArgs()
+    args = args or RestoreArgs()
     tspec = self._get_json_tspec(info)
     tspec = _get_cast_tspec_deserialize(tspec, args)
     t = await ts.open(ts.Spec(tspec), open=True)
@@ -276,8 +274,7 @@ class ArrayHandler(TypeHandler):
                       info: ParamInfo,
                       args: Optional[SaveArgs] = None) -> List[Future]:
     """See superclass documentation."""
-    if args is None:
-      args = SaveArgs()
+    args = args or SaveArgs()
     tspec = self._get_json_tspec(info, value)
     tspec = _get_cast_tspec_serialize(tspec, value, args)
     commit_futures = []
@@ -318,6 +315,26 @@ class ArrayHandler(TypeHandler):
         s, tspec, global_shape=args.global_shape, byte_limiter=byte_limiter)
 
 
+class StringHandler(TypeHandler):
+  """TypeHandler for strings that enforces aggregation."""
+
+  async def serialize(self,
+                      value: str,
+                      info: ParamInfo,
+                      args: Optional[SaveArgs] = None) -> List[Future]:
+    """See superclass documentation."""
+    args = args or SaveArgs()
+    if not args.aggregate:
+      raise ValueError('Non-aggregated string serialization is not supported.')
+    return []
+
+  async def deserialize(self,
+                        info: ParamInfo,
+                        args: Optional[RestoreArgs] = None) -> str:
+    """See superclass documentation."""
+    raise NotImplementedError
+
+
 _TYPE_REGISTRY = [
     (lambda ty: issubclass(ty, int), ScalarHandler()),
     (lambda ty: issubclass(ty, float), ScalarHandler()),
@@ -327,6 +344,7 @@ _TYPE_REGISTRY = [
     (lambda ty: issubclass(ty, GlobalDeviceArray), ArrayHandler()),
     (lambda ty: issubclass(ty, jax.Array) and jax.config.jax_array,
      ArrayHandler()),
+    (lambda ty: issubclass(ty, str), StringHandler()),
 ]
 
 

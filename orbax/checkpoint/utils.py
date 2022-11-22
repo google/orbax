@@ -17,17 +17,19 @@ import asyncio
 import functools
 import os
 import time
-from typing import Iterator, List, Optional, Tuple
+from typing import Any, Iterator, List, Optional, Tuple
 
 from absl import logging
 from etils import epath
 import flax.serialization
 import jax
 from jax.experimental import multihost_utils
+import jax.numpy as jnp
 import numpy as np
 import tensorstore as ts
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
+_AGGREGATED_PREFIX = 'AGGREGATED://'
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
 _GCS_PATH_PREFIX = 'gs://'
 CheckpointDirs = Tuple[str, str]
@@ -82,8 +84,30 @@ def rmtree(path: epath.Path):
   path.rmdir()
 
 
-# TODO(b/254053659): Define Leaf to be a non-string value.
-Leaf = str
+def is_aggregated_placeholder(leaf: Any) -> bool:
+  """Determines if `leaf` represents a placeholder for a non-aggregated value.
+  """
+  return isinstance(leaf, str) and leaf.startswith(_AGGREGATED_PREFIX)
+
+
+def aggregated_placeholder(name: str) -> str:
+  """Constructs value to act as placeholder for aggregated value."""
+  return _AGGREGATED_PREFIX + name
+
+
+def name_from_aggregated_placeholder(placeholder: str) -> str:
+  """Gets the param name from a placeholder with the correct prefix."""
+  if not placeholder.startswith(_AGGREGATED_PREFIX):
+    msg = ('Requested name from placeholder, but value did not contain required'
+           ' prefix.')
+    raise ValueError(msg)
+  return placeholder[len(_AGGREGATED_PREFIX):]
+
+
+def is_supported_aggregation_type(value: Any) -> bool:
+  """Determines if the value is supported for aggregation."""
+  return isinstance(value,
+                    (str, int, float, np.number, np.ndarray, jnp.ndarray))
 
 
 def pytree_structure(directory: epath.PathLike) -> PyTree:
@@ -98,7 +122,7 @@ def pytree_structure(directory: epath.PathLike) -> PyTree:
 
     if len(nested_key) == 1:
       assert current not in subtree
-      subtree[current] = key_name
+      subtree[current] = aggregated_placeholder(key_name)
       return subtree
 
     subkeys = nested_key[1:]

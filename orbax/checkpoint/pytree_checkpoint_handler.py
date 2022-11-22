@@ -28,7 +28,6 @@ import flax
 from flax import traverse_util
 import jax
 from jax.experimental import multihost_utils
-import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import lazy_utils
@@ -97,16 +96,16 @@ def _get_param_infos_from_structure(directory: epath.Path,
   names = _get_param_names(structure)
 
   def _get_param_info(leaf, name):
-    if isinstance(leaf, utils.Leaf):
+    if utils.is_aggregated_placeholder(leaf):
       # Leaf is a param name.
-      path = directory / leaf
+      path = directory / utils.name_from_aggregated_placeholder(leaf)
     # The following is kept for backwards compatibility.
     elif isinstance(leaf, ts.Spec):
       tspec = leaf.to_json()  # pytype: disable=attribute-error
       # Skip '.', since we need special regex handling for this char.
       pattern = r'\.' + utils.TMP_DIR_SUFFIX[1:] + r'\d+'
       path = re.sub(pattern, '', tspec['kvstore']['path'])
-    elif isinstance(leaf, (int, float, np.number, np.ndarray, jnp.ndarray)):
+    elif utils.is_supported_aggregation_type(leaf):
       # Value already restored, do not need ts.Spec.
       path = None
     else:
@@ -124,8 +123,8 @@ def _get_tree_for_aggregation(param_infos, save_args, item):
       arg = SaveArgs()
     if arg.aggregate:  # Param was aggregated, return value after cast.
       return _try_array_cast(arr, arg.dtype)
-    else:
-      return param_info.name
+    else:  # Placeholder string for non-aggregated value.
+      return utils.aggregated_placeholder(param_info.name)
 
   return jax.tree_util.tree_map(_get_leaf_for_aggregation, param_infos,
                                 save_args, item)
