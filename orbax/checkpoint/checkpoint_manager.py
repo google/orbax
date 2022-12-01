@@ -178,7 +178,8 @@ class CheckpointManager(AbstractCheckpointManager):
     elif isinstance(checkpointers, dict):
       if METRIC_ITEM_NAME in checkpointers:
         raise ValueError(
-            f'Found {METRIC_ITEM_NAME} in `checkpointers`; this is a reserved key.'
+            f'Found {METRIC_ITEM_NAME} in `checkpointers`; this is a reserved'
+            ' key.'
         )
     else:
       raise ValueError(
@@ -311,7 +312,8 @@ class CheckpointManager(AbstractCheckpointManager):
       raise ValueError('Must provide metrics to update.')
     if not self._track_best and metrics is not None:
       raise ValueError(
-          'Requested update metrics without configuring the CheckpointManager to track metrics.'
+          'Requested update metrics without configuring the CheckpointManager'
+          ' to track metrics.'
       )
 
     # Wait for ongoing saves to complete. Only applicable if some of the
@@ -683,7 +685,8 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def _delete_directory(self, step: int):
     if jax.process_index() == 0:
-      utils.rmtree(self._get_save_directory(step, self.directory))
+      # TODO(cpgaffney) Optimize tree removal if possible.
+      self._get_save_directory(step, self.directory).rmtree()
 
   def _remove_old_checkpoints(self):
     """Keeps the `max_to_keep` most recent checkpoint steps."""
@@ -695,8 +698,10 @@ class CheckpointManager(AbstractCheckpointManager):
       return
     if self._track_best:
       # Best steps (to keep) are at the end, after sorting.
-      checkpoints_without_metrics, sorted_checkpoints = self._sort_checkpoints_by_metrics(
-          self._checkpoints)
+      (
+          checkpoints_without_metrics,
+          sorted_checkpoints,
+      ) = self._sort_checkpoints_by_metrics(self._checkpoints)
     else:
       # checkpoints already sorted by ascending step
       checkpoints_without_metrics = []
@@ -728,7 +733,10 @@ class CheckpointManager(AbstractCheckpointManager):
           kept_checkpoints.append(info)
           continue
 
-      if self._options.keep_period is not None and info.step % self._options.keep_period == 0:
+      if (
+          self._options.keep_period is not None
+          and info.step % self._options.keep_period == 0
+      ):
         kept_checkpoints.append(info)
         continue
 

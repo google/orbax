@@ -79,7 +79,7 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
       if force:
         if jax.process_index() == 0:
           logging.info('Specified `force`: removing existing directory.')
-          utils.rmtree(directory)  # Post-sync handled by create_tmp_directory.
+          directory.rmtree()  # Post-sync handled by create_tmp_directory.
       else:
         raise ValueError(f'Destination {directory} already exists.')
     tmpdir = utils.create_tmp_directory(directory)

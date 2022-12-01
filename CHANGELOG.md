@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.23] - 2022-12-08
+
 ### Added
 
 - Option to customize metadata file name for Tensorstore.
+
+### Fixed
+
+- Restore failure on GCS due to misidentification of checkpoint as
+"not finalized".
 
 ## [0.0.22] - 2022-12-05
 

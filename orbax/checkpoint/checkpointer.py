@@ -65,7 +65,7 @@ class Checkpointer(AbstractCheckpointer):
       if force:
         if jax.process_index() == 0:
           logging.info('Specified `force`: removing existing directory.')
-          utils.rmtree(directory)  # Post-sync handled by create_tmp_directory.
+          directory.rmtree()  # Post-sync handled by create_tmp_directory.
       else:
         raise ValueError(f'Destination {directory} already exists.')
     tmpdir = utils.create_tmp_directory(directory)
@@ -87,7 +87,7 @@ class Checkpointer(AbstractCheckpointer):
     directory = epath.Path(directory)
     if not directory.exists():
       raise FileNotFoundError(f'Checkpoint at {directory} not found.')
-    if not utils.is_checkpoint_finalized(directory):
+    if not utils.is_checkpoint_item_finalized(directory):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
     logging.info('Restoring item from %s.', directory)
     return self._handler.restore(directory, *args, item=item, **kwargs)
