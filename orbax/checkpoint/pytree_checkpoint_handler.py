@@ -83,9 +83,12 @@ def _try_array_cast(arr, dtype):
 def _get_param_names(item: PyTree) -> PyTree:
   """Gets parameter names for PyTree elements."""
   state_dict = utils.to_state_dict(item)
+  # TODO(b/261105620): Ensure this works correctly with the transforms library.
+  flattened = traverse_util.flatten_dict(state_dict, keep_empty_nodes=True)
   names = traverse_util.unflatten_dict({
       k: '.'.join(k)
-      for k in traverse_util.flatten_dict(state_dict, keep_empty_nodes=True)
+         if not isinstance(flattened[k], type(traverse_util.empty_node)) else {}
+      for k in flattened
   })
   return flax.serialization.from_state_dict(item, names)
 
