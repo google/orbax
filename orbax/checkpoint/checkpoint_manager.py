@@ -38,6 +38,7 @@ RestoreParams = SaveParams
 
 DEFAULT_ITEM_NAME = 'default'
 METRIC_ITEM_NAME = 'metrics'
+METADATA_ITEM_NAME = 'metadata'
 
 
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
@@ -113,8 +114,7 @@ class CheckpointManager(AbstractCheckpointManager):
 
   Allows a user to save and restore objects for which a Checkpointer
   implementation exists (e.g. PyTreeCheckpointer for PyTrees). The class
-  keeps
-  track of multiple checkpointable objects in the following structure:
+  keeps track of multiple checkpointable objects in the following structure:
 
   path/to/directory/    (top-level directory)
     0/    (step)
@@ -135,17 +135,40 @@ class CheckpointManager(AbstractCheckpointManager):
       checkpointers: Union[AbstractCheckpointer, Mapping[str,
                                                          AbstractCheckpointer]],
       options: Optional[CheckpointManagerOptions] = None,
+      metadata: Optional[Mapping[str, Any]] = None,
   ):
     """CheckpointManager constructor.
+
+    Ex:
+    CheckpointManager(
+        'path/to/dir/',
+        # Multiple items.
+        checkpointers = {
+            'train_state': AsyncCheckpointer(PyTreeCheckpointHandler()),
+            'dataset': Checkpointer(CustomTFDatasetCheckpointHandler())
+        },
+        metadata={'version': 1.1, 'lang': 'en'},
+    )
+
+    CheckpointManager(
+        'path/to/dir/',
+        # Single item.
+        checkpointers = AsyncCheckpointer(PyTreeCheckpointHandler()),
+        options = CheckpointManagerOptions(max_to_keep=5, ...),
+    )
 
     Args:
       directory: the top level directory in which to save all files.
       checkpointers: a mapping of object name to Checkpointer object. For
         example, `items` provided to `save` below should have keys matching the
         keys in this argument. Alternatively, a single Checkpointer may be
-        provided, in which See below for more details.
+        provided, in which case `save` and `restore` should always be called
+        with a single item rather than a dictionary of items.
+        See below for more details.
      options: CheckpointManagerOptions. May be provided to specify additional
        arugments. If None, uses default values of CheckpointManagerOptions.
+     metadata: High-level metadata that does not depend on step number, and only
+       needs to be saved once.
     """
     self._directory = epath.Path(directory)
     self._single_item = False
@@ -185,6 +208,10 @@ class CheckpointManager(AbstractCheckpointManager):
     else:
       self._last_checkpoint = None
       self._last_preserved_checkpoint = None
+
+    self._metadata = None
+    if metadata is not None:
+      self._save_metadata(metadata)
 
   @property
   def directory(self) -> epath.Path:
@@ -615,6 +642,19 @@ class CheckpointManager(AbstractCheckpointManager):
         return
     raise ValueError(
         'Attempting to update a step which is not currently present.')
+
+  def _save_metadata(self, metadata: Mapping[str, Any]):
+    checkpointer = Checkpointer(JsonCheckpointHandler())
+    path = self.directory / METADATA_ITEM_NAME
+    if not path.exists():  # May have been created by a previous run.
+      checkpointer.save(path, metadata)
+
+  def metadata(self) -> Mapping[str, Any]:
+    if self._metadata is None:
+      checkpointer = Checkpointer(JsonCheckpointHandler())
+      path = self.directory / METADATA_ITEM_NAME
+      self._metadata = checkpointer.restore(path)
+    return self._metadata
 
   def _sort_checkpoints_by_metrics(
       self, checkpoints: List[CheckpointInfo]
