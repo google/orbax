@@ -29,7 +29,14 @@ import numpy as np
 import tensorstore as ts
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
+# TODO(b/260759189): Deprecate this prefix when no longer in use by JAX MG.
 _AGGREGATED_PREFIX = 'AGGREGATED://'
+# Used in a msgpack checkpoint file to denote a leaf value that has been written
+# individually. Typically, this may indicate an array that was written using
+# Tensorstore rather than its value being directly stored in the msgpack file.
+# To avoid duplication, we replace the value with a placeholder prefix and other
+# relevant information (see functions below).
+_PLACEHOLDER_PREFIX = 'PLACEHOLDER://'
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
 _GCS_PATH_PREFIX = 'gs://'
 CheckpointDirs = Tuple[str, str]
@@ -84,24 +91,30 @@ def rmtree(path: epath.Path):
   path.rmdir()
 
 
-def is_aggregated_placeholder(leaf: Any) -> bool:
+def leaf_is_placeholder(leaf: Any) -> bool:
   """Determines if `leaf` represents a placeholder for a non-aggregated value.
   """
-  return isinstance(leaf, str) and leaf.startswith(_AGGREGATED_PREFIX)
+  return isinstance(leaf, str) and (leaf.startswith(_PLACEHOLDER_PREFIX) or
+                                    leaf.startswith(_AGGREGATED_PREFIX))
 
 
-def aggregated_placeholder(name: str) -> str:
-  """Constructs value to act as placeholder for aggregated value."""
-  return _AGGREGATED_PREFIX + name
+def leaf_placeholder(name: str) -> str:
+  """Constructs value to act as placeholder for non-aggregated value."""
+  return _PLACEHOLDER_PREFIX + name
 
 
-def name_from_aggregated_placeholder(placeholder: str) -> str:
+def name_from_leaf_placeholder(placeholder: str) -> str:
   """Gets the param name from a placeholder with the correct prefix."""
-  if not placeholder.startswith(_AGGREGATED_PREFIX):
+  if not leaf_is_placeholder(placeholder):
     msg = ('Requested name from placeholder, but value did not contain required'
            ' prefix.')
     raise ValueError(msg)
-  return placeholder[len(_AGGREGATED_PREFIX):]
+  if placeholder.startswith(_AGGREGATED_PREFIX):
+    return placeholder.replace(_AGGREGATED_PREFIX, '', 1)
+  elif placeholder.startswith(_PLACEHOLDER_PREFIX):
+    return placeholder.replace(_PLACEHOLDER_PREFIX, '', 1)
+  else:
+    raise ValueError('Found placeholder beginning with unexpected prefix.')
 
 
 def is_supported_aggregation_type(value: Any) -> bool:
@@ -122,7 +135,7 @@ def pytree_structure(directory: epath.PathLike) -> PyTree:
 
     if len(nested_key) == 1:
       assert current not in subtree
-      subtree[current] = aggregated_placeholder(key_name)
+      subtree[current] = leaf_placeholder(key_name)
       return subtree
 
     subkeys = nested_key[1:]
