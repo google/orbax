@@ -16,6 +16,7 @@
 
 import asyncio
 import functools
+import time
 from typing import Any, Optional
 
 from absl import logging
@@ -68,6 +69,7 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     Raises:
       ValueError if the provided directory already exists.
     """
+    checkpoint_start_time = time.time()
     directory = epath.Path(directory)
     logging.info('Saving item to %s. Waiting for thread to finish save.',
                  directory)
@@ -91,7 +93,8 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     self._add_futures(commit_ops)
     # Directory is the final directory
     self._start_async_commit(
-        functools.partial(utils.ensure_atomic_save, tmpdir, directory))
+        functools.partial(utils.on_commit_callback, tmpdir, directory,
+                          checkpoint_start_time))
 
   def restore(self,
               directory: epath.PathLike,

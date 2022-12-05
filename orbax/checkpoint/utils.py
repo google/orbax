@@ -39,6 +39,7 @@ _AGGREGATED_PREFIX = 'AGGREGATED://'
 _PLACEHOLDER_PREFIX = 'PLACEHOLDER://'
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
 _GCS_PATH_PREFIX = 'gs://'
+_LAST_CHECKPOINT_WRITE_TIME = time.time()
 CheckpointDirs = Tuple[str, str]
 PyTree = type(jax.tree_util.tree_structure(None))
 
@@ -239,6 +240,39 @@ def ensure_atomic_save(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path):
     logging.info('Renaming %s to %s', temp_ckpt_dir, final_ckpt_dir)
     temp_ckpt_dir.rename(final_ckpt_dir)
     logging.info('Finished saving checkpoint to `%s`.', final_ckpt_dir)
+
+
+def record_saved_duration(checkpoint_start_time: float):
+  """Record program duration that is accounted for by this checkpoint.
+
+  For the very first checkpoint, this is the interval between program init and
+  current checkpoint start time.
+
+  Note that we use the checkpoint start time instead of end time. The saved
+  duration should not include prallel training duration while the async
+  checkpoint is being written in the background.
+
+  Args:
+    checkpoint_start_time: Start time of current checkpoint.
+  """
+  global _LAST_CHECKPOINT_WRITE_TIME
+  # Note: for the very first checkpoint, this is the interval between program
+  # init and the current checkpoint start time.
+  duration_since_last_checkpoint = (
+      checkpoint_start_time - _LAST_CHECKPOINT_WRITE_TIME)
+  # TODO(hanyangtay): Remove version guard.
+  if jax.version.__version_info__ > (0, 3, 25):
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/duration_since_last_checkpoint_secs',
+        duration_since_last_checkpoint)
+  _LAST_CHECKPOINT_WRITE_TIME = checkpoint_start_time
+
+
+def on_commit_callback(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path,
+                       checkpoint_start_time: float):
+  """Finalize atomic save and record training duration saved in a checkpoint."""
+  ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir)
+  record_saved_duration(checkpoint_start_time)
 
 
 def is_scalar(x):

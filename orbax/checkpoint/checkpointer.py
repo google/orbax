@@ -14,6 +14,7 @@
 
 """Synchronous Checkpointer implementation."""
 
+import time
 from typing import Any, Optional
 
 from absl import logging
@@ -58,6 +59,7 @@ class Checkpointer(AbstractCheckpointer):
     Raises:
       ValueError if the provided directory already exists.
     """
+    checkpoint_start_time = time.time()
     directory = epath.Path(directory)
     logging.info('Saving item to %s.', directory)
     if directory.exists():
@@ -72,9 +74,9 @@ class Checkpointer(AbstractCheckpointer):
     self._handler.save(tmpdir, item, *args, **kwargs)
     multihost_utils.sync_global_devices('Checkpointer:write')
 
-    # Ensure save operation atomicity.
+    # Ensure save operation atomicity and record time saved by checkpoint.
     if jax.process_index() == 0:
-      utils.ensure_atomic_save(tmpdir, directory)
+      utils.on_commit_callback(tmpdir, directory, checkpoint_start_time)
     multihost_utils.sync_global_devices('Checkpointer:save')
 
   def restore(self,
