@@ -18,7 +18,6 @@ Implementation of CheckpointHandler interface.
 """
 
 import asyncio
-import functools
 import re
 from typing import Any, List, Optional, Tuple
 
@@ -52,13 +51,6 @@ _TYPE_METADATA_FILE = 'type_metadata'
 _CHECKPOINT_FILE = 'checkpoint'
 
 utils.register_ts_spec_for_serialization()
-
-
-def _validate_save_args(args: SaveArgs, enable_aggregation: bool):
-  if args.aggregate and not enable_aggregation:
-    msg = ('Saving to aggregate checkpoint is disabled for this handler, but '
-           'aggregation was requested for at least one parameter.')
-    raise ValueError(msg)
 
 
 async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
@@ -198,15 +190,10 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
   def __init__(
       self,
-      # TODO(b/255434127) Move to Pax code.
-      enable_aggregation: bool = True,
       aggregate_filename: Optional[str] = None):
     """Creates PyTreeCheckpointHandler.
 
     Args:
-      enable_aggregation: if False, an aggregated checkpoint file storing the
-        PyTree structure will not be created, and the structure must be inferred
-        from the directory layout.
       aggregate_filename: name that the aggregated checkpoint should be saved
         as.
     """
@@ -219,7 +206,6 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
           'False in your project.')
       jax.config.update('jax_parallel_functions_output_gda', False)
     self._aggregate_handler = aggregate_handlers.get_aggregate_handler()
-    self._enable_aggregation = enable_aggregation
     if aggregate_filename is None:
       aggregate_filename = _CHECKPOINT_FILE
     self._aggregate_filename = aggregate_filename
@@ -253,6 +239,12 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     return jax.tree_util.tree_map(_param_info, names, save_args)
 
+  async def _write_aggregate_file(self, directory: epath.Path, item: PyTree,
+                                  param_infos: PyTree, save_args: PyTree):
+    ser_item = _get_tree_for_aggregation(param_infos, save_args, item)
+    await self._aggregate_handler.serialize(
+        directory / self._aggregate_filename, ser_item)
+
   async def async_save(
       self,
       directory: epath.Path,
@@ -283,11 +275,6 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     if save_args is None:
       save_args = jax.tree_util.tree_map(lambda x: SaveArgs(), item)
-    jax.tree_util.tree_map(
-        functools.partial(
-            _validate_save_args, enable_aggregation=self._enable_aggregation),
-        save_args)
-
     param_infos = self._get_param_infos(item, directory, save_args)
     # Create directories in parallel.
     await asyncio.gather(*jax.tree_util.tree_flatten(
@@ -309,11 +296,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     # Await copy futures.
     commit_futures = await asyncio.gather(*copy_futures)
     commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
-
-    ser_item = _get_tree_for_aggregation(param_infos, save_args, item)
-    await self._aggregate_handler.serialize(
-        directory / self._aggregate_filename, ser_item)
-
+    await self._write_aggregate_file(directory, item, param_infos, save_args)
     return commit_futures
 
   def save(self, directory: epath.Path, item: Any, *args, **kwargs):
@@ -452,7 +435,4 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       return self._aggregate_handler.deserialize(directory /
                                                  self._aggregate_filename)
     else:
-      if self._enable_aggregation:
-        raise FileNotFoundError(f'Checkpoint does not exist at {directory}.')
-      else:
-        return utils.pytree_structure(directory)
+      raise FileNotFoundError(f'Checkpoint does not exist at {directory}.')
