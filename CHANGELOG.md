@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Option to customize metadata file name for Tensorstore.
+
 ## [0.0.22] - 2022-12-05
 
 ### Added

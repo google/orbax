@@ -164,6 +164,14 @@ def _get_cast_tspec_deserialize(tspec, args):
 class NumpyHandler(TypeHandler):
   """Provides an implementation of TypeHandler for replicated numpy arrays."""
 
+  def __init__(self, metadata_key: Optional[str] = None):
+    """Constructor.
+
+    Args:
+      metadata_key: name to give to Tensorstore metadata files.
+    """
+    self._metadata_key = metadata_key
+
   def _get_json_tspec(self,
                       info: ParamInfo,
                       value: Optional[np.ndarray] = None) -> Dict[str, Any]:
@@ -172,6 +180,8 @@ class NumpyHandler(TypeHandler):
       raise ValueError('Must construct serialization path.')
     path = os.fspath(info.path)
     tspec: Dict[str, Any] = get_tensorstore_spec(path)
+    if self._metadata_key is not None:
+      tspec['metadata_key'] = self._metadata_key
     tspec['metadata'] = {
         'compressor': {
             'id': 'gzip'
@@ -252,9 +262,17 @@ class ArrayRestoreArgs(RestoreArgs):
 class ArrayHandler(TypeHandler):
   """An implementation of TypeHandler for jax.Array and GlobalDeviceArray."""
 
-  def __init__(self, concurrent_gb: int = 96):
-    # concurrent_gb: maximum GB to read concurrently. Defaults to 96
+  def __init__(
+      self, metadata_key: Optional[str] = None, concurrent_gb: int = 96
+  ):
+    """Constructor.
+
+    Args:
+      metadata_key: name to give to Tensorstore metadata files.
+      concurrent_gb: maximum GB to read concurrently. Defaults to 96.
+    """
     self._concurrent_gb = concurrent_gb
+    self._metadata_key = metadata_key
 
   def _get_json_tspec(self,
                       info: ParamInfo,
@@ -264,6 +282,8 @@ class ArrayHandler(TypeHandler):
       raise ValueError('Must construct serialization path.')
     path = os.fspath(info.path)
     tspec: Dict[str, Any] = get_tensorstore_spec(path)
+    if self._metadata_key is not None:
+      tspec['metadata_key'] = self._metadata_key
     if value is not None:
       tspec['metadata'] = serialization._get_metadata(value)  # pylint: disable=protected-access
       del tspec['metadata']['dtype']
@@ -354,6 +374,10 @@ def register_type_handler(ty: Any,
                           override: bool = False):
   """Registers a type for serialization/deserialization with a given handler.
 
+  Note that it is possible for a type to match multiple different entries in
+  the registry, each with a different handler. In this case, only the first
+  match is used.
+
   Args:
     ty: A type to register.
     handler: a TypeHandler capable of reading and writing parameters of type
@@ -368,13 +392,21 @@ def register_type_handler(ty: Any,
   """
   if func is None:
     func = lambda t: issubclass(t, ty)
-  try:
-    existing_handler = get_type_handler(ty)
-  except ValueError:
-    existing_handler = None
-  if existing_handler is not None and not override:
+
+  existing_handler_idx = None
+  for i, (f, _) in enumerate(_TYPE_REGISTRY):
+    if f(ty):
+      existing_handler_idx = i
+      # Ignore the possibility for subsequent matches, as these will not be used
+      # anyway.
+      break
+
+  if existing_handler_idx is None:
+    _TYPE_REGISTRY.append((func, handler))
+  elif override:
+    _TYPE_REGISTRY[existing_handler_idx] = (func, handler)
+  else:
     raise ValueError(f'A TypeHandler for "{ty}" is already registered.')
-  _TYPE_REGISTRY.append((func, handler))
 
 
 def get_type_handler(ty: Any) -> TypeHandler:
