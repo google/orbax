@@ -18,7 +18,6 @@ from etils import epath
 from flax import linen as nn
 from flax.training.train_state import TrainState
 import jax
-from jax.experimental import multihost_utils
 from jax.experimental import pjit
 from jax.experimental.maps import Mesh
 import jax.numpy as jnp
@@ -28,6 +27,7 @@ from orbax.checkpoint import ArrayRestoreArgs
 from orbax.checkpoint import AsyncCheckpointer
 from orbax.checkpoint import PyTreeCheckpointHandler
 from orbax.checkpoint import test_utils
+from orbax.checkpoint import utils
 
 PyTree = type(jax.tree_util.tree_structure(None))
 if jax.config.jax_array:
@@ -62,10 +62,10 @@ class CheckpointerTestBase:
       self.directory = epath.Path(
           self.create_tempdir(name='checkpointing_test').full_path) / 'ckpt'
 
-      multihost_utils.sync_global_devices('CheckpointerTest:setup_complete')
+      utils.sync_global_devices('CheckpointerTest:setup_complete')
 
     def tearDown(self):
-      multihost_utils.sync_global_devices('CheckpointerTest:tests_complete')
+      utils.sync_global_devices('CheckpointerTest:tests_complete')
       super().tearDown()
 
     def wait_if_async(self, checkpointer):

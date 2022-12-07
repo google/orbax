@@ -20,7 +20,6 @@ from typing import Any, Optional
 from absl import logging
 from etils import epath
 import jax
-from jax.experimental import multihost_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
@@ -72,12 +71,12 @@ class Checkpointer(AbstractCheckpointer):
     tmpdir = utils.create_tmp_directory(directory)
 
     self._handler.save(tmpdir, item, *args, **kwargs)
-    multihost_utils.sync_global_devices('Checkpointer:write')
+    utils.sync_global_devices('Checkpointer:write')
 
     # Ensure save operation atomicity and record time saved by checkpoint.
     if jax.process_index() == 0:
       utils.on_commit_callback(tmpdir, directory, checkpoint_start_time)
-    multihost_utils.sync_global_devices('Checkpointer:save')
+    utils.sync_global_devices('Checkpointer:save')
 
   def restore(self,
               directory: epath.PathLike,

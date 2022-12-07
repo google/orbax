@@ -44,6 +44,11 @@ CheckpointDirs = Tuple[str, str]
 PyTree = type(jax.tree_util.tree_structure(None))
 
 
+def sync_global_devices(name: str):
+  """Thin wrapper to provide additional features support."""
+  multihost_utils.sync_global_devices(name)
+
+
 def _wrap(func):
   """Wraps a function to make it async."""
 
@@ -184,7 +189,7 @@ def cleanup_tmp_directories(directory: epath.PathLike):
     for tmp_file in tmp_files:
       rmtree(directory / tmp_file)
 
-  multihost_utils.sync_global_devices('cleanup_tmp_dirs')
+  sync_global_devices('cleanup_tmp_dirs')
 
 
 def is_gcs_path(path: epath.Path):
@@ -215,7 +220,7 @@ def create_tmp_directory(final_dir: epath.PathLike) -> epath.Path:
   if is_gcs_path(final_dir):
     # Sync needed to prevent an error since caller may think the directory
     # exists from a previous save, rather than just having been created.
-    multihost_utils.sync_global_devices('create_tmp_directory:pre')
+    sync_global_devices('create_tmp_directory:pre')
     tmp_dir = final_dir
   else:
     timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
@@ -226,7 +231,7 @@ def create_tmp_directory(final_dir: epath.PathLike) -> epath.Path:
     assert not tmp_dir.exists()
     tmp_dir.mkdir(parents=True)
 
-  multihost_utils.sync_global_devices('create_tmp_directory')
+  sync_global_devices('create_tmp_directory')
 
   return tmp_dir
 

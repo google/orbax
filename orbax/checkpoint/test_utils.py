@@ -21,7 +21,6 @@ from flax import traverse_util
 import flax.serialization
 from flax.training.train_state import TrainState
 import jax
-from jax.experimental import multihost_utils
 from jax.experimental import pjit
 from jax.experimental.global_device_array import GlobalDeviceArray
 from jax.experimental.maps import Mesh
@@ -57,7 +56,7 @@ def save_fake_tmp_dir(directory: epath.Path,
     path.mkdir(parents=True)
     for sub in subdirs:
       (path / sub).mkdir(parents=True)
-  multihost_utils.sync_global_devices('save_fake_tmp_dir')
+  utils.sync_global_devices('save_fake_tmp_dir')
   return path
 
 

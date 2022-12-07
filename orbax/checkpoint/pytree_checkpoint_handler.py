@@ -26,7 +26,6 @@ from etils import epath
 import flax
 from flax import traverse_util
 import jax
-from jax.experimental import multihost_utils
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import lazy_utils
@@ -280,7 +279,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     await asyncio.gather(*jax.tree_util.tree_flatten(
         jax.tree_util.tree_map(_create_param_save_dir, param_infos, save_args))
                          [0])
-    multihost_utils.sync_global_devices(
+    utils.sync_global_devices(
         'PyTreeCheckpointHandler:create_param_save_dirs')
 
     async def serialize(value, info, args):
@@ -321,7 +320,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         future.result()  # Block on result.
 
     asyncio.run(async_save(directory, item, *args, **kwargs))
-    multihost_utils.sync_global_devices('PyTreeCheckpointHandler:save')
+    utils.sync_global_devices('PyTreeCheckpointHandler:save')
 
   async def _maybe_deserialize(self, info: ParamInfo, value: Any,
                                args: RestoreArgs) -> Any:
@@ -416,7 +415,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     result = asyncio.run(_async_restore(future_arrays))
     restored_item = jax.tree_util.tree_unflatten(item_def, result)
 
-    multihost_utils.sync_global_devices('PyTreeCheckpointHandler:restore')
+    utils.sync_global_devices('PyTreeCheckpointHandler:restore')
     return restored_item
 
   def structure(self, directory: epath.Path) -> PyTree:
