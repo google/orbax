@@ -22,7 +22,7 @@ from typing import Any, Optional
 from absl import logging
 from etils import epath
 import jax
-from jax.experimental.gda_serialization.serialization import AsyncManager
+from jax.experimental.array_serialization.serialization import AsyncManager
 from orbax.checkpoint import utils
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint.checkpointer import Checkpointer
