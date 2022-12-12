@@ -18,6 +18,8 @@ Implementation of CheckpointHandler interface.
 """
 
 import asyncio
+import dataclasses
+import functools
 import re
 from typing import Any, List, Optional, Tuple
 
@@ -26,6 +28,7 @@ from etils import epath
 import flax
 from flax import traverse_util
 import jax
+from jax.experimental.gda_serialization import serialization
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import lazy_utils
@@ -188,13 +191,14 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
   """
 
   def __init__(
-      self,
-      aggregate_filename: Optional[str] = None):
+      self, aggregate_filename: Optional[str] = None, concurrent_gb: int = 96
+  ):
     """Creates PyTreeCheckpointHandler.
 
     Args:
       aggregate_filename: name that the aggregated checkpoint should be saved
         as.
+      concurrent_gb: max concurrent GB that are allowed to be read.
     """
     if jax.config.jax_parallel_functions_output_gda and jax.config.jax_array:
       logging.warning(
@@ -208,6 +212,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     if aggregate_filename is None:
       aggregate_filename = _CHECKPOINT_FILE
     self._aggregate_filename = aggregate_filename
+    self._concurrent_gb = concurrent_gb
 
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
@@ -405,15 +410,27 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     if restore_args is None:
       restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), item)
 
-    future_arrays = jax.tree_map(self._maybe_deserialize, param_infos, item,
-                                 restore_args)
-    future_arrays, item_def = jax.tree_util.tree_flatten(future_arrays)
-
-    async def _async_restore(future_arrays):
+    async def _async_restore(param_infos, item, restore_args):
+      concurrent_bytes = self._concurrent_gb * 10**9
+      # Construction must take place here so that it is within the same async
+      # method, to prevent errors resulting from different event loops, and
+      # cannot be created below this level because there must be a single object
+      # for the entire restore call.
+      byte_limiter = serialization._LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
+      param_infos = jax.tree_util.tree_map(
+          functools.partial(dataclasses.replace, byte_limiter=byte_limiter),
+          param_infos,
+      )
+      future_arrays = jax.tree_map(
+          self._maybe_deserialize, param_infos, item, restore_args
+      )
+      future_arrays, _ = jax.tree_util.tree_flatten(future_arrays)
       return await asyncio.gather(*future_arrays)
 
-    result = asyncio.run(_async_restore(future_arrays))
-    restored_item = jax.tree_util.tree_unflatten(item_def, result)
+    result = asyncio.run(_async_restore(param_infos, item, restore_args))
+    restored_item = jax.tree_util.tree_unflatten(
+        jax.tree_util.tree_structure(item), result
+    )
 
     utils.sync_global_devices('PyTreeCheckpointHandler:restore')
     return restored_item

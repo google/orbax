@@ -52,6 +52,7 @@ class ParamInfo:
   name: Optional[str] = None
   path: Optional[epath.Path] = None
   aggregate: Optional[bool] = None
+  byte_limiter: Optional[serialization._LimitInFlightBytes] = None  # pylint: disable=protected-access
 
 
 @dataclasses.dataclass
@@ -263,15 +264,13 @@ class ArrayHandler(TypeHandler):
   """An implementation of TypeHandler for jax.Array and GlobalDeviceArray."""
 
   def __init__(
-      self, metadata_key: Optional[str] = None, concurrent_gb: int = 96
+      self, metadata_key: Optional[str] = None
   ):
     """Constructor.
 
     Args:
       metadata_key: name to give to Tensorstore metadata files.
-      concurrent_gb: maximum GB to read concurrently. Defaults to 96.
     """
-    self._concurrent_gb = concurrent_gb
     self._metadata_key = metadata_key
 
   def _get_json_tspec(self,
@@ -324,15 +323,18 @@ class ArrayHandler(TypeHandler):
     args = cast(ArrayRestoreArgs, args)
     if args.mesh is None or args.mesh_axes is None:
       raise ValueError(
-          'Sharding of GlobalDeviceArray/Array cannot be None. Provide `mesh` and `mesh_axes`.'
+          'Sharding of GlobalDeviceArray/Array cannot be None. Provide `mesh`'
+          ' and `mesh_axes`.'
       )
     tspec = self._get_json_tspec(info)
     tspec = _get_cast_tspec_deserialize(tspec, args)
     s = jax.sharding.NamedSharding(args.mesh, args.mesh_axes)
-    concurrent_bytes = self._concurrent_gb * 10**9
-    byte_limiter = serialization._LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
     return await serialization.async_deserialize(
-        s, tspec, global_shape=args.global_shape, byte_limiter=byte_limiter)
+        s,
+        tspec,
+        global_shape=args.global_shape,
+        byte_limiter=info.byte_limiter,
+    )
 
 
 class StringHandler(TypeHandler):
