@@ -267,6 +267,7 @@ def on_commit_callback(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path,
   """Finalize atomic save and record training duration saved in a checkpoint."""
   ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir)
   record_saved_duration(checkpoint_start_time)
+  logging.info('Finished saving checkpoint to `%s`.', final_ckpt_dir)
 
 
 def is_scalar(x):

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Additional logs to indicate save/restore completion.
+
 ### Fixed
 
 - Usage of bytes_limiter to prevent too many bytes from being read during a single restore call.

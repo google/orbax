@@ -90,7 +90,9 @@ class Checkpointer(AbstractCheckpointer):
     if not utils.is_checkpoint_item_finalized(directory):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
     logging.info('Restoring item from %s.', directory)
-    return self._handler.restore(directory, *args, item=item, **kwargs)
+    restored = self._handler.restore(directory, *args, item=item, **kwargs)
+    logging.info('Finished restoring checkpoint from %s.', directory)
+    return restored
 
   def structure(self, directory: epath.PathLike) -> Optional[Any]:
     """See superclass documentation."""
