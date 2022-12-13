@@ -218,12 +218,18 @@ class CheckpointManager(AbstractCheckpointManager):
   def directory(self) -> epath.Path:
     return self._directory
 
-  def all_steps(self) -> Sequence[int]:
+  def all_steps(self, read: bool = False) -> Sequence[int]:
     """Returns all steps tracked by the manager.
+
+    Args:
+      read: If True, forces a read directly from the storage location.
+        Otherwise, a cached result can be returned.
 
     Returns:
       A sequence of steps (integers)
     """
+    if read:
+      return utils.checkpoint_steps(self.directory)
     return [ckpt.step for ckpt in self._checkpoints]
 
   def latest_step(self) -> Optional[int]:
@@ -599,7 +605,7 @@ class CheckpointManager(AbstractCheckpointManager):
     Returns:
       a list of CheckpointInfo, sorted by increasing step.
     """
-    steps = sorted(utils.checkpoint_steps(self.directory))
+    steps = sorted(self.all_steps(read=True))
     if not steps:
       return []
 

@@ -27,6 +27,7 @@ from jax.experimental.maps import Mesh
 import jax.numpy as jnp
 import numpy as np
 import optax
+from orbax.checkpoint import lazy_utils
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import utils
@@ -112,6 +113,11 @@ def assert_tree_equal(testclass, expected, actual):
   """Asserts that two PyTrees are equal, whether they are GDA or np/jnp jax_array."""
 
   def assert_array_equal(v_expected, v_actual):
+    if isinstance(v_expected, lazy_utils.LazyValue):
+      testclass.assertIsInstance(v_actual, lazy_utils.LazyValue)
+      v_expected = v_expected.get()
+      v_actual = v_actual.get()
+
     testclass.assertIsInstance(v_actual, type(v_expected))
     if isinstance(v_expected, GlobalDeviceArray):
       testclass.assertEqual(
