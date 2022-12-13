@@ -79,12 +79,17 @@ def _get_param_names(item: PyTree) -> PyTree:
   state_dict = utils.to_state_dict(item)
   # TODO(b/261105620): Ensure this works correctly with the transforms library.
   flattened = traverse_util.flatten_dict(state_dict, keep_empty_nodes=True)
-  names = traverse_util.unflatten_dict({
-      k: '.'.join(k)
-         if not isinstance(flattened[k], type(traverse_util.empty_node)) else {}
-      for k in flattened
-  })
-  return flax.serialization.from_state_dict(item, names)
+  flat_names_dict = {}
+  for k, v in flattened.items():
+    if isinstance(v, type(traverse_util.empty_node)):
+      flat_names_dict[k] = {}
+    elif v is None:
+      flat_names_dict[k] = None
+    else:
+      flat_names_dict[k] = '.'.join(k)
+  return flax.serialization.from_state_dict(
+      item, traverse_util.unflatten_dict(flat_names_dict)
+  )
 
 
 def _get_param_infos_from_structure(directory: epath.Path,

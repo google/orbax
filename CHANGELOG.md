@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Additional logs to indicate save/restore completion.
+- Support for None leaves in PyTree save/restore.
 
 ### Fixed
 

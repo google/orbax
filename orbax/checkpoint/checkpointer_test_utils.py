@@ -164,26 +164,19 @@ class CheckpointerTestBase:
       with Mesh(mesh.devices, mesh.axis_names):
         state = init()
         state_shape = jax.eval_shape(init)
-      processed_state, processed_state_shape = test_utils.preprocess_flax_pytree(
-          state, state, state_shape)
 
       restore_args = jax.tree_util.tree_map(
           lambda _: ArrayRestoreArgs(mesh=mesh, mesh_axes=mesh_axes),
-          processed_state_shape)
+          state_shape,
+      )
 
       checkpointer = self.checkpointer(PyTreeCheckpointHandler())
-      checkpointer.save(self.directory, processed_state)
+      checkpointer.save(self.directory, state)
       self.wait_if_async(checkpointer)
       # Already fully replicated, don't need to provide args.
       restored = checkpointer.restore(
-          self.directory, item=processed_state_shape, restore_args=restore_args)
-
-      test_utils.assert_tree_equal(self, processed_state['params'],
-                                   restored['params'])
-      test_utils.assert_tree_equal(self, processed_state['opt_state'],
-                                   restored['opt_state'])
-
-      restored = test_utils.postprocess_flax_pytree(state, restored)
+          self.directory, item=state_shape, restore_args=restore_args
+      )
 
       test_utils.assert_tree_equal(self, state.params, restored.params)
       test_utils.assert_tree_equal(self, state.opt_state, restored.opt_state)
