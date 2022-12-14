@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `read: bool` option on all_steps to force read from storage location instead
 of using cached steps.
 
+### Changed
+- Removed some unused test_utils methods for filtering empty nodes.
+
 ### Fixed
 
 - Usage of bytes_limiter to prevent too many bytes from being read during a

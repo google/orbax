@@ -29,7 +29,6 @@ import numpy as np
 import optax
 from orbax.checkpoint import lazy_utils
 from orbax.checkpoint import pytree_checkpoint_handler
-from orbax.checkpoint import transform_utils
 from orbax.checkpoint import utils
 
 # TODO(orbax-dev): Remove this when jax>=0.3.19
@@ -85,8 +84,8 @@ def apply_function(tree, function):
   """Applies the given function to every leaf in tree.
 
   Args:
-    tree: a nested dict where every leaf is a sharded jax_array.
-    function: a function accepting an array and returning an jax_array.
+    tree: a nested dict where every leaf is a sharded jax.Array.
+    function: a function accepting an array and returning jax.Array.
 
   Returns:
     a transformed GDA tree.
@@ -220,38 +219,3 @@ def init_flax_model(model):
   tx = optax.adamw(learning_rate=0.001)
   state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
   return jax.tree_util.tree_map(np.asarray, state)
-
-
-def _filter(mask_tree, *other_trees):
-  """Filter optax EmptyState and MaskedNode out of PyTree."""
-  if not isinstance(mask_tree, dict):
-    return other_trees
-  result_trees = [{} for _ in other_trees]
-  for k, v in mask_tree.items():
-    if not isinstance(v, (optax.EmptyState, optax.MaskedNode)):
-      values = _preprocess_helper(v, *(t[k] for t in other_trees))
-      for i, v1 in enumerate(values):
-        if isinstance(v1, dict):
-          if v1:
-            result_trees[i][k] = v1
-        else:
-          result_trees[i][k] = v1
-  return tuple(result_trees)
-
-
-def _preprocess_helper(mask_tree, *other_trees):
-  return jax.tree_util.tree_map(
-      _filter, mask_tree, *other_trees, is_leaf=lambda x: isinstance(x, dict))
-
-
-def preprocess_flax_pytree(mask_tree, *other_trees):
-  mask_tree = flax.serialization.to_state_dict(mask_tree)
-  other_trees = (flax.serialization.to_state_dict(t) for t in other_trees)
-  r = _preprocess_helper(mask_tree, *other_trees)
-  return r[0] if len(r) == 1 else r
-
-
-def postprocess_flax_pytree(reference, processed):
-  """Merge trees by taking values from processed or reference if key not present."""
-  transforms = {}
-  return transform_utils.apply_transformations(processed, transforms, reference)
