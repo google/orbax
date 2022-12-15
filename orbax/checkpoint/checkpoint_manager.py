@@ -41,6 +41,14 @@ METRIC_ITEM_NAME = 'metrics'
 METADATA_ITEM_NAME = 'metadata'
 
 
+def _metrics_file_exists(metrics_item_path: epath.Path) -> bool:
+  """True if item directory AND actual file both exist."""
+  return (
+      metrics_item_path.exists()
+      and (metrics_item_path / METRIC_ITEM_NAME).exists()
+  )
+
+
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
   return isinstance(checkpointer, AsyncCheckpointer)
 
@@ -537,7 +545,7 @@ class CheckpointManager(AbstractCheckpointManager):
       if item_name == METRIC_ITEM_NAME:
         assert self._track_best
         # No metrics file present: not an error.
-        if not path.exists():
+        if not _metrics_file_exists(path):
           logging.warning('Missing metrics for step %d', step)
           continue
       if item_name not in self._checkpointers:
@@ -573,7 +581,7 @@ class CheckpointManager(AbstractCheckpointManager):
       if name == METRIC_ITEM_NAME:
         assert self._track_best
         # No metrics file present: not an error.
-        if not path.exists():
+        if not _metrics_file_exists(path):
           logging.warning('Missing metrics for step %d', step)
           continue
       structure = checkpointer.structure(path)
