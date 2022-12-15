@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Check for metric file in addition to item directory in CheckpointManager.
 - Additional logs to indicate save/restore completion.
 - Support for None leaves in PyTree save/restore.
+- ArrayCheckpointHandler for individual arrays/scalars.
 - `read: bool` option on all_steps to force read from storage location instead
 of using cached steps.
 
