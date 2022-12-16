@@ -24,7 +24,6 @@ from etils import epath
 import jax
 from jax.experimental import multihost_utils
 from orbax.checkpoint import utils
-from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
 from orbax.checkpoint.checkpointer import Checkpointer
@@ -117,7 +116,7 @@ class CheckpointInfo:
   metrics: Optional[PyTree]
 
 
-class CheckpointManager(AbstractCheckpointManager):
+class CheckpointManager:
   """A generic, synchronous CheckpointManager implementation.
 
   Allows a user to save and restore objects for which a Checkpointer

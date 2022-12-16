@@ -19,6 +19,7 @@ of using cached steps.
 ### Changed
 - Removed some unused test_utils methods for filtering empty nodes.
 - Update docs on `PyTreeCheckpointHandler`.
+- Removed unneeded AbstractCheckpointManager.
 
 ### Fixed
 
