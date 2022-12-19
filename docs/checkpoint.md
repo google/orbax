@@ -13,6 +13,56 @@ Check out our
 for some hands-on examples.
 
 
+## Getting Started
+
+### Quick and Simple
+
+The following example shows how you can synchronously save and restore a
+[PyTree](https://jax.readthedocs.io/en/latest/pytrees.html).
+
+```py
+checkpointer = orbax.checkpoints.PyTreeCheckpointer()
+# 'path/to/directory' should already exist, but 'checkpoint_name' folder should
+# not.
+# The leaves of `my_tree` may be a number of different types.
+# See `PyTreeCheckpointHandler` documentation.
+checkpointer.save('path/to/directory/checkpoint_name/', my_tree)
+# If you want to restore any of the leaves as sharded arrays, you'll need some
+# extra arguments. See `PyTreeCheckpointHandler` documentation.
+restored = checkpointer.restore('path/to/directory/checkpoint_name/')
+```
+
+For more detailed information, see the [`Checkpointer`](#checkpointer) and
+[`PyTreeCheckpointHandler`](#pytreecheckpointhandler) sections.
+
+### Managing Checkpoints
+
+Sometimes, you may have multiple different objects that you want to checkpoint.
+You may also wish to benefit from more high-level management logic to track your
+while training progresses.
+
+```py
+# Keeps a maximum of 3 checkpoints, and only saves every other step.
+# See `CheckpointManager` documentation for more options.
+options = CheckpointManagerOptions(max_to_keep=3, keep_period=2)
+mngr = CheckpointManager(
+          'path/to/directory/',
+          {'state': PyTreeCheckpointer(), 'extra_params': PyTreeCheckpointer()},
+           options=options)
+
+for step in range(10):
+  mngr.save(step, {'state': train_state, 'extra_params': extra_params})
+restored = mngr.restore(10)
+restored_state, restored_extra_params = restored['state'], restored['extra_params']
+
+mngr.all_steps()  # [6, 8, 10]
+mngr.latest_step()  # 10
+mngr.should_save(11)  # False
+```
+
+For more detailed information, see [`CheckpointManager`](#checkpointmanager)
+documentation.
+
 ## CheckpointManager
 
 [`CheckpointManager`](https://github.com/google/orbax/tree/main/orbax/checkpoint/checkpoint_manager.py)
@@ -130,6 +180,7 @@ to `CheckpointHandler`, as keyword arguments.
 
 Other APIs include:
 
+*   `directory` (property): returns the directory where checkpoints are kept.
 *   `all_steps`: returns an unsorted list of integers of steps saved in the
     `CheckpointManager`'s directory.
 *   `latest_step`: returns the most recent step.
@@ -146,6 +197,39 @@ Other APIs include:
     and then to `CheckpointHandler`. For any `CheckpointHandler` which does not
     implement the method, that key will simply not be present in the returned
     dict.
+*   `metadata`: returns the global checkpoint metadata, if present. This
+    metadata must be provided at `CheckpointManager` initialization time.
+
+Configurable `CheckpointManagerOptions` include:
+
+*   `save_interval_steps`: the interval at which checkpoints should be saved.
+    Ensures checkpoints will only be saved every n steps. Defaults to 1.
+*   `max_to_keep`: if provided, specifies the maximum number of checkpoints to
+    keep. Older checkpoints are removed. By default, does not remove any old
+    checkpoints.
+*   `keep_time_interval`: When more than max_to_keep checkpoints are present, an
+    older checkpoint that would ordinarily be deleted will be preserved if it
+    has been at least `keep_time_interval` since the previous preserved
+    checkpoint. The default setting of `None` does not preserve any checkpoints
+    in this way. For example, this may be used to ensure checkpoints are
+    retained at a frequency of approximately than one per hour.
+*   `keep_period`: If set, will not delete any checkpoint where checkpoint_step
+    % keep_period == 0.
+*   `best_fn`: if set, maintains checkpoints based on the quality of given
+    metrics rather than recency. The function should accept a PyTree of metrics,
+    and return a scalar value that can be used to determine the quality score of
+    the checkpoint. If `max_to_keep` is also set, then the retained checkpoints
+    will be kept based on their quality, as measured by this function.
+*   `best_mode`: one of ['max', 'min']. The best metric is determine on the
+    basis of this value.
+*   `keep_checkpoints_without_metrics`: If False, checkpoints with metrics
+    present are eligible for cleanup. Otherwise, they will never be deleted.
+*   `step_prefix`: if provided, step directories will take the form
+    f'{step_prefix}_<step>'. Otherwise, they will simply be an integer <step>.
+
+These lists are not necessarily exhaustive. See the
+[code](https://github.com/google/orbax/tree/main/orbax/checkpoint/checkpoint_manager.py) for
+full details.
 
 ## Checkpointer
 
