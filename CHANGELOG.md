@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.23] - 2022-12-08
+
 ### Added
 
 - Check for metric file in addition to item directory in CheckpointManager.
