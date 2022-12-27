@@ -178,6 +178,9 @@ class CheckpointManager:
        needs to be saved once.
     """
     self._directory = epath.Path(directory)
+    if jax.process_index() == 0 and not self._directory.exists():
+      self._directory.mkdir(parents=True)
+    utils.sync_global_devices('CheckpointManager:create_directory')
     self._single_item = False
     if isinstance(checkpointers, AbstractCheckpointer):
       self._single_item = True
