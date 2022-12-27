@@ -63,12 +63,18 @@ def _wrap(func):
 
 
 # TODO(cpgaffney): This functionality should be provided by an external library.
-def async_makedirs(path,
-                   *args,
-                   parents: bool = False,
-                   exist_ok: bool = True,
-                   **kwargs):
+def async_makedirs(
+    path: epath.Path,
+    *args,
+    parents: bool = False,
+    exist_ok: bool = True,
+    **kwargs,
+):
   return _wrap(path.mkdir)(*args, parents=parents, exist_ok=exist_ok, **kwargs)
+
+
+def async_write_bytes(path: epath.Path, data: Any):
+  return _wrap(path.write_bytes)(data)
 
 
 def register_ts_spec_for_serialization():

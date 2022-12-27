@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 of using cached steps.
 - Simplified "Getting Started" section in the docs.
 - CheckpointManager creates the top level directory if it does not yet exist.
+- Write msgpack bytes asynchronously.
 
 ### Changed
 - Removed some unused test_utils methods for filtering empty nodes.

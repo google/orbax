@@ -54,7 +54,7 @@ class MsgpackHandler(AggregateHandler):
     """See superclass documentation."""
     if jax.process_index() == 0:
       msgpack = flax.serialization.to_bytes(item)
-      path.write_bytes(msgpack)
+      await utils.async_write_bytes(path, msgpack)
 
   def deserialize(self, path: epath.Path) -> PyTreeDef:
     """See superclass documentation."""
