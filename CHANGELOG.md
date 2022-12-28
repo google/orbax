@@ -18,6 +18,7 @@ of using cached steps.
 - Simplified "Getting Started" section in the docs.
 - CheckpointManager creates the top level directory if it does not yet exist.
 - Write msgpack bytes asynchronously.
+- Unit test for when all leaves are saved to msgpack file.
 
 ### Changed
 - Removed some unused test_utils methods for filtering empty nodes.
