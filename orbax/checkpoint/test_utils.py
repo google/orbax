@@ -42,16 +42,21 @@ except ImportError:
 # pylint: enable=g-import-not-at-top,bare-except
 
 
-def save_fake_tmp_dir(directory: epath.Path,
-                      step: int,
-                      item: str,
-                      subdirs: Optional[List[str]] = None) -> epath.Path:
+def save_fake_tmp_dir(
+    directory: epath.Path,
+    step: int,
+    item: str,
+    subdirs: Optional[List[str]] = None,
+    step_prefix: Optional[str] = None,
+) -> epath.Path:
   """Saves a directory with a tmp folder to simulate preemption."""
   subdirs = subdirs or []
   suffix = ''
   if not utils.is_gcs_path(directory):
     suffix = '.orbax-checkpoint-tmp-1010101'
-  path = directory / str(step) / (item + suffix)
+  if not step_prefix:
+    step_prefix = ''
+  path = directory / (step_prefix + str(step)) / (item + suffix)
   if jax.process_index() == 0:
     path.mkdir(parents=True)
     for sub in subdirs:

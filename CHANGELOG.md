@@ -28,6 +28,7 @@ of using cached steps.
 
 - Usage of bytes_limiter to prevent too many bytes from being read during a
 single restore call.
+- Temp checkpoint cleanup when using a step prefix (i.e. 'checkpoint_0').
 
 ## [0.0.23] - 2022-12-08
 
