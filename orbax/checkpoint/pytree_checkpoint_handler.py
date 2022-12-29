@@ -326,8 +326,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       commit_futures = await self.async_save(*args, **kwargs)  # pytype: disable=bad-return-type
       # Futures are already running, so sequential waiting is equivalent to
       # concurrent waiting.
-      for future in commit_futures:
-        future.result()  # Block on result.
+      if commit_futures:  # May be None.
+        for future in commit_futures:
+          future.result()  # Block on result.
 
     asyncio.run(async_save(directory, item, *args, **kwargs))
     utils.sync_global_devices('PyTreeCheckpointHandler:save')

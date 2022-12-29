@@ -395,11 +395,20 @@ def _is_step_checkpoint(path: epath.Path) -> bool:
   return path.is_dir() and (name.isdigit() or name.split('_')[-1].isdigit())
 
 
+def _step_from_name(name: str) -> int:
+  if name.isdigit():
+    return int(os.fspath(name))
+  elif name.split('_')[-1].isdigit():
+    return int(name.split('_')[-1])
+  else:
+    raise ValueError('Unrecognized name format.')
+
+
 def checkpoint_steps(checkpoint_dir: epath.PathLike) -> List[int]:
   """Returns a list of finalized checkpoint steps in the directory."""
   checkpoint_dir = epath.Path(checkpoint_dir)
   return [
-      int(os.fspath(s.name))
+      _step_from_name(s.name)
       for s in checkpoint_dir.iterdir()
       if _is_step_checkpoint(s) and is_checkpoint_finalized(s)
   ]

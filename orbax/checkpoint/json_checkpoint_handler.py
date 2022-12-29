@@ -20,6 +20,8 @@ import json
 from typing import Any, Mapping, Optional
 
 from etils import epath
+import jax
+from orbax.checkpoint import utils
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 
 
@@ -42,8 +44,10 @@ class JsonCheckpointHandler(CheckpointHandler):
       directory: save location directory.
       item: nested dictionary.
     """
-    path = directory / self._filename
-    path.write_text(json.dumps(item))
+    if jax.process_index() == 0:
+      path = directory / self._filename
+      path.write_text(json.dumps(item))
+    utils.sync_global_devices('JsonCheckpointHandler:save')
 
   def restore(self,
               directory: epath.Path,
