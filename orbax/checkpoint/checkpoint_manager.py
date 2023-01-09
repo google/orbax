@@ -796,4 +796,4 @@ class CheckpointManager:
   def _finalize(self):
     """Cleans up old checkpoints and synchronizes hosts."""
     self._remove_old_checkpoints()
-    multihost_utils.sync_global_devices('CheckpointManager:removed_old')
+    utils.sync_global_devices('CheckpointManager:removed_old')
