@@ -38,8 +38,8 @@ For more detailed information, see the [`Checkpointer`](#checkpointer) and
 ### Managing Checkpoints
 
 Sometimes, you may have multiple different objects that you want to checkpoint.
-You may also wish to benefit from more high-level management logic to track your
-while training progresses.
+You may also wish to benefit from more high-level management logic to keep track
+of your checkpoints while training progresses.
 
 ```py
 # Keeps a maximum of 3 checkpoints, and only saves every other step.
