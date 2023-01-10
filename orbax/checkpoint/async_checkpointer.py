@@ -28,6 +28,15 @@ from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint.checkpointer import Checkpointer
 
 
+def _on_commit_callback(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path,
+                        checkpoint_start_time: float):
+  """Finalize atomic save and record checkpoint save metrics."""
+  utils.on_commit_callback(temp_ckpt_dir, final_ckpt_dir, checkpoint_start_time)
+  jax.monitoring.record_event_duration_secs(
+      '/jax/checkpoint/write/async/total_duration_secs',
+      time.time() - checkpoint_start_time)
+
+
 # TODO(b/238758658): Eliminate GDA dependency by moving AsyncManager to a
 # different location.
 class AsyncCheckpointer(Checkpointer, AsyncManager):
@@ -42,6 +51,7 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
   """
 
   def __init__(self, handler: AsyncCheckpointHandler, timeout_secs: int = 300):
+    jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
     self._handler = handler
     AsyncManager.__init__(self, timeout_secs=timeout_secs)
 
@@ -93,8 +103,11 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     self._add_futures(commit_ops)
     # Directory is the final directory
     self._start_async_commit(
-        functools.partial(utils.on_commit_callback, tmpdir, directory,
+        functools.partial(_on_commit_callback, tmpdir, directory,
                           checkpoint_start_time))
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/async/blocking_duration_secs',
+        time.time() - checkpoint_start_time)
 
   def restore(self,
               directory: epath.PathLike,
