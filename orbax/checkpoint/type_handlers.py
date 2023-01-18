@@ -24,7 +24,6 @@ import jax
 from jax._src.device_array import DeviceArray
 from jax.experimental import pjit
 from jax.experimental.gda_serialization import serialization
-from jax.experimental.gda_serialization.serialization import get_tensorstore_spec
 from jax.experimental.global_device_array import GlobalDeviceArray
 from jax.experimental.maps import Mesh
 import jax.numpy as jnp
@@ -180,7 +179,7 @@ class NumpyHandler(TypeHandler):
     if info.path is None:
       raise ValueError('Must construct serialization path.')
     path = os.fspath(info.path)
-    tspec: Dict[str, Any] = get_tensorstore_spec(path)
+    tspec: Dict[str, Any] = serialization.get_tensorstore_spec(path)
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
     tspec['metadata'] = {
@@ -280,7 +279,7 @@ class ArrayHandler(TypeHandler):
     if info.path is None:
       raise ValueError('Must construct serialization path.')
     path = os.fspath(info.path)
-    tspec: Dict[str, Any] = get_tensorstore_spec(path)
+    tspec: Dict[str, Any] = serialization.get_tensorstore_spec(path)
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
     if value is not None:
