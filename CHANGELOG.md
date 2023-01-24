@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-CheckpointManager `delete` API, which allows deleting an existing step.
+- CheckpointManager `delete` API, which allows deleting an existing step.
+
+### Changed
+
+- Revert top-level directory creation in CheckpointManager.
 
 ## [0.1.0] - 2022-1-04
 
