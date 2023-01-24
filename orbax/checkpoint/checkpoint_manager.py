@@ -348,6 +348,19 @@ class CheckpointManager:
     if self._all_checkpointers_are_sync:
       self._finalize()
 
+  def delete(self, step: int):
+    """Deletes a step checkpoint."""
+    if step not in self.all_steps():
+      raise ValueError(f'Requested deleting a non-existent step: {step}.')
+    if jax.process_index() == 0:
+      step_dir = self._get_save_directory(step, self._directory)
+      # Erase files, but not in-memory record of past checkpoints.
+      step_dir.rmtree()
+    utils.sync_global_devices('CheckpointManager:deleted_step')
+    for i, info in enumerate(self._checkpoints):
+      if info.step == step:
+        self._checkpoints.pop(i)
+
   def save(self,
            step: int,
            items: Union[Any, Mapping[str, Any]],
