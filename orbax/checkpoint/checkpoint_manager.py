@@ -90,7 +90,7 @@ class CheckpointManagerOptions:
     are eligible for cleanup. Otherwise, they will never be deleted.
   step_prefix: if provided, step directories will take the form
     f'{step_prefix}_<step>'. Otherwise, they will simply be an integer <step>.
-
+  create: if True, creates the top-level directory if it does not already exist.
   """
   save_interval_steps: int = 1
   max_to_keep: Optional[int] = None
@@ -100,6 +100,7 @@ class CheckpointManagerOptions:
   best_mode: str = 'max'
   keep_checkpoints_without_metrics: bool = True
   step_prefix: Optional[str] = None
+  create: bool = False
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -177,10 +178,6 @@ class CheckpointManager:
      metadata: High-level metadata that does not depend on step number, and only
        needs to be saved once.
     """
-    self._directory = epath.Path(directory)
-    if jax.process_index() == 0 and not self._directory.exists():
-      self._directory.mkdir(parents=True)
-    utils.sync_global_devices('CheckpointManager:create_directory')
     self._single_item = False
     if isinstance(checkpointers, AbstractCheckpointer):
       self._single_item = True
@@ -202,6 +199,12 @@ class CheckpointManager:
     if self._track_best:
       self._checkpointers[METRIC_ITEM_NAME] = Checkpointer(
           JsonCheckpointHandler(filename=METRIC_ITEM_NAME))
+
+    self._directory = epath.Path(directory)
+    if self._options.create:
+      if jax.process_index() == 0 and not self._directory.exists():
+        self._directory.mkdir(parents=True)
+      utils.sync_global_devices('CheckpointManager:create_directory')
 
     # Cleanup directories from previous runs that may not have been finalized.
     self._cleanup_tmp_directories()
