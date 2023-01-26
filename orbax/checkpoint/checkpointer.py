@@ -34,6 +34,7 @@ class Checkpointer(AbstractCheckpointer):
 
   def __init__(self, handler: CheckpointHandler):
     self._handler = handler
+    jax.monitoring.record_event('/jax/orbax/checkpointer/init')
 
   def save(self,
            directory: epath.PathLike,
