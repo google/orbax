@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - CheckpointManager `delete` API, which allows deleting an existing step.
+- Made dev dependencies optional to minimize import overhead.
 
 ### Changed
 - Guard option to create top-level directory behind `create` option.

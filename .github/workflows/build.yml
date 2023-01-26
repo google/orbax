@@ -29,7 +29,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        pip install -e .[test] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip install -e .[dev] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
     - name: Test with pytest
       run: |
         pytest
