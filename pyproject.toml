@@ -26,15 +26,12 @@ dependencies = [
     'importlib_resources',
     'etils',
     'flax',
-    'importlib_resources',
     'jax',
     'jaxlib',
     'numpy',
-    'pytest',
     'pyyaml',
     'tensorstore >= 0.1.20',
 ]
-
 dynamic = ['version']
 
 [project.urls]
@@ -42,6 +39,9 @@ homepage = 'http://github.com/google/orbax'
 repository = 'http://github.com/google/orbax'
 
 [project.optional-dependencies]
+test = [
+    'pytest',
+]
 dev = [
     'pytest-xdist'
 ]
