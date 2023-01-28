@@ -15,6 +15,8 @@
 """Defines exported symbols for the `orbax` packageorbax.checkpoint."""
 
 import functools
+
+from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import lazy_utils
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import type_handlers
@@ -34,7 +36,6 @@ from orbax.checkpoint.pytree_checkpoint_handler import RestoreArgs
 from orbax.checkpoint.pytree_checkpoint_handler import SaveArgs
 from orbax.checkpoint.transform_utils import apply_transformations
 from orbax.checkpoint.transform_utils import Transform
-from orbax.checkpoint.utils import checkpoints_iterator
 
 # Convenient shorthand where instead of the following:
 #   `checkpointer = Checkpointer(PyTreeCheckpointer())`

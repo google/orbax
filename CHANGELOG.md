@@ -8,11 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-
+- A util function that constructs restore_args from a target PyTree.
 - CheckpointManager `delete` API, which allows deleting an existing step.
 - Made dev dependencies optional to minimize import overhead.
 
 ### Changed
+- Refactored higher-level utils in checkpoint_utils, which provides user-convenience functions.
 - Guard option to create top-level directory behind `create` option.
 
 ## [0.1.0] - 2022-1-04
