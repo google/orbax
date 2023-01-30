@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Add "standard user recipe" to documentation.
+
+## [0.1.0] - 2022-01-30
+
+### Added
 - A util function that constructs restore_args from a target PyTree.
 - CheckpointManager `delete` API, which allows deleting an existing step.
 - Made dev dependencies optional to minimize import overhead.
@@ -17,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Guard option to create top-level directory behind `create` option.
 - Remove support for Python 3.7.
 
-## [0.1.0] - 2022-1-04
+## [0.1.0] - 2022-01-04
 
 ### Added
 

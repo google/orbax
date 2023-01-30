@@ -63,6 +63,59 @@ mngr.should_save(11)  # False
 For more detailed information, see [`CheckpointManager`](#checkpointmanager)
 documentation.
 
+### A Standard Recipe
+
+In most cases, users will wish to save and restore a PyTree representing a model
+state over the course of many training steps. Many users will also wish to do
+this is a multi-host, multi-device environment.
+
+NOTE: See [below](#pytreecheckpointhandler) for information on how to use
+RestoreArgs and ArrayRestoreArgs.
+
+```py
+# Create PyTree state with leaves as sharded jax.Array.
+# Since we're going to restore the state from a checkpoint, the leaf values can
+# be randomly or zero initialized. This state merely serves to enforce the
+# structure of the state we are going to restore, along with the sharding of
+# individual parameters.
+train_state = {
+  ...
+}
+train_state_axes = jax.tree_map(lambda x: x.sharding.spec, train_state)
+options = CheckpointManagerOptions(max_to_keep=3, keep_period=2)
+mngr = CheckpointManager(
+          'path/to/directory/', PyTreeCheckpointer(),
+          options=CheckpointManagerOptions())
+
+if mngr.latest_step() is not None:  # existing checkpoint present
+  # Use convenience function to construct args.
+  restore_args = checkpoint_utils.restore_args_from_target(
+                    mesh, train_state, train_state_axes)
+  # Directly construct args.
+  restore_args = jax.tree_map(
+    lambda x: ArrayRestoreArgs(
+        # Restore as object. Could also be np.ndarray, int, or others.
+        restore_type=jax.Array,
+        # Cast the restored array to a specific dtype.
+        dtype=np.float32,
+        mesh=x.sharding.mesh,
+        mesh_axes=x.sharding.spec,
+        # Padding or truncation may occur. Ensure that the shape matches the
+        # saved shape!
+        global_shape=x.shape,
+    ),
+    train_state)
+  # Note the use of plural 'items' and 'restore_kwargs'. This is because we may
+  # be managing multiple items, as shown in the previous section. It is also
+  # valid to just have one item, as shown here.
+  restored = mngr.restore(mngr.latest_step(), 
+                items=train_state, restore_kwargs=restore_args)
+
+for step in range(mngr.latest_step() + 1, num_steps):
+  train_state = do_training(train_state)
+  mngr.save(step, train_state)
+```
+
 ## CheckpointManager
 
 [`CheckpointManager`](https://github.com/google/orbax/tree/main/orbax/checkpoint/checkpoint_manager.py)
@@ -358,7 +411,7 @@ parameters are provided on an individual basis for each element in the PyTree.
     (e.g. jnp.bfloat16 is not compatible with np.ndarray).
 
 `RestoreArgs` is overridden by `ArrayRestoreArgs`, which should be used when
-restoring a paramemter as a sharded array. This class includes additional
+restoring a parameter as a sharded array. This class includes additional
 parameters:
 
 *   `mesh`: the device mesh that the array should be restored with. Cannot be
@@ -366,7 +419,8 @@ parameters:
 *   `mesh_axes`: the mesh_axes that the array should be restored with. Cannot be
     None.
 *   `global_shapes`: the global shape that the array should be restored into. If
-    not provided, the shape will be restored as written.
+    not provided, the shape will be restored as written. Padding or truncation
+    may occur if the provided shape does not match the saved shape.
 
 `PyTreeCheckpointHandler` will create an individual directory for each nested
 key. The exact naming of per-parameter directories can be customized by
