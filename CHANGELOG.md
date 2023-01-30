@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Refactored higher-level utils in checkpoint_utils, which provides user-convenience functions.
 - Guard option to create top-level directory behind `create` option.
+- Remove support for Python 3.7.
 
 ## [0.1.0] - 2022-1-04
 
