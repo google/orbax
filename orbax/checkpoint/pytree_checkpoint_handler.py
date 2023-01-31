@@ -353,6 +353,10 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     Returns:
       A deserialized parameter.
     """
+    if args is None:
+      raise ValueError(
+          'Must provide restore arguments for each leaf parameter.'
+      )
     if info.aggregate:  # Already restored from AggregateHandler.
       value = _try_array_cast(value, args.dtype)
       if args.lazy:
