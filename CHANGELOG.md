@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Add "standard user recipe" to documentation.
+- Add unit tests using mock to simulate preemption.
 
 ## [0.1.0] - 2022-01-30
 

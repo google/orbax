@@ -181,47 +181,46 @@ class CheckpointerTestBase:
       test_utils.assert_tree_equal(self, state.params, restored.params)
       test_utils.assert_tree_equal(self, state.opt_state, restored.opt_state)
 
-    def test_save_preempted(self):
+    @mock.patch.object(utils, 'ensure_atomic_save')
+    def test_save_preempted(self, ensure_atomic_save):
       """Simulate effects of preemption."""
-      # Simulates the effects of preemption by creating a tmp directory and
-      # ensuring it is cleaned up.
-      tmp_dir = test_utils.save_fake_tmp_dir(
-          self.directory, 0, 'params', subdirs=['subdir']
-      )
-      self.assertTrue(tmp_dir.exists())
-      self.assertTrue((tmp_dir / 'subdir').exists())
-
+      del ensure_atomic_save
       checkpointer = self.checkpointer(PyTreeCheckpointHandler())
-      with self.assertRaises(ValueError):
+      checkpointer.save(self.directory, self.pytree)
+      self.wait_if_async(checkpointer)
+      paths = list(self.directory.parent.iterdir())
+      self.assertLen(paths, 1)
+      tmp_dir = paths[0]
+      self.assertFalse(utils.is_checkpoint_item_finalized(tmp_dir))
+      with self.assertRaisesRegex(ValueError, 'Found incomplete checkpoint'):
         checkpointer.restore(tmp_dir)
 
-    def test_gcs(self):
+    @mock.patch.object(utils, 'is_gcs_path', autospec=True, return_value=True)
+    def test_gcs(self, is_gcs_path):
       """Test normal operation in simulated GCS environment."""
-      with mock.patch.object(
-          utils, 'is_gcs_path', autospec=True, return_value=True
-      ):
-        checkpointer = self.checkpointer(PyTreeCheckpointHandler())
-        path = self.directory / '0' / 'params'
-        checkpointer.save(path, self.pytree)
-        self.wait_if_async(checkpointer)
-        restored = checkpointer.restore(
-            path, restore_args=self.pytree_restore_args
-        )
-        test_utils.assert_tree_equal(self, self.pytree, restored)
-        self.assertTrue((path / utils._COMMIT_SUCCESS_FILE).exists())  # pylint: disable=protected-access
+      del is_gcs_path
+      checkpointer = self.checkpointer(PyTreeCheckpointHandler())
+      path = self.directory / '0' / 'params'
+      checkpointer.save(path, self.pytree)
+      self.wait_if_async(checkpointer)
+      restored = checkpointer.restore(
+          path, restore_args=self.pytree_restore_args
+      )
+      test_utils.assert_tree_equal(self, self.pytree, restored)
+      self.assertTrue((path / utils._COMMIT_SUCCESS_FILE).exists())  # pylint: disable=protected-access
 
-    def test_save_preempted_gcs(self):
+    @mock.patch.object(utils, 'is_gcs_path', autospec=True, return_value=True)
+    @mock.patch.object(utils, 'ensure_atomic_save')
+    def test_save_preempted_gcs(self, is_gcs_path, ensure_atomic_save):
       """Simulate effects of preemption."""
-      with mock.patch.object(
-          utils, 'is_gcs_path', autospec=True, return_value=True
-      ):
-        tmp_dir = test_utils.save_fake_tmp_dir(
-            self.directory, 0, 'params', subdirs=['subdir']
-        )
-        self.assertTrue(tmp_dir.exists())
-        self.assertTrue((tmp_dir / 'subdir').exists())
-
-        checkpointer = self.checkpointer(PyTreeCheckpointHandler())
-        with self.assertRaises(ValueError):
-          checkpointer.restore(tmp_dir)
-        self.assertFalse((tmp_dir / utils._COMMIT_SUCCESS_FILE).exists())  # pylint: disable=protected-access
+      del is_gcs_path, ensure_atomic_save
+      checkpointer = self.checkpointer(PyTreeCheckpointHandler())
+      checkpointer.save(self.directory, self.pytree)
+      self.wait_if_async(checkpointer)
+      paths = list(self.directory.parent.iterdir())
+      self.assertLen(paths, 1)
+      tmp_dir = paths[0]
+      self.assertFalse(utils.is_checkpoint_item_finalized(tmp_dir))
+      with self.assertRaisesRegex(ValueError, 'Found incomplete checkpoint'):
+        checkpointer.restore(tmp_dir)
+      self.assertFalse((tmp_dir / utils._COMMIT_SUCCESS_FILE).exists())  # pylint: disable=protected-access
