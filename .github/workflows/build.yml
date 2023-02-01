@@ -14,9 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # LINT.IfChange
-        python-version: [3.7, 3.8, 3.9]
-        # LINT.ThenChange(auto-publish.yml)
+        python-version: [3.8, 3.9]
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.8.0
