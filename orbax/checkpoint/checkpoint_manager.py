@@ -308,49 +308,6 @@ class CheckpointManager:
     return utils.get_save_directory(
         step, directory, name=key_name, step_prefix=self._options.step_prefix)
 
-  # TODO(b/256160767) Potentially support updating any item within the
-  # checkpoint. Note that metrics is optional because we anticipate adding
-  # an additional non-optional `item` argument in the future.
-  def update(self, step: int, metrics: Optional[PyTree] = None):
-    """Updates a portion of an already existing checkpoint.
-
-    Currently only metrics can be updated.
-
-    Args:
-      step: step to update
-      metrics: metrics with which to replace the currently saved metrics.
-
-    Raises:
-      ValueError: if metrics is None.
-      ValueError: if metrics tracking is not enabled.
-      ValueError: if the requested step does not exist.
-    """
-    if step not in self.all_steps():
-      raise ValueError('Requested updating a non-existent step.')
-    if metrics is None:
-      raise ValueError('Must provide metrics to update.')
-    if not self._track_best and metrics is not None:
-      raise ValueError(
-          'Requested update metrics without configuring the CheckpointManager'
-          ' to track metrics.'
-      )
-
-    # Wait for ongoing saves to complete. Only applicable if some of the
-    # checkpointers are AsyncCheckpointers.
-    self.wait_until_finished()
-
-    assert METRIC_ITEM_NAME in self._checkpointers
-    final_dir = self._get_save_directory(step, self._directory,
-                                         METRIC_ITEM_NAME)
-    self._checkpointers[METRIC_ITEM_NAME].save(final_dir, metrics)
-
-    # TODO(b/256160767) Update time if the updated item is something other than
-    # metrics.
-    self._update_checkpoint_info(step, metrics, update_time=False)
-    # If any are async, must wait until all saves are complete before finalize.
-    if self._all_checkpointers_are_sync:
-      self._finalize()
-
   def delete(self, step: int):
     """Deletes a step checkpoint."""
     if step not in self.all_steps():
