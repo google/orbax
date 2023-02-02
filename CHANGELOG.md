@@ -10,9 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Add "standard user recipe" to documentation.
 - Add unit tests using mock to simulate preemption.
+- Logging to increase transparency around why checkpoints are kept vs. deleted.
 
 ### Changed
 - Remove CheckpointManager update API.
+
+### Fixed
+- Preemption when using keep_time_interval caused the most recent steps before
+preemption to be kept, despite not falling on the keep time interval.
 
 ## [0.1.0] - 2022-01-30
 

@@ -116,6 +116,12 @@ class CheckpointInfo:
   time: datetime.datetime
   metrics: Optional[PyTree]
 
+  def __str__(self) -> str:
+    return f'Checkpoint[step={self.step} | time={self.time}]'
+
+  def __eq__(self, other: 'CheckpointInfo') -> bool:
+    return self.step == other.step and self.time == other.time
+
 
 class CheckpointManager:
   """A generic, synchronous CheckpointManager implementation.
@@ -209,19 +215,13 @@ class CheckpointManager:
     # Cleanup directories from previous runs that may not have been finalized.
     self._cleanup_tmp_directories()
     self._checkpoints = self._create_checkpoints()
-    # The distinction between _last_checkpoint and _last_preserved_checkpoint is
-    # necessary because some checkpoints may not be kept in the long run, in
-    # which case the two values may diverge. _last_preserved_checkpoint cannot
-    # be determined until we know which checkpoints will not be saved but
-    # ultimately discarded.
-    # _last_preserved_checkpoint is used for preserving checkpoints based on
-    # time interval. Be cautious if using in a broader context.
+    self._interval_preserved_checkpoints = (
+        self._get_interval_preserved_checkpoints(self._checkpoints)
+    )
     if self._checkpoints:
       self._last_checkpoint = self._checkpoints[-1]
-      self._last_preserved_checkpoint = self._checkpoints[-1]
     else:
       self._last_checkpoint = None
-      self._last_preserved_checkpoint = None
 
     self._metadata = None
     if metadata is not None:
@@ -613,15 +613,32 @@ class CheckpointManager:
         for s, t, m in zip(steps, times, metrics)
     ]
 
+  def _get_interval_preserved_checkpoints(
+      self, checkpoints: List[CheckpointInfo]
+  ) -> List[CheckpointInfo]:
+    """Gets which checkpoints should be kept based on keep_time_interval."""
+    if not checkpoints:
+      return []
+    interval_preserved_checkpoints = [checkpoints[0]]
+    if self._options.keep_time_interval is not None:
+      for info in checkpoints[1:]:
+        if (
+            info.time
+            >= interval_preserved_checkpoints[-1].time
+            + self._options.keep_time_interval
+        ):
+          interval_preserved_checkpoints.append(info)
+    return interval_preserved_checkpoints
+
   def _add_checkpoint_info(self, step: int, metrics: Optional[PyTree]):
     self._checkpoints.append(
         CheckpointInfo(step, datetime.datetime.now(tz=datetime.timezone.utc),
                        metrics))
     self._last_checkpoint = self._checkpoints[-1]
-    # Only None if this is the very first checkpoint. First checkpoint is
-    # always preserved.
-    if self._last_preserved_checkpoint is None:
-      self._last_preserved_checkpoint = self._checkpoints[-1]
+    # Only empty if this is the very first checkpoint. First checkpoint is
+    # always preserved based on save_time_interval.
+    if not self._interval_preserved_checkpoints:
+      self._interval_preserved_checkpoints.append(self._checkpoints[-1])
 
   def _update_checkpoint_info(self, step, metrics, update_time=False):
     for i, info in enumerate(self._checkpoints):
@@ -708,17 +725,27 @@ class CheckpointManager:
 
     kept_checkpoints = []
     for info in maybe_delete:
-      if (self._options.keep_time_interval is not None and
-          self._last_preserved_checkpoint is not None):
-        # Preserve if the checkpoint is older than the most recent preserved
-        # checkpoint OR if its time is greater than the last preserved time plus
-        # plus the given interval.
-        if info.time <= self._last_preserved_checkpoint.time:
+      if (
+          self._options.keep_time_interval is not None
+          and self._interval_preserved_checkpoints
+      ):
+        if info in self._interval_preserved_checkpoints:
+          logging.info(
+              'Preserving %s: (Reason: older falling on keep_time_interval).',
+              info,
+          )
           kept_checkpoints.append(info)
           continue
-        elif (info.time >= self._last_preserved_checkpoint.time +
-              self._options.keep_time_interval):
-          self._last_preserved_checkpoint = info
+        elif (
+            info.time
+            >= self._interval_preserved_checkpoints[-1].time
+            + self._options.keep_time_interval
+        ):
+          self._interval_preserved_checkpoints.append(info)
+          logging.info(
+              'Preserving %s: (Reason: latest falling on keep_time_interval).',
+              info,
+          )
           kept_checkpoints.append(info)
           continue
 
@@ -726,9 +753,12 @@ class CheckpointManager:
           self._options.keep_period is not None
           and info.step % self._options.keep_period == 0
       ):
+        logging.info('Preserving %s: (Reason: on keep_period).', info)
         kept_checkpoints.append(info)
         continue
 
+      reason = 'worse metric' if self._track_best else 'old checkpoint'
+      logging.info('Deleting %s: (Reason: %s).', info, reason)
       self._delete_directory(info.step)
 
     kept_checkpoints += active_checkpoints
@@ -755,7 +785,9 @@ class CheckpointManager:
     for checkpointer in self._checkpointers.values():
       if is_async_checkpointer(checkpointer):
         checkpointer.wait_until_finished()  # pytype: disable=attribute-error
-    self._finalize()
+    # Already performed after save if all Checkpointers are synchronous.
+    if not self._all_checkpointers_are_sync:
+      self._finalize()
 
   def check_for_errors(self):
     """Checks for any outstanding errors in completed asynchronous save operations.
