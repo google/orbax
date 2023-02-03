@@ -22,12 +22,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 from etils import epath
 import jax
 from jax._src.device_array import DeviceArray
-from jax.experimental import pjit
 from jax.experimental.gda_serialization import serialization
 from jax.experimental.gda_serialization.serialization import get_tensorstore_spec
 from jax.experimental.global_device_array import GlobalDeviceArray
-from jax.experimental.maps import Mesh
 import jax.numpy as jnp
+from jax.sharding import Mesh
 import numpy as np
 from orbax.checkpoint.future import Future
 import tensorstore as ts
@@ -256,7 +255,7 @@ class ArrayRestoreArgs(RestoreArgs):
   """
   restore_type: Any = GlobalDeviceArray
   mesh: Optional[Mesh] = None
-  mesh_axes: Optional[pjit.PartitionSpec] = None
+  mesh_axes: Optional[jax.sharding.PartitionSpec] = None
   global_shape: Optional[Tuple[int]] = None
 
 

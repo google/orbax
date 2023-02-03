@@ -21,8 +21,8 @@ from flax import linen as nn
 from flax.training.train_state import TrainState
 import jax
 from jax.experimental import pjit
-from jax.experimental.maps import Mesh
 import jax.numpy as jnp
+from jax.sharding import Mesh
 import numpy as np
 import optax
 from orbax.checkpoint import ArrayRestoreArgs
@@ -149,7 +149,7 @@ class CheckpointerTestBase:
 
       model = MLP()
       mesh = Mesh(np.asarray(jax.devices()), ('devices',))
-      mesh_axes = pjit.PartitionSpec()
+      mesh_axes = jax.sharding.PartitionSpec()
 
       @jax.jit
       def init_state():

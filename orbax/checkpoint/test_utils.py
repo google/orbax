@@ -23,8 +23,8 @@ from flax.training.train_state import TrainState
 import jax
 from jax.experimental import pjit
 from jax.experimental.global_device_array import GlobalDeviceArray
-from jax.experimental.maps import Mesh
 import jax.numpy as jnp
+from jax.sharding import Mesh
 import numpy as np
 import optax
 from orbax.checkpoint import lazy_utils
@@ -68,7 +68,7 @@ def save_fake_tmp_dir(
 def replicate_sharded_array(arr: Union[GlobalDeviceArray, jax.Array]):
   """Returns the input array, but replicated across all devices."""
   if isinstance(arr, GlobalDeviceArray):
-    mesh_axes = pjit.PartitionSpec(None,)
+    mesh_axes = jax.sharding.PartitionSpec(None,)
     fn = pjit.pjit(
         lambda x: x,
         in_axis_resources=arr.mesh_axes,
@@ -77,8 +77,12 @@ def replicate_sharded_array(arr: Union[GlobalDeviceArray, jax.Array]):
       result = fn(arr)
   elif jax.config.jax_array and isinstance(arr, jax.Array):
     mesh = Mesh(np.asarray(jax.devices()), ('x',))
-    replicated_sharding = sharding.NamedSharding(mesh,
-                                                 pjit.PartitionSpec(None,))
+    replicated_sharding = sharding.NamedSharding(
+        mesh,
+        jax.sharding.PartitionSpec(
+            None,
+        ),
+    )
     result = pjit.pjit(lambda x: x, out_axis_resources=replicated_sharding)(arr)
   else:
     raise ValueError('Must enable either GDA or JAX Array')
@@ -169,11 +173,11 @@ def setup_sharded_pytree():
   devices = np.asarray(jax.devices())
 
   mesh_2d = Mesh(devices.reshape((2, len(devices) // 2)), ('x', 'y'))
-  mesh_axes_2d = pjit.PartitionSpec('x', 'y')
+  mesh_axes_2d = jax.sharding.PartitionSpec('x', 'y')
   mesh_1d = Mesh(devices, ('x',))
-  mesh_axes_1d = pjit.PartitionSpec('x',)
+  mesh_axes_1d = jax.sharding.PartitionSpec('x',)
   mesh_0d = Mesh(devices, ('x',))
-  mesh_axes_0d = pjit.PartitionSpec(None,)
+  mesh_axes_0d = jax.sharding.PartitionSpec(None,)
 
   pytree = setup_pytree()
   mesh_tree = {
@@ -199,9 +203,12 @@ def setup_sharded_pytree():
 
 
 def is_leaf(x):
-  return isinstance(x, np.ndarray) or isinstance(x, Mesh) or isinstance(
-      x, pjit.PartitionSpec) or isinstance(x,
-                                           pytree_checkpoint_handler.ParamInfo)
+  return (
+      isinstance(x, np.ndarray)
+      or isinstance(x, Mesh)
+      or isinstance(x, jax.sharding.PartitionSpec)
+      or isinstance(x, pytree_checkpoint_handler.ParamInfo)
+  )
 
 
 def create_sharded_array(arr, mesh, mesh_axes):

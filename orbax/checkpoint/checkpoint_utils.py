@@ -21,7 +21,7 @@ from etils import epath
 import jax
 from jax.experimental import multihost_utils
 from jax.experimental.global_device_array import GlobalDeviceArray
-from jax.experimental.maps import Mesh
+from jax.sharding import Mesh
 import numpy as np
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils

@@ -17,8 +17,6 @@
 from absl.testing import absltest
 from etils import epath
 import jax
-from jax.experimental import maps
-from jax.experimental import pjit
 import numpy as np
 from orbax.checkpoint import ArrayRestoreArgs
 from orbax.checkpoint import checkpoint_utils
@@ -34,9 +32,9 @@ class CheckpointUtilsTest(absltest.TestCase):
 
   def test_restore_args_from_target(self):
     devices = np.asarray(jax.devices())
-    mesh = maps.Mesh(devices, ('x',))
+    mesh = jax.sharding.Mesh(devices, ('x',))
     axes_tree = {
-        'a': pjit.PartitionSpec(
+        'a': jax.sharding.PartitionSpec(
             'x',
         ),
         'x': None,
@@ -46,7 +44,7 @@ class CheckpointUtilsTest(absltest.TestCase):
         'a': test_utils.create_sharded_array(
             np.arange(16, dtype=np.int32) * 1,
             mesh,
-            pjit.PartitionSpec(
+            jax.sharding.PartitionSpec(
                 'x',
             ),
         ),
@@ -58,7 +56,7 @@ class CheckpointUtilsTest(absltest.TestCase):
         'a': ArrayRestoreArgs(
             restore_type=jax.Array,
             mesh=mesh,
-            mesh_axes=pjit.PartitionSpec(
+            mesh_axes=jax.sharding.PartitionSpec(
                 'x',
             ),
             global_shape=(16,),
