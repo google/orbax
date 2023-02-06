@@ -184,6 +184,7 @@ class CheckpointManager:
      metadata: High-level metadata that does not depend on step number, and only
        needs to be saved once.
     """
+    jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
     self._single_item = False
     if isinstance(checkpointers, AbstractCheckpointer):
       self._single_item = True
