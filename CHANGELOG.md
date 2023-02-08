@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Remove CheckpointManager update API.
+- Remove support for deprecated GDA.
 
 ### Fixed
 - Preemption when using keep_time_interval caused the most recent steps before

@@ -372,11 +372,9 @@ method by calling `async_save`.
 ### PyTreeCheckpointHandler
 
 [`PyTreeCheckpointHandler`](https://github.com/google/orbax/tree/main/orbax/checkpoint/pytree_checkpoint_handler.py)
-allows checkpointing PyTrees consisting of scalars, np/jnp arrays,
-`GlobalDeviceArray` (`GDA`) or `jax.Array`. Note that this class provides
-support for device-partitioned arrays via `GDA` and `jax.Array` (although we
-plan to deprecate support for `GDA` as it is being replaced by `jax.Array`).
-Other values are expected to be replicated across devices.
+allows checkpointing PyTrees consisting of scalars, np/jnp arrays, or
+`jax.Array`. Note that this class provides support for device-partitioned arrays
+via `jax.Array`. Other values are expected to be replicated across devices.
 
 This is a subclass of `AsyncCheckpointHandler`, which means that it allows
 asynchronous saves via `async_save`.
@@ -467,7 +465,7 @@ custom logic for saving these leaves.
 For example, standard `TypeHandler` implementations and the types that they
 handle include:
 
-*   `ArrayHandler`: `jax.Array` and `GlobalDeviceArray`
+*   `ArrayHandler`: `jax.Array`
 *   `NumpyHandler`: `np.ndarray`
 *   `ScalarHandler`: `int`, `float`
 

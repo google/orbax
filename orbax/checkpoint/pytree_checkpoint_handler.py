@@ -191,8 +191,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
   """A CheckpointHandler implementation for any PyTree structure.
 
   The PyTree is assumed to be a nested dictionary with array values represented
-  as `GlobalDeviceArray` objects or `np.ndarray` or `jnp.ndarray`. If not
-  `GlobalDeviceArray`, arrays are expected to be non-partitioned.
+  as array-like objects (see type_handlers for supported objects). If not
+  `jax.Array`, arrays are expected to be fully replicated.
   """
 
   def __init__(
@@ -261,8 +261,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       save_args: Optional[PyTree] = None) -> Optional[List[Future]]:
     """Saves a PyTree from a given training step.
 
-    This operation is compatible with a multi-host, multi-device setting. Array
-    values must be represented as `GlobalDeviceArray` or `np.ndarray`.
+    This operation is compatible with a multi-host, multi-device setting. Tree
+    leaf values must be supported by type_handlers. Standard supported types
+    include scalars, np.ndarray, jax.Array, string.
 
     After saving, all files will be located in directory/
 
@@ -396,10 +397,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       transforms_default_to_original: See transform_utils.apply_transformations.
 
     Returns:
-      A PyTree matching the structure of `item` with restored array values as
-      `GlobalDeviceArray` or `jax.Array` if `as_jax_array` or `np.ndarray`
-      otherwise. If `lazy` restoration is enabled, `LazyValue` will be
-      returned.
+      A PyTree matching the structure of `item`. If `lazy` restoration is
+      enabled, leaves will be returned as `LazyValue`.
 
     Raises:
       FileNotFoundError: `directory` does not exist or is missing required files

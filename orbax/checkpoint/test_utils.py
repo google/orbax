@@ -14,15 +14,15 @@
 
 """Utils for orbax tests."""
 
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from etils import epath
 from flax import traverse_util
 import flax.serialization
 from flax.training.train_state import TrainState
 import jax
+from jax import sharding
 from jax.experimental import pjit
-from jax.experimental.global_device_array import GlobalDeviceArray
 import jax.numpy as jnp
 from jax.sharding import Mesh
 import numpy as np
@@ -30,16 +30,6 @@ import optax
 from orbax.checkpoint import lazy_utils
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import utils
-
-# TODO(orbax-dev): Remove this when jax>=0.3.19
-# pylint: disable=g-import-not-at-top,bare-except
-try:
-  from jax import sharding
-  from jax import make_array_from_callback
-except ImportError:
-  from jax.experimental import sharding  # pytype: disable=import-error
-  from jax.experimental.array import make_array_from_callback  # pytype: disable=import-error
-# pylint: enable=g-import-not-at-top,bare-except
 
 
 def save_fake_tmp_dir(
@@ -65,28 +55,18 @@ def save_fake_tmp_dir(
   return path
 
 
-def replicate_sharded_array(arr: Union[GlobalDeviceArray, jax.Array]):
+def replicate_sharded_array(arr: jax.Array):
   """Returns the input array, but replicated across all devices."""
-  if isinstance(arr, GlobalDeviceArray):
-    mesh_axes = jax.sharding.PartitionSpec(None,)
-    fn = pjit.pjit(
-        lambda x: x,
-        in_axis_resources=arr.mesh_axes,
-        out_axis_resources=mesh_axes)
-    with arr.mesh:
-      result = fn(arr)
-  elif jax.config.jax_array and isinstance(arr, jax.Array):
-    mesh = Mesh(np.asarray(jax.devices()), ('x',))
-    replicated_sharding = sharding.NamedSharding(
-        mesh,
-        jax.sharding.PartitionSpec(
-            None,
-        ),
-    )
-    result = pjit.pjit(lambda x: x, out_axis_resources=replicated_sharding)(arr)
-  else:
-    raise ValueError('Must enable either GDA or JAX Array')
-  return result
+  if not jax.config.jax_array:
+    raise ValueError('Must enable jax.Array.')
+  mesh = Mesh(np.asarray(jax.devices()), ('x',))
+  replicated_sharding = sharding.NamedSharding(
+      mesh,
+      jax.sharding.PartitionSpec(
+          None,
+      ),
+  )
+  return pjit.pjit(lambda x: x, out_axis_resources=replicated_sharding)(arr)
 
 
 def apply_function(tree, function):
@@ -97,28 +77,21 @@ def apply_function(tree, function):
     function: a function accepting an array and returning jax.Array.
 
   Returns:
-    a transformed GDA tree.
+    a transformed sharded array tree.
   """
 
   def f(arr):
-    if jax.config.jax_parallel_functions_output_gda:
-      pjitted = pjit.pjit(
-          function,
-          in_axis_resources=arr.mesh_axes,
-          out_axis_resources=arr.mesh_axes)
-      with arr.mesh:
-        result = pjitted(arr)
-    elif jax.config.jax_array:
+    if jax.config.jax_array:
       result = pjit.pjit(function)(arr)
     else:
-      raise ValueError('Must enable either GDA or JAX Array')
+      raise ValueError('Must enable jax.Array.')
     return result
 
   return jax.tree_util.tree_map(f, tree)
 
 
 def assert_tree_equal(testclass, expected, actual):
-  """Asserts that two PyTrees are equal, whether they are GDA or np/jnp jax_array."""
+  """Asserts that two PyTrees are equal."""
 
   def assert_array_equal(v_expected, v_actual):
     if isinstance(v_expected, lazy_utils.LazyValue):
@@ -127,13 +100,7 @@ def assert_tree_equal(testclass, expected, actual):
       v_actual = v_actual.get()
 
     testclass.assertIsInstance(v_actual, type(v_expected))
-    if isinstance(v_expected, GlobalDeviceArray):
-      testclass.assertEqual(
-          len(v_expected.addressable_shards), len(v_actual.addressable_shards))
-      for shard_expected, shard_actual in zip(v_expected.addressable_shards,
-                                              v_actual.addressable_shards):
-        np.testing.assert_array_equal(shard_expected.data, shard_actual.data)
-    elif jax.config.jax_array and isinstance(v_expected, jax.Array):
+    if jax.config.jax_array and isinstance(v_expected, jax.Array):
       testclass.assertEqual(
           len(v_expected.addressable_shards), len(v_actual.addressable_shards))
       for shard_expected, shard_actual in zip(v_expected.addressable_shards,
@@ -212,18 +179,15 @@ def is_leaf(x):
 
 
 def create_sharded_array(arr, mesh, mesh_axes):
-  """Create either array.Array or GDA depending on jax config."""
+  """Create sharded jax.Array."""
   if isinstance(arr, (int, float)):
     arr = np.asarray(arr)
-  if jax.config.jax_parallel_functions_output_gda:
-    return GlobalDeviceArray.from_callback(arr.shape, mesh, mesh_axes,
-                                           lambda idx: arr[idx])
-  elif jax.config.jax_array:
-    return make_array_from_callback(arr.shape,
-                                    sharding.NamedSharding(mesh, mesh_axes),
-                                    lambda idx: arr[idx])
+  if jax.config.jax_array:
+    return jax.make_array_from_callback(
+        arr.shape, sharding.NamedSharding(mesh, mesh_axes), lambda idx: arr[idx]
+    )
   else:
-    raise ValueError('Must enable either GDA or JAX Array')
+    raise ValueError('Must enable jax.Array.')
 
 
 def init_flax_model(model):

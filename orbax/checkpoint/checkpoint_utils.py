@@ -20,7 +20,6 @@ from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
-from jax.experimental.global_device_array import GlobalDeviceArray
 from jax.sharding import Mesh
 import numpy as np
 from orbax.checkpoint import type_handlers
@@ -197,9 +196,7 @@ def restore_args_from_target(
     dtype = None
     if hasattr(value, 'dtype'):
       dtype = value.dtype
-    if isinstance(value, GlobalDeviceArray) or (
-        isinstance(value, jax.Array) and jax.config.jax_array
-    ):
+    if isinstance(value, jax.Array) and jax.config.jax_array:
       return type_handlers.ArrayRestoreArgs(
           restore_type=restore_type,
           mesh=mesh,

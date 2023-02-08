@@ -21,10 +21,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
 from etils import epath
 import jax
-from jax._src.device_array import DeviceArray
 from jax.experimental.gda_serialization import serialization
 from jax.experimental.gda_serialization.serialization import get_tensorstore_spec
-from jax.experimental.global_device_array import GlobalDeviceArray
 import jax.numpy as jnp
 from jax.sharding import Mesh
 import numpy as np
@@ -253,14 +251,14 @@ class ArrayRestoreArgs(RestoreArgs):
   global_shapes: the global shape that the array should be restored into. If not
     provided, the shape will be restored as written.
   """
-  restore_type: Any = GlobalDeviceArray
+  restore_type: Any = jax.Array
   mesh: Optional[Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
   global_shape: Optional[Tuple[int]] = None
 
 
 class ArrayHandler(TypeHandler):
-  """An implementation of TypeHandler for jax.Array and GlobalDeviceArray."""
+  """An implementation of TypeHandler for jax.Array."""
 
   def __init__(
       self, metadata_key: Optional[str] = None
@@ -287,10 +285,9 @@ class ArrayHandler(TypeHandler):
       del tspec['metadata']['dtype']
     return tspec
 
-  async def serialize(self,
-                      value: Union[jax.Array, GlobalDeviceArray],
-                      info: ParamInfo,
-                      args: Optional[SaveArgs] = None) -> List[Future]:
+  async def serialize(
+      self, value: jax.Array, info: ParamInfo, args: Optional[SaveArgs] = None
+  ) -> List[Future]:
     """See superclass documentation."""
     args = args or SaveArgs()
     tspec = self._get_json_tspec(info, value)
@@ -317,12 +314,11 @@ class ArrayHandler(TypeHandler):
       ValueError if `args.mesh` or `args.mesh_axes` are not provided.
     """
     if args is None:
-      raise ValueError(
-          'Must provide ArrayRestoreArgs to restore as GDA or jax.Array.')
+      raise ValueError('Must provide ArrayRestoreArgs to restore as jax.Array.')
     args = cast(ArrayRestoreArgs, args)
     if args.mesh is None or args.mesh_axes is None:
       raise ValueError(
-          'Sharding of GlobalDeviceArray/Array cannot be None. Provide `mesh`'
+          'Sharding of jax.Array cannot be None. Provide `mesh`'
           ' and `mesh_axes`.'
       )
     tspec = self._get_json_tspec(info)
@@ -361,8 +357,6 @@ _TYPE_REGISTRY = [
     (lambda ty: issubclass(ty, float), ScalarHandler()),
     (lambda ty: issubclass(ty, np.number), ScalarHandler()),
     (lambda ty: issubclass(ty, np.ndarray), NumpyHandler()),
-    (lambda ty: issubclass(ty, DeviceArray), NumpyHandler()),
-    (lambda ty: issubclass(ty, GlobalDeviceArray), ArrayHandler()),
     (lambda ty: issubclass(ty, jax.Array) and jax.config.jax_array,
      ArrayHandler()),
     (lambda ty: issubclass(ty, str), StringHandler()),
