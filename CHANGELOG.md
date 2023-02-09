@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Remove CheckpointManager update API.
 - Remove support for deprecated GDA.
+- Add tmp suffix on step directory creation in CheckpointManager.save.
 
 ### Fixed
 - Preemption when using keep_time_interval caused the most recent steps before
@@ -29,7 +30,8 @@ preemption to be kept, despite not falling on the keep time interval.
 - Made dev dependencies optional to minimize import overhead.
 
 ### Changed
-- Refactored higher-level utils in checkpoint_utils, which provides user-convenience functions.
+- Refactored higher-level utils in checkpoint_utils, which provides
+user-convenience functions.
 - Guard option to create top-level directory behind `create` option.
 - Remove support for Python 3.7.
 

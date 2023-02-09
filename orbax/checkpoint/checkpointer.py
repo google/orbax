@@ -88,7 +88,7 @@ class Checkpointer(AbstractCheckpointer):
     directory = epath.Path(directory)
     if not directory.exists():
       raise FileNotFoundError(f'Checkpoint at {directory} not found.')
-    if not utils.is_checkpoint_item_finalized(directory):
+    if not utils.is_checkpoint_finalized(directory):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
     logging.info('Restoring item from %s.', directory)
     restored = self._handler.restore(directory, *args, item=item, **kwargs)

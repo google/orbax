@@ -122,8 +122,13 @@ class CheckpointIteratorTest(absltest.TestCase):
     test_utils.save_fake_tmp_dir(self.directory, 2, 'params')
     (self.directory / '3.foo').mkdir()
     self.assertSameElements([0, 1], utils.checkpoint_steps(self.directory))
-    self.assertSameElements(['2'],
-                            utils.tmp_checkpoints(self.directory))
+    self.assertSameElements(
+        [2],
+        [
+            utils.step_from_checkpoint_name(x)
+            for x in utils.tmp_checkpoints(self.directory)
+        ],
+    )
     # Only returns latest and does not return incomplete checkpoints.
     self.check_saved_steps(1)
 

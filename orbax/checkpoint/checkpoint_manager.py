@@ -18,11 +18,12 @@ import asyncio
 import dataclasses
 import datetime
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
-from absl import logging
 
+from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
+from jax.experimental.gda_serialization import serialization
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
@@ -48,8 +49,13 @@ def _metrics_file_exists(metrics_item_path: epath.Path) -> bool:
   )
 
 
+# TODO(b/268051457) Clean up when Pax no longer depends on separate
+# GlobalAsyncCheckpointManagerBase.
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
-  return isinstance(checkpointer, AsyncCheckpointer)
+  return isinstance(checkpointer, AsyncCheckpointer) or isinstance(
+      checkpointer,
+      serialization.GlobalAsyncCheckpointManagerBase,
+  )
 
 
 async def _call_valid_checkpointer_save(checkpointer: AbstractCheckpointer,
@@ -301,13 +307,25 @@ class CheckpointManager:
         last_checkpoint_step < step and
         step % self._options.save_interval_steps == 0)
 
-  def _get_save_directory(self,
-                          step: int,
-                          directory: epath.Path,
-                          key_name: Optional[str] = None) -> epath.Path:
+  def _get_save_directory(
+      self,
+      step: int,
+      directory: epath.Path,
+      key_name: Optional[str] = None,
+      tmp_directory: Optional[epath.Path] = None,
+  ) -> epath.Path:
     """Returns the standardized path to a save directory for a single item."""
     return utils.get_save_directory(
-        step, directory, name=key_name, step_prefix=self._options.step_prefix)
+        step,
+        directory,
+        name=key_name,
+        step_prefix=self._options.step_prefix,
+        override_directory=tmp_directory,
+    )
+
+  def _create_tmp_directory(self, directory: epath.Path) -> epath.Path:
+    """Creates a tmp directory based on the given directory."""
+    return utils.create_tmp_directory(directory)
 
   def delete(self, step: int):
     """Deletes a step checkpoint."""
@@ -406,15 +424,19 @@ class CheckpointManager:
       else:
         items[METRIC_ITEM_NAME] = metrics
 
+    tmp_step_dir = self._create_tmp_directory(
+        self._get_save_directory(step, self.directory)
+    )
     for k, item in items.items():
       # Gets save dirs given top directory, step number, and a "collection". All
       # files from the same input object should be saved under this collection.
-      final_dir = self._get_save_directory(step, self._directory, k)
+      item_dir = self._get_save_directory(
+          step, self.directory, k, tmp_directory=tmp_step_dir
+      )
       if k not in self._checkpointers:
         raise ValueError(f'Checkpointer for item "{k}" not found')
-
       kwargs = save_kwargs.get(k, {})
-      self._checkpointers[k].save(final_dir, item, **kwargs)
+      self._checkpointers[k].save(item_dir, item, **kwargs)
 
     self._add_checkpoint_info(step, metrics)
     # If any are async, must wait until all saves are complete before finalize.
@@ -799,7 +821,19 @@ class CheckpointManager:
       if is_async_checkpointer(checkpointer):
         checkpointer.check_for_errors()  # pytype: disable=attribute-error
 
+  def _finalize_checkpoint(self):
+    """Moves tmp step checkpoint to final."""
+    for tmp_file in utils.tmp_checkpoints(self.directory):
+      if jax.process_index() == 0:
+        utils.ensure_atomic_save(
+            self.directory / tmp_file,
+            self._get_save_directory(
+                utils.step_from_checkpoint_name(tmp_file), self.directory
+            ),
+        )
+
   def _finalize(self):
     """Cleans up old checkpoints and synchronizes hosts."""
+    self._finalize_checkpoint()
     self._remove_old_checkpoints()
-    utils.sync_global_devices('CheckpointManager:removed_old')
+    utils.sync_global_devices('CheckpointManager:finalize')

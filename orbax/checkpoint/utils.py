@@ -19,6 +19,7 @@ TODO(b/266449081) Increase unit test coverage.
 import asyncio
 import functools
 import os
+import re
 import time
 from typing import Any, List, Optional, Tuple
 
@@ -32,6 +33,10 @@ import numpy as np
 import tensorstore as ts
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
+# prefix_1000.orbax-checkpoint-tmp-1010101
+# OR
+# 1000.orbax-checkpoint-tmp-1010101
+TMP_DIR_STEP_PATTERN = r'.*?_*?(\d+)\.orbax-checkpoint-tmp-\d+'
 # TODO(b/260759189): Deprecate this prefix when no longer in use by JAX MG.
 _AGGREGATED_PREFIX = 'AGGREGATED://'
 # Used in a msgpack checkpoint file to denote a leaf value that has been written
@@ -194,16 +199,45 @@ def is_gcs_path(path: epath.Path):
   return os.fspath(path).startswith(_GCS_PATH_PREFIX)
 
 
-def get_save_directory(step: int,
-                       directory: epath.PathLike,
-                       name: Optional[str] = None,
-                       step_prefix: Optional[str] = None) -> epath.Path:
-  """Returns the standardized path to a save directory for a single item."""
+def get_tmp_directory(path: epath.Path) -> epath.Path:
+  """Returns a tmp directory for the given path. Does not create it."""
+  if is_gcs_path(path):
+    return path
+  timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
+  return epath.Path(path.parent) / (path.name + TMP_DIR_SUFFIX + f'{timestamp}')
+
+
+def get_save_directory(
+    step: int,
+    directory: epath.PathLike,
+    name: Optional[str] = None,
+    step_prefix: Optional[str] = None,
+    override_directory: Optional[epath.PathLike] = None,
+) -> epath.Path:
+  """Returns the standardized path to a save directory for a single item.
+
+  Args:
+    step: Step number.
+    directory: Top level checkpoint directory.
+    name: Item name ('params', 'state', 'dataset', etc.).
+    step_prefix: Prefix applied to `step` (e.g. 'checkpoint').
+    override_directory: If provided, step, directory, and step_prefix are
+      ignored.
+
+  Returns:
+    A directory.
+  """
+  if directory is None:
+    raise ValueError('Directory cannot be None.')
   directory = epath.Path(directory)
-  if step_prefix is None:
-    result = directory / str(step)
+  if override_directory is not None:
+    result = epath.Path(override_directory)
   else:
-    result = directory / f'{step_prefix}_{step}'
+    result = (
+        directory / str(step)
+        if step_prefix is None
+        else directory / f'{step_prefix}_{step}'
+    )
   if name is not None:
     result /= name
   return result
@@ -221,9 +255,7 @@ def create_tmp_directory(final_dir: epath.PathLike) -> epath.Path:
     sync_global_devices('create_tmp_directory:pre')
     tmp_dir = final_dir
   else:
-    timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
-    tmp_dir = epath.Path(final_dir.parent) / (
-        final_dir.name + TMP_DIR_SUFFIX + f'{timestamp}')
+    tmp_dir = get_tmp_directory(final_dir)
 
   if jax.process_index() == 0:
     assert not tmp_dir.exists()
@@ -242,7 +274,6 @@ def ensure_atomic_save(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path):
   else:
     logging.info('Renaming %s to %s', temp_ckpt_dir, final_ckpt_dir)
     temp_ckpt_dir.rename(final_ckpt_dir)
-    logging.info('Finished saving checkpoint to `%s`.', final_ckpt_dir)
 
 
 def record_saved_duration(checkpoint_start_time: float):
@@ -283,104 +314,6 @@ def is_scalar(x):
   return isinstance(x, (int, float, np.number))
 
 
-def is_checkpoint_item_finalized(path: epath.PathLike) -> bool:
-  """Determines if the checkpoint item path is finalized.
-
-  NOT TO BE CONFUSED WITH is_checkpoint_finalized. That method works on the step
-  level, while this method works on the item level.
-
-  Path takes the form:
-  <directory>/<step>/<item1>.orbax-checkpoint-tmp-<timestamp>/  # not finalized
-    # Checkpoint files
-    ...
-  OR
-  <directory>/<step>/<item2>/  # finalized
-    ...
-
-  Alternatively:
-  gs://<directory>/<step>/<item1>/  # finalized
-    commit_success.txt
-    ...
-  OR
-  gs://<directory>/<step>/<item2>/  # not finalized
-    ...
-
-  Args:
-    path: Path to item directory.
-
-  Returns:
-    True if the checkpoint item is finalized.
-
-  Raises:
-    ValueError if the provided path is not a directory. Valid checkpoint paths
-    must be a directory.
-  """
-  path = epath.Path(path)
-  if not path.is_dir():
-    raise ValueError(f'Path {path} is not a directory.')
-  if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
-    return False
-  if TMP_DIR_SUFFIX in path.name:
-    return False
-  return True
-
-
-def is_checkpoint_step_finalized(path: epath.PathLike) -> bool:
-  """Determines if the checkpoint path is finalized.
-
-  NOT TO BE CONFUSED WITH is_checkpoint_item_finalized. That method works on the
-  per-item level, while this method works on the per-step level.
-
-  Path takes the form:
-  <directory>/<step>/
-    <item1>.orbax-checkpoint-tmp-<timestamp>/  # not finalized
-      # Checkpoint files
-      ...
-    <item2>  # finalized
-      ...
-
-  Alternatively:
-  gs://<directory>/<step>/
-    <item1>  # finalized
-      commit_success.txt
-      ...
-    <item2>  # not finalized
-      ...
-
-
-  # not finalized
-  <directory>/checkpoint_<step>.orbax-checkpoint-tmp-<timestamp>/
-    checkpoint
-    a/
-      0.0
-      .zarray
-    b/
-      ...
-
-  <directory>/checkpoint_<step>/  # finalized
-    checkpoint
-    ...
-
-
-  Args:
-    path: Path to step directory.
-
-  Returns:
-    True if the checkpoint is finalized.
-
-  Raises:
-    ValueError if the provided path is not a directory. Valid checkpoint paths
-    must be a directory.
-  """
-  path = epath.Path(path)
-  if not path.is_dir():
-    raise ValueError(f'Path {path} is not a directory.')
-  for subpath in path.iterdir():
-    if not is_checkpoint_item_finalized(subpath):
-      return False
-  return True
-
-
 def _is_step_checkpoint(path: epath.Path) -> bool:
   """Determines if the path resembles an Orbax step directory.
 
@@ -398,40 +331,76 @@ def _is_step_checkpoint(path: epath.Path) -> bool:
   return path.is_dir() and (name.isdigit() or name.split('_')[-1].isdigit())
 
 
-def _step_from_name(name: str) -> int:
+def step_from_checkpoint_name(name: str) -> int:
+  """Returns the step from a checkpoint name. Also works for tmp checkpoints."""
   if name.isdigit():
     return int(os.fspath(name))
   elif name.split('_')[-1].isdigit():
-    return int(name.split('_')[-1])
-  else:
-    raise ValueError('Unrecognized name format.')
+    split = name.split('_')
+    if len(split) == 2 and split[0]:
+      return int(split[-1])
+  elif tmp_match := re.match(TMP_DIR_STEP_PATTERN, name):
+    return int(tmp_match.group(1))
+  raise ValueError(f'Unrecognized name format: {name}.')
 
 
 def checkpoint_steps(checkpoint_dir: epath.PathLike) -> List[int]:
   """Returns a list of finalized checkpoint steps in the directory."""
   checkpoint_dir = epath.Path(checkpoint_dir)
   return [
-      _step_from_name(s.name)
+      step_from_checkpoint_name(s.name)
       for s in checkpoint_dir.iterdir()
       if _is_step_checkpoint(s) and is_checkpoint_finalized(s)
   ]
 
 
 def is_checkpoint_finalized(path: epath.PathLike) -> bool:
-  """Branches to step_finalized/item_finalized depending on the path."""
+  """Determines if the given path represents a finalized checkpoint.
+
+   Path takes the form:
+  path/to/my/dir/<name>.orbax-checkpoint-tmp-<timestamp>/  # not finalized
+  path/to/my/dir/<name>/  # finalized
+
+  Alternatively:
+  gs://path/to/my/dir/<name>/  # finalized
+    commit_success.txt
+    ...
+  gs://<path/to/my/dir/<name>/  # not finalized
+    ...
+
+  Args:
+    path: Directory.
+
+  Returns:
+    True if the checkpoint is finalized.
+
+  Raises:
+    ValueError if the provided path is not a directory. Valid checkpoint paths
+    must be a directory.
+  """
   path = epath.Path(path)
   if not path.is_dir():
-    raise ValueError(f'Checkpoint path {path} must be a directory.')
-  if _is_step_checkpoint(path):
-    return is_checkpoint_step_finalized(path)
-  else:
-    return is_checkpoint_item_finalized(path)
+    raise ValueError(f'Path {path} is not a directory. Not a valid checkpoint')
+  if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
+    return False
+  if TMP_DIR_SUFFIX in path.name:
+    return False
+  return True
+
+
+def is_tmp_checkpoint(path: epath.PathLike) -> bool:
+  """Determines whether a directory is a tmp checkpoint path."""
+  path = epath.Path(path)
+  if not path.is_dir():
+    return False
+  if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
+    return True
+  if TMP_DIR_SUFFIX in path.name:
+    return True
+  return False
 
 
 def tmp_checkpoints(checkpoint_dir: epath.PathLike) -> List[str]:
+  """Returns a list of tmp checkpoints in the directory."""
   checkpoint_dir = epath.Path(checkpoint_dir)
-  return [
-      s.name
-      for s in checkpoint_dir.iterdir()
-      if s.is_dir() and not is_checkpoint_finalized(s)
-  ]
+  return [s.name for s in checkpoint_dir.iterdir() if is_tmp_checkpoint(s)]

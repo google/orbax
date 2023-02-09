@@ -41,18 +41,17 @@ def save_fake_tmp_dir(
 ) -> epath.Path:
   """Saves a directory with a tmp folder to simulate preemption."""
   subdirs = subdirs or []
-  suffix = ''
-  if not utils.is_gcs_path(directory):
-    suffix = '.orbax-checkpoint-tmp-1010101'
   if not step_prefix:
     step_prefix = ''
-  path = directory / (step_prefix + str(step)) / (item + suffix)
+  step_tmp_dir = utils.create_tmp_directory(
+      directory / (step_prefix + str(step))
+  )
+  item_tmp_dir = utils.create_tmp_directory(step_tmp_dir / item)
   if jax.process_index() == 0:
-    path.mkdir(parents=True)
     for sub in subdirs:
-      (path / sub).mkdir(parents=True)
+      (item_tmp_dir / sub).mkdir(parents=True)
   utils.sync_global_devices('save_fake_tmp_dir')
-  return path
+  return item_tmp_dir
 
 
 def replicate_sharded_array(arr: jax.Array):

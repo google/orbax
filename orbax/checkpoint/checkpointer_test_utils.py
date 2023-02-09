@@ -191,7 +191,8 @@ class CheckpointerTestBase:
       paths = list(self.directory.parent.iterdir())
       self.assertLen(paths, 1)
       tmp_dir = paths[0]
-      self.assertFalse(utils.is_checkpoint_item_finalized(tmp_dir))
+      self.assertFalse(utils.is_checkpoint_finalized(tmp_dir))
+      self.assertTrue(utils.is_tmp_checkpoint(tmp_dir))
       with self.assertRaisesRegex(ValueError, 'Found incomplete checkpoint'):
         checkpointer.restore(tmp_dir)
 
@@ -220,7 +221,8 @@ class CheckpointerTestBase:
       paths = list(self.directory.parent.iterdir())
       self.assertLen(paths, 1)
       tmp_dir = paths[0]
-      self.assertFalse(utils.is_checkpoint_item_finalized(tmp_dir))
+      self.assertFalse(utils.is_checkpoint_finalized(tmp_dir))
+      self.assertTrue(utils.is_tmp_checkpoint(tmp_dir))
       with self.assertRaisesRegex(ValueError, 'Found incomplete checkpoint'):
         checkpointer.restore(tmp_dir)
       self.assertFalse((tmp_dir / utils._COMMIT_SUCCESS_FILE).exists())  # pylint: disable=protected-access
