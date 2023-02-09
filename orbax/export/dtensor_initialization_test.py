@@ -12,5 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Orbax API."""
+from absl.testing import absltest
+from orbax.export import dtensor_utils
 
+
+class DtensorInitializationTest(absltest.TestCase):
+
+  def test_initialize_dtensor(self):
+    self.assertFalse(dtensor_utils.dtensor_initialized())
+    dtensor_utils.initialize_dtensor()
+    self.assertTrue(dtensor_utils.dtensor_initialized())
+
+
+if __name__ == "__main__":
+  absltest.main()

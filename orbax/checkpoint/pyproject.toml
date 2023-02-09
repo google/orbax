@@ -1,11 +1,11 @@
-  [build-system]
+[build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "orbax"
+name = "orbax-checkpoint"
 version = "0.1.1"
-description = "Orbax"
+description = "Orbax Checkpoint"
 readme = "README.md"
 license = "Apache-2.0"
 authors = ["Orbax Authors <orbax-dev@google.com>"]
@@ -17,15 +17,16 @@ classifiers=[
     'Programming Language :: Python',
     'Topic :: Scientific/Engineering :: Artificial Intelligence',
 ]
-keywords = ["JAX machine learning"]
+keywords = ["JAX machine learning", "checkpoint", "training"]
 homepage = "http://github.com/google/orbax"
 repository = "http://github.com/google/orbax"
+packages = [
+    { include = "../checkpoint" },
+]
 
 [tool.poetry.dependencies]
-orbax-checkpoint = {path = "./orbax/checkpoint", develop = true}
-orbax-export = {path = "./orbax/export", develop = true}
-# TODO(b/268217293): Keep only dependencies shared between orbax ckpt/export.
-python = ">=3.8,<3.12"
+# TODO(b/268217293): Keep only dependencies unique to orbax checkpoint.
+python = "^3.8"
 absl-py = "*"
 cached_property = "*"
 importlib_resources = "*"

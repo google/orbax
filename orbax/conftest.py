@@ -12,5 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Orbax API."""
+"""pytest config."""
 
+from typing import Any
+from absl import flags
+
+
+def pytest_configure(config: Any) -> None:
+  del config
+  flags.FLAGS.mark_as_parsed()

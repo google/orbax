@@ -1,11 +1,11 @@
-  [build-system]
+[build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "orbax"
-version = "0.1.1"
-description = "Orbax"
+name = "orbax-export"
+version = "0.0.1"
+description = "Orbax Export"
 readme = "README.md"
 license = "Apache-2.0"
 authors = ["Orbax Authors <orbax-dev@google.com>"]
@@ -17,25 +17,23 @@ classifiers=[
     'Programming Language :: Python',
     'Topic :: Scientific/Engineering :: Artificial Intelligence',
 ]
-keywords = ["JAX machine learning"]
+keywords = ["JAX machine learning", "serialization", "export"]
 homepage = "http://github.com/google/orbax"
 repository = "http://github.com/google/orbax"
+packages = [
+    { include = "../export" },
+]
 
 [tool.poetry.dependencies]
-orbax-checkpoint = {path = "./orbax/checkpoint", develop = true}
-orbax-export = {path = "./orbax/export", develop = true}
-# TODO(b/268217293): Keep only dependencies shared between orbax ckpt/export.
 python = ">=3.8,<3.12"
+tensorflow = ">=2.9.3"
 absl-py = "*"
-cached_property = "*"
-importlib_resources = "*"
 etils = "*"
 flax = "*"
 jax = "*"
 jaxlib = "*"
 numpy = "*"
-pyyaml = "*"
-tensorstore = ">=0.1.20"
+dataclasses-json = "*"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"

@@ -12,5 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Orbax API."""
+"""Defines exported symbols for Orbax Export."""
 
+from orbax.export.dtensor_utils import dtensor_initialized
+from orbax.export.dtensor_utils import initialize_dtensor
+from orbax.export.dtensor_utils import maybe_enable_dtensor_export_on
+from orbax.export.export_manager import ExportManager
+from orbax.export.export_manager_base import ExportManagerBase
+from orbax.export.jax_module import JaxModule
+from orbax.export.serving_config import ServingConfig
