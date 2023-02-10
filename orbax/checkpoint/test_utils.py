@@ -19,14 +19,12 @@ from typing import List, Optional
 from etils import epath
 from flax import traverse_util
 import flax.serialization
-from flax.training.train_state import TrainState
 import jax
 from jax import sharding
 from jax.experimental import pjit
 import jax.numpy as jnp
 from jax.sharding import Mesh
 import numpy as np
-import optax
 from orbax.checkpoint import lazy_utils
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import utils
@@ -187,10 +185,3 @@ def create_sharded_array(arr, mesh, mesh_axes):
     )
   else:
     raise ValueError('Must enable jax.Array.')
-
-
-def init_flax_model(model):
-  params = model.init(jax.random.PRNGKey(0), jnp.ones([8, 8]))
-  tx = optax.adamw(learning_rate=0.001)
-  state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-  return jax.tree_util.tree_map(np.asarray, state)

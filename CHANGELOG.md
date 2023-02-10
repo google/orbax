@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add unit tests using mock to simulate preemption.
 - Logging to increase transparency around why checkpoints are kept vs. deleted.
 - Expand on uses of restore_args in colab.
+- Expose utils_test.
 
 ### Changed
 - Remove CheckpointManager update API.

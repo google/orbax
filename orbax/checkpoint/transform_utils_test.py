@@ -20,8 +20,11 @@ import flax
 from flax import serialization
 from flax import traverse_util
 import flax.linen as nn
+from flax.training.train_state import TrainState
 import jax
+from jax import numpy as jnp
 import numpy as np
+import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import utils
@@ -32,6 +35,14 @@ apply_transformations = transform_utils.apply_transformations
 
 def empty_pytree(tree):
   return jax.tree_util.tree_map(lambda x: object(), tree)
+
+
+# Not in common util because we need to eliminate OSS dependency on flax.
+def init_flax_model(model):
+  params = model.init(jax.random.PRNGKey(0), jnp.ones([8, 8]))
+  tx = optax.adamw(learning_rate=0.001)
+  state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+  return jax.tree_util.tree_map(np.asarray, state)
 
 
 class TransformUtilsTest(absltest.TestCase):
@@ -383,7 +394,7 @@ class TransformUtilsTest(absltest.TestCase):
         x = nn.Dense(features=8)(x)
         return x
 
-    old_state = test_utils.init_flax_model(SmallModel())
+    old_state = init_flax_model(SmallModel())
 
     class LargeModel(nn.Module):
 
@@ -399,7 +410,7 @@ class TransformUtilsTest(absltest.TestCase):
         x = nn.Dense(features=4)(x)
         return x
 
-    new_state = test_utils.init_flax_model(LargeModel())
+    new_state = init_flax_model(LargeModel())
 
     transformations = {
         # LargeModel layer 0 is a newly inserted layer, thus use_fallback=True.
@@ -449,8 +460,8 @@ class TransformUtilsTest(absltest.TestCase):
         x = nn.Dense(features=4)(x)
         return x
 
-    old_state = test_utils.init_flax_model(Model())
-    new_state = test_utils.init_flax_model(Model())
+    old_state = init_flax_model(Model())
+    new_state = init_flax_model(Model())
 
     transformations = {
         # values default to new_state, use_fallback=True instructs the Transform
