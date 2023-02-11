@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Logging to increase transparency around why checkpoints are kept vs. deleted.
 - Expand on uses of restore_args in colab.
 - Expose utils_test.
+- Add msgpack_utils to move toward eliminating Flax dependency.
 
 ### Changed
 - Remove CheckpointManager update API.

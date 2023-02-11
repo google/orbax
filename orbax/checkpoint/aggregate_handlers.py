@@ -19,6 +19,7 @@ import abc
 from etils import epath
 import flax
 import jax
+from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import utils
 
 PyTreeDef = jax.tree_util.PyTreeDef
@@ -53,7 +54,8 @@ class MsgpackHandler(AggregateHandler):
   async def serialize(self, path: epath.Path, item: PyTreeDef):
     """See superclass documentation."""
     if jax.process_index() == 0:
-      msgpack = flax.serialization.to_bytes(item)
+      state_dict = flax.serialization.to_state_dict(item)
+      msgpack = msgpack_utils.msgpack_serialize(state_dict)
       await utils.async_write_bytes(path, msgpack)
 
   def deserialize(self, path: epath.Path) -> PyTreeDef:

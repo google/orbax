@@ -30,6 +30,7 @@ import jax
 from jax.experimental import multihost_utils
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint import msgpack_utils
 import tensorstore as ts
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
@@ -172,9 +173,11 @@ def _rebuild_ts_specs(tree):
       lambda x: ts.Spec(x) if isinstance(x, dict) else x, tree, is_leaf=is_leaf)
 
 
+# TODO(b/268733573) Move to msgpack_utils when `to_state_dict` function below
+# is removed.
 def msgpack_restore(msgpack):
   """Restores tree serialized using Flax. Converts ts_spec dict to ts.Spec."""
-  state_dict = flax.serialization.msgpack_restore(msgpack)
+  state_dict = msgpack_utils.msgpack_restore(msgpack)
   return _rebuild_ts_specs(state_dict)
 
 
