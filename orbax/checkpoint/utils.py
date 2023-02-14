@@ -382,6 +382,8 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
     must be a directory.
   """
   path = epath.Path(path)
+  if not path.exists():
+    raise ValueError(f'Path {path} does not exist.')
   if not path.is_dir():
     raise ValueError(f'Path {path} is not a directory. Not a valid checkpoint')
   if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
@@ -394,6 +396,8 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
 def is_tmp_checkpoint(path: epath.PathLike) -> bool:
   """Determines whether a directory is a tmp checkpoint path."""
   path = epath.Path(path)
+  if not path.exists():
+    raise ValueError(f'Path {path} does not exist.')
   if not path.is_dir():
     return False
   if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():

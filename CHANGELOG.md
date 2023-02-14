@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expand on uses of restore_args in colab.
 - Expose utils_test.
 - Add msgpack_utils to move toward eliminating Flax dependency.
+- CheckpointManager starts a background thread to finalize checkpoints so that
+checkpoints are finalized as soon as possible in async case.
 
 ### Changed
 - Remove CheckpointManager update API.

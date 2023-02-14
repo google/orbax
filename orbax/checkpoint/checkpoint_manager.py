@@ -17,6 +17,7 @@
 import asyncio
 import dataclasses
 import datetime
+import threading
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
 
 from absl import logging
@@ -234,6 +235,8 @@ class CheckpointManager:
     if metadata is not None:
       self._save_metadata(metadata)
 
+    self._finalize_thread = None
+
   @property
   def directory(self) -> epath.Path:
     return self._directory
@@ -439,10 +442,14 @@ class CheckpointManager:
       self._checkpointers[k].save(item_dir, item, **kwargs)
 
     self._add_checkpoint_info(step, metrics)
-    # If any are async, must wait until all saves are complete before finalize.
+
+    assert self._finalize_thread is None
     if self._all_checkpointers_are_sync:
       self._finalize()
-
+      utils.sync_global_devices('CheckpointManager:finalize')
+    else:
+      self._finalize_thread = threading.Thread(target=self._finalize)
+      self._finalize_thread.start()
     return True
 
   def restore(
@@ -791,26 +798,31 @@ class CheckpointManager:
     else:
       self._checkpoints = kept_checkpoints
 
-  def wait_until_finished(self):
+  def wait_until_finished(self, join_finalize_thread=True):
     """Blocks until any incomplete save operations are completed.
-
-    Cleans up old checkpoints.
 
     Note that this method will typically be a no-op if all checkpointers are
     synchronous, since old checkpoints are already cleaned up immediately after
     completing `save`, and there is no background thread to wait for.
 
     If some checkpointers are of type AsyncCheckpointer, however, this method
-    will wait until each of these checkpointers is finished. Only at this point
-    can old checkpoints be cleaned up, since previously some checkpoints may
-    have been incomplete.
+    will wait until each of these checkpointers is finished.
+
+    Args:
+      join_finalize_thread: Whether to join the _finalize_thread. This should
+        always be True for external callers.
     """
     for checkpointer in self._checkpointers.values():
       if is_async_checkpointer(checkpointer):
         checkpointer.wait_until_finished()  # pytype: disable=attribute-error
-    # Already performed after save if all Checkpointers are synchronous.
-    if not self._all_checkpointers_are_sync:
-      self._finalize()
+    if join_finalize_thread:
+      if self._finalize_thread is not None:
+        self._finalize_thread.join()
+        self._finalize_thread = None
+        # Additional work is being done on process 0 of the finalize threads.
+        # When joining the threads, we must wait for all threads to complete
+        # before proceeding.
+        utils.sync_global_devices('CheckpointManager:join_finalize_thread')
 
   def check_for_errors(self):
     """Checks for any outstanding errors in completed asynchronous save operations.
@@ -823,8 +835,8 @@ class CheckpointManager:
 
   def _finalize_checkpoint(self):
     """Moves tmp step checkpoint to final."""
-    for tmp_file in utils.tmp_checkpoints(self.directory):
-      if jax.process_index() == 0:
+    if jax.process_index() == 0:
+      for tmp_file in utils.tmp_checkpoints(self.directory):
         utils.ensure_atomic_save(
             self.directory / tmp_file,
             self._get_save_directory(
@@ -834,6 +846,7 @@ class CheckpointManager:
 
   def _finalize(self):
     """Cleans up old checkpoints and synchronizes hosts."""
+    if not self._all_checkpointers_are_sync:
+      self.wait_until_finished(join_finalize_thread=False)
     self._finalize_checkpoint()
     self._remove_old_checkpoints()
-    utils.sync_global_devices('CheckpointManager:finalize')
