@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Orbax API."""
+"""pytest config."""
 
-# Copybara: external sub-package imports.
+from typing import Any
+from absl import flags
 
-# A new PyPI release will be pushed everytime `__version__` is increased.
-__version__ = '0.1.1'
+
+def pytest_configure(config: Any) -> None:
+  del config
+  flags.FLAGS.mark_as_parsed()

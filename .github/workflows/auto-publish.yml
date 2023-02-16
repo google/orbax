@@ -16,8 +16,24 @@ jobs:
     timeout-minutes: 30
 
     steps:
+    # 1. Publish the sub-packages first
     - uses: etils-actions/pypi-auto-publish@v1
       with:
-        pypi-token: ${{ secrets.PYPI_API_TOKEN }}
+        pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_CKPT }}
+        path: "./checkpoint/"
+        pkg-name: orbax-checkpoint
+
+    - uses: etils-actions/pypi-auto-publish@v1
+      with:
+        pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_EXPT }}
+        path: "./export/"
+        pkg-name: orbax-export
+        # No GitHub release here
+
+    # 2. Publish top package and create release
+    - uses: etils-actions/pypi-auto-publish@v1
+      with:
+        pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_ALL }}
         gh-token: ${{ secrets.GITHUB_TOKEN }}
         parse-changelog: true
+        pkg-name: orbax

@@ -12,9 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Orbax API."""
+from absl.testing import absltest
+from orbax.export import dtensor_utils
 
-# Copybara: external sub-package imports.
 
-# A new PyPI release will be pushed everytime `__version__` is increased.
-__version__ = '0.1.1'
+class DtensorInitializationTest(absltest.TestCase):
+
+  def test_initialize_dtensor(self):
+    self.assertFalse(dtensor_utils.dtensor_initialized())
+    dtensor_utils.initialize_dtensor()
+    self.assertTrue(dtensor_utils.dtensor_initialized())
+
+
+if __name__ == "__main__":
+  absltest.main()

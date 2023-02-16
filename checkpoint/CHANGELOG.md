@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+## [0.1.1] - 2022-02-15
+
+### Added
 - Add "standard user recipe" to documentation.
 - Add unit tests using mock to simulate preemption.
 - Logging to increase transparency around why checkpoints are kept vs. deleted.
@@ -16,14 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add msgpack_utils to move toward eliminating Flax dependency.
 - CheckpointManager starts a background thread to finalize checkpoints so that
 checkpoints are finalized as soon as possible in async case.
-- Open-sourced Orbax's exporting utilities for model serialization and deployment
+- Initial release of checkpointing utilities in their own package,
+`orbax-checkpoint`.
 
 ### Changed
 - Remove CheckpointManager update API.
 - Remove support for deprecated GDA.
 - Add tmp suffix on step directory creation in CheckpointManager.save.
-- `orbax` now depends on `orbax_checkpoint` and `orbax_export`, two independent,
-individually importable packages 
 
 ### Fixed
 - Preemption when using keep_time_interval caused the most recent steps before

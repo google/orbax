@@ -3,8 +3,8 @@ requires = ["flit_core >=3.5,<4"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = 'orbax'
-description='Orbax'
+name = "orbax-checkpoint"
+description = "Orbax Checkpoint"
 readme = 'README.md'
 license = {file = 'LICENSE'}
 requires-python = '>=3.8'
@@ -18,14 +18,26 @@ classifiers=[
     'Topic :: Scientific/Engineering :: Artificial Intelligence',
 ]
 
-keywords = ['JAX machine learning']
+
+keywords = ["JAX machine learning", "checkpoint", "training"]
 
 dependencies = [
-    'orbax-checkpoint',
-    'orbax-export'
+    'absl-py',
+    'cached_property',
+    'importlib_resources',
+    'etils',
+    'flax',
+    'jax',
+    'jaxlib',
+    'numpy',
+    'pyyaml',
+    'tensorstore >= 0.1.20',
 ]
 
 dynamic = ['version']
+
+[tool.flit.module]
+name = "orbax.checkpoint"
 
 [project.urls]
 homepage = 'http://github.com/google/orbax'
@@ -33,17 +45,6 @@ repository = 'http://github.com/google/orbax'
 
 [project.optional-dependencies]
 dev = [
-    'absl-py',
-    'etils',
-    'flax',
-    'jax',
-    'jaxlib',
-    'numpy',
-    'dataclasses-json',
-    'tensorflow',
-    'cached_property',
-    'pyyaml',
-    'tensorstore >= 0.1.20',
     'pytest',
     'pytest-xdist'
 ]

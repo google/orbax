@@ -12,9 +12,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Orbax API."""
-
-# Copybara: external sub-package imports.
-
-# A new PyPI release will be pushed everytime `__version__` is increased.
-__version__ = '0.1.1'

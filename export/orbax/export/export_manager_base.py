@@ -12,9 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Orbax API."""
+"""ExportManager public API interface."""
 
-# Copybara: external sub-package imports.
+import abc
 
-# A new PyPI release will be pushed everytime `__version__` is increased.
-__version__ = '0.1.1'
+
+class ExportManagerBase(abc.ABC):
+  """Define the base class API which manages the exporting of a model."""
+
+  @abc.abstractmethod
+  def save(self, model_path: str, **kwargs):
+    """Saves the JAX model to a Savemodel."""
+
+  @abc.abstractmethod
+  def load(self, model_path: str, **kwargs):
+    """Load the model from a Savemodel path."""

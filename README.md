@@ -15,3 +15,14 @@ To get started, check out our [documentation](https://github.com/google/orbax/bl
 
 Check out our [colab](http://colab.research.google.com/github/google/orbax/blob/main/orbax//checkpoint/orbax_checkpoint.ipynb) for a hands-on introduction.
 
+## Exporting
+
+Orbax Export includes an exporting library for exporting JAX models to
+TensorFlow SavedModel format.
+
+To get started, check out our [documentation](https://github.com/google/orbax/blob/main/docs/export.md).
+
+## Support
+
+orbax-dev@google.com
+<!-- END GOOGLE-INTERNAL -->
