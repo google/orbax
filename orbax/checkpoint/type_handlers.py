@@ -249,7 +249,12 @@ class ArrayRestoreArgs(RestoreArgs):
   mesh: the device mesh that the array should be restored as. Cannot be None.
   mesh_axes: the mesh_axes that the array should be restored as. Cannot be None.
   global_shapes: the global shape that the array should be restored into. If not
-    provided, the shape will be restored as written.
+    provided, the shape will be restored as written. Presently, arbitrary shape
+    transformations are not supported (for example, reshaping to different
+    dimensions). Padding and truncating are supported. When the global_shape is
+    greater than that of the saved array, 0's will be appended. If the
+    global_shape is shorter than that of the saved array, excess elements will
+    be dropped from the end of the array.
   """
   restore_type: Any = jax.Array
   mesh: Optional[Mesh] = None
