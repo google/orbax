@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2022-02-17
+
 ### Added
 - Add "standard user recipe" to documentation.
 - Add unit tests using mock to simulate preemption.
@@ -26,7 +28,7 @@ checkpoints are finalized as soon as possible in async case.
 - Preemption when using keep_time_interval caused the most recent steps before
 preemption to be kept, despite not falling on the keep time interval.
 
-## [0.1.0] - 2022-01-30
+## [0.1.1] - 2022-01-30
 
 ### Added
 - A util function that constructs restore_args from a target PyTree.
