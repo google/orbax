@@ -27,7 +27,7 @@ dependencies = [
     'etils',
     'flax',
     'importlib_resources',
-    'jax',
+    'jax >= 0.4.1',
     'jaxlib',
     'numpy',
     'pyyaml',
