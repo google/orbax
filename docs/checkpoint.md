@@ -5,8 +5,8 @@ https://github.com/google/orbax/blob/main/docs/checkpoint.md
 
 ## Introduction
 
-Orbax provides a flexible and customizable for managing checkpoints for various
-different objects.
+Orbax provides a flexible and customizable API for managing checkpoints for
+various objects.
 
 Check out our
 [colab](http://colab.research.google.com/github/google/orbax/blob/main/orbax//checkpoint/orbax_checkpoint.ipynb)
@@ -50,7 +50,7 @@ mngr = CheckpointManager(
           {'state': PyTreeCheckpointer(), 'extra_params': PyTreeCheckpointer()},
            options=options)
 
-for step in range(10):
+for step in range(11):  # [0, 1, ..., 10]
   mngr.save(step, {'state': train_state, 'extra_params': extra_params})
 restored = mngr.restore(10)
 restored_state, restored_extra_params = restored['state'], restored['extra_params']
