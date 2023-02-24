@@ -187,10 +187,11 @@ def to_state_dict(pytree):
   return _rebuild_ts_specs(state_dict)
 
 
-def cleanup_tmp_directories(directory: epath.PathLike):
+def cleanup_tmp_directories(directory: epath.PathLike,
+                            primary_host: Optional[int] = 0):
   """Cleanup steps in `directory` with tmp files, as these are not finalized."""
   directory = epath.Path(directory)
-  if jax.process_index() == 0:
+  if primary_host is None or jax.process_index() == primary_host:
     tmp_files = tmp_checkpoints(directory)
     for tmp_file in tmp_files:
       (directory / tmp_file).rmtree()
@@ -246,7 +247,8 @@ def get_save_directory(
   return result
 
 
-def create_tmp_directory(final_dir: epath.PathLike) -> epath.Path:
+def create_tmp_directory(final_dir: epath.PathLike,
+                         primary_host: Optional[int] = 0) -> epath.Path:
   """Creates a temporary directory for saving at the given path."""
   # Share a timestamp across devices.
   final_dir = epath.Path(final_dir)
@@ -260,7 +262,7 @@ def create_tmp_directory(final_dir: epath.PathLike) -> epath.Path:
   else:
     tmp_dir = get_tmp_directory(final_dir)
 
-  if jax.process_index() == 0:
+  if primary_host is None or jax.process_index() == primary_host:
     assert not tmp_dir.exists()
     tmp_dir.mkdir(parents=True)
 
