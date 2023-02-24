@@ -836,6 +836,14 @@ class CheckpointManager:
   def _finalize_checkpoint(self):
     """Moves tmp step checkpoint to final."""
     if jax.process_index() == 0:
+      try:
+        self.check_for_errors()
+      except Exception as e:  # pylint: disable=broad-except
+        logging.error(
+            'Received error: %s from Checkpointer. One or more items may not'
+            ' be finalized. Skipping finalization of step checkpoint.', e
+        )
+        return
       for tmp_file in utils.tmp_checkpoints(self.directory):
         utils.ensure_atomic_save(
             self.directory / tmp_file,
