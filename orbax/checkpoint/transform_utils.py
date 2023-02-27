@@ -24,7 +24,7 @@ from flax import traverse_util
 import jax
 from orbax.checkpoint import utils
 
-PyTree = type(jax.tree_util.tree_structure(None))
+PyTree = jax.tree_util.PyTreeDef
 ValueTransformFunction = Callable[[PyTree], Any]
 
 

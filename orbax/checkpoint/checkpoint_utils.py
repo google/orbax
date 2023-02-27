@@ -26,7 +26,7 @@ from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 
 
-PyTree = type(jax.tree_util.tree_structure(None))
+PyTree = jax.tree_util.PyTreeDef
 
 
 def _wait_for_new_checkpoint(

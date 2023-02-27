@@ -40,7 +40,7 @@ from orbax.checkpoint.future import Future
 import tensorstore as ts
 
 
-PyTree = type(jax.tree_util.tree_structure(None))
+PyTree = jax.tree_util.PyTreeDef
 RestoreArgs = type_handlers.RestoreArgs
 ArrayRestoreArgs = type_handlers.ArrayRestoreArgs
 SaveArgs = type_handlers.SaveArgs

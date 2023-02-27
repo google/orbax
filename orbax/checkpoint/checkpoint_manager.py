@@ -32,7 +32,7 @@ from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
 
 
-PyTree = type(jax.tree_util.tree_structure(None))
+PyTree = jax.tree_util.PyTreeDef
 CheckpointDirs = Tuple[str, str]
 SaveParams = Mapping[str, Any]
 RestoreParams = SaveParams
