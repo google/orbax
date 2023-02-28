@@ -428,12 +428,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       return await asyncio.gather(*future_arrays)
 
     result = asyncio.run(_async_restore(param_infos, item, restore_args))
-    restored_item = jax.tree_util.tree_unflatten(
+    return jax.tree_util.tree_unflatten(
         jax.tree_util.tree_structure(item), result
     )
-
-    utils.sync_global_devices('PyTreeCheckpointHandler:restore')
-    return restored_item
 
   def structure(self, directory: epath.Path) -> PyTree:
     """Restores the saved PyTree structure without regard for its leaf values.
