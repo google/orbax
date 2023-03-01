@@ -53,6 +53,8 @@ CheckpointDirs = Tuple[str, str]
 PyTree = jax.tree_util.PyTreeDef
 
 
+
+
 def sync_global_devices(name: str):
   """Thin wrapper to provide additional features support."""
   multihost_utils.sync_global_devices(name)
