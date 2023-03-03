@@ -50,7 +50,7 @@ _COMMIT_SUCCESS_FILE = 'commit_success.txt'
 _GCS_PATH_PREFIX = 'gs://'
 _LAST_CHECKPOINT_WRITE_TIME = time.time()
 CheckpointDirs = Tuple[str, str]
-PyTree = jax.tree_util.PyTreeDef
+PyTree = Any
 
 
 
