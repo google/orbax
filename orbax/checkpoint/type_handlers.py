@@ -248,6 +248,9 @@ class ArrayRestoreArgs(RestoreArgs):
 
   mesh: the device mesh that the array should be restored as. Cannot be None.
   mesh_axes: the mesh_axes that the array should be restored as. Cannot be None.
+  sharding: jax.sharding.Sharding object which takes precedence over mesh and
+    mesh_axes if provided. Otherwise, mesh and mesh_axes will be used to
+    construct a NamedSharding object.
   global_shapes: the global shape that the array should be restored into. If not
     provided, the shape will be restored as written. Presently, arbitrary shape
     transformations are not supported (for example, reshaping to different
@@ -259,6 +262,7 @@ class ArrayRestoreArgs(RestoreArgs):
   restore_type: Any = jax.Array
   mesh: Optional[Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
+  sharding: Optional[jax.sharding.Sharding] = None
   global_shape: Optional[Tuple[int]] = None
 
 
@@ -321,16 +325,19 @@ class ArrayHandler(TypeHandler):
     if args is None:
       raise ValueError('Must provide ArrayRestoreArgs to restore as jax.Array.')
     args = cast(ArrayRestoreArgs, args)
-    if args.mesh is None or args.mesh_axes is None:
+    if args.sharding is None and (args.mesh is None or args.mesh_axes is None):
       raise ValueError(
           'Sharding of jax.Array cannot be None. Provide `mesh`'
-          ' and `mesh_axes`.'
+          ' and `mesh_axes` OR `sharding`.'
       )
+    if args.sharding is None:
+      sharding = jax.sharding.NamedSharding(args.mesh, args.mesh_axes)
+    else:
+      sharding = args.sharding
     tspec = self._get_json_tspec(info)
     tspec = _get_cast_tspec_deserialize(tspec, args)
-    s = jax.sharding.NamedSharding(args.mesh, args.mesh_axes)
     return await serialization.async_deserialize(
-        s,
+        sharding,
         tspec,
         global_shape=args.global_shape,
         byte_limiter=info.byte_limiter,
