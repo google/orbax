@@ -15,6 +15,7 @@
 """Provides definitions for AggregateHandler and implementations."""
 
 import abc
+from typing import Any
 
 from etils import epath
 import flax
@@ -22,14 +23,14 @@ import jax
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import utils
 
-PyTreeDef = jax.tree_util.PyTreeDef
+PyTree = Any
 
 
 class AggregateHandler(abc.ABC):
   """Interface for reading and writing a PyTree using a specific format."""
 
   @abc.abstractmethod
-  async def serialize(self, path: epath.Path, item: PyTreeDef):
+  async def serialize(self, path: epath.Path, item: PyTree):
     """Serializes and writes `item` to a given `path`.
 
     The function is compatible with a multihost setting, but does not include
@@ -42,7 +43,7 @@ class AggregateHandler(abc.ABC):
     pass
 
   @abc.abstractmethod
-  def deserialize(self, path: epath.Path) -> PyTreeDef:
+  def deserialize(self, path: epath.Path) -> PyTree:
     """Reads and deserializes a PyTree from the given directory."""
     pass
 
@@ -51,14 +52,14 @@ class MsgpackHandler(AggregateHandler):
   """An implementation of AggregateHandler that uses msgpack to store the tree.
   """
 
-  async def serialize(self, path: epath.Path, item: PyTreeDef):
+  async def serialize(self, path: epath.Path, item: PyTree):
     """See superclass documentation."""
     if jax.process_index() == 0:
       state_dict = flax.serialization.to_state_dict(item)
       msgpack = msgpack_utils.msgpack_serialize(state_dict)
       await utils.async_write_bytes(path, msgpack)
 
-  def deserialize(self, path: epath.Path) -> PyTreeDef:
+  def deserialize(self, path: epath.Path) -> PyTree:
     """See superclass documentation."""
     if path.exists():
       msgpack = path.read_bytes()

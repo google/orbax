@@ -29,7 +29,6 @@ import numpy as np
 from orbax.checkpoint.future import Future
 import tensorstore as ts
 
-PyTreeDef = jax.tree_util.PyTreeDef
 Scalar = Union[int, float, np.number]
 
 

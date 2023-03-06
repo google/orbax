@@ -14,7 +14,7 @@
 
 """High-level checkpoint utils provided for user convenience."""
 import time
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
 from absl import logging
 from etils import epath
@@ -26,7 +26,7 @@ from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 
 
-PyTree = jax.tree_util.PyTreeDef
+PyTree = Any
 
 
 def _wait_for_new_checkpoint(
