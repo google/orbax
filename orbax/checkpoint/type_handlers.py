@@ -162,13 +162,17 @@ def _get_cast_tspec_deserialize(tspec, args):
 class NumpyHandler(TypeHandler):
   """Provides an implementation of TypeHandler for replicated numpy arrays."""
 
-  def __init__(self, metadata_key: Optional[str] = None):
+  def __init__(
+      self, metadata_key: Optional[str] = None, use_ocdbt: bool = False
+  ):
     """Constructor.
 
     Args:
       metadata_key: name to give to Tensorstore metadata files.
+      use_ocdbt: enables Tensorstore OCDBT driver.
     """
     self._metadata_key = metadata_key
+    self._use_ocdbt = use_ocdbt
 
   def _get_json_tspec(self,
                       info: ParamInfo,
@@ -270,14 +274,16 @@ class ArrayHandler(TypeHandler):
   """An implementation of TypeHandler for jax.Array."""
 
   def __init__(
-      self, metadata_key: Optional[str] = None
+      self, metadata_key: Optional[str] = None, use_ocdbt: bool = False
   ):
     """Constructor.
 
     Args:
       metadata_key: name to give to Tensorstore metadata files.
+      use_ocdbt: allows using Tensorstore OCDBT driver.
     """
     self._metadata_key = metadata_key
+    self._use_ocdbt = use_ocdbt
 
   def _get_json_tspec(self,
                       info: ParamInfo,
@@ -432,3 +438,17 @@ def get_type_handler(ty: Any) -> TypeHandler:
     if func(ty):
       return handler
   raise ValueError(f'Unknown type: "{ty}". Must register a TypeHandler.')
+
+
+def register_ocdbt_handlers():
+  """Re-registers select TypeHanders to use Tensorstore OCDBT driver."""
+  register_type_handler(int, ScalarHandler(use_ocdbt=True), override=True)
+  register_type_handler(float, ScalarHandler(use_ocdbt=True), override=True)
+  register_type_handler(np.number, ScalarHandler(use_ocdbt=True), override=True)
+  register_type_handler(np.ndarray, NumpyHandler(use_ocdbt=True), override=True)
+  register_type_handler(
+      jax.Array,
+      ArrayHandler(use_ocdbt=True),
+      func=lambda ty: issubclass(ty, jax.Array) and jax.config.jax_array,
+      override=True,
+  )

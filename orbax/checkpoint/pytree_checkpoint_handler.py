@@ -195,7 +195,10 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
   """
 
   def __init__(
-      self, aggregate_filename: Optional[str] = None, concurrent_gb: int = 96
+      self,
+      aggregate_filename: Optional[str] = None,
+      concurrent_gb: int = 96,
+      use_ocdbt: bool = False,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -203,12 +206,15 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       aggregate_filename: name that the aggregated checkpoint should be saved
         as.
       concurrent_gb: max concurrent GB that are allowed to be read.
+      use_ocdbt: enables Tensorstore OCDBT driver.
     """
     self._aggregate_handler = aggregate_handlers.get_aggregate_handler()
     if aggregate_filename is None:
       aggregate_filename = _CHECKPOINT_FILE
     self._aggregate_filename = aggregate_filename
     self._concurrent_gb = concurrent_gb
+    if use_ocdbt:
+      type_handlers.register_ocdbt_handlers()
 
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
