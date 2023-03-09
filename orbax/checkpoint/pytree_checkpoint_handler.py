@@ -21,7 +21,7 @@ import asyncio
 import dataclasses
 import functools
 import re
-from typing import Any, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 from etils import epath
 import flax
@@ -47,6 +47,7 @@ ParamInfo = type_handlers.ParamInfo
 TypeHandler = type_handlers.TypeHandler
 AggregateHandler = aggregate_handlers.AggregateHandler
 MsgpackHandler = aggregate_handlers.MsgpackHandler
+TransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
 
 _TYPE_METADATA_FILE = 'type_metadata'
 _CHECKPOINT_FILE = 'checkpoint'
@@ -367,12 +368,15 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       value = await value.get_async()
     return value
 
-  def restore(self,
-              directory: epath.Path,
-              item: Optional[PyTree] = None,
-              restore_args: Optional[PyTree] = None,
-              transforms: Optional[PyTree] = None,
-              transforms_default_to_original: bool = True) -> PyTree:
+  def restore(
+      self,
+      directory: epath.Path,
+      item: Optional[PyTree] = None,
+      restore_args: Optional[PyTree] = None,
+      transforms: Optional[PyTree] = None,
+      transforms_default_to_original: bool = True,
+      transform_fn: Optional[TransformFn] = None,
+  ) -> PyTree:
     """Restores a PyTree from the checkpoint directory at the given step.
 
     Optional arguments meshes and mesh_axes define how each array in the
@@ -392,6 +396,10 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         saved item in order to obtain a final structure. See `transform_utils`
         for further information.
       transforms_default_to_original: See transform_utils.apply_transformations.
+      transform_fn: A function which accepts the `item` argument, a PyTree
+        checkpoint structure and a PyTree of ParamInfos based on the checkpoint.
+        Returns a transformed PyTree matching the desired return tree structure,
+        and a matching ParamInfo tree.
 
     Returns:
       A PyTree matching the structure of `item`. If `lazy` restoration is
@@ -407,11 +415,20 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}')
 
-    restored = self.structure(directory)
-    param_infos = _get_param_infos_from_structure(directory, restored)
-    item, param_infos = _transform_structure(item, restored, param_infos,
-                                             transforms,
-                                             transforms_default_to_original)
+    restored_structure = self.structure(directory)
+    param_infos = _get_param_infos_from_structure(directory, restored_structure)
+    if transform_fn is not None and transforms is not None:
+      raise ValueError('Cannot provide both `transforms` and `transform_fn`.')
+    if transform_fn is None:
+      item, param_infos = _transform_structure(
+          item,
+          restored_structure,
+          param_infos,
+          transforms,
+          transforms_default_to_original,
+      )
+    else:
+      item, param_infos = transform_fn(item, restored_structure, param_infos)
 
     if restore_args is None:
       restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), item)
