@@ -439,14 +439,6 @@ def get_type_handler(ty: Any) -> TypeHandler:
   raise ValueError(f'Unknown type: "{ty}". Must register a TypeHandler.')
 
 
-def has_type_handler(ty: Any) -> bool:
-  try:
-    get_type_handler(ty)
-    return True
-  except ValueError:
-    return False
-
-
 def register_ocdbt_handlers():
   """Re-registers select TypeHanders to use Tensorstore OCDBT driver."""
   register_type_handler(int, ScalarHandler(use_ocdbt=True), override=True)

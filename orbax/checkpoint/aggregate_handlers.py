@@ -18,6 +18,7 @@ import abc
 from typing import Any
 
 from etils import epath
+import flax
 import jax
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import utils
@@ -54,17 +55,18 @@ class MsgpackHandler(AggregateHandler):
   async def serialize(self, path: epath.Path, item: PyTree):
     """See superclass documentation."""
     if jax.process_index() == 0:
-      serializable_dict = utils.serialize_tree(item, keep_empty_nodes=True)
-      msgpack = msgpack_utils.msgpack_serialize(serializable_dict)
+      state_dict = flax.serialization.to_state_dict(item)
+      msgpack = msgpack_utils.msgpack_serialize(state_dict)
       await utils.async_write_bytes(path, msgpack)
 
   def deserialize(self, path: epath.Path) -> PyTree:
     """See superclass documentation."""
     if path.exists():
       msgpack = path.read_bytes()
-      return msgpack_utils.msgpack_restore(msgpack)
+      restored = utils.msgpack_restore(msgpack)
     else:
       raise FileNotFoundError(f'Checkpoint does not exist at {path}.')
+    return restored
 
 
 _AGGREGATE_HANDLER = None

@@ -14,11 +14,13 @@
 
 """Provides utils for transforming PyTrees from one version to another."""
 
-import dataclasses
 import re
 from typing import Any, Callable, Optional, Tuple, Union
 
 from absl import logging
+import flax
+from flax import serialization
+from flax import traverse_util
 import jax
 from orbax.checkpoint import utils
 
@@ -26,7 +28,7 @@ PyTree = Any
 ValueTransformFunction = Callable[[PyTree], Any]
 
 
-@dataclasses.dataclass
+@flax.struct.dataclass
 class Transform:
   r"""A representation of a transformation applied to pytree keys/values.
 
@@ -70,6 +72,19 @@ class Transform:
   use_fallback: bool = False
   value_fn: Optional[Callable[[Any], Any]] = None
   multi_value_fn: Optional[ValueTransformFunction] = None
+
+
+def _is_leaf(x):
+  if isinstance(x, dict):
+    return set(x.keys()) >= {'original_key', 'value_fn', 'multi_value_fn'}
+  return False
+
+
+def _to_transform(x):
+  t = serialization.from_state_dict(Transform(), x)
+  if isinstance(t.original_key, str) or t.original_key is None:
+    return t
+  return t.replace(original_key=tuple([v for k, v in t.original_key.items()]))
 
 
 def has_value_functions(pytree: PyTree) -> bool:
@@ -166,8 +181,7 @@ def apply_transformations(original_tree: PyTree,
     transformations: a PyTree of Transform objects.
     new_tree: a PyTree defining the structure of the output. A leaf value is
       only relevant if the key is not present in transformations or
-      original_tree. Note: values in the provided tree must not be None, or they
-      will be filtered out.
+      original_tree.
     default_to_original: If True, the values of keys unspecified in
       transformations will be taken from `original_tree`. If False, they will be
       taken from `new_tree`.
@@ -177,10 +191,19 @@ def apply_transformations(original_tree: PyTree,
   """
   if not new_tree:
     return {}
+  original = utils.to_state_dict(original_tree)
+  new = utils.to_state_dict(new_tree)
+  # convert transformations to state dict
+  transforms = utils.to_state_dict(transformations)
 
-  original = utils.to_flat_dict(original_tree, sep='/')
-  new = utils.to_flat_dict(new_tree, sep='/')
-  transforms = utils.to_flat_dict(transformations, sep='/')
+  # Must recover Transform objects, while maintaining state dict structure.
+  transforms = jax.tree_util.tree_map(
+      _to_transform, transforms, is_leaf=_is_leaf)
+
+  original = traverse_util.flatten_dict(
+      original, keep_empty_nodes=True, sep='/')
+  new = traverse_util.flatten_dict(new, keep_empty_nodes=True, sep='/')
+  transforms = traverse_util.flatten_dict(transforms, sep='/')
 
   unmatched_new_keys = []
 
@@ -231,4 +254,5 @@ def apply_transformations(original_tree: PyTree,
                  'after applying specified transforms: %s',
                  ', '.join(unmatched_new_keys))
 
-  return utils.from_flat_dict(new_tree, new, sep='/')
+  new = traverse_util.unflatten_dict(new, sep='/')
+  return serialization.from_state_dict(new_tree, new)
