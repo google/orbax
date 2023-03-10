@@ -60,6 +60,11 @@ def sync_global_devices(name: str):
   multihost_utils.sync_global_devices(name)
 
 
+def broadcast_one_to_all(pytree: PyTree) -> PyTree:
+  """Thin wrapper to provide additional features support."""
+  return multihost_utils.broadcast_one_to_all(pytree)
+
+
 def _wrap(func):
   """Wraps a function to make it async."""
 
@@ -209,7 +214,7 @@ def get_tmp_directory(path: epath.Path) -> epath.Path:
   """Returns a tmp directory for the given path. Does not create it."""
   if is_gcs_path(path):
     return path
-  timestamp = multihost_utils.broadcast_one_to_all(np.int32(time.time()))
+  timestamp = broadcast_one_to_all(np.int32(time.time()))
   return epath.Path(path.parent) / (path.name + TMP_DIR_SUFFIX + f'{timestamp}')
 
 
