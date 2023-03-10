@@ -385,9 +385,8 @@ parameters are provided on an individual basis for each element in the PyTree.
 
 `SaveArgs` parameters include:
 
-*   `aggregate`: if true, saves the given parameter using flax.serialization to
-    a unified checkpoint file. Must be false if the given array value is a
-    sharded array.
+*   `aggregate`: if true, saves the given parameter to a unified msgpack
+    checkpoint file. Must be false if the given array value is a sharded array.
 *   `dtype`: if provided, casts the parameter to the given dtype before saving.
     Note that the parameter must be compatible with the given type (e.g.
     jnp.bfloat16 is not compatible with np.ndarray).
@@ -424,11 +423,10 @@ parameters:
 key. The exact naming of per-parameter directories can be customized by
 overriding `_get_param_infos`. These parameters are saved using
 [Tensorstore](https://google.github.io/tensorstore/). There is an additional
-`checkpoint` file that will be created using
-[`flax.serialization`](https://flax.readthedocs.io/en/latest/flax.serialization.html).
-This stores the PyTree structure, as well as any parameters for which `use_flax`
-was True at save time. Individual directories will not be created for these
-parameters.
+`checkpoint` file that will be created using the
+[msgpack](https://msgpack.org/index.html) file format. This stores the PyTree
+structure, as well as any parameters for which `aggregate` was True at save
+time. Individual directories will not be created for these parameters.
 
 For `restore`, `item` is an optional argument because the PyTree structure can
 be recovered from the saved checkpoint if `item` is a dictionary. However, if
@@ -496,9 +494,8 @@ While `TypeHandler` is designed for use with a single value of a specific type,
 were already serialized individually (to Tensorstore, perhaps) using a
 `TypeHandler` will be replaced with space-saving dummy values.
 
-The default implementation of `AggregateHandler` is `MsgpackHandler`, which uses
-[`flax.serialization`](https://flax.readthedocs.io/en/latest/api_reference/flax.serialization.html)
-to serialize a PyTree into the msgpack format.
+The default implementation of `AggregateHandler` is `MsgpackHandler`, which
+serializes a PyTree into the msgpack format.
 
 ## Utilities
 
@@ -512,10 +509,9 @@ of actually loading the parameter from Tensorstore.
 
 The actual loading will only be done when `.get()` is called on the `LazyValue`.
 
-Of course, for parameters saved using `flax.serialization` into a file
-containing many parameters, the loading does happen eagerly, regardless of
-whether `LazyValue` is used. However, parameters saved in this way should
-typically be small.
+Of course, for parameters aggregated into a single file containing many
+parameters, the loading does happen eagerly, regardless of whether `LazyValue`
+is used. However, parameters saved in this way should typically be small.
 
 ### Transformations
 

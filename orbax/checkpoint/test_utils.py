@@ -17,8 +17,6 @@
 from typing import List, Optional
 
 from etils import epath
-from flax import traverse_util
-import flax.serialization
 import jax
 from jax import sharding
 from jax.experimental import pjit
@@ -108,14 +106,10 @@ def assert_tree_equal(testclass, expected, actual):
     else:
       testclass.assertEqual(v_expected, v_actual)
 
-  expected, actual = flax.serialization.to_state_dict(
-      expected), flax.serialization.to_state_dict(actual)
-  expected_flat, actual_flat = traverse_util.flatten_dict(
-      expected), traverse_util.flatten_dict(actual)
+  expected_flat = utils.to_flat_dict(expected)
+  actual_flat = utils.to_flat_dict(actual)
   testclass.assertSameElements(expected_flat.keys(), actual_flat.keys())
-  for k in actual_flat.keys():
-    testclass.assertIn(k, expected_flat)
-    assert_array_equal(expected_flat[k], actual_flat[k])
+  jax.tree_util.tree_map(assert_array_equal, expected, actual)
 
 
 def setup_pytree(add: int = 0):
