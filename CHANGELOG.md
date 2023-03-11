@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Add support for Tensorstore OCDBT option.
 - Support for generic transformation function in PyTreeCheckpointHandler.
+- Support n-digit checkpoint step format.
 
 ## [0.1.3] - 2022-03-03
 

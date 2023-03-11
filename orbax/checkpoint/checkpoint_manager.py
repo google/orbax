@@ -97,6 +97,8 @@ class CheckpointManagerOptions:
     are eligible for cleanup. Otherwise, they will never be deleted.
   step_prefix: if provided, step directories will take the form
     f'{step_prefix}_<step>'. Otherwise, they will simply be an integer <step>.
+  step_format_fixed_length: If set, formats step with n digits (leading zeros).
+    This makes sorting steps easier. Otherwise, step has no leading zeros.
   create: if True, creates the top-level directory if it does not already exist.
   """
   save_interval_steps: int = 1
@@ -107,6 +109,7 @@ class CheckpointManagerOptions:
   best_mode: str = 'max'
   keep_checkpoints_without_metrics: bool = True
   step_prefix: Optional[str] = None
+  step_format_fixed_length: Optional[int] = None
   create: bool = False
 
   def __post_init__(self):
@@ -324,6 +327,7 @@ class CheckpointManager:
         name=key_name,
         step_prefix=self._options.step_prefix,
         override_directory=tmp_directory,
+        step_format_fixed_length=self._options.step_format_fixed_length,
     )
 
   def _create_tmp_directory(self, directory: epath.Path) -> epath.Path:

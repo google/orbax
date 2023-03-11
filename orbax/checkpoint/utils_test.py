@@ -29,14 +29,30 @@ class UtilsTest(parameterized.TestCase):
     )
 
   @parameterized.parameters(
-      (3, 'dir', None, None, 'dir/3'),
-      (3, 'dir', 'params', None, 'dir/3/params'),
-      (3, 'dir', 'params', 'checkpoint', 'dir/checkpoint_3/params'),
+      (3, 'dir', None, None, None, 'dir/3'),
+      (3, 'dir', 'params', None, None, 'dir/3/params'),
+      (3, 'dir', 'params', 'checkpoint', None, 'dir/checkpoint_3/params'),
+      (3, 'dir', None, None, 2, 'dir/03'),
+      (4000, 'dir', 'params', None, 5, 'dir/04000/params'),
+      (555, 'dir', 'params', 'foo', 8, 'dir/foo_00000555/params'),
+      (1234567890, 'dir', 'params', 'foo', 12, 'dir/foo_001234567890/params'),
   )
-  def test_get_save_directory(self, step, directory, name, step_prefix, result):
+  def test_get_save_directory(
+      self,
+      step,
+      directory,
+      name,
+      step_prefix,
+      step_format_fixed_length,
+      result,
+  ):
     self.assertEqual(
         utils.get_save_directory(
-            step, directory, name=name, step_prefix=step_prefix
+            step,
+            directory,
+            name=name,
+            step_prefix=step_prefix,
+            step_format_fixed_length=step_format_fixed_length,
         ),
         epath.Path(result),
     )

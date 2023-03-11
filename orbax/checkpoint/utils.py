@@ -224,6 +224,7 @@ def get_save_directory(
     name: Optional[str] = None,
     step_prefix: Optional[str] = None,
     override_directory: Optional[epath.PathLike] = None,
+    step_format_fixed_length: Optional[int] = None,
 ) -> epath.Path:
   """Returns the standardized path to a save directory for a single item.
 
@@ -234,6 +235,8 @@ def get_save_directory(
     step_prefix: Prefix applied to `step` (e.g. 'checkpoint').
     override_directory: If provided, step, directory, and step_prefix are
       ignored.
+    step_format_fixed_length: Uses a fixed number of digits with leading zeros
+      to represent the step number. If None, there are no leading zeros.
 
   Returns:
     A directory.
@@ -241,13 +244,18 @@ def get_save_directory(
   if directory is None:
     raise ValueError('Directory cannot be None.')
   directory = epath.Path(directory)
+  step_str = (
+      f'{step:0{step_format_fixed_length}d}'
+      if step_format_fixed_length is not None
+      else str(step)
+  )
   if override_directory is not None:
     result = epath.Path(override_directory)
   else:
     result = (
-        directory / str(step)
+        directory / step_str
         if step_prefix is None
-        else directory / f'{step_prefix}_{step}'
+        else directory / f'{step_prefix}_{step_str}'
     )
   if name is not None:
     result /= name
