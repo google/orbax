@@ -477,7 +477,7 @@ class CheckpointManager:
       'metadata': <nested k/v>,
       ...
     }
-    Items may not be provided at all, in which case it the items restored are
+    Items may not be provided at all, in which case the items restored are
     those specified in self._checkpointers, and item=None is provided to
     Checkpointer.restore. Similarly, an item may be omitted from `items`,
     in
@@ -561,6 +561,7 @@ class CheckpointManager:
         raise ValueError(f'Checkpointer for item "{item_name}" not found')
       item = items.get(item_name, None)
       kwargs = restore_kwargs.get(item_name, {})
+      logging.info('Restoring %s checkpoint from step %d', item_name, step)
       restored[item_name] = self._checkpointers[item_name].restore(
           path, item=item, **kwargs)
     return restored

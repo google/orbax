@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add support for Tensorstore OCDBT option.
 - Support for generic transformation function in PyTreeCheckpointHandler.
 - Support n-digit checkpoint step format.
+- Enable training input checkpointing (in Pax)
 
 ### Fixed
 - Eliminate Flax dependency to fix circular dependency problem.
