@@ -21,7 +21,7 @@ The following example shows how you can synchronously save and restore a
 [PyTree](https://jax.readthedocs.io/en/latest/pytrees.html).
 
 ```py
-checkpointer = orbax.checkpoints.PyTreeCheckpointer()
+checkpointer = orbax.checkpoint.PyTreeCheckpointer()
 # 'path/to/directory' should already exist, but 'checkpoint_name' folder should
 # not.
 # The leaves of `my_tree` may be a number of different types.
