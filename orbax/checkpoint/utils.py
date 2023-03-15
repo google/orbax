@@ -303,8 +303,6 @@ def name_from_leaf_placeholder(placeholder: str) -> str:
 
 def is_supported_aggregation_type(value: Any) -> bool:
   """Determines if the value is supported for aggregation."""
-  logging.info(value)
-  logging.info(type(value))
   return isinstance(
       value,
       (str, int, float, np.number, np.ndarray, jnp.ndarray, bytes, type(None)),
