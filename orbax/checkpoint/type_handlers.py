@@ -450,15 +450,22 @@ def has_type_handler(ty: Any) -> bool:
     return False
 
 
-def register_ocdbt_handlers():
-  """Re-registers select TypeHanders to use Tensorstore OCDBT driver."""
-  register_type_handler(int, ScalarHandler(use_ocdbt=True), override=True)
-  register_type_handler(float, ScalarHandler(use_ocdbt=True), override=True)
-  register_type_handler(np.number, ScalarHandler(use_ocdbt=True), override=True)
-  register_type_handler(np.ndarray, NumpyHandler(use_ocdbt=True), override=True)
+def register_standard_handlers_with_options(**kwargs):
+  """Re-registers a select set of handlers with the given options."""
+  register_type_handler(int, ScalarHandler(**kwargs), override=True)
+  register_type_handler(float, ScalarHandler(**kwargs), override=True)
+  register_type_handler(
+      np.number,
+      ScalarHandler(**kwargs),
+      override=True,
+  )
+  register_type_handler(
+      np.ndarray,
+      NumpyHandler(**kwargs),
+      override=True,
+  )
   register_type_handler(
       jax.Array,
-      ArrayHandler(use_ocdbt=True),
-      func=lambda ty: issubclass(ty, jax.Array) and jax.config.jax_array,
+      ArrayHandler(**kwargs),
       override=True,
   )

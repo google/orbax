@@ -222,7 +222,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     self._aggregate_filename = aggregate_filename
     self._concurrent_gb = concurrent_gb
     if use_ocdbt:
-      type_handlers.register_ocdbt_handlers()
+      type_handlers.register_standard_handlers_with_options(use_ocdbt=use_ocdbt)
 
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
