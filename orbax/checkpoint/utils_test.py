@@ -14,9 +14,14 @@
 
 """Test for utils.py."""
 
+from typing import Mapping, Sequence
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+import flax
+import jax
+import optax
 from orbax.checkpoint import utils
 
 
@@ -116,6 +121,60 @@ class UtilsTest(parameterized.TestCase):
   def test_step_from_checkpoint_name_invalid(self, name):
     with self.assertRaises(ValueError):
       utils.step_from_checkpoint_name(name)
+
+  @parameterized.parameters(
+      ({'a': 1, 'b': {'c': {}, 'd': 2}}, {('a',): 1, ('b', 'd'): 2}),
+      ({'x': ['foo', 'bar']}, {('x', '0'): 'foo', ('x', '1'): 'bar'}),
+  )
+  def test_to_flat_dict(self, tree, expected):
+    self.assertDictEqual(expected, utils.to_flat_dict(tree))
+
+  @parameterized.parameters(
+      ({'a': 1, 'b': {'d': 2}}, {('a',): 1, ('b', 'd'): 2}),
+      ({'x': ['foo', 'bar']}, {('x', '0'): 'foo', ('x', '1'): 'bar'}),
+      ({'a': 1, 'b': 2}, {('b',): 2, ('a',): 1}),
+  )
+  def test_from_flat_dict(self, expected, flat_dict):
+    empty = jax.tree_util.tree_map(lambda _: 0, expected)
+    self.assertDictEqual(expected, utils.from_flat_dict(empty, flat_dict))
+
+  def test_serialize(self):
+    tree = {'a': 1, 'b': {'c': {'d': 2}}, 'e': [1, {'x': 5, 'y': 7}, [9, 10]]}
+    serialized = utils.serialize_tree(tree, keep_empty_nodes=True)
+    self.assertDictEqual(tree, serialized)
+
+  def test_serialize_list(self):
+    tree = [1, {'a': 2}, [3, 4]]
+    serialized = utils.serialize_tree(tree, keep_empty_nodes=True)
+    self.assertListEqual(tree, serialized)
+
+  def test_serialize_filters_empty(self):
+    tree = {'a': 1, 'b': None, 'c': {}, 'd': [], 'e': optax.EmptyState()}
+    serialized = utils.serialize_tree(tree, keep_empty_nodes=False)
+    self.assertDictEqual({'a': 1}, serialized)
+
+  def test_serialize_class(self):
+    @flax.struct.dataclass
+    class Foo:
+      a: int
+      b: Mapping[str, str]
+      c: Sequence[optax.EmptyState]
+      d: Sequence[Mapping[str, str]]
+
+    foo = Foo(
+        1,
+        {'a': 'b', 'c': 'd'},
+        [optax.EmptyState(), optax.EmptyState()],
+        [{}, {'x': 'y'}, None],
+    )
+    serialized = utils.serialize_tree(foo, keep_empty_nodes=True)
+    expected = {
+        'a': 1,
+        'b': {'a': 'b', 'c': 'd'},
+        'c': [optax.EmptyState(), optax.EmptyState()],
+        'd': [{}, {'x': 'y'}, None],
+    }
+    self.assertDictEqual(expected, serialized)
 
 
 if __name__ == '__main__':

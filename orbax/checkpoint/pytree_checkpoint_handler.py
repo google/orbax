@@ -24,8 +24,6 @@ import re
 from typing import Any, Callable, List, Optional, Tuple
 
 from etils import epath
-import flax
-from flax import traverse_util
 import jax
 from jax.experimental.gda_serialization import serialization
 import numpy as np
@@ -52,8 +50,6 @@ TransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
 _TYPE_METADATA_FILE = 'type_metadata'
 _CHECKPOINT_FILE = 'checkpoint'
 
-utils.register_ts_spec_for_serialization()
-
 
 async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
   # Directory will be unused.
@@ -62,6 +58,20 @@ async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
     return
   if jax.process_index() == 0:
     await utils.async_makedirs(path)
+
+
+def _maybe_set_default_save_args(value, args):
+  # If already set, return.
+  if isinstance(args, SaveArgs):
+    return args
+  aggregate = not type_handlers.has_type_handler(type(value))
+  return SaveArgs(aggregate=aggregate)
+
+
+def _maybe_set_default_restore_args(args):
+  if isinstance(args, RestoreArgs):
+    return args
+  return RestoreArgs(restore_type=None)
 
 
 def _try_array_cast(arr, dtype):
@@ -76,19 +86,13 @@ def _try_array_cast(arr, dtype):
 
 def _get_param_names(item: PyTree) -> PyTree:
   """Gets parameter names for PyTree elements."""
-  state_dict = utils.to_state_dict(item)
-  # TODO(b/261105620): Ensure this works correctly with the transforms library.
-  flattened = traverse_util.flatten_dict(state_dict, keep_empty_nodes=True)
-  flat_names_dict = {}
-  for k, v in flattened.items():
-    if isinstance(v, type(traverse_util.empty_node)):
-      flat_names_dict[k] = {}
-    elif v is None:
-      flat_names_dict[k] = None
-    else:
-      flat_names_dict[k] = '.'.join(k)
-  return flax.serialization.from_state_dict(
-      item, traverse_util.unflatten_dict(flat_names_dict)
+  def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
+    return '.'.join([str(utils.get_key_name(k)) for k in keypath])
+
+  return jax.tree_util.tree_map_with_path(
+      lambda kp, _: _param_name_from_keypath(kp),
+      item,
+      is_leaf=utils.is_empty_or_leaf,
   )
 
 
@@ -97,7 +101,7 @@ def _get_param_infos_from_structure(directory: epath.Path,
   """Construct ParamInfos based on a PyTree."""
   names = _get_param_names(structure)
 
-  def _get_param_info(leaf, name):
+  def _get_param_info(name, leaf):
     if utils.leaf_is_placeholder(leaf):
       # Leaf is a param name.
       path = directory / utils.name_from_leaf_placeholder(leaf)
@@ -114,22 +118,25 @@ def _get_param_infos_from_structure(directory: epath.Path,
       raise ValueError(f'Unsupported type: {type(leaf)}')
     return ParamInfo(name=name, path=path, aggregate=(path is None))
 
-  return jax.tree_util.tree_map(_get_param_info, structure, names)
+  return jax.tree_util.tree_map(
+      _get_param_info, names, structure, is_leaf=utils.is_empty_or_leaf
+  )
 
 
 def _get_tree_for_aggregation(param_infos, save_args, item):
   """Get tree for aggregated checkpoint."""
 
-  def _get_leaf_for_aggregation(param_info, arg, arr):
-    if arg is None:
-      arg = SaveArgs()
+  def _get_leaf_for_aggregation(param_info, arg, value):
     if arg.aggregate:  # Param was aggregated, return value after cast.
-      return _try_array_cast(arr, arg.dtype)
+      if not utils.is_supported_aggregation_type(value):
+        value = None
+      return _try_array_cast(value, arg.dtype)
     else:  # Placeholder string for non-aggregated value.
       return utils.leaf_placeholder(param_info.name)
 
-  return jax.tree_util.tree_map(_get_leaf_for_aggregation, param_infos,
-                                save_args, item)
+  return jax.tree_util.tree_map(
+      _get_leaf_for_aggregation, param_infos, save_args, item
+  )
 
 
 def _transform_structure(
@@ -166,8 +173,8 @@ def _transform_structure(
     item = restored
   else:
     if transforms is None:
-      item = flax.serialization.from_state_dict(item, restored)
-      param_infos = flax.serialization.from_state_dict(item, param_infos)
+      param_infos = utils.deserialize_tree(item, param_infos)
+      item = utils.deserialize_tree(item, restored)
     else:
       if transform_utils.has_value_functions(transforms):
         raise ValueError(
@@ -267,7 +274,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     Saves an additional file to directory/checkpoint on host 0 which
     contains the serialized structure of `item`, along with any parameters that
-    request Flax serialization.
+    request aggregation.
 
     Args:
       directory: save location directory.
@@ -281,8 +288,14 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     """
     item = await lazy_utils.maybe_get_tree_async(item)
 
-    if save_args is None:
-      save_args = jax.tree_util.tree_map(lambda x: SaveArgs(), item)
+    # Because of empty states, the user-provided args may not contain
+    # all necessary arguments. These should be filled in with default args.
+    save_args = jax.tree_util.tree_map(
+        _maybe_set_default_save_args,
+        item,
+        item if save_args is None else save_args,
+        is_leaf=utils.is_empty_or_leaf,
+    )
     param_infos = self._get_param_infos(item, directory, save_args)
     # Create directories in parallel.
     await asyncio.gather(*jax.tree_util.tree_flatten(
@@ -297,8 +310,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       handler = type_handlers.get_type_handler(type(value))
       return await handler.serialize(value, info, args)
 
-    future_tree = jax.tree_util.tree_map(serialize, item, param_infos,
-                                         save_args)
+    future_tree = jax.tree_util.tree_map(
+        serialize, item, param_infos, save_args, is_leaf=utils.is_empty_or_leaf
+    )
     copy_futures, _ = jax.tree_util.tree_flatten(future_tree)
     assert isinstance(copy_futures, list)
     # Await copy futures.
@@ -352,10 +366,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     Returns:
       A deserialized parameter.
     """
-    if args is None:
-      raise ValueError(
-          'Must provide restore arguments for each leaf parameter.'
-      )
+    if not isinstance(args, RestoreArgs):
+      return value
     if info.aggregate:  # Already restored from AggregateHandler.
       value = _try_array_cast(value, args.dtype)
       if args.lazy:
@@ -444,16 +456,17 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
           functools.partial(dataclasses.replace, byte_limiter=byte_limiter),
           param_infos,
       )
-      future_arrays = jax.tree_map(
-          self._maybe_deserialize, param_infos, item, restore_args
+      future_arrays = jax.tree_util.tree_map(
+          self._maybe_deserialize,
+          param_infos,
+          item,
+          restore_args,
       )
-      future_arrays, _ = jax.tree_util.tree_flatten(future_arrays)
-      return await asyncio.gather(*future_arrays)
+      future_arrays, tree_structure = jax.tree_util.tree_flatten(future_arrays)
+      result = await asyncio.gather(*future_arrays)
+      return jax.tree_util.tree_unflatten(tree_structure, result)
 
-    result = asyncio.run(_async_restore(param_infos, item, restore_args))
-    restored_item = jax.tree_util.tree_unflatten(
-        jax.tree_util.tree_structure(item), result
-    )
+    restored_item = asyncio.run(_async_restore(param_infos, item, restore_args))
 
     utils.sync_global_devices('PyTreeCheckpointHandler:restore')
     return restored_item
@@ -471,7 +484,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       FileNotFoundError: if the checkpoint is not found.
     """
     if (directory / self._aggregate_filename).exists():
-      return self._aggregate_handler.deserialize(directory /
-                                                 self._aggregate_filename)
+      return self._aggregate_handler.deserialize(
+          directory / self._aggregate_filename
+      )
     else:
       raise FileNotFoundError(f'Checkpoint does not exist at {directory}.')

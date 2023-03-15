@@ -24,10 +24,10 @@ dependencies = [
     'absl-py',
     'cached_property',
     'importlib_resources',
+    'typing_extensions',
+    'msgpack',
     'etils',
-    'flax',
-    'importlib_resources',
-    'jax >= 0.4.1',
+    'jax >= 0.4.6',
     'jaxlib',
     'numpy',
     'pyyaml',
@@ -43,5 +43,6 @@ repository = 'http://github.com/google/orbax'
 [project.optional-dependencies]
 dev = [
     'pytest',
-    'pytest-xdist'
+    'pytest-xdist',
+    'flax',
 ]

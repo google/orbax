@@ -21,17 +21,14 @@ import functools
 import os
 import re
 import time
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union
 
 from absl import logging
 from etils import epath
-import flax.serialization
 import jax
 from jax.experimental import multihost_utils
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint import msgpack_utils
-import tensorstore as ts
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 # prefix_1000.orbax-checkpoint-tmp-1010101
@@ -93,19 +90,189 @@ def async_write_bytes(path: epath.Path, data: Any):
   return _wrap(path.write_bytes)(data)
 
 
-def register_ts_spec_for_serialization():
-  # Register functions with flax.serialization to handle `ts.Spec`.
-  def is_dict(s):
-    return isinstance(s, (dict, flax.core.FrozenDict))
+class EmptyNode:
+  pass
 
-  flax.serialization.register_serialization_state(
-      ts.Spec,
-      ty_to_state_dict=lambda t: t.to_json(),
-      # The parameter may have been written to tensorstore or msgpack.
-      # If the former, a dict of the spec will be stored. If the latter it will
-      # be the value itself.
-      ty_from_state_dict=lambda t, s: ts.Spec(s) if is_dict(s) else s,
-      override=True)
+
+def is_empty_or_leaf(x: Any) -> bool:
+  try:
+    children, _ = jax._src.tree_util.flatten_one_level(x)  # pylint: disable=protected-access
+  except ValueError:
+    return True  # Cannot flatten x; means it must be a leaf
+  return not children
+
+
+def get_key_name(key: Any) -> Union[int, str]:
+  """Returns the name of a JAX Key."""
+  if isinstance(key, jax.tree_util.SequenceKey):
+    return key.idx
+  elif isinstance(key, jax.tree_util.DictKey):
+    return str(key.key)
+  elif isinstance(key, jax.tree_util.GetAttrKey):
+    return key.name
+  else:
+    raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
+
+
+def _is_dict_key(key) -> bool:
+  return isinstance(key, (jax.tree_util.DictKey, jax.tree_util.GetAttrKey))
+
+
+def _is_sequence_key(key) -> bool:
+  return isinstance(key, jax.tree_util.SequenceKey)
+
+
+def _raise_unsupported_key_error(key):
+  raise ValueError(f'Unsupported KeyEntry: {key}.')
+
+
+def _extend_list(ls, idx, nextvalue):
+  assert idx <= len(ls)
+  if idx == len(ls):
+    ls.append(nextvalue)
+  return ls
+
+
+def to_flat_dict(
+    tree: PyTree, sep: Optional[str] = None, keep_empty_nodes: bool = False
+) -> PyTree:
+  """Converts a tree into a flattened dictionary.
+
+  The nested keys are flattened to a tuple.
+
+  Example::
+
+    tree = {'foo': 1, 'bar': {'a': 2, 'b': {}}}
+    to_flat_dict(tree)
+    {
+      ('foo',): 1,
+      ('bar', 'a'): 2,
+    }
+
+  Args:
+    tree: A PyTree to be flattened.
+    sep: If provided, keys will be returned as `sep`-separated strings.
+      Otherwise, keys are returned as tuples.
+    keep_empty_nodes: If True, empty nodes are not filtered out.
+
+  Returns:
+    A flattened dictionary and the tree structure.
+  """
+
+  def tuple_path_from_keypath(keypath: Tuple[Any, ...]) -> Tuple[str, ...]:
+    return tuple([str(get_key_name(k)) for k in keypath])
+
+  flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
+      tree, is_leaf=is_empty_or_leaf if keep_empty_nodes else None
+  )
+  flat_dict = {tuple_path_from_keypath(k): v for k, v in flat_with_keys}
+  if sep is not None:
+    flat_dict = {sep.join(k): v for k, v in flat_dict.items()}
+  return flat_dict
+
+
+def serialize_tree(tree: PyTree, keep_empty_nodes: bool = False) -> PyTree:
+  """Transforms a PyTree to a serializable format.
+
+  Args:
+    tree: The tree to serialize.
+    keep_empty_nodes: If true, does not filter out empty nodes.
+
+  Returns:
+    The serialized PyTree.
+  """
+  flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
+      tree, is_leaf=is_empty_or_leaf if keep_empty_nodes else None
+  )
+  # Accesses the first path element (arbitrary), first tuple element
+  # (keypath tuple), first key in keypath (outermost key in the PyTree).
+  outerkey = flat_with_keys[0][0][0]
+  if _is_dict_key(outerkey):
+    result = {}
+  elif _is_sequence_key(outerkey):
+    result = []
+  else:
+    _raise_unsupported_key_error(outerkey)
+
+  for keypath, value in flat_with_keys:
+    subtree = result
+    for i, key in enumerate(keypath):
+      if i == 0:
+        assert isinstance(key, type(outerkey))
+      if i == len(keypath) - 1:
+        if _is_dict_key(key):
+          assert isinstance(subtree, dict)
+          subtree[get_key_name(key)] = value
+        elif _is_sequence_key(key):
+          assert isinstance(subtree, list)
+          idx = get_key_name(key)
+          subtree = _extend_list(subtree, idx, value)
+      else:
+        nextkey = keypath[i + 1]
+        if _is_dict_key(nextkey):
+          nextvalue = {}
+        elif _is_sequence_key(nextkey):
+          nextvalue = []
+        else:
+          _raise_unsupported_key_error(nextkey)
+
+        if _is_dict_key(key):
+          assert isinstance(subtree, dict)
+          name = get_key_name(key)
+          if name not in subtree:
+            subtree[name] = nextvalue
+          subtree = subtree[name]
+        elif _is_sequence_key(key):
+          assert isinstance(subtree, list)
+          idx = get_key_name(key)
+          subtree = _extend_list(subtree, idx, nextvalue)
+          subtree = subtree[idx]
+        else:
+          _raise_unsupported_key_error(key)
+
+  return result
+
+
+def deserialize_tree(
+    target: PyTree, serialized: PyTree, keep_empty_nodes: bool = False
+) -> PyTree:
+  """Deserializes a PyTree to the same structure as `target`."""
+
+  def fn(keypath, _):
+    result = serialized
+    for key in keypath:
+      key_name = get_key_name(key)
+      # Special case to support Pax.
+      if not isinstance(result, list) and key_name not in result:
+        key_name = str(key_name)
+      result = result[key_name]
+    return result
+
+  return jax.tree_util.tree_map_with_path(
+      fn, target, is_leaf=is_empty_or_leaf if keep_empty_nodes else None
+  )
+
+
+def from_flat_dict(
+    tree: PyTree, flat_dict: PyTree, sep: Optional[str] = None
+) -> PyTree:
+  """Reconstructs the original tree object from a flattened dictionary.
+
+  Args:
+    tree: A reference PyTree. The returned value will conform to this structure.
+    flat_dict: A dictionary conforming to the return value of `to_flat_dict`.
+    sep: separator used for nested keys in `flat_dict`.
+
+  Returns:
+    A dict matching the structure of `tree` with the values of `flat_dict`.
+  """
+  flat_structure = to_flat_dict(tree, sep=sep)
+  # Ensure that the ordering of `flat_dict` keys matches that of `tree`.
+  # Necessary for later unflattening.
+  flat_dict = {k: flat_dict[k] for k in flat_structure.keys()}
+  return jax.tree_util.tree_unflatten(
+      jax.tree_util.tree_structure(tree), flat_dict.values()
+  )
 
 
 def leaf_is_placeholder(leaf: Any) -> bool:
@@ -136,8 +303,12 @@ def name_from_leaf_placeholder(placeholder: str) -> str:
 
 def is_supported_aggregation_type(value: Any) -> bool:
   """Determines if the value is supported for aggregation."""
-  return isinstance(value,
-                    (str, int, float, np.number, np.ndarray, jnp.ndarray))
+  logging.info(value)
+  logging.info(type(value))
+  return isinstance(
+      value,
+      (str, int, float, np.number, np.ndarray, jnp.ndarray, bytes, type(None)),
+  ) or (isinstance(value, (dict, list)) and not value)
 
 
 def pytree_structure(directory: epath.PathLike) -> PyTree:
@@ -166,32 +337,6 @@ def pytree_structure(directory: epath.PathLike) -> PyTree:
   for k in keys:
     tree = add_nested_key(tree, k.name.split('.'), k.name)
   return tree
-
-
-def _rebuild_ts_specs(tree):
-  """Converts any ts_spec dict leaves to ts.Spec object."""
-
-  def is_leaf(x):
-    if isinstance(x, dict):
-      return set(x.keys()) >= {'driver', 'kvstore'}
-    return False
-
-  return jax.tree_util.tree_map(
-      lambda x: ts.Spec(x) if isinstance(x, dict) else x, tree, is_leaf=is_leaf)
-
-
-# TODO(b/268733573) Move to msgpack_utils when `to_state_dict` function below
-# is removed.
-def msgpack_restore(msgpack):
-  """Restores tree serialized using Flax. Converts ts_spec dict to ts.Spec."""
-  state_dict = msgpack_utils.msgpack_restore(msgpack)
-  return _rebuild_ts_specs(state_dict)
-
-
-def to_state_dict(pytree):
-  """Converts tree to state_dict. Converts ts_spec dict to ts.Spec."""
-  state_dict = flax.serialization.to_state_dict(pytree)
-  return _rebuild_ts_specs(state_dict)
 
 
 def cleanup_tmp_directories(directory: epath.PathLike,

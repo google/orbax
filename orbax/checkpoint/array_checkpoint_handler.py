@@ -28,6 +28,8 @@ from orbax.checkpoint import utils
 
 ArrayType = Union[int, float, np.number, np.ndarray, jax.Array]
 
+_ELEMENT_KEY = 'ELEMENT'
+
 
 class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Handles saving and restoring individual arrays and scalars."""
@@ -68,7 +70,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if save_args and save_args.aggregate:
       aggregate_handler = aggregate_handlers.get_aggregate_handler()
       await aggregate_handler.serialize(
-          directory / self._checkpoint_name, item
+          directory / self._checkpoint_name, {_ELEMENT_KEY: item}
       )
       return []
 
@@ -133,6 +135,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if (directory / self._checkpoint_name).is_file():
       aggregate_handler = aggregate_handlers.get_aggregate_handler()
       result = aggregate_handler.deserialize(directory / self._checkpoint_name)
+      result = result[_ELEMENT_KEY]
       if not self._is_supported_type(result):
         raise TypeError(f'Unsupported type: {type(result)}.')
     else:

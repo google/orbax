@@ -372,10 +372,13 @@ class StringHandler(TypeHandler):
 _TYPE_REGISTRY = [
     (lambda ty: issubclass(ty, int), ScalarHandler()),
     (lambda ty: issubclass(ty, float), ScalarHandler()),
+    (lambda ty: issubclass(ty, bytes), ScalarHandler()),
     (lambda ty: issubclass(ty, np.number), ScalarHandler()),
     (lambda ty: issubclass(ty, np.ndarray), NumpyHandler()),
-    (lambda ty: issubclass(ty, jax.Array) and jax.config.jax_array,
-     ArrayHandler()),
+    (
+        lambda ty: issubclass(ty, jax.Array) and jax.config.jax_array,
+        ArrayHandler(),
+    ),
     (lambda ty: issubclass(ty, str), StringHandler()),
 ]
 
@@ -437,6 +440,14 @@ def get_type_handler(ty: Any) -> TypeHandler:
     if func(ty):
       return handler
   raise ValueError(f'Unknown type: "{ty}". Must register a TypeHandler.')
+
+
+def has_type_handler(ty: Any) -> bool:
+  try:
+    get_type_handler(ty)
+    return True
+  except ValueError:
+    return False
 
 
 def register_ocdbt_handlers():

@@ -17,8 +17,6 @@ from typing import List, Mapping
 
 from absl.testing import absltest
 import flax
-from flax import serialization
-from flax import traverse_util
 import flax.linen as nn
 from flax.training.train_state import TrainState
 import jax
@@ -348,15 +346,16 @@ class TransformUtilsTest(absltest.TestCase):
             Transform(multi_value_fn=lambda t: t.c.y[2])
         ])
     fallback_tree = NewTree(
-        a1=None,
-        b=None,
-        c=SubTree(x={
-            'i': None,
-            'j': None
-        }, y=[None, None, None]),
+        a1=utils.EmptyNode(),
+        b=utils.EmptyNode(),
+        c=SubTree(
+            x={'i': utils.EmptyNode(), 'j': utils.EmptyNode()},
+            y=[utils.EmptyNode(), utils.EmptyNode(), utils.EmptyNode()],
+        ),
         d=7,
-        e=None,
-        f=[None, None])
+        e=utils.EmptyNode(),
+        f=[utils.EmptyNode(), utils.EmptyNode()],
+    )
     expected_tree = NewTree(
         a1=10,
         b=np.arange(3) * 2,
@@ -424,24 +423,22 @@ class TransformUtilsTest(absltest.TestCase):
                                            new_state)
 
     # Construct expected tree
-    old_state_dict = traverse_util.flatten_dict(
-        utils.to_state_dict(old_state), keep_empty_nodes=True, sep='/')
-    new_state_dict = traverse_util.flatten_dict(
-        utils.to_state_dict(new_state), keep_empty_nodes=True, sep='/')
-    expected_state_dict = {}
-    for k, v in new_state_dict.items():
+    old_flat_dict = utils.to_flat_dict(old_state, sep='/')
+    new_flat_dict = utils.to_flat_dict(new_state, sep='/')
+    expected_flat_dict = {}
+    for k, v in new_flat_dict.items():
       if 'Dense_1' in k:
-        expected_state_dict[k] = old_state_dict[k.replace('Dense_1', 'Dense_0')]
+        expected_flat_dict[k] = old_flat_dict[k.replace('Dense_1', 'Dense_0')]
       elif 'Dense_2' in k:
-        expected_state_dict[k] = old_state_dict[k.replace('Dense_2', 'Dense_1')]
+        expected_flat_dict[k] = old_flat_dict[k.replace('Dense_2', 'Dense_1')]
       elif 'Dense_' in k:  # layers in new, but not old.
-        expected_state_dict[k] = v
+        expected_flat_dict[k] = v
       else:  # extra keys in both, expected is the old value
-        expected_state_dict[k] = old_state_dict[k]
+        expected_flat_dict[k] = old_flat_dict[k]
 
-    expected_state = serialization.from_state_dict(
-        new_state, traverse_util.unflatten_dict(expected_state_dict, sep='/'))
-
+    expected_state = utils.from_flat_dict(
+        new_state, expected_flat_dict, sep='/'
+    )
     test_utils.assert_tree_equal(self, expected_state, restored_state)
 
   def test_flax_train_state_default_new(self):
@@ -472,20 +469,18 @@ class TransformUtilsTest(absltest.TestCase):
         old_state, transformations, new_state, default_to_original=False)
 
     # Construct expected tree
-    old_state_dict = traverse_util.flatten_dict(
-        utils.to_state_dict(old_state), keep_empty_nodes=True, sep='/')
-    new_state_dict = traverse_util.flatten_dict(
-        utils.to_state_dict(new_state), keep_empty_nodes=True, sep='/')
-    expected_state_dict = {}
-    for k, v in new_state_dict.items():
+    old_flat_dict = utils.to_flat_dict(old_state, sep='/')
+    new_flat_dict = utils.to_flat_dict(new_state, sep='/')
+    expected_flat_dict = {}
+    for k, v in new_flat_dict.items():
       if 'Dense_1' in k:
-        expected_state_dict[k] = old_state_dict[k]
+        expected_flat_dict[k] = old_flat_dict[k]
       else:
-        expected_state_dict[k] = v
+        expected_flat_dict[k] = v
 
-    expected_state = serialization.from_state_dict(
-        new_state, traverse_util.unflatten_dict(expected_state_dict, sep='/'))
-
+    expected_state = utils.from_flat_dict(
+        new_state, expected_flat_dict, sep='/'
+    )
     test_utils.assert_tree_equal(self, expected_state, restored_state)
 
 
