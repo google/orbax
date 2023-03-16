@@ -357,8 +357,13 @@ def get_tmp_directory(path: epath.Path) -> epath.Path:
   """Returns a tmp directory for the given path. Does not create it."""
   if is_gcs_path(path):
     return path
-  timestamp = broadcast_one_to_all(np.int32(time.time()))
-  return epath.Path(path.parent) / (path.name + TMP_DIR_SUFFIX + f'{timestamp}')
+  now = time.time()
+  sec = int(now)
+  usec = int((now - sec) * 1000000)
+  timestamp = broadcast_one_to_all((np.int32(sec), np.int32(usec)))
+  return epath.Path(path.parent) / (
+      path.name + TMP_DIR_SUFFIX + f'{timestamp[0]}{timestamp[1]:06}'
+  )
 
 
 def get_save_directory(

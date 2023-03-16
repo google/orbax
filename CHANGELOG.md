@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Use a more precise timestamp when generating temporary directory names to
+permit more than one concurrent checkpointing attempt per second.
+
 ## [0.1.4] - 2022-03-15
 
 ### Added
