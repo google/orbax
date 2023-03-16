@@ -196,7 +196,7 @@ def restore_args_from_target(
     dtype = None
     if hasattr(value, 'dtype'):
       dtype = value.dtype
-    if isinstance(value, jax.Array) and jax.config.jax_array:
+    if isinstance(value, jax.Array):
       return type_handlers.ArrayRestoreArgs(
           restore_type=restore_type,
           mesh=mesh,

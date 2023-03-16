@@ -376,7 +376,7 @@ _TYPE_REGISTRY = [
     (lambda ty: issubclass(ty, np.number), ScalarHandler()),
     (lambda ty: issubclass(ty, np.ndarray), NumpyHandler()),
     (
-        lambda ty: issubclass(ty, jax.Array) and jax.config.jax_array,
+        lambda ty: issubclass(ty, jax.Array),
         ArrayHandler(),
     ),
     (lambda ty: issubclass(ty, str), StringHandler()),

@@ -52,8 +52,6 @@ def save_fake_tmp_dir(
 
 def replicate_sharded_array(arr: jax.Array):
   """Returns the input array, but replicated across all devices."""
-  if not jax.config.jax_array:
-    raise ValueError('Must enable jax.Array.')
   mesh = Mesh(np.asarray(jax.devices()), ('x',))
   replicated_sharding = sharding.NamedSharding(
       mesh,
@@ -76,11 +74,7 @@ def apply_function(tree, function):
   """
 
   def f(arr):
-    if jax.config.jax_array:
-      result = pjit.pjit(function)(arr)
-    else:
-      raise ValueError('Must enable jax.Array.')
-    return result
+    return pjit.pjit(function)(arr)
 
   return jax.tree_util.tree_map(f, tree)
 
@@ -95,7 +89,7 @@ def assert_tree_equal(testclass, expected, actual):
       v_actual = v_actual.get()
 
     testclass.assertIsInstance(v_actual, type(v_expected))
-    if jax.config.jax_array and isinstance(v_expected, jax.Array):
+    if isinstance(v_expected, jax.Array):
       testclass.assertEqual(
           len(v_expected.addressable_shards), len(v_actual.addressable_shards))
       for shard_expected, shard_actual in zip(v_expected.addressable_shards,
@@ -173,9 +167,6 @@ def create_sharded_array(arr, mesh, mesh_axes):
   """Create sharded jax.Array."""
   if isinstance(arr, (int, float)):
     arr = np.asarray(arr)
-  if jax.config.jax_array:
-    return jax.make_array_from_callback(
-        arr.shape, sharding.NamedSharding(mesh, mesh_axes), lambda idx: arr[idx]
-    )
-  else:
-    raise ValueError('Must enable jax.Array.')
+  return jax.make_array_from_callback(
+      arr.shape, sharding.NamedSharding(mesh, mesh_axes), lambda idx: arr[idx]
+  )
