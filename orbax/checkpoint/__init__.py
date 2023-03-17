@@ -39,6 +39,15 @@ from orbax.checkpoint.pytree_checkpoint_handler import SaveArgs
 from orbax.checkpoint.transform_utils import apply_transformations
 from orbax.checkpoint.transform_utils import Transform
 
+try:
+  __IPYTHON__
+  _in_ipython_session = True
+except NameError:
+  _in_ipython_session = False
+if _in_ipython_session:
+  import nest_asyncio
+  nest_asyncio.apply()
+
 # Convenient shorthand where instead of the following:
 #   `checkpointer = Checkpointer(PyTreeCheckpointer())`
 # we can just use:
