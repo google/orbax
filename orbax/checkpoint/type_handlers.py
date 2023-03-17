@@ -228,7 +228,7 @@ class ScalarHandler(NumpyHandler):
   """
 
   async def serialize(self,
-                      value: Scalar,
+                      value: Scalar,  # pytype: disable=signature-mismatch  # numpy-scalars
                       info: ParamInfo,
                       args: Optional[SaveArgs] = None) -> List[Future]:
     """See superclass documentation."""
