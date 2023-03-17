@@ -19,6 +19,7 @@ import dataclasses
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
+from absl import logging
 from etils import epath
 import jax
 from jax.experimental.gda_serialization import serialization
@@ -29,7 +30,68 @@ import numpy as np
 from orbax.checkpoint.future import Future
 import tensorstore as ts
 
+
 Scalar = Union[int, float, np.number]
+_OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
+
+
+def _get_coordinator_address_without_port(
+    coordinator_address: Optional[str],
+) -> str:
+  """Returns JAX coordinator address stripped of port number."""
+  if not coordinator_address:
+    raise ValueError('Coordinator address not set.')
+  return coordinator_address.split(':')[0]
+
+
+def create_coordinator_server_and_context() -> (
+    Tuple[ts.Context, Optional[ts.ocdbt.DistributedCoordinatorServer]]
+):
+  """Creates OCDBT coordinator and Tensorstore context.
+
+  This function must be called at the start of the program across all processes
+  in order to initialize the OCDBT coordinator service. The coordinator object
+  should be kept alive for the life of the program, while the returned
+  ts.Context should be provided when saving or restoring using Tensorstore.
+
+  Example usage:
+  ```
+  ocdbt_context, coordinator_server = (
+      orbax.checkpoint.type_handlers.create_coordinator_server_and_context()
+  )
+  orbax.checkpoint.type_handlers.register_standard_handlers_with_options(
+      use_ocdbt=True, ts_context=ocdbt_context
+  )
+  orbax.checkpoint.utils.sync_global_devices('init_ocdbt_server')
+  ```
+
+  Returns:
+    Tuple of ts.Context and OCDBT coordinator server object.
+  """
+  jax_global_state = jax._src.distributed.global_state  # pylint: disable=protected-access
+  ocdbt_address = _get_coordinator_address_without_port(
+      jax_global_state.coordinator_address
+  )
+
+  coordinator_server = None
+  if jax_global_state.process_id == 0:
+    bind_address = f'{ocdbt_address}:0'
+    logging.info('Starting DistributedCoordinatorServer at: %s', bind_address)
+    coordinator_server = ts.ocdbt.DistributedCoordinatorServer(
+        {'bind_addresses': [bind_address]}
+    )
+    jax_global_state.client.key_value_set(
+        'ocdbt_coordinator', f'{ocdbt_address}:{coordinator_server.port}'
+    )
+
+  ocdbt_address = jax_global_state.client.blocking_key_value_get(
+      'ocdbt_coordinator', 10000
+  )
+  ts_context = {'ocdbt_coordinator': {'address': ocdbt_address}}
+  return (
+      ts.Context(ts_context, parent=serialization.TS_CONTEXT),
+      coordinator_server,
+  )
 
 
 @dataclasses.dataclass
@@ -131,6 +193,11 @@ class TypeHandler(abc.ABC):
     pass
 
 
+def is_ocdbt_checkpoint(path: epath.Path) -> bool:
+  """Determines whether a checkpoint uses OCDBT format."""
+  return (path / _OCDBT_MANIFEST_FILE).exists()
+
+
 def _get_cast_tspec_serialize(tspec, value, args):
   """Creates a Tensorstore spec for casting a param during serialize."""
   tspec = {
@@ -162,25 +229,40 @@ class NumpyHandler(TypeHandler):
   """Provides an implementation of TypeHandler for replicated numpy arrays."""
 
   def __init__(
-      self, metadata_key: Optional[str] = None, use_ocdbt: bool = False
+      self,
+      metadata_key: Optional[str] = None,
+      use_ocdbt: bool = False,
+      ts_context: Optional[ts.Context] = None,
   ):
     """Constructor.
 
     Args:
       metadata_key: name to give to Tensorstore metadata files.
       use_ocdbt: enables Tensorstore OCDBT driver.
+      ts_context: Tensorstore context.
     """
     self._metadata_key = metadata_key
     self._use_ocdbt = use_ocdbt
+    if self._use_ocdbt and not ts_context:
+      raise ValueError(
+          'Must provide a ts.Context if use_ocdbt is True. Ensure that the'
+          ' context contains a coordinator address.'
+      )
+    self._ts_context = ts_context or ts.Context(
+        {'file_io_concurrency': {'limit': 128}}
+    )
 
-  def _get_json_tspec(self,
-                      info: ParamInfo,
-                      value: Optional[np.ndarray] = None) -> Dict[str, Any]:
+  def _get_json_tspec(
+      self,
+      info: ParamInfo,
+      value: Optional[np.ndarray] = None,
+      use_ocdbt: bool = False,
+  ) -> Dict[str, Any]:
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
       raise ValueError('Must construct serialization path.')
     path = os.fspath(info.path)
-    tspec: Dict[str, Any] = get_tensorstore_spec(path)
+    tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=use_ocdbt)
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
     tspec['metadata'] = {
@@ -199,15 +281,11 @@ class NumpyHandler(TypeHandler):
                       args: Optional[SaveArgs] = None) -> List[Future]:
     """Uses Tensorstore to serialize a numpy array."""
     args = args or SaveArgs()
-    tspec = self._get_json_tspec(info, value)
+    tspec = self._get_json_tspec(info, value, use_ocdbt=self._use_ocdbt)
     tspec = _get_cast_tspec_serialize(tspec, value, args)
     t = await ts.open(
-        ts.Spec(tspec),
-        create=True,
-        open=True,
-        context=ts.Context({'file_io_concurrency': {
-            'limit': 128
-        }}))
+        ts.Spec(tspec), create=True, open=True, context=self._ts_context
+    )
     write_future = t.write(value)
     await write_future.copy
     return [write_future.commit]
@@ -217,9 +295,12 @@ class NumpyHandler(TypeHandler):
                         args: Optional[RestoreArgs] = None) -> np.ndarray:
     """Deserializes the array using Tensorstore."""
     args = args or RestoreArgs()
-    tspec = self._get_json_tspec(info)
+
+    # Using OCDBT, but existing checkpoint may be stored in old format.
+    use_ocdbt = self._use_ocdbt and is_ocdbt_checkpoint(info.path.parent)
+    tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
     tspec = _get_cast_tspec_deserialize(tspec, args)
-    t = await ts.open(ts.Spec(tspec), open=True)
+    t = await ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
     return await t.read()
 
 
@@ -273,25 +354,40 @@ class ArrayHandler(TypeHandler):
   """An implementation of TypeHandler for jax.Array."""
 
   def __init__(
-      self, metadata_key: Optional[str] = None, use_ocdbt: bool = False
+      self,
+      metadata_key: Optional[str] = None,
+      use_ocdbt: bool = False,
+      ts_context: Optional[ts.Context] = None,
   ):
     """Constructor.
 
     Args:
       metadata_key: name to give to Tensorstore metadata files.
       use_ocdbt: allows using Tensorstore OCDBT driver.
+      ts_context: Tensorstore context.
     """
     self._metadata_key = metadata_key
     self._use_ocdbt = use_ocdbt
+    if self._use_ocdbt and not ts_context:
+      raise ValueError(
+          'Must provide a ts.Context if use_ocdbt is True. Ensure that the'
+          ' context contains a coordinator address.'
+      )
+    self._ts_context = ts_context or ts.Context(
+        {'file_io_concurrency': {'limit': 128}}
+    )
 
-  def _get_json_tspec(self,
-                      info: ParamInfo,
-                      value: Optional[Any] = None) -> Dict[str, Any]:
+  def _get_json_tspec(
+      self,
+      info: ParamInfo,
+      value: Optional[Any] = None,
+      use_ocdbt: bool = False,
+  ) -> Dict[str, Any]:
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
       raise ValueError('Must construct serialization path.')
     path = os.fspath(info.path)
-    tspec: Dict[str, Any] = get_tensorstore_spec(path)
+    tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=use_ocdbt)
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
     if value is not None:
@@ -304,11 +400,12 @@ class ArrayHandler(TypeHandler):
   ) -> List[Future]:
     """See superclass documentation."""
     args = args or SaveArgs()
-    tspec = self._get_json_tspec(info, value)
+    tspec = self._get_json_tspec(info, value, use_ocdbt=self._use_ocdbt)
     tspec = _get_cast_tspec_serialize(tspec, value, args)
     commit_futures = []
     await serialization.async_serialize(
-        value, tspec, commit_future=commit_futures)
+        value, tspec, commit_future=commit_futures, context=self._ts_context
+    )
     return commit_futures
 
   async def deserialize(self,
@@ -339,13 +436,16 @@ class ArrayHandler(TypeHandler):
       sharding = jax.sharding.NamedSharding(args.mesh, args.mesh_axes)
     else:
       sharding = args.sharding
-    tspec = self._get_json_tspec(info)
+    # Using OCDBT, but existing checkpoint may be stored in old format.
+    use_ocdbt = self._use_ocdbt and is_ocdbt_checkpoint(info.path.parent)
+    tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
     tspec = _get_cast_tspec_deserialize(tspec, args)
     return await serialization.async_deserialize(
         sharding,
         tspec,
         global_shape=args.global_shape,
         byte_limiter=info.byte_limiter,
+        context=self._ts_context,
     )
 
 
@@ -375,10 +475,7 @@ _TYPE_REGISTRY = [
     (lambda ty: issubclass(ty, bytes), ScalarHandler()),
     (lambda ty: issubclass(ty, np.number), ScalarHandler()),
     (lambda ty: issubclass(ty, np.ndarray), NumpyHandler()),
-    (
-        lambda ty: issubclass(ty, jax.Array),
-        ArrayHandler(),
-    ),
+    (lambda ty: issubclass(ty, jax.Array), ArrayHandler()),
     (lambda ty: issubclass(ty, str), StringHandler()),
 ]
 
