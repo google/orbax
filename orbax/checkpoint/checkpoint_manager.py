@@ -449,10 +449,12 @@ class CheckpointManager:
 
     assert self._finalize_thread is None
     if self._all_checkpointers_are_sync:
-      self._finalize()
+      self._finalize(tmp_step_dir)
       utils.sync_global_devices('CheckpointManager:finalize')
     else:
-      self._finalize_thread = threading.Thread(target=self._finalize)
+      self._finalize_thread = threading.Thread(
+          target=self._finalize, args=(tmp_step_dir,)
+      )
       self._finalize_thread.start()
     return True
 
@@ -837,28 +839,37 @@ class CheckpointManager:
       if is_async_checkpointer(checkpointer):
         checkpointer.check_for_errors()  # pytype: disable=attribute-error
 
-  def _finalize_checkpoint(self):
-    """Moves tmp step checkpoint to final."""
+  def _finalize_checkpoint(self, temp_ckpt_dir: epath.Path):
+    """Moves tmp step checkpoint to final.
+
+    Args:
+      temp_ckpt_dir: The temporary checkpoint directory. If not None, only
+        finalize the checkpoints in `temp_ckpt_dir`. If None, it will iterate
+        through all temp checkpoints in `self.directory` and finalize them all.
+    """
     if jax.process_index() == 0:
       try:
         self.check_for_errors()
       except Exception as e:  # pylint: disable=broad-except
         logging.error(
-            'Received error: %s from Checkpointer. One or more items may not'
-            ' be finalized. Skipping finalization of step checkpoint.', e
+            (
+                'Received error: %s from Checkpointer. One or more items may'
+                ' not be finalized. Skipping finalization of step checkpoint.'
+            ),
+            e,
         )
         return
-      for tmp_file in utils.tmp_checkpoints(self.directory):
-        utils.ensure_atomic_save(
-            self.directory / tmp_file,
-            self._get_save_directory(
-                utils.step_from_checkpoint_name(tmp_file), self.directory
-            ),
-        )
+      utils.ensure_atomic_save(
+          temp_ckpt_dir,
+          self._get_save_directory(
+              utils.step_from_checkpoint_name(temp_ckpt_dir.name),
+              self.directory,
+          ),
+      )
 
-  def _finalize(self):
+  def _finalize(self, temp_ckpt_dir: epath.Path):
     """Cleans up old checkpoints and synchronizes hosts."""
     if not self._all_checkpointers_are_sync:
       self.wait_until_finished(join_finalize_thread=False)
-    self._finalize_checkpoint()
+    self._finalize_checkpoint(temp_ckpt_dir)
     self._remove_old_checkpoints()
