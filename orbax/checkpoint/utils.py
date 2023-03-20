@@ -110,6 +110,8 @@ def get_key_name(key: Any) -> Union[int, str]:
     return str(key.key)
   elif isinstance(key, jax.tree_util.GetAttrKey):
     return key.name
+  elif isinstance(key, jax.tree_util.FlattenedIndexKey):
+    return key.key
   else:
     raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
 
