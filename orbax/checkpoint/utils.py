@@ -110,6 +110,8 @@ def get_key_name(key: Any) -> Union[int, str]:
     return str(key.key)
   elif isinstance(key, jax.tree_util.GetAttrKey):
     return key.name
+  elif isinstance(key, jax.tree_util.FlattenedIndexKey):
+    return key.key
   else:
     raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
 
@@ -119,7 +121,9 @@ def _is_dict_key(key) -> bool:
 
 
 def _is_sequence_key(key) -> bool:
-  return isinstance(key, jax.tree_util.SequenceKey)
+  return isinstance(
+      key, (jax.tree_util.FlattenedIndexKey, jax.tree_util.SequenceKey)
+  )
 
 
 def _raise_unsupported_key_error(key):
