@@ -90,6 +90,71 @@ class CheckpointUtilsTest(absltest.TestCase):
       _check_restore_args(expected_restore_args['x'], restore_args['x'])
       _check_restore_args(expected_restore_args['y'], restore_args['y'])
 
+  def test_construct_restore_args(self):
+    devices = np.asarray(jax.devices())
+    mesh = jax.sharding.Mesh(devices, ('x',))
+    sharding_tree = {
+        'a': jax.sharding.NamedSharding(
+            mesh,
+            jax.sharding.PartitionSpec(
+                'x',
+            ),
+        ),
+        'x': None,
+        'y': None,
+    }
+    pytree = {
+        'a': test_utils.create_sharded_array(
+            np.arange(16, dtype=np.int32) * 1,
+            mesh,
+            jax.sharding.PartitionSpec(
+                'x',
+            ),
+        ),
+        'x': np.ones(8, dtype=np.float64),
+        'y': 1,
+    }
+
+    expected_restore_args = {
+        'a': ArrayRestoreArgs(
+            restore_type=jax.Array,
+            sharding=jax.sharding.NamedSharding(
+                mesh,
+                jax.sharding.PartitionSpec(
+                    'x',
+                ),
+            ),
+            global_shape=(16,),
+            dtype=np.int32,
+        ),
+        'x': RestoreArgs(restore_type=np.ndarray, dtype=np.float64),
+        'y': RestoreArgs(restore_type=int),
+    }
+    restore_args = checkpoint_utils.construct_restore_args(
+        pytree, sharding_tree
+    )
+
+    self.assertSameElements(expected_restore_args.keys(), restore_args.keys())
+
+    def _check_restore_args(expected, actual):
+      self.assertIsInstance(actual, RestoreArgs)
+      self.assertEqual(expected.restore_type, actual.restore_type)
+      self.assertEqual(expected.dtype, actual.dtype)
+
+    def _check_array_restore_args(expected, actual):
+      self.assertIsInstance(actual, ArrayRestoreArgs)
+      self.assertEqual(expected.restore_type, jax.Array)
+      self.assertEqual(expected.sharding.mesh, actual.sharding.mesh)
+      self.assertEqual(expected.sharding.spec, actual.sharding.spec)
+      self.assertEqual(expected.global_shape, actual.global_shape)
+      self.assertEqual(expected.dtype, actual.dtype)
+
+    with self.subTest(name='array_restore_args'):
+      _check_array_restore_args(expected_restore_args['a'], restore_args['a'])
+    with self.subTest(name='restore_args'):
+      _check_restore_args(expected_restore_args['x'], restore_args['x'])
+      _check_restore_args(expected_restore_args['y'], restore_args['y'])
+
 
 class CheckpointIteratorTest(absltest.TestCase):
 

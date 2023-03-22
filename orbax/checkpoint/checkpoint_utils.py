@@ -146,10 +146,13 @@ def checkpoints_iterator(
       time.sleep(time_to_next_eval)
 
 
+# TODO(b/274813763): Remove this function when no longer depended on by Flax.
 def restore_args_from_target(
     mesh: Mesh, target: PyTree, axes_tree: PyTree
 ) -> PyTree:
-  """Creates restore_args given a target PyTree.
+  """DEPRECATED, DO NOT USE.
+
+  Creates restore_args given a target PyTree.
 
   This method should be used in conjunction with a CheckpointManager or
   Checkpointer that wraps a PyTreeCheckpointHandler.
@@ -208,3 +211,63 @@ def restore_args_from_target(
       return type_handlers.RestoreArgs(restore_type=restore_type, dtype=dtype)
 
   return jax.tree_util.tree_map(_restore_args, target, axes_tree)
+
+
+def construct_restore_args(target: PyTree, sharding_tree: PyTree) -> PyTree:
+  """Creates restore_args given a target PyTree.
+
+  This method should be used in conjunction with a CheckpointManager or
+  Checkpointer that wraps a PyTreeCheckpointHandler.
+
+  For example:
+
+  mngr = CheckpointManager(path, Checkpointer(PyTreeCheckpointHandler()))
+  restore_args = construct_restore_args(train_state, train_state_sharding)
+  restore_kwargs = {'restore_args': restore_args}
+  mngr.restore(..., restore_kwargs=restore_kwargs)
+
+  OR
+
+  mngr = CheckpointManager(path, {
+      'train_state': Checkpointer(PyTreeCheckpointHandler())
+  })
+  restore_args = construct_restore_args(train_state, train_state_sharding)
+  restore_kwargs = {'train_state': {'restore_args': restore_args} }
+  mngr.restore(..., restore_kwargs=restore_kwargs)
+
+  OR
+
+  ckptr = Checkpointer(PyTreeCheckpointHandler())
+  restore_args = construct_restore_args(train_state, train_state_sharding)
+  ckptr.restore(..., restore_args=restore_args)
+
+  If a leaf in target does is a np.ndarray, or int, or string, for example, a
+  corresponding value for that leaf must be provided in axes_tree, but will be
+  ignored.
+
+  Args:
+    target: The returned value will match the structure of `target`, will be
+      used to set the desired dtype and restoration shape.
+    sharding_tree: A PyTree matching `target` which will be used to set the
+      restoration sharding.
+
+  Returns:
+    A PyTree matching target of RestoreArgs (or ArrayRestoreArgs) objects.
+  """
+
+  def _restore_args(value: Any, sharding: jax.sharding.Sharding):
+    restore_type = type(value)
+    dtype = None
+    if hasattr(value, 'dtype'):
+      dtype = value.dtype
+    if isinstance(value, jax.Array):
+      return type_handlers.ArrayRestoreArgs(
+          restore_type=restore_type,
+          sharding=sharding,
+          global_shape=value.shape,
+          dtype=value.dtype,
+      )
+    else:
+      return type_handlers.RestoreArgs(restore_type=restore_type, dtype=dtype)
+
+  return jax.tree_util.tree_map(_restore_args, target, sharding_tree)
