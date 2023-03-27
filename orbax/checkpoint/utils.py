@@ -526,6 +526,24 @@ def checkpoint_steps(checkpoint_dir: epath.PathLike) -> List[int]:
   ]
 
 
+def any_checkpoint_step(checkpoint_dir: epath.PathLike) -> Optional[int]:
+  """Returns any finalized checkpoint step in the directory or None.
+
+  This avoids iterating over the entire directory.
+
+  Args:
+    checkpoint_dir: Checkpoint directory.
+
+  Returns:
+    Any finalized checkpoint step in the directory or None.
+  """
+  checkpoint_dir = epath.Path(checkpoint_dir)
+  for s in checkpoint_dir.iterdir():
+    if _is_step_checkpoint(s) and is_checkpoint_finalized(s):
+      return step_from_checkpoint_name(s.name)
+  return None
+
+
 def is_checkpoint_finalized(path: epath.PathLike) -> bool:
   """Determines if the given path represents a finalized checkpoint.
 

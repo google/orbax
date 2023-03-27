@@ -187,6 +187,9 @@ class CheckpointIteratorTest(absltest.TestCase):
     test_utils.save_fake_tmp_dir(self.directory, 2, 'params')
     (self.directory / '3.foo').mkdir()
     self.assertSameElements([0, 1], utils.checkpoint_steps(self.directory))
+    self.assertContainsSubset(
+        {utils.any_checkpoint_step(self.directory)}, {0, 1}
+    )
     self.assertSameElements(
         [2],
         [
