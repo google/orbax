@@ -221,8 +221,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       aggregate_filename = _CHECKPOINT_FILE
     self._aggregate_filename = aggregate_filename
     self._concurrent_gb = concurrent_gb
-    if use_ocdbt:
-      type_handlers.register_standard_handlers_with_options(use_ocdbt=use_ocdbt)
+    self._use_ocdbt = use_ocdbt
 
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
@@ -297,12 +296,18 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         is_leaf=utils.is_empty_or_leaf,
     )
     param_infos = self._get_param_infos(item, directory, save_args)
-    # Create directories in parallel.
-    await asyncio.gather(*jax.tree_util.tree_flatten(
-        jax.tree_util.tree_map(_create_param_save_dir, param_infos, save_args))
-                         [0])
-    utils.sync_global_devices(
-        'PyTreeCheckpointHandler:create_param_save_dirs')
+    if not self._use_ocdbt:
+      # Create directories in parallel.
+      await asyncio.gather(
+          *jax.tree_util.tree_flatten(
+              jax.tree_util.tree_map(
+                  _create_param_save_dir, param_infos, save_args
+              )
+          )[0]
+      )
+      utils.sync_global_devices(
+          'PyTreeCheckpointHandler:create_param_save_dirs'
+      )
 
     async def serialize(value, info, args):
       if args.aggregate:
