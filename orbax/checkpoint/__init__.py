@@ -19,6 +19,7 @@ import functools
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import lazy_utils
+from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
