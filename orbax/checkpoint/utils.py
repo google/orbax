@@ -1,4 +1,4 @@
-# Copyright 2022 The Orbax Authors.
+# Copyright 2023 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -446,6 +446,7 @@ def ensure_atomic_save(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path):
   else:
     logging.info('Renaming %s to %s', temp_ckpt_dir, final_ckpt_dir)
     temp_ckpt_dir.rename(final_ckpt_dir)
+    logging.info('Renaming %s to %s done', temp_ckpt_dir, final_ckpt_dir)
 
 
 def record_saved_duration(checkpoint_start_time: float):
