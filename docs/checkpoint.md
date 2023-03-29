@@ -81,7 +81,6 @@ RestoreArgs and ArrayRestoreArgs.
 train_state = {
   ...
 }
-train_state_axes = jax.tree_map(lambda x: x.sharding.spec, train_state)
 options = CheckpointManagerOptions(max_to_keep=3, keep_period=2)
 mngr = CheckpointManager(
           'path/to/directory/', PyTreeCheckpointer(),
@@ -89,8 +88,9 @@ mngr = CheckpointManager(
 
 if mngr.latest_step() is not None:  # existing checkpoint present
   # Use convenience function to construct args.
-  restore_args = checkpoint_utils.restore_args_from_target(
-                    mesh, train_state, train_state_axes)
+  shardings = jax.tree_map(lambda x: x.sharding, train_state)
+  restore_args = checkpoint_utils.construct_restore_args(
+                    train_state, shardings)
   # Directly construct args.
   restore_args = jax.tree_map(
     lambda x: ArrayRestoreArgs(
