@@ -9,7 +9,7 @@ Orbax provides a flexible and customizable API for managing checkpoints for
 various objects.
 
 Check out our
-[colab](http://colab.research.google.com/github/google/orbax/blob/main/orbax//checkpoint/orbax_checkpoint.ipynb)
+[colab](http://colab.research.google.com/github/google/orbax/blob/main/checkpoint/orbax//checkpoint/orbax_checkpoint.ipynb)
 for some hands-on examples.
 
 

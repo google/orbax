@@ -28,7 +28,7 @@ dependencies = [
     'etils',
     'typing_extensions',
     'msgpack',
-    'jax >= 0.4.6',
+    'jax >= 0.4.8',
     'jaxlib',
     'numpy',
     'pyyaml',

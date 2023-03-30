@@ -17,5 +17,5 @@ flexibility for diverse use cases.
 
 To get started, check out our [documentation](https://github.com/google/orbax/blob/main/docs/checkpoint.md).
 
-Check out our [colab](http://colab.research.google.com/github/google/orbax/blob/main/orbax//checkpoint/orbax_checkpoint.ipynb) for a hands-on introduction.
+Check out our [colab](http://colab.research.google.com/github/google/orbax/blob/main/checkpoint/orbax//checkpoint/orbax_checkpoint.ipynb) for a hands-on introduction.
 
