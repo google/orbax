@@ -19,6 +19,7 @@ from typing import Mapping, Sequence
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+# TODO(b/275613424): Eliminate flax dependency in Orbax test suite.
 import flax
 import jax
 import optax

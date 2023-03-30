@@ -7,15 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- The PyPi `orbax` package is deprecated in favor of domain-specific namespace
-packages, namely `orbax-checkpoint` and `orbax-export`. Imports are unchanged,
-and still of the form `import orbax.checkpoint`.
-
-## [0.1.7] - 2022-03-29
+## [0.1.7] - 2022-03-28
 
 ### Added
-- Support for OCDBT driver in Tensorstore.
+- `orbax-checkpoint` is introduced, a namespace package under `orbax`. Importing
+this package takes the form `import orbax.checkpoint` or 'from orbax import
+checkpoint`.
 
 ## [0.1.6] - 2022-03-22
 
@@ -27,6 +24,7 @@ and still of the form `import orbax.checkpoint`.
 ### Added
 - Use a more precise timestamp when generating temporary directory names to
 permit more than one concurrent checkpointing attempt per second.
+- Automatic import of nest_asyncio.
 
 ## [0.1.4] - 2022-03-15
 
@@ -40,7 +38,7 @@ permit more than one concurrent checkpointing attempt per second.
 ## [0.1.3] - 2022-03-03
 
 ### Added
-- `sharding` option on `ArrayRestoreArgs`
+- `sharding` option on `ArrayRestoreArgs
 
 ## [0.1.2] - 2022-02-17
 

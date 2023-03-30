@@ -1,9 +1,13 @@
 # Orbax
 
 [Orbax](https://github.com/google/orbax/blob/main/docs/index.md) is a
-library providing common utilities for JAX users.
+namespace providing common utility libraries for JAX users.
 
 ## Checkpointing
+
+`pip install orbax-checkpoint`
+
+`import orbax.checkpoint`
 
 Orbax includes a checkpointing library oriented towards JAX users, supporting a
 variety of different features required by different frameworks, including

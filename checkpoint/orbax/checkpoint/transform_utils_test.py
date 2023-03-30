@@ -16,6 +16,7 @@
 from typing import List, Mapping
 
 from absl.testing import absltest
+# TODO(b/275613424): Eliminate flax dependency in Orbax test suite.
 import flax
 import flax.linen as nn
 from flax.training.train_state import TrainState

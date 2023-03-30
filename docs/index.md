@@ -5,7 +5,7 @@
 
 ## Introduction
 
-Orbax is a library providing training utilities for JAX users. At the moment, it
+Orbax is a namespace providing training utilities for JAX users. At the moment, it
 only provides a checkpointing library, detailed below.
 
 

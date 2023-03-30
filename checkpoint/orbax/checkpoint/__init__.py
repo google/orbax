@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Defines exported symbols for the `orbax` packageorbax.checkpoint."""
+"""Defines exported symbols for the namespace package `orbax.checkpoint`."""
 
 import functools
 
@@ -54,3 +54,6 @@ if _in_ipython_session:
 # we can just use:
 #   `checkpointer = PyTreeCheckpointer()`
 PyTreeCheckpointer = functools.partial(Checkpointer, PyTreeCheckpointHandler())
+
+# A new PyPI release will be pushed everytime `__version__` is increased.
+__version__ = '0.1.6'

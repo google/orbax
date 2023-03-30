@@ -12,6 +12,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: checkpoint
     strategy:
       matrix:
         python-version: [3.8, 3.9]
@@ -26,11 +29,15 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
+      # TODO(b/275613424): remove `pip install -e .` and `pip uninstall -y orbax`.
+      # Currently in place to override remote orbax import due to flax dependency.
       run: |
+        pip install -e .
         pip install -e .[dev] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip uninstall -y orbax
     - name: Test with pytest
       run: |
-        pytest
+        python -m pytest
     # The below step just reports the success or failure of tests as a "commit status".
     # This is needed for copybara integration.
     - name: Report success or failure as github status
@@ -49,3 +56,4 @@ jobs:
             "description": "'$status'",
             "context": "github-actions/build"
             }'
+
