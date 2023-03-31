@@ -67,6 +67,9 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     atomicity. Must first block until any previous save operations running in
     the background are completed.
 
+    This method should be called by all hosts - process synchronization and
+    actions that need to be performed on only one host are managed internally.
+
     Args:
       directory: a path to which to save.
       item: an object to save, supported by a CheckpointHandler.

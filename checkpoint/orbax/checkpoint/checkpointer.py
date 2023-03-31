@@ -47,6 +47,9 @@ class Checkpointer(AbstractCheckpointer):
     Delegates to the underlying CheckpointHandler. Ensures save operation
     atomicity.
 
+    This method should be called by all hosts - process synchronization and
+    actions that need to be performed on only one host are managed internally.
+
     Args:
       directory: a path to which to save.
       item: an object to save, supported by a CheckpointHandler.

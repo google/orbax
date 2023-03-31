@@ -356,6 +356,9 @@ class CheckpointManager:
            force: Optional[bool] = False) -> bool:
     """Saves the provided items.
 
+    This method should be called by all hosts - process synchronization and
+    actions that need to be performed on only one host are managed internally.
+
     Items and save_kwargs must have a top-level structure matching that of
     self._checkpointers, meaning that for every key in items and save_kwargs, a
     corresponding key must be present in self._checkpointers.
@@ -467,6 +470,9 @@ class CheckpointManager:
       directory: Optional[epath.PathLike] = None
   ) -> Union[Any, Mapping[str, Any]]:
     """Restores from the given step and provided items.
+
+    This method should be called by all hosts - process synchronization and
+    actions that need to be performed on only one host are managed internally.
 
     Items and restore_kwargs must have a top-level structure matching that of
     self._checkpointers, meaning that for every key in items and restore_kwargs,
