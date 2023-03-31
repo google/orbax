@@ -7,12 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2022-03-31
+
+### Changed
+- Increased minimum tensorstore version to what's needed for OCDBT.
+
 ## [0.1.7] - 2022-03-28
 
 ### Added
 - `orbax-checkpoint` is introduced, a namespace package under `orbax`. Importing
 this package takes the form `import orbax.checkpoint` or 'from orbax import
 checkpoint`.
+- Support for OCDBT driver in Tensorstore.
 
 ## [0.1.6] - 2022-03-22
 
