@@ -13,7 +13,6 @@
 # limitations under the License.
 
 """Test for utils.py."""
-
 from typing import Mapping, Sequence
 
 from absl.testing import absltest
@@ -176,6 +175,34 @@ class UtilsTest(parameterized.TestCase):
         'd': [{}, {'x': 'y'}, None],
     }
     self.assertDictEqual(expected, serialized)
+
+  def test_checkpoint_steps_paths_nonexistent_directory_fails(self):
+    with self.assertRaisesRegex(ValueError, 'does not exist'):
+      utils.checkpoint_steps_paths('/non/existent/dir')
+
+  def test_checkpoint_steps_paths_returns_finalized_paths(self):
+    digit_only_path = epath.Path(self.directory / '2')
+    digit_only_path.mkdir()
+    prefix_path = epath.Path(self.directory / 'checkpoint_01')
+    prefix_path.mkdir()
+    epath.Path(self.directory / 'checkpoint').mkdir()
+    epath.Path(self.directory / '1000.orbax-checkpoint-tmp-1010101').mkdir()
+
+    self.assertCountEqual(
+        utils.checkpoint_steps_paths(self.directory),
+        [digit_only_path, prefix_path],
+    )
+
+  def test_checkpoint_steps_returns_steps_of_finalized_paths(self):
+    epath.Path(self.directory / '2').mkdir()
+    epath.Path(self.directory / 'checkpoint_01').mkdir()
+    epath.Path(self.directory / 'checkpoint').mkdir()
+    epath.Path(self.directory / '1000.orbax-checkpoint-tmp-1010101').mkdir()
+
+    self.assertEqual(
+        utils.checkpoint_steps(self.directory),
+        [2, 1],
+    )
 
 
 if __name__ == '__main__':

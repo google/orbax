@@ -516,13 +516,26 @@ def step_from_checkpoint_name(name: str) -> int:
   raise ValueError(f'Unrecognized name format: {name}.')
 
 
+def checkpoint_steps_paths(
+    checkpoint_dir: epath.PathLike,
+) -> List[epath.Path]:
+  """Returns a list of finalized checkpoint paths in the directory."""
+  checkpoint_dir = epath.Path(checkpoint_dir)
+  if not checkpoint_dir.exists():
+    raise ValueError(f'Path {checkpoint_dir} does not exist.')
+  return [
+      step_dir
+      for step_dir in checkpoint_dir.iterdir()
+      if _is_step_checkpoint(step_dir) and is_checkpoint_finalized(step_dir)
+  ]
+
+
 def checkpoint_steps(checkpoint_dir: epath.PathLike) -> List[int]:
   """Returns a list of finalized checkpoint steps in the directory."""
   checkpoint_dir = epath.Path(checkpoint_dir)
   return [
       step_from_checkpoint_name(s.name)
-      for s in checkpoint_dir.iterdir()
-      if _is_step_checkpoint(s) and is_checkpoint_finalized(s)
+      for s in checkpoint_steps_paths(checkpoint_dir)
   ]
 
 
