@@ -17,7 +17,10 @@
 TODO(b/266449081) Increase unit test coverage.
 """
 import asyncio
+from collections.abc import Sequence
+import dataclasses
 import functools
+import heapq
 import os
 import re
 import time
@@ -501,6 +504,47 @@ def _is_step_checkpoint(path: epath.Path) -> bool:
   name = os.fspath(path.name)
   # Path must be a directory and either a digit, or end in '_' + digit.
   return path.is_dir() and (name.isdigit() or name.split('_')[-1].isdigit())
+
+
+@dataclasses.dataclass(frozen=True)
+class StepCheckpoint:
+  """Holds checkpoint steps and their paths."""
+
+  step: int
+  path: str
+
+
+def _get_checkpoint_steps(
+    checkpoint_dir: epath.PathLike,
+) -> list[StepCheckpoint]:
+  """Returns a list of steps and their checkpoint paths."""
+  checkpoint_dir = epath.Path(checkpoint_dir)
+  checkpoints = []
+  for path in checkpoint_dir.iterdir():
+    if _is_step_checkpoint(path) and is_checkpoint_finalized(path):
+      checkpoints.append(
+          StepCheckpoint(step_from_checkpoint_name(path.name), str(path))
+      )
+  return checkpoints
+
+
+def get_last_n_checkpoints(
+    checkpoint_base_dir: epath.PathLike,
+    last_n: int,
+) -> Sequence[StepCheckpoint]:
+  """Returns the paths to checkpoints ordered descendingly by their step number.
+
+  Args:
+    checkpoint_base_dir: Path like "/tmp/.../checkpoints".
+    last_n: Number of most-recent directories to return. This method supports
+      paths that include steps with different formatings e.g. "checkpoint_100"
+      and "checkpoint_000100.
+  """
+  checkpoints_path = epath.Path(checkpoint_base_dir)
+  if not checkpoints_path.exists():
+    raise ValueError(f'Path {checkpoints_path} does not exist.')
+  checkpoints = _get_checkpoint_steps(checkpoints_path)
+  return heapq.nlargest(last_n, checkpoints, key=lambda x: x.step)
 
 
 def step_from_checkpoint_name(name: str) -> int:

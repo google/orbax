@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """Test for utils.py."""
-
+import os
 from typing import Mapping, Sequence
 
 from absl.testing import absltest
@@ -176,6 +176,49 @@ class UtilsTest(parameterized.TestCase):
         'd': [{}, {'x': 'y'}, None],
     }
     self.assertDictEqual(expected, serialized)
+
+  def test_get_last_n_checkpoints_non_existent_dir_fails(self):
+    with self.assertRaisesRegex(ValueError, 'does not exist'):
+      utils.get_last_n_checkpoints('/non/existent/dir', 1)
+
+  def test_get_last_n_checkpoints(self):
+    path1 = os.path.join(self.directory, 'checkpoint_1')
+    os.makedirs(path1)
+    path2 = os.path.join(self.directory, '2')
+    os.makedirs(path2)
+    path3 = os.path.join(self.directory, 'checkpoint_003')
+    os.makedirs(path3)
+
+    # Setting last_n=1 returns step 3.
+    self.assertEqual(
+        utils.get_last_n_checkpoints(self.directory, 1),
+        [utils.StepCheckpoint(step=3, path=path3)],
+    )
+    # Setting last_n=2 returns step3 and step 2.
+    self.assertEqual(
+        utils.get_last_n_checkpoints(self.directory, 2),
+        [
+            utils.StepCheckpoint(step=3, path=path3),
+            utils.StepCheckpoint(step=2, path=path2),
+        ],
+    )
+    # Setting last_n={3, 4...} returns all paths sorted by step decreasingly.
+    self.assertEqual(
+        utils.get_last_n_checkpoints(self.directory, 3),
+        [
+            utils.StepCheckpoint(step=3, path=path3),
+            utils.StepCheckpoint(step=2, path=path2),
+            utils.StepCheckpoint(step=1, path=path1),
+        ],
+    )
+    self.assertEqual(
+        utils.get_last_n_checkpoints(self.directory, 4),
+        [
+            utils.StepCheckpoint(step=3, path=path3),
+            utils.StepCheckpoint(step=2, path=path2),
+            utils.StepCheckpoint(step=1, path=path1),
+        ],
+    )
 
 
 if __name__ == '__main__':
