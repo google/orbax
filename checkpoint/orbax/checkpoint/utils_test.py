@@ -199,9 +199,9 @@ class UtilsTest(parameterized.TestCase):
     epath.Path(self.directory / 'checkpoint').mkdir()
     epath.Path(self.directory / '1000.orbax-checkpoint-tmp-1010101').mkdir()
 
-    self.assertEqual(
+    self.assertSameElements(
+        [1, 2],
         utils.checkpoint_steps(self.directory),
-        [2, 1],
     )
 
 

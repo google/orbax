@@ -140,8 +140,12 @@ def _get_tree_for_aggregation(param_infos, save_args, item):
 
 
 def _transform_structure(
-    item: PyTree, restored: PyTree, param_infos: PyTree, transforms: PyTree,
-    transforms_default_to_original: bool) -> Tuple[PyTree, PyTree]:
+    item: PyTree,
+    restored: PyTree,
+    param_infos: PyTree,
+    transforms: PyTree,
+    transforms_default_to_original: bool,
+) -> Tuple[PyTree, PyTree]:
   """Transforms `restored` and `param_infos` into the structure of `item`.
 
   After restoring a checkpoint structure (represented by `restored`), we must
@@ -162,8 +166,8 @@ def _transform_structure(
     transforms_default_to_original: See transform_utils.
 
   Returns:
-    A pair of `item`, `param_infos` which have been transformed from the
-    original trees using `transforms`.
+    A tuple of `item`, `param_infos`, which have
+    been transformed from the original trees using `transforms`.
   """
   if item is None:
     if transforms is not None:
@@ -176,9 +180,8 @@ def _transform_structure(
       param_infos = utils.deserialize_tree(item, param_infos)
       item = utils.deserialize_tree(item, restored)
     else:
-      if transform_utils.has_value_functions(transforms):
-        raise ValueError(
-            'Found disallowed `value_fn` or `multi_value_fn` in `transforms`.')
+      if transform_utils.has_multi_value_functions(transforms):
+        raise ValueError('Found disallowed `multi_value_fn` in `transforms`.')
       item = transform_utils.apply_transformations(
           restored, transforms, item, transforms_default_to_original)
       # param_infos must be transformed because the ts.Spec of saved params
@@ -192,6 +195,13 @@ def _transform_structure(
       param_infos = jax.tree_util.tree_map(
           _create_param_info_if_already_restored, param_infos)
   return item, param_infos
+
+
+def _apply_value_transforms(item: PyTree, value_transforms: PyTree) -> PyTree:
+  if value_transforms is None:
+    return item
+  # Structure is not being altered, only values.
+  return transform_utils.apply_transformations(item, value_transforms, item)
 
 
 class PyTreeCheckpointHandler(AsyncCheckpointHandler):
@@ -425,8 +435,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     Raises:
       FileNotFoundError: `directory` does not exist or is missing required files
       ValueError: `transforms` is provided without `item`.
-      ValueError: `transforms` contains elements with `value_fn` or
-        `multi_value_fn`.
+      ValueError: `transforms` contains elements with `multi_value_fn`.
     """
     if not directory.exists():
       raise FileNotFoundError(
@@ -434,9 +443,15 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     restored_structure = self.structure(directory)
     param_infos = _get_param_infos_from_structure(directory, restored_structure)
+
     if transform_fn is not None and transforms is not None:
       raise ValueError('Cannot provide both `transforms` and `transform_fn`.')
+    value_transforms = None
     if transform_fn is None:
+      if transforms is not None:
+        transforms, value_transforms = transform_utils.separate_value_functions(
+            transforms
+        )
       item, param_infos = _transform_structure(
           item,
           restored_structure,
@@ -472,6 +487,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       return jax.tree_util.tree_unflatten(tree_structure, result)
 
     restored_item = asyncio.run(_async_restore(param_infos, item, restore_args))
+    restored_item = _apply_value_transforms(restored_item, value_transforms)
 
     utils.sync_global_devices('PyTreeCheckpointHandler:restore')
     return restored_item

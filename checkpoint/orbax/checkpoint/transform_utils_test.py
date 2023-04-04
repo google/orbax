@@ -75,12 +75,17 @@ class TransformUtilsTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       apply_transformations(original, transforms, {'b': ...})
 
-  def test_has_value_functions(self):
+  def test_has_multi_value_functions(self):
     self.assertTrue(
-        transform_utils.has_value_functions(
-            {'a': Transform(original_key='a', value_fn=lambda x: x * 2)}))
+        transform_utils.has_multi_value_functions(
+            {'a': Transform(original_key='a', multi_value_fn=lambda x: x * 2)}
+        )
+    )
     self.assertFalse(
-        transform_utils.has_value_functions({'a': Transform(original_key='b')}))
+        transform_utils.has_multi_value_functions(
+            {'a': Transform(original_key='b')}
+        )
+    )
 
   def test_rename(self):
     transforms = {

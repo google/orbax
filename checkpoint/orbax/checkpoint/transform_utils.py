@@ -72,20 +72,60 @@ class Transform:
   multi_value_fn: Optional[ValueTransformFunction] = None
 
 
-def has_value_functions(pytree: PyTree) -> bool:
+def _has_value_function(transform: Transform) -> bool:
+  return transform.value_fn is not None or transform.multi_value_fn is not None
+
+
+def _has_multi_value_function(transform: Transform) -> bool:
+  return transform.multi_value_fn is not None
+
+
+def has_multi_value_functions(transforms_tree: PyTree) -> bool:
   """Returns True if a PyTree contains any Transform elements with value_fn or multi_value_fn."""
-  result = False
+  has_value_fns_tree = jax.tree_util.tree_map(
+      _has_multi_value_function,
+      transforms_tree,
+      is_leaf=lambda x: isinstance(x, Transform),
+  )
+  return any(jax.tree_util.tree_flatten(has_value_fns_tree)[0])
 
-  def elem_has_value_functions(transform: Transform):
-    nonlocal result
-    if transform.value_fn is not None or transform.multi_value_fn is not None:
-      result = True
 
-  jax.tree_util.tree_map(
-      elem_has_value_functions,
-      pytree,
-      is_leaf=lambda x: isinstance(x, Transform))
-  return result
+def separate_value_functions(transforms_tree: PyTree) -> Tuple[PyTree, PyTree]:
+  """Separates transformation functions based on whether value_fn is present.
+
+  Args:
+    transforms_tree: A tree of Transform objects.
+
+  Returns:
+    A tuple of trees of Transform objects. Both have the same structure as the
+    input tree. However, the first has all `value_fn` options replaced with
+    None. The second keeps only `value_fn` options - all others are replaced
+    by identity Transformations.
+  """
+
+  def _get_transform_without_value_fn(transform: Transform) -> Transform:
+    if _has_value_function(transform):
+      transform = dataclasses.replace(transform, value_fn=None)
+    return transform
+
+  def _get_value_fn_only(transform: Transform) -> Transform:
+    if _has_value_function(transform):
+      return Transform(value_fn=transform.value_fn)
+    else:
+      return Transform()
+
+  return (
+      jax.tree_util.tree_map(
+          _get_transform_without_value_fn,
+          transforms_tree,
+          is_leaf=lambda x: isinstance(x, Transform),
+      ),
+      jax.tree_util.tree_map(
+          _get_value_fn_only,
+          transforms_tree,
+          is_leaf=lambda x: isinstance(x, Transform),
+      ),
+  )
 
 
 # TODO(b/233407026) Add additional error checking.
