@@ -75,25 +75,33 @@ class ExportManager(ExportManagerBase):
     """Returns a map of signature keys to serving functions."""
     return self._serving_signatures
 
-  def save(self,
-           model_path: str,
-           save_options: Optional[tf.saved_model.SaveOptions] = None):
+  def save(
+      self,
+      model_path: str,
+      save_options: Optional[tf.saved_model.SaveOptions] = None,
+      signature_overrides: Optional[Mapping[str, Callable[..., Any]]] = None,
+  ):
     """Saves the JAX model to a Savemodel.
 
     Args:
       model_path: a directory in which to write the SavedModel.
       save_options: an optional tf.saved_model.SaveOptions for configuring save
         options.
+      signature_overrides: signatures to override the self-maintained ones, or
+        additional signatures to export.
     """
     save_options = save_options or tf.saved_model.SaveOptions()
     save_options.experimental_custom_gradients = (
         self._module.computation_module.with_gradient
     )
+
+    serving_signatures = dict(self.serving_signatures)
+    if signature_overrides:
+      serving_signatures.update(signature_overrides)
+
     tf.saved_model.save(
-        self.tf_module,
-        model_path,
-        self.serving_signatures,
-        options=save_options)
+        self.tf_module, model_path, serving_signatures, options=save_options
+    )
 
     if get_current_dtensor_mesh():
       # TODO(b/261191533): we can remove this once tf.saved_model.save is aware
