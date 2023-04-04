@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The PyPi `orbax` package is deprecated in favor of domain-specific namespace
 packages, namely `orbax-checkpoint` and `orbax-export`. Imports are unchanged,
-and still of the form `import orbax.checkpoint`.
+and still of the form `import orbax.checkpoint` or `import orbax.export`.
 
 ## [0.1.7] - 2022-03-29
 

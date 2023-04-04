@@ -1,0 +1,47 @@
+[build-system]
+requires = ["flit_core >=3.5,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "orbax-export"
+description = "Orbax Export"
+readme = 'README.md'
+license = {file = 'LICENSE'}
+requires-python = '>=3.9'
+authors = [{name = 'Orbax Authors', email='orbax-dev@google.com'}]
+classifiers=[
+    'Development Status :: 4 - Beta',
+    'Intended Audience :: Developers',
+    'Intended Audience :: Science/Research',
+    'License :: OSI Approved :: Apache Software License',
+    'Programming Language :: Python',
+    'Topic :: Scientific/Engineering :: Artificial Intelligence',
+]
+
+keywords = ["JAX machine learning", "serialization", "export"]
+
+dependencies = [
+    'absl-py',
+    'etils',
+    'orbax-checkpoint',
+    'jax >= 0.4.8',
+    'jaxlib',
+    'numpy',
+    'dataclasses-json',
+    'tensorflow',
+]
+
+dynamic = ['version']
+
+[tool.flit.module]
+name = "orbax.export"
+
+[project.urls]
+homepage = 'http://github.com/google/orbax'
+repository = 'http://github.com/google/orbax'
+
+[project.optional-dependencies]
+dev = [
+    'pytest',
+    'pytest-xdist'
+]

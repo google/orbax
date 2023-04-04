@@ -3,7 +3,7 @@ name: Auto-publish
 on: [push, workflow_dispatch]
 
 jobs:
-  publish-job:
+  publish-checkpoint-job:
     # Only try to publish if:
     # * Repo is self (prevents running from forks)
     # * Branch is `main`
@@ -22,3 +22,23 @@ jobs:
         pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_CKPT }}
         path: "./checkpoint/"
         pkg-name: orbax-checkpoint
+
+  publish-export-job:
+    # Only try to publish if:
+    # * Repo is self (prevents running from forks)
+    # * Branch is `main`
+    if: |
+      github.repository == 'google/orbax'
+      && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 30
+
+    steps:
+    # 1. Publish the sub-packages first
+    - uses: etils-actions/pypi-auto-publish@v1
+      with:
+        pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_EXPT }}
+        path: "./export/"
+        pkg-name: orbax-export
