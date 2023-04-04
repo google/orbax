@@ -14,3 +14,8 @@ only provides a checkpointing library, detailed below.
 ### [Checkpointing](checkpoint.md)
 
 This documentation illustrates how checkpointing works using Orbax.
+
+### [Exporting](export.md)
+
+This documentation illustrates how to use the Orbax Export library to export JAX
+models to the SavedModel format.
