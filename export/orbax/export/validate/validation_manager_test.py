@@ -148,9 +148,13 @@ class ValidationManagerTest(tf.test.TestCase, parameterized.TestCase):
     serving_configs = [
         ServingConfig(
             'without_processors',
-            input_signature=[{
-                'feature1': tf.TensorSpec((), tf.dtypes.int32, 'feature1')
-            }],
+            input_signature=[
+                {
+                    'feature1': tf.TensorSpec(
+                        (None,), tf.dtypes.int32, 'feature1'
+                    )
+                }
+            ],
         ),
     ]
     params = {'bias': jnp.array(0)}
@@ -162,7 +166,7 @@ class ValidationManagerTest(tf.test.TestCase, parameterized.TestCase):
         results[str(i)] = y + i
       return results
 
-    jax_module = JaxModule(params, apply_fn)
+    jax_module = JaxModule(params, apply_fn, input_polymorphic_shape='b, ...')
     batch_input = list(np.arange(16).reshape((16, 1)).astype(np.int32))
     batch_input = [{'feature1': i} for i in batch_input]
     em = ExportManager(
@@ -183,7 +187,7 @@ class ValidationManagerTest(tf.test.TestCase, parameterized.TestCase):
               ServingConfig(
                   'with_processors',
                   input_signature=[
-                      {'feat': tf.TensorSpec((), tf.dtypes.int32, 'feat')}
+                      {'feat': tf.TensorSpec((None,), tf.dtypes.int32, 'feat')}
                   ],
                   tf_preprocessor=_from_feature_dict,
                   tf_postprocessor=_add_output_name,
@@ -195,7 +199,7 @@ class ValidationManagerTest(tf.test.TestCase, parameterized.TestCase):
   def test_perf(self, serving_configs, with_xprof):
     params = {'bias': jnp.array(1)}
     apply_fn = lambda p, x: x + p['bias']
-    jax_module = JaxModule(params, apply_fn)
+    jax_module = JaxModule(params, apply_fn, input_polymorphic_shape='b, ...')
     batch_input = list(np.arange(128).reshape((16, 8)).astype(np.int32))
     batch_input = [{'feat': i} for i in batch_input]
     em = ExportManager(
