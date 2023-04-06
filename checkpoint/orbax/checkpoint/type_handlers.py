@@ -88,7 +88,11 @@ def create_coordinator_server_and_context() -> (
   ocdbt_address = jax_global_state.client.blocking_key_value_get(
       'ocdbt_coordinator', _COORDINATOR_SETUP_TIMEOUT_SECS * 1000
   )
-  ts_context = {'ocdbt_coordinator': {'address': ocdbt_address}}
+  ts_context = {
+      'ocdbt_coordinator': {'address': ocdbt_address},
+      # Provide cache pool for B-tree nodes to avoid repeated reads.
+      'cache_pool#ocdbt': {'total_bytes_limit': 100000000},
+  }
   return (
       ts.Context(ts_context, parent=serialization.TS_CONTEXT),
       coordinator_server,
@@ -231,6 +235,26 @@ def _get_cast_tspec_deserialize(tspec, args):
   return tspec
 
 
+def _add_base_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
+  tspec.update({'recheck_cached_data': False, 'recheck_cached_metadata': False})
+  tspec['kvstore'].update({  # Enable read coalescing.
+      'experimental_read_coalescing_threshold_bytes': 1000000,
+      # References the cache specified in ts.Context.
+      'cache_pool': 'cache_pool#ocdbt',
+  })
+  return tspec
+
+
+def _add_write_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
+  tspec['kvstore']['config'] = {
+      # Store .zarray metadata inline but not large chunks.
+      'max_inline_value_bytes': 1024,
+      # Large value allows a single root node to support faster traversal.
+      'max_decoded_node_bytes': 100000000,
+  }
+  return tspec
+
+
 class NumpyHandler(TypeHandler):
   """Provides an implementation of TypeHandler for replicated numpy arrays."""
 
@@ -279,7 +303,22 @@ class NumpyHandler(TypeHandler):
     if value is not None:
       tspec['metadata']['shape'] = value.shape
       tspec['metadata']['chunks'] = value.shape
+    if use_ocdbt:
+      tspec = _add_base_tspec_ocdbt_options(tspec)
     return tspec
+
+  def _get_json_tspec_write(
+      self, info: ParamInfo, value: Any, use_ocdbt: bool = False
+  ) -> Dict[str, Any]:
+    tspec = self._get_json_tspec(info, value, use_ocdbt=use_ocdbt)
+    if use_ocdbt:
+      tspec = _add_write_tspec_ocdbt_options(tspec)
+    return tspec
+
+  def _get_json_tspec_read(
+      self, info: ParamInfo, use_ocdbt: bool = False
+  ) -> Dict[str, Any]:
+    return self._get_json_tspec(info, None, use_ocdbt=use_ocdbt)
 
   async def serialize(self,
                       value: np.ndarray,
@@ -287,7 +326,7 @@ class NumpyHandler(TypeHandler):
                       args: Optional[SaveArgs] = None) -> List[Future]:
     """Uses Tensorstore to serialize a numpy array."""
     args = args or SaveArgs()
-    tspec = self._get_json_tspec(info, value, use_ocdbt=self._use_ocdbt)
+    tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
     tspec = _get_cast_tspec_serialize(tspec, value, args)
     t = await ts.open(
         ts.Spec(tspec), create=True, open=True, context=self._ts_context
@@ -304,7 +343,7 @@ class NumpyHandler(TypeHandler):
 
     # Using OCDBT, but existing checkpoint may be stored in old format.
     use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
-    tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
+    tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
     tspec = _get_cast_tspec_deserialize(tspec, args)
     t = await ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
     return await t.read()
@@ -399,14 +438,29 @@ class ArrayHandler(TypeHandler):
     if value is not None:
       tspec['metadata'] = serialization._get_metadata(value)  # pylint: disable=protected-access
       del tspec['metadata']['dtype']
+    if use_ocdbt:
+      tspec = _add_base_tspec_ocdbt_options(tspec)
     return tspec
+
+  def _get_json_tspec_write(
+      self, info: ParamInfo, value: Any, use_ocdbt: bool = False
+  ) -> Dict[str, Any]:
+    tspec = self._get_json_tspec(info, value, use_ocdbt=use_ocdbt)
+    if use_ocdbt:
+      tspec = _add_write_tspec_ocdbt_options(tspec)
+    return tspec
+
+  def _get_json_tspec_read(
+      self, info: ParamInfo, use_ocdbt: bool = False
+  ) -> Dict[str, Any]:
+    return self._get_json_tspec(info, None, use_ocdbt=use_ocdbt)
 
   async def serialize(
       self, value: jax.Array, info: ParamInfo, args: Optional[SaveArgs] = None
   ) -> List[Future]:
     """See superclass documentation."""
     args = args or SaveArgs()
-    tspec = self._get_json_tspec(info, value, use_ocdbt=self._use_ocdbt)
+    tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
     tspec = _get_cast_tspec_serialize(tspec, value, args)
     commit_futures = []
     await serialization.async_serialize(
@@ -444,7 +498,7 @@ class ArrayHandler(TypeHandler):
       sharding = args.sharding
     # Using OCDBT, but existing checkpoint may be stored in old format.
     use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
-    tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
+    tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
     tspec = _get_cast_tspec_deserialize(tspec, args)
     return await serialization.async_deserialize(
         sharding,
