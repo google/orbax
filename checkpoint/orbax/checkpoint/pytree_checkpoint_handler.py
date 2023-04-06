@@ -100,6 +100,7 @@ def _get_param_infos_from_structure(directory: epath.Path,
                                     structure: PyTree) -> PyTree:
   """Construct ParamInfos based on a PyTree."""
   names = _get_param_names(structure)
+  is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
 
   def _get_param_info(name, leaf):
     if utils.leaf_is_placeholder(leaf):
@@ -116,7 +117,12 @@ def _get_param_infos_from_structure(directory: epath.Path,
       path = None
     else:
       raise ValueError(f'Unsupported type: {type(leaf)}')
-    return ParamInfo(name=name, path=path, aggregate=(path is None))
+    return ParamInfo(
+        name=name,
+        path=path,
+        aggregate=(path is None),
+        is_ocdbt_checkpoint=is_ocdbt_checkpoint,
+    )
 
   return jax.tree_util.tree_map(
       _get_param_info, names, structure, is_leaf=utils.is_empty_or_leaf

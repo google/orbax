@@ -107,11 +107,16 @@ class ParamInfo:
   path: A path providing a location where file(s) should be saved. The path is
     assumed to be a directory.
   aggregate: whether the parameter should be / was aggregated.
+  byte_limiter: object to limit the number of bytes that can be read in
+    parallel.
+  is_ocdbt_checkpoint: indicates whether the checkpoint path uses OCDBT format
+    or not. Only used for restoration.
   """
   name: Optional[str] = None
   path: Optional[epath.Path] = None
   aggregate: Optional[bool] = None
   byte_limiter: Optional[serialization._LimitInFlightBytes] = None  # pylint: disable=protected-access
+  is_ocdbt_checkpoint: Optional[bool] = None
 
 
 @dataclasses.dataclass
@@ -298,7 +303,7 @@ class NumpyHandler(TypeHandler):
     args = args or RestoreArgs()
 
     # Using OCDBT, but existing checkpoint may be stored in old format.
-    use_ocdbt = self._use_ocdbt and is_ocdbt_checkpoint(info.path.parent)
+    use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
     tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
     tspec = _get_cast_tspec_deserialize(tspec, args)
     t = await ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
@@ -438,7 +443,7 @@ class ArrayHandler(TypeHandler):
     else:
       sharding = args.sharding
     # Using OCDBT, but existing checkpoint may be stored in old format.
-    use_ocdbt = self._use_ocdbt and is_ocdbt_checkpoint(info.path.parent)
+    use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
     tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
     tspec = _get_cast_tspec_deserialize(tspec, args)
     return await serialization.async_deserialize(

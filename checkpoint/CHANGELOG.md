@@ -6,7 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Added
 - Add support for `value_fn` transformations during restore.
+
+### Fixed
+- Slow repeated calls to check whether a checkpoint is OCDBT format or not.
 
 ## [0.1.8] - 2022-03-31
 
