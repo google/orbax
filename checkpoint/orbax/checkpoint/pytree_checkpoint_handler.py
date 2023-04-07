@@ -21,7 +21,7 @@ import asyncio
 import dataclasses
 import functools
 import re
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 from etils import epath
 import jax
@@ -46,6 +46,8 @@ TypeHandler = type_handlers.TypeHandler
 AggregateHandler = aggregate_handlers.AggregateHandler
 MsgpackHandler = aggregate_handlers.MsgpackHandler
 TransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
+Transform = transform_utils.Transform
+LazyValue = lazy_utils.LazyValue
 
 _TYPE_METADATA_FILE = 'type_metadata'
 _CHECKPOINT_FILE = 'checkpoint'
@@ -102,7 +104,7 @@ def _get_param_infos_from_structure(directory: epath.Path,
   names = _get_param_names(structure)
   is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
 
-  def _get_param_info(name, leaf):
+  def _get_param_info(name: str, leaf: Any) -> ParamInfo:
     if utils.leaf_is_placeholder(leaf):
       # Leaf is a param name.
       path = directory / utils.name_from_leaf_placeholder(leaf)
@@ -112,6 +114,8 @@ def _get_param_infos_from_structure(directory: epath.Path,
       # Skip '.', since we need special regex handling for this char.
       pattern = r'\.' + utils.TMP_DIR_SUFFIX[1:] + r'\d+'
       path = re.sub(pattern, '', tspec['kvstore']['path'])
+    elif utils.is_supported_empty_aggregation_type(leaf):
+      return leaf  # Empty node, ParamInfo should not be returned.
     elif utils.is_supported_aggregation_type(leaf):
       # Value already restored, do not need ts.Spec.
       path = None
@@ -124,9 +128,7 @@ def _get_param_infos_from_structure(directory: epath.Path,
         is_ocdbt_checkpoint=is_ocdbt_checkpoint,
     )
 
-  return jax.tree_util.tree_map(
-      _get_param_info, names, structure, is_leaf=utils.is_empty_or_leaf
-  )
+  return jax.tree_util.tree_map(_get_param_info, names, structure)
 
 
 def _get_tree_for_aggregation(param_infos, save_args, item):
@@ -148,32 +150,21 @@ def _get_tree_for_aggregation(param_infos, save_args, item):
 def _transform_structure(
     item: PyTree,
     restored: PyTree,
-    param_infos: PyTree,
-    transforms: PyTree,
+    transforms: Optional[PyTree],
     transforms_default_to_original: bool,
-) -> Tuple[PyTree, PyTree]:
-  """Transforms `restored` and `param_infos` into the structure of `item`.
-
-  After restoring a checkpoint structure (represented by `restored`), we must
-  transform it to match the structure of `item` and fill in any missing values.
-
-  Note that `param_infos` must also be transformed since parameter names and
-  other information is computed based on the PyTree structure. We first create
-  `param_infos` based on the checkpoint structure, otherwise we would not find
-  some parameters after doing transformations and rearranging the tree
-  structure.
+) -> PyTree:
+  """Optionally transforms the restored PyTree to the structure of `item`.
 
   Args:
     item: a PyTree representing the result structure ("new tree structure").
-    restored: a PyTree representing the original tree structure.
-    param_infos: A PyTree of ParamInfo having the same structure as `restored`.
+    restored: a PyTree representing the original tree structure. Note: this is a
+      tree of LazyValues.
     transforms: provides instructions on how to transform the input trees. See
       transform_utils.
     transforms_default_to_original: See transform_utils.
 
   Returns:
-    A tuple of `item`, `param_infos`, which have
-    been transformed from the original trees using `transforms`.
+    A transformed PyTree.
   """
   if item is None:
     if transforms is not None:
@@ -183,31 +174,93 @@ def _transform_structure(
     item = restored
   else:
     if transforms is None:
-      param_infos = utils.deserialize_tree(item, param_infos)
       item = utils.deserialize_tree(item, restored)
     else:
-      if transform_utils.has_multi_value_functions(transforms):
-        raise ValueError('Found disallowed `multi_value_fn` in `transforms`.')
+      transforms = _construct_lazy_transform_wrappers(transforms)
       item = transform_utils.apply_transformations(
           restored, transforms, item, transforms_default_to_original)
-      # param_infos must be transformed because the ts.Spec of saved params
-      # may correspond to the original structure rather than the new.
-      param_infos = transform_utils.apply_transformations(
-          param_infos, transforms, item, transforms_default_to_original)
-
-      def _create_param_info_if_already_restored(x):
-        return ParamInfo(aggregate=True) if not isinstance(x, ParamInfo) else x
-
-      param_infos = jax.tree_util.tree_map(
-          _create_param_info_if_already_restored, param_infos)
-  return item, param_infos
+  return item
 
 
-def _apply_value_transforms(item: PyTree, value_transforms: PyTree) -> PyTree:
-  if value_transforms is None:
-    return item
-  # Structure is not being altered, only values.
-  return transform_utils.apply_transformations(item, value_transforms, item)
+def _construct_lazy_transform_wrappers(transforms: PyTree) -> PyTree:
+  """Constructs wrapper functions for user-provided to handle `LazyValue`.
+
+  User-provided value-based transformation functions are written in terms of
+  real values, not `LazyValue`. However, we want to be able to load all
+  parameters as `LazyValue`, so as to avoid materializing unneeded parameters
+  until necessary. As such, we construct wrapper functions which accept
+  `LazyValue` and materialize the value before providing it to the user-defined
+  function.
+
+  Args:
+    transforms: User-provided tree of Transform objects.
+
+  Returns:
+    A tree of Transform objects which is roughly the same as the input, but
+    where all instances of `value_fn` or `multi_value_fn` are wrapped to accept
+    `LazyValue` as input and return `LazyValue` as output.
+  """
+
+  def _maybe_wrap_transform(transform: Transform):
+    async def _lazy_value_fn(lazy_value: LazyValue, args: RestoreArgs) -> Any:
+      # `lazy_value` is the value over which the function is performed.
+      # `args` is `RestoreArgs`, which is used to materialize the value.
+      value = await lazy_value.get_async(args=args)
+      return transform.value_fn(value)
+
+    async def _lazy_multi_value_fn(
+        transform_key: str, tree: PyTree, args: RestoreArgs
+    ) -> Any:
+      # `original_tree` consists of `LazyValue`s.
+      # `args` is unused, since relevant restoration args come from
+      # multi_value_fn_input_args.
+      del args
+      if not transform.multi_value_fn_input_args:
+        raise ValueError(
+            '`multi_value_fn` was specified, but `multi_value_fn_input_args`'
+            ' were not. The latter must be specified to identify inputs for the'
+            ' function.'
+        )
+
+      async def _materialize_lazy_tree_value(
+          keypath: Tuple[str], lazy_value: LazyValue
+      ) -> Union[Any, LazyValue]:
+        key = '/'.join([str(utils.get_key_name(k)) for k in keypath])
+        for (
+            input_key,
+            restore_args,
+        ) in transform.multi_value_fn_input_args.items():
+          if re.fullmatch(input_key, key):
+            return await lazy_value.get_async(args=restore_args)
+        return lazy_value  # Should not be used, so do not materialize.
+
+      futures, treedef = jax.tree_util.tree_flatten(
+          jax.tree_util.tree_map_with_path(_materialize_lazy_tree_value, tree)
+      )
+      flat_tree = await asyncio.gather(*futures)
+      return transform.multi_value_fn(
+          transform_key, jax.tree_util.tree_unflatten(treedef, flat_tree)
+      )
+
+    def _wrap_as_lazy_value(func, *args, **kwargs):
+      return LazyValue(functools.partial(func, *args, **kwargs))
+
+    # Only needed values are carried over to the wrapped Transform.
+    if transform.value_fn is not None:
+      return Transform(
+          original_key=transform.original_key,
+          value_fn=functools.partial(_wrap_as_lazy_value, _lazy_value_fn),
+      )
+    elif transform.multi_value_fn is not None:
+      return Transform(
+          multi_value_fn=functools.partial(
+              _wrap_as_lazy_value, _lazy_multi_value_fn
+          )
+      )
+    else:
+      return transform
+
+  return jax.tree_util.tree_map(_maybe_wrap_transform, transforms)
 
 
 class PyTreeCheckpointHandler(AsyncCheckpointHandler):
@@ -367,8 +420,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     asyncio.run(async_save(directory, item, *args, **kwargs))
     utils.sync_global_devices('PyTreeCheckpointHandler:save')
 
-  async def _maybe_deserialize(self, info: ParamInfo, value: Any,
-                               args: RestoreArgs) -> Any:
+  def _maybe_deserialize(self, param_info: ParamInfo, value: Any) -> LazyValue:
     """Deserializes using handler or returns already restored value.
 
     If the ParamInfo indicates that the parameter was aggregated, then it must
@@ -379,27 +431,27 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     LazyArray and casting if requested.
 
     Args:
-      info: ParamInfo
+      param_info: ParamInfo
       value: a tree value which may have already been restored. Not relevant if
         info.aggregate is False.
-      args: RestoreArgs for TypeHandler restoration.
 
     Returns:
-      A deserialized parameter.
+      A LazyValue.
     """
-    if not isinstance(args, RestoreArgs):
-      return value
-    if info.aggregate:  # Already restored from AggregateHandler.
-      value = _try_array_cast(value, args.dtype)
-      if args.lazy:
-        value = lazy_utils.LazyValue(lazy_utils.identity(value))
-      return value
 
-    handler = type_handlers.get_type_handler(args.restore_type)
-    value = lazy_utils.LazyValue(lambda: handler.deserialize(info, args))
-    if not args.lazy:
-      value = await value.get_async()
-    return value
+    async def _maybe_cast(val: Any, args: RestoreArgs) -> Any:
+      return _try_array_cast(val, args.dtype)
+
+    async def _deserialize(info: ParamInfo, args: RestoreArgs) -> Any:
+      handler = type_handlers.get_type_handler(args.restore_type)
+      return await handler.deserialize(info, args)
+
+    if param_info.aggregate:  # Already restored from AggregateHandler.
+      get_fn = functools.partial(_maybe_cast, val=value)
+    else:
+      get_fn = functools.partial(_deserialize, info=param_info)
+
+    return LazyValue(get_fn)
 
   def restore(
       self,
@@ -447,54 +499,69 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}')
 
-    restored_structure = self.structure(directory)
-    param_infos = _get_param_infos_from_structure(directory, restored_structure)
+    structure = self.structure(directory)
+    param_infos = _get_param_infos_from_structure(directory, structure)
 
     if transform_fn is not None and transforms is not None:
       raise ValueError('Cannot provide both `transforms` and `transform_fn`.')
-    value_transforms = None
-    if transform_fn is None:
-      if transforms is not None:
-        transforms, value_transforms = transform_utils.separate_value_functions(
-            transforms
-        )
-      item, param_infos = _transform_structure(
-          item,
-          restored_structure,
-          param_infos,
-          transforms,
-          transforms_default_to_original,
+    if transform_fn is not None:
+      structure, param_infos = transform_fn(item, structure, param_infos)
+
+    concurrent_bytes = self._concurrent_gb * 10**9
+    # Construction must take place here so that it is within the same async
+    # method, to prevent errors resulting from different event loops, and
+    # cannot be created below this level because there must be a single object
+    # for the entire restore call.
+    byte_limiter = serialization._LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
+    param_infos = jax.tree_util.tree_map(
+        functools.partial(dataclasses.replace, byte_limiter=byte_limiter),
+        param_infos,
+    )
+    lazy_restored_item = jax.tree_util.tree_map(
+        self._maybe_deserialize,
+        param_infos,
+        structure,
+    )
+
+    if not transform_fn:
+      lazy_restored_item = _transform_structure(
+          item, lazy_restored_item, transforms, transforms_default_to_original
       )
-    else:
-      item, param_infos = transform_fn(item, restored_structure, param_infos)
 
     if restore_args is None:
-      restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), item)
-
-    async def _async_restore(param_infos, item, restore_args):
-      concurrent_bytes = self._concurrent_gb * 10**9
-      # Construction must take place here so that it is within the same async
-      # method, to prevent errors resulting from different event loops, and
-      # cannot be created below this level because there must be a single object
-      # for the entire restore call.
-      byte_limiter = serialization._LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
-      param_infos = jax.tree_util.tree_map(
-          functools.partial(dataclasses.replace, byte_limiter=byte_limiter),
-          param_infos,
+      restore_args = jax.tree_util.tree_map(
+          lambda x: RestoreArgs(),
+          item or structure,
       )
-      future_arrays = jax.tree_util.tree_map(
-          self._maybe_deserialize,
-          param_infos,
-          item,
-          restore_args,
+
+    def _maybe_get_materialization_function(
+        value: Union[LazyValue, Any], args: RestoreArgs
+    ) -> Any:
+      # Depending on the value of args.lazy, we either return a function that
+      # allows materializing the value, or return a function that returns
+      # another LazyValue, after passing in RestoreArgs.
+      if args.lazy:
+        if isinstance(value, LazyValue):
+          async_get_fn = functools.partial(value.get_async, args=args)
+        else:
+          async_get_fn = lazy_utils.identity(value)
+        return lazy_utils.identity(LazyValue(async_get_fn))()
+      else:
+        return lazy_utils.maybe_get_async(value, args=args)
+
+    async def _restore():
+      # Provide RestoreArgs now, since it was previously deferred.
+      flat, item_structure = jax.tree_util.tree_flatten(
+          jax.tree_util.tree_map(
+              _maybe_get_materialization_function,
+              lazy_restored_item,
+              restore_args,
+          )
       )
-      future_arrays, tree_structure = jax.tree_util.tree_flatten(future_arrays)
-      result = await asyncio.gather(*future_arrays)
-      return jax.tree_util.tree_unflatten(tree_structure, result)
+      flat = await asyncio.gather(*flat)
+      return jax.tree_util.tree_unflatten(item_structure, flat)
 
-    restored_item = asyncio.run(_async_restore(param_infos, item, restore_args))
-    restored_item = _apply_value_transforms(restored_item, value_transforms)
-
+    restored_item = asyncio.run(_restore())
     utils.sync_global_devices('PyTreeCheckpointHandler:restore')
     return restored_item
 

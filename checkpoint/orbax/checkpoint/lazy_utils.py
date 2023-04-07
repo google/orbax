@@ -26,11 +26,11 @@ class LazyValue:
   def __init__(self, get_fn: Callable[[], Any]):
     self._get_fn = get_fn
 
-  async def get_async(self) -> Any:
-    return await self._get_fn()
+  async def get_async(self, *args, **kwargs) -> Any:
+    return await self._get_fn(*args, **kwargs)
 
-  def get(self) -> Any:
-    return asyncio.run(self.get_async())
+  def get(self, *args, **kwargs) -> Any:
+    return asyncio.run(self.get_async(*args, **kwargs))
 
 
 def identity(value):
@@ -42,17 +42,17 @@ def identity(value):
   return get_fn
 
 
-async def maybe_get_async(value):
+async def maybe_get_async(value, *args, **kwargs):
   """Gets the value asynchronously if it is a LazyValue."""
   if isinstance(value, LazyValue):
-    return await value.get_async()
+    return await value.get_async(*args, **kwargs)
   else:
     return await identity(value)()
 
 
-def maybe_get(value):
+def maybe_get(value, *args, **kwargs):
   """Gets the value if it is a LazyValue."""
-  return asyncio.run(maybe_get_async(value))
+  return asyncio.run(maybe_get_async(value, *args, **kwargs))
 
 
 async def maybe_get_tree_async(pytree):

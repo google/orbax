@@ -16,14 +16,14 @@
 
 import dataclasses
 import re
-from typing import Any, Callable, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 from absl import logging
-import jax
 from orbax.checkpoint import utils
 
 PyTree = Any
-ValueTransformFunction = Callable[[PyTree], Any]
+ValueFn = Callable[[Any], Any]
+MultiValueFn = Callable[[str, PyTree], Any]
 
 
 @dataclasses.dataclass
@@ -62,70 +62,50 @@ class Transform:
   value_fn: A function accepting a single value and returning a single value.
     The value provided as an argument is the value of the transformation key in
     the original PyTree.
-  multi_value_fn: A function accepting a PyTree and returning any value. The
-    PyTree argument will be the original PyTree, and the function should return
-    the value of the key in the new PyTree.
+  multi_value_fn: A function accepting a string and PyTree and returning any
+    value. The string is the result key associated with the returned value, so
+    the function implementation can know for which key it is supposed to return
+    a value for. The PyTree argument will be the original PyTree, and the
+    function should return the value of the key in the new PyTree.
+  multi_value_fn_input_args: A dict of key name (in the original tree) to
+    required input arguments (typically `RestoreArgs` - see
+    `PyTreeCheckpointHandler`). These arguments are not used directly in
+    `apply_transformations`, but are necessary when applying transformations
+    when restoring from a checkpoint in `PyTreeCheckpointHandler`. These
+    arguments identify "dependencies" in the original tree (the checkpoint)
+    which are needed as inputs by the function, and provides additional
+    information needed for restoration. IMPORTANT: using multi_value_fn during
+    `PyTreeCheckpointHandler.restore` REQUIRES inputs to be identified.
   """
   original_key: Optional[Union[str, Tuple[str]]] = None
   use_fallback: bool = False
-  value_fn: Optional[Callable[[Any], Any]] = None
-  multi_value_fn: Optional[ValueTransformFunction] = None
+  value_fn: Optional[ValueFn] = None
+  multi_value_fn: Optional[MultiValueFn] = None
+  multi_value_fn_input_args: Optional[Dict[str, Any]] = None
 
-
-def _has_value_function(transform: Transform) -> bool:
-  return transform.value_fn is not None or transform.multi_value_fn is not None
-
-
-def _has_multi_value_function(transform: Transform) -> bool:
-  return transform.multi_value_fn is not None
-
-
-def has_multi_value_functions(transforms_tree: PyTree) -> bool:
-  """Returns True if a PyTree contains any Transform elements with value_fn or multi_value_fn."""
-  has_value_fns_tree = jax.tree_util.tree_map(
-      _has_multi_value_function,
-      transforms_tree,
-      is_leaf=lambda x: isinstance(x, Transform),
-  )
-  return any(jax.tree_util.tree_flatten(has_value_fns_tree)[0])
-
-
-def separate_value_functions(transforms_tree: PyTree) -> Tuple[PyTree, PyTree]:
-  """Separates transformation functions based on whether value_fn is present.
-
-  Args:
-    transforms_tree: A tree of Transform objects.
-
-  Returns:
-    A tuple of trees of Transform objects. Both have the same structure as the
-    input tree. However, the first has all `value_fn` options replaced with
-    None. The second keeps only `value_fn` options - all others are replaced
-    by identity Transformations.
-  """
-
-  def _get_transform_without_value_fn(transform: Transform) -> Transform:
-    if _has_value_function(transform):
-      transform = dataclasses.replace(transform, value_fn=None)
-    return transform
-
-  def _get_value_fn_only(transform: Transform) -> Transform:
-    if _has_value_function(transform):
-      return Transform(value_fn=transform.value_fn)
-    else:
-      return Transform()
-
-  return (
-      jax.tree_util.tree_map(
-          _get_transform_without_value_fn,
-          transforms_tree,
-          is_leaf=lambda x: isinstance(x, Transform),
-      ),
-      jax.tree_util.tree_map(
-          _get_value_fn_only,
-          transforms_tree,
-          is_leaf=lambda x: isinstance(x, Transform),
-      ),
-  )
+  def __post_init__(self):
+    if self.original_key is not None:
+      assert not self.use_fallback
+      assert self.multi_value_fn is None
+      assert self.multi_value_fn_input_args is None
+    if self.use_fallback:
+      assert self.original_key is None
+      assert self.value_fn is None
+      assert self.multi_value_fn is None
+      assert self.multi_value_fn_input_args is None
+    if self.value_fn is not None:
+      assert not self.use_fallback
+      assert self.multi_value_fn is None
+      assert self.multi_value_fn_input_args is None
+    if self.multi_value_fn is not None:
+      assert self.original_key is None
+      assert not self.use_fallback
+      assert self.value_fn is None
+    if self.multi_value_fn_input_args is not None:
+      assert self.original_key is None
+      assert not self.use_fallback
+      assert self.value_fn is None
+      assert self.multi_value_fn is not None
 
 
 # TODO(b/233407026) Add additional error checking.
@@ -256,7 +236,7 @@ def apply_transformations(original_tree: PyTree,
             value_fn = transform.value_fn
           new[key] = value_fn(original[original_key])
         else:
-          new[key] = transform.multi_value_fn(original_tree)
+          new[key] = transform.multi_value_fn(key, original_tree)
     if not transform_found:
       if key in original:
         if default_to_original:

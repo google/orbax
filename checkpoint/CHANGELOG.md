@@ -8,8 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Add support for `value_fn` transformations during restore.
 - Tensorstore options to improve OCDBT performance.
+- Add support for `value_fn` transformations during restore.
+- Support for `multi_value_fn` transformations during restore.
+
+### Changed
+- Reworked transformations logic in restore to happen in a more intuitive order,
+with lazy loading to avoid materializing unnecessary arrays.
 
 ### Fixed
 - Slow repeated calls to check whether a checkpoint is OCDBT format or not.

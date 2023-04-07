@@ -75,18 +75,6 @@ class TransformUtilsTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       apply_transformations(original, transforms, {'b': ...})
 
-  def test_has_multi_value_functions(self):
-    self.assertTrue(
-        transform_utils.has_multi_value_functions(
-            {'a': Transform(original_key='a', multi_value_fn=lambda x: x * 2)}
-        )
-    )
-    self.assertFalse(
-        transform_utils.has_multi_value_functions(
-            {'a': Transform(original_key='b')}
-        )
-    )
-
   def test_rename(self):
     transforms = {
         'a1': Transform(original_key='a'),  # originally named "a"
@@ -283,20 +271,20 @@ class TransformUtilsTest(absltest.TestCase):
 
   def test_function(self):
     transforms = {
-        'a': Transform(multi_value_fn=lambda kv: kv['a'] * 2 + 20),
+        'a': Transform(multi_value_fn=lambda _, kv: kv['a'] * 2 + 20),
         # dropped b
         'c': {
             # added together two keys, leaving one remaining
-            'a':
-                Transform(multi_value_fn=lambda kv: kv['c']['a'] + kv['c']['e']
-                         ),
+            'a': Transform(
+                multi_value_fn=lambda _, kv: kv['c']['a'] + kv['c']['e']
+            ),
         },
         # many to many transformation: input two keys -> output two new keys
-        'w': Transform(multi_value_fn=lambda kv: kv['a'] + kv['b']),
-        'x': Transform(multi_value_fn=lambda kv: kv['a'] + kv['b'] * 2),
+        'w': Transform(multi_value_fn=lambda _, kv: kv['a'] + kv['b']),
+        'x': Transform(multi_value_fn=lambda _, kv: kv['a'] + kv['b'] * 2),
         # copied a single key into multiple
-        'y': Transform(multi_value_fn=lambda kv: kv['a']),
-        'z': Transform(multi_value_fn=lambda kv: kv['a']),
+        'y': Transform(multi_value_fn=lambda _, kv: kv['a']),
+        'z': Transform(multi_value_fn=lambda _, kv: kv['a']),
     }
     expected = {
         'a': 20,
@@ -343,14 +331,15 @@ class TransformUtilsTest(absltest.TestCase):
 
     transforms = NewTree(
         a1=Transform(original_key='a'),
-        b=Transform(multi_value_fn=lambda t: t.b * 2),
+        b=Transform(multi_value_fn=lambda _, t: t.b * 2),
         c=jax.tree_util.tree_map(lambda _: Transform(), tree.c),
         d=Transform(use_fallback=True),
-        e=Transform(multi_value_fn=lambda t: t.c.y[0]),
+        e=Transform(multi_value_fn=lambda _, t: t.c.y[0]),
         f=[
-            Transform(multi_value_fn=lambda t: t.c.y[1]),
-            Transform(multi_value_fn=lambda t: t.c.y[2])
-        ])
+            Transform(multi_value_fn=lambda _, t: t.c.y[1]),
+            Transform(multi_value_fn=lambda _, t: t.c.y[2]),
+        ],
+    )
     fallback_tree = NewTree(
         a1=utils.EmptyNode(),
         b=utils.EmptyNode(),

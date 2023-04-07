@@ -242,7 +242,7 @@ def deserialize_tree(
 ) -> PyTree:
   """Deserializes a PyTree to the same structure as `target`."""
 
-  def fn(keypath, _):
+  def _reconstruct_from_keypath(keypath, _):
     result = serialized
     for key in keypath:
       key_name = get_key_name(key)
@@ -253,7 +253,9 @@ def deserialize_tree(
     return result
 
   return jax.tree_util.tree_map_with_path(
-      fn, target, is_leaf=is_empty_or_leaf if keep_empty_nodes else None
+      _reconstruct_from_keypath,
+      target,
+      is_leaf=is_empty_or_leaf if keep_empty_nodes else None,
   )
 
 
@@ -305,12 +307,17 @@ def name_from_leaf_placeholder(placeholder: str) -> str:
     raise ValueError('Found placeholder beginning with unexpected prefix.')
 
 
+def is_supported_empty_aggregation_type(value: Any) -> bool:
+  """Determines if the *empty* value is supported for aggregation."""
+  return isinstance(value, (dict, list, type(None))) and not value
+
+
 def is_supported_aggregation_type(value: Any) -> bool:
   """Determines if the value is supported for aggregation."""
   return isinstance(
       value,
-      (str, int, float, np.number, np.ndarray, jnp.ndarray, bytes, type(None)),
-  ) or (isinstance(value, (dict, list)) and not value)
+      (str, int, float, np.number, np.ndarray, jnp.ndarray, bytes),
+  ) or is_supported_empty_aggregation_type(value)
 
 
 def pytree_structure(directory: epath.PathLike) -> PyTree:
