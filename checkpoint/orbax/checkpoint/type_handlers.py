@@ -285,7 +285,6 @@ class NumpyHandler(TypeHandler):
   def _get_json_tspec(
       self,
       info: ParamInfo,
-      value: Optional[np.ndarray] = None,
       use_ocdbt: bool = False,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec in JSON format."""
@@ -295,14 +294,6 @@ class NumpyHandler(TypeHandler):
     tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=use_ocdbt)
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
-    tspec['metadata'] = {
-        'compressor': {
-            'id': 'gzip'
-        },
-    }
-    if value is not None:
-      tspec['metadata']['shape'] = value.shape
-      tspec['metadata']['chunks'] = value.shape
     if use_ocdbt:
       tspec = _add_base_tspec_ocdbt_options(tspec)
     return tspec
@@ -310,7 +301,16 @@ class NumpyHandler(TypeHandler):
   def _get_json_tspec_write(
       self, info: ParamInfo, value: Any, use_ocdbt: bool = False
   ) -> Dict[str, Any]:
-    tspec = self._get_json_tspec(info, value, use_ocdbt=use_ocdbt)
+    """Gets Tensorstore spec for writing."""
+    tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
+    tspec['metadata'] = {
+        'compressor': {
+            'id': 'zstd'
+        },
+    }
+    if value is not None:
+      tspec['metadata']['shape'] = value.shape
+      tspec['metadata']['chunks'] = value.shape
     if use_ocdbt:
       tspec = _add_write_tspec_ocdbt_options(tspec)
     return tspec
@@ -318,7 +318,8 @@ class NumpyHandler(TypeHandler):
   def _get_json_tspec_read(
       self, info: ParamInfo, use_ocdbt: bool = False
   ) -> Dict[str, Any]:
-    return self._get_json_tspec(info, None, use_ocdbt=use_ocdbt)
+    """Gets Tensorstore spec for reading."""
+    return self._get_json_tspec(info, use_ocdbt=use_ocdbt)
 
   async def serialize(self,
                       value: np.ndarray,
@@ -425,7 +426,6 @@ class ArrayHandler(TypeHandler):
   def _get_json_tspec(
       self,
       info: ParamInfo,
-      value: Optional[Any] = None,
       use_ocdbt: bool = False,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec in JSON format."""
@@ -435,9 +435,6 @@ class ArrayHandler(TypeHandler):
     tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=use_ocdbt)
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
-    if value is not None:
-      tspec['metadata'] = serialization._get_metadata(value)  # pylint: disable=protected-access
-      del tspec['metadata']['dtype']
     if use_ocdbt:
       tspec = _add_base_tspec_ocdbt_options(tspec)
     return tspec
@@ -445,7 +442,10 @@ class ArrayHandler(TypeHandler):
   def _get_json_tspec_write(
       self, info: ParamInfo, value: Any, use_ocdbt: bool = False
   ) -> Dict[str, Any]:
-    tspec = self._get_json_tspec(info, value, use_ocdbt=use_ocdbt)
+    """Gets Tensorstore spec for writing."""
+    tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
+    tspec['metadata'] = serialization._get_metadata(value)  # pylint: disable=protected-access
+    del tspec['metadata']['dtype']
     if use_ocdbt:
       tspec = _add_write_tspec_ocdbt_options(tspec)
     return tspec
@@ -453,7 +453,8 @@ class ArrayHandler(TypeHandler):
   def _get_json_tspec_read(
       self, info: ParamInfo, use_ocdbt: bool = False
   ) -> Dict[str, Any]:
-    return self._get_json_tspec(info, None, use_ocdbt=use_ocdbt)
+    """Gets Tensorstore spec for reading."""
+    return self._get_json_tspec(info, use_ocdbt=use_ocdbt)
 
   async def serialize(
       self, value: jax.Array, info: ParamInfo, args: Optional[SaveArgs] = None
