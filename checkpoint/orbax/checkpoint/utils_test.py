@@ -176,6 +176,22 @@ class UtilsTest(parameterized.TestCase):
     }
     self.assertDictEqual(expected, serialized)
 
+  def test_serialize_nested_class(self):
+    @flax.struct.dataclass
+    class Foo:
+      a: int
+
+    nested = {
+        'x': Foo(a=1),
+        'y': {'z': Foo(a=2)},
+    }
+    serialized = utils.serialize_tree(nested, keep_empty_nodes=True)
+    expected = {
+        'x': dict(a=1),
+        'y': {'z': dict(a=2)},
+    }
+    self.assertDictEqual(expected, serialized)
+
   def test_checkpoint_steps_paths_nonexistent_directory_fails(self):
     with self.assertRaisesRegex(ValueError, 'does not exist'):
       utils.checkpoint_steps_paths('/non/existent/dir')
