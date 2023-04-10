@@ -24,7 +24,7 @@ from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
-from jax.experimental.gda_serialization import serialization
+from jax.experimental.array_serialization import serialization
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer

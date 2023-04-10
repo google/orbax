@@ -22,8 +22,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 from absl import logging
 from etils import epath
 import jax
-from jax.experimental.gda_serialization import serialization
-from jax.experimental.gda_serialization.serialization import get_tensorstore_spec
+from jax.experimental.array_serialization import serialization
+from jax.experimental.array_serialization.serialization import get_tensorstore_spec
 import jax.numpy as jnp
 from jax.sharding import Mesh
 import numpy as np

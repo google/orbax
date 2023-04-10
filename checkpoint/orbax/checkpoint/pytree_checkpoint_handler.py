@@ -25,7 +25,7 @@ from typing import Any, Callable, List, Optional, Tuple, Union
 
 from etils import epath
 import jax
-from jax.experimental.gda_serialization import serialization
+from jax.experimental.array_serialization import serialization
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import lazy_utils
