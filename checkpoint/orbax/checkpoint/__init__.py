@@ -56,4 +56,4 @@ if _in_ipython_session:
 PyTreeCheckpointer = functools.partial(Checkpointer, PyTreeCheckpointHandler())
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
-__version__ = '0.1.8'
+__version__ = '0.2.0'
