@@ -1,28 +1,57 @@
 # This workflows will upload a Python Package using Twine when a release is created
 # For more information see: https://help.github.com/en/actions/language-and-framework-guides/using-python-with-github-actions#publishing-to-package-registries
 
-name: Upload Python Package
+name: Upload Python Packages
 
 on:
   release:
     types: [created]
 
 jobs:
-  deploy:
-
+  manual-build-checkpoint:
     runs-on: ubuntu-latest
-
+    defaults:
+      run:
+        working-directory: checkpoint
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9]
     steps:
-    - uses: actions/checkout@v2
-    - name: Set up Python
-      uses: actions/setup-python@v2
+    - name: Cancel previous
+      uses: styfle/cancel-workflow-action@0.8.0
       with:
-        python-version: '3.x'
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install setuptools wheel twine
+        access_token: ${{ github.token }}
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
     - name: Build and publish
       uses: etils-actions/pypi-build-publish@v1
       with:
-        pypi-token: ${{ secrets.PYPI_API_TOKEN }}
+        pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_CKPT }}
+        path: "./checkpoint/"
+
+  manual-build-export:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: export
+    strategy:
+      matrix:
+        python-version: [3.9]
+    steps:
+    - name: Cancel previous
+      uses: styfle/cancel-workflow-action@0.8.0
+      with:
+        access_token: ${{ github.token }}
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Build and publish
+      uses: etils-actions/pypi-build-publish@v1
+      with:
+        pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_EXPT }}
+        path: "./export/"
