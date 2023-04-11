@@ -112,10 +112,12 @@ class ServingConfig:
 
     def make_inference_fn(infer_step):
       """Bind the preprocess, method and postproess together."""
+      preprocessor = tf.function(self.tf_preprocessor or (lambda *a: a))
+      postprocessor = tf.function(self.tf_postprocessor or (lambda *a: a))
 
       def inference_fn(*preprocessed_inputs):
         if self.tf_preprocessor:
-          inputs = tf.function(self.tf_preprocessor)(*preprocessed_inputs)
+          inputs = preprocessor(*preprocessed_inputs)
           if require_numpy:
             inputs = jax.tree_util.tree_map(lambda x: x.numpy(), inputs)
         else:
@@ -130,7 +132,7 @@ class ServingConfig:
         # Currently Jax Module only takes 1 input
         outputs = infer_step(inputs)
         if self.tf_postprocessor:
-          outputs = tf.function(self.tf_postprocessor)(outputs)
+          outputs = postprocessor(outputs)
           if require_numpy:
             outputs = jax.tree_util.tree_map(lambda x: x.numpy(), outputs)
         return outputs
