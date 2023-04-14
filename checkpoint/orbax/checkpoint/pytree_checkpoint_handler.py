@@ -507,12 +507,16 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     if transform_fn is not None:
       structure, param_infos = transform_fn(item, structure, param_infos)
 
-    concurrent_bytes = self._concurrent_gb * 10**9
-    # Construction must take place here so that it is within the same async
-    # method, to prevent errors resulting from different event loops, and
-    # cannot be created below this level because there must be a single object
-    # for the entire restore call.
-    byte_limiter = serialization._LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
+    async def _create_byte_limiter():
+      # Wrap creation in async function to avoid issues on python<=3.9.
+      concurrent_bytes = self._concurrent_gb * 10**9
+      # Construction must take place here so that it is within the same async
+      # method, to prevent errors resulting from different event loops, and
+      # cannot be created below this level because there must be a single object
+      # for the entire restore call.
+      return serialization._LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
+
+    byte_limiter = asyncio.run(_create_byte_limiter())
     param_infos = jax.tree_util.tree_map(
         functools.partial(dataclasses.replace, byte_limiter=byte_limiter),
         param_infos,
