@@ -581,9 +581,10 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     Raises:
       FileNotFoundError: if the checkpoint is not found.
     """
-    if (directory / self._aggregate_filename).exists():
-      return self._aggregate_handler.deserialize(
-          directory / self._aggregate_filename
-      )
+    checkpoint_path = directory / self._aggregate_filename
+    if checkpoint_path.exists():
+      return self._aggregate_handler.deserialize(checkpoint_path)
     else:
-      raise FileNotFoundError(f'Checkpoint does not exist at {directory}.')
+      raise FileNotFoundError(
+          f'Checkpoint not found: {checkpoint_path}.'
+      )
