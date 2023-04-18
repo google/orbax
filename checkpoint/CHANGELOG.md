@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Msgpack encoding of tuples.
+
 ## [0.2.1] - 2022-04-14
 
 ### Fixed

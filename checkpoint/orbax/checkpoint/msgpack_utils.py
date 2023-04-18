@@ -67,6 +67,7 @@ class _MsgpackExtType(enum.IntEnum):
   NDARRAY = 1
   NATIVE_COMPLEX = 2
   NPSCALAR = 3
+  TUPLE = 4
 
 
 def _msgpack_ext_pack(x):
@@ -84,6 +85,18 @@ def _msgpack_ext_pack(x):
     return msgpack.ExtType(
         _MsgpackExtType.NATIVE_COMPLEX, msgpack.packb((x.real, x.imag))
     )
+  elif isinstance(x, tuple):
+    return msgpack.ExtType(
+        _MsgpackExtType.TUPLE,
+        msgpack.packb(
+            list(x),
+            strict_types=True,
+            use_bin_type=True,
+            default=_msgpack_ext_pack,
+        ),
+    )
+  else:
+    raise ValueError(f'Unsupported msgpack object: {x}')
   return x
 
 
@@ -97,6 +110,12 @@ def _msgpack_ext_unpack(code, data):
   elif code == _MsgpackExtType.NPSCALAR:
     ar = _ndarray_from_bytes(data)
     return ar[()]  # unpack ndarray to scalar
+  elif code == _MsgpackExtType.TUPLE:
+    return tuple(
+        msgpack.unpackb(data, raw=False, ext_hook=_msgpack_ext_unpack)
+    )
+  else:
+    raise ValueError(f'Unsupported msgpack code: {code}')
   return msgpack.ExtType(code, data)
 
 
