@@ -52,8 +52,14 @@ PyTree = Any
 
 
 
+def should_skip_device_sync() -> bool:
+  return False
+
+
 def sync_global_devices(name: str):
   """Thin wrapper to provide additional features support."""
+  if should_skip_device_sync():
+    return
   multihost_utils.sync_global_devices(name)
 
 
