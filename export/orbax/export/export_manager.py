@@ -43,7 +43,7 @@ class ExportManager(ExportManagerBase):
     self._module = tf.Module()
     self._module.computation_module = module
     self._serving_signatures = {}
-    extra_trackables = []
+    tf_trackable_resources = []
 
     for sc in serving_configs:
       with maybe_reraise(f'Failed exporting signature_key={sc.signature_key} '):
@@ -61,9 +61,9 @@ class ExportManager(ExportManagerBase):
           self._serving_signatures[key] = concrete_fn
 
         if sc.extra_trackable_resources is not None:
-          extra_trackables.append(sc.extra_trackable_resources)
+          tf_trackable_resources.append(sc.extra_trackable_resources)
 
-    self._module.extra_trackables = extra_trackables
+    self._module.tf_trackable_resources = tf_trackable_resources
 
   @property
   def tf_module(self) -> tf.Module:
