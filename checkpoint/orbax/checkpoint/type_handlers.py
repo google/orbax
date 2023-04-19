@@ -78,9 +78,9 @@ def create_coordinator_server_and_context() -> (
   if jax_global_state.process_id == 0:
     bind_address = f'{ocdbt_address}:0'
     logging.info('Starting DistributedCoordinatorServer at: %s', bind_address)
-    coordinator_server = ts.ocdbt.DistributedCoordinatorServer(
-        {'bind_addresses': [bind_address]}
-    )
+    coordinator_server = ts.ocdbt.DistributedCoordinatorServer({
+        'bind_addresses': [bind_address],
+    })
     jax_global_state.client.key_value_set(
         'ocdbt_coordinator', f'{ocdbt_address}:{coordinator_server.port}'
     )
@@ -89,7 +89,9 @@ def create_coordinator_server_and_context() -> (
       'ocdbt_coordinator', _COORDINATOR_SETUP_TIMEOUT_SECS * 1000
   )
   ts_context = {
-      'ocdbt_coordinator': {'address': ocdbt_address},
+      'ocdbt_coordinator': {
+          'address': ocdbt_address,
+      },
       # Provide cache pool for B-tree nodes to avoid repeated reads.
       'cache_pool#ocdbt': {'total_bytes_limit': 100000000},
   }
