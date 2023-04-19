@@ -100,6 +100,8 @@ class CheckpointManagerOptions:
   step_format_fixed_length: If set, formats step with n digits (leading zeros).
     This makes sorting steps easier. Otherwise, step has no leading zeros.
   create: if True, creates the top-level directory if it does not already exist.
+  cleanup_tmp_directories: if True, cleans up any existing temporary directories
+    on CheckpointManager creation.
   """
   save_interval_steps: int = 1
   max_to_keep: Optional[int] = None
@@ -111,6 +113,7 @@ class CheckpointManagerOptions:
   step_prefix: Optional[str] = None
   step_format_fixed_length: Optional[int] = None
   create: bool = False
+  cleanup_tmp_directories: bool = False
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -224,7 +227,8 @@ class CheckpointManager:
       utils.sync_global_devices('CheckpointManager:create_directory')
 
     # Cleanup directories from previous runs that may not have been finalized.
-    self._cleanup_tmp_directories()
+    if self._options.cleanup_tmp_directories:
+      self._cleanup_tmp_directories()
     self._checkpoints = self._create_checkpoints()
     self._interval_preserved_checkpoints = (
         self._get_interval_preserved_checkpoints(self._checkpoints)

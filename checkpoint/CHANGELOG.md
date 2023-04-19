@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Option to allow users to disable automatic temporary directory cleanup upon
+CheckpointManager initialization.
+
 ### Fixed
 - Msgpack encoding of tuples.
 
