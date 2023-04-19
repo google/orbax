@@ -124,8 +124,13 @@ class ServingConfig:
           inputs = preprocessed_inputs
 
           if len(preprocessed_inputs) != 1:
-            raise ValueError('Currently does not accept multiple args, '
-                             f'got len(inputs)={len(inputs)}.')
+            raise ValueError(
+                'JaxModule only takes single arg as the input, but got'
+                f' len(inputs)={len(inputs)} from the preprocessor or input'
+                ' signature. Please pack all inputs into one PyTree by'
+                ' modifying the `input_signature` (if no `tf_preprocessor`) or'
+                ' the ServingConfig.tf_preprocessor.'
+            )
 
           inputs = preprocessed_inputs[0]
 

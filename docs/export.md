@@ -62,6 +62,39 @@ export_mgr.save(output_dir)
 ```
 
 
+### Known issues
+
+## Error message "JaxModule only take single arg as the input".
+
+Orbax is designed to take a JAX Module in the format of a Callable with
+parameters of type PyTree and model inputs of type PyTree. If your JAX function
+takes multiple inputs, you must pack them into a single JAX PyTree. Otherwise,
+you will encounter this error message.
+
+To solve this problem, you can update the `ServingConfig.tf_preprocessor`
+function to pack the inputs into a single JAX PyTree. For example, our model
+takes two inputs `x` and `y`. You can define the `ServingConfig.tf_preprocessor`
+pack them into a list `[x, y]`.
+
+```python
+def tf_preprocessor(x, y):
+  # put the normal tf_preprocessor codes here.
+  return [x, y] # pack it into a single list for jax model_func.
+
+jax_module = orbax.export.JaxModule(params, model_func)
+export_mgr = orbax.export.ExportManager(
+  jax_module,
+  [
+      orbax.export.ServingConfig(
+          'serving_default',
+          input_signature=[tf.TensorSpec([16]), tf.TensorSpec([16])],
+          tf_preprocessor=tf_preprocessor,
+      )
+  ],
+)
+export_mgr.save('/tmp/foo')
+```
+
 ## Validating
 
 ### API Overview
