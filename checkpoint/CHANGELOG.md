@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Option to allow users to disable automatic temporary directory cleanup upon
 CheckpointManager initialization.
+- Error message when metadata file ('.zarray') is missing.
 
 ### Fixed
 - Msgpack encoding of tuples.

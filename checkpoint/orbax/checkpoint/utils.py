@@ -96,6 +96,10 @@ def async_write_bytes(path: epath.Path, data: Any):
   return _wrap(path.write_bytes)(data)
 
 
+def async_exists(path: epath.Path):
+  return _wrap(path.exists)()
+
+
 class EmptyNode:
   pass
 

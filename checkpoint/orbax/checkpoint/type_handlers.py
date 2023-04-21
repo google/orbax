@@ -27,6 +27,7 @@ from jax.experimental.gda_serialization.serialization import get_tensorstore_spe
 import jax.numpy as jnp
 from jax.sharding import Mesh
 import numpy as np
+from orbax.checkpoint import utils
 from orbax.checkpoint.future import Future
 import tensorstore as ts
 
@@ -99,6 +100,20 @@ def create_coordinator_server_and_context() -> (
       ts.Context(ts_context, parent=serialization.TS_CONTEXT),
       coordinator_server,
   )
+
+
+async def _assert_metadata_file_exists(
+    param_dir: epath.Path, metadata_key: Optional[str]
+):
+  if metadata_key is None:
+    metadata_key = '.zarray'
+  metadata_path = param_dir / metadata_key
+  exists = await utils.async_exists(metadata_path)
+  if not exists:
+    raise FileNotFoundError(
+        f'File not found: {metadata_path}. In many cases, this results from'
+        ' copying a checkpoint without using the `-a` flag.'
+    )
 
 
 @dataclasses.dataclass
@@ -343,7 +358,8 @@ class NumpyHandler(TypeHandler):
                         args: Optional[RestoreArgs] = None) -> np.ndarray:
     """Deserializes the array using Tensorstore."""
     args = args or RestoreArgs()
-
+    if not info.is_ocdbt_checkpoint:
+      await _assert_metadata_file_exists(info.path, self._metadata_key)
     # Using OCDBT, but existing checkpoint may be stored in old format.
     use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
     tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
@@ -499,6 +515,8 @@ class ArrayHandler(TypeHandler):
       sharding = jax.sharding.NamedSharding(args.mesh, args.mesh_axes)
     else:
       sharding = args.sharding
+    if not info.is_ocdbt_checkpoint:
+      await _assert_metadata_file_exists(info.path, self._metadata_key)
     # Using OCDBT, but existing checkpoint may be stored in old format.
     use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
     tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
