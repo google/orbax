@@ -99,6 +99,8 @@ class CheckpointManagerOptions:
     retained at a frequency of approximately than one per hour.
   keep_period: If set, will not delete any checkpoint where checkpoint_step %
     keep_period == 0.
+  checkpoint_steps: Will keep user-specified checkpoints at steps in
+  checkpoint_steps list.
   best_fn: if set, maintains checkpoints based on the quality of given
     metrics rather than recency. The function should accept a PyTree of metrics,
     and return a scalar value that can be used to determine the quality score
@@ -123,6 +125,7 @@ class CheckpointManagerOptions:
   max_to_keep: Optional[int] = None
   keep_time_interval: Optional[datetime.timedelta] = None
   keep_period: Optional[int] = None
+  checkpoint_steps: Optional[Sequence[int]] = None
   best_fn: Optional[Callable[[PyTree], float]] = None
   best_mode: str = 'max'
   keep_checkpoints_without_metrics: bool = True
@@ -792,6 +795,8 @@ class CheckpointManager:
       active_checkpoints = all_checkpoints[-keep:]
 
     kept_checkpoints = []
+    if self._options.checkpoint_steps is not None:
+      checkpoint_steps_set = set(self._options.checkpoint_steps)
     for info in maybe_delete:
       if (
           self._options.keep_time_interval is not None
@@ -822,6 +827,14 @@ class CheckpointManager:
           and info.step % self._options.keep_period == 0
       ):
         logging.info('Preserving %s: (Reason: on keep_period).', info)
+        kept_checkpoints.append(info)
+        continue
+
+      if (
+          self._options.checkpoint_steps is not None
+          and info.step in checkpoint_steps_set
+      ):
+        logging.info('Preserving %s: (Reason: in checkpoint_steps).', info)
         kept_checkpoints.append(info)
         continue
 
