@@ -19,6 +19,7 @@ import dataclasses
 import datetime
 import threading
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
+import uuid
 
 from absl import logging
 from etils import epath
@@ -38,8 +39,11 @@ SaveParams = Mapping[str, Any]
 RestoreParams = SaveParams
 
 DEFAULT_ITEM_NAME = 'default'
+DESCRIPTOR_ITEM_NAME = 'descriptor'
 METRIC_ITEM_NAME = 'metrics'
 METADATA_ITEM_NAME = 'metadata'
+
+RESERVED_ITEM_NAMES = [DESCRIPTOR_ITEM_NAME, METRIC_ITEM_NAME]
 
 
 def _metrics_file_exists(metrics_item_path: epath.Path) -> bool:
@@ -47,6 +51,14 @@ def _metrics_file_exists(metrics_item_path: epath.Path) -> bool:
   return (
       metrics_item_path.exists()
       and (metrics_item_path / METRIC_ITEM_NAME).exists()
+  )
+
+
+def _descriptor_file_exists(descriptor_item_path: epath.Path) -> bool:
+  """True if item directory AND actual file both exist."""
+  return (
+      descriptor_item_path.exists()
+      and (descriptor_item_path / f'{DESCRIPTOR_ITEM_NAME}.pbtxt').exists()
   )
 
 
@@ -102,6 +114,8 @@ class CheckpointManagerOptions:
   create: if True, creates the top-level directory if it does not already exist.
   cleanup_tmp_directories: if True, cleans up any existing temporary directories
     on CheckpointManager creation.
+  enable_descriptor: if True, logs a Descriptor proto that contains lineage
+    information about a directory.
   """
   save_interval_steps: int = 1
   max_to_keep: Optional[int] = None
@@ -203,9 +217,9 @@ class CheckpointManager:
       self._single_item = True
       checkpointers = {DEFAULT_ITEM_NAME: checkpointers}
     elif isinstance(checkpointers, dict):
-      if METRIC_ITEM_NAME in checkpointers:
+      for item in [k for k in checkpointers if k in RESERVED_ITEM_NAMES]:
         raise ValueError(
-            f'Found {METRIC_ITEM_NAME} in `checkpointers`; this is a reserved'
+            f'Found {item} in `checkpointers`; this is a reserved'
             ' key.'
         )
     else:
@@ -218,7 +232,8 @@ class CheckpointManager:
       raise ValueError('`best_mode` must be one of: "min", "max"')
     if self._track_best:
       self._checkpointers[METRIC_ITEM_NAME] = Checkpointer(
-          JsonCheckpointHandler(filename=METRIC_ITEM_NAME))
+          JsonCheckpointHandler(filename=METRIC_ITEM_NAME)
+      )
 
     self._directory = epath.Path(directory)
     if self._options.create:
@@ -437,7 +452,6 @@ class CheckpointManager:
         logging.warning('Requested `tracked_metric`; did not provide metrics.')
       else:
         items[METRIC_ITEM_NAME] = metrics
-
     tmp_step_dir = self._create_tmp_directory(
         self._get_save_directory(step, self.directory)
     )
