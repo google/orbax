@@ -126,7 +126,7 @@ class CheckpointManagerOptions:
   keep_checkpoints_without_metrics: bool = True
   step_prefix: Optional[str] = None
   step_format_fixed_length: Optional[int] = None
-  create: bool = False
+  create: bool = True
   cleanup_tmp_directories: bool = False
 
   def __post_init__(self):

@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 CheckpointManager initialization.
 - Error message when metadata file ('.zarray') is missing.
 
+### Changed
+- Set `create` option to True by default.
+
 ### Fixed
 - Msgpack encoding of tuples.
 
