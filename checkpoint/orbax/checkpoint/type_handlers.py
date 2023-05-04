@@ -102,9 +102,15 @@ def create_coordinator_server_and_context() -> (
   )
 
 
-async def _assert_metadata_file_exists(
+async def _assert_parameter_files_exist(
     param_dir: epath.Path, metadata_key: Optional[str]
 ):
+  """Checks for existence of parameter subdir and .zarray file."""
+  exists = await utils.async_exists(param_dir)
+  if not exists:
+    raise FileNotFoundError(
+        f'Individual parameter subdirectory not found at path: {param_dir}.'
+    )
   if metadata_key is None:
     metadata_key = '.zarray'
   metadata_path = param_dir / metadata_key
@@ -359,7 +365,7 @@ class NumpyHandler(TypeHandler):
     """Deserializes the array using Tensorstore."""
     args = args or RestoreArgs()
     if not info.is_ocdbt_checkpoint:
-      await _assert_metadata_file_exists(info.path, self._metadata_key)
+      await _assert_parameter_files_exist(info.path, self._metadata_key)
     # Using OCDBT, but existing checkpoint may be stored in old format.
     use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
     tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
@@ -516,7 +522,7 @@ class ArrayHandler(TypeHandler):
     else:
       sharding = args.sharding
     if not info.is_ocdbt_checkpoint:
-      await _assert_metadata_file_exists(info.path, self._metadata_key)
+      await _assert_parameter_files_exist(info.path, self._metadata_key)
     # Using OCDBT, but existing checkpoint may be stored in old format.
     use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
     tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
