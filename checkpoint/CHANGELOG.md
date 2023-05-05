@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Option to allow users to disable automatic temporary directory cleanup upon
 CheckpointManager initialization.
 - Error message when metadata file ('.zarray') is missing.
+- `reached_preemption` function to allow the user to detect if a preemption signal has been received.
 
 ### Changed
 - Set `create` option to True by default.

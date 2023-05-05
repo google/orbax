@@ -204,10 +204,10 @@ class CheckpointManager:
         example, `items` provided to `save` below should have keys matching the
         keys in this argument. Alternatively, a single Checkpointer may be
         provided, in which case `save` and `restore` should always be called
-        with a single item rather than a dictionary of items.
-        See below for more details.
+        with a single item rather than a dictionary of items. See below for more
+        details.
      options: CheckpointManagerOptions. May be provided to specify additional
-       arugments. If None, uses default values of CheckpointManagerOptions.
+       arguments. If None, uses default values of CheckpointManagerOptions.
      metadata: High-level metadata that does not depend on step number, and only
        needs to be saved once.
     """
@@ -305,6 +305,13 @@ class CheckpointManager:
       return None
     return sorted_checkpoints[-1].step
 
+  def reached_preemption(self, step: int) -> bool:
+    """Returns True if a preemption sync point has been reached."""
+    return (
+        jax.config.jax_coordination_service
+        and multihost_utils.reached_preemption_sync_point(step)
+    )
+
   def should_save(self, step: int) -> bool:
     """Returns True if a checkpoint should be saved for the current step.
 
@@ -316,9 +323,7 @@ class CheckpointManager:
     Returns:
       True if the checkpoint should be saved.
     """
-    # Check whether to save an on-demand checkpoint due to preemption.
-    if (jax.config.jax_coordination_service and
-        multihost_utils.reached_preemption_sync_point(step)):
+    if self.reached_preemption(step):
       return True
     last_checkpoint_step = (
         self._last_checkpoint.step if self._last_checkpoint else None)
