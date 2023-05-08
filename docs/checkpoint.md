@@ -84,7 +84,7 @@ train_state = {
 options = CheckpointManagerOptions(max_to_keep=3, keep_period=2)
 mngr = CheckpointManager(
           'path/to/directory/', PyTreeCheckpointer(),
-          options=CheckpointManagerOptions())
+          options=options)
 
 if mngr.latest_step() is not None:  # existing checkpoint present
   # Use convenience function to construct args.
@@ -111,7 +111,8 @@ if mngr.latest_step() is not None:  # existing checkpoint present
   restored = mngr.restore(mngr.latest_step(), 
                 items=train_state, restore_kwargs=restore_args)
 
-for step in range(mngr.latest_step() + 1, num_steps):
+start_step = 0 if mngr.latest_step() is None else mngr.latest_step() + 1
+for step in range(start_step, start_step + num_steps):
   train_state = do_training(train_state)
   mngr.save(step, train_state)
 ```
