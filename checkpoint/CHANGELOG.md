@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Raise error message when the user tries to save host local arrays that are
+typically obtained using pmap.
+
 ## [0.2.1] - 2022-05-08
 
 ### Added

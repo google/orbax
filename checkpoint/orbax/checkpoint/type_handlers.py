@@ -484,6 +484,17 @@ class ArrayHandler(TypeHandler):
       self, value: jax.Array, info: ParamInfo, args: Optional[SaveArgs] = None
   ) -> List[Future]:
     """See superclass documentation."""
+    if (
+        isinstance(value, jax.Array)
+        and jax.process_count() > 1
+        and value.is_fully_addressable
+    ):
+      raise ValueError(
+          'Cannot serialize host local arrays. Arrays like this are typically'
+          ' obtained using pmap. Consider using host_local_to_global_array in'
+          ' orbax/checkpoint/utils.py to convert your arrays into serializable'
+          ' objects.'
+      )
     args = args or SaveArgs()
     tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
     tspec = _get_cast_tspec_serialize(tspec, value, args)

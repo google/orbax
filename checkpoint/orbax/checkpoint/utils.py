@@ -637,3 +637,27 @@ def tmp_checkpoints(checkpoint_dir: epath.PathLike) -> List[str]:
   """Returns a list of tmp checkpoints in the directory."""
   checkpoint_dir = epath.Path(checkpoint_dir)
   return [s.name for s in checkpoint_dir.iterdir() if is_tmp_checkpoint(s)]
+
+
+def host_local_to_global_array(arr: jax.Array) -> jax.Array:
+  """Converts a host local array from to global jax.Array.
+
+  In most cases, the local array is expected to have been produced by pmap.
+
+  Args:
+    arr: Host local array
+
+  Returns:
+    A global array.
+  """
+  if not arr.is_fully_replicated:
+    raise ValueError('Array must be fully replicated.')
+  global_shape = arr.device_buffers[0].shape
+  # Create a 1D mesh to create fully replicated global jax.Array.
+  sharding = jax.sharding.NamedSharding(
+      jax.sharding.Mesh(np.array(jax.devices()), axis_names=('x',)),
+      jax.sharding.PartitionSpec(None),
+  )
+  # pmap-produced Array has a "scrambled" device order.
+  dbs = sorted(arr.device_buffers, key=lambda x: x.device().id)
+  return jax.make_array_from_single_device_arrays(global_shape, sharding, dbs)
