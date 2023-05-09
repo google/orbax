@@ -23,6 +23,7 @@ import functools
 import re
 from typing import Any, Callable, List, Optional, Tuple, Union
 
+from absl import logging
 from etils import epath
 import jax
 from jax.experimental.gda_serialization import serialization
@@ -585,6 +586,16 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     if checkpoint_path.exists():
       return self._aggregate_handler.deserialize(checkpoint_path)
     else:
-      raise FileNotFoundError(
-          f'Checkpoint not found: {checkpoint_path}.'
-      )
+      if self._use_ocdbt:
+        raise ValueError(
+            f'Checkpoint structure file does not exist at {directory}.'
+        )
+      else:
+        logging.error(
+            (
+                'Checkpoint structure file does not exist at %s.'
+                ' Attempting to assume an implicit tree structure.'
+            ),
+            directory,
+        )
+        return utils.pytree_structure(directory)
