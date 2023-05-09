@@ -363,6 +363,7 @@ def cleanup_tmp_directories(directory: epath.PathLike,
   """Cleanup steps in `directory` with tmp files, as these are not finalized."""
   directory = epath.Path(directory)
   if primary_host is None or jax.process_index() == primary_host:
+    logging.info('Cleaning up existing temporary directories at %s.', directory)
     tmp_files = tmp_checkpoints(directory)
     for tmp_file in tmp_files:
       (directory / tmp_file).rmtree()
