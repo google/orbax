@@ -155,7 +155,7 @@ objects and customizing `CheckpointManager` behavior.
 def best_fn(metrics: Mapping[str, float]) -> float:
   return metrics['accuracy']
 
-options = CheckpointManagerOptions(max_to_keep=5, best_fn=best_fn, mode='max')
+options = CheckpointManagerOptions(max_to_keep=5, best_fn=best_fn, best_mode='max')
 handlers = {'state': AsyncCheckpointer(PyTreeCheckpointHandler()), 'metadata': Checkpointer(JsonCheckpointHandler())}
 mngr = CheckpointManager('path/to/directory/', handlers, options=options)
 
