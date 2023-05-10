@@ -640,7 +640,9 @@ def tmp_checkpoints(checkpoint_dir: epath.PathLike) -> List[str]:
   return [s.name for s in checkpoint_dir.iterdir() if is_tmp_checkpoint(s)]
 
 
-def host_local_to_global_array(arr: jax.Array) -> jax.Array:
+def fully_replicated_host_local_array_to_global_array(
+    arr: jax.Array,
+) -> jax.Array:
   """Converts a host local array from to global jax.Array.
 
   In most cases, the local array is expected to have been produced by pmap.
