@@ -491,9 +491,9 @@ class ArrayHandler(TypeHandler):
     ):
       raise ValueError(
           'Cannot serialize host local arrays. Arrays like this are typically'
-          ' obtained using pmap. Consider using host_local_to_global_array in'
-          ' orbax/checkpoint/utils.py to convert your arrays into serializable'
-          ' objects.'
+          ' obtained using pmap. Consider using'
+          ' identical_host_local_to_global_array in orbax/checkpoint/utils.py'
+          ' to convert your arrays into serializable objects.'
       )
     args = args or SaveArgs()
     tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)

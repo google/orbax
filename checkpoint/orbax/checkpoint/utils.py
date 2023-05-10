@@ -640,19 +640,24 @@ def tmp_checkpoints(checkpoint_dir: epath.PathLike) -> List[str]:
   return [s.name for s in checkpoint_dir.iterdir() if is_tmp_checkpoint(s)]
 
 
-def host_local_to_global_array(arr: jax.Array) -> jax.Array:
-  """Converts a host local array from to global jax.Array.
+def identical_host_local_to_global_array(arr: jax.Array) -> jax.Array:
+  """Converts a host local array with identical shards to a global jax.Array.
 
-  In most cases, the local array is expected to have been produced by pmap.
+  In most cases, the host local array is expected to have been produced by pmap.
+  If the array is sharded (like when using pmap), the per-TPU shards must have
+  identical contents. This normally occurs when a pmap-ed step performs
+  identical updates to some state.
 
   Args:
-    arr: Host local array
+    arr: Host local array sharded across all local devices.
 
   Returns:
-    A global array.
+    A global array that this fully replicated across all devices.
   """
-  if not arr.is_fully_replicated:
-    raise ValueError('Array must be fully replicated.')
+  if not arr.is_fully_addressable:
+    raise ValueError('Array must be fully addressable.')
+  if arr.devices() != set(jax.local_devices()):
+    raise ValueError('Array must use all local devices.')
   global_shape = arr.device_buffers[0].shape
   # Create a 1D mesh to create fully replicated global jax.Array.
   sharding = jax.sharding.NamedSharding(

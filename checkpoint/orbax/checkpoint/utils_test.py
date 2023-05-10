@@ -220,6 +220,12 @@ class UtilsTest(parameterized.TestCase):
         utils.checkpoint_steps(self.directory),
     )
 
+  def test_host_local_to_global_array(self):
+    arr = flax.jax_utils.replicate(jax.numpy.array([1, 2, 3, 4]))
+    global_arr = utils.identical_host_local_to_global_array(arr)
+    self.assertTrue(global_arr.is_fully_replicated)
+    self.assertSameElements([1, 2, 3, 4], global_arr)
+
 
 if __name__ == '__main__':
   absltest.main()
