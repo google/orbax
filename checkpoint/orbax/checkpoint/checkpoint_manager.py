@@ -18,6 +18,7 @@ import asyncio
 import dataclasses
 import datetime
 import threading
+import time
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
 import uuid
 
@@ -44,6 +45,8 @@ METRIC_ITEM_NAME = 'metrics'
 METADATA_ITEM_NAME = 'metadata'
 
 RESERVED_ITEM_NAMES = [DESCRIPTOR_ITEM_NAME, METRIC_ITEM_NAME]
+
+_INIT_TIME = time.time()
 
 
 def _metrics_file_exists(metrics_item_path: epath.Path) -> bool:
@@ -887,14 +890,25 @@ class CheckpointManager:
             ),
             e,
         )
-        return
-      utils.ensure_atomic_save(
-          temp_ckpt_dir,
-          self._get_save_directory(
-              utils.step_from_checkpoint_name(temp_ckpt_dir.name),
-              self.directory,
-          ),
-      )
+        return None
+      step = utils.step_from_checkpoint_name(temp_ckpt_dir.name)
+      # If at a preemption step, record the time since the previous checkpoint.
+      # This represents training time that would otherwise have been wasted.
+      # If another checkpoint has not been previously saved, measures the time
+      # since program start.
+      if self.reached_preemption(step):
+        if len(self._checkpoints) > 1:
+          previous_time = self._checkpoints[-2].time
+        else:
+          previous_time = _INIT_TIME
+        assert self._last_checkpoint is not None
+        duration = self._last_checkpoint.time - previous_time
+        jax.monitoring.record_event_duration_secs(
+            '/jax/checkpoint/write/preempt/duration_saved_secs',
+            duration.total_seconds(),
+        )
+      final_ckpt_dir = self._get_save_directory(step, self.directory)
+      utils.ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir)
 
   def _finalize(self, temp_ckpt_dir: epath.Path):
     """Cleans up old checkpoints and synchronizes hosts."""
