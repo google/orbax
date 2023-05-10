@@ -33,7 +33,6 @@ from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
 from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
 
-
 PyTree = Any
 CheckpointDirs = Tuple[str, str]
 SaveParams = Mapping[str, Any]
@@ -597,6 +596,7 @@ class CheckpointManager:
       kwargs = restore_kwargs.get(item_name, {})
       restored[item_name] = self._checkpointers[item_name].restore(
           path, item=item, **kwargs)
+
     return restored
 
   def structure(self) -> Union[Any, Mapping[str, Any]]:
@@ -871,13 +871,18 @@ class CheckpointManager:
       if is_async_checkpointer(checkpointer):
         checkpointer.check_for_errors()  # pytype: disable=attribute-error
 
-  def _finalize_checkpoint(self, temp_ckpt_dir: epath.Path):
+  def _finalize_checkpoint(
+      self, temp_ckpt_dir: epath.Path
+  ) -> Optional[epath.Path]:
     """Moves tmp step checkpoint to final.
 
     Args:
       temp_ckpt_dir: The temporary checkpoint directory. If not None, only
         finalize the checkpoints in `temp_ckpt_dir`. If None, it will iterate
         through all temp checkpoints in `self.directory` and finalize them all.
+
+    Returns:
+      the final checkpoint dir
     """
     if jax.process_index() == 0:
       try:
@@ -909,10 +914,11 @@ class CheckpointManager:
         )
       final_ckpt_dir = self._get_save_directory(step, self.directory)
       utils.ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir)
+      return final_ckpt_dir
 
   def _finalize(self, temp_ckpt_dir: epath.Path):
     """Cleans up old checkpoints and synchronizes hosts."""
     if not self._all_checkpointers_are_sync:
       self.wait_until_finished(join_finalize_thread=False)
-    self._finalize_checkpoint(temp_ckpt_dir)
+    final_ckpt_dir = self._finalize_checkpoint(temp_ckpt_dir)
     self._remove_old_checkpoints()
