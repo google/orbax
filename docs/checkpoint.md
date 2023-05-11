@@ -693,3 +693,36 @@ layer with multiple different arrays, each containing the pattern.
 Finally, we can simply omit `Dense_3` from `transformations`, as the `Dense_3`
 was provided as a key in `new_state` and the function will simply take the value
 from `new_state` and put it in the result.
+
+## Miscellaneous
+
+### Distributed Initialization
+
+Using Orbax requires initializing the JAX distributed system. In a single-host
+environment, this can be done easily using the following:
+
+```py
+import jax
+import portpicker
+
+port = portpicker.pick_unused_port()
+jax.distributed.initialize(f'localhost:{port}', num_processes=1, process_id=0)
+```
+
+This is often appropriate for colabs or other simple setups.
+
+In a multi-host environment, a coordinator must be started by calling the
+following on every process. More details are provided in the JAX
+[documentation](https://jax.readthedocs.io/en/latest/multi_process.html#initializing-the-cluster).
+
+```py
+import jax
+
+# IP address of primary host, unused port.
+jax.distributed.initialize(
+  coordinator_address="192.168.0.1:1234",
+  num_processes=2,
+  process_id=0
+)
+```
+
