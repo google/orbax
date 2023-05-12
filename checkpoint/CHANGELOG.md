@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `merge_trees` function in `transform_utils`.
+
 ### Changed
 - Explicit Python version support for 3.9, 3.10, 3.11
 

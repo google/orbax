@@ -248,7 +248,7 @@ def serialize_tree(tree: PyTree, keep_empty_nodes: bool = False) -> PyTree:
 
 
 def deserialize_tree(
-    target: PyTree, serialized: PyTree, keep_empty_nodes: bool = False
+    serialized: PyTree, target: PyTree, keep_empty_nodes: bool = False
 ) -> PyTree:
   """Deserializes a PyTree to the same structure as `target`."""
 
@@ -270,25 +270,44 @@ def deserialize_tree(
 
 
 def from_flat_dict(
-    tree: PyTree, flat_dict: PyTree, sep: Optional[str] = None
+    flat_dict: PyTree,
+    target: Optional[PyTree] = None,
+    sep: Optional[str] = None,
 ) -> PyTree:
   """Reconstructs the original tree object from a flattened dictionary.
 
   Args:
-    tree: A reference PyTree. The returned value will conform to this structure.
     flat_dict: A dictionary conforming to the return value of `to_flat_dict`.
+    target: A reference PyTree. The returned value will conform to this
+      structure. If not provided, an unflattened dict will be returned with the
+      inferred structure of the original tree, without necessarily matching it
+      exactly.
     sep: separator used for nested keys in `flat_dict`.
 
   Returns:
     A dict matching the structure of `tree` with the values of `flat_dict`.
   """
-  flat_structure = to_flat_dict(tree, sep=sep)
-  # Ensure that the ordering of `flat_dict` keys matches that of `tree`.
-  # Necessary for later unflattening.
-  flat_dict = {k: flat_dict[k] for k in flat_structure.keys()}
-  return jax.tree_util.tree_unflatten(
-      jax.tree_util.tree_structure(tree), flat_dict.values()
-  )
+  if target is None:
+    result = {}
+    for k, v in flat_dict.items():
+      subtree = result
+      for i, name in enumerate(k):
+        if i == len(k) - 1:
+          assert name not in subtree
+          subtree[name] = v
+        else:
+          if name not in subtree:
+            subtree[name] = {}
+          subtree = subtree[name]
+    return result
+  else:
+    flat_structure = to_flat_dict(target, sep=sep)
+    # Ensure that the ordering of `flat_dict` keys matches that of `target`.
+    # Necessary for later unflattening.
+    flat_dict = {k: flat_dict[k] for k in flat_structure.keys()}
+    return jax.tree_util.tree_unflatten(
+        jax.tree_util.tree_structure(target), flat_dict.values()
+    )
 
 
 def leaf_is_placeholder(leaf: Any) -> bool:

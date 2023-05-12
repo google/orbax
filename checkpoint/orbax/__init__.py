@@ -21,6 +21,7 @@ from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import lazy_utils
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import test_utils
+from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
@@ -38,6 +39,7 @@ from orbax.checkpoint.pytree_checkpoint_handler import PyTreeCheckpointHandler
 from orbax.checkpoint.pytree_checkpoint_handler import RestoreArgs
 from orbax.checkpoint.pytree_checkpoint_handler import SaveArgs
 from orbax.checkpoint.transform_utils import apply_transformations
+from orbax.checkpoint.transform_utils import merge_trees
 from orbax.checkpoint.transform_utils import Transform
 
 try:

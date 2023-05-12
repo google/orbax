@@ -175,7 +175,7 @@ def _transform_structure(
     item = restored
   else:
     if transforms is None:
-      item = utils.deserialize_tree(item, restored)
+      item = utils.deserialize_tree(restored, item)
     else:
       transforms = _construct_lazy_transform_wrappers(transforms)
       item = transform_utils.apply_transformations(

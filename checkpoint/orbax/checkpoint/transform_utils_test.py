@@ -432,7 +432,7 @@ class TransformUtilsTest(absltest.TestCase):
         expected_flat_dict[k] = old_flat_dict[k]
 
     expected_state = utils.from_flat_dict(
-        new_state, expected_flat_dict, sep='/'
+        expected_flat_dict, target=new_state, sep='/'
     )
     test_utils.assert_tree_equal(self, expected_state, restored_state)
 
@@ -474,9 +474,104 @@ class TransformUtilsTest(absltest.TestCase):
         expected_flat_dict[k] = v
 
     expected_state = utils.from_flat_dict(
-        new_state, expected_flat_dict, sep='/'
+        expected_flat_dict, target=new_state, sep='/'
     )
     test_utils.assert_tree_equal(self, expected_state, restored_state)
+
+  def test_merge_trees(self):
+    one = {
+        'a': 1,
+        'b': {
+            'c': 2,
+            'd': 3,
+        },
+    }
+    two = {
+        'a': 2,
+        'b': {
+            'c': 4,
+            'e': 6,
+        },
+    }
+    three = {}
+    four = {
+        'f': 7,
+        'g': 8,
+    }
+    expected = {
+        'a': 2,
+        'b': {
+            'c': 4,
+            'd': 3,
+            'e': 6,
+        },
+        'f': 7,
+        'g': 8,
+    }
+    self.assertDictEqual(
+        expected, transform_utils.merge_trees(one, two, three, four)
+    )
+
+  def test_merge_trees_target(self):
+    one = {
+        'a': 1,
+        'b': {
+            'c': 2,
+            'd': 3,
+        },
+    }
+    two = {
+        'a': 2,
+        'b': {
+            'c': 4,
+            'e': 6,
+        },
+    }
+    three = {}
+    four = {
+        'f': 7,
+        'g': 8,
+    }
+
+    @flax.struct.dataclass
+    class Expected:
+      a: int
+      b: Mapping[str, int]
+      f: int
+      g: int
+
+      def __eq__(self, other):
+        return (
+            self.a == other.a
+            and self.b == other.b
+            and self.f == other.f
+            and self.g == other.g
+        )
+
+    expected = Expected(
+        a=2,
+        b={
+            'c': 4,
+            'd': 3,
+            'e': 6,
+        },
+        f=7,
+        g=8,
+    )
+
+    self.assertEqual(
+        expected,
+        transform_utils.merge_trees(
+            one,
+            two,
+            three,
+            four,
+            target=jax.tree_util.tree_map(lambda x: 0, expected),
+        ),
+    )
+
+  def test_merge_trees_empty(self):
+    self.assertDictEqual({}, transform_utils.merge_trees({}, {}))
 
 
 if __name__ == '__main__':

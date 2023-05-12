@@ -136,7 +136,9 @@ class UtilsTest(parameterized.TestCase):
   )
   def test_from_flat_dict(self, expected, flat_dict):
     empty = jax.tree_util.tree_map(lambda _: 0, expected)
-    self.assertDictEqual(expected, utils.from_flat_dict(empty, flat_dict))
+    self.assertDictEqual(
+        expected, utils.from_flat_dict(flat_dict, target=empty)
+    )
 
   def test_serialize(self):
     tree = {'a': 1, 'b': {'c': {'d': 2}}, 'e': [1, {'x': 5, 'y': 7}, [9, 10]]}

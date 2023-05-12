@@ -15,8 +15,10 @@
 """Provides utils for transforming PyTrees from one version to another."""
 
 import dataclasses
+import functools
+import operator
 import re
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 from absl import logging
 from orbax.checkpoint import utils
@@ -251,4 +253,25 @@ def apply_transformations(original_tree: PyTree,
                  'after applying specified transforms: %s',
                  ', '.join(unmatched_new_keys))
 
-  return utils.from_flat_dict(new_tree, new, sep='/')
+  return utils.from_flat_dict(new, target=new_tree, sep='/')
+
+
+def merge_trees(
+    *trees: Sequence[PyTree], target: Optional[PyTree] = None
+) -> PyTree:
+  """Merges the provided PyTrees into a single result.
+
+  If trees have overlapping keys, the key of the last tree in the list will take
+  precedence.
+
+  Args:
+    *trees: PyTrees to merge.
+    target: A PyTree to provide structure for the returned value. If not
+      provided, the result will take the form of a dictionary.
+
+  Returns:
+    A single merged PyTree.
+  """
+  trees = [utils.to_flat_dict(t) for t in trees]
+  merged = functools.reduce(operator.ior, trees, {})
+  return utils.from_flat_dict(merged, target=target)
