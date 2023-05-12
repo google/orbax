@@ -7,7 +7,7 @@ name = "orbax-checkpoint"
 description = "Orbax Checkpoint"
 readme = 'README.md'
 license = {file = 'LICENSE'}
-requires-python = '>=3.8'
+requires-python = '>=3.9'
 authors = [{name = 'Orbax Authors', email='orbax-dev@google.com'}]
 classifiers=[
     'Development Status :: 4 - Beta',
