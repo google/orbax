@@ -135,9 +135,20 @@ def _get_param_infos_from_structure(directory: epath.Path,
 def _get_tree_for_aggregation(param_infos, save_args, item):
   """Get tree for aggregated checkpoint."""
 
+  # TODO(b/283164080): These type checks result in logic from the lower layer
+  # (TypeHandler/AggregateHandler) leaking into the upper layer
+  # (CheckpointHandler). Ideally, AggregateHandler could define its own
+  # supported values and error conditions.
   def _get_leaf_for_aggregation(param_info, arg, value):
     if arg.aggregate:  # Param was aggregated, return value after cast.
+      if isinstance(value, jax.Array) and not value.is_fully_replicated:
+        raise ValueError(
+            'jax.Array must be fully replicated to be saved in aggregate file.'
+        )
       if not utils.is_supported_aggregation_type(value):
+        # Not an error because users' training states often have a bunch of
+        # random unserializable objects in them (empty states, optimizer
+        # objects, etc.).
         value = None
       return _try_array_cast(value, arg.dtype)
     else:  # Placeholder string for non-aggregated value.

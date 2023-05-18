@@ -27,7 +27,6 @@ from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
-import jax.numpy as jnp
 import numpy as np
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
@@ -206,6 +205,7 @@ def serialize_tree(tree: PyTree, keep_empty_nodes: bool = False) -> PyTree:
   elif _is_sequence_key(outerkey):
     result = []
   else:
+    result = None
     _raise_unsupported_key_error(outerkey)
 
   for keypath, value in flat_with_keys:
@@ -228,6 +228,7 @@ def serialize_tree(tree: PyTree, keep_empty_nodes: bool = False) -> PyTree:
         elif _is_sequence_key(nextkey):
           nextvalue = []
         else:
+          nextvalue = None
           _raise_unsupported_key_error(nextkey)
 
         if _is_dict_key(key):
@@ -345,7 +346,7 @@ def is_supported_aggregation_type(value: Any) -> bool:
   """Determines if the value is supported for aggregation."""
   return isinstance(
       value,
-      (str, int, float, np.number, np.ndarray, jnp.ndarray, bytes),
+      (str, int, float, np.number, np.ndarray, bytes, jax.Array),
   ) or is_supported_empty_aggregation_type(value)
 
 

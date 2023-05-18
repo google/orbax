@@ -14,6 +14,7 @@
 
 """Utils for orbax tests."""
 
+import functools
 from typing import List, Optional
 
 from etils import epath
@@ -21,7 +22,6 @@ import jax
 from jax import sharding
 from jax.experimental import pjit
 import jax.numpy as jnp
-from jax.sharding import Mesh
 import numpy as np
 from orbax.checkpoint import lazy_utils
 from orbax.checkpoint import pytree_checkpoint_handler
@@ -52,7 +52,7 @@ def save_fake_tmp_dir(
 
 def replicate_sharded_array(arr: jax.Array):
   """Returns the input array, but replicated across all devices."""
-  mesh = Mesh(np.asarray(jax.devices()), ('x',))
+  mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
   replicated_sharding = sharding.NamedSharding(
       mesh,
       jax.sharding.PartitionSpec(
@@ -79,31 +79,36 @@ def apply_function(tree, function):
   return jax.tree_util.tree_map(f, tree)
 
 
+def assert_array_equal(testclass, v_expected, v_actual):
+  """Asserts that two arrays are equal."""
+  if isinstance(v_expected, lazy_utils.LazyValue):
+    testclass.assertIsInstance(v_actual, lazy_utils.LazyValue)
+    v_expected = v_expected.get()
+    v_actual = v_actual.get()
+
+  testclass.assertIsInstance(v_actual, type(v_expected))
+  if isinstance(v_expected, jax.Array):
+    testclass.assertEqual(
+        len(v_expected.addressable_shards), len(v_actual.addressable_shards)
+    )
+    for shard_expected, shard_actual in zip(
+        v_expected.addressable_shards, v_actual.addressable_shards
+    ):
+      np.testing.assert_array_equal(shard_expected.data, shard_actual.data)
+  elif isinstance(v_expected, (np.ndarray, jnp.ndarray)):
+    np.testing.assert_array_equal(v_expected, v_actual)
+  else:
+    testclass.assertEqual(v_expected, v_actual)
+
+
 def assert_tree_equal(testclass, expected, actual):
   """Asserts that two PyTrees are equal."""
-
-  def assert_array_equal(v_expected, v_actual):
-    if isinstance(v_expected, lazy_utils.LazyValue):
-      testclass.assertIsInstance(v_actual, lazy_utils.LazyValue)
-      v_expected = v_expected.get()
-      v_actual = v_actual.get()
-
-    testclass.assertIsInstance(v_actual, type(v_expected))
-    if isinstance(v_expected, jax.Array):
-      testclass.assertEqual(
-          len(v_expected.addressable_shards), len(v_actual.addressable_shards))
-      for shard_expected, shard_actual in zip(v_expected.addressable_shards,
-                                              v_actual.addressable_shards):
-        np.testing.assert_array_equal(shard_expected.data, shard_actual.data)
-    elif isinstance(v_expected, (np.ndarray, jnp.ndarray)):
-      np.testing.assert_array_equal(v_expected, v_actual)
-    else:
-      testclass.assertEqual(v_expected, v_actual)
-
   expected_flat = utils.to_flat_dict(expected)
   actual_flat = utils.to_flat_dict(actual)
   testclass.assertSameElements(expected_flat.keys(), actual_flat.keys())
-  jax.tree_util.tree_map(assert_array_equal, expected, actual)
+  jax.tree_util.tree_map(
+      functools.partial(assert_array_equal, testclass), expected, actual
+  )
 
 
 def setup_pytree(add: int = 0):
@@ -124,11 +129,13 @@ def setup_sharded_pytree():
   """Creates a PyTree of sharded arrays for testing."""
   devices = np.asarray(jax.devices())
 
-  mesh_2d = Mesh(devices.reshape((2, len(devices) // 2)), ('x', 'y'))
+  mesh_2d = jax.sharding.Mesh(
+      devices.reshape((2, len(devices) // 2)), ('x', 'y')
+  )
   mesh_axes_2d = jax.sharding.PartitionSpec('x', 'y')
-  mesh_1d = Mesh(devices, ('x',))
+  mesh_1d = jax.sharding.Mesh(devices, ('x',))
   mesh_axes_1d = jax.sharding.PartitionSpec('x',)
-  mesh_0d = Mesh(devices, ('x',))
+  mesh_0d = jax.sharding.Mesh(devices, ('x',))
   mesh_axes_0d = jax.sharding.PartitionSpec(None,)
 
   pytree = setup_pytree()
@@ -157,7 +164,7 @@ def setup_sharded_pytree():
 def is_leaf(x):
   return (
       isinstance(x, np.ndarray)
-      or isinstance(x, Mesh)
+      or isinstance(x, jax.sharding.Mesh)
       or isinstance(x, jax.sharding.PartitionSpec)
       or isinstance(x, pytree_checkpoint_handler.ParamInfo)
   )
