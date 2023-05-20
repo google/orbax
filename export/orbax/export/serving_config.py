@@ -23,6 +23,24 @@ PyTree = Any
 
 
 @dataclasses.dataclass
+class TensorSpecWithDefault:
+  """Extends tf.TensorSpec to hold a default value."""
+
+  tensor_spec: tf.TensorSpec
+  default_val: Any
+
+  def __post_init__(self):
+    if self.default_val is not None:
+      if not tf.TensorSpec.from_tensor(
+          tf.convert_to_tensor(self.default_val, self.tensor_spec.dtype)
+      ).is_subtype_of(self.tensor_spec):
+        raise ValueError(
+            f'TensorSpec {self.tensor_spec} is not compatible with'
+            f' the default value {self.default_val}'
+        )
+
+
+@dataclasses.dataclass
 class ServingConfig:
   """Configuration for constructing a serving signature for a JaxModule.
 
@@ -32,9 +50,12 @@ class ServingConfig:
   # The key of the serving signature or a sequence of keys mapping to the same
   # serving signature.
   signature_key: Union[str, Sequence[str]]
-  # The input signature. Will infer input_signature is specified from
-  # `tf_preprocessor` by default.
-  input_signature: Optional[Sequence[Any]] = None
+  # The input signature for `tf_preprocessor` (or the JaxModule method if there
+  # is no `tf_preprocessor`). If not specified, this will be infered from
+  # `tf_preprocessor`, in which case `tf_preprocessor` must be a tf.function
+  # with `input_signature` annotation. See
+  # https://www.tensorflow.org/api_docs/python/tf/function#input_signatures.
+  input_signature: Optional[Sequence[PyTree]] = None
   # Optional pre-precessing function written in TF.
   tf_preprocessor: Optional[Callable[..., Any]] = None
   # Optional post-processing function written in TF.
@@ -55,6 +76,24 @@ class ServingConfig:
       return [self.signature_key]
     else:
       return self.signature_key
+
+  def get_input_signature(self, required=True) -> Any:
+    """Gets the input signature from the explict one or tf_preprocessor."""
+    input_signature = self.input_signature
+    if input_signature is None:
+      if (
+          hasattr(self.tf_preprocessor, 'input_signature')
+          and self.tf_preprocessor.input_signature is not None
+      ):
+        input_signature = self.tf_preprocessor.input_signature
+
+    if required and input_signature is None:
+      raise ValueError(
+          f'Neithr the ServingConfig (key={self.signature_key}) nor its'
+          ' `tf_preprocessor` sets an `input_signature`, please set'
+          ' `input_signature` explictly.',
+      )
+    return input_signature
 
   def get_infer_step(
       self, infer_step_fns: Union[Callable[..., Any],
@@ -91,9 +130,11 @@ class ServingConfig:
 
   def bind(
       self,
-      infer_step_fns: Union[Callable[[PyTree], PyTree],
-                            Mapping[str, Callable[[PyTree], PyTree]]],
-      require_numpy=True) -> Mapping[str, Callable[..., Mapping[Text, Any]]]:
+      infer_step_fns: Union[
+          Callable[[PyTree], PyTree], Mapping[str, Callable[[PyTree], PyTree]]
+      ],
+      require_numpy: bool = True,
+  ) -> Mapping[str, Callable[..., Mapping[Text, Any]]]:
     """Returns an e2e inference function by binding a inference step function.
 
     Args:
@@ -115,13 +156,15 @@ class ServingConfig:
       preprocessor = tf.function(self.tf_preprocessor or (lambda *a: a))
       postprocessor = tf.function(self.tf_postprocessor or (lambda *a: a))
 
-      def inference_fn(*preprocessed_inputs):
+      def inference_fn(*inputs):
         if self.tf_preprocessor:
-          inputs = preprocessor(*preprocessed_inputs)
+          preprocessed_inputs = preprocessor(*inputs)
           if require_numpy:
-            inputs = jax.tree_util.tree_map(lambda x: x.numpy(), inputs)
+            preprocessed_inputs = jax.tree_util.tree_map(
+                lambda x: x.numpy(), preprocessed_inputs
+            )
         else:
-          inputs = preprocessed_inputs
+          preprocessed_inputs = inputs
 
           if len(preprocessed_inputs) != 1:
             raise ValueError(
@@ -132,10 +175,10 @@ class ServingConfig:
                 ' the ServingConfig.tf_preprocessor.'
             )
 
-          inputs = preprocessed_inputs[0]
+          preprocessed_inputs = preprocessed_inputs[0]
 
         # Currently Jax Module only takes 1 input
-        outputs = infer_step(inputs)
+        outputs = infer_step(preprocessed_inputs)
         if self.tf_postprocessor:
           outputs = postprocessor(outputs)
           if require_numpy:
@@ -151,3 +194,98 @@ class ServingConfig:
       func_map[key] = infer_fn_with_processors
 
     return func_map
+
+
+def _split_tensor_specs(
+    input_signature: PyTree,
+) -> tuple[
+    list[tf.TensorSpec],
+    list[TensorSpecWithDefault],
+    Callable[[list[Any], list[Any]], PyTree],
+]:
+  """Splits the TensorSpecs in the input signature into required and optional group.
+
+  Args:
+    input_signature: a PyTree of tensors specs.
+
+  Returns:
+    A tuple with:
+      * Required group: a flattened list of `tf.TensorSpec`s.
+      * Optional group: a flattened list of `TensorSpecWithDefault`s.
+      * A function that unflattens the two output lists back to the original
+      PyTree.
+  """
+  flat_tf_specs, treedef = jax.tree_util.tree_flatten(input_signature)
+
+  required = []
+  required_index = []
+  optional = []
+  optional_index = []
+
+  for i, spec in enumerate(flat_tf_specs):
+    if isinstance(spec, TensorSpecWithDefault):
+      if spec.default_val is not None:
+        optional.append(spec)
+        optional_index.append(i)
+      else:
+        required.append(spec.tensor_spec)
+        required_index.append(i)
+    else:
+      required.append(spec)
+      required_index.append(i)
+
+  def unflatten(required: list[Any], optional: list[Any]) -> PyTree:
+    merged = [None for _ in range(len(required) + len(optional))]
+    for i, index in enumerate(required_index):
+      merged[index] = required[i]
+    for i, index in enumerate(optional_index):
+      merged[index] = optional[i]
+    assert None not in merged
+    return jax.tree_util.tree_unflatten(treedef, merged)
+
+  return required, optional, unflatten
+
+
+def with_default_args(
+    tf_fn: Callable[..., Any],
+    input_signature: Sequence[PyTree],
+) -> tf.types.experimental.GenericFunction:
+  """Creates a TF function with default args specified in `input_signature`.
+
+  Args:
+    tf_fn: the TF function.
+    input_signature: the input signature. Even leaf is a tf.TensorSpec, or a
+      orbax.export.TensorSpecWithDefault if the default value is specified.
+
+  Returns:
+    A tf function with default arguments. Note that the structure of the input
+    signature may be different from the original one.
+  """
+
+  required_specs, optional_specs, unflatten = _split_tensor_specs(
+      input_signature
+  )
+  if not optional_specs:
+    return tf.function(
+        tf_fn,
+        input_signature=input_signature,
+        jit_compile=False,
+        autograph=False,
+    )
+
+  default_vals = [
+      tf.convert_to_tensor(x.default_val, dtype=x.tensor_spec.dtype)
+      for x in optional_specs
+  ]
+  optional_ts = [ts.tensor_spec for ts in optional_specs]
+
+  @tf.function(
+      input_signature=[required_specs, optional_ts],
+      jit_compile=False,
+      autograph=False,
+  )
+  def wrapped_fn(required, optional=default_vals):
+    inputs = unflatten(required, optional)
+    return tf_fn(*inputs)
+
+  return wrapped_fn

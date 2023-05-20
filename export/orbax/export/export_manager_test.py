@@ -19,9 +19,10 @@ from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
 from orbax.export.export_manager import ExportManager
-from orbax.export.export_manager import make_concrete_inference_fn
+from orbax.export.export_manager import make_e2e_inference_fn
 from orbax.export.jax_module import JaxModule
 from orbax.export.serving_config import ServingConfig
+from orbax.export.serving_config import TensorSpecWithDefault
 import tensorflow as tf
 
 
@@ -56,56 +57,75 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
   @parameterized.named_parameters(
       dict(
           testcase_name='normal',
-          input_signature=[{
-              'feat': tf.TensorSpec((), tf.dtypes.int32, 'feat')
-          }],
+          input_signature=[
+              {'feat': tf.TensorSpec((), tf.dtypes.int32, 'feat')}
+          ],
           preprocessor=_from_feature_dict,
           postprocessor=_add_output_name,
           inputs={'feat': tf.constant(1)},
-          outputs={'outputs': tf.constant(2)}),
+          outputs={'outputs': tf.constant(2)},
+      ),
       dict(
           testcase_name='embedded input signature',
-          preprocessor=tf.function(_from_feature_dict, [{
-              'feat': tf.TensorSpec((), tf.dtypes.int32, 'feat')
-          }]),
+          preprocessor=tf.function(
+              _from_feature_dict,
+              [{'feat': tf.TensorSpec((), tf.dtypes.int32, 'feat')}],
+          ),
           postprocessor=_add_output_name,
           inputs={'feat': tf.constant(1)},
-          outputs={'outputs': tf.constant(2)}),
+          outputs={'outputs': tf.constant(2)},
+      ),
       dict(
           testcase_name='no preprocessor',
           input_signature=[tf.TensorSpec((), tf.dtypes.int32, 'feat')],
           postprocessor=_add_output_name,
           inputs=tf.constant(1),
-          outputs={'outputs': tf.constant(2)}),
+          outputs={'outputs': tf.constant(2)},
+      ),
       dict(
           testcase_name='no postprocessor',
-          input_signature=[{
-              'feat': tf.TensorSpec((), tf.dtypes.int32, 'feat')
-          }],
+          input_signature=[
+              {'feat': tf.TensorSpec((), tf.dtypes.int32, 'feat')}
+          ],
           preprocessor=_from_feature_dict,
           inputs={'feat': tf.constant(1)},
-          outputs=tf.constant(2)),
+          outputs=tf.constant(2),
+      ),
       dict(
           testcase_name='core module only',
           input_signature=[tf.TensorSpec((), tf.dtypes.int32, 'feat')],
           inputs=tf.constant(1),
-          outputs=tf.constant(2)),
+          outputs=tf.constant(2),
+      ),
+      dict(
+          testcase_name='default value',
+          input_signature=[
+              TensorSpecWithDefault(
+                  tf.TensorSpec((), tf.dtypes.int32, 'feat'), 1
+              )
+          ],
+          inputs=[],
+          outputs=tf.constant(2),
+      ),
   )
-  def test_make_concrete_inference_fn(self,
-                                      inputs,
-                                      outputs,
-                                      input_signature=None,
-                                      preprocessor=None,
-                                      postprocessor=None):
+  def test_make_e2e_inference_fn(
+      self,
+      inputs,
+      outputs,
+      input_signature=None,
+      preprocessor=None,
+      postprocessor=None,
+  ):
     method = JaxModule(
         {
             'bias': jnp.array(1)
         },
         lambda p, x: x + p['bias'],
     ).methods[JaxModule.DEFAULT_METHOD_KEY]
-    inference_fn = make_concrete_inference_fn(
+    inference_fn = make_e2e_inference_fn(
         method,
-        ServingConfig('key', input_signature, preprocessor, postprocessor))
+        ServingConfig('key', input_signature, preprocessor, postprocessor),
+    )
     self.assertAllEqual(inference_fn(inputs), outputs)
 
   @parameterized.named_parameters(
@@ -156,6 +176,94 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     loaded = tf.saved_model.load(self._output_dir, ['serve'])
     self.assertCountEqual(expected_keys, em.serving_signatures.keys())
     self.assertCountEqual(expected_keys, loaded.signatures.keys())
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='all default',
+          serving_config=ServingConfig(
+              'serving_default',
+              input_signature=[
+                  TensorSpecWithDefault(tf.TensorSpec((), tf.int32, 'x'), 2),
+                  TensorSpecWithDefault(tf.TensorSpec((), tf.int32, 'y'), 3),
+              ],
+              tf_preprocessor=lambda x, y: x + y,
+          ),
+          serving_inputs={},
+          expected_outputs=6,
+      ),
+      dict(
+          testcase_name='some default',
+          serving_config=ServingConfig(
+              'serving_default',
+              input_signature=[
+                  TensorSpecWithDefault(tf.TensorSpec((), tf.int32, 'x'), 2),
+                  tf.TensorSpec((), tf.int32, 'y'),
+              ],
+              tf_preprocessor=lambda x, y: x + y,
+          ),
+          serving_inputs={'y': 3},
+          expected_outputs=6,
+      ),
+      dict(
+          testcase_name='override default',
+          serving_config=ServingConfig(
+              'serving_default',
+              input_signature=[
+                  TensorSpecWithDefault(tf.TensorSpec((), tf.int32, 'x'), 2),
+                  tf.TensorSpec((), tf.int32, 'y'),
+              ],
+              tf_preprocessor=lambda x, y: x + y,
+          ),
+          serving_inputs={'x': 1, 'y': 3},
+          expected_outputs=5,
+      ),
+      dict(
+          testcase_name='nested',
+          serving_config=ServingConfig(
+              'serving_default',
+              input_signature=[
+                  tf.TensorSpec((), tf.int32, 'x'),
+                  {
+                      'y': TensorSpecWithDefault(
+                          tf.TensorSpec((), tf.int32, 'y'), 2
+                      ),
+                      'z': TensorSpecWithDefault(
+                          tf.TensorSpec((), tf.int32, 'z'), 3
+                      ),
+                  },
+              ],
+              tf_preprocessor=lambda x, extra: x + extra['y'] + extra['z'],
+          ),
+          serving_inputs={'x': 1},
+          expected_outputs=7,
+      ),
+  )
+  def test_save_default_inputs(
+      self, serving_config, serving_inputs, expected_outputs
+  ):
+    em = ExportManager(
+        JaxModule(
+            {'bias': jnp.array(1, jnp.int32)}, lambda p, x: x + p['bias']
+        ),
+        [serving_config],
+    )
+    em.save(self._output_dir)
+    # TODO(b/277814477): use the TF2 API
+    # loaded.signature['serving_default'](**serving_inputs)
+    # once it supports default values.
+    with tf.compat.v1.Graph().as_default(), tf.compat.v1.Session() as sess:
+      meta_graph_def = tf.compat.v1.saved_model.loader.load(
+          sess, ['serve'], self._output_dir
+      )
+      signature_def = meta_graph_def.signature_def[serving_config.signature_key]
+      output_tensor_name = signature_def.outputs['output_0'].name
+      fetch = sess.graph.get_tensor_by_name(output_tensor_name)
+      feed_dict = {
+          sess.graph.get_tensor_by_name(signature_def.inputs[k].name): v
+          for k, v in serving_inputs.items()
+      }
+      outputs = sess.run(fetch, feed_dict=feed_dict)
+    self.assertAllEqual(outputs, expected_outputs)
 
   def test_save_multiple_model_functions(self):
     linear_mdl = JaxModule(

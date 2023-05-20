@@ -22,6 +22,7 @@ from orbax.export.dtensor_utils import get_current_dtensor_mesh
 from orbax.export.export_manager_base import ExportManagerBase
 from orbax.export.jax_module import JaxModule
 from orbax.export.serving_config import ServingConfig
+from orbax.export.serving_config import with_default_args
 import tensorflow as tf
 from tensorflow.experimental import dtensor
 
@@ -48,7 +49,7 @@ class ExportManager(ExportManagerBase):
     for sc in serving_configs:
       with maybe_reraise(f'Failed exporting signature_key={sc.signature_key} '):
         method = sc.get_infer_step(module.methods)
-        concrete_fn = make_concrete_inference_fn(method, sc)
+        inference_fn = make_e2e_inference_fn(method, sc)
         if isinstance(sc.signature_key, str):
           keys = [sc.signature_key]
         else:
@@ -58,7 +59,7 @@ class ExportManager(ExportManagerBase):
             raise ValueError(
                 f'Duplicated key "{sc.signature_key}" in `serving_configs`.'
             )
-          self._serving_signatures[key] = concrete_fn
+          self._serving_signatures[key] = inference_fn
 
         if sc.extra_trackable_resources is not None:
           tf_trackable_resources.append(sc.extra_trackable_resources)
@@ -113,7 +114,7 @@ class ExportManager(ExportManagerBase):
     return loaded
 
 
-def make_concrete_inference_fn(
+def make_e2e_inference_fn(
     model_fn: Callable[..., Any],
     serving_config: ServingConfig) -> Callable[..., Any]:
   """Creates an concrete end-to-end inference tf.function.
@@ -124,28 +125,10 @@ def make_concrete_inference_fn(
       pre-processor and post-processor of the inference function.
 
   Returns:
-    A concrete tf.function for end-to-end inference.
+    A tf.function for end-to-end inference.
   """
-  input_signature = serving_config.input_signature
-  if input_signature is None:
-    if hasattr(serving_config.tf_preprocessor, 'input_signature'
-              ) and serving_config.tf_preprocessor.input_signature is not None:
-      input_signature = serving_config.tf_preprocessor.input_signature
-    else:
-      raise ValueError(
-          (
-              f'ServingConfig (key={serving_config.signature_key}) does not set'
-              ' `input_signature`, and it cannot be inferred from'
-              ' `tf_preprocessor.'
-          ),
-          ' Please set `input_signature` explictly.',
-      )
-
   infer_step_func_map = serving_config.bind(model_fn, require_numpy=False)
   signature_key = serving_config.get_signature_keys()[0]
-  inferece_tf_fn = tf.function(
-      infer_step_func_map[signature_key], autograph=False, jit_compile=False)
-  # TODO(b/239083475): tracing with an input signature is the most error-prone
-  # step in export. We can additionally trace the pre-processor, core module and
-  # the post-processor individually for better debuggability.
-  return inferece_tf_fn.get_concrete_function(*input_signature)
+  return with_default_args(
+      infer_step_func_map[signature_key], serving_config.get_input_signature()
+  )
