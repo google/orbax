@@ -491,7 +491,8 @@ class ArrayHandler(TypeHandler):
     ):
       raise ValueError(
           'Cannot serialize host local arrays. Arrays like this are typically'
-          ' obtained using pmap. Consider using host_local_to_global_array in'
+          ' obtained using pmap. Consider using'
+          ' fully_replicated_host_local_array_to_global_array in'
           ' orbax/checkpoint/utils.py to convert your arrays into serializable'
           ' objects.'
       )
