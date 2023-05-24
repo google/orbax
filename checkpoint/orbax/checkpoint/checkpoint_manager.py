@@ -19,7 +19,7 @@ import dataclasses
 import datetime
 import threading
 import time
-from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Container, List, Mapping, Optional, Sequence, Tuple, Union
 import uuid
 
 from absl import logging
@@ -116,8 +116,9 @@ class CheckpointManagerOptions:
   create: if True, creates the top-level directory if it does not already exist.
   cleanup_tmp_directories: if True, cleans up any existing temporary directories
     on CheckpointManager creation.
-  enable_descriptor: if True, logs a Descriptor proto that contains lineage
-    information about a directory.
+  save_on_steps: Optional set of steps at which checkpoints should be saved.
+    Useful to save checkpoints on a fixed set of steps that are not multiple of
+    `save_interval_steps`.
   """
   save_interval_steps: int = 1
   max_to_keep: Optional[int] = None
@@ -130,12 +131,14 @@ class CheckpointManagerOptions:
   step_format_fixed_length: Optional[int] = None
   create: bool = True
   cleanup_tmp_directories: bool = False
+  save_on_steps: Optional[Container[int]] = None
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
       msg = ("`CheckpointManagerOptions.best_mode` must be one of None, 'min' "
              "or 'max'. Got {self.dtype}.")
       raise ValueError(msg)
+    self.save_on_steps = frozenset(self.save_on_steps or ())
 
 
 @dataclasses.dataclass
@@ -337,7 +340,8 @@ class CheckpointManager:
     # if preemption had not happened.
     return last_checkpoint_step is None or (
         last_checkpoint_step < step and
-        step % self._options.save_interval_steps == 0)
+        (step % self._options.save_interval_steps == 0 or
+         step in self._options.save_on_steps))
 
   def _get_save_directory(
       self,
