@@ -32,7 +32,11 @@ class TensorSpecWithDefault:
   def __post_init__(self):
     if self.default_val is not None:
       if not tf.TensorSpec.from_tensor(
-          tf.convert_to_tensor(self.default_val, self.tensor_spec.dtype)
+          tf.convert_to_tensor(
+              self.default_val,
+              self.tensor_spec.dtype,
+          ),
+          name=self.tensor_spec.name,
       ).is_subtype_of(self.tensor_spec):
         raise ValueError(
             f'TensorSpec {self.tensor_spec} is not compatible with'
