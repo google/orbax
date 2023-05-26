@@ -43,5 +43,6 @@ repository = 'http://github.com/google/orbax'
 [project.optional-dependencies]
 dev = [
     'pytest',
-    'pytest-xdist'
+    'pytest-xdist',
+    'tf-nightly'
 ]
