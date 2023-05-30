@@ -1,6 +1,8 @@
 # Orbax Checkpointing
 
-`pip install orbax-checkpoint`
+`pip install orbax-checkpoint` (latest PyPi release) OR
+
+`pip install 'git+https://github.com/google/orbax/#subdirectory=checkpoint'` (from this repository, at HEAD)
 
 `import orbax.checkpoint`
 

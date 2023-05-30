@@ -5,7 +5,9 @@ namespace providing common utility libraries for JAX users.
 
 ## Checkpointing
 
-`pip install orbax-checkpoint`
+`pip install orbax-checkpoint` (latest PyPi release) OR
+
+`pip install 'git+https://github.com/google/orbax/#subdirectory=checkpoint'` (from this repository, at HEAD)
 
 `import orbax.checkpoint`
 
@@ -21,7 +23,9 @@ Check out our [colab](http://colab.research.google.com/github/google/orbax/blob/
 
 ## Exporting
 
-`pip install orbax-export`
+`pip install orbax-export` (latest PyPi release) OR
+
+`pip install 'git+https://github.com/google/orbax/#subdirectory=export'` (from this repository, at HEAD)
 
 `import orbax.export`
 

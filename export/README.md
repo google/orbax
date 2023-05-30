@@ -1,4 +1,8 @@
-`pip install orbax-export`
+# Orbax Export
+
+`pip install orbax-export` (latest PyPi release) OR
+
+`pip install 'git+https://github.com/google/orbax/#subdirectory=export'` (from this repository, at HEAD)
 
 `import orbax.export`
 
