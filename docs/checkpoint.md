@@ -109,7 +109,7 @@ if mngr.latest_step() is not None:  # existing checkpoint present
   # be managing multiple items, as shown in the previous section. It is also
   # valid to just have one item, as shown here.
   restored = mngr.restore(mngr.latest_step(), 
-                items=train_state, restore_kwargs=restore_args)
+                items=train_state, restore_kwargs={'restore_args': restore_args})
 
 start_step = 0 if mngr.latest_step() is None else mngr.latest_step() + 1
 for step in range(start_step, start_step + num_steps):
