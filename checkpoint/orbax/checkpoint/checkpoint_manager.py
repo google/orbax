@@ -18,7 +18,6 @@ import asyncio
 import dataclasses
 import datetime
 import threading
-import time
 from typing import Any, Callable, Container, List, Mapping, Optional, Sequence, Tuple, Union
 import uuid
 
@@ -45,7 +44,7 @@ METADATA_ITEM_NAME = 'metadata'
 
 RESERVED_ITEM_NAMES = [DESCRIPTOR_ITEM_NAME, METRIC_ITEM_NAME]
 
-_INIT_TIME = time.time()
+_INIT_TIME = datetime.datetime.now(tz=datetime.timezone.utc)
 
 
 def _metrics_file_exists(metrics_item_path: epath.Path) -> bool:
@@ -442,6 +441,8 @@ class CheckpointManager:
     """
     if not force and not self.should_save(step):
       return False
+    if self.reached_preemption(step):
+      logging.info('Saving checkpoint at step %d due to preemption.', step)
 
     # Wait for ongoing saves to complete. Only applicable if some of the
     # checkpointers are AsyncCheckpointers.
