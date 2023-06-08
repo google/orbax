@@ -376,6 +376,18 @@ class CheckpointManager:
       if info.step == step:
         self._checkpoints.pop(i)
 
+  def get_tmp_step_dir(self, step):
+    tmp_step_dir = self._create_tmp_directory(
+        self._get_save_directory(step, self.directory)
+    )
+    return tmp_step_dir
+
+  def get_item_dir(self, step, k, tmp_step_dir):
+    item_dir = self._get_save_directory(
+        step, self.directory, k, tmp_directory=tmp_step_dir
+    )
+    return item_dir
+
   def save(self,
            step: int,
            items: Union[Any, Mapping[str, Any]],
@@ -464,15 +476,11 @@ class CheckpointManager:
         logging.warning('Requested `tracked_metric`; did not provide metrics.')
       else:
         items[METRIC_ITEM_NAME] = metrics
-    tmp_step_dir = self._create_tmp_directory(
-        self._get_save_directory(step, self.directory)
-    )
+    tmp_step_dir = self.get_tmp_step_dir(step)
     for k, item in items.items():
       # Gets save dirs given top directory, step number, and a "collection". All
       # files from the same input object should be saved under this collection.
-      item_dir = self._get_save_directory(
-          step, self.directory, k, tmp_directory=tmp_step_dir
-      )
+      item_dir = self.get_item_dir(step, k, tmp_step_dir)
       if k not in self._checkpointers:
         raise ValueError(f'Checkpointer for item "{k}" not found')
       kwargs = save_kwargs.get(k, {})
