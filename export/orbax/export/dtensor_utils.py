@@ -30,8 +30,15 @@ DTensor = tf.Tensor
 _DTENSOR_INITIALIZED = False
 
 
-def initialize_dtensor():
+def initialize_dtensor(reset_context: bool = False):
   """Initialize a DTensor system for Orbax Export.
+
+  Args:
+    reset_context: Reset the tensorflow context along DTensor initialization.
+      Behaviors of existing TensorFlow objects (e.g. Tensors) are undefined. Set
+      this to True as an escape hatch, if there is no clear way to refactor your
+      code to call initialize_dtensor() before calling TensorFlow APIs that
+      initialize the context. See also `dtensor.initialize_accelerator_system`.
 
   Raises:
     RuntimeError: if the number of DTensor clients is not the same as that of
@@ -41,11 +48,11 @@ def initialize_dtensor():
   n_jax_local_devices = jax.local_device_count()
   n_jax_processes = jax.process_count()
 
-  tf.config.set_logical_device_configuration(
-      tf.config.list_physical_devices('CPU')[0],
-      [tf.config.LogicalDeviceConfiguration()] * n_jax_local_devices,
+  dtensor.initialize_accelerator_system(
+      device_type='CPU',
+      num_logical_cpu_devices=n_jax_local_devices,
+      experimental_reset_context=reset_context,
   )
-  dtensor.initialize_accelerator_system('CPU')
   if dtensor.num_clients() != n_jax_processes:
     raise RuntimeError(
         f'The number of DTensor clients ({dtensor.num_clients()}) is not equal'
@@ -67,6 +74,14 @@ def initialize_dtensor():
 def dtensor_initialized() -> bool:
   """Checks whether DTensor is intialized and matches the JAX device set."""
   return _DTENSOR_INITIALIZED
+
+
+def shutdown_dtensor() -> None:
+  if not dtensor_initialized():
+    raise RuntimeError('DTensor is not initialized.')
+  dtensor.shutdown_accelerator_system()
+  global _DTENSOR_INITIALIZED
+  _DTENSOR_INITIALIZED = False
 
 
 def jax_mesh_to_dtensor_mesh(mesh: jax.sharding.Mesh) -> dtensor.Mesh:

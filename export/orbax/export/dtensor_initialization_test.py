@@ -14,6 +14,7 @@
 
 from absl.testing import absltest
 from orbax.export import dtensor_utils
+import tensorflow as tf
 
 
 class DtensorInitializationTest(absltest.TestCase):
@@ -21,6 +22,16 @@ class DtensorInitializationTest(absltest.TestCase):
   def test_initialize_dtensor(self):
     self.assertFalse(dtensor_utils.dtensor_initialized())
     dtensor_utils.initialize_dtensor()
+    self.assertTrue(dtensor_utils.dtensor_initialized())
+    dtensor_utils.shutdown_dtensor()
+    self.assertFalse(dtensor_utils.dtensor_initialized())
+
+    _ = tf.constant(1)  # Trigger an implicit TF context init.
+    with self.assertRaisesRegex(
+        ValueError, "TensorFlow has already been initialized"
+    ):
+      dtensor_utils.initialize_dtensor()
+    dtensor_utils.initialize_dtensor(reset_context=True)
     self.assertTrue(dtensor_utils.dtensor_initialized())
 
 

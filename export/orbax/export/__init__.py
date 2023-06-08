@@ -17,6 +17,7 @@
 from orbax.export.dtensor_utils import dtensor_initialized
 from orbax.export.dtensor_utils import initialize_dtensor
 from orbax.export.dtensor_utils import maybe_enable_dtensor_export_on
+from orbax.export.dtensor_utils import shutdown_dtensor
 from orbax.export.export_manager import ExportManager
 from orbax.export.export_manager_base import ExportManagerBase
 from orbax.export.jax_module import JaxModule
