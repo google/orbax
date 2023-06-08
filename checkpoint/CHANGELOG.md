@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- GCS error when `cleanup_tmp_directories=False` which caused an internal
+assertion to be raised when saving over an existing temporary directory.
+
 ## [0.2.4] - 2022-06-01
 
 ### Added

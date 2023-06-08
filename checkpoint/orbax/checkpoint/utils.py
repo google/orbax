@@ -460,19 +460,29 @@ def create_tmp_directory(final_dir: epath.PathLike,
   # Renames are not atomic in GCS. Save directly to final_dir and rely on commit
   # completion file to indicate success.
   if is_gcs_path(final_dir):
-    # Sync needed to prevent an error since caller may think the directory
-    # exists from a previous save, rather than just having been created.
-    sync_global_devices('create_tmp_directory:pre')
     tmp_dir = final_dir
   else:
     tmp_dir = get_tmp_directory(final_dir)
 
+  if tmp_dir.exists():
+    if is_gcs_path(tmp_dir):
+      raise FileExistsError(
+          f'Attempted to create temporary directory {tmp_dir} which already'
+          ' exists.'
+      )
+    else:
+      raise AssertionError(
+          f'Attempted to create temporary directory {tmp_dir} which already'
+          ' exists. This condition should never arise on non-GCS'
+          ' filesystems.'
+      )
+  # Sync after existence check to ensure that the directory has not just been
+  # created by another host.
+  sync_global_devices('create_tmp_directory:pre')
+
   if primary_host is None or jax.process_index() == primary_host:
-    assert not tmp_dir.exists()
     tmp_dir.mkdir(parents=True)
-
   sync_global_devices('create_tmp_directory')
-
   return tmp_dir
 
 
