@@ -89,7 +89,11 @@ class CheckpointManagerOptions:
   Ensures checkpoints will only be saved every n steps. Defaults to 1.
   max_to_keep: if provided, specifies the maximum number of checkpoints to
     keep. Older checkpoints are removed. By default, does not remove any old
-    checkpoints.
+    checkpoints. Must be None or non-negative. When set, checkpoints
+    may be considered for deletion when there are more than `max_to_keep`
+    checkpoints present. Checkpoints are kept if they meet any of the conditions
+    below, such as `keep_time_interval`, `keep_period`, etc. Any remaining
+    checkpoints that do not meet these conditions are garbage-collected.
   keep_time_interval: When more than max_to_keep checkpoints are present,
     an older checkpoint that would ordinarily be deleted will be preserved if it
     has been at least `keep_time_interval` since the previous preserved
@@ -138,6 +142,8 @@ class CheckpointManagerOptions:
              "or 'max'. Got {self.dtype}.")
       raise ValueError(msg)
     self.save_on_steps = frozenset(self.save_on_steps or ())
+    if self.max_to_keep is not None and self.max_to_keep < 0:
+      raise ValueError('Setting of `max_to_keep` must be None or non-negative.')
 
 
 @dataclasses.dataclass
@@ -769,8 +775,8 @@ class CheckpointManager:
 
   def _remove_old_checkpoints(self):
     """Keeps the `max_to_keep` most recent checkpoint steps."""
-    # Must have set max_to_keep or keep_time_interval.
-    if not self._options.max_to_keep and not self._options.keep_time_interval:
+    # Must have set max_to_keep in order to remove any checkpoints.
+    if self._options.max_to_keep is None:
       return
     # Not enough checkpoints accumulated to consider deletion.
     if len(self._checkpoints) <= self._options.max_to_keep:
@@ -788,13 +794,18 @@ class CheckpointManager:
 
     keep = int(self._options.max_to_keep)
     if self._options.keep_checkpoints_without_metrics:
-      maybe_delete = sorted_checkpoints[:-keep]
-      active_checkpoints = checkpoints_without_metrics + sorted_checkpoints[
-          -keep:]
+      maybe_delete = (
+          sorted_checkpoints[:-keep] if keep > 0 else sorted_checkpoints
+      )
+      active_checkpoints = (
+          checkpoints_without_metrics + sorted_checkpoints[-keep:]
+          if keep > 0
+          else []
+      )
     else:
       all_checkpoints = checkpoints_without_metrics + sorted_checkpoints
-      maybe_delete = all_checkpoints[:-keep]
-      active_checkpoints = all_checkpoints[-keep:]
+      maybe_delete = all_checkpoints[:-keep] if keep > 0 else sorted_checkpoints
+      active_checkpoints = all_checkpoints[-keep:] if keep > 0 else []
 
     kept_checkpoints = []
     for info in maybe_delete:

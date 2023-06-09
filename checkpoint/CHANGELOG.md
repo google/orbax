@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2022-06-09
+
 ### Added
+- Support `max_to_keep=0`.
 - Support for PyTree keys with '/' (à la Haiku).
 
 ### Fixed
