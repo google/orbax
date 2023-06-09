@@ -11,8 +11,7 @@ sphinx:
 python:
   version: 3.8
   install:
+    - requirements: ./docs/requirements/requirements-docs.txt
     - method: pip
       path: ./checkpoint
-      extra_requirements:
-        - ./docs/requirements/requirements-docs.txt
     # TODO(cpgaffney) support export.
