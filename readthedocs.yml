@@ -11,11 +11,8 @@ sphinx:
 python:
   version: 3.8
   install:
-    # Equivalent to 'pip install .'
     - method: pip
-      path: .
-    # Equivalent to 'pip install .[docs]'
-    - method: pip
-      path: .
+      path: ./checkpoint
       extra_requirements:
-        - docs
+        - ./docs/requirements/requirements-docs.txt
+    # TODO(cpgaffney) support export.
