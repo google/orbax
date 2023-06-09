@@ -65,7 +65,7 @@ async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
     # than flat parameter directories like for a standard neste PyTree. This
     # discrepancy, while potentially problematic, will not be addressed since we
     # anticipate moving fully to OCDBT within a quarter or two.
-    await utils.async_makedirs(path, parents=False)
+    await utils.async_makedirs(path, parents=True)
 
 
 def _maybe_set_default_save_args(value, args):
