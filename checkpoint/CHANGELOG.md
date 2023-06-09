@@ -7,9 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Support for PyTree keys with '/' (à la Haiku).
-
 ### Fixed
 - GCS error when `cleanup_tmp_directories=False` which caused an internal
 assertion to be raised when saving over an existing temporary directory.
