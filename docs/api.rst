@@ -1,4 +1,0 @@
-Common Optimizers
-===================
-
-TBD

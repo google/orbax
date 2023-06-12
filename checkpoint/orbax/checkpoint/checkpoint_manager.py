@@ -36,6 +36,7 @@ PyTree = Any
 CheckpointDirs = Tuple[str, str]
 SaveParams = Mapping[str, Any]
 RestoreParams = SaveParams
+CheckpointersDict = Mapping[str, AbstractCheckpointer]
 
 DEFAULT_ITEM_NAME = 'default'
 DESCRIPTOR_ITEM_NAME = 'descriptor'
@@ -85,41 +86,53 @@ async def _call_valid_checkpointer_save(checkpointer: AbstractCheckpointer,
 class CheckpointManagerOptions:
   """Optional arguments for CheckpointManager.
 
-  save_interval_steps: the interval at which checkpoints should be saved.
-  Ensures checkpoints will only be saved every n steps. Defaults to 1.
-  max_to_keep: if provided, specifies the maximum number of checkpoints to
+  save_interval_steps:
+    The interval at which checkpoints should be saved.
+    Ensures checkpoints will only be saved every n steps. Defaults to 1.
+  max_to_keep:
+    If provided, specifies the maximum number of checkpoints to
     keep. Older checkpoints are removed. By default, does not remove any old
     checkpoints. Must be None or non-negative. When set, checkpoints
     may be considered for deletion when there are more than `max_to_keep`
     checkpoints present. Checkpoints are kept if they meet any of the conditions
     below, such as `keep_time_interval`, `keep_period`, etc. Any remaining
     checkpoints that do not meet these conditions are garbage-collected.
-  keep_time_interval: When more than max_to_keep checkpoints are present,
+  keep_time_interval:
+    When more than max_to_keep checkpoints are present,
     an older checkpoint that would ordinarily be deleted will be preserved if it
     has been at least `keep_time_interval` since the previous preserved
     checkpoint. The default setting of `None` does not preserve any checkpoints
     in this way. For example, this may be used to ensure checkpoints are
     retained at a frequency of approximately than one per hour.
-  keep_period: If set, will not delete any checkpoint where checkpoint_step %
+  keep_period:
+    If set, will not delete any checkpoint where checkpoint_step %
     keep_period == 0.
-  best_fn: if set, maintains checkpoints based on the quality of given
+  best_fn:
+    If set, maintains checkpoints based on the quality of given
     metrics rather than recency. The function should accept a PyTree of metrics,
     and return a scalar value that can be used to determine the quality score
     of the checkpoint. If `max_to_keep` is also set, then the retained
     checkpoints will be kept based on their quality, as measured by this
     function.
-  best_mode: one of ['max', 'min']. The best metric is determine on the basis of
-    this value.
-  keep_checkpoints_without_metrics: If False, checkpoints with metrics present
+  best_mode:
+    One of ['max', 'min']. The best metric is determine on the basis of this
+    value.
+  keep_checkpoints_without_metrics:
+    If False, checkpoints with metrics present
     are eligible for cleanup. Otherwise, they will never be deleted.
-  step_prefix: if provided, step directories will take the form
+  step_prefix:
+    If provided, step directories will take the form
     f'{step_prefix}_<step>'. Otherwise, they will simply be an integer <step>.
-  step_format_fixed_length: If set, formats step with n digits (leading zeros).
+  step_format_fixed_length:
+    If set, formats step with n digits (leading zeros).
     This makes sorting steps easier. Otherwise, step has no leading zeros.
-  create: if True, creates the top-level directory if it does not already exist.
-  cleanup_tmp_directories: if True, cleans up any existing temporary directories
+  create:
+    If True, creates the top-level directory if it does not already exist.
+  cleanup_tmp_directories:
+    If True, cleans up any existing temporary directories
     on CheckpointManager creation.
-  save_on_steps: Optional set of steps at which checkpoints should be saved.
+  save_on_steps:
+    Optional set of steps at which checkpoints should be saved.
     Useful to save checkpoints on a fixed set of steps that are not multiple of
     `save_interval_steps`.
   """
@@ -165,48 +178,48 @@ class CheckpointManager:
 
   Allows a user to save and restore objects for which a Checkpointer
   implementation exists (e.g. PyTreeCheckpointer for PyTrees). The class
-  keeps track of multiple checkpointable objects in the following structure:
+  keeps track of multiple checkpointable objects in the following structure::
 
-  path/to/directory/    (top-level directory)
-    0/    (step)
-      params/    (first saveable)
+    path/to/directory/    (top-level directory)
+      0/    (step)
+        params/    (first saveable)
+          ...
+        metadata/    (second saveable)
+          ...
+      1/    (step)
         ...
-      metadata/    (second saveable)
+      2/    (step)
         ...
-    1/    (step)
       ...
-    2/    (step)
-      ...
-    ...
   """
 
   def __init__(
       self,
       directory: epath.PathLike,
-      checkpointers: Union[AbstractCheckpointer, Mapping[str,
-                                                         AbstractCheckpointer]],
+      checkpointers: Union[AbstractCheckpointer, CheckpointersDict],
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[Mapping[str, Any]] = None,
   ):
     """CheckpointManager constructor.
 
-    Ex:
-    CheckpointManager(
+    Example::
+
+      CheckpointManager(
         'path/to/dir/',
         # Multiple items.
         checkpointers = {
             'train_state': AsyncCheckpointer(PyTreeCheckpointHandler()),
-            'dataset': Checkpointer(CustomTFDatasetCheckpointHandler())
+            'dataset': Checkpointer(CustomTFDatasetCheckpointHandler()),
         },
         metadata={'version': 1.1, 'lang': 'en'},
-    )
+      )
 
-    CheckpointManager(
+      CheckpointManager(
         'path/to/dir/',
         # Single item.
         checkpointers = AsyncCheckpointer(PyTreeCheckpointHandler()),
         options = CheckpointManagerOptions(max_to_keep=5, ...),
-    )
+      )
 
     Args:
       directory: the top level directory in which to save all files.
@@ -398,22 +411,24 @@ class CheckpointManager:
     self._checkpointers, meaning that for every key in items and save_kwargs, a
     corresponding key must be present in self._checkpointers.
 
-    Items takes a form similar to the following:
-    {
-      'params': PyTree(),
-      'metadata': <nested k/v>,
-      ...
-    }
-    Similarly, save_kwargs takes the form:
-    {
-      'params': {
-        <kwargs for PyTreeCheckpointHandler.save>
-      },
-      'metadata': {
-        <kwargs for JsonCheckpointHandler.save>
+    Items takes a form similar to the following::
+
+      {
+        'params': PyTree(),
+        'metadata': <nested k/v>,
+        ...
       }
-      ...
-    }
+      Similarly, save_kwargs takes the form:
+      {
+        'params': {
+          <kwargs for PyTreeCheckpointHandler.save>
+        },
+        'metadata': {
+          <kwargs for JsonCheckpointHandler.save>
+        }
+        ...
+      }
+
     The kwargs under 'params' correspond to PyTreeCheckpointHandler.save. If a
     key is not present in save_kwargs, it is assumed that no kwargs are needed
     for saving that item. If not provided at all, it is assumed that no items
@@ -515,29 +530,33 @@ class CheckpointManager:
     a
     corresponding key must be present in self._checkpointers.
 
-    Items takes a form similar to the following:
-    {
-      'params': PyTree(),
-      'metadata': <nested k/v>,
-      ...
-    }
+    Items takes a form similar to the following::
+
+      {
+        'params': PyTree(),
+        'metadata': <nested k/v>,
+        ...
+      }
+
     Items may not be provided at all, in which case it the items restored are
     those specified in self._checkpointers, and item=None is provided to
     Checkpointer.restore. Similarly, an item may be omitted from `items`,
     in
     which case item=None will be provided to Checkpointer.restore.
 
-    Similarly, restore_kwargs takes the form:
-    {
-      'params': {
-        'meshes': PyTree(),
-        'mesh_axes': PyTree(),
-      },
-      'metadata': {
-        <kwargs for JsonCheckpointHandler.save>
+    Similarly, restore_kwargs takes the form::
+
+      {
+        'params': {
+          'meshes': PyTree(),
+          'mesh_axes': PyTree(),
+        },
+        'metadata': {
+          <kwargs for JsonCheckpointHandler.save>
+        }
+        ...
       }
-      ...
-    }
+
     The kwargs under 'params' correspond to PyTreeCheckpointHandler.restore. If
     a key is not present in restore_kwargs, it is assumed that no kwargs are
     needed for restoring that item. If not provided at all, it is assumed that

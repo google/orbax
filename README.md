@@ -1,6 +1,6 @@
 # Orbax
 
-[Orbax](https://github.com/google/orbax/blob/main/docs/index.md) is a
+[Orbax](https://orbax.readthedocs.io/en/latest/) is a
 namespace providing common utility libraries for JAX users.
 
 ## Checkpointing

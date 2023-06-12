@@ -617,16 +617,18 @@ def any_checkpoint_step(checkpoint_dir: epath.PathLike) -> Optional[int]:
 def is_checkpoint_finalized(path: epath.PathLike) -> bool:
   """Determines if the given path represents a finalized checkpoint.
 
-   Path takes the form:
-  path/to/my/dir/<name>.orbax-checkpoint-tmp-<timestamp>/  # not finalized
-  path/to/my/dir/<name>/  # finalized
+  Path takes the form::
 
-  Alternatively:
-  gs://path/to/my/dir/<name>/  # finalized
-    commit_success.txt
-    ...
-  gs://<path/to/my/dir/<name>/  # not finalized
-    ...
+    path/to/my/dir/<name>.orbax-checkpoint-tmp-<timestamp>/  # not finalized
+    path/to/my/dir/<name>/  # finalized
+
+  Alternatively::
+
+    gs://path/to/my/dir/<name>/  # finalized
+      commit_success.txt
+      ...
+    gs://<path/to/my/dir/<name>/  # not finalized
+      ...
 
   Args:
     path: Directory.

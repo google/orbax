@@ -355,9 +355,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     leaf values must be supported by type_handlers. Standard supported types
     include scalars, np.ndarray, jax.Array, string.
 
-    After saving, all files will be located in directory/
+    After saving, all files will be located in "directory/".
 
-    Saves an additional file to directory/checkpoint on host 0 which
+    Saves an additional file to "directory/checkpoint" on host 0 which
     contains the serialized structure of `item`, along with any parameters that
     request aggregation.
 

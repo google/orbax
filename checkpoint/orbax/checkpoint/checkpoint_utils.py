@@ -219,27 +219,27 @@ def construct_restore_args(target: PyTree, sharding_tree: PyTree) -> PyTree:
   This method should be used in conjunction with a CheckpointManager or
   Checkpointer that wraps a PyTreeCheckpointHandler.
 
-  For example:
+  For example::
 
-  mngr = CheckpointManager(path, Checkpointer(PyTreeCheckpointHandler()))
-  restore_args = construct_restore_args(train_state, train_state_sharding)
-  restore_kwargs = {'restore_args': restore_args}
-  mngr.restore(..., restore_kwargs=restore_kwargs)
+    mngr = CheckpointManager(path, Checkpointer(PyTreeCheckpointHandler()))
+    restore_args = construct_restore_args(train_state, train_state_sharding)
+    restore_kwargs = {'restore_args': restore_args}
+    mngr.restore(..., restore_kwargs=restore_kwargs)
 
-  OR
+  OR::
 
-  mngr = CheckpointManager(path, {
-      'train_state': Checkpointer(PyTreeCheckpointHandler())
-  })
-  restore_args = construct_restore_args(train_state, train_state_sharding)
-  restore_kwargs = {'train_state': {'restore_args': restore_args} }
-  mngr.restore(..., restore_kwargs=restore_kwargs)
+    mngr = CheckpointManager(path, {
+        'train_state': Checkpointer(PyTreeCheckpointHandler())
+    })
+    restore_args = construct_restore_args(train_state, train_state_sharding)
+    restore_kwargs = {'train_state': {'restore_args': restore_args} }
+    mngr.restore(..., restore_kwargs=restore_kwargs)
 
-  OR
+  OR::
 
-  ckptr = Checkpointer(PyTreeCheckpointHandler())
-  restore_args = construct_restore_args(train_state, train_state_sharding)
-  ckptr.restore(..., restore_args=restore_args)
+    ckptr = Checkpointer(PyTreeCheckpointHandler())
+    restore_args = construct_restore_args(train_state, train_state_sharding)
+    ckptr.restore(..., restore_args=restore_args)
 
   If a leaf in target does is a np.ndarray, or int, or string, for example, a
   corresponding value for that leaf must be provided in axes_tree, but will be

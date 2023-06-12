@@ -1,16 +1,42 @@
 :github_url: https://github.com/google/orbax
 
 Orbax (Note: Under Construction)
------
+------------------------------------------------------
 
 
-Orbax is a namespace providing common utility libraries for JAX users.
-Currently, Orbax encompasses the following functionalities:
-*   Checkpointing
-*   Exporting
+Orbax is an umbrella namespace providing common training utilities for JAX
+users. It includes multiple distinct but interrelated libraries.
+
+.. grid::
+
+   .. grid-item::
+      :columns: 12 12 12 6
+
+      .. card:: Checkpointing
+         :class-card: sd-border-0
+         :shadow: none
+         :class-title: sd-fs-5
+
+         .. div:: sd-font-normal
+
+            A flexible and customizable API for managing checkpoints consisting
+            of various user-defined objects in multi-host, multi-device settings.
+
+   .. grid-item::
+      :columns: 12 12 12 6
+
+      .. card:: Exporting
+         :class-card: sd-border-0
+         :shadow: none
+         :class-title: sd-fs-5
+
+         .. div:: sd-font-normal
+
+            A library for exporting JAX models to Tensorflow SavedModel format.
+
 
 Installation
-------------
+---------------
 
 There is no single `orbax` package, but rather a separate package for each
 functionality provided by the Orbax namespace.
@@ -23,7 +49,7 @@ The latest release of `orbax-checkpoint` can be installed from
 You may also install directly from GitHub, using the following command. This
 can be used to obtain the most recent version of Optax.
 
-``pip install 'git+https://github.com/google/orbax/#subdirectory=checkpoint'`
+``pip install 'git+https://github.com/google/orbax/#subdirectory=checkpoint'``
 
 Similarly, `orbax-export` can be installed from
 `PyPI <https://pypi.org/project/orbax-export/>`_ using
@@ -32,45 +58,50 @@ Similarly, `orbax-export` can be installed from
 
 Install from GitHub using the following.
 
-``pip install 'git+https://github.com/google/orbax/#subdirectory=export'` 
+``pip install 'git+https://github.com/google/orbax/#subdirectory=export'``
 
 
-.. toctree::
-   :caption: Getting Started
-   :maxdepth: 1
+Checkpointing
+---------------
 
-   orbax_checkpoint_101
+.. grid::
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: Getting Started
+         :class-card: sd-text-black sd-bg-light
+         :link: orbax_checkpoint_101.html
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: API Reference
+         :class-card: sd-text-black sd-bg-light
+         :link: api_reference/checkpoint.html
 
 
-.. toctree::
-   :caption: Examples
-   :maxdepth: 1
+Exporting
+----------------
+.. grid::
 
+   .. grid-item::
+      :columns: 6 6 6 4
 
-.. toctree::
-   :caption: API Documentation
-   :maxdepth: 2
+      .. card:: API Reference
+         :class-card: sd-text-black sd-bg-light
+         :link: api_reference/export.html
 
-   api
 
 The Team
---------
+------------
 
-TODO(cpgaffney)
+.. toctree::
+   :maxdepth: 5
+
+   contributors
 
 Support
--------
+------------
 
-TODO(cpgaffney)
-
-
-License
--------
-
-TODO(cpgaffney)
-
-
-Indices and Tables
-==================
-
-* :ref:`genindex`
+Please report any issues or request support using our `issue tracker <https://github.com/google/orbax/issues>`_.

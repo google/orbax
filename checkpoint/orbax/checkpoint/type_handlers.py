@@ -56,16 +56,18 @@ def create_coordinator_server_and_context() -> (
   should be kept alive for the life of the program, while the returned
   ts.Context should be provided when saving or restoring using Tensorstore.
 
-  Example usage:
-  ```
-  ocdbt_context, coordinator_server = (
-      orbax.checkpoint.type_handlers.create_coordinator_server_and_context()
-  )
-  orbax.checkpoint.type_handlers.register_standard_handlers_with_options(
-      use_ocdbt=True, ts_context=ocdbt_context
-  )
-  orbax.checkpoint.utils.sync_global_devices('init_ocdbt_server')
-  ```
+  Example usage::
+
+    ocdbt_context, coordinator_server = (
+        orbax.checkpoint.type_handlers.create_coordinator_server_and_context()
+    )
+    orbax.checkpoint.type_handlers.register_standard_handlers_with_options(
+        use_ocdbt=True, ts_context=ocdbt_context
+    )
+    orbax.checkpoint.utils.sync_global_devices('init_ocdbt_server')
+
+  Later, when creating the `PyTreeCheckpointHandler`, initialize with
+  `use_ocdbt=True`.
 
   Returns:
     Tuple of ts.Context and OCDBT coordinator server object.
@@ -130,13 +132,18 @@ class ParamInfo:
   represents information not provided by a user, and should be computed
   internally.
 
-  name: name of the parameter.
-  path: A path providing a location where file(s) should be saved. The path is
+  name:
+    Name of the parameter.
+  path:
+    A path providing a location where file(s) should be saved. The path is
     assumed to be a directory.
-  aggregate: whether the parameter should be / was aggregated.
-  byte_limiter: object to limit the number of bytes that can be read in
+  aggregate:
+    Whether the parameter should be / was aggregated.
+  byte_limiter:
+    Object to limit the number of bytes that can be read in
     parallel.
-  is_ocdbt_checkpoint: indicates whether the checkpoint path uses OCDBT format
+  is_ocdbt_checkpoint:
+    Indicates whether the checkpoint path uses OCDBT format
     or not. Only used for restoration.
   """
   name: Optional[str] = None
@@ -150,9 +157,11 @@ class ParamInfo:
 class SaveArgs:
   """Extra arguments that can be provided for saving.
 
-  aggregate: if true, saves the given parameter in an aggregated tree format
+  aggregate:
+    If true, saves the given parameter in an aggregated tree format
     rather than individually. See AggregateHandler.
-  dtype: if provided, casts the parameter to the given dtype before saving.
+  dtype:
+    If provided, casts the parameter to the given dtype before saving.
     Note that the parameter must be compatible with the given type (e.g.
     jnp.bfloat16 is not compatible with np.ndarray).
   """
@@ -164,12 +173,15 @@ class SaveArgs:
 class RestoreArgs:
   """Extra arguments that can be provided for restoration.
 
-  lazy: if True, restores using LazyArray. The actual read operation will not be
+  lazy:
+    If True, restores using LazyArray. The actual read operation will not be
     performed until `get` is called for the restored LazyArray.
-  restore_type: Specifies the object type of the restored parameter. The type
+  restore_type:
+    Specifies the object type of the restored parameter. The type
     must have a corresponding TypeHandler for restoration. Ignored if the
     parameter is restored from an aggregated checkpoint file.
-  dtype: if provided, casts the parameter to the given dtype after restoring.
+  dtype:
+    If provided, casts the parameter to the given dtype after restoring.
     Note that the parameter must be compatible with the given type (e.g.
     jnp.bfloat16 is not compatible with np.ndarray).
   """
@@ -400,12 +412,16 @@ class ScalarHandler(NumpyHandler):
 class ArrayRestoreArgs(RestoreArgs):
   """Arguments used when restoring with ArrayHandler.
 
-  mesh: the device mesh that the array should be restored as. Cannot be None.
-  mesh_axes: the mesh_axes that the array should be restored as. Cannot be None.
-  sharding: jax.sharding.Sharding object which takes precedence over mesh and
+  mesh:
+    The device mesh that the array should be restored as. Cannot be None.
+  mesh_axes:
+    The mesh_axes that the array should be restored as. Cannot be None.
+  sharding:
+    jax.sharding.Sharding object which takes precedence over mesh and
     mesh_axes if provided. Otherwise, mesh and mesh_axes will be used to
     construct a NamedSharding object.
-  global_shapes: the global shape that the array should be restored into. If not
+  global_shapes:
+    The global shape that the array should be restored into. If not
     provided, the shape will be restored as written. Presently, arbitrary shape
     transformations are not supported (for example, reshaping to different
     dimensions). Padding and truncating are supported. When the global_shape is
