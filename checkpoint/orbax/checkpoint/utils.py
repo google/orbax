@@ -44,6 +44,7 @@ _AGGREGATED_PREFIX = 'AGGREGATED://'
 _PLACEHOLDER_PREFIX = 'PLACEHOLDER://'
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
 _GCS_PATH_PREFIX = 'gs://'
+_LOCK_ITEM_NAME = 'LOCKED'
 _LAST_CHECKPOINT_WRITE_TIME = time.time()
 CheckpointDirs = Tuple[str, str]
 PyTree = Any
@@ -696,3 +697,11 @@ def fully_replicated_host_local_array_to_global_array(
   # pmap-produced Array has a "scrambled" device order.
   dbs = sorted(arr.device_buffers, key=lambda x: x.device().id)
   return jax.make_array_from_single_device_arrays(global_shape, sharding, dbs)
+
+
+def lockdir(checkpoint_dir: epath.Path, step: int) -> epath.Path:
+  return get_save_directory(step, checkpoint_dir, name=_LOCK_ITEM_NAME)
+
+
+def is_locked(checkpoint_dir: epath.Path, step: int) -> bool:
+  return lockdir(checkpoint_dir, step).exists()

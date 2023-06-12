@@ -21,6 +21,9 @@ assertion to be raised when saving over an existing temporary directory.
 
 ### Added
 
+- Locking mechanism for `checkpoints_iterator` to prevent checkpoints from
+being cleaned up by a `CheckpointManager` in another process while the are being
+read.
 - `merge_trees` function in `transform_utils`.
 
 ### Changed

@@ -828,6 +828,11 @@ class CheckpointManager:
 
     kept_checkpoints = []
     for info in maybe_delete:
+      if utils.is_locked(self.directory, info.step):
+        logging.info(
+            'Preserving %s: (Reason: checkpoint is locked).',
+            info,
+        )
       if (
           self._options.keep_time_interval is not None
           and self._interval_preserved_checkpoints

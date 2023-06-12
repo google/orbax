@@ -215,6 +215,34 @@ class CheckpointIteratorTest(absltest.TestCase):
     self.assertEqual([], results)
     self.assertEqual(4, timeout_fn_calls[0])
 
+  def test_locking(self):
+    max_step = 5
+    self.manager.save(0, self.items)
+    previous_step = None
+    for step in checkpoint_utils.checkpoints_iterator(
+        self.directory, timeout=0
+    ):
+      if previous_step is not None:
+        self.assertFalse(utils.is_locked(self.directory, previous_step))
+      self.assertTrue(utils.is_locked(self.directory, step))
+      previous_step = step
+
+      if step + 1 < max_step:
+        self.manager.save(step + 1, self.items)
+
+  def test_unlock_existing(self):
+    self.manager.save(0, self.items)
+    self.manager.save(1, self.items)
+
+    checkpoint_utils._lock_checkpoint(self.directory, 0)
+    self.assertTrue(utils.is_locked(self.directory, 0))
+    self.assertFalse(utils.is_locked(self.directory, 1))
+
+    for _ in checkpoint_utils.checkpoints_iterator(self.directory):
+      break
+    self.assertFalse(utils.is_locked(self.directory, 0))
+    self.assertFalse(utils.is_locked(self.directory, 1))
+
 
 if __name__ == '__main__':
   absltest.main()
