@@ -34,3 +34,10 @@ class Future(Protocol):
   def result(self, timeout: Optional[int] = None) -> Any:
     """Waits for the future to complete its operation."""
     ...
+
+
+class NoopFuture:
+
+  def result(self, timeout: Optional[int] = None) -> Any:
+    del timeout
+    return None

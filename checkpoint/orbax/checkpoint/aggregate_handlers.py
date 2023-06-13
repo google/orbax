@@ -15,10 +15,13 @@
 """Provides definitions for AggregateHandler and implementations."""
 
 import abc
+from concurrent import futures
+import functools
 from typing import Any
 
 from etils import epath
 import jax
+from orbax.checkpoint import future as orbax_future
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import utils
 
@@ -29,7 +32,9 @@ class AggregateHandler(abc.ABC):
   """Interface for reading and writing a PyTree using a specific format."""
 
   @abc.abstractmethod
-  async def serialize(self, path: epath.Path, item: PyTree):
+  async def serialize(
+      self, path: epath.Path, item: PyTree
+  ) -> orbax_future.Future:
     """Serializes and writes `item` to a given `path`.
 
     The function is compatible with a multihost setting, but does not include
@@ -51,12 +56,24 @@ class MsgpackHandler(AggregateHandler):
   """An implementation of AggregateHandler that uses msgpack to store the tree.
   """
 
-  async def serialize(self, path: epath.Path, item: PyTree):
+  def __init__(self):
+    self._executor = futures.ThreadPoolExecutor(max_workers=1)
+
+  async def serialize(
+      self, path: epath.Path, item: PyTree
+  ) -> orbax_future.Future:
     """See superclass documentation."""
-    if jax.process_index() == 0:
-      serializable_dict = utils.serialize_tree(item, keep_empty_nodes=True)
-      msgpack = msgpack_utils.msgpack_serialize(serializable_dict)
-      await utils.async_write_bytes(path, msgpack)
+
+    def _serialize_fn(x):
+      if jax.process_index() == 0:
+        serializable_dict = utils.serialize_tree(x, keep_empty_nodes=True)
+        msgpack = msgpack_utils.msgpack_serialize(serializable_dict)
+        # Explicit "copy" phase is not needed because msgpack only contains
+        # basic types and numpy arrays.
+        return path.write_bytes(msgpack)
+      return 0
+
+    return self._executor.submit(functools.partial(_serialize_fn, item))
 
   def deserialize(self, path: epath.Path) -> PyTree:
     """See superclass documentation."""

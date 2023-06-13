@@ -313,8 +313,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     """Gets parameter names for PyTree elements."""
     return _get_param_names(item)
 
-  def _get_param_infos(self, item: PyTree, directory: epath.Path,
-                       save_args: PyTree) -> PyTree:
+  def _get_param_infos(
+      self, item: PyTree, directory: epath.Path, save_args: PyTree
+  ) -> Tuple[PyTree, bool]:
     """Returns parameter information for elements in `item`.
 
     At minimum, this method should extract the names of each parameter for
@@ -326,23 +327,37 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       save_args: PyTree matching item containing SaveArgs.
 
     Returns:
-      A PyTree matching `item` of ParamInfo.
+      A PyTree matching `item` of ParamInfo, and a bool indicating whether all
+      parameters were aggregated. The bool can enable us to skip some steps
+      later, potentially saving time.
     """
     if not item:
       raise ValueError('Found empty item')
     names = self._get_param_names(item)
+    all_params_aggregated = True
 
     def _param_info(name, args):
+      nonlocal all_params_aggregated
+      all_params_aggregated &= args.aggregate
       return ParamInfo(
           name=name, path=(directory / name), aggregate=args.aggregate)
 
-    return jax.tree_util.tree_map(_param_info, names, save_args)
+    return (
+        jax.tree_util.tree_map(_param_info, names, save_args),
+        all_params_aggregated,
+    )
 
-  async def _write_aggregate_file(self, directory: epath.Path, item: PyTree,
-                                  param_infos: PyTree, save_args: PyTree):
+  async def _write_aggregate_file(
+      self,
+      directory: epath.Path,
+      item: PyTree,
+      param_infos: PyTree,
+      save_args: PyTree,
+  ) -> Future:
     ser_item = _get_tree_for_aggregation(param_infos, save_args, item)
-    await self._aggregate_handler.serialize(
-        directory / self._aggregate_filename, ser_item)
+    return await self._aggregate_handler.serialize(
+        directory / self._aggregate_filename, ser_item
+    )
 
   async def async_save(
       self,
@@ -381,8 +396,10 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         item if save_args is None else save_args,
         is_leaf=utils.is_empty_or_leaf,
     )
-    param_infos = self._get_param_infos(item, directory, save_args)
-    if not self._use_ocdbt:
+    param_infos, all_params_aggregated = self._get_param_infos(
+        item, directory, save_args
+    )
+    if not self._use_ocdbt and not all_params_aggregated:
       # Create directories in parallel.
       await asyncio.gather(
           *jax.tree_util.tree_flatten(
@@ -401,16 +418,26 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       handler = type_handlers.get_type_handler(type(value))
       return await handler.serialize(value, info, args)
 
-    future_tree = jax.tree_util.tree_map(
-        serialize, item, param_infos, save_args, is_leaf=utils.is_empty_or_leaf
+    if all_params_aggregated:
+      commit_futures = []
+    else:
+      future_tree = jax.tree_util.tree_map(
+          serialize,
+          item,
+          param_infos,
+          save_args,
+          is_leaf=utils.is_empty_or_leaf,
+      )
+      copy_futures, _ = jax.tree_util.tree_flatten(future_tree)
+      assert isinstance(copy_futures, list)
+      # Await copy futures.
+      commit_futures = await asyncio.gather(*copy_futures)
+      commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
+
+    aggregate_commit_future = await self._write_aggregate_file(
+        directory, item, param_infos, save_args
     )
-    copy_futures, _ = jax.tree_util.tree_flatten(future_tree)
-    assert isinstance(copy_futures, list)
-    # Await copy futures.
-    commit_futures = await asyncio.gather(*copy_futures)
-    commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
-    await self._write_aggregate_file(directory, item, param_infos, save_args)
-    return commit_futures
+    return commit_futures + [aggregate_commit_future]
 
   def save(self, directory: epath.Path, item: Any, *args, **kwargs):
     """Saves the provided item.

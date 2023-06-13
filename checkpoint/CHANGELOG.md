@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Allow saving the aggregated file asynchronously.
+
 ## [0.2.5] - 2022-06-09
 
 ### Added
