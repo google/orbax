@@ -18,6 +18,7 @@ import functools
 
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import checkpoint_utils
+from orbax.checkpoint import future
 from orbax.checkpoint import lazy_utils
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import test_utils
@@ -32,7 +33,6 @@ from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
 from orbax.checkpoint.checkpointer import Checkpointer
-from orbax.checkpoint.future import Future
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
 from orbax.checkpoint.pytree_checkpoint_handler import ArrayRestoreArgs
 from orbax.checkpoint.pytree_checkpoint_handler import PyTreeCheckpointHandler
