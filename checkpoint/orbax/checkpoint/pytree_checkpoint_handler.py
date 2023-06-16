@@ -484,7 +484,16 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     """
 
     async def _maybe_cast(val: Any, args: RestoreArgs) -> Any:
-      return _try_array_cast(val, args.dtype)
+      val = _try_array_cast(val, args.dtype)
+      if isinstance(args, ArrayRestoreArgs):
+        val = val.reshape(args.global_shape)
+        sharding = args.sharding or jax.sharding.NamedSharding(
+            args.mesh, args.mesh_axes
+        )
+        val = jax.make_array_from_callback(
+            val.shape, sharding, lambda idx: val[idx]
+        )
+      return val
 
     async def _deserialize(info: ParamInfo, args: RestoreArgs) -> Any:
       handler = type_handlers.get_type_handler(args.restore_type)

@@ -138,6 +138,14 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       result = result[_ELEMENT_KEY]
       if not self._is_supported_type(result):
         raise TypeError(f'Unsupported type: {type(result)}.')
+      if isinstance(restore_args, type_handlers.ArrayRestoreArgs):
+        result = result.reshape(restore_args.global_shape)
+        sharding = restore_args.sharding or jax.sharding.NamedSharding(
+            restore_args.mesh, restore_args.mesh_axes
+        )
+        result = jax.make_array_from_callback(
+            result.shape, sharding, lambda idx: result[idx]
+        )
     else:
       info = type_handlers.ParamInfo(
           name=self._checkpoint_name,
