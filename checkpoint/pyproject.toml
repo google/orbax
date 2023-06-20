@@ -23,7 +23,6 @@ keywords = ["JAX machine learning", "checkpoint", "training"]
 
 dependencies = [
     'absl-py',
-    'cached_property',
     'importlib_resources',
     'etils',
     'typing_extensions',
