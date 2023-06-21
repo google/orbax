@@ -28,7 +28,6 @@ dependencies = [
     'jaxlib',
     'numpy',
     'dataclasses-json',
-    'tensorflow',
 ]
 
 dynamic = ['version']
@@ -45,4 +44,7 @@ dev = [
     'pytest',
     'pytest-xdist',
     'tf-nightly'
+]
+tensorflow = [
+    'tensorflow',
 ]

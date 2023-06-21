@@ -78,7 +78,7 @@ jobs:
     - name: Install dependencies
       run: |
         pip install .
-        pip install .[dev] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip install .[dev,tensorflow] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
     - name: Test with pytest
       run: |
         test_dir=$(mktemp -d)
