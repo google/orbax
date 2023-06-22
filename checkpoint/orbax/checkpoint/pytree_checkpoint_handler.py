@@ -193,10 +193,46 @@ def _transform_structure(
     if transforms is None:
       item = utils.deserialize_tree(restored, item)
     else:
+      restored = _materialize_multi_value_fn_inputs(restored, transforms)
       transforms = _construct_lazy_transform_wrappers(transforms)
       item = transform_utils.apply_transformations(
           restored, transforms, item, transforms_default_to_original)
   return item
+
+
+def _materialize_multi_value_fn_inputs(
+    tree: PyTree, transforms: PyTree
+) -> PyTree:
+  """Materializes values from tree which are marked as multi_value_fn inputs."""
+  flat_tree = utils.to_flat_dict(tree, sep='/')
+  flat_transforms = utils.to_flat_dict(transforms, sep='/')
+  keys = []
+  ops = []
+  for key, lazy_value in flat_tree.items():
+    assert isinstance(lazy_value, LazyValue)
+    for _, transform in flat_transforms.items():
+      if transform.multi_value_fn is not None:
+        if transform.multi_value_fn_input_args is None:
+          raise ValueError(
+              '`multi_value_fn` was specified, but `multi_value_fn_input_args`'
+              ' were not. The latter must be specified to identify inputs for'
+              ' the function.'
+          )
+        for (
+            input_key,
+            restore_args,
+        ) in transform.multi_value_fn_input_args.items():
+          if re.fullmatch(input_key, key):
+            keys += [key]
+            ops += [lazy_value.get_async(args=restore_args)]
+
+  async def _await_in_parallel():
+    return await asyncio.gather(*ops)
+
+  values = asyncio.run(_await_in_parallel())
+  for key, value in zip(keys, values):
+    flat_tree[key] = value
+  return utils.from_flat_dict(flat_tree, target=tree, sep='/')
 
 
 def _construct_lazy_transform_wrappers(transforms: PyTree) -> PyTree:
@@ -209,55 +245,35 @@ def _construct_lazy_transform_wrappers(transforms: PyTree) -> PyTree:
   `LazyValue` and materialize the value before providing it to the user-defined
   function.
 
+  Note that because different multi_value_fn's may use the same leaves as
+  inputs, we could run into a situation where we restore the same value many
+  times and OOM. To fix this, _materialize_multi_value_fn_inputs must first be
+  called, so that some of the inputs to these wrapped functions will be
+  LazyValue, while others will be materialized, if marked as needed as an input
+  for a multi_value_fn transformation. As such, we do not need to wrap
+  the multi_value_fn transformations, since all inputs will already be
+  materialized.
+
   Args:
     transforms: User-provided tree of Transform objects.
 
   Returns:
     A tree of Transform objects which is roughly the same as the input, but
-    where all instances of `value_fn` or `multi_value_fn` are wrapped to accept
+    where all instances of `value_fn` are wrapped to accept
     `LazyValue` as input and return `LazyValue` as output.
   """
 
   def _maybe_wrap_transform(transform: Transform):
-    async def _lazy_value_fn(lazy_value: LazyValue, args: RestoreArgs) -> Any:
-      # `lazy_value` is the value over which the function is performed.
+
+    async def _lazy_value_fn(maybe_lazy_value: Any, args: RestoreArgs) -> Any:
+      # `maybe_lazy_value` is the value over which the function is performed.
+      # It may be LazyValue or may already be materialized.
       # `args` is `RestoreArgs`, which is used to materialize the value.
-      value = await lazy_value.get_async(args=args)
+      if isinstance(maybe_lazy_value, LazyValue):
+        value = await maybe_lazy_value.get_async(args=args)
+      else:
+        value = maybe_lazy_value
       return transform.value_fn(value)
-
-    async def _lazy_multi_value_fn(
-        transform_key: str, tree: PyTree, args: RestoreArgs
-    ) -> Any:
-      # `original_tree` consists of `LazyValue`s.
-      # `args` is unused, since relevant restoration args come from
-      # multi_value_fn_input_args.
-      del args
-      if not transform.multi_value_fn_input_args:
-        raise ValueError(
-            '`multi_value_fn` was specified, but `multi_value_fn_input_args`'
-            ' were not. The latter must be specified to identify inputs for the'
-            ' function.'
-        )
-
-      async def _materialize_lazy_tree_value(
-          keypath: Tuple[str], lazy_value: LazyValue
-      ) -> Union[Any, LazyValue]:
-        key = '/'.join([str(utils.get_key_name(k)) for k in keypath])
-        for (
-            input_key,
-            restore_args,
-        ) in transform.multi_value_fn_input_args.items():
-          if re.fullmatch(input_key, key):
-            return await lazy_value.get_async(args=restore_args)
-        return lazy_value  # Should not be used, so do not materialize.
-
-      futures, treedef = jax.tree_util.tree_flatten(
-          jax.tree_util.tree_map_with_path(_materialize_lazy_tree_value, tree)
-      )
-      flat_tree = await asyncio.gather(*futures)
-      return transform.multi_value_fn(
-          transform_key, jax.tree_util.tree_unflatten(treedef, flat_tree)
-      )
 
     def _wrap_as_lazy_value(func, *args, **kwargs):
       return LazyValue(functools.partial(func, *args, **kwargs))
@@ -267,12 +283,6 @@ def _construct_lazy_transform_wrappers(transforms: PyTree) -> PyTree:
       return Transform(
           original_key=transform.original_key,
           value_fn=functools.partial(_wrap_as_lazy_value, _lazy_value_fn),
-      )
-    elif transform.multi_value_fn is not None:
-      return Transform(
-          multi_value_fn=functools.partial(
-              _wrap_as_lazy_value, _lazy_multi_value_fn
-          )
       )
     else:
       return transform

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fix issue with `multi_value_fn` in restoration where an input value could be
+loaded many times unnecessarily.
+
 ## [0.2.6] - 2022-06-16
 
 ### Added
