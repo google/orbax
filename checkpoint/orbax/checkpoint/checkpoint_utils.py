@@ -29,78 +29,149 @@ from orbax.checkpoint import utils
 PyTree = Any
 
 
-def _lock_checkpoint(checkpoint_dir: epath.Path, step: int) -> bool:
+def _lock_checkpoint(
+    checkpoint_dir: epath.Path,
+    step: int,
+    step_prefix: Optional[str],
+    step_format_fixed_length: Optional[int],
+) -> bool:
   """Locks a checkpoint by writing a LOCKED directory."""
-  lockdir = utils.lockdir(checkpoint_dir, step)
+  directory = utils.get_save_directory(
+      step,
+      checkpoint_dir,
+      step_prefix=step_prefix,
+      step_format_fixed_length=step_format_fixed_length,
+  )
+  if not directory.exists():
+    raise ValueError(f'Parent directory {directory} does not exist.')
+  lockdir = utils.lockdir(directory)
   try:
     lockdir.mkdir(parents=False, exist_ok=True)
     return True
-  except FileNotFoundError:
-    logging.info(
-        'Checkpoint step: %d was cleaned up while attempting to lock.', step
+  except FileNotFoundError as e:
+    logging.warning(
+        'Failed to lock step: %d due to: %s. This may be attributed to'
+        ' the checkpoint being cleaned up concurrently.',
+        step,
+        e,
     )
     return False
 
 
-def _unlock_checkpoint(checkpoint_dir: epath.Path, step: int):
+def _unlock_checkpoint(
+    checkpoint_dir: epath.Path,
+    step: int,
+    step_prefix: Optional[str],
+    step_format_fixed_length: Optional[int],
+):
   """Removes a LOCKED directory to indicate unlocking."""
-  utils.lockdir(checkpoint_dir, step).rmdir()
+  if jax.process_index() == 0:
+    directory = utils.get_save_directory(
+        step,
+        checkpoint_dir,
+        step_prefix=step_prefix,
+        step_format_fixed_length=step_format_fixed_length,
+    )
+    utils.lockdir(directory).rmdir()
 
 
-def _unlock_existing_checkpoints(checkpoint_dir: epath.Path):
+def unlock_existing_checkpoints(
+    checkpoint_dir: epath.Path,
+    step_prefix: Optional[str],
+    step_format_fixed_length: Optional[int],
+):
   """Removes LOCKED file for all existing steps, if present."""
   steps = utils.checkpoint_steps(checkpoint_dir)
   for step in steps:
-    if utils.is_locked(checkpoint_dir, step):
-      _unlock_checkpoint(checkpoint_dir, step)
+    directory = utils.get_save_directory(
+        step,
+        checkpoint_dir,
+        step_prefix=step_prefix,
+        step_format_fixed_length=step_format_fixed_length,
+    )
+    if utils.is_locked(directory):
+      _unlock_checkpoint(
+          checkpoint_dir, step, step_prefix, step_format_fixed_length
+      )
+
+
+def _reached_desired_step(step: int, until_step: Optional[int]) -> bool:
+  if step is None:
+    return False
+  elif until_step is None:
+    return True
+  elif step >= until_step:
+    return True
+  return False
 
 
 def _wait_for_new_checkpoint(
     checkpoint_dir: epath.Path,
-    last_checkpoint_step: Optional[int],
+    until_step: Optional[int] = None,
     seconds_to_sleep: int = 1,
     timeout: Optional[int] = None,
+    step_prefix: Optional[str] = None,
+    step_format_fixed_length: Optional[int] = None,
 ) -> int:
-  """Waits until a new checkpoint file is found.
+  """See documentation for wait_for_new_checkpoint."""
+  start = time.time()
+  stop_time = start + timeout if timeout is not None else None
 
-  Args:
-    checkpoint_dir: The directory in which checkpoints are saved.
-    last_checkpoint_step: The last checkpoint step used or `None` if we're
-      expecting a checkpoint for the first time.
-    seconds_to_sleep: The number of seconds to sleep for before looking for a
-      new checkpoint.
-    timeout: The maximum number of seconds to wait. If left as `None`, then the
-      process will wait indefinitely.
+  def _sleep_and_maybe_exit():
+    if stop_time is not None and time.time() + seconds_to_sleep > stop_time:
+      return True
+    logging.info('Sleeping for %d seconds.', seconds_to_sleep)
+    time.sleep(seconds_to_sleep)
+    return False
 
-  Returns:
-    a new checkpoint step, or -1 if the timeout was reached.
-  """
-  logging.info('Waiting for new checkpoint at %s', checkpoint_dir)
+  log_str = f'Waiting for new checkpoint at {checkpoint_dir}. '
+  if until_step is not None:
+    log_str += f'Waiting until step {until_step} is reached. '
+  if until_step is not None:
+    log_str += f'Will time out after {timeout} seconds. '
+  logging.info(log_str)
   result = -1
   if jax.process_index() == 0:
-    stop_time = time.time() + timeout if timeout is not None else None
     while True:
+      if not checkpoint_dir.exists():
+        if _sleep_and_maybe_exit():
+          break
       steps = utils.checkpoint_steps(checkpoint_dir)
       checkpoint_step = max(steps) if steps else None
-      if checkpoint_step is None or checkpoint_step == last_checkpoint_step:
-        if stop_time is not None and time.time() + seconds_to_sleep > stop_time:
-          break
-        time.sleep(seconds_to_sleep)
-      else:
-        if not _lock_checkpoint(checkpoint_dir, checkpoint_step):
+      if _reached_desired_step(checkpoint_step, until_step):
+        if not _lock_checkpoint(
+            checkpoint_dir,
+            checkpoint_step,
+            step_prefix,
+            step_format_fixed_length,
+        ):
           continue
-        logging.info('Found new checkpoint step: %d', checkpoint_step)
         result = checkpoint_step
         break
-  return multihost_utils.broadcast_one_to_all(np.int32(result))
+      else:
+        if _sleep_and_maybe_exit():
+          break
+
+  wait_duration = time.time() - start
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/checkpoint_utils/wait_duration', wait_duration
+  )
+  result = multihost_utils.broadcast_one_to_all(np.int32(result)).item()
+  if result == -1:
+    logging.info('Timed out waiting for new checkpoint. Returning -1.')
+  else:
+    logging.info('Found new checkpoint step: %d.', result)
+  return result
 
 
 @contextlib.contextmanager
 def wait_for_new_checkpoint(
     checkpoint_dir: epath.Path,
-    last_checkpoint_step: Optional[int],
+    until_step: Optional[int] = None,
     seconds_to_sleep: int = 1,
     timeout: Optional[int] = None,
+    step_prefix: Optional[str] = None,
+    step_format_fixed_length: Optional[int] = None,
 ):
   """Waits until a new checkpoint file is found.
 
@@ -109,25 +180,37 @@ def wait_for_new_checkpoint(
 
   Args:
     checkpoint_dir: The directory in which checkpoints are saved.
-    last_checkpoint_step: The last checkpoint step used or `None` if we're
-      expecting a checkpoint for the first time.
+    until_step: If specified, waits until a step greater than or equal to
+      `until_step` has been found. If set to None (default), returns the first
+      step found.
     seconds_to_sleep: The number of seconds to sleep for before looking for a
       new checkpoint.
     timeout: The maximum number of seconds to wait. If left as `None`, then the
       process will wait indefinitely.
+    step_prefix: A prefix applied to step numbers (e.g. <prefix>_42).
+    step_format_fixed_length: Expects to find checkpoint step directories with
+      exactly this number of digits (leading zeros if necessary).
 
   Yields:
     a new checkpoint step, or -1 if the timeout was reached.
   """
+  logging.info('wait_for_new_checkpoint')
   step = _wait_for_new_checkpoint(
-      checkpoint_dir, last_checkpoint_step, seconds_to_sleep, timeout
+      checkpoint_dir,
+      until_step=until_step,
+      seconds_to_sleep=seconds_to_sleep,
+      timeout=timeout,
+      step_prefix=step_prefix,
+      step_format_fixed_length=step_format_fixed_length,
   )
   try:
     yield step
   finally:
     # Release lock on the checkpoint step.
     if step != -1:
-      _unlock_checkpoint(checkpoint_dir, step)
+      _unlock_checkpoint(
+          checkpoint_dir, step, step_prefix, step_format_fixed_length
+      )
 
 
 def checkpoints_iterator(
@@ -135,7 +218,8 @@ def checkpoints_iterator(
     min_interval_secs: int = 0,
     timeout: Optional[int] = None,
     timeout_fn: Optional[Callable[[], bool]] = None,
-    unlock_existing_checkpoints: bool = True,
+    step_prefix: Optional[str] = None,
+    step_format_fixed_length: Optional[int] = None,
 ) -> Iterator[int]:
   """Continuously yield new checkpoint files as they appear.
 
@@ -178,28 +262,33 @@ def checkpoints_iterator(
     timeout_fn: Optional function to call after a timeout.  If the function
       returns True, then it means that no new checkpoints will be generated and
       the iterator will exit.  The function is called with no arguments.
-    unlock_existing_checkpoints: If True, marks any existing checkpoints as
-      "unlocked", since these were most likely created by a failure during a
-      previous run, which left some checkpoints as "locked", despite not being
-      in use.
+    step_prefix: A prefix applied to step numbers (e.g. <prefix>_42).
+    step_format_fixed_length: Expects to find checkpoint step directories with
+      exactly this number of digits (leading zeros if necessary).
 
   Yields:
     Integer step numbers of the latest checkpoints as they arrive.
   """
   checkpoint_dir = epath.Path(checkpoint_dir)
-  if unlock_existing_checkpoints:
-    try:
-      _unlock_existing_checkpoints(checkpoint_dir)
-    except FileNotFoundError as e:
-      logging.warning(
-          'Encountered error while unlocking existing checkpoints. Some'
-          ' checkpoints may still be locked. %s.',
-          e,
-      )
+  try:
+    unlock_existing_checkpoints(
+        checkpoint_dir, step_prefix, step_format_fixed_length
+    )
+  except FileNotFoundError as e:
+    logging.warning(
+        'Encountered error while unlocking existing checkpoints. Some'
+        ' checkpoints may still be locked. %s.',
+        e,
+    )
   checkpoint_step = None
   while True:
+    until_step = checkpoint_step + 1 if checkpoint_step is not None else None
     with wait_for_new_checkpoint(
-        checkpoint_dir, checkpoint_step, timeout=timeout
+        checkpoint_dir,
+        until_step=until_step,
+        timeout=timeout,
+        step_prefix=step_prefix,
+        step_format_fixed_length=step_format_fixed_length,
     ) as new_checkpoint_step:
       if new_checkpoint_step == -1:
         if not timeout_fn:

@@ -14,7 +14,14 @@ loaded many times unnecessarily.
 ## [0.2.6] - 2022-06-16
 
 ### Added
+- Locking mechanism for `checkpoints_iterator` to prevent checkpoints from
+being cleaned up by a `CheckpointManager` in another process while the are being
+read.
 - Allow saving the aggregated file asynchronously.
+
+### Changed
+- Slightly different behavior for `wait_for_new_checkpoint`, allowing it to
+wait until a certain checkpoint, rather than strictly after a given step.
 
 ### Fixed
 - Support creating sharded array when ArrayRestoreArgs is passed and the value
@@ -34,9 +41,6 @@ assertion to be raised when saving over an existing temporary directory.
 
 ### Added
 
-- Locking mechanism for `checkpoints_iterator` to prevent checkpoints from
-being cleaned up by a `CheckpointManager` in another process while the are being
-read.
 - `merge_trees` function in `transform_utils`.
 
 ### Changed
