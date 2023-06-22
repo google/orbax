@@ -44,7 +44,7 @@ homepage = 'http://github.com/google/orbax'
 repository = 'http://github.com/google/orbax'
 
 [project.optional-dependencies]
-dev = [
+testing = [
     'flax',
     'pytest',
     'pytest-xdist'

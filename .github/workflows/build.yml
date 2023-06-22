@@ -33,7 +33,7 @@ jobs:
       # Currently in place to override remote orbax import due to flax dependency.
       run: |
         pip install -e .
-        pip install -e .[dev] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip install -e .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         pip uninstall -y orbax
     - name: Test with pytest
       run: |
@@ -78,7 +78,7 @@ jobs:
     - name: Install dependencies
       run: |
         pip install .
-        pip install .[dev] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip install .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
     - name: Test with pytest
       run: |
         test_dir=$(mktemp -d)

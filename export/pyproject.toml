@@ -28,7 +28,6 @@ dependencies = [
     'jaxlib',
     'numpy',
     'dataclasses-json',
-    'tensorflow',
 ]
 
 dynamic = ['version']
@@ -41,7 +40,11 @@ homepage = 'http://github.com/google/orbax'
 repository = 'http://github.com/google/orbax'
 
 [project.optional-dependencies]
-dev = [
+all = [
+  'tensorflow',
+]
+
+testing = [
     'pytest',
     'pytest-xdist',
     'tf-nightly'
