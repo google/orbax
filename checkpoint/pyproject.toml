@@ -23,8 +23,7 @@ keywords = ["JAX machine learning", "checkpoint", "training"]
 
 dependencies = [
     'absl-py',
-    'importlib_resources',
-    'etils',
+    'etils[epath,epy]',
     'typing_extensions',
     'msgpack',
     'jax >= 0.4.9',
