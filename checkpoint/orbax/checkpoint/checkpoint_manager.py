@@ -165,6 +165,7 @@ class CheckpointInfo:
   step: int
   time: datetime.datetime
   metrics: Optional[PyTree]
+  is_locked: Optional[bool] = None
 
   def __str__(self) -> str:
     return f'Checkpoint[step={self.step} | time={self.time}]'
@@ -738,17 +739,6 @@ class CheckpointManager:
     if not self._interval_preserved_checkpoints:
       self._interval_preserved_checkpoints.append(self._checkpoints[-1])
 
-  def _update_checkpoint_info(self, step, metrics, update_time=False):
-    for i, info in enumerate(self._checkpoints):
-      if info.step == step:
-        self._checkpoints[i].metrics = metrics
-        if update_time:
-          self._checkpoints[i].time = datetime.datetime.now(
-              tz=datetime.timezone.utc)
-        return
-    raise ValueError(
-        'Attempting to update a step which is not currently present.')
-
   def _save_metadata(self, metadata: Mapping[str, Any]):
     checkpointer = Checkpointer(JsonCheckpointHandler())
     path = self.directory / METADATA_ITEM_NAME
@@ -800,6 +790,19 @@ class CheckpointManager:
     # Not enough checkpoints accumulated to consider deletion.
     if len(self._checkpoints) <= self._options.max_to_keep:
       return
+
+    are_locked = utils.are_locked(
+        self.directory,
+        tuple(self.all_steps()),
+        self._options.step_prefix,
+        self._options.step_format_fixed_length,
+    )
+    self._checkpoints = [
+        dataclasses.replace(info, is_locked=is_locked)
+        for info, is_locked in zip(self._checkpoints, are_locked)
+    ]
+    utils.sync_global_devices('CheckpointManager:updated_locked_checkpoints')
+
     if self._track_best:
       # Best steps (to keep) are at the end, after sorting.
       (
@@ -828,11 +831,13 @@ class CheckpointManager:
 
     kept_checkpoints = []
     for info in maybe_delete:
-      if utils.is_locked(self.directory, info.step):
+      if info.is_locked:
         logging.info(
             'Preserving %s: (Reason: checkpoint is locked).',
             info,
         )
+        kept_checkpoints.append(info)
+        continue
       if (
           self._options.keep_time_interval is not None
           and self._interval_preserved_checkpoints
@@ -924,6 +929,7 @@ class CheckpointManager:
     Returns:
       the final checkpoint dir
     """
+    final_ckpt_dir = None
     if jax.process_index() == 0:
       try:
         self.check_for_errors()
@@ -954,7 +960,8 @@ class CheckpointManager:
         )
       final_ckpt_dir = self._get_save_directory(step, self.directory)
       utils.ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir)
-      return final_ckpt_dir
+    utils.sync_global_devices('CheckpointManager:finalized_checkpoint')
+    return final_ckpt_dir
 
   def _finalize(self, temp_ckpt_dir: epath.Path):
     """Cleans up old checkpoints and synchronizes hosts."""
