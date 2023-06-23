@@ -699,9 +699,42 @@ def fully_replicated_host_local_array_to_global_array(
   return jax.make_array_from_single_device_arrays(global_shape, sharding, dbs)
 
 
-def lockdir(checkpoint_dir: epath.Path, step: int) -> epath.Path:
-  return get_save_directory(step, checkpoint_dir, name=_LOCK_ITEM_NAME)
+def lockdir(directory: epath.Path) -> epath.Path:
+  """Constructs a directory used to indicate that a checkpoint step is `locked`."""
+  return directory / _LOCK_ITEM_NAME
 
 
-def is_locked(checkpoint_dir: epath.Path, step: int) -> bool:
-  return lockdir(checkpoint_dir, step).exists()
+async def _async_is_locked(directory: epath.Path) -> bool:
+  """(Async) determines whether a checkpoint step is considered `locked`."""
+  parent_dir_exists = await async_exists(directory)
+  if not parent_dir_exists:
+    raise ValueError(f'Parent directory {directory} does not exist.')
+  return await async_exists(lockdir(directory))
+
+
+def is_locked(directory: epath.Path) -> bool:
+  """Determines whether a checkpoint step is considered `locked`."""
+  return asyncio.run(_async_is_locked(directory))
+
+
+def are_locked(
+    directory: epath.Path,
+    steps: Tuple[int],
+    step_prefix: Optional[str],
+    step_format_fixed_length: Optional[int],
+) -> List[bool]:
+  """In parallel, determines whether the steps is considered `locked`."""
+
+  def _get_save_directory(step):
+    return get_save_directory(
+        step,
+        directory,
+        step_prefix=step_prefix,
+        step_format_fixed_length=step_format_fixed_length,
+    )
+
+  async def _run_in_parallel(ops):
+    return await asyncio.gather(*ops)
+
+  ops = [_async_is_locked(_get_save_directory(step)) for step in steps]
+  return asyncio.run(_run_in_parallel(ops))

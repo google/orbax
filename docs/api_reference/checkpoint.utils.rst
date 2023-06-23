@@ -57,6 +57,10 @@ Checkpoint steps
 .. autofunction:: checkpoint_steps
 .. autofunction:: any_checkpoint_step
 .. autofunction:: tmp_checkpoints
+.. autofunction:: lockdir
+.. autofunction:: is_locked
+.. autofunction:: are_locked
+.. autofunction:: unlock_existing_checkpoints
 
 Sharding
 ------------------------
