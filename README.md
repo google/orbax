@@ -29,7 +29,9 @@ Check out our [colab](http://colab.research.google.com/github/google/orbax/blob/
 
 `import orbax.export`
 
-Orbax also includes a serialization library for JAX users, enabling the exporting of JAX models to the TensorFlow SavedModel format. 
+Orbax also includes a serialization library for JAX users, enabling the exporting of JAX models to the TensorFlow SavedModel format.
+
+Note that `orbax-export` requires TensorFlow, but does not include it by default to allow for flexibility in version choice. If you wish to install with standard TensorFlow, please use `pip install orbax-export[all]`.
 
 To get started, check out our [documentation](https://github.com/google/orbax/blob/main/docs/export.md).
 <!-- TODO(dinghua): Add information on export library. -->
