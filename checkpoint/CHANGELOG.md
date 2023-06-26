@@ -22,6 +22,7 @@ read.
 ### Changed
 - Slightly different behavior for `wait_for_new_checkpoint`, allowing it to
 wait until a certain checkpoint, rather than strictly after a given step.
+- Allow value_fn and multi_value_fn to accept RestoreArgs as an argument when they are used during restore, so that the user may customize the returned value based on what is requested by RestoreArgs.
 
 ### Fixed
 - Support creating sharded array when ArrayRestoreArgs is passed and the value

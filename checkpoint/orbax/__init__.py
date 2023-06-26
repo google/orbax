@@ -40,7 +40,9 @@ from orbax.checkpoint.pytree_checkpoint_handler import RestoreArgs
 from orbax.checkpoint.pytree_checkpoint_handler import SaveArgs
 from orbax.checkpoint.transform_utils import apply_transformations
 from orbax.checkpoint.transform_utils import merge_trees
+from orbax.checkpoint.transform_utils import RestoreTransform
 from orbax.checkpoint.transform_utils import Transform
+
 
 try:
   __IPYTHON__

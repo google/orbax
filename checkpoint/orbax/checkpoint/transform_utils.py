@@ -21,11 +21,13 @@ import re
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 from absl import logging
+from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 
 PyTree = Any
 ValueFn = Callable[[Any], Any]
 MultiValueFn = Callable[[str, PyTree], Any]
+RestoreArgs = type_handlers.RestoreArgs
 
 
 @dataclasses.dataclass
@@ -88,26 +90,61 @@ class Transform:
   use_fallback: bool = False
   value_fn: Optional[ValueFn] = None
   multi_value_fn: Optional[MultiValueFn] = None
-  multi_value_fn_input_args: Optional[Dict[str, Any]] = None
 
   def __post_init__(self):
     if self.original_key is not None:
       assert not self.use_fallback
       assert self.multi_value_fn is None
-      assert self.multi_value_fn_input_args is None
     if self.use_fallback:
       assert self.original_key is None
       assert self.value_fn is None
       assert self.multi_value_fn is None
-      assert self.multi_value_fn_input_args is None
     if self.value_fn is not None:
       assert not self.use_fallback
       assert self.multi_value_fn is None
-      assert self.multi_value_fn_input_args is None
     if self.multi_value_fn is not None:
       assert self.original_key is None
       assert not self.use_fallback
       assert self.value_fn is None
+
+
+@dataclasses.dataclass
+class RestoreTransform(Transform):
+  """Transform subclass used only during restoration from checkpoint.
+
+  value_fn:
+    Same as value_fn in the parent class, but also accepts RestoreArgs as an
+    argument. The returned value should take into account the information
+    provided by RestoreArgs.
+  multi_value_fn:
+    Same as multi_value_fn in the parent class, but also accepts RestoreArgs as
+    an
+    argument. The returned value should take into account the information
+    provided by RestoreArgs.
+  multi_value_fn_input_args:
+    A dict of key name (in the original tree) to
+    required input arguments (typically `RestoreArgs` - see
+    `PyTreeCheckpointHandler`). These arguments are not used directly in
+    `apply_transformations`, but are necessary when applying transformations
+    when restoring from a checkpoint in `PyTreeCheckpointHandler`. These
+    arguments identify "dependencies" in the original tree (the checkpoint)
+    which are needed as inputs by the function, and provides additional
+    information needed for restoration. IMPORTANT: using multi_value_fn during
+    `PyTreeCheckpointHandler.restore` REQUIRES inputs to be identified.
+  """
+
+  value_fn: Optional[Callable[[Any, RestoreArgs], Any]] = None
+  multi_value_fn: Optional[Callable[[str, PyTree, RestoreArgs], Any]] = None
+  multi_value_fn_input_args: Optional[Dict[str, Any]] = None
+
+  def __post_init__(self):
+    super().__post_init__()
+    if self.original_key is not None:
+      assert self.multi_value_fn_input_args is None
+    if self.use_fallback:
+      assert self.multi_value_fn_input_args is None
+    if self.value_fn is not None:
+      assert self.multi_value_fn_input_args is None
     if self.multi_value_fn_input_args is not None:
       assert self.original_key is None
       assert not self.use_fallback

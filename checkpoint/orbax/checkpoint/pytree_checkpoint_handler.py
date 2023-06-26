@@ -48,6 +48,7 @@ AggregateHandler = aggregate_handlers.AggregateHandler
 MsgpackHandler = aggregate_handlers.MsgpackHandler
 TransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
 Transform = transform_utils.Transform
+RestoreTransform = transform_utils.RestoreTransform
 LazyValue = lazy_utils.LazyValue
 
 _TYPE_METADATA_FILE = 'type_metadata'
@@ -90,6 +91,18 @@ def _try_array_cast(arr, dtype):
       if hasattr(arr, 'astype'):
         arr = arr.astype(dtype)
   return arr
+
+
+def _maybe_shard_array(value, args):
+  if isinstance(args, ArrayRestoreArgs):
+    value = value.reshape(args.global_shape)
+    sharding = args.sharding or jax.sharding.NamedSharding(
+        args.mesh, args.mesh_axes
+    )
+    value = jax.make_array_from_callback(
+        value.shape, sharding, lambda idx: value[idx]
+    )
+  return value
 
 
 def _get_param_names(item: PyTree) -> PyTree:
@@ -212,6 +225,11 @@ def _materialize_multi_value_fn_inputs(
     assert isinstance(lazy_value, LazyValue)
     for _, transform in flat_transforms.items():
       if transform.multi_value_fn is not None:
+        if not isinstance(transform, RestoreTransform):
+          raise ValueError(
+              'Must use RestoreTransform in order to use multi_value_fn during'
+              ' restore.'
+          )
         if transform.multi_value_fn_input_args is None:
           raise ValueError(
               '`multi_value_fn` was specified, but `multi_value_fn_input_args`'
@@ -273,7 +291,19 @@ def _construct_lazy_transform_wrappers(transforms: PyTree) -> PyTree:
         value = await maybe_lazy_value.get_async(args=args)
       else:
         value = maybe_lazy_value
-      return transform.value_fn(value)
+      if isinstance(transform, RestoreTransform):
+        return transform.value_fn(value, args)
+      else:
+        return transform.value_fn(value)
+
+    async def _lazy_multi_value_fn(
+        transform_key: str, tree: PyTree, args: RestoreArgs
+    ) -> Any:
+      # Inputs are already materialized.
+      if isinstance(transform, RestoreTransform):
+        return transform.multi_value_fn(transform_key, tree, args)
+      else:
+        return transform.multi_value_fn(transform_key, tree)
 
     def _wrap_as_lazy_value(func, *args, **kwargs):
       return LazyValue(functools.partial(func, *args, **kwargs))
@@ -283,6 +313,12 @@ def _construct_lazy_transform_wrappers(transforms: PyTree) -> PyTree:
       return Transform(
           original_key=transform.original_key,
           value_fn=functools.partial(_wrap_as_lazy_value, _lazy_value_fn),
+      )
+    elif transform.multi_value_fn is not None:
+      return Transform(
+          multi_value_fn=functools.partial(
+              _wrap_as_lazy_value, _lazy_multi_value_fn
+          )
       )
     else:
       return transform
@@ -493,16 +529,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       A LazyValue.
     """
 
-    async def _maybe_cast(val: Any, args: RestoreArgs) -> Any:
+    async def _maybe_cast_and_shard(val: Any, args: RestoreArgs) -> Any:
       val = _try_array_cast(val, args.dtype)
-      if isinstance(args, ArrayRestoreArgs):
-        val = val.reshape(args.global_shape)
-        sharding = args.sharding or jax.sharding.NamedSharding(
-            args.mesh, args.mesh_axes
-        )
-        val = jax.make_array_from_callback(
-            val.shape, sharding, lambda idx: val[idx]
-        )
+      val = _maybe_shard_array(val, args)
       return val
 
     async def _deserialize(info: ParamInfo, args: RestoreArgs) -> Any:
@@ -510,7 +539,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       return await handler.deserialize(info, args)
 
     if param_info.aggregate:  # Already restored from AggregateHandler.
-      get_fn = functools.partial(_maybe_cast, val=value)
+      get_fn = functools.partial(_maybe_cast_and_shard, val=value)
     else:
       get_fn = functools.partial(_deserialize, info=param_info)
 
