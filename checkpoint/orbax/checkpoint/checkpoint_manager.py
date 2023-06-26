@@ -791,17 +791,19 @@ class CheckpointManager:
     if len(self._checkpoints) <= self._options.max_to_keep:
       return
 
+    # Exclude the latest checkpoint, since it is not finalized on all hosts.
+    # However, it will be finalized on the leader host, which is in charge of
+    # deleting if necessary anyway.
     are_locked = utils.are_locked(
         self.directory,
-        tuple(self.all_steps()),
+        tuple([info.step for info in self._checkpoints[:-1]]),
         self._options.step_prefix,
         self._options.step_format_fixed_length,
     )
-    self._checkpoints = [
+    self._checkpoints[:-1] = [
         dataclasses.replace(info, is_locked=is_locked)
         for info, is_locked in zip(self._checkpoints, are_locked)
     ]
-    utils.sync_global_devices('CheckpointManager:updated_locked_checkpoints')
 
     if self._track_best:
       # Best steps (to keep) are at the end, after sorting.
@@ -960,7 +962,6 @@ class CheckpointManager:
         )
       final_ckpt_dir = self._get_save_directory(step, self.directory)
       utils.ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir)
-    utils.sync_global_devices('CheckpointManager:finalized_checkpoint')
     return final_ckpt_dir
 
   def _finalize(self, temp_ckpt_dir: epath.Path):

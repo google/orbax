@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fix issue with `multi_value_fn` in restoration where an input value could be
 loaded many times unnecessarily.
+- Eliminates hosts sync on background thread and fixes issue with reading
+lockfile before checkpoint is finalized.
 
 ## [0.2.6] - 2022-06-16
 
