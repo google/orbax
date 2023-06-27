@@ -55,8 +55,13 @@ class DtensorUtilsTest(parameterized.TestCase):
     super().setUp()
     self.assertTrue(dtensor_utils.dtensor_initialized())
     self._mesh_shape = (4, 2)
-    devices = np.asarray(jax.devices()).reshape(*self._mesh_shape)
-    self._mesh = jax.sharding.Mesh(devices, ('x', 'y'))
+    self._mesh = self._create_mesh(self._mesh_shape, ('x', 'y'))
+
+  def _create_mesh(
+      self, shape: tuple[int, ...], axis_names: tuple[str, ...]
+  ) -> jax.sharding.Mesh:
+    devices = np.asarray(jax.devices()).reshape(*shape)
+    return jax.sharding.Mesh(devices, axis_names)
 
   def test_jax_mesh_to_dtensor_mesh(self):
     dmesh = dtensor_utils.jax_mesh_to_dtensor_mesh(self._mesh)
@@ -94,6 +99,34 @@ class DtensorUtilsTest(parameterized.TestCase):
         ),
     ):
       dtensor_utils.jax_array_to_dtensor(jax_arr, pspec, dmesh)
+
+  @parameterized.parameters(
+      ((1, 8), ('x', 'y'), P(None, ('x', 'y'))),
+      ((8, 1), ('x', 'y'), P(('x', 'y'), None)),
+      ((1, 2, 4), ('x', 'y', 'z'), P(None, 'y', ('x', 'z'))),
+      ((1, 2, 4), ('x', 'y', 'z'), P(None, 'y', ('z', 'x'))),
+      ((1, 2, 4), ('x', 'y', 'z'), P(None, None, ('y', 'x'))),
+      ((1, 1, 8), ('x', 'y', 'z'), P(None, None, ('x', 'y', 'z'))),
+      ((1, 8, 1), ('x', 'y', 'z'), P(None, ('x', 'y', 'z'), None)),
+      ((8, 1, 1), ('x', 'y', 'z'), P(('x', 'y', 'z'), None, None)),
+      ((1, 1, 8), ('x', 'y', 'z'), P(None, 'y', ('x', 'z'))),
+      ((1, 1, 8), ('x', 'y', 'z'), P('x', None, ('y', 'z'))),
+      ((1, 1, 8), ('x', 'y', 'z'), P('x', None, ('z', 'y'))),
+      ((1, 1, 8), ('x', 'y', 'z'), P(('x', 'y'), None, 'z')),
+  )
+  def test_sharding_across_multi_mesh_axes(
+      self,
+      mesh_shape: tuple[int, ...],
+      axis_names: tuple[str, ...],
+      pspec: P,
+  ):
+    arr_shape = np.asarray(mesh_shape) * 2
+    global_arr = np.arange(np.prod(arr_shape)).reshape(arr_shape)
+    mesh = self._create_mesh(mesh_shape, axis_names)
+    jax_arr = _create_sharded_jax_array(global_arr, pspec, mesh)
+    dmesh = dtensor_utils.jax_mesh_to_dtensor_mesh(mesh)
+    dt_arr = dtensor_utils.jax_array_to_dtensor(jax_arr, pspec, dmesh)
+    np.testing.assert_equal(_get_dtensor_full_value(dt_arr, dmesh), global_arr)
 
   def test_jax_dtensor_mesh_mismatch(self):
     global_arr = np.arange(16).reshape((8, 2))

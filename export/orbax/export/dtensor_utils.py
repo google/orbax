@@ -148,14 +148,23 @@ def jax_array_to_dtensor(
                 ' axis or a tuple of mesh axes. Got {mesh_axis_name}.'
             )
           if len(mesh_axis_name) > 1:
-            raise ValueError(
-                f'Dimension {i} of the input array (shape={arr.shape}) is'
-                f' sharded across more than one axis ({mesh_axis_name}) of the'
-                ' mesh, but jax.Array to DTensor tranform does not support'
-                ' partitioning of an array dimension across multiple mesh axes.'
-            )
-          else:
-            mesh_axis_name = mesh_axis_name[0]
+            dim_sizes = tuple(dmesh.dim_size(name) for name in mesh_axis_name)
+            if dim_sizes.count(1) < len(mesh_axis_name) - 1:
+              raise ValueError(
+                  f'Dimension {i} of the input array (shape={arr.shape}) is'
+                  f' sharded across more than one axis ({mesh_axis_name}, sizes'
+                  f' = {dim_sizes}) of the mesh, but jax.Array to DTensor'
+                  ' tranform does not support partitioning of an array'
+                  ' dimension across multiple mesh axes, unless there is at'
+                  ' most one axis with size >= 1.'
+              )
+            else:
+              mesh_axis_name = tuple(
+                  filter(lambda x: dmesh.dim_size(x) != 1, mesh_axis_name)
+              ) or (mesh_axis_name[0],)
+
+          assert len(mesh_axis_name) == 1, mesh_axis_name
+          mesh_axis_name = mesh_axis_name[0]
         mesh_dim_size = dmesh.dim_size(mesh_axis_name)
         if arr.shape[i] % dmesh.dim_size(mesh_axis_name) != 0:
           raise ValueError(
