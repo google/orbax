@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 loaded many times unnecessarily.
 - Eliminates hosts sync on background thread and fixes issue with reading
 lockfile before checkpoint is finalized.
+- Fix unlocking function, which may fail if there are multiple evaluators
+running concurrently.
 
 ## [0.2.6] - 2022-06-16
 

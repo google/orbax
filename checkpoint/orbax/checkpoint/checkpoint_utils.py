@@ -72,7 +72,7 @@ def _unlock_checkpoint(
         step_prefix=step_prefix,
         step_format_fixed_length=step_format_fixed_length,
     )
-    utils.lockdir(directory).rmdir()
+    utils.lockdir(directory).unlink(missing_ok=True)
 
 
 def unlock_existing_checkpoints(
