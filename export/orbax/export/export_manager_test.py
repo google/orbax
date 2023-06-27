@@ -311,6 +311,31 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     self.assertAllEqual(loaded.signatures['no_bias'](x=x)['y'], jnp.zeros(
         (1, 2)))
 
+  def test_callable_module(self):
+    jax_module = JaxModule(
+        jnp.asarray(0.0),
+        lambda w, x: w + jnp.sum(x['a']['b']),
+    )
+    dummy_inputs = {'a': {'b': jnp.ones(3, jnp.float32)}}
+
+    input_signature = jax.tree_map(
+        lambda x: tf.TensorSpec(dtype=x.dtype, shape=x.shape), dummy_inputs
+    )
+    em = ExportManager(
+        jax_module,
+        [
+            ServingConfig(
+                'serving_default',
+                input_signature=[input_signature],
+                tf_postprocessor=lambda out: {'y': out},
+            )
+        ],
+    )
+    em.save(self._output_dir)
+    loaded = em.load(self._output_dir)
+    result = loaded(dummy_inputs)
+    self.assertAllClose(result['y'], jnp.asarray(3.0))
+
   def test_save_non_differentiable_fn(self):
 
     def non_differetiable_fn(_, x):

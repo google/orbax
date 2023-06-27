@@ -64,6 +64,12 @@ class ExportManager(ExportManagerBase):
         if sc.extra_trackable_resources is not None:
           tf_trackable_resources.append(sc.extra_trackable_resources)
 
+      if len(serving_configs) == 1:
+        # Make this module callable. Once exported, it can be loaded back in
+        # python and the nested input structure will be preservered. In
+        # contrast, signatures will flatten the TensorSpecs of the to kwargs.
+        self.tf_module.__call__ = inference_fn
+
     self._module.tf_trackable_resources = tf_trackable_resources
 
   @property
