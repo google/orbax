@@ -29,6 +29,7 @@ import os
 import sys
 
 import orbax.checkpoint
+import orbax.export
 from sphinxcontrib import katex
 
 sys.path.insert(0, os.path.abspath('..'))

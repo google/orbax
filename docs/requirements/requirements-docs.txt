@@ -14,9 +14,10 @@ importlib_resources
 etils
 typing_extensions
 msgpack
-jax==0.4.11
+jax
 jaxlib
 numpy
 pyyaml
 tensorstore==0.1.35
 nest_asyncio
+tensorflow
