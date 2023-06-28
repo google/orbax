@@ -339,6 +339,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       aggregate_filename: Optional[str] = None,
       concurrent_gb: int = 96,
       use_ocdbt: bool = False,
+      restore_with_serialized_types: bool = True,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -347,6 +348,11 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         as.
       concurrent_gb: max concurrent GB that are allowed to be read.
       use_ocdbt: enables Tensorstore OCDBT driver.
+      restore_with_serialized_types: If True, the values with unspecified
+        restore types will be restored using the typing information in the
+        checkpoint. Otherwise, arrays will be restored as either np.ndarray or
+        jax.Array, and will ignore any typing information present in the
+        checkpoint.
     """
     self._aggregate_handler = aggregate_handlers.get_aggregate_handler()
     if aggregate_filename is None:
@@ -354,6 +360,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     self._aggregate_filename = aggregate_filename
     self._concurrent_gb = concurrent_gb
     self._use_ocdbt = use_ocdbt
+    self._restore_with_serialized_types = restore_with_serialized_types
 
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
