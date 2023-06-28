@@ -44,6 +44,14 @@ def _get_dtensor_full_value(
   ).numpy()
 
 
+def _get_dtensor_shard_shape(dt_arr: dtensor_utils.DTensor) -> tuple[int, ...]:
+  layout = dtensor.fetch_layout(dt_arr)
+  return tuple(
+      size // layout.num_shards(i)
+      for i, size in enumerate(dt_arr.shape.as_list())
+  )
+
+
 class DtensorUtilsTest(parameterized.TestCase):
 
   @classmethod
@@ -84,6 +92,11 @@ class DtensorUtilsTest(parameterized.TestCase):
     jax_arr = _create_sharded_jax_array(global_arr, pspec, self._mesh)
     dmesh = dtensor_utils.jax_mesh_to_dtensor_mesh(self._mesh)
     dt_arr = dtensor_utils.jax_array_to_dtensor(jax_arr, pspec, dmesh)
+
+    self.assertEqual(
+        _get_dtensor_shard_shape(dt_arr),
+        jax_arr.sharding.shard_shape(jax_arr.shape),
+    )
     np.testing.assert_equal(_get_dtensor_full_value(dt_arr, dmesh), global_arr)
 
   def test_sharding_across_multi_mesh_axes_unsupported(self):
@@ -126,6 +139,11 @@ class DtensorUtilsTest(parameterized.TestCase):
     jax_arr = _create_sharded_jax_array(global_arr, pspec, mesh)
     dmesh = dtensor_utils.jax_mesh_to_dtensor_mesh(mesh)
     dt_arr = dtensor_utils.jax_array_to_dtensor(jax_arr, pspec, dmesh)
+
+    self.assertEqual(
+        _get_dtensor_shard_shape(dt_arr),
+        jax_arr.sharding.shard_shape(jax_arr.shape),
+    )
     np.testing.assert_equal(_get_dtensor_full_value(dt_arr, dmesh), global_arr)
 
   def test_jax_dtensor_mesh_mismatch(self):
