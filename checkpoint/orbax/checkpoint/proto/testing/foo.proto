@@ -1,0 +1,9 @@
+syntax = "proto2";
+
+package orbax;
+
+// Proto for testing purposes.
+message Foo {
+  optional string bar = 1;
+  optional int32 baz = 2;
+}

@@ -43,7 +43,6 @@ from orbax.checkpoint.transform_utils import merge_trees
 from orbax.checkpoint.transform_utils import RestoreTransform
 from orbax.checkpoint.transform_utils import Transform
 
-
 try:
   __IPYTHON__
   _in_ipython_session = True

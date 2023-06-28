@@ -31,6 +31,7 @@ from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
 from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
+from orbax.checkpoint.proto_checkpoint_handler import ProtoCheckpointHandler
 
 PyTree = Any
 CheckpointDirs = Tuple[str, str]
