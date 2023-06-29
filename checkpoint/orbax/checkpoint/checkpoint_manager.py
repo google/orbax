@@ -15,6 +15,7 @@
 """A class providing functionalities for managing multiple checkpoints."""
 
 import asyncio
+import concurrent.futures
 import dataclasses
 import datetime
 import threading
@@ -692,26 +693,22 @@ class CheckpointManager:
     if not steps:
       return []
 
-    tz = datetime.timezone.utc
-    times = [
-        datetime.datetime.fromtimestamp(
-            self._get_save_directory(step, self.directory).stat().mtime, tz=tz)
-        for step in steps
-    ]
+    def checkpoint_info(step: int) -> CheckpointInfo:
+      time = datetime.datetime.fromtimestamp(
+          self._get_save_directory(step, self.directory).stat().mtime,
+          tz=datetime.timezone.utc,
+      )
 
-    def get_metrics(step):
+      metrics = None
       if self._track_best:
         restored = self._restore_impl(step, {METRIC_ITEM_NAME: None}, {})
         if METRIC_ITEM_NAME in restored:
-          return restored[METRIC_ITEM_NAME]
-      return None
+          metrics = restored[METRIC_ITEM_NAME]
+      return CheckpointInfo(step=step, time=time, metrics=metrics)
 
-    metrics = [get_metrics(step) for step in steps]
-
-    return [
-        CheckpointInfo(step=s, time=t, metrics=m)
-        for s, t, m in zip(steps, times, metrics)
-    ]
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+      futures = {step: executor.submit(checkpoint_info, step) for step in steps}
+      return [futures[step].result() for step in steps]
 
   def _get_interval_preserved_checkpoints(
       self, checkpoints: List[CheckpointInfo]

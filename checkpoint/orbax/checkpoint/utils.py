@@ -17,6 +17,7 @@
 TODO(b/266449081) Increase unit test coverage.
 """
 import asyncio
+import concurrent.futures
 import functools
 import os
 import re
@@ -581,11 +582,16 @@ def checkpoint_steps_paths(
   checkpoint_dir = epath.Path(checkpoint_dir)
   if not checkpoint_dir.exists():
     raise ValueError(f'Path {checkpoint_dir} does not exist.')
-  return [
-      step_dir
-      for step_dir in checkpoint_dir.iterdir()
-      if _is_step_checkpoint(step_dir) and is_checkpoint_finalized(step_dir)
-  ]
+
+  def check_step_dir(step_dir: epath.Path) -> bool:
+    return _is_step_checkpoint(step_dir) and is_checkpoint_finalized(step_dir)
+
+  with concurrent.futures.ThreadPoolExecutor() as executor:
+    futures = {
+        step_dir: executor.submit(check_step_dir, step_dir)
+        for step_dir in checkpoint_dir.iterdir()
+    }
+    return [step_dir for step_dir, future in futures.items() if future.result()]
 
 
 def checkpoint_steps(checkpoint_dir: epath.PathLike) -> List[int]:
