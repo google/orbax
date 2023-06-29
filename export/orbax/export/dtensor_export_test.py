@@ -50,9 +50,6 @@ class DtensorExportTest(absltest.TestCase):
     self._export_dir = self.create_tempdir().full_path
 
   def test_jax_module_export(self):
-    if jax.config.jax2tf_default_native_serialization:
-      self.skipTest(
-          'TODO(b/274311054): Could not legalize op: tf.XlaCallModule')
     w = np.random.rand(16, 8).astype(np.float32)
     x = np.random.rand(2, 16).astype(np.float32)
     with self._mesh:
@@ -80,6 +77,11 @@ class DtensorExportTest(absltest.TestCase):
         )
         em.save(self._export_dir)
 
+      jax_result = pjit_model_fn(params, x)
+      tf_result = tf.saved_model.load(self._export_dir).signatures[
+          'serving_default'
+      ](x=x)['y']
+      np.testing.assert_allclose(jax_result, tf_result, atol=1e-5, rtol=1e-5)
 
   def test_dtensor_export_error(self):
     pspec = P('x', 'y')
@@ -98,4 +100,5 @@ class DtensorExportTest(absltest.TestCase):
 
 
 if __name__ == '__main__':
+  jax.config.parse_flags_with_absl()
   absltest.main()
