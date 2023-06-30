@@ -38,27 +38,7 @@ users. It includes multiple distinct but interrelated libraries.
 Installation
 ---------------
 
-There is no single `orbax` package, but rather a separate package for each
-functionality provided by the Orbax namespace.
-
-The latest release of `orbax-checkpoint` can be installed from
-`PyPI <https://pypi.org/project/orbax-checkpoint/>`_ using
-
-``pip install orbax-checkpoint``
-
-You may also install directly from GitHub, using the following command. This
-can be used to obtain the most recent version of Optax.
-
-``pip install 'git+https://github.com/google/orbax/#subdirectory=checkpoint'``
-
-Similarly, `orbax-export` can be installed from
-`PyPI <https://pypi.org/project/orbax-export/>`_ using
-
-``pip install orbax-export``
-
-Install from GitHub using the following.
-
-``pip install 'git+https://github.com/google/orbax/#subdirectory=export'``
+For more information how to install orbax, see the project README.
 
 
 Checkpointing
