@@ -97,12 +97,9 @@ bibtex_bibfiles = []
 html_theme = 'sphinx_book_theme'
 
 html_theme_options = {
-    'logo_only': True,
+    # 'logo_only': True,
     'show_toc_level': 2,
 }
-
-html_logo = 'images/logo.svg'
-html_favicon = 'images/favicon.svg'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,

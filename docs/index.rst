@@ -1,6 +1,6 @@
 :github_url: https://github.com/google/orbax
 
-Orbax (Note: Under Construction)
+Orbax
 ------------------------------------------------------
 
 
@@ -41,6 +41,23 @@ Installation
 For more information how to install orbax, see the project README.
 
 
+.. For TOC
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: Checkpointing
+
+   orbax_checkpoint_101
+   api_reference/checkpoint
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: Exporting
+
+   api_reference/export
+
+
 Checkpointing
 ---------------
 
@@ -73,13 +90,14 @@ Exporting
          :link: api_reference/export.html
 
 
-The Team
-------------
-
+.. For TOC
 .. toctree::
+   :hidden:
    :maxdepth: 5
+   :caption: Additional Information
 
    contributors
+
 
 Support
 ------------
