@@ -17,17 +17,21 @@
 Implementation of CheckpointHandler interface.
 """
 
-from typing import Any, Optional, Type
+import asyncio
+from concurrent import futures
+import functools
+from typing import Any, List, Optional, Type
 
 from etils import epath
 from google.protobuf import message
 from google.protobuf import text_format
 import jax
-from orbax.checkpoint import checkpoint_handler
+from orbax.checkpoint import async_checkpoint_handler
+from orbax.checkpoint import future
 from orbax.checkpoint import utils
 
 
-class ProtoCheckpointHandler(checkpoint_handler.CheckpointHandler):
+class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Serializes/deserializes protocol buffers."""
 
   def __init__(self, filename: str):
@@ -37,17 +41,39 @@ class ProtoCheckpointHandler(checkpoint_handler.CheckpointHandler):
       filename: file name given to the written file.
     """
     self._filename = filename
+    self._executor = futures.ThreadPoolExecutor(max_workers=1)
 
-  def save(self, directory: epath.Path, item: message.Message):
+  async def async_save(
+      self, directory: epath.Path, item: message.Message
+  ) -> Optional[List[future.Future]]:
     """Saves the given proto.
 
     Args:
       directory: save location directory.
       item: the proto to serialize.
+
+    Returns:
+      A commit future.
     """
-    if jax.process_index() == 0:
-      path = directory / self._filename
-      path.write_text(text_format.MessageToString(item))
+
+    def _save_fn(x):
+      if jax.process_index() == 0:
+        path = directory / self._filename
+        return path.write_text(text_format.MessageToString(x))
+      return 0
+
+    return [self._executor.submit(functools.partial(_save_fn, item))]
+
+  def save(self, directory: epath.Path, item: message.Message):
+    """Saves the provided item."""
+
+    async def async_save(directory, item):
+      commit_futures = await self.async_save(directory, item)
+      if commit_futures:
+        for f in commit_futures:
+          f.result()
+
+    asyncio.run(async_save(directory, item))
     utils.sync_global_devices("ProtoCheckpointHandler:save")
 
   def restore(
@@ -73,3 +99,6 @@ class ProtoCheckpointHandler(checkpoint_handler.CheckpointHandler):
   def structure(self, directory: epath.Path) -> Any:
     """Unimplemented. See parent class."""
     return NotImplementedError
+
+  def close(self):
+    self._executor.shutdown()

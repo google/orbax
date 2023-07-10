@@ -51,6 +51,11 @@ class AggregateHandler(abc.ABC):
     """Reads and deserializes a PyTree from the given directory."""
     pass
 
+  @abc.abstractmethod
+  def close(self):
+    """Closes the handler."""
+    pass
+
 
 class MsgpackHandler(AggregateHandler):
   """An implementation of AggregateHandler that uses msgpack to store the tree.
@@ -83,20 +88,6 @@ class MsgpackHandler(AggregateHandler):
     else:
       raise FileNotFoundError(f'Checkpoint does not exist at {path}.')
 
-
-_AGGREGATE_HANDLER = None
-_DEFAULT_AGGREGATE_HANDLER = MsgpackHandler()
-
-
-def set_default_aggregate_handler(handler: AggregateHandler):
-  """Sets the default AggregateHandler for use by PyTreeCheckpointHandler.
-
-  Args:
-    handler: an AggregateHandler implementation.
-  """
-  global _AGGREGATE_HANDLER
-  _AGGREGATE_HANDLER = handler
-
-
-def get_aggregate_handler() -> AggregateHandler:
-  return _AGGREGATE_HANDLER or _DEFAULT_AGGREGATE_HANDLER
+  def close(self):
+    """See superclass documentation."""
+    self._executor.shutdown()

@@ -354,7 +354,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         jax.Array, and will ignore any typing information present in the
         checkpoint.
     """
-    self._aggregate_handler = aggregate_handlers.get_aggregate_handler()
+    self._aggregate_handler = MsgpackHandler()
     if aggregate_filename is None:
       aggregate_filename = _CHECKPOINT_FILE
     self._aggregate_filename = aggregate_filename
@@ -697,3 +697,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
             directory,
         )
         return utils.pytree_structure(directory)
+
+  def close(self):
+    """See superclass documentation."""
+    self._aggregate_handler.close()

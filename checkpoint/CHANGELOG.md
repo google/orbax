@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `close` method for Checkpointer and CheckpointHandler. 
+- Context manager helper functions for Checkpointer and CheckpointManager.
+
 ## [0.2.6] - 2022-06-28
 
 ### Added

@@ -79,3 +79,7 @@ class AbstractCheckpointer(abc.ABC):
       `structure`.
     """
     pass
+
+  def close(self):
+    """Closes the Checkpointer."""
+    pass

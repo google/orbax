@@ -15,6 +15,7 @@
 """AsyncCheckpointer."""
 
 import asyncio
+import contextlib
 import functools
 import time
 from typing import Any, Optional
@@ -50,9 +51,15 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
   CheckpointHandler to deal with type-specific logic.
   """
 
-  def __init__(self, handler: AsyncCheckpointHandler, timeout_secs: int = 300):
+  def __init__(
+      self,
+      handler: AsyncCheckpointHandler,
+      timeout_secs: int = 300,
+      primary_host: int = 0,
+  ):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
     self._handler = handler
+    self._primary_host = primary_host
     AsyncManager.__init__(self, timeout_secs=timeout_secs)
 
   def save(self,
@@ -90,12 +97,14 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
 
     if directory.exists():
       if force:
-        if jax.process_index() == 0:
+        if jax.process_index() == self._primary_host:
           logging.info('Specified `force`: removing existing directory.')
           directory.rmtree()  # Post-sync handled by create_tmp_directory.
       else:
         raise ValueError(f'Destination {directory} already exists.')
-    tmpdir = utils.create_tmp_directory(directory)
+    tmpdir = utils.create_tmp_directory(
+        directory, primary_host=self._primary_host
+    )
 
     # Run copy ops.
     commit_ops = asyncio.run(
@@ -120,3 +129,35 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
     """See superclass documentation."""
     self.wait_until_finished()
     return super().restore(directory, *args, item=item, **kwargs)
+
+  def close(self):
+    """Waits to finish any outstanding operations before closing."""
+    self.wait_until_finished()
+    super().close()
+
+
+@contextlib.contextmanager
+def async_checkpointer_context(*args, **kwargs):
+  """Context manager for AsyncCheckpointer.
+
+  Initializes AsyncCheckpointer and closes the object when the context is
+  exited.
+
+  Usage::
+    with async_checkpointer_context(PyTreeCheckpointHandler()) as ckptr:
+      ckptr.save(...)
+      ckptr.wait_until_finished()
+      ckptr.restore(...)
+
+  Args:
+    *args: Arguments to initialize AsyncCheckpointer.
+    **kwargs: Keyword arguments to initialize AsyncCheckpointer.
+
+  Yields:
+    AsyncCheckpointer
+  """
+  ckptr = AsyncCheckpointer(*args, **kwargs)
+  try:
+    yield ckptr
+  finally:
+    ckptr.close()

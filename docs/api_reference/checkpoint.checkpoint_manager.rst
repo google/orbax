@@ -19,3 +19,4 @@ Utility functions
 ------------------------
 
 .. autofunction:: is_async_checkpointer
+.. autofunction:: checkpoint_manager_context

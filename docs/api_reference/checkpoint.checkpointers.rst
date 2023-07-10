@@ -19,3 +19,8 @@ AsyncCheckpointer
 ------------------------
 .. autoclass:: AsyncCheckpointer
   :members:
+
+Utility Functions
+---------------------------------
+.. autofunction:: checkpointer_context
+.. autofunction:: async_checkpointer_context

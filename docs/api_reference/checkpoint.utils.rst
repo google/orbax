@@ -45,8 +45,6 @@ Directories
 
 Atomicity
 ------------------------
-.. autofunction:: ensure_atomic_save
-.. autofunction:: on_commit_callback
 .. autofunction:: is_tmp_checkpoint
 .. autofunction:: is_checkpoint_finalized
 

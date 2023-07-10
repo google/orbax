@@ -16,6 +16,7 @@
 
 import asyncio
 import concurrent.futures
+import contextlib
 import dataclasses
 import datetime
 import threading
@@ -968,3 +969,36 @@ class CheckpointManager:
       self.wait_until_finished(join_finalize_thread=False)
     final_ckpt_dir = self._finalize_checkpoint(temp_ckpt_dir)
     self._remove_old_checkpoints()
+
+  def close(self):
+    """Waits for outstanding operations to finish and closes Checkpointers."""
+    self.wait_until_finished()
+    for c in self._checkpointers.values():
+      c.close()
+
+
+@contextlib.contextmanager
+def checkpoint_manager_context(*args, **kwargs):
+  """Context manager for CheckpointManager.
+
+  Initializes CheckpointManager and closes the object when the context is
+  exited.
+
+  Args:
+    *args: Arguments to initialize CheckpointManager.
+    **kwargs: Keyword arguments to initialize CheckpointManager.
+
+  Usage::
+    with checkpoint_manager_context(
+        directory, checkpointers, options) as mngr:
+      mngr.save(...)
+      mngr.all_steps()
+
+  Yields:
+    CheckpointManager
+  """
+  manager = CheckpointManager(*args, **kwargs)
+  try:
+    yield manager
+  finally:
+    manager.close()

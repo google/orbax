@@ -14,6 +14,7 @@
 
 """Synchronous Checkpointer implementation."""
 
+import contextlib
 import time
 from typing import Any, Optional
 
@@ -32,8 +33,9 @@ class Checkpointer(AbstractCheckpointer):
   CheckpointHandler. Atomicity of the operation is guaranteed.
   """
 
-  def __init__(self, handler: CheckpointHandler):
+  def __init__(self, handler: CheckpointHandler, primary_host: int = 0):
     self._handler = handler
+    self._primary_host = primary_host
     jax.monitoring.record_event('/jax/orbax/checkpointer/init')
 
   def save(self,
@@ -67,18 +69,20 @@ class Checkpointer(AbstractCheckpointer):
     logging.info('Saving item to %s.', directory)
     if directory.exists():
       if force:
-        if jax.process_index() == 0:
+        if jax.process_index() == self._primary_host:
           logging.info('Specified `force`: removing existing directory.')
           directory.rmtree()  # Post-sync handled by create_tmp_directory.
       else:
         raise ValueError(f'Destination {directory} already exists.')
-    tmpdir = utils.create_tmp_directory(directory)
+    tmpdir = utils.create_tmp_directory(
+        directory, primary_host=self._primary_host
+    )
 
     self._handler.save(tmpdir, item, *args, **kwargs)
     utils.sync_global_devices('Checkpointer:write')
 
     # Ensure save operation atomicity and record time saved by checkpoint.
-    if jax.process_index() == 0:
+    if jax.process_index() == self._primary_host:
       utils.on_commit_callback(tmpdir, directory, checkpoint_start_time)
     utils.sync_global_devices('Checkpointer:save')
 
@@ -105,3 +109,33 @@ class Checkpointer(AbstractCheckpointer):
       return self._handler.structure(directory)
     except NotImplementedError:
       return
+
+  def close(self):
+    """Closes the underlying CheckpointHandler."""
+    self._handler.close()
+
+
+@contextlib.contextmanager
+def checkpointer_context(*args, **kwargs):
+  """Context manager for Checkpointer.
+
+  Initializes Checkpointer and closes the object when the context is
+  exited.
+
+  Args:
+    *args: Arguments to initialize Checkpointer.
+    **kwargs: Keyword arguments to initialize Checkpointer.
+
+  Usage::
+    with checkpointer_context(PyTreeCheckpointHandler()) as ckptr:
+      ckptr.save(...)
+      ckptr.restore(...)
+
+  Yields:
+    Checkpointer
+  """
+  ckptr = Checkpointer(*args, **kwargs)
+  try:
+    yield ckptr
+  finally:
+    ckptr.close()

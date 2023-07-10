@@ -71,3 +71,7 @@ class CheckpointHandler(abc.ABC):
       item structure
     """
     pass
+
+  def close(self):
+    """Closes the CheckpointHandler."""
+    pass

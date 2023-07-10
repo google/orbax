@@ -40,16 +40,17 @@ class ProtoCheckpointHandlerTest(absltest.TestCase):
 
   def test_save_restore(self):
     item = foo_pb2.Foo(bar='some_str', baz=32)
-    checkpointer = ProtoCheckpointHandler(filename='some_filename')
-    checkpointer.save(self.directory, item)
-    restored = checkpointer.restore(self.directory, foo_pb2.Foo)
+    handler = ProtoCheckpointHandler(filename='some_filename')
+    handler.save(self.directory, item)
+    restored = handler.restore(self.directory, foo_pb2.Foo)
     self.assertEqual(item, restored)
     self.assertTrue((self.directory / 'some_filename').exists())
+    handler.close()
 
   def test_restore_with_none_item_throws_error(self):
     item = foo_pb2.Foo(bar='some_str', baz=32)
-    checkpointer = ProtoCheckpointHandler(filename='some_filename')
-    checkpointer.save(self.directory, item)
+    handler = ProtoCheckpointHandler(filename='some_filename')
+    handler.save(self.directory, item)
 
     with self.assertRaisesRegex(
         ValueError,
@@ -59,7 +60,8 @@ class ProtoCheckpointHandlerTest(absltest.TestCase):
         ),
     ):
       # Call restore without passing the proto class.
-      checkpointer.restore(self.directory)
+      handler.restore(self.directory)
+    handler.close()
 
 
 if __name__ == '__main__':

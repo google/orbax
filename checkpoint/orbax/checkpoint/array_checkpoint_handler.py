@@ -44,6 +44,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if not checkpoint_name:
       checkpoint_name = 'checkpoint'
     self._checkpoint_name = checkpoint_name
+    self._aggregate_handler = aggregate_handlers.MsgpackHandler()
 
   def _is_supported_type(self, item: ArrayType) -> bool:
     return isinstance(item, (np.ndarray, jax.Array)) or utils.is_scalar(item)
@@ -68,11 +69,11 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       raise TypeError(f'Unsupported type: {type(item)}.')
 
     if save_args and save_args.aggregate:
-      aggregate_handler = aggregate_handlers.get_aggregate_handler()
-      await aggregate_handler.serialize(
-          directory / self._checkpoint_name, {_ELEMENT_KEY: item}
-      )
-      return []
+      return [
+          await self._aggregate_handler.serialize(
+              directory / self._checkpoint_name, {_ELEMENT_KEY: item}
+          )
+      ]
 
     info = type_handlers.ParamInfo(
         name=self._checkpoint_name,
@@ -133,8 +134,9 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       )
 
     if (directory / self._checkpoint_name).is_file():
-      aggregate_handler = aggregate_handlers.get_aggregate_handler()
-      result = aggregate_handler.deserialize(directory / self._checkpoint_name)
+      result = self._aggregate_handler.deserialize(
+          directory / self._checkpoint_name
+      )
       result = result[_ELEMENT_KEY]
       if not self._is_supported_type(result):
         raise TypeError(f'Unsupported type: {type(result)}.')
@@ -162,3 +164,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     raise NotImplementedError(
         'Unsupported method `structure` for ArrayCheckpointHandler.'
     )
+
+  def close(self):
+    """See superclass documentation."""
+    self._aggregate_handler.close()
