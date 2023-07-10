@@ -61,7 +61,6 @@ extensions = [
     'sphinxcontrib.katex',
     'sphinx_autodoc_typehints',
     'sphinx_book_theme',
-    # 'coverage_check',
     'myst_nb',  # This is used for the .ipynb notebooks
     'sphinx.ext.autosectionlabel',
     'sphinx.ext.mathjax',
@@ -97,7 +96,6 @@ bibtex_bibfiles = []
 html_theme = 'sphinx_book_theme'
 
 html_theme_options = {
-    # 'logo_only': True,
     'show_toc_level': 2,
 }
 

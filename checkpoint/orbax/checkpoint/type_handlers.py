@@ -39,10 +39,11 @@ _COORDINATOR_SETUP_TIMEOUT_SECS = 30
 
 def _get_coordinator_address_without_port(
     coordinator_address: Optional[str],
-) -> str:
+) -> Optional[str]:
   """Returns JAX coordinator address stripped of port number."""
   if not coordinator_address:
-    raise ValueError('Coordinator address not set.')
+    logging.warning('JAX coordinator address not set.')
+    return None
   return coordinator_address.split(':')[0]
 
 
@@ -76,6 +77,17 @@ def create_coordinator_server_and_context() -> (
   ocdbt_address = _get_coordinator_address_without_port(
       jax_global_state.coordinator_address
   )
+  if ocdbt_address is None:
+    return (
+        ts.Context(
+            {
+                # Provide cache pool for B-tree nodes to avoid repeated reads.
+                'cache_pool#ocdbt': {'total_bytes_limit': 100000000},
+            },
+            parent=serialization.TS_CONTEXT,
+        ),
+        None,
+    )
 
   coordinator_server = None
   if jax_global_state.process_id == 0:
