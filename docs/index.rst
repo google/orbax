@@ -68,23 +68,6 @@ Install from GitHub using the following.
    :caption: Checkpointing
 
    orbax_checkpoint_101
-   api_reference/checkpoint
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-   :caption: Exporting
-
-   api_reference/export
-
-
-.. For TOC
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-   :caption: Checkpointing
-
-   orbax_checkpoint_101
    optimized_checkpointing
    api_reference/checkpoint
 
@@ -93,6 +76,7 @@ Install from GitHub using the following.
    :maxdepth: 1
    :caption: Exporting
 
+   orbax_export_101
    api_reference/export
 
 
@@ -126,6 +110,13 @@ Checkpointing
 Exporting
 ----------------
 .. grid::
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: Getting Started
+         :class-card: sd-text-black sd-bg-light
+         :link: orbax_export_101.html
 
    .. grid-item::
       :columns: 6 6 6 4
