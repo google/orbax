@@ -28,8 +28,6 @@ import inspect
 import os
 import sys
 
-import orbax.checkpoint
-import orbax.export
 from sphinxcontrib import katex
 
 sys.path.insert(0, os.path.abspath('..'))
@@ -118,7 +116,9 @@ latex_macros = r"""
 
 # Translate LaTeX macros to KaTeX and add to options for HTML builder
 katex_macros = katex.latex_defs_to_katex_macros(latex_macros)
-katex_options = '{displayMode: true, fleqn: true, macros: {' + katex_macros + '}}'
+katex_options = (
+    '{displayMode: true, fleqn: true, macros: {' + katex_macros + '}}'
+)
 
 # Add LaTeX macros for LATEX builder
 latex_elements = {'preamble': latex_macros}
@@ -155,13 +155,13 @@ def linkcode_resolve(domain, info):
   except OSError:
     return None
 
-  # TODO(slebedev): support tags after we release an initial version.
+  relpath = filename.split('orbax/')[-1]
+  subpackage_name = relpath.split('/')[0]
   return (
-      'https://github.com/google/orbax/tree/main/checkpoint/orbax/checkpoint/%s#L%d#L%d'
+      'https://github.com/google/orbax/tree/main/%s/orbax/%s#L%d#L%d'
       % (
-          os.path.relpath(
-              filename, start=os.path.dirname(orbax.checkpoint.__file__)
-          ),
+          subpackage_name,
+          relpath,
           lineno,
           lineno + len(source) - 1,
       )
