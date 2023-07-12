@@ -13,35 +13,64 @@
 # limitations under the License.
 
 """ServingConfig class."""
+
 import dataclasses
+import inspect
 from typing import Any, Callable, Mapping, Optional, Sequence, Text, Union
 
 import jax
 import tensorflow as tf
+
 
 PyTree = Any
 
 
 @dataclasses.dataclass
 class TensorSpecWithDefault:
-  """Extends tf.TensorSpec to hold a default value."""
+  """Extends tf.TensorSpec to hold a default value.
+
+  Constraints due to Python function calling conventions:
+    - For a python function parameter, all corresponding tensor values in the
+      signature must have a TensorSpecWithDefault or none of them should.
+    - Parameters with default values should be ordered before non-default ones.
+  """
 
   tensor_spec: tf.TensorSpec
   default_val: Any
 
   def __post_init__(self):
-    if self.default_val is not None:
-      if not tf.TensorSpec.from_tensor(
-          tf.convert_to_tensor(
-              self.default_val,
-              self.tensor_spec.dtype,
-          ),
-          name=self.tensor_spec.name,
-      ).is_subtype_of(self.tensor_spec):
-        raise ValueError(
-            f'TensorSpec {self.tensor_spec} is not compatible with'
-            f' the default value {self.default_val}'
-        )
+    if self.default_val is None:
+      raise ValueError('Use TensorSpec if no defaults are needed.')
+
+    # Has to be a Tensor to be available for TF1 style signatures.
+    if not isinstance(self.default_val, tf.Tensor):
+      self.default_val = tf.convert_to_tensor(
+          self.default_val, dtype=self.tensor_spec.dtype
+      )
+
+    if not tf.TensorSpec.from_tensor(
+        self.default_val,
+        name=self.tensor_spec.name,
+    ).is_subtype_of(self.tensor_spec):
+      raise ValueError(
+          f'TensorSpec {self.tensor_spec} is not compatible with'
+          f' the default value {self.default_val}'
+      )
+
+
+def remove_signature_defaults(input_signature: PyTree) -> PyTree:
+  """Removes TensorSpecWithDefault from an input_signature."""
+
+  def strip_fn(x):
+    if isinstance(x, TensorSpecWithDefault):
+      return x.tensor_spec
+    else:
+      return x
+
+  return jax.tree_util.tree_map(
+      strip_fn,
+      input_signature,
+  )
 
 
 @dataclasses.dataclass
@@ -51,6 +80,7 @@ class ServingConfig:
   A ServingConfig is to be bound with a JaxModule to form an end-to-end serving
   signature.
   """
+
   # The key of the serving signature or a sequence of keys mapping to the same
   # serving signature.
   signature_key: Union[str, Sequence[str]]
@@ -95,13 +125,15 @@ class ServingConfig:
       raise ValueError(
           f'Neithr the ServingConfig (key={self.signature_key}) nor its'
           ' `tf_preprocessor` sets an `input_signature`, please set'
-          ' `input_signature` explictly.',
+          ' `input_signature` explicitly.',
       )
     return input_signature
 
   def get_infer_step(
-      self, infer_step_fns: Union[Callable[..., Any],
-                                  Mapping[str, Callable[..., Any]]]
+      self,
+      infer_step_fns: Union[
+          Callable[..., Any], Mapping[str, Callable[..., Any]]
+      ],
   ) -> Callable[..., Any]:
     """Finds the right inference fn to be bound with the ServingConfig.
 
@@ -122,14 +154,16 @@ class ServingConfig:
             '`method_key` is not specified in ServingConfig '
             f'"{self.signature_key}" and the infer_step_fns has more than one '
             f' methods: {list(infer_step_fns)}. Please specify '
-            '`method_key` explictly.')
+            '`method_key` explicitly.'
+        )
       (method,) = infer_step_fns.values()  # this is a tuple-destructuring
       return method
     else:
       if method_key not in infer_step_fns:
         raise ValueError(
             f'Method key "{method_key}" is not found in the infer_step_fns. '
-            f'Available method keys: {list(infer_step_fns.keys())}.')
+            f'Available method keys: {list(infer_step_fns.keys())}.'
+        )
       return infer_step_fns[method_key]
 
   def bind(
@@ -150,6 +184,7 @@ class ServingConfig:
       require_numpy: Decide convert tf tensor to numpy after tf preprocess and
         tf postprocess. As a rule of thumb,  if infer_step is jax function, set
         it to True. if infer_step if tf function, set it to False.
+
     Return:
       func_map:  The mapping of serving signature to the inference function
         bound with the pre- and post-processors of this ServingConfig.
@@ -193,61 +228,31 @@ class ServingConfig:
 
     func_map = {}
     infer_fn_with_processors = make_inference_fn(
-        self.get_infer_step(infer_step_fns))
+        self.get_infer_step(infer_step_fns)
+    )
     for key in self.get_signature_keys():
       func_map[key] = infer_fn_with_processors
 
     return func_map
 
 
-def _split_tensor_specs(
-    input_signature: PyTree,
-) -> tuple[
-    list[tf.TensorSpec],
-    list[TensorSpecWithDefault],
-    Callable[[list[Any], list[Any]], PyTree],
-]:
-  """Splits the TensorSpecs in the input signature into required and optional group.
-
-  Args:
-    input_signature: a PyTree of tensors specs.
-
-  Returns:
-    A tuple with:
-      * Required group: a flattened list of `tf.TensorSpec`s.
-      * Optional group: a flattened list of `TensorSpecWithDefault`s.
-      * A function that unflattens the two output lists back to the original
-      PyTree.
-  """
-  flat_tf_specs, treedef = jax.tree_util.tree_flatten(input_signature)
-
-  required = []
-  required_index = []
-  optional = []
-  optional_index = []
-
-  for i, spec in enumerate(flat_tf_specs):
-    if isinstance(spec, TensorSpecWithDefault):
-      if spec.default_val is not None:
-        optional.append(spec)
-        optional_index.append(i)
-      else:
-        required.append(spec.tensor_spec)
-        required_index.append(i)
+def _get_defaults(input_signature: PyTree) -> list[PyTree]:
+  """Returns a list of default values corresponding with each parameter."""
+  default_values = []
+  for parameter in input_signature:
+    leaves = jax.tree_util.tree_leaves(parameter)
+    if not any(isinstance(x, TensorSpecWithDefault) for x in leaves):
+      default_values.append(inspect.Parameter.empty)
     else:
-      required.append(spec)
-      required_index.append(i)
-
-  def unflatten(required: list[Any], optional: list[Any]) -> PyTree:
-    merged = [None for _ in range(len(required) + len(optional))]
-    for i, index in enumerate(required_index):
-      merged[index] = required[i]
-    for i, index in enumerate(optional_index):
-      merged[index] = optional[i]
-    assert None not in merged
-    return jax.tree_util.tree_unflatten(treedef, merged)
-
-  return required, optional, unflatten
+      if any(isinstance(x, tf.TensorSpec) for x in leaves):
+        raise ValueError(
+            'TensorSpecWithDefault must be defined for each tensor in the'
+            ' structure for the Python arg.'
+        )
+      default_values.append(
+          jax.tree_util.tree_map(lambda x: x.default_val, parameter)
+      )
+  return default_values
 
 
 def with_default_args(
@@ -262,34 +267,40 @@ def with_default_args(
       orbax.export.TensorSpecWithDefault if the default value is specified.
 
   Returns:
-    A tf function with default arguments. Note that the structure of the input
-    signature may be different from the original one.
+    A tf function with default arguments.
   """
-
-  required_specs, optional_specs, unflatten = _split_tensor_specs(
-      input_signature
-  )
-  if not optional_specs:
-    return tf.function(
-        tf_fn,
-        input_signature=input_signature,
-        jit_compile=False,
-        autograph=False,
-    )
-
-  default_vals = [
-      tf.convert_to_tensor(x.default_val, dtype=x.tensor_spec.dtype)
-      for x in optional_specs
-  ]
-  optional_ts = [ts.tensor_spec for ts in optional_specs]
-
-  @tf.function(
-      input_signature=[required_specs, optional_ts],
+  tf_input_signature = remove_signature_defaults(input_signature)
+  tf_fn_with_input_signature = tf.function(
+      tf_fn,
+      input_signature=tf_input_signature,
       jit_compile=False,
       autograph=False,
   )
-  def wrapped_fn(required, optional=default_vals):
-    inputs = unflatten(required, optional)
-    return tf_fn(*inputs)
+  default_values = _get_defaults(input_signature)
+  if all(v is inspect.Parameter.empty for v in default_values):
+    return tf_fn_with_input_signature
 
-  return wrapped_fn
+  # Generate a new Python function signature with default values.
+  old_parameters = (
+      tf_fn_with_input_signature.function_spec.function_type.parameters.values()
+  )
+  parameters = [
+      inspect.Parameter(parameter.name, parameter.kind, default=value)
+      for parameter, value in zip(old_parameters, default_values)
+  ]
+  py_signature_with_defaults = inspect.Signature(parameters)
+
+  # Create a fn_with_defaults that upholds py_signature_with_defaults.
+  def fn_with_defaults(*args, **kwargs):
+    bound_args = py_signature_with_defaults.bind(*args, **kwargs)
+    bound_args.apply_defaults()
+    return tf_fn(*bound_args.args, **bound_args.kwargs)
+  fn_with_defaults.__signature__ = py_signature_with_defaults
+
+  # Generate a tf.function and return.
+  return tf.function(
+      func=fn_with_defaults,
+      input_signature=tf_input_signature,
+      jit_compile=False,
+      autograph=False,
+  )
