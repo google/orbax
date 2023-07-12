@@ -62,7 +62,7 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
           ],
           preprocessor=_from_feature_dict,
           postprocessor=_add_output_name,
-          inputs={'feat': tf.constant(1)},
+          inputs=[{'feat': tf.constant(1)}],
           outputs={'outputs': tf.constant(2)},
       ),
       dict(
@@ -72,14 +72,14 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
               [{'feat': tf.TensorSpec((), tf.dtypes.int32, 'feat')}],
           ),
           postprocessor=_add_output_name,
-          inputs={'feat': tf.constant(1)},
+          inputs=[{'feat': tf.constant(1)}],
           outputs={'outputs': tf.constant(2)},
       ),
       dict(
           testcase_name='no preprocessor',
           input_signature=[tf.TensorSpec((), tf.dtypes.int32, 'feat')],
           postprocessor=_add_output_name,
-          inputs=tf.constant(1),
+          inputs=[tf.constant(1)],
           outputs={'outputs': tf.constant(2)},
       ),
       dict(
@@ -88,13 +88,13 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
               {'feat': tf.TensorSpec((), tf.dtypes.int32, 'feat')}
           ],
           preprocessor=_from_feature_dict,
-          inputs={'feat': tf.constant(1)},
+          inputs=[{'feat': tf.constant(1)}],
           outputs=tf.constant(2),
       ),
       dict(
           testcase_name='core module only',
           input_signature=[tf.TensorSpec((), tf.dtypes.int32, 'feat')],
-          inputs=tf.constant(1),
+          inputs=[tf.constant(1)],
           outputs=tf.constant(2),
       ),
       dict(
@@ -126,7 +126,7 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
         method,
         ServingConfig('key', input_signature, preprocessor, postprocessor),
     )
-    self.assertAllEqual(inference_fn(inputs), outputs)
+    self.assertAllEqual(inference_fn(*inputs), outputs)
 
   @parameterized.named_parameters(
       dict(
@@ -196,12 +196,12 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
           serving_config=ServingConfig(
               'serving_default',
               input_signature=[
-                  TensorSpecWithDefault(tf.TensorSpec((), tf.int32, 'x'), 2),
-                  tf.TensorSpec((), tf.int32, 'y'),
+                  tf.TensorSpec((), tf.int32, 'x'),
+                  TensorSpecWithDefault(tf.TensorSpec((), tf.int32, 'y'), 2),
               ],
               tf_preprocessor=lambda x, y: x + y,
           ),
-          serving_inputs={'y': 3},
+          serving_inputs={'x': 3},
           expected_outputs=6,
       ),
       dict(
@@ -209,8 +209,8 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
           serving_config=ServingConfig(
               'serving_default',
               input_signature=[
-                  TensorSpecWithDefault(tf.TensorSpec((), tf.int32, 'x'), 2),
-                  tf.TensorSpec((), tf.int32, 'y'),
+                  tf.TensorSpec((), tf.int32, 'x'),
+                  TensorSpecWithDefault(tf.TensorSpec((), tf.int32, 'y'), 2),
               ],
               tf_preprocessor=lambda x, y: x + y,
           ),
