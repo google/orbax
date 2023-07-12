@@ -21,8 +21,10 @@ from orbax.export.dtensor_utils import shutdown_dtensor
 from orbax.export.export_manager import ExportManager
 from orbax.export.export_manager_base import ExportManagerBase
 from orbax.export.jax_module import JaxModule
+from orbax.export.serving_config import remove_signature_defaults
 from orbax.export.serving_config import ServingConfig
 from orbax.export.serving_config import TensorSpecWithDefault
+
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
 __version__ = '0.0.2'
