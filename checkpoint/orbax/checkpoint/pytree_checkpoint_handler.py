@@ -18,7 +18,6 @@ Implementation of CheckpointHandler interface.
 """
 
 import asyncio
-import dataclasses
 import functools
 import re
 from typing import Any, Callable, List, Optional, Tuple, Union
@@ -94,7 +93,7 @@ def _try_array_cast(arr, dtype):
 
 
 def _maybe_shard_array(value, args):
-  if isinstance(args, ArrayRestoreArgs):
+  if hasattr(value, 'reshape') and isinstance(args, ArrayRestoreArgs):
     value = value.reshape(args.global_shape)
     sharding = args.sharding or jax.sharding.NamedSharding(
         args.mesh, args.mesh_axes
@@ -117,10 +116,16 @@ def _get_param_names(item: PyTree) -> PyTree:
   )
 
 
-def _get_param_infos_from_structure(directory: epath.Path,
-                                    structure: PyTree) -> PyTree:
-  """Construct ParamInfos based on a PyTree."""
-  names = _get_param_names(structure)
+def _get_needed_restore_parameters(
+    directory: epath.Path,
+    item: Optional[PyTree],
+    structure: PyTree,
+    transforms: Optional[PyTree],
+    byte_limiter: Optional[serialization._LimitInFlightBytes] = None,
+) -> PyTree:
+  """Gets information needed for restoration."""
+  flat_structure = utils.to_flat_dict(structure, sep='/', keep_empty_nodes=True)
+  flat_param_infos = {}
   is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
 
   def _get_param_info(name: str, leaf: Any) -> ParamInfo:
@@ -145,9 +150,79 @@ def _get_param_infos_from_structure(directory: epath.Path,
         path=path,
         aggregate=(path is None),
         is_ocdbt_checkpoint=is_ocdbt_checkpoint,
+        byte_limiter=byte_limiter,
     )
 
-  return jax.tree_util.tree_map(_get_param_info, names, structure)
+  if transforms is not None:
+    if item is None:
+      raise ValueError(
+          'If providing `transforms`, must provide `item` matching structure'
+          ' of expected result.'
+      )
+    flat_item = utils.to_flat_dict(item, sep='/', keep_empty_nodes=True)
+    flat_transforms = utils.to_flat_dict(transforms, sep='/')
+    for input_key, value in flat_structure.items():
+      for output_key, transform in flat_transforms.items():
+        if transform.multi_value_fn is not None:
+          if not isinstance(transform, RestoreTransform):
+            raise ValueError(
+                'Must use RestoreTransform in order to use multi_value_fn'
+                ' during restore.'
+            )
+          if transform.multi_value_fn_input_args is None:
+            raise ValueError(
+                '`multi_value_fn` was specified, but'
+                ' `multi_value_fn_input_args` were not. The latter must be'
+                ' specified to identify inputs for the function.'
+            )
+          for (
+              input_key_regex,
+              _,
+          ) in transform.multi_value_fn_input_args.items():
+            if re.fullmatch(input_key_regex, input_key):
+              flat_param_infos[input_key] = _get_param_info(
+                  input_key.replace('/', '.'), value
+              )
+        elif not transform.use_fallback:
+          # The following is done to reverse-engineer the regex for the key in
+          # the original tree.
+          if transform.original_key is not None:
+            input_key_regex = None
+            for item_key in flat_item:
+              match = re.fullmatch(output_key, item_key)
+              if match:
+                input_key_regex = match.expand(transform.original_key)
+                break
+          else:
+            # May not specify original_key, this transform does not rename
+            # the original key.
+            input_key_regex = output_key
+
+          if input_key_regex is not None and re.fullmatch(
+              input_key_regex, input_key
+          ):
+            flat_param_infos[input_key] = _get_param_info(
+                input_key.replace('/', '.'), value
+            )
+
+      if input_key not in flat_param_infos:
+        if input_key in flat_item:
+          # No match, but the key/value is just carried over from the original
+          # unchanged.
+          flat_param_infos[input_key] = _get_param_info(
+              input_key.replace('/', '.'), value
+          )
+        else:
+          # No match, restoration not required since it will be dropped from the
+          # output. Use aggregate=True to skip TypeHandler restoration.
+          logging.info(input_key)
+          flat_param_infos[input_key] = ParamInfo(aggregate=True)
+
+  else:
+    for key, value in flat_structure.items():
+      flat_param_infos[key] = _get_param_info(key.replace('/', '.'), value)
+
+  return utils.from_flat_dict(flat_param_infos, target=structure, sep='/')
 
 
 def _get_tree_for_aggregation(param_infos, save_args, item):
@@ -598,14 +673,6 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}')
 
-    structure = self.structure(directory)
-    param_infos = _get_param_infos_from_structure(directory, structure)
-
-    if transform_fn is not None and transforms is not None:
-      raise ValueError('Cannot provide both `transforms` and `transform_fn`.')
-    if transform_fn is not None:
-      structure, param_infos = transform_fn(item, structure, param_infos)
-
     async def _create_byte_limiter():
       # Wrap creation in async function to avoid issues on python<=3.9.
       concurrent_bytes = self._concurrent_gb * 10**9
@@ -616,14 +683,18 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       return serialization._LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
 
     byte_limiter = asyncio.run(_create_byte_limiter())
-    param_infos = jax.tree_util.tree_map(
-        functools.partial(dataclasses.replace, byte_limiter=byte_limiter),
-        param_infos,
+    structure = self.structure(directory)
+    param_infos = _get_needed_restore_parameters(
+        directory, item, structure, transforms, byte_limiter=byte_limiter
     )
+
+    if transform_fn is not None and transforms is not None:
+      raise ValueError('Cannot provide both `transforms` and `transform_fn`.')
+    if transform_fn is not None:
+      structure, param_infos = transform_fn(item, structure, param_infos)
+
     lazy_restored_item = jax.tree_util.tree_map(
-        self._maybe_deserialize,
-        param_infos,
-        structure,
+        self._maybe_deserialize, param_infos, structure
     )
 
     if not transform_fn:

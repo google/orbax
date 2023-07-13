@@ -284,7 +284,8 @@ def from_flat_dict(
     target: A reference PyTree. The returned value will conform to this
       structure. If not provided, an unflattened dict will be returned with the
       inferred structure of the original tree, without necessarily matching it
-      exactly.
+      exactly. Note, if not provided, the keys in `flat_dict` need to match
+      `sep`.
     sep: separator used for nested keys in `flat_dict`.
 
   Returns:
@@ -294,7 +295,12 @@ def from_flat_dict(
     result = {}
     for k, v in flat_dict.items():
       subtree = result
-      for i, name in enumerate(k):
+      if sep is None:
+        assert isinstance(k, tuple)
+        tuple_k = k
+      else:
+        tuple_k = tuple(k.split(sep))
+      for i, name in enumerate(tuple_k):
         if i == len(k) - 1:
           assert name not in subtree
           subtree[name] = v

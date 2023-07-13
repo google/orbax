@@ -151,6 +151,8 @@ class ParamInfo:
     assumed to be a directory.
   aggregate:
     Whether the parameter should be / was aggregated.
+  skip_restore:
+    If specified, skips restoration for the given parameter.
   byte_limiter:
     Object to limit the number of bytes that can be read in
     parallel.
