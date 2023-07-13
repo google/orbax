@@ -13,11 +13,9 @@
 # limitations under the License.
 
 import numpy as np
-
 from orbax.export.serving_config import ServingConfig
 from orbax.export.serving_config import TensorSpecWithDefault
 from orbax.export.serving_config import with_default_args
-
 import tensorflow as tf
 
 
@@ -40,7 +38,54 @@ class ServingConfigTest(tf.test.TestCase):
         )['f'],
         sc.get_input_signature(),
     )
-    self.assertEqual(tf_f(required=[]), 3)
+    self.assertEqual(tf_f(), 3)
+
+  def test_bad_order(self):
+    no_name = ServingConfig(
+        signature_key='f',
+        input_signature=[
+            TensorSpecWithDefault(
+                tf.TensorSpec([None], tf.int32),
+                np.asarray([1, 2]),
+            ),
+            tf.TensorSpec([None], tf.int32),
+        ],
+    )
+    with self.assertRaisesRegex(
+        ValueError,
+        'non-default argument follows default argument',
+    ):
+      with_default_args(
+          no_name.bind(
+              {'f': lambda x, y: x + y},
+              require_numpy=False,
+          )['f'],
+          no_name.get_input_signature(),
+      )
+
+  def test_missing_default(self):
+    no_name = ServingConfig(
+        signature_key='f',
+        input_signature=[[
+            TensorSpecWithDefault(
+                tf.TensorSpec([None], tf.int32),
+                np.asarray([1, 2]),
+            ),
+            tf.TensorSpec([None], tf.int32),
+        ]],
+    )
+    with self.assertRaisesRegex(
+        ValueError,
+        'TensorSpecWithDefault must be defined for each tensor in the structure'
+        ' for the Python arg',
+    ):
+      with_default_args(
+          no_name.bind(
+              {'f': lambda x: x[0] + x[1]},
+              require_numpy=False,
+          )['f'],
+          no_name.get_input_signature(),
+      )
 
   def test_with_default_args_nested(self):
     def preprocess(required_arg, optional_args):
@@ -79,9 +124,7 @@ class ServingConfigTest(tf.test.TestCase):
         sc.bind({'f': lambda x: x}, require_numpy=False)['f'],
         sc.get_input_signature(),
     )
-    self.assertAllEqual(
-        tf_f(required=[np.asarray([6, 7])]), np.asarray([12, 16])
-    )
+    self.assertAllEqual(tf_f(np.asarray([6, 7])), np.asarray([12, 16]))
 
 
 if __name__ == '__main__':
