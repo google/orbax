@@ -136,6 +136,7 @@ def _wait_for_new_checkpoint(
       if not checkpoint_dir.exists():
         if _sleep_and_maybe_exit():
           break
+        continue  # continue waiting until directory creation or timeout.
       steps = utils.checkpoint_steps(checkpoint_dir)
       checkpoint_step = max(steps) if steps else None
       if _reached_desired_step(checkpoint_step, until_step):
