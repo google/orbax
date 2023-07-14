@@ -12,119 +12,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import jax.numpy as jnp
 import numpy as np
-from orbax.export.serving_config import ServingConfig
-from orbax.export.serving_config import TensorSpecWithDefault
-from orbax.export.serving_config import with_default_args
+from orbax.export import serving_config
 import tensorflow as tf
+
+
+ServingConfig = serving_config.ServingConfig
 
 
 class ServingConfigTest(tf.test.TestCase):
 
-  def test_with_default_args(self):
+  def test_bind_tf(self):
     sc = ServingConfig(
         signature_key='f',
         input_signature=[
-            TensorSpecWithDefault(
-                tf.TensorSpec([None], tf.int32),
-                np.asarray([1, 2]),
-            )
-        ],
-    )
-    tf_f = with_default_args(
-        sc.bind(
-            {'f': tf.reduce_sum},
-            require_numpy=False,
-        )['f'],
-        sc.get_input_signature(),
-    )
-    self.assertEqual(tf_f(), 3)
-
-  def test_bad_order(self):
-    no_name = ServingConfig(
-        signature_key='f',
-        input_signature=[
-            TensorSpecWithDefault(
-                tf.TensorSpec([None], tf.int32),
-                np.asarray([1, 2]),
-            ),
             tf.TensorSpec([None], tf.int32),
         ],
     )
-    with self.assertRaisesRegex(
-        ValueError,
-        'non-default argument follows default argument',
-    ):
-      with_default_args(
-          no_name.bind(
-              {'f': lambda x, y: x + y},
-              require_numpy=False,
-          )['f'],
-          no_name.get_input_signature(),
-      )
+    tf_f = sc.bind(
+        {'f': tf.reduce_sum},
+        require_numpy=False,
+    )['f']
+    self.assertEqual(tf_f(np.asarray([1, 2])), 3)
 
-  def test_missing_default(self):
-    no_name = ServingConfig(
-        signature_key='f',
-        input_signature=[[
-            TensorSpecWithDefault(
-                tf.TensorSpec([None], tf.int32),
-                np.asarray([1, 2]),
-            ),
-            tf.TensorSpec([None], tf.int32),
-        ]],
-    )
-    with self.assertRaisesRegex(
-        ValueError,
-        'TensorSpecWithDefault must be defined for each tensor in the structure'
-        ' for the Python arg',
-    ):
-      with_default_args(
-          no_name.bind(
-              {'f': lambda x: x[0] + x[1]},
-              require_numpy=False,
-          )['f'],
-          no_name.get_input_signature(),
-      )
-
-  def test_with_default_args_nested(self):
-    def preprocess(required_arg, optional_args):
-      return (
-          required_arg
-          + optional_args['foo']
-          + optional_args['bar'][0]
-          + optional_args['bar'][1]
-      )
-
+  def test_bind_jax(self):
     sc = ServingConfig(
         signature_key='f',
-        input_signature=(
-            tf.TensorSpec([2], tf.int32),
-            dict(
-                foo=TensorSpecWithDefault(
-                    tf.TensorSpec([2], tf.int32),
-                    np.asarray([0, 1]),
-                ),
-                bar=[
-                    TensorSpecWithDefault(
-                        tf.TensorSpec([2], tf.int32),
-                        np.asarray([2, 3]),
-                    ),
-                    TensorSpecWithDefault(
-                        tf.TensorSpec([2], tf.int32),
-                        np.asarray([4, 5]),
-                    ),
-                ],
-            ),
-        ),
-        tf_preprocessor=preprocess,
+        input_signature=[
+            tf.TensorSpec([None], tf.int32),
+        ],
     )
-
-    tf_f = with_default_args(
-        sc.bind({'f': lambda x: x}, require_numpy=False)['f'],
-        sc.get_input_signature(),
-    )
-    self.assertAllEqual(tf_f(np.asarray([6, 7])), np.asarray([12, 16]))
+    tf_f = sc.bind(
+        {'f': jnp.sum},
+        require_numpy=True,
+    )['f']
+    self.assertEqual(tf_f(np.asarray([1, 2])), 3)
 
 
 if __name__ == '__main__':

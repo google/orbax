@@ -18,11 +18,11 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional
 
 from etils.epy.reraise_utils import maybe_reraise
+from orbax.export import utils
 from orbax.export.dtensor_utils import get_current_dtensor_mesh
 from orbax.export.export_manager_base import ExportManagerBase
 from orbax.export.jax_module import JaxModule
 from orbax.export.serving_config import ServingConfig
-from orbax.export.serving_config import with_default_args
 import tensorflow as tf
 from tensorflow.experimental import dtensor
 
@@ -135,6 +135,6 @@ def make_e2e_inference_fn(
   """
   infer_step_func_map = serving_config.bind(model_fn, require_numpy=False)
   signature_key = serving_config.get_signature_keys()[0]
-  return with_default_args(
+  return utils.with_default_args(
       infer_step_func_map[signature_key], serving_config.get_input_signature()
   )
