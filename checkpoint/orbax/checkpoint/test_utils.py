@@ -59,7 +59,7 @@ def replicate_sharded_array(arr: jax.Array):
           None,
       ),
   )
-  return pjit.pjit(lambda x: x, out_axis_resources=replicated_sharding)(arr)
+  return pjit.pjit(lambda x: x, out_shardings=replicated_sharding)(arr)
 
 
 def apply_function(tree, function):

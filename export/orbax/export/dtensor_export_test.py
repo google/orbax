@@ -31,7 +31,7 @@ def _create_sharded_jax_array(
     global_arr: np.ndarray, pspec: P, mesh: jax.sharding.Mesh
 ) -> jax.Array:
   with mesh:
-    return pjit.pjit(lambda x: x, out_axis_resources=pspec)(global_arr)
+    return pjit.pjit(lambda x: x, out_shardings=pspec)(global_arr)
 
 
 class DtensorExportTest(absltest.TestCase):

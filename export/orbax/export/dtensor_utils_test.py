@@ -32,7 +32,7 @@ def _create_sharded_jax_array(
     global_arr: np.ndarray, pspec: PartitionSpec, mesh: jax.sharding.Mesh
 ) -> jax.Array:
   with mesh:
-    return pjit.pjit(lambda x: x, out_axis_resources=pspec)(global_arr)
+    return pjit.pjit(lambda x: x, out_shardings=pspec)(global_arr)
 
 
 def _get_dtensor_full_value(
