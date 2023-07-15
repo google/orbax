@@ -101,7 +101,7 @@ def jax_mesh_to_dtensor_mesh(mesh: jax.sharding.Mesh) -> dtensor.Mesh:
     # for the correponding DTensor mesh.
     sharded_device_ids = pjit.pjit(
         lambda x: x,
-        out_axis_resources=jax.sharding.PartitionSpec(*mesh.axis_names),
+        out_shardings=jax.sharding.PartitionSpec(*mesh.axis_names),
     )(global_device_ids)
 
   local_device_ids = [
