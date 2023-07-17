@@ -37,13 +37,8 @@ _OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
 _COORDINATOR_SETUP_TIMEOUT_SECS = 30
 
 
-def _get_coordinator_address_without_port(
-    coordinator_address: Optional[str],
-) -> Optional[str]:
+def _get_coordinator_address_without_port(coordinator_address: str) -> str:
   """Returns JAX coordinator address stripped of port number."""
-  if not coordinator_address:
-    logging.warning('JAX coordinator address not set.')
-    return None
   return coordinator_address.split(':')[0]
 
 
@@ -74,20 +69,20 @@ def create_coordinator_server_and_context() -> (
     Tuple of ts.Context and OCDBT coordinator server object.
   """
   jax_global_state = jax._src.distributed.global_state  # pylint: disable=protected-access
+  if not jax_global_state.coordinator_address:
+    ts_context = {
+        # Provide cache pool for B-tree nodes to avoid repeated reads.
+        # 100MB limit.
+        'cache_pool#ocdbt': {'total_bytes_limit': 100000000},
+    }
+    return (
+        ts.Context(ts_context, parent=serialization.TS_CONTEXT),
+        None,
+    )
+
   ocdbt_address = _get_coordinator_address_without_port(
       jax_global_state.coordinator_address
   )
-  if ocdbt_address is None:
-    return (
-        ts.Context(
-            {
-                # Provide cache pool for B-tree nodes to avoid repeated reads.
-                'cache_pool#ocdbt': {'total_bytes_limit': 100000000},
-            },
-            parent=serialization.TS_CONTEXT,
-        ),
-        None,
-    )
 
   coordinator_server = None
   if jax_global_state.process_id == 0:
@@ -108,6 +103,7 @@ def create_coordinator_server_and_context() -> (
           'address': ocdbt_address,
       },
       # Provide cache pool for B-tree nodes to avoid repeated reads.
+      # 100MB limit.
       'cache_pool#ocdbt': {'total_bytes_limit': 100000000},
   }
   return (
@@ -286,7 +282,8 @@ def _get_cast_tspec_deserialize(tspec, args):
 
 def _add_base_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
   tspec.update({'recheck_cached_data': False, 'recheck_cached_metadata': False})
-  tspec['kvstore'].update({  # Enable read coalescing.
+  tspec['kvstore'].update({
+      # Enable read coalescing.
       'experimental_read_coalescing_threshold_bytes': 1000000,
       # References the cache specified in ts.Context.
       'cache_pool': 'cache_pool#ocdbt',
@@ -374,16 +371,27 @@ class NumpyHandler(TypeHandler):
                       value: np.ndarray,
                       info: ParamInfo,
                       args: Optional[SaveArgs] = None) -> List[Future]:
-    """Uses Tensorstore to serialize a numpy array."""
+    """Serialize numpy array with Tensorstore. Value is equal on all hosts."""
     args = args or SaveArgs()
     tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
     tspec = _get_cast_tspec_serialize(tspec, value, args)
-    t = await ts.open(
-        ts.Spec(tspec), create=True, open=True, context=self._ts_context
-    )
-    write_future = t.write(value)
-    await write_future.copy
-    return [write_future.commit]
+    if jax.process_index() == 0:
+      # Open once to create metadata and allow the operation to happen
+      # asynchronously.
+      open_future = ts.open(
+          ts.Spec(tspec), create=True, open=True, context=self._ts_context
+      )
+      # Open again (no disk I/O) to get the write location.
+      t = await ts.open(
+          ts.Spec(tspec),
+          open=True,
+          assume_metadata=True,
+          context=self._ts_context,
+      )
+      write_future = t.write(value)
+      await write_future.copy
+      return [open_future, write_future.commit]
+    return []
 
   async def deserialize(self,
                         info: ParamInfo,

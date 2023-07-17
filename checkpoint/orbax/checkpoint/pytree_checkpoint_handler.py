@@ -20,7 +20,8 @@ Implementation of CheckpointHandler interface.
 import asyncio
 import functools
 import re
-from typing import Any, Callable, List, Optional, Tuple, Union, cast
+import typing
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 from absl import logging
 from etils import epath
@@ -524,7 +525,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     tree_metadata = self._metadata_handler.restore(
         directory, tree_metadata_pb2.TreeMetadata
     )
-    tree_metadata = cast(tree_metadata_pb2.TreeMetadata, tree_metadata)
+    tree_metadata = typing.cast(tree_metadata_pb2.TreeMetadata, tree_metadata)
     flat = []
     for kv_pair in tree_metadata.structure:
       keys, value = (kv_pair.key, kv_pair.value)
