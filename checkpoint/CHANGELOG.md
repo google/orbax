@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `close` method for Checkpointer and CheckpointHandler. 
 - Context manager helper functions for Checkpointer and CheckpointManager.
+- Protobuf metadata saved by PyTreeCheckpointHandler.
 
 ## [0.2.6] - 2022-06-28
 

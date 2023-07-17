@@ -20,7 +20,7 @@ Implementation of CheckpointHandler interface.
 import asyncio
 import functools
 import re
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, Union, cast
 
 from absl import logging
 from etils import epath
@@ -29,11 +29,13 @@ from jax.experimental.array_serialization import serialization
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import lazy_utils
+from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint.future import Future
+from orbax.checkpoint.proto import tree_metadata_pb2
 import tensorstore as ts
 
 
@@ -49,8 +51,9 @@ TransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
 Transform = transform_utils.Transform
 RestoreTransform = transform_utils.RestoreTransform
 LazyValue = lazy_utils.LazyValue
+ProtoCheckpointHandler = proto_checkpoint_handler.ProtoCheckpointHandler
 
-_TYPE_METADATA_FILE = 'type_metadata'
+_METADATA_FILE = 'tree_metadata'
 _CHECKPOINT_FILE = 'checkpoint'
 
 
@@ -415,6 +418,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       concurrent_gb: int = 96,
       use_ocdbt: bool = False,
       restore_with_serialized_types: bool = True,
+      write_tree_metadata: bool = False,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -428,6 +432,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         checkpoint. Otherwise, arrays will be restored as either np.ndarray or
         jax.Array, and will ignore any typing information present in the
         checkpoint.
+      write_tree_metadata: Experimental feature. Do not use. Writes tree
+        metadata in protobuf format.
     """
     self._aggregate_handler = MsgpackHandler()
     if aggregate_filename is None:
@@ -436,6 +442,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     self._concurrent_gb = concurrent_gb
     self._use_ocdbt = use_ocdbt
     self._restore_with_serialized_types = restore_with_serialized_types
+    self._write_tree_metadata = write_tree_metadata
+    self._metadata_handler = ProtoCheckpointHandler(_METADATA_FILE)
 
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
@@ -486,6 +494,43 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     return await self._aggregate_handler.serialize(
         directory / self._aggregate_filename, ser_item
     )
+
+  async def _write_metadata_file(
+      self,
+      directory: epath.Path,
+      item: PyTree,
+  ) -> List[Future]:
+    if not self._write_tree_metadata:
+      return []
+    flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
+        item, is_leaf=utils.is_empty_or_leaf
+    )
+    tree_metadata = tree_metadata_pb2.TreeMetadata()
+    for keypath, _ in flat_with_keys:
+      kv = tree_metadata.structure.add()
+      for k in keypath:
+        proto_k = kv.key.add()
+        proto_k.name = str(utils.get_key_name(k))
+        proto_k.type = utils.get_key_metadata_type(k)
+      value_metadata = kv.value
+      # TODO(b/289245667): Placeholder value.
+      value_metadata.type = 'None'
+    return await self._metadata_handler.async_save(directory, tree_metadata)
+
+  def _read_metadata_file(
+      self,
+      directory: epath.Path,
+  ) -> PyTree:
+    tree_metadata = self._metadata_handler.restore(
+        directory, tree_metadata_pb2.TreeMetadata
+    )
+    tree_metadata = cast(tree_metadata_pb2.TreeMetadata, tree_metadata)
+    flat = []
+    for kv_pair in tree_metadata.structure:
+      keys, value = (kv_pair.key, kv_pair.value)
+      keypath = tuple([utils.keypath_from_key_metadata(key) for key in keys])
+      flat.append((keypath, value))
+    return utils.from_flattened_with_keypath(flat)
 
   async def async_save(
       self,
@@ -562,10 +607,11 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       commit_futures = await asyncio.gather(*copy_futures)
       commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
 
+    metadata_commit_futures = await self._write_metadata_file(directory, item)
     aggregate_commit_future = await self._write_aggregate_file(
         directory, item, param_infos, save_args
     )
-    return commit_futures + [aggregate_commit_future]
+    return commit_futures + [aggregate_commit_future] + metadata_commit_futures
 
   def save(self, directory: epath.Path, item: Any, *args, **kwargs):
     """Saves the provided item.
@@ -772,3 +818,4 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
   def close(self):
     """See superclass documentation."""
     self._aggregate_handler.close()
+    self._metadata_handler.close()

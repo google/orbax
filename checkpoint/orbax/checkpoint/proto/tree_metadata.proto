@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package orbax.checkpoint;
+
+// Describes metadata for values managed by CheckpointHandler.
+message ValueMetadata {
+  // The object type of the stored value. The type string is given by the
+  // object's `TypeHandler`.
+  string type = 1;
+}
+
+// Describes tree metadata used by CheckpointHandler. Tree is converted to a
+// flattened layout.
+message TreeMetadata {
+  // Describes a key/value pair with tuple keys.
+  message KeyValuePair {
+    // Describes a PyTree key.
+    message Key {
+      enum KeyType {
+        // See jax/_src/tree_util.py.
+        UNSPECIFIED = 0;
+        SEQUENCE = 1;
+        DICT = 2;
+      }
+
+      // Tree key name.
+      string name = 1;
+      // Tree key type.
+      KeyType type = 2;
+    }
+
+    // Each repeated key denotes a successive level of nesting. For example, in
+    // the following tree: {'a': [{'b': <value>}]}, we would have keys:
+    // Key('a', DICT), Key('0', SEQUENCE), Key('b', DICT)
+    repeated Key key = 1;
+    // Metadata describing the leaf value.
+    ValueMetadata value = 2;
+  }
+
+  // Repeated key-value pairs describing nested keys and their values in a tree.
+  repeated KeyValuePair structure = 1;
+}

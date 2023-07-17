@@ -1,6 +1,6 @@
-syntax = "proto2";
+syntax = "proto3";
 
-package orbax;
+package orbax.checkpoint;
 
 // Proto for testing purposes.
 message Foo {
