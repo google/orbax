@@ -17,6 +17,7 @@
 import dataclasses
 from typing import Any, Callable, Mapping, Optional, Sequence, Text, Union
 
+from absl import logging
 import jax
 import tensorflow as tf
 
@@ -169,6 +170,19 @@ class ServingConfig:
 
         # Currently Jax Module only takes 1 input
         outputs = infer_step(preprocessed_inputs)
+        if logging.vlog_is_on(3) and require_numpy:
+          if hasattr(infer_step, 'lower'):
+            lower = infer_step.lower
+          else:
+            lower = jax.jit(infer_step).lower
+
+          mlir_module_text = lower(
+              preprocessed_inputs,
+          ).as_text()
+          logging.info(
+              'Jax function infer_step mlir module: = %s', mlir_module_text
+          )
+
         if self.tf_postprocessor:
           outputs = postprocessor(outputs)
           if require_numpy:
