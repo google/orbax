@@ -13,14 +13,16 @@
 # limitations under the License.
 
 """Utilities for Orbax export."""
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 import dataclasses
+import functools
 import inspect
 from typing import Any, Callable
 import jax
 import tensorflow as tf
 
 PyTree = Any
+SignatureDef = Any
 
 
 @dataclasses.dataclass
@@ -35,6 +37,7 @@ class TensorSpecWithDefault:
 
   tensor_spec: tf.TensorSpec
   default_val: Any
+  is_primary: bool = False
 
   def __post_init__(self):
     if self.default_val is None:
@@ -140,3 +143,70 @@ def with_default_args(
       jit_compile=False,
       autograph=False,
   )
+
+
+class CallableSignatures:
+  """Holds TF SignatureDefs as python callables."""
+
+  def __init__(
+      self,
+      sess: tf.compat.v1.Session,
+      signature_defs: Mapping[str, SignatureDef],
+  ):
+    callable_signatures = {}
+    for name, signature_def in signature_defs.items():
+      def call(signature_def, **inputs):
+        output_tensor_keys = list(signature_def.outputs.keys())
+        feed_dict = {
+            sess.graph.get_tensor_by_name(signature_def.inputs[k].name): (
+                v.numpy() if isinstance(v, tf.Tensor) else v
+            )
+            for k, v in inputs.items()
+        }
+        fetches = [
+            sess.graph.get_tensor_by_name(signature_def.outputs[k].name)
+            for k in output_tensor_keys
+        ]
+        outputs = sess.run(fetches, feed_dict)
+        return dict(zip(output_tensor_keys, outputs))
+
+      callable_signatures[name] = functools.partial(call, signature_def)
+
+    self._sess = sess
+    self._signatures = callable_signatures
+
+  @classmethod
+  def from_saved_model(cls, model_dir: str, tags: list[str]):
+    """Loads a SavedModel and reconsruct its signatures as python callables.
+
+    The signatures of the object loaded by the ``tf.saved_model.load`` API
+    doesn't support default values, hence one can use this class to load the
+    model in TF1 and reconstruct the signatures. Example:
+
+    >>> loaded = CallableSignatures.from_saved_model(model_dir, ['serve'])
+    >>> outputs = loaded.signature['serving_default'](**inputs)
+
+    The TF2 version of this example is
+
+    >>> loaded_tf2 = tf.saved_model.load(model_dir, ['serve'])
+    >>> outputs = loaded_tf2.signatures['serving_default'](**inputs)
+
+    But the callables in `loaded_tf2.signatures` doesn't have any default
+    inputs.
+
+    Args:
+      model_dir: SavedModel directory.
+      tags: Tags to identify the metagraph to load. Same as the `tags` argument
+        in tf.saved_model.load.
+
+    Returns:
+      A mapping of signature names to the callables.
+    """
+    sess = tf.compat.v1.Session()
+    meta_graph_def = tf.compat.v1.saved_model.loader.load(sess, tags, model_dir)
+    return cls(sess, meta_graph_def.signature_def)
+
+  @property
+  def signatures(self):
+    """Returns a mapping for signature names to python callables."""
+    return self._signatures

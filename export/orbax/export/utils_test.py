@@ -20,7 +20,7 @@ import tensorflow as tf
 TensorSpecWithDefault = utils.TensorSpecWithDefault
 
 
-class TensorSpecWithDefaultTest(tf.test.TestCase):
+class UtilsTest(tf.test.TestCase):
 
   def test_with_default_args(self):
     input_signature = [
@@ -95,6 +95,16 @@ class TensorSpecWithDefaultTest(tf.test.TestCase):
 
     tf_f = utils.with_default_args(f, input_signature)
     self.assertAllEqual(tf_f(np.asarray([6, 7])), np.asarray([12, 16]))
+
+  def test_callable_signatures_from_saved_model(self):
+    @tf.function(input_signature=[tf.TensorSpec((), tf.float32)])
+    def tf_f(x=tf.constant(1.0, tf.float32)):
+      return {'output': x + 1}
+
+    export_dir = self.get_temp_dir()
+    tf.saved_model.save(tf.Module(), export_dir, signatures={'f': tf_f})
+    loaded = utils.CallableSignatures.from_saved_model(export_dir, ['serve'])
+    self.assertAllEqual(loaded.signatures['f'](), {'output': 2})
 
 
 if __name__ == '__main__':
