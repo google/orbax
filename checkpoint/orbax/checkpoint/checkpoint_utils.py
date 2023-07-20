@@ -195,7 +195,6 @@ def wait_for_new_checkpoint(
   Yields:
     a new checkpoint step, or -1 if the timeout was reached.
   """
-  logging.info('wait_for_new_checkpoint')
   step = _wait_for_new_checkpoint(
       checkpoint_dir,
       until_step=until_step,
