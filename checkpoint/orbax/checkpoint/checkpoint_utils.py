@@ -152,12 +152,12 @@ def _wait_for_new_checkpoint(
       else:
         if _sleep_and_maybe_exit():
           break
-
+  result = multihost_utils.broadcast_one_to_all(np.int32(result)).item()
   wait_duration = time.time() - start
   jax.monitoring.record_event_duration_secs(
       '/jax/orbax/checkpoint_utils/wait_duration', wait_duration
   )
-  result = multihost_utils.broadcast_one_to_all(np.int32(result)).item()
+
   if result == -1:
     logging.info('Timed out waiting for new checkpoint. Returning -1.')
   else:
