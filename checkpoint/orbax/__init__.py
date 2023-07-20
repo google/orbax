@@ -14,6 +14,7 @@
 
 """Defines exported symbols for the namespace package `orbax.checkpoint`."""
 
+import asyncio
 import contextlib
 import functools
 
@@ -46,7 +47,10 @@ from orbax.checkpoint.transform_utils import apply_transformations
 from orbax.checkpoint.transform_utils import merge_trees
 from orbax.checkpoint.transform_utils import RestoreTransform
 from orbax.checkpoint.transform_utils import Transform
+import uvloop
 
+
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 try:
   __IPYTHON__
