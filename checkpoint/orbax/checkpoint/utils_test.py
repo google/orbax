@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Test for utils.py."""
+
 from typing import Mapping, Sequence
 
 from absl.testing import absltest
@@ -22,6 +23,7 @@ from etils import epath
 import flax
 import jax
 import optax
+from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
 
 
@@ -144,16 +146,28 @@ class UtilsTest(parameterized.TestCase):
     tree = {'a': 1, 'b': {'c': {'d': 2}}, 'e': [1, {'x': 5, 'y': 7}, [9, 10]]}
     serialized = utils.serialize_tree(tree, keep_empty_nodes=True)
     self.assertDictEqual(tree, serialized)
+    deserialized = utils.deserialize_tree(
+        serialized, target=tree, keep_empty_nodes=True
+    )
+    test_utils.assert_tree_equal(self, tree, deserialized)
 
   def test_serialize_list(self):
     tree = [1, {'a': 2}, [3, 4]]
     serialized = utils.serialize_tree(tree, keep_empty_nodes=True)
     self.assertListEqual(tree, serialized)
+    deserialized = utils.deserialize_tree(
+        serialized, target=tree, keep_empty_nodes=True
+    )
+    test_utils.assert_tree_equal(self, tree, deserialized)
 
   def test_serialize_filters_empty(self):
     tree = {'a': 1, 'b': None, 'c': {}, 'd': [], 'e': optax.EmptyState()}
     serialized = utils.serialize_tree(tree, keep_empty_nodes=False)
     self.assertDictEqual({'a': 1}, serialized)
+    deserialized = utils.deserialize_tree(
+        serialized, target=tree, keep_empty_nodes=False
+    )
+    test_utils.assert_tree_equal(self, tree, deserialized)
 
   def test_serialize_class(self):
     @flax.struct.dataclass
@@ -177,6 +191,10 @@ class UtilsTest(parameterized.TestCase):
         'd': [{}, {'x': 'y'}, None],
     }
     self.assertDictEqual(expected, serialized)
+    deserialized = utils.deserialize_tree(
+        serialized, target=foo, keep_empty_nodes=False
+    )
+    test_utils.assert_tree_equal(self, foo, deserialized)
 
   def test_serialize_nested_class(self):
     @flax.struct.dataclass

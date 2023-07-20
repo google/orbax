@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use uvloop as the default asyncio event loop.
 - Allow calling `create_coordinator_server_and_context` without an initialized
 JAX coordinator server and create TS metadata for numpy arrays on a single process.
+- Refactor TypeHandler to operate over batches of values, rather than individual ones.
 
 ## [0.2.6] - 2022-06-28
 

@@ -68,7 +68,9 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if not self._is_supported_type(item):
       raise TypeError(f'Unsupported type: {type(item)}.')
 
-    if save_args and save_args.aggregate:
+    if not save_args:
+      save_args = type_handlers.SaveArgs()
+    if save_args.aggregate:
       return [
           await self._aggregate_handler.serialize(
               directory / self._checkpoint_name, {_ELEMENT_KEY: item}
@@ -78,10 +80,10 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     info = type_handlers.ParamInfo(
         name=self._checkpoint_name,
         path=directory / self._checkpoint_name,
-        aggregate=False,
     )
     type_handler = type_handlers.get_type_handler(type(item))
-    return await type_handler.serialize(item, info, args=save_args)
+    futures = await type_handler.serialize([item], [info], args=[save_args])
+    return list(futures)
 
   def save(self, directory: epath.Path, item: ArrayType, *args, **kwargs):
     """Saves the provided item.
@@ -152,15 +154,18 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       info = type_handlers.ParamInfo(
           name=self._checkpoint_name,
           path=directory / self._checkpoint_name,
-          aggregate=False,
+          skip_deserialize=False,
       )
       type_handler = type_handlers.get_type_handler(restore_args.restore_type)
-      result = asyncio.run(type_handler.deserialize(info, args=restore_args))
+      result = asyncio.run(
+          type_handler.deserialize([info], args=[restore_args])
+      )[0]
 
     utils.sync_global_devices('ArrayCheckpointHandler:restore')
     return result
 
   def structure(self, directory: epath.Path) -> ArrayType:
+    """See superclass documentation."""
     raise NotImplementedError(
         'Unsupported method `structure` for ArrayCheckpointHandler.'
     )

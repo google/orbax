@@ -15,9 +15,11 @@
 """Provides utils for PytreeCheckpointHandler."""
 
 import abc
+import asyncio
 import dataclasses
+import json
 import os
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union, cast
 
 from absl import logging
 from etils import epath
@@ -145,10 +147,11 @@ class ParamInfo:
   path:
     A path providing a location where file(s) should be saved. The path is
     assumed to be a directory.
-  aggregate:
-    Whether the parameter should be / was aggregated.
-  skip_restore:
-    If specified, skips restoration for the given parameter.
+  skip_deserialize:
+    If specified, skips deserialization of the given parameter using the
+    TypeHandler. This may be for multiple different reasons, including that the
+    parameter may have been aggregated, or it will be unneeded after
+    transformations.
   byte_limiter:
     Object to limit the number of bytes that can be read in
     parallel.
@@ -158,7 +161,7 @@ class ParamInfo:
   """
   name: Optional[str] = None
   path: Optional[epath.Path] = None
-  aggregate: Optional[bool] = None
+  skip_deserialize: Optional[bool] = None
   byte_limiter: Optional[serialization._LimitInFlightBytes] = None  # pylint: disable=protected-access
   is_ocdbt_checkpoint: Optional[bool] = None
 
@@ -208,9 +211,10 @@ class TypeHandler(abc.ABC):
   @abc.abstractmethod
   async def serialize(
       self,
-      value: Any,
-      info: ParamInfo,
-      args: Optional[SaveArgs] = None) -> List[Future]:
+      values: Sequence[Any],
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[SaveArgs]] = None,
+  ) -> Sequence[Future]:
     """Writes the parameter to a storage location.
 
     This method is responsible for copying the parameter from a remote device in
@@ -222,30 +226,45 @@ class TypeHandler(abc.ABC):
     extra logic to ensure atomicity.
 
     Args:
-      value: the parameter to save.
-      info: contains relevant information for serialization.
-      args: additional arguments for serialization, provided by the user.
+      values: a sequence of parameters to save.
+      infos: a sequence of ParamInfo containing relevant information for
+        serialization of each value.
+      args: a sequnece of additional arguments for serialization, provided by
+        the user.
 
     Returns:
-      List of commit futures which can be awaited to complete the save
+      Sequence of commit futures which can be awaited to complete the save
       operation.
     """
     pass
 
   @abc.abstractmethod
-  async def deserialize(self,
-                        info: ParamInfo,
-                        args: Optional[RestoreArgs] = None) -> Any:
+  async def deserialize(
+      self,
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[RestoreArgs]] = None,
+  ) -> Sequence[Any]:
     """Reads the parameter from a storage location.
 
     Args:
-      info: parameter information.
-      args: user-provided restoration information.
+      infos: Sequnece of ParamInfo for deserialization.
+      args: Sequence of user-provided restoration information.
 
     Returns:
-      The deserialized parameter.
+      The deserialized parameters.
     """
     pass
+
+
+def _check_input_arguments(*args):
+  l = None
+  for arg in args:
+    if l == 0:
+      raise ValueError('Cannot pass TypeHandler input of length 0.')
+    if l is None:
+      l = len(arg)
+    elif len(arg) != l:
+      raise ValueError('Found input args with mismatched lengths.')
 
 
 def is_ocdbt_checkpoint(path: epath.Path) -> bool:
@@ -367,67 +386,88 @@ class NumpyHandler(TypeHandler):
     """Gets Tensorstore spec for reading."""
     return self._get_json_tspec(info, use_ocdbt=use_ocdbt)
 
-  async def serialize(self,
-                      value: np.ndarray,
-                      info: ParamInfo,
-                      args: Optional[SaveArgs] = None) -> List[Future]:
-    """Serialize numpy array with Tensorstore. Value is equal on all hosts."""
-    args = args or SaveArgs()
-    tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
-    tspec = _get_cast_tspec_serialize(tspec, value, args)
-    if jax.process_index() == 0:
-      # Open once to create metadata and allow the operation to happen
-      # asynchronously.
-      open_future = ts.open(
-          ts.Spec(tspec), create=True, open=True, context=self._ts_context
-      )
-      # Open again (no disk I/O) to get the write location.
-      t = await ts.open(
-          ts.Spec(tspec),
-          open=True,
-          assume_metadata=True,
-          context=self._ts_context,
-      )
-      write_future = t.write(value)
-      await write_future.copy
-      return [open_future, write_future.commit]
-    return []
+  async def serialize(
+      self,
+      values: Sequence[np.ndarray],
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[SaveArgs]] = None,
+  ) -> Sequence[Future]:
+    """Uses Tensorstore to serialize a numpy array."""
+    args = args or [SaveArgs()] * len(values)
+    _check_input_arguments(values, infos, args)
+    copy_ops = []
+    futures = []
+    for value, info, arg in zip(values, infos, args):
+      tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
+      tspec = _get_cast_tspec_serialize(tspec, value, arg)
+      if jax.process_index() == 0:
+        # Open once to create metadata and allow the operation to happen
+        # asynchronously.
+        open_future = ts.open(
+            ts.Spec(tspec), create=True, open=True, context=self._ts_context
+        )
+        # Open again (no disk I/O) to get the write location.
+        t = await ts.open(
+            ts.Spec(tspec),
+            open=True,
+            assume_metadata=True,
+            context=self._ts_context,
+        )
+        write_future = t.write(value)
+        copy_ops += [write_future.copy]
+        futures += [open_future, write_future.commit]
+    await asyncio.gather(*copy_ops)
+    return futures
 
-  async def deserialize(self,
-                        info: ParamInfo,
-                        args: Optional[RestoreArgs] = None) -> np.ndarray:
+  async def deserialize(
+      self,
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[RestoreArgs]] = None,
+  ) -> Sequence[np.ndarray]:
     """Deserializes the array using Tensorstore."""
-    args = args or RestoreArgs()
-    if not info.is_ocdbt_checkpoint:
-      await _assert_parameter_files_exist(info.path, self._metadata_key)
-    # Using OCDBT, but existing checkpoint may be stored in old format.
-    use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
-    tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-    tspec = _get_cast_tspec_deserialize(tspec, args)
-    t = await ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
-    return await t.read()
+    args = args or [RestoreArgs()] * len(infos)
+    _check_input_arguments(infos, args)
+    open_futures = []
+    for info, arg in zip(infos, args):
+      if not info.is_ocdbt_checkpoint:
+        await _assert_parameter_files_exist(info.path, self._metadata_key)
+      # Using OCDBT, but existing checkpoint may be stored in old format.
+      use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
+      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+      tspec = _get_cast_tspec_deserialize(tspec, arg)
+      open_futures += [
+          ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
+      ]
+    tensorstores = await asyncio.gather(*open_futures)
+    read_ops = [t.read() for t in tensorstores]
+    return await asyncio.gather(*read_ops)
 
 
 class ScalarHandler(NumpyHandler):
   """A wrapper around NumpyHandler to deal with scalar types (int, float, etc.).
   """
 
-  async def serialize(self,
-                      value: Scalar,  # pytype: disable=signature-mismatch  # numpy-scalars
-                      info: ParamInfo,
-                      args: Optional[SaveArgs] = None) -> List[Future]:
+  async def serialize(
+      self,
+      values: Sequence[Scalar],  # pytype: disable=signature-mismatch
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[SaveArgs]] = None,
+  ) -> Sequence[Future]:
     """See superclass documentation."""
-    value = np.asarray(value)
-    return await super().serialize(value, info, args)
+    values = [np.asarray(v) for v in values]
+    return await super().serialize(values, infos, args)
 
-  async def deserialize(self,
-                        info: ParamInfo,
-                        args: Optional[RestoreArgs] = None) -> np.ndarray:
+  async def deserialize(
+      self,
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[RestoreArgs]] = None,
+  ) -> Sequence[Scalar]:  # pytype: disable=signature-mismatch
     """See superclass documentation."""
-    result = await super().deserialize(info, args)
-    if result.ndim != 0:
-      raise ValueError('Restored result is not a scalar.')
-    return result.item()
+    results = await super().deserialize(infos, args)
+    for r in results:
+      if r.ndim != 0:
+        raise ValueError('Restored result is not a scalar.')
+    return [r.item() for r in results]
 
 
 @dataclasses.dataclass
@@ -519,37 +559,52 @@ class ArrayHandler(TypeHandler):
     return self._get_json_tspec(info, use_ocdbt=use_ocdbt)
 
   async def serialize(
-      self, value: jax.Array, info: ParamInfo, args: Optional[SaveArgs] = None
-  ) -> List[Future]:
+      self,
+      values: Sequence[jax.Array],
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[SaveArgs]] = None,
+  ) -> Sequence[Future]:
     """See superclass documentation."""
-    if (
-        isinstance(value, jax.Array)
-        and jax.process_count() > 1
-        and value.is_fully_addressable
-    ):
-      raise ValueError(
-          'Cannot serialize host local arrays. Arrays like this are typically'
-          ' obtained using pmap. Consider using'
-          ' fully_replicated_host_local_array_to_global_array in'
-          ' orbax/checkpoint/utils.py to convert your arrays into serializable'
-          ' objects.'
-      )
-    args = args or SaveArgs()
-    tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
-    tspec = _get_cast_tspec_serialize(tspec, value, args)
-    commit_futures = []
-    await serialization.async_serialize(
-        value, tspec, commit_future=commit_futures, context=self._ts_context
-    )
-    return commit_futures
+    for v in values:
+      if (
+          isinstance(v, jax.Array)
+          and jax.process_count() > 1
+          and v.is_fully_addressable
+      ):
+        raise ValueError(
+            'Cannot serialize host local arrays. Arrays like this are typically'
+            ' obtained using pmap. Consider using'
+            ' fully_replicated_host_local_array_to_global_array in'
+            ' orbax/checkpoint/utils.py to convert your arrays into'
+            ' serializable objects.'
+        )
+    args = args or [SaveArgs()] * len(values)
+    _check_input_arguments(values, infos, args)
+    copy_ops = []
+    futures = []
+    for value, info, arg in zip(values, infos, args):
+      tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
+      tspec = _get_cast_tspec_serialize(tspec, value, arg)
+      copy_ops += [
+          serialization.async_serialize(
+              value,
+              tspec,
+              commit_future=futures,
+              context=self._ts_context,
+          )
+      ]
+    await asyncio.gather(*copy_ops)
+    return futures
 
-  async def deserialize(self,
-                        info: ParamInfo,
-                        args: Optional[RestoreArgs] = None) -> Any:
+  async def deserialize(
+      self,
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[RestoreArgs]] = None,
+  ) -> Sequence[jax.Array]:
     """See superclass documentation.
 
     Args:
-      info: ParamInfo.
+      infos: ParamInfo.
       args: must be of type `ArrayRestoreArgs`.
 
     Returns:
@@ -561,49 +616,74 @@ class ArrayHandler(TypeHandler):
     """
     if args is None:
       raise ValueError('Must provide ArrayRestoreArgs to restore as jax.Array.')
-    args = cast(ArrayRestoreArgs, args)
-    if args.sharding is None and (args.mesh is None or args.mesh_axes is None):
-      raise ValueError(
-          'Sharding of jax.Array cannot be None. Provide `mesh`'
-          ' and `mesh_axes` OR `sharding`.'
-      )
-    if args.sharding is None:
-      sharding = jax.sharding.NamedSharding(args.mesh, args.mesh_axes)
-    else:
-      sharding = args.sharding
-    if not info.is_ocdbt_checkpoint:
-      await _assert_parameter_files_exist(info.path, self._metadata_key)
-    # Using OCDBT, but existing checkpoint may be stored in old format.
-    use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
-    tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-    tspec = _get_cast_tspec_deserialize(tspec, args)
-    return await serialization.async_deserialize(
-        sharding,
-        tspec,
-        global_shape=args.global_shape,
-        byte_limiter=info.byte_limiter,
-        context=self._ts_context,
-    )
+    _check_input_arguments(infos, args)
+    deserialize_ops = []
+    for info, arg in zip(infos, args):
+      arg = cast(ArrayRestoreArgs, arg)
+      if arg.sharding is None and (arg.mesh is None or arg.mesh_axes is None):
+        raise ValueError(
+            'Sharding of jax.Array cannot be None. Provide `mesh`'
+            ' and `mesh_axes` OR `sharding`.'
+        )
+
+      if arg.sharding is None:
+        sharding = jax.sharding.NamedSharding(arg.mesh, arg.mesh_axes)
+      else:
+        sharding = arg.sharding
+      if not info.is_ocdbt_checkpoint:
+        await _assert_parameter_files_exist(info.path, self._metadata_key)
+      # Using OCDBT, but existing checkpoint may be stored in old format.
+      use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
+      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+      tspec = _get_cast_tspec_deserialize(tspec, arg)
+      deserialize_ops += [
+          serialization.async_deserialize(
+              sharding,
+              tspec,
+              global_shape=arg.global_shape,
+              byte_limiter=info.byte_limiter,
+              context=self._ts_context,
+          )
+      ]
+    return await asyncio.gather(*deserialize_ops)
 
 
 class StringHandler(TypeHandler):
-  """TypeHandler for strings that enforces aggregation."""
+  """TypeHandler for strings."""
 
-  async def serialize(self,
-                      value: str,
-                      info: ParamInfo,
-                      args: Optional[SaveArgs] = None) -> List[Future]:
+  def __init__(self, filename: Optional[str] = None):
+    self._filename = filename or '_strings.json'
+
+  async def serialize(
+      self,
+      values: Sequence[str],
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[SaveArgs]] = None,
+  ) -> Sequence[Future]:
     """See superclass documentation."""
-    args = args or SaveArgs()
-    if not args.aggregate:
-      raise ValueError('Non-aggregated string serialization is not supported.')
+    del args
+    _check_input_arguments(values, infos)
+    if jax.process_index() == 0:
+      directory = infos[0].path
+      strings = {info.name: value for value, info in zip(values, infos)}
+      path = directory / self._filename
+      path.write_text(json.dumps(strings))
     return []
 
-  async def deserialize(self,
-                        info: ParamInfo,
-                        args: Optional[RestoreArgs] = None) -> str:
+  async def deserialize(
+      self,
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[RestoreArgs]] = None,
+  ) -> Sequence[Optional[str]]:
     """See superclass documentation."""
-    raise NotImplementedError
+    del args
+    _check_input_arguments(infos)
+    directory = infos[0].path
+    path = directory / self._filename
+    strings = json.loads(path.read_text())
+    return [
+        strings[info.name] if info.name in strings else None for info in infos
+    ]
 
 
 _TYPE_REGISTRY = [

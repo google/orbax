@@ -18,10 +18,10 @@ Implementation of CheckpointHandler interface.
 """
 
 import asyncio
-import functools
+import dataclasses
 import re
 import typing
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from absl import logging
 from etils import epath
@@ -41,6 +41,7 @@ import tensorstore as ts
 
 
 PyTree = Any
+TupleKey = Tuple[str, ...]
 RestoreArgs = type_handlers.RestoreArgs
 ArrayRestoreArgs = type_handlers.ArrayRestoreArgs
 SaveArgs = type_handlers.SaveArgs
@@ -120,19 +121,132 @@ def _get_param_names(item: PyTree) -> PyTree:
   )
 
 
-def _get_needed_restore_parameters(
+def _keystr(key: Tuple[Any, ...]) -> str:
+  return '/'.join(key)
+
+
+def _find_matching_input_args(
+    input_key: TupleKey,
+    flat_item: Dict[TupleKey, Any],
+    flat_transforms: Dict[TupleKey, Transform],
+    flat_restore_args: Dict[TupleKey, RestoreArgs],
+) -> Optional[RestoreArgs]:
+  """Given an input_key, tries to find matching RestoreArgs for the input.
+  
+  Args:
+    input_key: A key in the input tree.
+    flat_item: The flattened, user-provided item.
+    flat_transforms: Flattened transformations dict.
+    flat_restore_args: Flattened tree of RestoreArgs, relative to item.
+    
+  Returns:
+    RestoreArgs that match the given input_key, according to the
+    transformations, or None if no match is found.
+  """
+  for transform_key, transform in flat_transforms.items():
+    if transform.multi_value_fn is not None:
+      if not isinstance(transform, RestoreTransform):
+        raise ValueError(
+            'Must use RestoreTransform in order to use multi_value_fn'
+            ' during restore.'
+        )
+      if transform.multi_value_fn_input_args is None:
+        raise ValueError(
+            '`multi_value_fn` was specified, but'
+            ' `multi_value_fn_input_args` were not. The latter must be'
+            ' specified to identify inputs for the function.'
+        )
+      for (
+          input_key_regex,
+          input_args,
+      ) in transform.multi_value_fn_input_args.items():
+        if re.fullmatch(input_key_regex, _keystr(input_key)):
+          return input_args
+    elif not transform.use_fallback:
+      # The following is done to reverse-engineer the regex for the key in
+      # the original tree.
+      for output_key in flat_item:
+        match = re.fullmatch(_keystr(transform_key), _keystr(output_key))
+        if match:
+          if transform.original_key is None:
+            # If transform.original_key is not specified, this transform
+            # does not rename the original key. We can reuse the key from
+            # the item.
+            input_key_pattern = _keystr(output_key)
+          else:
+            input_key_pattern = match.expand(transform.original_key)
+          if input_key_pattern == _keystr(input_key):
+            return flat_restore_args[output_key]
+  return None
+
+
+def _has_use_fallback_transform(
+    input_key: TupleKey, flat_transforms: Dict[TupleKey, Transform]
+) -> bool:
+  result = False
+  for transform_key, transform in flat_transforms.items():
+    match = re.fullmatch(_keystr(transform_key), _keystr(input_key))
+    if match and transform.use_fallback:
+      result = True
+  return result
+
+
+def _get_restore_parameters(
     directory: epath.Path,
     item: Optional[PyTree],
     structure: PyTree,
     transforms: Optional[PyTree],
+    restore_args: Optional[PyTree],
     byte_limiter: Optional[serialization._LimitInFlightBytes] = None,
-) -> PyTree:
-  """Gets information needed for restoration."""
-  flat_structure = utils.to_flat_dict(structure, sep='/', keep_empty_nodes=True)
+    transforms_default_to_original: bool = True,
+) -> Tuple[PyTree, PyTree]:
+  """Construct parameters needed for restoration.
+
+  If transforms are not provided, the method is pretty simple: param_infos are
+  constructed from the structure of the original checkpoint, and restore_args
+  are serialized to a tree structure compatible with param_infos and structure.
+
+  If transforms are provided, things become more complicated because we must
+  determine exactly which parameters the user desires to restore, and construct
+  param_infos and restore_args for these, while discarding unneeded parameters.
+  In essence, the process can be thought of as reversing the transformations.
+  This happens differently for different types of transforms.
+  1. Renamed key: Identify the original key name (in the checkpoint) and carry
+    over the provided restore args for the parameter.
+  2. multi_value_fn: Users are required to specify multi_value_fn_input_args.
+    Any keys named here must be loaded, and their restore args are also given
+    here.
+  3. Unspecified key: A key which is unspecified in the transforms but present
+    in the `item` is a key that is carried over from the checkpoint unchanged.
+  4. Fallback key: This is a key that is present in the `item` but not in the
+    original checkpoint. It does not need to be restored.
+  5. Keys present in the original checkpoint but not in the `item`/`transforms`
+    are implicitly ignored, and not restored.
+
+  Args:
+    directory: Checkpoint directory.
+    item: Optional reference item.
+    structure: The structure of the original checkpoint.
+    transforms: User-provided transformations. If None, they were not provided.
+      Has the structure of the desired output tree.
+    restore_args: User-provided restoration arguments. If None, they were not
+      provided. Otherwise, the tree has the same structure as the desired output
+      tree.
+    byte_limiter: A _LimitInFlightBytes object.
+    transforms_default_to_original: See transform_utils.apply_transformations.
+
+  Returns:
+    Tuple of param_infos, and restore_args.
+  """
+  flat_structure = utils.to_flat_dict(structure, keep_empty_nodes=True)
+  if restore_args is None:
+    restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), structure)
+  flat_restore_args = utils.to_flat_dict(restore_args, keep_empty_nodes=True)
   flat_param_infos = {}
+  flat_input_restore_args = {}
   is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
 
-  def _get_param_info(name: str, leaf: Any) -> ParamInfo:
+  def _get_param_info(nested_name: Tuple[str, ...], leaf: Any) -> ParamInfo:
     if utils.leaf_is_placeholder(leaf):
       # Leaf is a param name.
       path = directory / utils.name_from_leaf_placeholder(leaf)
@@ -150,83 +264,74 @@ def _get_needed_restore_parameters(
     else:
       raise ValueError(f'Unsupported type: {type(leaf)}')
     return ParamInfo(
-        name=name,
+        name='.'.join(nested_name),
         path=path,
-        aggregate=(path is None),
+        skip_deserialize=(path is None),
         is_ocdbt_checkpoint=is_ocdbt_checkpoint,
         byte_limiter=byte_limiter,
     )
 
-  if transforms is not None:
+  if transforms is None:
+    for key, value in flat_structure.items():
+      flat_param_infos[key] = _get_param_info(key, value)
+    restore_args = utils.serialize_tree(restore_args, keep_empty_nodes=True)
+  else:
     if item is None:
       raise ValueError(
           'If providing `transforms`, must provide `item` matching structure'
           ' of expected result.'
       )
-    flat_item = utils.to_flat_dict(item, sep='/', keep_empty_nodes=True)
-    flat_transforms = utils.to_flat_dict(transforms, sep='/')
+    flat_item = utils.to_flat_dict(item, keep_empty_nodes=True)
+    flat_transforms = utils.to_flat_dict(transforms)
+
     for input_key, value in flat_structure.items():
-      for output_key, transform in flat_transforms.items():
-        if transform.multi_value_fn is not None:
-          if not isinstance(transform, RestoreTransform):
-            raise ValueError(
-                'Must use RestoreTransform in order to use multi_value_fn'
-                ' during restore.'
-            )
-          if transform.multi_value_fn_input_args is None:
-            raise ValueError(
-                '`multi_value_fn` was specified, but'
-                ' `multi_value_fn_input_args` were not. The latter must be'
-                ' specified to identify inputs for the function.'
-            )
-          for (
-              input_key_regex,
-              _,
-          ) in transform.multi_value_fn_input_args.items():
-            if re.fullmatch(input_key_regex, input_key):
-              flat_param_infos[input_key] = _get_param_info(
-                  input_key.replace('/', '.'), value
-              )
-        elif not transform.use_fallback:
-          # The following is done to reverse-engineer the regex for the key in
-          # the original tree.
-          if transform.original_key is not None:
-            input_key_regex = None
-            for item_key in flat_item:
-              match = re.fullmatch(output_key, item_key)
-              if match:
-                input_key_regex = match.expand(transform.original_key)
-                break
+      maybe_input_args = _find_matching_input_args(
+          input_key, flat_item, flat_transforms, flat_restore_args
+      )
+      if maybe_input_args:
+        flat_param_infos[input_key] = _get_param_info(input_key, value)
+        flat_input_restore_args[input_key] = maybe_input_args
+      elif input_key in flat_item and input_key in flat_structure:
+        # Key is present in both input and output.
+        if _has_use_fallback_transform(input_key, flat_transforms):
+          # Indicates that a `use_fallback` transformation was specified.
+          if transforms_default_to_original:
+            # Specified `use_fallback`, but key was also present in the
+            # checkpoint. This means we should skip loading, since it will be
+            # overridden with a new value.
+            flat_param_infos[input_key] = ParamInfo(skip_deserialize=True)
+            flat_input_restore_args[input_key] = RestoreArgs()
           else:
-            # May not specify original_key, this transform does not rename
-            # the original key.
-            input_key_regex = output_key
-
-          if input_key_regex is not None and re.fullmatch(
-              input_key_regex, input_key
-          ):
-            flat_param_infos[input_key] = _get_param_info(
-                input_key.replace('/', '.'), value
-            )
-
-      if input_key not in flat_param_infos:
-        if input_key in flat_item:
-          # No match, but the key/value is just carried over from the original
-          # unchanged.
-          flat_param_infos[input_key] = _get_param_info(
-              input_key.replace('/', '.'), value
-          )
+            # Specified `use_fallback`, but `transforms_default_to_original`
+            # is False. This means we draw the value from the user-provided
+            # `item`.
+            flat_param_infos[input_key] = _get_param_info(input_key, value)
+            flat_input_restore_args[input_key] = flat_restore_args[input_key]
         else:
-          # No match, restoration not required since it will be dropped from the
-          # output. Use aggregate=True to skip TypeHandler restoration.
-          logging.info(input_key)
-          flat_param_infos[input_key] = ParamInfo(aggregate=True)
+          # Transform not specified.
+          if transforms_default_to_original:
+            # Key/value is carried over from the original unchanged.
+            flat_param_infos[input_key] = _get_param_info(input_key, value)
+            flat_input_restore_args[input_key] = flat_restore_args[input_key]
+          else:
+            # Take the value from the user-provided `item`, ignoring any value
+            # in the checkpoint.
+            flat_param_infos[input_key] = ParamInfo(skip_deserialize=True)
+            flat_input_restore_args[input_key] = RestoreArgs()
+      else:
+        # No match, restoration not required since it will be dropped from the
+        # output.
+        flat_param_infos[input_key] = ParamInfo(skip_deserialize=True)
+        flat_input_restore_args[input_key] = RestoreArgs()
 
-  else:
-    for key, value in flat_structure.items():
-      flat_param_infos[key] = _get_param_info(key.replace('/', '.'), value)
+    restore_args = utils.from_flat_dict(
+        flat_input_restore_args, target=structure
+    )
 
-  return utils.from_flat_dict(flat_param_infos, target=structure, sep='/')
+  return (
+      utils.from_flat_dict(flat_param_infos, target=structure),
+      restore_args,
+  )
 
 
 def _get_tree_for_aggregation(param_infos, save_args, item):
@@ -256,9 +361,83 @@ def _get_tree_for_aggregation(param_infos, save_args, item):
   )
 
 
+@dataclasses.dataclass
+class _BatchRequest:
+  """Represents a a request for batched serialization or deserialization."""
+  handler: TypeHandler
+  values: List[Any]
+  infos: List[ParamInfo]
+  args: List[Union[SaveArgs, RestoreArgs]]
+  lazy: bool = False
+
+
+def _batched_serialization_requests(
+    tree: PyTree, param_infos: PyTree, args: PyTree
+) -> List[_BatchRequest]:
+  """Gets a list of batched serialization or deserialization requests."""
+  result = []
+  grouped = {}
+
+  def _group_value(info, value, arg):
+    nonlocal result
+    nonlocal grouped
+    # Exclude from serialize/deserialize with TypeHandler if aggregated.
+    if info.skip_deserialize:
+      return
+    if isinstance(arg, RestoreArgs):
+      handler = type_handlers.get_type_handler(arg.restore_type)
+      # Lazy arguments must be restored individually, rather than as a batch.
+      # Thus, we create an individual _BatchRequest for each one.
+      if arg.lazy:
+        result += [_BatchRequest(handler, [value], [info], [arg], lazy=True)]
+        return
+    else:
+      handler = type_handlers.get_type_handler(type(value))
+    if handler not in grouped:
+      grouped[handler] = _BatchRequest(handler, [], [], [])
+    request = grouped[handler]
+    grouped[handler] = dataclasses.replace(
+        request,
+        values=request.values + [value],
+        infos=request.infos + [info],
+        args=request.args + [arg],
+    )
+
+  jax.tree_util.tree_map(
+      _group_value,
+      param_infos,
+      tree,
+      args,
+  )
+  return result + list(grouped.values())
+
+
+def _multi_value_fns_with_args(
+    transforms: PyTree, restore_args: PyTree
+) -> PyTree:
+  """Constructs a wrapper for multi_value_fn including RestoreArgs."""
+  flat_restore_args = utils.to_flat_dict(restore_args, sep='/')
+
+  def _maybe_wrap_transform(transform: Transform):
+    def _multi_value_fn_with_args(transform_key: str, tree: PyTree) -> Any:
+      nonlocal transform
+      transform = typing.cast(RestoreTransform, transform)
+      return transform.multi_value_fn(
+          transform_key, tree, flat_restore_args[transform_key]
+      )
+
+    if transform.multi_value_fn is not None:
+      return Transform(multi_value_fn=_multi_value_fn_with_args)
+    else:
+      return transform
+
+  return jax.tree_util.tree_map(_maybe_wrap_transform, transforms)
+
+
 def _transform_structure(
     item: PyTree,
     restored: PyTree,
+    restore_args: Optional[PyTree],
     transforms: Optional[PyTree],
     transforms_default_to_original: bool,
 ) -> PyTree:
@@ -268,6 +447,7 @@ def _transform_structure(
     item: a PyTree representing the result structure ("new tree structure").
     restored: a PyTree representing the original tree structure. Note: this is a
       tree of LazyValues.
+    restore_args: tree of RestoreArgs, with the same structure as `item`.
     transforms: provides instructions on how to transform the input trees. See
       transform_utils.
     transforms_default_to_original: See transform_utils.
@@ -285,124 +465,15 @@ def _transform_structure(
     if transforms is None:
       item = utils.deserialize_tree(restored, item)
     else:
-      restored = _materialize_multi_value_fn_inputs(restored, transforms)
-      transforms = _construct_lazy_transform_wrappers(transforms)
+      if restore_args is None:
+        raise ValueError(
+            'If providing `transforms`, must provide `restore_args` matching'
+            ' structure of expected result.'
+        )
+      transforms = _multi_value_fns_with_args(transforms, restore_args)
       item = transform_utils.apply_transformations(
           restored, transforms, item, transforms_default_to_original)
   return item
-
-
-def _materialize_multi_value_fn_inputs(
-    tree: PyTree, transforms: PyTree
-) -> PyTree:
-  """Materializes values from tree which are marked as multi_value_fn inputs."""
-  flat_tree = utils.to_flat_dict(tree, sep='/')
-  flat_transforms = utils.to_flat_dict(transforms, sep='/')
-  keys = []
-  ops = []
-  for key, lazy_value in flat_tree.items():
-    assert isinstance(lazy_value, LazyValue)
-    for _, transform in flat_transforms.items():
-      if transform.multi_value_fn is not None:
-        if not isinstance(transform, RestoreTransform):
-          raise ValueError(
-              'Must use RestoreTransform in order to use multi_value_fn during'
-              ' restore.'
-          )
-        if transform.multi_value_fn_input_args is None:
-          raise ValueError(
-              '`multi_value_fn` was specified, but `multi_value_fn_input_args`'
-              ' were not. The latter must be specified to identify inputs for'
-              ' the function.'
-          )
-        for (
-            input_key,
-            restore_args,
-        ) in transform.multi_value_fn_input_args.items():
-          if re.fullmatch(input_key, key):
-            keys += [key]
-            ops += [lazy_value.get_async(args=restore_args)]
-
-  async def _await_in_parallel():
-    return await asyncio.gather(*ops)
-
-  values = asyncio.run(_await_in_parallel())
-  for key, value in zip(keys, values):
-    flat_tree[key] = value
-  return utils.from_flat_dict(flat_tree, target=tree, sep='/')
-
-
-def _construct_lazy_transform_wrappers(transforms: PyTree) -> PyTree:
-  """Constructs wrapper functions for user-provided to handle `LazyValue`.
-
-  User-provided value-based transformation functions are written in terms of
-  real values, not `LazyValue`. However, we want to be able to load all
-  parameters as `LazyValue`, so as to avoid materializing unneeded parameters
-  until necessary. As such, we construct wrapper functions which accept
-  `LazyValue` and materialize the value before providing it to the user-defined
-  function.
-
-  Note that because different multi_value_fn's may use the same leaves as
-  inputs, we could run into a situation where we restore the same value many
-  times and OOM. To fix this, _materialize_multi_value_fn_inputs must first be
-  called, so that some of the inputs to these wrapped functions will be
-  LazyValue, while others will be materialized, if marked as needed as an input
-  for a multi_value_fn transformation. As such, we do not need to wrap
-  the multi_value_fn transformations, since all inputs will already be
-  materialized.
-
-  Args:
-    transforms: User-provided tree of Transform objects.
-
-  Returns:
-    A tree of Transform objects which is roughly the same as the input, but
-    where all instances of `value_fn` are wrapped to accept
-    `LazyValue` as input and return `LazyValue` as output.
-  """
-
-  def _maybe_wrap_transform(transform: Transform):
-
-    async def _lazy_value_fn(maybe_lazy_value: Any, args: RestoreArgs) -> Any:
-      # `maybe_lazy_value` is the value over which the function is performed.
-      # It may be LazyValue or may already be materialized.
-      # `args` is `RestoreArgs`, which is used to materialize the value.
-      if isinstance(maybe_lazy_value, LazyValue):
-        value = await maybe_lazy_value.get_async(args=args)
-      else:
-        value = maybe_lazy_value
-      if isinstance(transform, RestoreTransform):
-        return transform.value_fn(value, args)
-      else:
-        return transform.value_fn(value)
-
-    async def _lazy_multi_value_fn(
-        transform_key: str, tree: PyTree, args: RestoreArgs
-    ) -> Any:
-      # Inputs are already materialized.
-      if isinstance(transform, RestoreTransform):
-        return transform.multi_value_fn(transform_key, tree, args)
-      else:
-        return transform.multi_value_fn(transform_key, tree)
-
-    def _wrap_as_lazy_value(func, *args, **kwargs):
-      return LazyValue(functools.partial(func, *args, **kwargs))
-
-    # Only needed values are carried over to the wrapped Transform.
-    if transform.value_fn is not None:
-      return Transform(
-          original_key=transform.original_key,
-          value_fn=functools.partial(_wrap_as_lazy_value, _lazy_value_fn),
-      )
-    elif transform.multi_value_fn is not None:
-      return Transform(
-          multi_value_fn=functools.partial(
-              _wrap_as_lazy_value, _lazy_multi_value_fn
-          )
-      )
-    else:
-      return transform
-
-  return jax.tree_util.tree_map(_maybe_wrap_transform, transforms)
 
 
 class PyTreeCheckpointHandler(AsyncCheckpointHandler):
@@ -477,7 +548,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       nonlocal all_params_aggregated
       all_params_aggregated &= args.aggregate
       return ParamInfo(
-          name=name, path=(directory / name), aggregate=args.aggregate)
+          name=name, path=(directory / name), skip_deserialize=args.aggregate
+      )
 
     return (
         jax.tree_util.tree_map(_param_info, names, save_args),
@@ -586,26 +658,21 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
           'PyTreeCheckpointHandler:create_param_save_dirs'
       )
 
-    async def serialize(value, info, args):
-      if args.aggregate:
-        return  # skip serialize now, include in aggregated file
-      handler = type_handlers.get_type_handler(type(value))
-      return await handler.serialize(value, info, args)
-
     if all_params_aggregated:
       commit_futures = []
     else:
-      future_tree = jax.tree_util.tree_map(
-          serialize,
-          item,
-          param_infos,
-          save_args,
-          is_leaf=utils.is_empty_or_leaf,
+      serialize_ops = []
+      batch_requests = _batched_serialization_requests(
+          item, param_infos, save_args
       )
-      copy_futures, _ = jax.tree_util.tree_flatten(future_tree)
-      assert isinstance(copy_futures, list)
-      # Await copy futures.
-      commit_futures = await asyncio.gather(*copy_futures)
+      for request in batch_requests:
+        serialize_ops += [
+            request.handler.serialize(
+                request.values, request.infos, request.args
+            )
+        ]
+      # Await copy futures. Returns list of lists.
+      commit_futures = await asyncio.gather(*serialize_ops)
       commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
 
     metadata_commit_futures = await self._write_metadata_file(directory, item)
@@ -639,40 +706,59 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     asyncio.run(async_save(directory, item, *args, **kwargs))
     utils.sync_global_devices('PyTreeCheckpointHandler:save')
 
-  def _maybe_deserialize(self, param_info: ParamInfo, value: Any) -> LazyValue:
-    """Deserializes using handler or returns already restored value.
+  async def _maybe_deserialize(
+      self, structure: PyTree, param_infos: PyTree, restore_args: PyTree
+  ) -> PyTree:
+    """Deserializes values or gets them from the aggregate file."""
 
-    If the ParamInfo indicates that the parameter was aggregated, then it must
-    have already been restored. In this case, we simply perform a cast and
-    convert to LazyArray if requested.
+    # Handle parameters from aggregate file.
+    def _process_aggregated_value(info, value, args):
+      if info.skip_deserialize:
+        value = _try_array_cast(value, args.dtype)
+        value = _maybe_shard_array(value, args)
+      if args.lazy:
+        value = LazyValue(lazy_utils.identity(value))
+      return value
 
-    Otherwise, we deserialize using an appropriate TypeHandler, converting to
-    LazyArray and casting if requested.
+    def _lazy_get_fn(handler, infos, args):
+      async def _get_singular_value_from_handler():
+        result = await handler.deserialize(infos, args)
+        assert len(result) == 1
+        return result[0]
 
-    Args:
-      param_info: ParamInfo
-      value: a tree value which may have already been restored. Not relevant if
-        info.aggregate is False.
+      return _get_singular_value_from_handler
 
-    Returns:
-      A LazyValue.
-    """
+    structure = jax.tree_util.tree_map(
+        _process_aggregated_value, param_infos, structure, restore_args
+    )
 
-    async def _maybe_cast_and_shard(val: Any, args: RestoreArgs) -> Any:
-      val = _try_array_cast(val, args.dtype)
-      val = _maybe_shard_array(val, args)
-      return val
+    batch_requests = _batched_serialization_requests(
+        structure, param_infos, restore_args
+    )
+    deserialized_batches = []
+    deserialized_batches_ops = []
+    for request in batch_requests:
+      if request.lazy:
+        deserialized_batches.append(
+            [
+                LazyValue(
+                    _lazy_get_fn(request.handler, request.infos, request.args)
+                )
+            ]
+        )
+      else:
+        deserialized_batches_ops.append(
+            request.handler.deserialize(request.infos, request.args)
+        )
+    deserialized_batches += await asyncio.gather(*deserialized_batches_ops)
 
-    async def _deserialize(info: ParamInfo, args: RestoreArgs) -> Any:
-      handler = type_handlers.get_type_handler(args.restore_type)
-      return await handler.deserialize(info, args)
+    flat_restored = utils.to_flat_dict(structure, sep='.')
+    for request, deserialized in zip(batch_requests, deserialized_batches):
+      for info, value in zip(request.infos, deserialized):
+        flat_restored[info.name] = value
 
-    if param_info.aggregate:  # Already restored from AggregateHandler.
-      get_fn = functools.partial(_maybe_cast_and_shard, val=value)
-    else:
-      get_fn = functools.partial(_deserialize, info=param_info)
-
-    return LazyValue(get_fn)
+    restored = utils.from_flat_dict(flat_restored, target=structure, sep='.')
+    return restored
 
   def restore(
       self,
@@ -702,10 +788,11 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         saved item in order to obtain a final structure. See `transform_utils`
         for further information.
       transforms_default_to_original: See transform_utils.apply_transformations.
-      transform_fn: A function which accepts the `item` argument, a PyTree
-        checkpoint structure and a PyTree of ParamInfos based on the checkpoint.
-        Returns a transformed PyTree matching the desired return tree structure,
-        and a matching ParamInfo tree.
+      transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which accepts
+        the `item` argument, a PyTree checkpoint structure and a PyTree of
+        ParamInfos based on the checkpoint. Returns a transformed PyTree
+        matching the desired return tree structure, and a matching ParamInfo
+        tree.
 
     Returns:
       A PyTree matching the structure of `item`. If `lazy` restoration is
@@ -731,58 +818,38 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
 
     byte_limiter = asyncio.run(_create_byte_limiter())
     structure = self.structure(directory)
-    param_infos = _get_needed_restore_parameters(
-        directory, item, structure, transforms, byte_limiter=byte_limiter
+    # `checkpoint_restore_args` has a structure relative to the checkpoint,
+    # while `restore_args` remains structured relative to the output.
+    param_infos, checkpoint_restore_args = _get_restore_parameters(
+        directory,
+        item,
+        structure,
+        transforms,
+        restore_args,
+        byte_limiter=byte_limiter,
+        transforms_default_to_original=transforms_default_to_original,
     )
 
     if transform_fn is not None and transforms is not None:
       raise ValueError('Cannot provide both `transforms` and `transform_fn`.')
     if transform_fn is not None:
       structure, param_infos = transform_fn(item, structure, param_infos)
+      if restore_args is None:
+        restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), item)
+      checkpoint_restore_args = restore_args
 
-    lazy_restored_item = jax.tree_util.tree_map(
-        self._maybe_deserialize, param_infos, structure
+    restored_item = asyncio.run(
+        self._maybe_deserialize(structure, param_infos, checkpoint_restore_args)
     )
 
     if not transform_fn:
-      lazy_restored_item = _transform_structure(
-          item, lazy_restored_item, transforms, transforms_default_to_original
+      restored_item = _transform_structure(
+          item,
+          restored_item,
+          restore_args,
+          transforms,
+          transforms_default_to_original,
       )
-
-    if restore_args is None:
-      restore_args = jax.tree_util.tree_map(
-          lambda x: RestoreArgs(),
-          item or structure,
-      )
-
-    def _maybe_get_materialization_function(
-        value: Union[LazyValue, Any], args: RestoreArgs
-    ) -> Any:
-      # Depending on the value of args.lazy, we either return a function that
-      # allows materializing the value, or return a function that returns
-      # another LazyValue, after passing in RestoreArgs.
-      if args.lazy:
-        if isinstance(value, LazyValue):
-          async_get_fn = functools.partial(value.get_async, args=args)
-        else:
-          async_get_fn = lazy_utils.identity(value)
-        return lazy_utils.identity(LazyValue(async_get_fn))()
-      else:
-        return lazy_utils.maybe_get_async(value, args=args)
-
-    async def _restore():
-      # Provide RestoreArgs now, since it was previously deferred.
-      flat, item_structure = jax.tree_util.tree_flatten(
-          jax.tree_util.tree_map(
-              _maybe_get_materialization_function,
-              lazy_restored_item,
-              restore_args,
-          )
-      )
-      flat = await asyncio.gather(*flat)
-      return jax.tree_util.tree_unflatten(item_structure, flat)
-
-    restored_item = asyncio.run(_restore())
     utils.sync_global_devices('PyTreeCheckpointHandler:restore')
     return restored_item
 
