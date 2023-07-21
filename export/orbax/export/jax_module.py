@@ -186,7 +186,7 @@ def _get_param_names(params: PyTree) -> PyTree:
   """Gets parameter names for PyTree elements."""
 
   def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
-    return '.'.join([str(ckpt_utils.get_key_name(k)) for k in keypath])
+    return '.'.join([str(ckpt_utils.get_key_name(k)) for k in keypath]).replace("~", "_")
 
   names = jax.tree_util.tree_map_with_path(
       lambda kp, _: _param_name_from_keypath(kp), params
