@@ -11,7 +11,7 @@ ValidationReport
   :members:
 
 
-ValidationReportOptions
+ValidationReportOption
 ------------------------
-.. autoclass:: ValidationReportOptions
+.. autoclass:: ValidationReportOption
   :members:
