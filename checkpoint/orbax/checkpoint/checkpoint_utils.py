@@ -375,7 +375,9 @@ def restore_args_from_target(
   return jax.tree_util.tree_map(_restore_args, target, axes_tree)
 
 
-def construct_restore_args(target: PyTree, sharding_tree: PyTree) -> PyTree:
+def construct_restore_args(
+    target: PyTree, sharding_tree: PyTree, set_global_shape: bool = True
+) -> PyTree:
   """Creates restore_args given a target PyTree.
 
   This method should be used in conjunction with a CheckpointManager or
@@ -412,6 +414,7 @@ def construct_restore_args(target: PyTree, sharding_tree: PyTree) -> PyTree:
       used to set the desired dtype and restoration shape.
     sharding_tree: A PyTree matching `target` which will be used to set the
       restoration sharding.
+    set_global_shape: If true, set the `global_shape` field of ArrayRestoreArgs.
 
   Returns:
     A PyTree matching target of RestoreArgs (or ArrayRestoreArgs) objects.
@@ -426,7 +429,7 @@ def construct_restore_args(target: PyTree, sharding_tree: PyTree) -> PyTree:
       return type_handlers.ArrayRestoreArgs(
           restore_type=restore_type,
           sharding=sharding,
-          global_shape=value.shape,
+          global_shape=value.shape if set_global_shape else None,
           dtype=value.dtype,
       )
     else:
