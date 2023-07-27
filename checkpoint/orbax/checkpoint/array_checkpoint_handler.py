@@ -130,10 +130,6 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     del item
     if restore_args is None:
       restore_args = type_handlers.RestoreArgs()
-    if restore_args.lazy:
-      raise ValueError(
-          'Lazy restoration not supported for ArrayCheckpointHandler.'
-      )
 
     if (directory / self._checkpoint_name).is_file():
       result = self._aggregate_handler.deserialize(

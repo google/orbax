@@ -23,7 +23,6 @@ from jax import sharding
 from jax.experimental import pjit
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint import lazy_utils
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import utils
 
@@ -81,11 +80,6 @@ def apply_function(tree, function):
 
 def assert_array_equal(testclass, v_expected, v_actual):
   """Asserts that two arrays are equal."""
-  if isinstance(v_expected, lazy_utils.LazyValue):
-    testclass.assertIsInstance(v_actual, lazy_utils.LazyValue)
-    v_expected = v_expected.get()
-    v_actual = v_actual.get()
-
   testclass.assertIsInstance(v_actual, type(v_expected))
   if isinstance(v_expected, jax.Array):
     testclass.assertEqual(

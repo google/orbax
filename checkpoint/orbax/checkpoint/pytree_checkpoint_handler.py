@@ -29,7 +29,6 @@ import jax
 from jax.experimental.array_serialization import serialization
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
-from orbax.checkpoint import lazy_utils
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
@@ -50,7 +49,6 @@ MsgpackHandler = aggregate_handlers.MsgpackHandler
 TransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
 Transform = transform_utils.Transform
 RestoreTransform = transform_utils.RestoreTransform
-LazyValue = lazy_utils.LazyValue
 
 _TYPE_METADATA_FILE = 'type_metadata'
 _CHECKPOINT_FILE = 'checkpoint'
@@ -365,7 +363,6 @@ class _BatchRequest:
   values: List[Any]
   infos: List[ParamInfo]
   args: List[Union[SaveArgs, RestoreArgs]]
-  lazy: bool = False
 
 
 def _batched_serialization_requests(
@@ -383,11 +380,6 @@ def _batched_serialization_requests(
       return
     if isinstance(arg, RestoreArgs):
       handler = type_handlers.get_type_handler(arg.restore_type)
-      # Lazy arguments must be restored individually, rather than as a batch.
-      # Thus, we create an individual _BatchRequest for each one.
-      if arg.lazy:
-        result += [_BatchRequest(handler, [value], [info], [arg], lazy=True)]
-        return
     else:
       handler = type_handlers.get_type_handler(type(value))
     if handler not in grouped:
@@ -442,8 +434,7 @@ def _transform_structure(
 
   Args:
     item: a PyTree representing the result structure ("new tree structure").
-    restored: a PyTree representing the original tree structure. Note: this is a
-      tree of LazyValues.
+    restored: a PyTree representing the original tree structure.
     restore_args: tree of RestoreArgs, with the same structure as `item`.
     transforms: provides instructions on how to transform the input trees. See
       transform_utils.
@@ -587,8 +578,6 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       A Future that will commit the data to `directory` when awaited. Copying
       the data from its source will be awaited in this function.
     """
-    item = await lazy_utils.maybe_get_tree_async(item)
-
     # Because of empty states, the user-provided args may not contain
     # all necessary arguments. These should be filled in with default args.
     save_args = jax.tree_util.tree_map(
@@ -670,17 +659,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       if info.skip_deserialize:
         value = _try_array_cast(value, args.dtype)
         value = _maybe_shard_array(value, args)
-      if args.lazy:
-        value = LazyValue(lazy_utils.identity(value))
       return value
-
-    def _lazy_get_fn(handler, infos, args):
-      async def _get_singular_value_from_handler():
-        result = await handler.deserialize(infos, args)
-        assert len(result) == 1
-        return result[0]
-
-      return _get_singular_value_from_handler
 
     structure = jax.tree_util.tree_map(
         _process_aggregated_value, param_infos, structure, restore_args
@@ -692,18 +671,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     deserialized_batches = []
     deserialized_batches_ops = []
     for request in batch_requests:
-      if request.lazy:
-        deserialized_batches.append(
-            [
-                LazyValue(
-                    _lazy_get_fn(request.handler, request.infos, request.args)
-                )
-            ]
-        )
-      else:
-        deserialized_batches_ops.append(
-            request.handler.deserialize(request.infos, request.args)
-        )
+      deserialized_batches_ops.append(
+          request.handler.deserialize(request.infos, request.args)
+      )
     deserialized_batches += await asyncio.gather(*deserialized_batches_ops)
 
     flat_restored = utils.to_flat_dict(structure, sep='.')
@@ -749,8 +719,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         tree.
 
     Returns:
-      A PyTree matching the structure of `item`. If `lazy` restoration is
-      enabled, leaves will be returned as `LazyValue`.
+      A PyTree matching the structure of `item`.
 
     Raises:
       FileNotFoundError: `directory` does not exist or is missing required files

@@ -186,9 +186,6 @@ class SaveArgs:
 class RestoreArgs:
   """Extra arguments that can be provided for restoration.
 
-  lazy:
-    If True, restores using LazyArray. The actual read operation will not be
-    performed until `get` is called for the restored LazyArray.
   restore_type:
     Specifies the object type of the restored parameter. The type
     must have a corresponding TypeHandler for restoration. Ignored if the
@@ -198,7 +195,6 @@ class RestoreArgs:
     Note that the parameter must be compatible with the given type (e.g.
     jnp.bfloat16 is not compatible with np.ndarray).
   """
-  lazy: bool = False
   # TODO(b/253238305) Consider deprecating this in favor of saving type
   # information in checkpoint metadata.
   restore_type: Any = np.ndarray

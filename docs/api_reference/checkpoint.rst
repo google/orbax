@@ -12,5 +12,4 @@ orbax.checkpoint API Reference
    checkpoint.checkpoint_utils
    checkpoint.utils
    checkpoint.transform_utils
-   checkpoint.lazy_utils
    checkpoint.msgpack_utils

@@ -401,9 +401,6 @@ parameters are provided on an individual basis for each element in the PyTree.
     type that it was originally saved as, but we currently feel that this may
     overly anchor a checkpoint to specific versions and specific type
     implementations.
-*   `lazy`: if True, restores using [LazyValue](#LazyValue). The actual read
-    operation will not be performed until `get` is called for the restored
-    LazyValue
 *   `dtype`: if provided, casts the parameter to the given dtype after
     restoring. Note that the parameter must be compatible with the given type
     (e.g. jnp.bfloat16 is not compatible with np.ndarray).
@@ -499,20 +496,6 @@ The default implementation of `AggregateHandler` is `MsgpackHandler`, which
 serializes a PyTree into the msgpack format.
 
 ## Utilities
-
-### LazyValue
-
-[`LazyValue`](https://github.com/google/orbax/tree/main/orbax/checkpoint/lazy_array.py)
-provides a mechanism for delayed loading of values from a checkpoint. If a
-parameter is restored as a `LazyValue` (in `PyTreeCheckpointHandler`, setting
-`RestoreArgs.lazy = True`), the restored object will not yet have done the work
-of actually loading the parameter from Tensorstore.
-
-The actual loading will only be done when `.get()` is called on the `LazyValue`.
-
-Of course, for parameters aggregated into a single file containing many
-parameters, the loading does happen eagerly, regardless of whether `LazyValue`
-is used. However, parameters saved in this way should typically be small.
 
 ### Transformations
 
