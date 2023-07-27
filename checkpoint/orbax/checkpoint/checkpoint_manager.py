@@ -121,7 +121,7 @@ class CheckpointManagerOptions:
     One of ['max', 'min']. The best metric is determine on the basis of this
     value.
   keep_checkpoints_without_metrics:
-    If False, checkpoints with metrics present
+    If False, checkpoints without metrics present
     are eligible for cleanup. Otherwise, they will never be deleted.
   step_prefix:
     If provided, step directories will take the form
