@@ -45,7 +45,7 @@ class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
   async def async_save(
       self, directory: epath.Path, item: message.Message
-  ) -> List[future.Future]:
+  ) -> Optional[List[future.Future]]:
     """Saves the given proto.
 
     Args:
@@ -69,8 +69,9 @@ class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     async def async_save(directory, item):
       commit_futures = await self.async_save(directory, item)
-      for f in commit_futures:
-        f.result()
+      if commit_futures:
+        for f in commit_futures:
+          f.result()
 
     asyncio.run(async_save(directory, item))
     utils.sync_global_devices("ProtoCheckpointHandler:save")

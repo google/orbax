@@ -29,8 +29,6 @@ from etils import epath
 import jax
 from jax.experimental import multihost_utils
 import numpy as np
-from orbax.checkpoint.proto import tree_metadata_pb2
-
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 # prefix_1000.orbax-checkpoint-tmp-1010101
@@ -99,19 +97,12 @@ def async_write_bytes(path: epath.Path, data: Any):
   return _wrap(path.write_bytes)(data)
 
 
-def async_write_text(path: epath.Path, data: Any):
-  return _wrap(path.write_text)(data)
-
-
 def async_exists(path: epath.Path):
   return _wrap(path.exists)()
 
 
 class EmptyNode:
   pass
-
-
-# TODO(b/289258695): Refactor many of the following functions into tree_util.py.
 
 
 def is_empty_or_leaf(x: Any) -> bool:
@@ -136,35 +127,6 @@ def get_key_name(key: Any) -> Union[int, str]:
     raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
 
 
-def get_key_metadata_type(
-    key: Any,
-) -> tree_metadata_pb2.TreeMetadata.KeyValuePair.Key.KeyType:
-  """Translates the JAX key class into a proto enum."""
-  if isinstance(
-      key, (jax.tree_util.SequenceKey, jax.tree_util.FlattenedIndexKey)
-  ):
-    return tree_metadata_pb2.TreeMetadata.KeyValuePair.Key.KeyType.SEQUENCE
-  elif isinstance(key, (jax.tree_util.DictKey, jax.tree_util.GetAttrKey)):
-    return tree_metadata_pb2.TreeMetadata.KeyValuePair.Key.KeyType.DICT
-  else:
-    raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
-
-
-def keypath_from_key_metadata(
-    key: tree_metadata_pb2.TreeMetadata.KeyValuePair.Key,
-) -> Any:
-  """Converts from Key in TreeMetadata to JAX keypath class."""
-  if (
-      key.type
-      == tree_metadata_pb2.TreeMetadata.KeyValuePair.Key.KeyType.SEQUENCE
-  ):
-    return jax.tree_util.SequenceKey(int(key.name))
-  elif key.type == tree_metadata_pb2.TreeMetadata.KeyValuePair.Key.KeyType.DICT:
-    return jax.tree_util.DictKey(key.name)
-  else:
-    raise ValueError(f'Unsupported KeyEntry: {key.type}')
-
-
 def _is_dict_key(key) -> bool:
   return isinstance(key, (jax.tree_util.DictKey, jax.tree_util.GetAttrKey))
 
@@ -184,59 +146,6 @@ def _extend_list(ls, idx, nextvalue):
   if idx == len(ls):
     ls.append(nextvalue)
   return ls
-
-
-def from_flattened_with_keypath(flat_with_keys: PyTree) -> PyTree:
-  """Reconstructs a tree given the a flat dict with keypaths."""
-  # Accesses the first path element (arbitrary), first tuple element
-  # (keypath tuple), first key in keypath (outermost key in the PyTree).
-  outerkey = flat_with_keys[0][0][0]
-  if _is_dict_key(outerkey):
-    result = {}
-  elif _is_sequence_key(outerkey):
-    result = []
-  else:
-    result = None
-    _raise_unsupported_key_error(outerkey)
-
-  for keypath, value in flat_with_keys:
-    subtree = result
-    for i, key in enumerate(keypath):
-      if i == 0:
-        assert isinstance(key, type(outerkey))
-      if i == len(keypath) - 1:
-        if _is_dict_key(key):
-          assert isinstance(subtree, dict)
-          subtree[get_key_name(key)] = value
-        elif _is_sequence_key(key):
-          assert isinstance(subtree, list)
-          idx = get_key_name(key)
-          subtree = _extend_list(subtree, idx, value)
-      else:
-        nextkey = keypath[i + 1]
-        if _is_dict_key(nextkey):
-          nextvalue = {}
-        elif _is_sequence_key(nextkey):
-          nextvalue = []
-        else:
-          nextvalue = None
-          _raise_unsupported_key_error(nextkey)
-
-        if _is_dict_key(key):
-          assert isinstance(subtree, dict)
-          name = get_key_name(key)
-          if name not in subtree:
-            subtree[name] = nextvalue
-          subtree = subtree[name]
-        elif _is_sequence_key(key):
-          assert isinstance(subtree, list)
-          idx = get_key_name(key)
-          subtree = _extend_list(subtree, idx, nextvalue)
-          subtree = subtree[idx]
-        else:
-          _raise_unsupported_key_error(key)
-
-  return result
 
 
 def to_flat_dict(
@@ -290,7 +199,55 @@ def serialize_tree(tree: PyTree, keep_empty_nodes: bool = False) -> PyTree:
   flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
       tree, is_leaf=is_empty_or_leaf if keep_empty_nodes else None
   )
-  return from_flattened_with_keypath(flat_with_keys)
+  # Accesses the first path element (arbitrary), first tuple element
+  # (keypath tuple), first key in keypath (outermost key in the PyTree).
+  outerkey = flat_with_keys[0][0][0]
+  if _is_dict_key(outerkey):
+    result = {}
+  elif _is_sequence_key(outerkey):
+    result = []
+  else:
+    result = None
+    _raise_unsupported_key_error(outerkey)
+
+  for keypath, value in flat_with_keys:
+    subtree = result
+    for i, key in enumerate(keypath):
+      if i == 0:
+        assert isinstance(key, type(outerkey))
+      if i == len(keypath) - 1:
+        if _is_dict_key(key):
+          assert isinstance(subtree, dict)
+          subtree[get_key_name(key)] = value
+        elif _is_sequence_key(key):
+          assert isinstance(subtree, list)
+          idx = get_key_name(key)
+          subtree = _extend_list(subtree, idx, value)
+      else:
+        nextkey = keypath[i + 1]
+        if _is_dict_key(nextkey):
+          nextvalue = {}
+        elif _is_sequence_key(nextkey):
+          nextvalue = []
+        else:
+          nextvalue = None
+          _raise_unsupported_key_error(nextkey)
+
+        if _is_dict_key(key):
+          assert isinstance(subtree, dict)
+          name = get_key_name(key)
+          if name not in subtree:
+            subtree[name] = nextvalue
+          subtree = subtree[name]
+        elif _is_sequence_key(key):
+          assert isinstance(subtree, list)
+          idx = get_key_name(key)
+          subtree = _extend_list(subtree, idx, nextvalue)
+          subtree = subtree[idx]
+        else:
+          _raise_unsupported_key_error(key)
+
+  return result
 
 
 def deserialize_tree(

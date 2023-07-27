@@ -26,16 +26,14 @@ _sym_db = _symbol_database.Default()
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\tfoo.proto\x12\x10orbax.checkpoint"9\n\x03\x46oo\x12\x10\n\x03\x62\x61r\x18\x01'
-    b' \x01(\tH\x00\x88\x01\x01\x12\x10\n\x03\x62\x61z\x18\x02'
-    b' \x01(\x05H\x01\x88\x01\x01\x42\x06\n\x04_barB\x06\n\x04_bazb\x06proto3'
+    b'\n\tfoo.proto\x12\x05orbax"\x1f\n\x03\x46oo\x12\x0b\n\x03\x62\x61r\x18\x01'
+    b' \x01(\t\x12\x0b\n\x03\x62\x61z\x18\x02 \x01(\x05'
 )
 
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'foo_pb2', globals())
 if _descriptor._USE_C_DESCRIPTORS == False:
-
   DESCRIPTOR._options = None
-  _FOO._serialized_start = 31
-  _FOO._serialized_end = 88
+  _FOO._serialized_start = 20
+  _FOO._serialized_end = 51
 # @@protoc_insertion_point(module_scope)
