@@ -43,7 +43,7 @@ StringHandler
 
 OCDBT functions
 ------------------------
-.. autofunction:: create_coordinator_server_and_context
+.. autofunction:: start_coordinator_server_and_create_context
 .. autofunction:: is_ocdbt_checkpoint
 
 TypeHandler registry

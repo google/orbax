@@ -20,6 +20,7 @@ import dataclasses
 import json
 import os
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union, cast
+import warnings
 
 from absl import logging
 from etils import epath
@@ -37,6 +38,8 @@ import tensorstore as ts
 Scalar = Union[int, float, np.number]
 _OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
 _COORDINATOR_SETUP_TIMEOUT_SECS = 30
+_OCDBT_TS_CONTEXT = None
+_OCDBT_COORDINATOR_SERVER = None
 
 
 def _get_coordinator_address_without_port(coordinator_address: str) -> str:
@@ -44,74 +47,86 @@ def _get_coordinator_address_without_port(coordinator_address: str) -> str:
   return coordinator_address.split(':')[0]
 
 
-def create_coordinator_server_and_context() -> (
-    Tuple[ts.Context, Optional[ts.ocdbt.DistributedCoordinatorServer]]
-):
-  """Creates OCDBT coordinator and Tensorstore context.
+def _enable_ocdbt_for_handlers():
+  # TODO(b/293331479) remove this once OCDBT is enabled by default
+  if _OCDBT_TS_CONTEXT is not None:
+    for _, handler in _TYPE_REGISTRY:
+      if hasattr(handler, 'enable_ocdbt') and callable(handler.enable_ocdbt):
+        handler.enable_ocdbt(_OCDBT_TS_CONTEXT)
 
-  This function must be called at the start of the program across all processes
-  in order to initialize the OCDBT coordinator service. The coordinator object
-  should be kept alive for the life of the program, while the returned
-  ts.Context should be provided when saving or restoring using Tensorstore.
 
-  Example usage::
+def create_coordinator_server_and_context() -> None:
+  # TODO(b/293331479) remove this once OCDBT is enabled by default
+  warnings.warn('This function has been deprecated.  Do not use.')
 
-    ocdbt_context, coordinator_server = (
-        orbax.checkpoint.type_handlers.create_coordinator_server_and_context()
-    )
-    orbax.checkpoint.type_handlers.register_standard_handlers_with_options(
-        use_ocdbt=True, ts_context=ocdbt_context
-    )
-    orbax.checkpoint.utils.sync_global_devices('init_ocdbt_server')
 
-  Later, when creating the `PyTreeCheckpointHandler`, initialize with
-  `use_ocdbt=True`.
+def start_coordinator_server_and_create_context() -> None:
+  """Start a OCDBT coordinator and create a Tensorstore context.
+
+  This function is only for Orbax internal use.
+
+  The following function starts a coordinator_server and update type handlers
+  with enable_ocdbt() defined.
+
+  The context and server will be stored as global variables in _OCDBT_TS_CONTEXT
+  and _OCDBT_COORDINATOR_SERVER.  They will be preserved for the life of the
+  program.  Succeeding calls to this function will not try to start the
+  coordinator server again.
+
+  For testing purpose, if one needs to restart the coordinator server, set
+  _OCDBT_TS_CONTEXT and _OCDBT_COORDINATOR_SERVER to None and call this function
+  again.
 
   Returns:
-    Tuple of ts.Context and OCDBT coordinator server object.
+    None
   """
-  jax_global_state = jax._src.distributed.global_state  # pylint: disable=protected-access
-  if not jax_global_state.coordinator_address:
-    ts_context = {
-        # Provide cache pool for B-tree nodes to avoid repeated reads.
-        # 100MB limit.
-        'cache_pool#ocdbt': {'total_bytes_limit': 100000000},
-    }
-    return (
-        ts.Context(ts_context, parent=serialization.TS_CONTEXT),
-        None,
-    )
+  global _OCDBT_TS_CONTEXT, _OCDBT_COORDINATOR_SERVER
 
-  ocdbt_address = _get_coordinator_address_without_port(
-      jax_global_state.coordinator_address
-  )
+  if _OCDBT_TS_CONTEXT is not None:
+    # OCDBT ts_context is already set, return
+    return
 
-  coordinator_server = None
-  if jax_global_state.process_id == 0:
-    bind_address = f'{ocdbt_address}:0'
-    logging.info('Starting DistributedCoordinatorServer at: %s', bind_address)
-    coordinator_server = ts.ocdbt.DistributedCoordinatorServer({
-        'bind_addresses': [bind_address],
-    })
-    jax_global_state.client.key_value_set(
-        'ocdbt_coordinator', f'{ocdbt_address}:{coordinator_server.port}'
-    )
-
-  ocdbt_address = jax_global_state.client.blocking_key_value_get(
-      'ocdbt_coordinator', _COORDINATOR_SETUP_TIMEOUT_SECS * 1000
-  )
   ts_context = {
-      'ocdbt_coordinator': {
-          'address': ocdbt_address,
-      },
       # Provide cache pool for B-tree nodes to avoid repeated reads.
       # 100MB limit.
       'cache_pool#ocdbt': {'total_bytes_limit': 100000000},
   }
-  return (
-      ts.Context(ts_context, parent=serialization.TS_CONTEXT),
-      coordinator_server,
-  )
+
+  jax_global_state = jax._src.distributed.global_state  # pylint: disable=protected-access
+  if (
+      jax_global_state.coordinator_address
+      and jax_global_state.num_processes > 1
+  ):
+    ocdbt_address = _get_coordinator_address_without_port(
+        jax_global_state.coordinator_address
+    )
+
+    if jax_global_state.process_id == 0:
+      bind_address = f'{ocdbt_address}:0'
+      _OCDBT_COORDINATOR_SERVER = ts.ocdbt.DistributedCoordinatorServer(
+          {
+              'bind_addresses': [bind_address],
+          }
+      )
+      ocdbt_coordinator = f'{ocdbt_address}:{_OCDBT_COORDINATOR_SERVER.port}'
+      logging.info(
+          'Started DistributedCoordinatorServer at: %s', ocdbt_coordinator
+      )
+      jax_global_state.client.key_value_set(
+          'ocdbt_coordinator', ocdbt_coordinator
+      )
+
+    ocdbt_address = jax_global_state.client.blocking_key_value_get(
+        'ocdbt_coordinator', _COORDINATOR_SETUP_TIMEOUT_SECS * 1000
+    )
+
+    # add ocdbt_coordinator spec into ts_context
+    ts_context['ocdbt_coordinator'] = {
+        'address': ocdbt_address,
+    }
+
+  _OCDBT_TS_CONTEXT = ts.Context(ts_context, parent=serialization.TS_CONTEXT)
+  _enable_ocdbt_for_handlers()
 
 
 async def _assert_parameter_files_exist(
@@ -343,6 +358,10 @@ class NumpyHandler(TypeHandler):
         {'file_io_concurrency': {'limit': 128}}
     )
 
+  def enable_ocdbt(self, ts_context: ts.Context) -> None:
+    self._use_ocdbt = True
+    self._ts_context = ts_context
+
   def _get_json_tspec(
       self,
       info: ParamInfo,
@@ -520,6 +539,10 @@ class ArrayHandler(TypeHandler):
     self._ts_context = ts_context or ts.Context(
         {'file_io_concurrency': {'limit': 128}}
     )
+
+  def enable_ocdbt(self, ts_context: ts.Context) -> None:
+    self._use_ocdbt = True
+    self._ts_context = ts_context
 
   def _get_json_tspec(
       self,

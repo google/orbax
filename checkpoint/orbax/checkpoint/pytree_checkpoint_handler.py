@@ -106,6 +106,7 @@ def _maybe_shard_array(value, args):
 
 def _get_param_names(item: PyTree) -> PyTree:
   """Gets parameter names for PyTree elements."""
+
   def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
     return '.'.join([str(utils.get_key_name(k)) for k in keypath])
 
@@ -127,13 +128,13 @@ def _find_matching_input_args(
     flat_restore_args: Dict[TupleKey, RestoreArgs],
 ) -> Optional[RestoreArgs]:
   """Given an input_key, tries to find matching RestoreArgs for the input.
-  
+
   Args:
     input_key: A key in the input tree.
     flat_item: The flattened, user-provided item.
     flat_transforms: Flattened transformations dict.
     flat_restore_args: Flattened tree of RestoreArgs, relative to item.
-    
+
   Returns:
     RestoreArgs that match the given input_key, according to the
     transformations, or None if no match is found.
@@ -359,6 +360,7 @@ def _get_tree_for_aggregation(param_infos, save_args, item):
 @dataclasses.dataclass
 class _BatchRequest:
   """Represents a a request for batched serialization or deserialization."""
+
   handler: TypeHandler
   values: List[Any]
   infos: List[ParamInfo]
@@ -445,8 +447,10 @@ def _transform_structure(
   """
   if item is None:
     if transforms is not None:
-      msg = ('If providing `transforms`, must provide `item` matching structure'
-             ' of expected result.')
+      msg = (
+          'If providing `transforms`, must provide `item` matching structure'
+          ' of expected result.'
+      )
       raise ValueError(msg)
     item = restored
   else:
@@ -460,7 +464,8 @@ def _transform_structure(
         )
       transforms = _multi_value_fns_with_args(transforms, restore_args)
       item = transform_utils.apply_transformations(
-          restored, transforms, item, transforms_default_to_original)
+          restored, transforms, item, transforms_default_to_original
+      )
   return item
 
 
@@ -499,6 +504,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     self._concurrent_gb = concurrent_gb
     self._use_ocdbt = use_ocdbt
     self._restore_with_serialized_types = restore_with_serialized_types
+
+    if self._use_ocdbt:
+      type_handlers.start_coordinator_server_and_create_context()
 
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
@@ -555,7 +563,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       self,
       directory: epath.Path,
       item: PyTree,
-      save_args: Optional[PyTree] = None) -> Optional[List[Future]]:
+      save_args: Optional[PyTree] = None,
+  ) -> Optional[List[Future]]:
     """Saves a PyTree from a given training step.
 
     This operation is compatible with a multi-host, multi-device setting. Tree
@@ -728,7 +737,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     """
     if not directory.exists():
       raise FileNotFoundError(
-          f'Requested directory for restore does not exist at {directory}')
+          f'Requested directory for restore does not exist at {directory}'
+      )
 
     async def _create_byte_limiter():
       # Wrap creation in async function to avoid issues on python<=3.9.
