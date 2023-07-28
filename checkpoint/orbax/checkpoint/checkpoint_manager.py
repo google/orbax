@@ -334,10 +334,7 @@ class CheckpointManager:
 
   def reached_preemption(self, step: int) -> bool:
     """Returns True if a preemption sync point has been reached."""
-    return (
-        jax.config.jax_coordination_service
-        and multihost_utils.reached_preemption_sync_point(step)
-    )
+    return multihost_utils.reached_preemption_sync_point(step)
 
   def should_save(self, step: int) -> bool:
     """Returns True if a checkpoint should be saved for the current step.
