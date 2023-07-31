@@ -186,7 +186,11 @@ def _get_param_names(params: PyTree) -> PyTree:
   """Gets parameter names for PyTree elements."""
 
   def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
-    return '.'.join([str(ckpt_utils.get_key_name(k)) for k in keypath]).replace("~", "_")
+    path = '.'.join([str(ckpt_utils.get_key_name(k)) for k in keypath])
+    # '~' is not allowed in variable names but are used by dm-haiku. See
+    # https://github.com/google/orbax/issues/420
+    path = path.replace('~', '_')
+    return path
 
   names = jax.tree_util.tree_map_with_path(
       lambda kp, _: _param_name_from_keypath(kp), params
