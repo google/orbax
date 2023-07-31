@@ -9,7 +9,6 @@ orbax.export API Reference
    export.export_manager_base
    export.jax_module
    export.serving_config
+   export.utils
    export.validate.validation_manager
    export.validate.validation_report
-
-
