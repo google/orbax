@@ -118,7 +118,7 @@ def start_coordinator_server_and_create_context() -> None:
       )
       ocdbt_coordinator = f'{ocdbt_address}:{_OCDBT_COORDINATOR_SERVER.port}'
       logging.info(
-          'Started DistributedCoordinatorServer at: %s', ocdbt_coordinator
+          'Started OCDBT DistributedCoordinatorServer at: %s', ocdbt_coordinator
       )
       jax_global_state.client.key_value_set(
           'ocdbt_coordinator', ocdbt_coordinator
@@ -135,6 +135,7 @@ def start_coordinator_server_and_create_context() -> None:
 
   _OCDBT_TS_CONTEXT = ts.Context(ts_context, parent=serialization.TS_CONTEXT)
   _enable_ocdbt_for_handlers()
+  logging.info('OCDBT is initialized successfully.')
 
 
 def _use_ocdbt_for_restore(
@@ -223,10 +224,13 @@ class ParamInfo:
     Indicates whether the checkpoint path uses OCDBT format
     or not. Only used for restoration.
   """
+
   name: Optional[str] = None
   path: Optional[epath.Path] = None
   skip_deserialize: Optional[bool] = None
-  byte_limiter: Optional[serialization._LimitInFlightBytes] = None  # pylint: disable=protected-access
+  byte_limiter: Optional[serialization._LimitInFlightBytes] = (
+      None  # pylint: disable=protected-access
+  )
   is_ocdbt_checkpoint: Optional[bool] = None
 
 
@@ -242,6 +246,7 @@ class SaveArgs:
     Note that the parameter must be compatible with the given type (e.g.
     jnp.bfloat16 is not compatible with np.ndarray).
   """
+
   aggregate: bool = False
   dtype: Optional[jnp.dtype] = None
 
@@ -259,6 +264,7 @@ class RestoreArgs:
     Note that the parameter must be compatible with the given type (e.g.
     jnp.bfloat16 is not compatible with np.ndarray).
   """
+
   restore_type: Optional[Any] = None
   dtype: Optional[jnp.dtype] = None
 
@@ -468,9 +474,7 @@ class NumpyHandler(TypeHandler):
     """Gets Tensorstore spec for writing."""
     tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
     tspec['metadata'] = {
-        'compressor': {
-            'id': 'zstd'
-        },
+        'compressor': {'id': 'zstd'},
     }
     tspec['metadata']['shape'] = value.shape
     tspec['metadata']['chunks'] = value.shape
@@ -562,8 +566,7 @@ class NumpyHandler(TypeHandler):
 
 
 class ScalarHandler(NumpyHandler):
-  """A wrapper around NumpyHandler to deal with scalar types (int, float, etc.).
-  """
+  """A wrapper around NumpyHandler to deal with scalar types (int, float, etc.)."""
 
   def typestr(self) -> str:
     return 'scalar'
@@ -619,6 +622,7 @@ class ArrayRestoreArgs(RestoreArgs):
     global_shape is shorter than that of the saved array, excess elements will
     be dropped from the end of the array.
   """
+
   mesh: Optional[Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
   sharding: Optional[jax.sharding.Sharding] = None
@@ -862,10 +866,12 @@ def _make_typestr_registry(type_registry: Any) -> Dict[str, TypeHandler]:
 _TYPESTR_REGISTRY = _make_typestr_registry(_TYPE_REGISTRY)
 
 
-def register_type_handler(ty: Any,
-                          handler: TypeHandler,
-                          func: Optional[Callable[[Any], bool]] = None,
-                          override: bool = False):
+def register_type_handler(
+    ty: Any,
+    handler: TypeHandler,
+    func: Optional[Callable[[Any], bool]] = None,
+    override: bool = False,
+):
   """Registers a type for serialization/deserialization with a given handler.
 
   Note that it is possible for a type to match multiple different entries in
@@ -877,8 +883,8 @@ def register_type_handler(ty: Any,
     handler: a TypeHandler capable of reading and writing parameters of type
       `ty`.
     func: A function that accepts a type and returns True if the type should be
-      handled by the provided TypeHandler. If not specified, defaults to
-      `lambda t: issubclass(t, ty)`.
+      handled by the provided TypeHandler. If this parameter is not specified,
+      defaults to `lambda t: issubclass(t, ty)`.
     override: if True, will override an existing mapping of type to handler.
 
   Raises:
