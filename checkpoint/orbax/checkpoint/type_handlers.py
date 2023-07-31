@@ -55,10 +55,12 @@ def _get_coordinator_address_without_port(coordinator_address: str) -> str:
 
 def _enable_ocdbt_for_handlers():
   # TODO(b/293331479) remove this once OCDBT is enabled by default
+  global _TYPESTR_REGISTRY
   if _OCDBT_TS_CONTEXT is not None:
     for _, handler in _TYPE_REGISTRY:
       if hasattr(handler, 'enable_ocdbt') and callable(handler.enable_ocdbt):
         handler.enable_ocdbt(_OCDBT_TS_CONTEXT)
+    _TYPESTR_REGISTRY = _make_typestr_registry(_TYPE_REGISTRY)
 
 
 def create_coordinator_server_and_context() -> None:
@@ -133,6 +135,18 @@ def start_coordinator_server_and_create_context() -> None:
 
   _OCDBT_TS_CONTEXT = ts.Context(ts_context, parent=serialization.TS_CONTEXT)
   _enable_ocdbt_for_handlers()
+
+
+def _use_ocdbt_for_restore(
+    maybe_use_ocdbt: bool, checkpoint_is_ocdbt: bool
+) -> bool:
+  """Determines whether the checkpoint should be restored using OCDBT."""
+  if not maybe_use_ocdbt and checkpoint_is_ocdbt:
+    raise ValueError(
+        'TypeHandler is not configured to allow OCDBT restoration, but found'
+        ' OCDBT checkpoint.'
+    )
+  return maybe_use_ocdbt and checkpoint_is_ocdbt
 
 
 async def _assert_parameter_files_exist(
@@ -477,7 +491,9 @@ class NumpyHandler(TypeHandler):
     open_ops = []
     for info in infos:
       # Using OCDBT, but existing checkpoint may be stored in old format.
-      use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
+      use_ocdbt = _use_ocdbt_for_restore(
+          self._use_ocdbt, info.is_ocdbt_checkpoint
+      )
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       open_ops.append(
           ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
@@ -532,7 +548,9 @@ class NumpyHandler(TypeHandler):
       if not info.is_ocdbt_checkpoint:
         await _assert_parameter_files_exist(info.path, self._metadata_key)
       # Using OCDBT, but existing checkpoint may be stored in old format.
-      use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
+      use_ocdbt = _use_ocdbt_for_restore(
+          self._use_ocdbt, info.is_ocdbt_checkpoint
+      )
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       tspec = _get_cast_tspec_deserialize(tspec, arg)
       open_futures += [
@@ -678,7 +696,9 @@ class ArrayHandler(TypeHandler):
     open_ops = []
     for info in infos:
       # Using OCDBT, but existing checkpoint may be stored in old format.
-      use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
+      use_ocdbt = _use_ocdbt_for_restore(
+          self._use_ocdbt, info.is_ocdbt_checkpoint
+      )
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       open_ops.append(
           ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
@@ -762,7 +782,9 @@ class ArrayHandler(TypeHandler):
       if not info.is_ocdbt_checkpoint:
         await _assert_parameter_files_exist(info.path, self._metadata_key)
       # Using OCDBT, but existing checkpoint may be stored in old format.
-      use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
+      use_ocdbt = _use_ocdbt_for_restore(
+          self._use_ocdbt, info.is_ocdbt_checkpoint
+      )
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       tspec = _get_cast_tspec_deserialize(tspec, arg)
       deserialize_ops += [
@@ -832,7 +854,12 @@ _TYPE_REGISTRY = [
     (lambda ty: issubclass(ty, str), StringHandler()),
 ]
 
-_TYPESTR_REGISTRY = {h.typestr(): h for _, h in _TYPE_REGISTRY}
+
+def _make_typestr_registry(type_registry: Any) -> Dict[str, TypeHandler]:
+  return {h.typestr(): h for _, h in type_registry}
+
+
+_TYPESTR_REGISTRY = _make_typestr_registry(_TYPE_REGISTRY)
 
 
 def register_type_handler(ty: Any,
