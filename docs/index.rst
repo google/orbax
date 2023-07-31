@@ -102,6 +102,13 @@ Checkpointing
    .. grid-item::
       :columns: 6 6 6 4
 
+      .. card:: Transformations
+         :class-card: sd-text-black sd-bg-light
+         :link: transformations.html
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
       .. card:: API Reference
          :class-card: sd-text-black sd-bg-light
          :link: api_reference/checkpoint.html
