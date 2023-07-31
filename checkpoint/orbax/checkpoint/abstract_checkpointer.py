@@ -65,9 +65,10 @@ class AbstractCheckpointer(abc.ABC):
     """
     pass
 
-  @abc.abstractmethod
   def structure(self, directory: epath.PathLike) -> Optional[Any]:
-    """The structure of the saved object at `directory`.
+    """DEPRECATED.
+
+    The structure of the saved object at `directory`.
 
     Delegates to underlying handler.
 
@@ -77,6 +78,20 @@ class AbstractCheckpointer(abc.ABC):
     Returns:
       the object structure or None, if the underlying handler does not implement
       `structure`.
+    """
+    pass
+
+  def metadata(self, directory: epath.PathLike) -> Optional[Any]:
+    """Returns metadata about the saved item.
+
+    Ideally, this is a cheap way to collect information about the checkpoint
+    without requiring a full restoration.
+
+    Args:
+      directory: the directory where the checkpoint is located.
+
+    Returns:
+      item metadata
     """
     pass
 

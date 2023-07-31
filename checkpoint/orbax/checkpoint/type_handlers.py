@@ -19,6 +19,7 @@ import asyncio
 import dataclasses
 import json
 import os
+import typing
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union, cast
 import warnings
 
@@ -31,11 +32,16 @@ import jax.numpy as jnp
 from jax.sharding import Mesh
 import numpy as np
 from orbax.checkpoint import utils
+from orbax.checkpoint import value_metadata
 from orbax.checkpoint.future import Future
 import tensorstore as ts
 
 
 Scalar = Union[int, float, np.number]
+Metadata = value_metadata.Metadata
+ScalarMetadata = value_metadata.ScalarMetadata
+ArrayMetadata = value_metadata.ArrayMetadata
+StringMetadata = value_metadata.StringMetadata
 _OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
 _COORDINATOR_SETUP_TIMEOUT_SECS = 30
 _OCDBT_TS_CONTEXT = None
@@ -149,6 +155,34 @@ async def _assert_parameter_files_exist(
     )
 
 
+def get_empty_value_typestr(value: Any) -> str:
+  if not utils.is_supported_empty_aggregation_type(value):
+    raise ValueError(f'{value} is not a supported empty aggregation type.')
+  if isinstance(value, list):
+    return 'List'
+  elif isinstance(value, dict):
+    return 'Dict'
+  elif isinstance(value, type(None)):
+    return 'None'
+  else:
+    raise ValueError(f'Unrecognized empty type: {value}.')
+
+
+def is_empty_typestr(typestr: str) -> bool:
+  return typestr == 'List' or typestr == 'Dict' or typestr == 'None'
+
+
+def get_empty_value_from_typestr(typestr: str) -> Any:
+  if typestr == 'List':
+    return []
+  elif typestr == 'Dict':
+    return {}
+  elif typestr == 'None':
+    return None
+  else:
+    raise ValueError(f'Unrecognized typestr: {typestr}.')
+
+
 @dataclasses.dataclass
 class ParamInfo:
   """Information describing a parameter in a PyTree.
@@ -166,7 +200,8 @@ class ParamInfo:
     If specified, skips deserialization of the given parameter using the
     TypeHandler. This may be for multiple different reasons, including that the
     parameter may have been aggregated, or it will be unneeded after
-    transformations.
+    transformations. Note: this parameter is handled by PyTreeCheckpointHandler,
+    so it is unnecessary for TypeHandler implementations to deal with it.
   byte_limiter:
     Object to limit the number of bytes that can be read in
     parallel.
@@ -210,14 +245,35 @@ class RestoreArgs:
     Note that the parameter must be compatible with the given type (e.g.
     jnp.bfloat16 is not compatible with np.ndarray).
   """
-  # TODO(b/253238305) Consider deprecating this in favor of saving type
-  # information in checkpoint metadata.
-  restore_type: Any = np.ndarray
+  restore_type: Optional[Any] = None
   dtype: Optional[jnp.dtype] = None
 
 
 class TypeHandler(abc.ABC):
   """Interface for reading and writing a PyTree leaf."""
+
+  @abc.abstractmethod
+  def typestr(self) -> str:
+    """A string representation of the type.
+
+    Cannot conflict with other types.
+
+    Returns:
+      The type as a string.
+    """
+    pass
+
+  @abc.abstractmethod
+  async def metadata(self, infos: Sequence[ParamInfo]) -> Sequence[Metadata]:
+    """Constructs object metadata from a stored parameter location.
+
+    Args:
+      infos: sequence of ParamInfo
+
+    Returns:
+      Sequence of Metadata for each provided ParamInfo.
+    """
+    pass
 
   @abc.abstractmethod
   async def serialize(
@@ -331,6 +387,20 @@ def _add_write_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
   return tspec
 
 
+def _array_metadata_from_tensorstore(t: Any) -> ArrayMetadata:
+  if t.chunk_layout.read_chunk.shape is None:
+    shards = None
+  else:
+    shards = tuple(
+        [int(s / c) for s, c in zip(t.shape, t.chunk_layout.read_chunk.shape)]
+    )
+  return ArrayMetadata(
+      shape=t.shape,
+      dtype=jnp.dtype(t.dtype.name),
+      shards=shards,
+  )
+
+
 class NumpyHandler(TypeHandler):
   """Provides an implementation of TypeHandler for replicated numpy arrays."""
 
@@ -379,7 +449,7 @@ class NumpyHandler(TypeHandler):
     return tspec
 
   def _get_json_tspec_write(
-      self, info: ParamInfo, value: Any, use_ocdbt: bool = False
+      self, info: ParamInfo, value: np.ndarray, use_ocdbt: bool = False
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
     tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
@@ -388,9 +458,8 @@ class NumpyHandler(TypeHandler):
             'id': 'zstd'
         },
     }
-    if value is not None:
-      tspec['metadata']['shape'] = value.shape
-      tspec['metadata']['chunks'] = value.shape
+    tspec['metadata']['shape'] = value.shape
+    tspec['metadata']['chunks'] = value.shape
     if use_ocdbt:
       tspec = _add_write_tspec_ocdbt_options(tspec)
     return tspec
@@ -400,6 +469,22 @@ class NumpyHandler(TypeHandler):
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
     return self._get_json_tspec(info, use_ocdbt=use_ocdbt)
+
+  def typestr(self) -> str:
+    return 'np.ndarray'
+
+  async def metadata(self, infos: Sequence[ParamInfo]) -> Sequence[Metadata]:
+    open_ops = []
+    for info in infos:
+      # Using OCDBT, but existing checkpoint may be stored in old format.
+      use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
+      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+      open_ops.append(
+          ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
+      )
+
+    tensorstores = await asyncio.gather(*open_ops)
+    return [_array_metadata_from_tensorstore(t) for t in tensorstores]
 
   async def serialize(
       self,
@@ -462,6 +547,16 @@ class ScalarHandler(NumpyHandler):
   """A wrapper around NumpyHandler to deal with scalar types (int, float, etc.).
   """
 
+  def typestr(self) -> str:
+    return 'scalar'
+
+  async def metadata(self, infos: Sequence[ParamInfo]) -> Sequence[Metadata]:
+    metadatas = await super().metadata(infos)
+    return [
+        ScalarMetadata(dtype=typing.cast(ArrayMetadata, m).dtype)
+        for m in metadatas
+    ]
+
   async def serialize(
       self,
       values: Sequence[Scalar],  # pytype: disable=signature-mismatch
@@ -506,7 +601,6 @@ class ArrayRestoreArgs(RestoreArgs):
     global_shape is shorter than that of the saved array, excess elements will
     be dropped from the end of the array.
   """
-  restore_type: Any = jax.Array
   mesh: Optional[Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
   sharding: Optional[jax.sharding.Sharding] = None
@@ -576,6 +670,22 @@ class ArrayHandler(TypeHandler):
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
     return self._get_json_tspec(info, use_ocdbt=use_ocdbt)
+
+  def typestr(self) -> str:
+    return 'jax.Array'
+
+  async def metadata(self, infos: Sequence[ParamInfo]) -> Sequence[Metadata]:
+    open_ops = []
+    for info in infos:
+      # Using OCDBT, but existing checkpoint may be stored in old format.
+      use_ocdbt = self._use_ocdbt and info.is_ocdbt_checkpoint
+      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+      open_ops.append(
+          ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
+      )
+
+    tensorstores = await asyncio.gather(*open_ops)
+    return [_array_metadata_from_tensorstore(t) for t in tensorstores]
 
   async def serialize(
       self,
@@ -667,11 +777,18 @@ class ArrayHandler(TypeHandler):
     return await asyncio.gather(*deserialize_ops)
 
 
+# TODO(b/285888834) Consider using Tensorstore JSON driver.
 class StringHandler(TypeHandler):
   """TypeHandler for strings."""
 
   def __init__(self, filename: Optional[str] = None):
     self._filename = filename or '_strings.json'
+
+  def typestr(self) -> str:
+    return 'string'
+
+  async def metadata(self, infos: Sequence[ParamInfo]) -> Sequence[Metadata]:
+    return [StringMetadata()] * len(infos)
 
   async def serialize(
       self,
@@ -715,6 +832,8 @@ _TYPE_REGISTRY = [
     (lambda ty: issubclass(ty, str), StringHandler()),
 ]
 
+_TYPESTR_REGISTRY = {h.typestr(): h for _, h in _TYPE_REGISTRY}
+
 
 def register_type_handler(ty: Any,
                           handler: TypeHandler,
@@ -750,9 +869,16 @@ def register_type_handler(ty: Any,
       break
 
   if existing_handler_idx is None:
+    if handler.typestr() in _TYPESTR_REGISTRY:
+      raise ValueError(
+          f'Type "{ty}" has a `typestr` ("{handler.typestr()}") which collides'
+          ' with that of an existing TypeHandler.'
+      )
     _TYPE_REGISTRY.append((func, handler))
+    _TYPESTR_REGISTRY[handler.typestr()] = handler
   elif override:
     _TYPE_REGISTRY[existing_handler_idx] = (func, handler)
+    _TYPESTR_REGISTRY[handler.typestr()] = handler
   else:
     raise ValueError(f'A TypeHandler for "{ty}" is already registered.')
 
@@ -761,7 +887,7 @@ def get_type_handler(ty: Any) -> TypeHandler:
   """Returns the handler registered for a given type, if available.
 
   Args:
-    ty: an object type.
+    ty: an object type (or string representation of the type.)
 
   Returns:
     The TypeHandler that is registered for the given type.
@@ -769,9 +895,13 @@ def get_type_handler(ty: Any) -> TypeHandler:
   Raises:
     ValueError if the given type has no registered handler.
   """
-  for func, handler in _TYPE_REGISTRY:
-    if func(ty):
-      return handler
+  if isinstance(ty, str):
+    if ty in _TYPESTR_REGISTRY:
+      return _TYPESTR_REGISTRY[ty]
+  else:
+    for func, handler in _TYPE_REGISTRY:
+      if func(ty):
+        return handler
   raise ValueError(f'Unknown type: "{ty}". Must register a TypeHandler.')
 
 
@@ -802,3 +932,13 @@ def register_standard_handlers_with_options(**kwargs):
       ArrayHandler(**kwargs),
       override=True,
   )
+
+
+# TODO(b/253238305) Deprecate when all checkpoints have saved types.
+def default_restore_type(args: RestoreArgs) -> Any:
+  if isinstance(args, ArrayRestoreArgs):
+    return jax.Array
+  elif isinstance(args, RestoreArgs):
+    return np.ndarray
+  else:
+    raise ValueError(f'Unsupported restore_args type: {type(args)}')

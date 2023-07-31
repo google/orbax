@@ -24,6 +24,7 @@ from orbax.checkpoint import test_utils
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint import value_metadata
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.array_checkpoint_handler import ArrayCheckpointHandler
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler

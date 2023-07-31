@@ -102,13 +102,10 @@ class Checkpointer(AbstractCheckpointer):
     logging.info('Finished restoring checkpoint from %s.', directory)
     return restored
 
-  def structure(self, directory: epath.PathLike) -> Optional[Any]:
+  def metadata(self, directory: epath.PathLike) -> Optional[Any]:
     """See superclass documentation."""
     directory = epath.Path(directory)
-    try:
-      return self._handler.structure(directory)
-    except NotImplementedError:
-      return
+    return self._handler.metadata(directory)
 
   def close(self):
     """Closes the underlying CheckpointHandler."""

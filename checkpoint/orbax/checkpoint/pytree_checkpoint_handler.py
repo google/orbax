@@ -18,7 +18,9 @@ Implementation of CheckpointHandler interface.
 """
 
 import asyncio
+import collections
 import dataclasses
+import enum
 import re
 import typing
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -29,12 +31,13 @@ import jax
 from jax.experimental.array_serialization import serialization
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
+from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint import value_metadata
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint.future import Future
-import tensorstore as ts
 
 
 PyTree = Any
@@ -49,9 +52,103 @@ MsgpackHandler = aggregate_handlers.MsgpackHandler
 TransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
 Transform = transform_utils.Transform
 RestoreTransform = transform_utils.RestoreTransform
+JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
 
-_TYPE_METADATA_FILE = 'type_metadata'
+
+_METADATA_FILE = '_METADATA'
 _CHECKPOINT_FILE = 'checkpoint'
+
+
+### Metadata utils
+_KEY_NAME = 'key'
+_KEY_TYPE = 'key_type'
+_VALUE_TYPE = 'value_type'
+_SKIP_DESERIALIZE = 'skip_deserialize'
+
+_TREE_METADATA_KEY = 'tree_metadata'
+_KEY_METADATA_KEY = 'key_metadata'
+_VALUE_METADATA_KEY = 'value_metadata'
+
+
+class KeyType(enum.Enum):
+  """Enum representing PyTree key type."""
+
+  SEQUENCE = 1
+  DICT = 2
+
+  def to_json(self) -> int:
+    return self.value
+
+  @classmethod
+  def from_json(cls, value: int) -> 'KeyType':
+    return cls(value)
+
+
+def _get_key_metadata_type(key: Any) -> KeyType:
+  """Translates the JAX key class into a proto enum."""
+  if utils.is_sequence_key(key):
+    return KeyType.SEQUENCE
+  elif utils.is_dict_key(key):
+    return KeyType.DICT
+  else:
+    raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
+
+
+def _keypath_from_key_type(key_name: str, key_type: KeyType) -> Any:
+  """Converts from Key in TreeMetadata to JAX keypath class."""
+  if key_type == KeyType.SEQUENCE:
+    return jax.tree_util.SequenceKey(int(key_name))
+  elif key_type == KeyType.DICT:
+    return jax.tree_util.DictKey(key_name)
+  else:
+    raise ValueError(f'Unsupported KeyEntry: {key_type}')
+
+
+def _get_keypath_metadata(keypath: Any) -> Tuple[Dict[str, Any]]:
+  """Gets JSON metadata for a JAX keypath."""
+  keypath_serialized = []
+  for k in keypath:
+    keypath_serialized.append({
+        _KEY_NAME: str(utils.get_key_name(k)),
+        _KEY_TYPE: _get_key_metadata_type(k).to_json(),
+    })
+  return tuple(keypath_serialized)
+
+
+def _keypath_from_metadata(keypath_serialized: Tuple[Dict[str, Any]]) -> Any:
+  """Creates a JAX keypath from JSON metadata."""
+  keypath = []
+  for k in keypath_serialized:
+    keypath.append(
+        _keypath_from_key_type(k[_KEY_NAME], KeyType.from_json(k[_KEY_TYPE]))
+    )
+  return tuple(keypath)
+
+
+def _get_value_metadata(value: Any, save_arg: SaveArgs) -> Dict[str, Any]:
+  """Gets JSON metadata for a given value."""
+  if utils.is_supported_empty_aggregation_type(value):
+    typestr = type_handlers.get_empty_value_typestr(value)
+    skip_deserialize = True
+  else:
+    try:
+      handler = type_handlers.get_type_handler(type(value))
+      typestr = handler.typestr()
+      skip_deserialize = save_arg.aggregate
+    except ValueError:
+      # Not an error because users' training states often have a bunch of
+      # random unserializable objects in them (empty states, optimizer
+      # objects, etc.). An error occurring due to a missing TypeHandler
+      # will be surfaced elsewhere.
+      typestr = 'None'
+      skip_deserialize = True
+  return {
+      _VALUE_TYPE: typestr,
+      _SKIP_DESERIALIZE: skip_deserialize,
+  }
+
+
+### End metadata utils
 
 
 async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
@@ -187,6 +284,13 @@ def _has_use_fallback_transform(
   return result
 
 
+@dataclasses.dataclass
+class _InternalValueMetadata:
+  restore_type: Optional[str]
+  skip_deserialize: bool = False
+  aggregate_value: Optional[Any] = None
+
+
 def _get_restore_parameters(
     directory: epath.Path,
     item: Optional[PyTree],
@@ -242,34 +346,25 @@ def _get_restore_parameters(
   flat_input_restore_args = {}
   is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
 
-  def _get_param_info(nested_name: Tuple[str, ...], leaf: Any) -> ParamInfo:
-    if utils.leaf_is_placeholder(leaf):
-      # Leaf is a param name.
-      path = directory / utils.name_from_leaf_placeholder(leaf)
-    # The following is kept for backwards compatibility.
-    elif isinstance(leaf, ts.Spec):
-      tspec = leaf.to_json()  # pytype: disable=attribute-error
-      # Skip '.', since we need special regex handling for this char.
-      pattern = r'\.' + utils.TMP_DIR_SUFFIX[1:] + r'\d+'
-      path = re.sub(pattern, '', tspec['kvstore']['path'])
-    elif utils.is_supported_empty_aggregation_type(leaf):
-      return leaf  # Empty node, ParamInfo should not be returned.
-    elif utils.is_supported_aggregation_type(leaf):
-      # Value already restored, do not need ts.Spec.
-      path = None
-    else:
-      raise ValueError(f'Unsupported type: {type(leaf)}')
+  def _get_param_info(
+      nested_name: Tuple[str, ...],
+      meta: _InternalValueMetadata,
+  ) -> Union[ParamInfo, Any]:
+    if utils.is_supported_empty_aggregation_type(meta):
+      # Empty node, ParamInfo should not be returned.
+      return meta
+    name = '.'.join(nested_name)
     return ParamInfo(
-        name='.'.join(nested_name),
-        path=path,
-        skip_deserialize=(path is None),
+        name=name,
+        path=directory / name,
+        skip_deserialize=meta.skip_deserialize,
         is_ocdbt_checkpoint=is_ocdbt_checkpoint,
         byte_limiter=byte_limiter,
     )
 
   if transforms is None:
-    for key, value in flat_structure.items():
-      flat_param_infos[key] = _get_param_info(key, value)
+    for key, meta in flat_structure.items():
+      flat_param_infos[key] = _get_param_info(key, meta)
     restore_args = utils.serialize_tree(restore_args, keep_empty_nodes=True)
   else:
     if item is None:
@@ -280,12 +375,12 @@ def _get_restore_parameters(
     flat_item = utils.to_flat_dict(item, keep_empty_nodes=True)
     flat_transforms = utils.to_flat_dict(transforms)
 
-    for input_key, value in flat_structure.items():
+    for input_key, meta in flat_structure.items():
       maybe_input_args = _find_matching_input_args(
           input_key, flat_item, flat_transforms, flat_restore_args
       )
       if maybe_input_args:
-        flat_param_infos[input_key] = _get_param_info(input_key, value)
+        flat_param_infos[input_key] = _get_param_info(input_key, meta)
         flat_input_restore_args[input_key] = maybe_input_args
       elif input_key in flat_item and input_key in flat_structure:
         # Key is present in both input and output.
@@ -301,13 +396,13 @@ def _get_restore_parameters(
             # Specified `use_fallback`, but `transforms_default_to_original`
             # is False. This means we draw the value from the user-provided
             # `item`.
-            flat_param_infos[input_key] = _get_param_info(input_key, value)
+            flat_param_infos[input_key] = _get_param_info(input_key, meta)
             flat_input_restore_args[input_key] = flat_restore_args[input_key]
         else:
           # Transform not specified.
           if transforms_default_to_original:
             # Key/value is carried over from the original unchanged.
-            flat_param_infos[input_key] = _get_param_info(input_key, value)
+            flat_param_infos[input_key] = _get_param_info(input_key, meta)
             flat_input_restore_args[input_key] = flat_restore_args[input_key]
           else:
             # Take the value from the user-provided `item`, ignoring any value
@@ -371,17 +466,24 @@ def _batched_serialization_requests(
     tree: PyTree, param_infos: PyTree, args: PyTree
 ) -> List[_BatchRequest]:
   """Gets a list of batched serialization or deserialization requests."""
-  result = []
   grouped = {}
 
-  def _group_value(info, value, arg):
-    nonlocal result
+  def _group_value(
+      info: ParamInfo,
+      value: Union[Any, _InternalValueMetadata],
+      arg: RestoreArgs,
+  ):
     nonlocal grouped
     # Exclude from serialize/deserialize with TypeHandler if aggregated.
     if info.skip_deserialize:
       return
     if isinstance(arg, RestoreArgs):
-      handler = type_handlers.get_type_handler(arg.restore_type)
+      assert isinstance(value, _InternalValueMetadata)
+      restore_type = value.restore_type
+      if arg.restore_type is not None:
+        # Give user the chance to override restore_type if they want.
+        restore_type = arg.restore_type
+      handler = type_handlers.get_type_handler(restore_type)
     else:
       handler = type_handlers.get_type_handler(type(value))
     if handler not in grouped:
@@ -400,7 +502,7 @@ def _batched_serialization_requests(
       tree,
       args,
   )
-  return result + list(grouped.values())
+  return list(grouped.values())
 
 
 def _multi_value_fns_with_args(
@@ -425,7 +527,7 @@ def _multi_value_fns_with_args(
   return jax.tree_util.tree_map(_maybe_wrap_transform, transforms)
 
 
-def _transform_structure(
+def _transform_checkpoint(
     item: PyTree,
     restored: PyTree,
     restore_args: Optional[PyTree],
@@ -483,6 +585,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       concurrent_gb: int = 96,
       use_ocdbt: bool = False,
       restore_with_serialized_types: bool = True,
+      write_tree_metadata: bool = False,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -496,6 +599,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         checkpoint. Otherwise, arrays will be restored as either np.ndarray or
         jax.Array, and will ignore any typing information present in the
         checkpoint.
+      write_tree_metadata: Experimental feature. Writes tree metadata in JSON
+        format.
     """
     self._aggregate_handler = MsgpackHandler()
     if aggregate_filename is None:
@@ -504,6 +609,9 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     self._concurrent_gb = concurrent_gb
     self._use_ocdbt = use_ocdbt
     self._restore_with_serialized_types = restore_with_serialized_types
+    self._write_tree_metadata = write_tree_metadata
+    self._metadata = None
+    self._metadata_handler = JsonCheckpointHandler(_METADATA_FILE)
 
     if self._use_ocdbt:
       type_handlers.start_coordinator_server_and_create_context()
@@ -545,18 +653,6 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     return (
         jax.tree_util.tree_map(_param_info, names, save_args),
         all_params_aggregated,
-    )
-
-  async def _write_aggregate_file(
-      self,
-      directory: epath.Path,
-      item: PyTree,
-      param_infos: PyTree,
-      save_args: PyTree,
-  ) -> Future:
-    ser_item = _get_tree_for_aggregation(param_infos, save_args, item)
-    return await self._aggregate_handler.serialize(
-        directory / self._aggregate_filename, ser_item
     )
 
   async def async_save(
@@ -628,6 +724,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       commit_futures = await asyncio.gather(*serialize_ops)
       commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
 
+    # TODO(b/285888834): Allow this to be asynchronous.
+    self._write_metadata_file(directory, item, save_args)
     aggregate_commit_future = await self._write_aggregate_file(
         directory, item, param_infos, save_args
     )
@@ -664,14 +762,18 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     """Deserializes values or gets them from the aggregate file."""
 
     # Handle parameters from aggregate file.
-    def _process_aggregated_value(info, value, args):
+    def _process_aggregated_value(info, meta, args):
+      value = meta.aggregate_value
       if info.skip_deserialize:
         value = _try_array_cast(value, args.dtype)
         value = _maybe_shard_array(value, args)
       return value
 
-    structure = jax.tree_util.tree_map(
-        _process_aggregated_value, param_infos, structure, restore_args
+    flat_aggregate = utils.to_flat_dict(
+        jax.tree_util.tree_map(
+            _process_aggregated_value, param_infos, structure, restore_args
+        ),
+        sep='.',
     )
 
     batch_requests = _batched_serialization_requests(
@@ -685,13 +787,16 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       )
     deserialized_batches += await asyncio.gather(*deserialized_batches_ops)
 
-    flat_restored = utils.to_flat_dict(structure, sep='.')
+    flat_restored = {}
     for request, deserialized in zip(batch_requests, deserialized_batches):
       for info, value in zip(request.infos, deserialized):
+        assert not info.skip_deserialize
         flat_restored[info.name] = value
-
-    restored = utils.from_flat_dict(flat_restored, target=structure, sep='.')
-    return restored
+    # Add in any values which were not deserialized, coming from aggregate file.
+    for key in flat_aggregate.keys():
+      if key not in flat_restored:
+        flat_restored[key] = flat_aggregate[key]
+    return utils.from_flat_dict(flat_restored, target=structure, sep='.')
 
   def restore(
       self,
@@ -750,7 +855,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       return serialization._LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
 
     byte_limiter = asyncio.run(_create_byte_limiter())
-    structure = self.structure(directory)
+    structure = self._get_internal_metadata(directory)
     # `checkpoint_restore_args` has a structure relative to the checkpoint,
     # while `restore_args` remains structured relative to the output.
     param_infos, checkpoint_restore_args = _get_restore_parameters(
@@ -771,12 +876,27 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), item)
       checkpoint_restore_args = restore_args
 
+    def _maybe_set_default_restore_types(
+        meta: _InternalValueMetadata, arg: RestoreArgs
+    ):
+      if not meta.skip_deserialize and meta.restore_type is None:
+        return dataclasses.replace(
+            meta, restore_type=type_handlers.default_restore_type(arg)
+        )
+      return meta
+
+    # If metadata file was missing in the checkpoint, we need to decide
+    # restore_type based on RestoreArgs.
+    structure = jax.tree_util.tree_map(
+        _maybe_set_default_restore_types, structure, checkpoint_restore_args
+    )
+
     restored_item = asyncio.run(
         self._maybe_deserialize(structure, param_infos, checkpoint_restore_args)
     )
 
     if not transform_fn:
-      restored_item = _transform_structure(
+      restored_item = _transform_checkpoint(
           item,
           restored_item,
           restore_args,
@@ -786,35 +906,244 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     utils.sync_global_devices('PyTreeCheckpointHandler:restore')
     return restored_item
 
-  def structure(self, directory: epath.Path) -> PyTree:
-    """Restores the saved PyTree structure without regard for its leaf values.
+  async def _write_aggregate_file(
+      self,
+      directory: epath.Path,
+      item: PyTree,
+      param_infos: PyTree,
+      save_args: PyTree,
+  ) -> Future:
+    ser_item = _get_tree_for_aggregation(param_infos, save_args, item)
+    return await self._aggregate_handler.serialize(
+        directory / self._aggregate_filename, ser_item
+    )
 
-    Args:
-      directory: the directory to restore from.
-
-    Returns:
-      The structure of the checkpointed PyTree. Leaves may be of any type.
-
-    Raises:
-      FileNotFoundError: if the checkpoint is not found.
-    """
+  def _read_aggregate_file(self, directory: epath.Path) -> PyTree:
+    """Restores the aggregate file representing PyTree structure."""
     checkpoint_path = directory / self._aggregate_filename
     if checkpoint_path.exists():
       return self._aggregate_handler.deserialize(checkpoint_path)
+    elif self._use_ocdbt:
+      raise ValueError(
+          f'Checkpoint structure file does not exist at {directory}.'
+      )
     else:
-      if self._use_ocdbt:
-        raise ValueError(
-            f'Checkpoint structure file does not exist at {directory}.'
-        )
+      return utils.pytree_structure(directory)
+
+  def _write_metadata_file(
+      self, directory: epath.Path, item: PyTree, save_args: PyTree
+  ):
+    """Write PyTree metadata.
+
+    Uses JSON format:
+
+    {
+        _TREE_METADATA_KEY: {
+          "(top_level_key, lower_level_key)": {
+              _KEY_METADATA_KEY: (
+                  {_KEY_NAME: "top_level_key", _KEY_TYPE: <KeyType (int)>},
+                  {_KEY_NAME: "lower_level_key", _KEY_TYPE: <KeyType (int)>},
+              )
+              _VALUE_METADATA_KEY: {
+                  _VALUE_TYPE: "jax.Array",
+                  _SKIP_DESERIALIZE: True/False,
+              }
+          }
+          ...
+      }
+    }
+
+    Args:
+      directory: directory
+      item: item to save
+      save_args: save_args
+
+    Returns:
+      None
+    """
+    if not self._write_tree_metadata:
+      return []
+
+    flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
+        item, is_leaf=utils.is_empty_or_leaf
+    )
+    flat_save_args_with_keys, _ = jax.tree_util.tree_flatten_with_path(
+        save_args, is_leaf=utils.is_empty_or_leaf
+    )
+
+    flat_metadata_with_keys = {}
+    for (keypath, value), (_, save_arg) in zip(
+        flat_with_keys, flat_save_args_with_keys
+    ):
+      tuple_keypath = str(tuple([str(utils.get_key_name(k)) for k in keypath]))
+      flat_metadata_with_keys[tuple_keypath] = {
+          _KEY_METADATA_KEY: _get_keypath_metadata(keypath),
+          _VALUE_METADATA_KEY: _get_value_metadata(value, save_arg),
+      }
+
+    metadata = {_TREE_METADATA_KEY: flat_metadata_with_keys}
+    self._metadata_handler.save(directory, metadata)
+
+  def _read_metadata_file(self, directory: epath.Path) -> PyTree:
+    """Reads metadata file and returns a tree of restore types.
+
+    Args:
+      directory: directory
+
+    Returns:
+      Tree with _InternalValueMetadata as values.
+
+    Raises:
+      FileNotFoundError: if the metadata file is not found.
+    """
+    path = directory / _METADATA_FILE
+    if not path.exists():
+      raise FileNotFoundError(
+          f'Metadata file (named {_METADATA_FILE}) does not exist at'
+          f' {directory}.'
+      )
+
+    tree_metadata = typing.cast(
+        Dict[Any, Any], self._metadata_handler.restore(directory)
+    )[_TREE_METADATA_KEY]
+    flat_tree_metadata = []
+    for metadata in tree_metadata.values():
+      keypath = _keypath_from_metadata(metadata[_KEY_METADATA_KEY])
+      value_meta = metadata[_VALUE_METADATA_KEY]
+      value_meta = _InternalValueMetadata(
+          value_meta[_VALUE_TYPE],
+          skip_deserialize=value_meta[_SKIP_DESERIALIZE],
+      )
+      flat_tree_metadata.append((keypath, value_meta))
+
+    return utils.from_flattened_with_keypath(flat_tree_metadata)
+
+  def _get_internal_metadata(self, directory: epath.Path) -> PyTree:
+    """Gets limited information needed to fully restore the checkpoint.
+
+    This information just consists of the restore type for each leaf, as well
+    as the aggregated value (from the msgpack file) if present, and determines
+    whether we need to deserialize the parameter using TypeHandler later.
+
+    Args:
+      directory: directory
+
+    Returns:
+      A PyTree of _InternalValueMetadata with the tree structure of the
+      checkpoint.
+    """
+    aggregate_tree = self._read_aggregate_file(directory)
+    flat_aggregate = utils.to_flat_dict(aggregate_tree, keep_empty_nodes=True)
+    try:
+      metadata_tree = self._read_metadata_file(directory)
+      flat_metadata = utils.to_flat_dict(metadata_tree, keep_empty_nodes=True)
+    except FileNotFoundError:
+      metadata_tree = None
+      flat_metadata = None
+    if flat_metadata is None:
+      flat_metadata = jax.tree_util.tree_map(
+          lambda _: None, flat_aggregate, is_leaf=utils.is_empty_or_leaf
+      )
+
+    def _get_internal_value_metadata(value_meta, value):
+      if value_meta is None:
+        if utils.is_supported_empty_aggregation_type(value):
+          return value
+        restore_type = None
+        skip_deserialize = not utils.leaf_is_placeholder(value)
       else:
-        logging.error(
-            (
-                'Checkpoint structure file does not exist at %s.'
-                ' Attempting to assume an implicit tree structure.'
-            ),
-            directory,
+        if type_handlers.is_empty_typestr(value_meta.restore_type):
+          return type_handlers.get_empty_value_from_typestr(
+              value_meta.restore_type
+          )
+        restore_type, skip_deserialize = (
+            value_meta.restore_type,
+            value_meta.skip_deserialize,
         )
-        return utils.pytree_structure(directory)
+      return _InternalValueMetadata(
+          restore_type=restore_type,
+          skip_deserialize=skip_deserialize,
+          aggregate_value=value,
+      )
+
+    result = {}
+    for tuple_key in flat_metadata.keys():
+      result[tuple_key] = _get_internal_value_metadata(
+          flat_metadata[tuple_key], flat_aggregate[tuple_key]
+      )
+    target = metadata_tree if metadata_tree is not None else aggregate_tree
+    return utils.from_flat_dict(result, target=target)
+
+  def _get_user_metadata(self, directory: epath.Path) -> PyTree:
+    """Reads metadata file and constructs user-friendly metadata.
+
+    This will involve more file reads than are necessary for internal metadata.
+    Typically, we will need to perform extra reads in order to get metadata
+    about individual arrays.
+
+    Args:
+      directory: directory
+
+    Returns:
+      A PyTree of value_metadata.Metadata matching the checkpoint tree
+      structure.
+    """
+    is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
+
+    flat_param_infos = {}
+    flat_restore_types = {}
+    metadata = self._read_metadata_file(directory)
+    for keypath, value_meta in utils.to_flat_dict(
+        metadata, keep_empty_nodes=True
+    ).items():
+      param_name = '.'.join(keypath)
+      restore_type, skip_deserialize = (
+          value_meta.restore_type,
+          value_meta.skip_deserialize,
+      )
+      flat_param_infos[keypath] = ParamInfo(
+          name=param_name,
+          path=directory / param_name,
+          skip_deserialize=skip_deserialize,
+          is_ocdbt_checkpoint=is_ocdbt_checkpoint,
+      )
+      flat_restore_types[keypath] = restore_type
+
+    flat_metadatas = {}
+    batched_param_infos = collections.defaultdict(list)
+    batched_keypaths = collections.defaultdict(list)
+    for keypath in flat_param_infos:
+      param_info = flat_param_infos[keypath]
+      restore_type = flat_restore_types[keypath]
+      if param_info.skip_deserialize:
+        flat_metadatas[keypath] = value_metadata.Metadata()
+      else:
+        batched_keypaths[restore_type].append(keypath)
+        batched_param_infos[restore_type].append(param_info)
+
+    metadata_ops = []
+    for restore_type, param_infos in batched_param_infos.items():
+      handler = type_handlers.get_type_handler(restore_type)
+      metadata_ops.append(handler.metadata(param_infos))
+
+    async def _get_metadata():
+      return await asyncio.gather(*metadata_ops)
+
+    batched_metadatas = asyncio.run(_get_metadata())
+    for keypath_batch, metadata_batch in zip(
+        batched_keypaths.values(), batched_metadatas
+    ):
+      for keypath, value in zip(keypath_batch, metadata_batch):
+        flat_metadatas[keypath] = value
+    return utils.from_flat_dict(flat_metadatas, target=metadata)
+
+  def metadata(self, directory: epath.Path) -> Optional[PyTree]:
+    if self._metadata is None:
+      try:
+        self._metadata = self._get_user_metadata(directory)
+      except FileNotFoundError as e:
+        logging.warning(e)
+    return self._metadata
 
   def close(self):
     """See superclass documentation."""

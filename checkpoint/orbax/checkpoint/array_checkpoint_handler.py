@@ -152,7 +152,10 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           path=directory / self._checkpoint_name,
           skip_deserialize=False,
       )
-      type_handler = type_handlers.get_type_handler(restore_args.restore_type)
+      restore_type = restore_args.restore_type
+      if restore_type is None:
+        restore_type = type_handlers.default_restore_type(restore_args)
+      type_handler = type_handlers.get_type_handler(restore_type)
       result = asyncio.run(
           type_handler.deserialize([info], args=[restore_args])
       )[0]

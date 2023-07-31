@@ -57,18 +57,17 @@ class CheckpointHandler(abc.ABC):
     """
     pass
 
-  @abc.abstractmethod
-  def structure(self, directory: epath.Path) -> Any:
-    """Returns the structure of the item.
+  def metadata(self, directory: epath.Path) -> Optional[Any]:
+    """Returns metadata about the saved item.
 
-    This should represent the checkpointed item format without needing to fully
-    restore the entire item and all its values.
+    Ideally, this is a cheap way to collect information about the checkpoint
+    without requiring a full restoration.
 
     Args:
       directory: the directory where the checkpoint is located.
 
     Returns:
-      item structure
+      item metadata
     """
     pass
 

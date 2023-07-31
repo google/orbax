@@ -630,26 +630,22 @@ class CheckpointManager:
 
     return restored
 
-  def structure(self) -> Union[Any, Mapping[str, Any]]:
-    """For all Checkpointers, returns the saved structure.
+  def item_metadata(self, step: int) -> Union[Any, Mapping[str, Optional[Any]]]:
+    """For all Checkpointers, returns any metadata associated with the item.
 
-    Calls the `structure` method for each Checkpointer and returns a
-    mapping of each item name to the restored structure. If the manager only
-    manages a single item, a single structure will be returned instead.
+    Calls the `metadata` method for each Checkpointer and returns a
+    mapping of each item name to the restored metadata. If the manager only
+    manages a single item, a single metadata will be returned instead.
 
-    Note that any items for which the corresponding Checkpointer does not
-    have an implemented `structure` method, these items will simply not be
-    contained in the result. If, in this case, there is also only a single item
-    managed, None will be returned.
+    Metadata may be None for an individual item.
+
+    Args:
+      step: Step for which to retrieve metadata.
 
     Returns:
-      A dictionary mapping name to item structure, or a single item structure.
+      A dictionary mapping name to item metadata, or a single item metadata.
     """
     result = {}
-    step = self.latest_step()
-    if step is None:
-      raise ValueError(
-          'No existing checkpoint; structure cannot be determined.')
     for name, checkpointer in self._checkpointers.items():
       path = self._get_save_directory(step, self.directory, name)
       if name == METRIC_ITEM_NAME:
@@ -658,14 +654,9 @@ class CheckpointManager:
         if not _metrics_file_exists(path):
           logging.warning('Missing metrics for step %d', step)
           continue
-      structure = checkpointer.structure(path)
-      # If None, then the item has no defined structure, and should be excluded.
-      # May be empty, which would simply represent a valid, but empty structure.
-      if structure is not None:
-        result[name] = structure
+      metadata = checkpointer.metadata(path)
+      result[name] = metadata
     if self._single_item:
-      if DEFAULT_ITEM_NAME not in result:
-        return None
       return result[DEFAULT_ITEM_NAME]
     return result
 

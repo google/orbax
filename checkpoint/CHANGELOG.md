@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Fully self-describing PyTree checkpoints with type information, stored in metadata using JSON format.
+- PyTree leaf metadata returned by `metadata` function.
+
 ## [0.3.1] - 2022-07-27
 
 ### Added
