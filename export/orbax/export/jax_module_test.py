@@ -88,10 +88,10 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
     https://github.com/google/orbax/issues/420
     """
     params = {
-      'model/~/linear': {
-        'w': jnp.array(1),
-        'b': jnp.array(2),
-      }
+        'model/~/linear': {
+            'w': jnp.array(1),
+            'b': jnp.array(2),
+        }
     }
     variable_names_to_vals = {
         v.name: v for v in JaxModule(params, lambda params, x: x).variables
