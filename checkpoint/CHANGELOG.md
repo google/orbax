@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2022-08-01
+
 ### Added
-- Fully self-describing PyTree checkpoints with type information, stored in metadata using JSON format.
-- PyTree leaf metadata returned by `metadata` function.
+- Fully self-describing PyTree checkpoints with type information, stored in
+metadata using JSON format (not currently enabled by default).
+- PyTree leaf metadata returned by `metadata` function (dependent on the 
+above.)
 
 ### Fixed
 - Correctly set TYPESTR_REGISTRY, to account for OCDBT option.
