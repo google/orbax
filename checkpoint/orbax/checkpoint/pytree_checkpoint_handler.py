@@ -585,7 +585,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       concurrent_gb: int = 96,
       use_ocdbt: bool = False,
       restore_with_serialized_types: bool = True,
-      write_tree_metadata: bool = False,
+      write_tree_metadata: bool = True,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -599,8 +599,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         checkpoint. Otherwise, arrays will be restored as either np.ndarray or
         jax.Array, and will ignore any typing information present in the
         checkpoint.
-      write_tree_metadata: Experimental feature. Writes tree metadata in JSON
-        format.
+      write_tree_metadata: Writes tree metadata in JSON format.
     """
     self._aggregate_handler = MsgpackHandler()
     if aggregate_filename is None:
