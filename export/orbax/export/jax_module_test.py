@@ -84,7 +84,7 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
 
   def test_variable_names_contains_tilde(self):
     """Test that variable containing ~ are escaped.
-    
+
     https://github.com/google/orbax/issues/420
     """
     params = {
