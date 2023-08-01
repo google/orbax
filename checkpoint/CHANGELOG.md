@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Correctly set TYPESTR_REGISTRY, to account for OCDBT option.
 
+### Removed
+- Deprecated `restore_args_from_target` function.
+
+
 ## [0.3.1] - 2022-07-27
 
 ### Added
