@@ -306,7 +306,7 @@ def from_flat_dict(
       else:
         tuple_k = tuple(k.split(sep))
       for i, name in enumerate(tuple_k):
-        if i == len(k) - 1:
+        if i == len(tuple_k) - 1:
           assert name not in subtree
           subtree[name] = v
         else:

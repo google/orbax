@@ -142,6 +142,21 @@ class UtilsTest(parameterized.TestCase):
         expected, utils.from_flat_dict(flat_dict, target=empty)
     )
 
+  @parameterized.parameters(
+      ({'a': 1, 'b': {'d': 2}}, {('a',): 1, ('b', 'd'): 2}),
+      ({'a': 1, 'b': 2}, {('b',): 2, ('a',): 1}),
+  )
+  def test_from_flat_dict_without_target(self, expected, flat_dict):
+    self.assertDictEqual(expected, utils.from_flat_dict(flat_dict))
+
+  @parameterized.parameters(
+      ({'a': 1, 'b': {'d': 2}}, {'a': 1, 'b/d': 2}),
+      ({'a': 1, 'b': 2}, {'b': 2, 'a': 1}),
+      ({'a': {'b': {'c': 1}}}, {'a/b/c': 1}),
+  )
+  def test_from_flat_dict_with_sep(self, expected, flat_dict):
+    self.assertDictEqual(expected, utils.from_flat_dict(flat_dict, sep='/'))
+
   def test_serialize(self):
     tree = {'a': 1, 'b': {'c': {'d': 2}}, 'e': [1, {'x': 5, 'y': 7}, [9, 10]]}
     serialized = utils.serialize_tree(tree, keep_empty_nodes=True)
