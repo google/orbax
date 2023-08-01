@@ -82,6 +82,28 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
         variable_names_to_vals,
     )
 
+  def test_variable_names_contains_tilde(self):
+    """Test that variable containing ~ are escaped.
+    
+    https://github.com/google/orbax/issues/420
+    """
+    params = {
+      'model/~/linear': {
+        'w': jnp.array(1),
+        'b': jnp.array(2),
+      }
+    }
+    variable_names_to_vals = {
+        v.name: v for v in JaxModule(params, lambda params, x: x).variables
+    }
+    self.assertEqual(
+        {
+            'model/_/linear.w:0': np.array(1),
+            'model/_/linear.b:0': np.array(2),
+        },
+        variable_names_to_vals,
+    )
+
   def test_variable_names_custom_node_not_registered(self):
     @_register_custom_dict_to_jax
     class MyDict(dict):
