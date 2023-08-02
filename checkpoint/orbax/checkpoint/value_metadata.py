@@ -43,7 +43,7 @@ class ArrayMetadata(Metadata):
 
   shape: tuple[int, ...]
   shards: Optional[tuple[int, ...]]
-  dtype: jnp.dtype
+  dtype: Optional[jnp.dtype]
 
   def __eq__(self, other: 'Metadata') -> bool:
     return (
@@ -55,14 +55,16 @@ class ArrayMetadata(Metadata):
 
 
 @dataclasses.dataclass
-class ScalarMetadata(Metadata):
+class ScalarMetadata(ArrayMetadata):
   """Metadata describing a scalar value.
 
   dtype:
     Scalar dtype.
   """
 
-  dtype: jnp.dtype
+  shape: tuple[int, ...] = tuple([])
+  shards: Optional[tuple[int, ...]] = None
+  dtype: Optional[jnp.dtype] = None
 
   def __eq__(self, other: 'Metadata') -> bool:
     return isinstance(other, ScalarMetadata) and self.dtype == other.dtype

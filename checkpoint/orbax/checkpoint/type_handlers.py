@@ -19,7 +19,6 @@ import asyncio
 import dataclasses
 import json
 import os
-import typing
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union, cast
 import warnings
 
@@ -343,7 +342,7 @@ class TypeHandler(abc.ABC):
     pass
 
 
-def _check_input_arguments(*args):
+def check_input_arguments(*args):
   l = None
   for arg in args:
     if l == 0:
@@ -491,7 +490,9 @@ class NumpyHandler(TypeHandler):
   def typestr(self) -> str:
     return 'np.ndarray'
 
-  async def metadata(self, infos: Sequence[ParamInfo]) -> Sequence[Metadata]:
+  async def metadata(
+      self, infos: Sequence[ParamInfo]
+  ) -> Sequence[ArrayMetadata]:
     open_ops = []
     for info in infos:
       # Using OCDBT, but existing checkpoint may be stored in old format.
@@ -514,7 +515,7 @@ class NumpyHandler(TypeHandler):
   ) -> Sequence[Future]:
     """Uses Tensorstore to serialize a numpy array."""
     args = args or [SaveArgs()] * len(values)
-    _check_input_arguments(values, infos, args)
+    check_input_arguments(values, infos, args)
     copy_ops = []
     futures = []
     for value, info, arg in zip(values, infos, args):
@@ -546,7 +547,7 @@ class NumpyHandler(TypeHandler):
   ) -> Sequence[np.ndarray]:
     """Deserializes the array using Tensorstore."""
     args = args or [RestoreArgs()] * len(infos)
-    _check_input_arguments(infos, args)
+    check_input_arguments(infos, args)
     open_futures = []
     for info, arg in zip(infos, args):
       if not info.is_ocdbt_checkpoint:
@@ -571,12 +572,11 @@ class ScalarHandler(NumpyHandler):
   def typestr(self) -> str:
     return 'scalar'
 
-  async def metadata(self, infos: Sequence[ParamInfo]) -> Sequence[Metadata]:
+  async def metadata(
+      self, infos: Sequence[ParamInfo]
+  ) -> Sequence[ScalarMetadata]:
     metadatas = await super().metadata(infos)
-    return [
-        ScalarMetadata(dtype=typing.cast(ArrayMetadata, m).dtype)
-        for m in metadatas
-    ]
+    return [ScalarMetadata(dtype=m.dtype) for m in metadatas]
 
   async def serialize(
       self,
@@ -626,7 +626,7 @@ class ArrayRestoreArgs(RestoreArgs):
   mesh: Optional[Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
   sharding: Optional[jax.sharding.Sharding] = None
-  global_shape: Optional[Tuple[int]] = None
+  global_shape: Optional[Tuple[int, ...]] = None
 
 
 class ArrayHandler(TypeHandler):
@@ -696,7 +696,9 @@ class ArrayHandler(TypeHandler):
   def typestr(self) -> str:
     return 'jax.Array'
 
-  async def metadata(self, infos: Sequence[ParamInfo]) -> Sequence[Metadata]:
+  async def metadata(
+      self, infos: Sequence[ParamInfo]
+  ) -> Sequence[ArrayMetadata]:
     open_ops = []
     for info in infos:
       # Using OCDBT, but existing checkpoint may be stored in old format.
@@ -732,7 +734,7 @@ class ArrayHandler(TypeHandler):
             ' serializable objects.'
         )
     args = args or [SaveArgs()] * len(values)
-    _check_input_arguments(values, infos, args)
+    check_input_arguments(values, infos, args)
     copy_ops = []
     futures = []
     for value, info, arg in zip(values, infos, args):
@@ -769,7 +771,7 @@ class ArrayHandler(TypeHandler):
     """
     if args is None:
       raise ValueError('Must provide ArrayRestoreArgs to restore as jax.Array.')
-    _check_input_arguments(infos, args)
+    check_input_arguments(infos, args)
     deserialize_ops = []
     for info, arg in zip(infos, args):
       arg = cast(ArrayRestoreArgs, arg)
@@ -813,7 +815,9 @@ class StringHandler(TypeHandler):
   def typestr(self) -> str:
     return 'string'
 
-  async def metadata(self, infos: Sequence[ParamInfo]) -> Sequence[Metadata]:
+  async def metadata(
+      self, infos: Sequence[ParamInfo]
+  ) -> Sequence[StringMetadata]:
     return [StringMetadata()] * len(infos)
 
   async def serialize(
@@ -824,7 +828,7 @@ class StringHandler(TypeHandler):
   ) -> Sequence[Future]:
     """See superclass documentation."""
     del args
-    _check_input_arguments(values, infos)
+    check_input_arguments(values, infos)
     if jax.process_index() == 0:
       directory = infos[0].path
       strings = {info.name: value for value, info in zip(values, infos)}
@@ -839,7 +843,7 @@ class StringHandler(TypeHandler):
   ) -> Sequence[Optional[str]]:
     """See superclass documentation."""
     del args
-    _check_input_arguments(infos)
+    check_input_arguments(infos)
     directory = infos[0].path
     path = directory / self._filename
     strings = json.loads(path.read_text())

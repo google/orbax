@@ -40,6 +40,7 @@ from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint.future import Future
 
 
+
 PyTree = Any
 TupleKey = Tuple[str, ...]
 RestoreArgs = type_handlers.RestoreArgs
@@ -612,6 +613,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     self._write_tree_metadata = write_tree_metadata
     self._metadata = None
     self._metadata_handler = JsonCheckpointHandler(_METADATA_FILE)
+
 
     if self._use_ocdbt:
       type_handlers.start_coordinator_server_and_create_context()

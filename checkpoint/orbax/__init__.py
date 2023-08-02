@@ -42,6 +42,7 @@ from orbax.checkpoint.pytree_checkpoint_handler import ArrayRestoreArgs
 from orbax.checkpoint.pytree_checkpoint_handler import PyTreeCheckpointHandler
 from orbax.checkpoint.pytree_checkpoint_handler import RestoreArgs
 from orbax.checkpoint.pytree_checkpoint_handler import SaveArgs
+from orbax.checkpoint.pytree_checkpointer import PyTreeCheckpointer
 from orbax.checkpoint.transform_utils import apply_transformations
 from orbax.checkpoint.transform_utils import merge_trees
 from orbax.checkpoint.transform_utils import RestoreTransform
@@ -56,12 +57,6 @@ except NameError:
 if _in_ipython_session:
   import nest_asyncio
   nest_asyncio.apply()
-
-# Convenient shorthand where instead of the following:
-#   `checkpointer = Checkpointer(PyTreeCheckpointer())`
-# we can just use:
-#   `checkpointer = PyTreeCheckpointer()`
-PyTreeCheckpointer = functools.partial(Checkpointer, PyTreeCheckpointHandler())
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
 __version__ = '0.3.2'
