@@ -14,11 +14,11 @@
 
 """The definition of ValidationManager class."""
 from collections.abc import Mapping, Sequence
-from typing import Any, Callable, Union, Optional
+from typing import Any, Callable, Optional, Union
 
 from absl import logging
 import jax
-from orbax.export.jax_module import PyTree
+from orbax.export import jax_module
 from orbax.export.serving_config import ServingConfig
 from orbax.export.validate.validation_job import ValidationJob
 from orbax.export.validate.validation_job import ValidationSingleJobResult
@@ -51,20 +51,30 @@ class ValidationManager:
 
   def __init__(
       self,
-      jax_methods: Mapping[str, Callable[[PyTree], PyTree]],
+      module: Union[
+          jax_module.JaxModule,
+          Mapping[str, Callable[[jax_module.PyTree], jax_module.PyTree]],
+      ],
       serving_configs: Sequence[ServingConfig],
       model_inputs: Union[Sequence[Any], Mapping[str, Sequence[Any]]],
   ):
     """Create the ValidationManager ojbect.
 
     Args:
-      jax_methods: the method_key/method jax func Mapping.
+      module: the JaxModule object.
       serving_configs: the ServingConfig Sequence.
       model_inputs: The inputs for saved TF SavedModel. It support two formats:
         (1) A mapping of signature key to a sequences batch inputs; or (2) a
         sequence of batch inputs to validate all signatures.
     """
-    self._jax_methods = jax_methods
+    if isinstance(module, jax_module.JaxModule):
+      self._jax_methods = module.jax_methods
+    else:
+      logging.warn(
+          'Using Mapping[str, Callable] to initialize ValidationManager is'
+          ' deprecated. Use JaxModule instead.'
+      )
+      self._jax_methods = module
     self._serving_configs = serving_configs
     self._model_inputs = model_inputs
 

@@ -102,8 +102,7 @@ class ValidationManagerTest(tf.test.TestCase, parameterized.TestCase):
         serving_configs,
     )
     em.save(self._output_dir)
-    validation_mgr = ValidationManager(jax_module.jax_methods, serving_configs,
-                                       batch_input)
+    validation_mgr = ValidationManager(jax_module, serving_configs, batch_input)
     loaded_model = tf.saved_model.load(self._output_dir)
     logging.info(
         'loaded_model info = %s',
@@ -137,8 +136,7 @@ class ValidationManagerTest(tf.test.TestCase, parameterized.TestCase):
         serving_configs,
     )
     em.save(self._output_dir)
-    validation_mgr = ValidationManager(jax_module.jax_methods, serving_configs,
-                                       batch_input)
+    validation_mgr = ValidationManager(jax_module, serving_configs, batch_input)
     loaded_model = tf.saved_model.load(self._output_dir)
     validation_reports = validation_mgr.validate(loaded_model)
     self.assertAllValidationReportsPass(validation_reports)
@@ -174,8 +172,7 @@ class ValidationManagerTest(tf.test.TestCase, parameterized.TestCase):
         serving_configs,
     )
     em.save(self._output_dir)
-    validation_mgr = ValidationManager(jax_module.jax_methods, serving_configs,
-                                       batch_input)
+    validation_mgr = ValidationManager(jax_module, serving_configs, batch_input)
     loaded_model = tf.saved_model.load(self._output_dir)
     validation_reports = validation_mgr.validate(loaded_model)
     self.assertAllValidationReportsPass(validation_reports)
@@ -207,8 +204,7 @@ class ValidationManagerTest(tf.test.TestCase, parameterized.TestCase):
         serving_configs,
     )
     em.save(self._output_dir)
-    validation_mgr = ValidationManager(jax_module.jax_methods, serving_configs,
-                                       batch_input)
+    validation_mgr = ValidationManager(jax_module, serving_configs, batch_input)
     loaded_model = tf.saved_model.load(self._output_dir)
     validation_reports = validation_mgr.validate(loaded_model, with_xprof)
     self.assertAllValidationReportsPass(validation_reports)
