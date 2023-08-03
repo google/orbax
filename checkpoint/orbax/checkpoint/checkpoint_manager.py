@@ -14,7 +14,6 @@
 
 """A class providing functionalities for managing multiple checkpoints."""
 
-import asyncio
 import concurrent.futures
 import contextlib
 import dataclasses
@@ -27,7 +26,6 @@ from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
-from jax.experimental.array_serialization import serialization
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
@@ -67,22 +65,8 @@ def _descriptor_file_exists(descriptor_item_path: epath.Path) -> bool:
   )
 
 
-# TODO(b/268051457) Clean up when Pax no longer depends on separate
-# GlobalAsyncCheckpointManagerBase.
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
-  return isinstance(checkpointer, AsyncCheckpointer) or isinstance(
-      checkpointer,
-      serialization.GlobalAsyncCheckpointManagerBase,
-  )
-
-
-async def _call_valid_checkpointer_save(checkpointer: AbstractCheckpointer,
-                                        *args, **kwargs):
-  if is_async_checkpointer(checkpointer):
-    futures = await checkpointer.async_save(*args, **kwargs)  # pytype: disable=attribute-error
-    return await asyncio.gather(*futures)
-  else:
-    return checkpointer.save(*args, **kwargs)
+  return isinstance(checkpointer, AsyncCheckpointer)
 
 
 @dataclasses.dataclass
