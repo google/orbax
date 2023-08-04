@@ -26,6 +26,7 @@ from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
+from jax.experimental.array_serialization import serialization
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
@@ -65,8 +66,12 @@ def _descriptor_file_exists(descriptor_item_path: epath.Path) -> bool:
   )
 
 
+# TODO(b/268051457) Clean up when no longer depended upon by internal users.
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
-  return isinstance(checkpointer, AsyncCheckpointer)
+  return isinstance(checkpointer, AsyncCheckpointer) or isinstance(
+      checkpointer,
+      serialization.GlobalAsyncCheckpointManagerBase,
+  )
 
 
 @dataclasses.dataclass
