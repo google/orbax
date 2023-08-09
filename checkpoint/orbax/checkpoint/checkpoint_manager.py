@@ -274,6 +274,8 @@ class CheckpointManager:
       self._save_metadata(metadata)
 
     self._finalize_thread = None
+    # Steps that get cleaned up during finalize.
+    self._steps_to_remove = []
 
   @property
   def directory(self) -> epath.Path:
@@ -490,6 +492,7 @@ class CheckpointManager:
       self._checkpointers[k].save(item_dir, item, **kwargs)
 
     self._add_checkpoint_info(step, metrics)
+    self._get_old_steps_to_remove()
 
     assert self._finalize_thread is None
     if self._all_checkpointers_are_sync:
@@ -758,8 +761,8 @@ class CheckpointManager:
       # TODO(cpgaffney) Optimize tree removal if possible.
       self._get_save_directory(step, self.directory).rmtree()
 
-  def _remove_old_checkpoints(self):
-    """Keeps the `max_to_keep` most recent checkpoint steps."""
+  def _get_old_steps_to_remove(self):
+    """Collects checkpoints that should be deleted later."""
     # Must have set max_to_keep in order to remove any checkpoints.
     if self._options.max_to_keep is None:
       return
@@ -767,9 +770,7 @@ class CheckpointManager:
     if len(self._checkpoints) <= self._options.max_to_keep:
       return
 
-    # Exclude the latest checkpoint, since it is not finalized on all hosts.
-    # However, it will be finalized on the leader host, which is in charge of
-    # deleting if necessary anyway.
+    # Exclude the latest checkpoint, since it is not finalized.
     are_locked = utils.are_locked(
         self.directory,
         tuple([info.step for info in self._checkpoints[:-1]]),
@@ -808,6 +809,7 @@ class CheckpointManager:
       active_checkpoints = all_checkpoints[-keep:] if keep > 0 else []
 
     kept_checkpoints = []
+    self._steps_to_remove = []
     for info in maybe_delete:
       if info.is_locked:
         logging.info(
@@ -850,7 +852,7 @@ class CheckpointManager:
 
       reason = 'worse metric' if self._track_best else 'old checkpoint'
       logging.info('Deleting %s: (Reason: %s).', info, reason)
-      self._delete_directory(info.step)
+      self._steps_to_remove.append(info.step)
 
     kept_checkpoints += active_checkpoints
     if self._track_best:
@@ -945,7 +947,8 @@ class CheckpointManager:
     if not self._all_checkpointers_are_sync:
       self.wait_until_finished(join_finalize_thread=False)
     final_ckpt_dir = self._finalize_checkpoint(temp_ckpt_dir)
-    self._remove_old_checkpoints()
+    for step in self._steps_to_remove:
+      self._delete_directory(step)
 
   def close(self):
     """Waits for outstanding operations to finish and closes Checkpointers."""
