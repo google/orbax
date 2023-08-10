@@ -14,7 +14,9 @@
 
 """PyTreeCheckpointHandler class.
 
-Implementation of CheckpointHandler interface.
+Implementation of `CheckpointHandler` interface dealing with JAX PyTrees. Much
+of the underlying reading/writing logic for individual leaf types can be
+customized, and is delegated to the `TypeHandler` class.
 """
 
 import asyncio
@@ -31,13 +33,14 @@ import jax
 from jax.experimental.array_serialization import serialization
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
+from orbax.checkpoint import async_checkpoint_handler
+from orbax.checkpoint import future
 from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
-from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
-from orbax.checkpoint.future import Future
+
 
 
 
@@ -71,7 +74,7 @@ _KEY_METADATA_KEY = 'key_metadata'
 _VALUE_METADATA_KEY = 'value_metadata'
 
 
-class KeyType(enum.Enum):
+class _KeyType(enum.Enum):
   """Enum representing PyTree key type."""
 
   SEQUENCE = 1
@@ -81,25 +84,25 @@ class KeyType(enum.Enum):
     return self.value
 
   @classmethod
-  def from_json(cls, value: int) -> 'KeyType':
+  def from_json(cls, value: int) -> '_KeyType':
     return cls(value)
 
 
-def _get_key_metadata_type(key: Any) -> KeyType:
+def _get_key_metadata_type(key: Any) -> _KeyType:
   """Translates the JAX key class into a proto enum."""
   if utils.is_sequence_key(key):
-    return KeyType.SEQUENCE
+    return _KeyType.SEQUENCE
   elif utils.is_dict_key(key):
-    return KeyType.DICT
+    return _KeyType.DICT
   else:
     raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
 
 
-def _keypath_from_key_type(key_name: str, key_type: KeyType) -> Any:
+def _keypath_from_key_type(key_name: str, key_type: _KeyType) -> Any:
   """Converts from Key in TreeMetadata to JAX keypath class."""
-  if key_type == KeyType.SEQUENCE:
+  if key_type == _KeyType.SEQUENCE:
     return jax.tree_util.SequenceKey(int(key_name))
-  elif key_type == KeyType.DICT:
+  elif key_type == _KeyType.DICT:
     return jax.tree_util.DictKey(key_name)
   else:
     raise ValueError(f'Unsupported KeyEntry: {key_type}')
@@ -121,7 +124,7 @@ def _keypath_from_metadata(keypath_serialized: Tuple[Dict[str, Any]]) -> Any:
   keypath = []
   for k in keypath_serialized:
     keypath.append(
-        _keypath_from_key_type(k[_KEY_NAME], KeyType.from_json(k[_KEY_TYPE]))
+        _keypath_from_key_type(k[_KEY_NAME], _KeyType.from_json(k[_KEY_TYPE]))
     )
   return tuple(keypath)
 
@@ -572,12 +575,20 @@ def _transform_checkpoint(
   return item
 
 
-class PyTreeCheckpointHandler(AsyncCheckpointHandler):
+class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """A CheckpointHandler implementation for any PyTree structure.
 
-  The PyTree is assumed to be a nested dictionary with array values represented
-  as array-like objects (see type_handlers for supported objects). If not
-  `jax.Array`, arrays are expected to be fully replicated.
+  See JAX documentation for more information on what consistutes a "PyTree".
+  This handler is capable of saving and restoring any leaf object for which a
+  `TypeHandler` (see documentation) is registered. By default, `TypeHandler`s
+  for standard types like `np.ndarray`, `jax.Array`, Python scalars, and others
+  are registered.
+
+  As with all `CheckpointHandler` subclasses, `PyTreeCheckpointHandler` should
+  only be used in conjunction with a `Checkpointer` (or subclass). By itself,
+  the `CheckpointHandler` is non-atomic.
+  Example::
+    ckptr = Checkpointer(PyTreeCheckpointHandler())
   """
 
   def __init__(
@@ -593,15 +604,19 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     Args:
       aggregate_filename: name that the aggregated checkpoint should be saved
         as.
-      concurrent_gb: max concurrent GB that are allowed to be read.
-      use_ocdbt: enables Tensorstore OCDBT driver.
+      concurrent_gb: max concurrent GB that are allowed to be read. Can help to
+        reduce the possibility of OOM's when large checkpoints are restored.
+      use_ocdbt: enables Tensorstore OCDBT driver. This option allows using a
+        different checkpoint format which is faster to read and write, as well
+        as more space efficient. Currently, it is not yet enabled as the default
+        option.
       restore_with_serialized_types: If True, the values with unspecified
         restore types will be restored using the typing information in the
         checkpoint. Otherwise, arrays will be restored as either np.ndarray or
         jax.Array, and will ignore any typing information present in the
-        checkpoint.
-      write_tree_metadata: Experimental feature. Writes tree metadata in JSON
-        format.
+        checkpoint. Note: this option is not applicable to most users.
+      write_tree_metadata: Writes tree metadata in JSON format. The tree
+        metadata is used to enable a checkpoint which is fully self-describing.
     """
     self._aggregate_handler = MsgpackHandler()
     if aggregate_filename is None:
@@ -662,18 +677,42 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       directory: epath.Path,
       item: PyTree,
       save_args: Optional[PyTree] = None,
-  ) -> Optional[List[Future]]:
-    """Saves a PyTree from a given training step.
+  ) -> Optional[List[future.Future]]:
+    """Saves a PyTree to a given directory.
 
     This operation is compatible with a multi-host, multi-device setting. Tree
     leaf values must be supported by type_handlers. Standard supported types
-    include scalars, np.ndarray, jax.Array, string.
+    include Python scalars, `np.ndarray`, `jax.Array`, and strings.
 
-    After saving, all files will be located in "directory/".
+    After saving, all files will be located in "directory/". The exact files
+    that are saved depend on the specific combination of options, including
+    `use_ocdbt` and `write_tree_metadata`. If `write_tree_metadata` is
+    enabled, a JSON metadata file will be present to store the tree structure.
+    In addition, a msgpack file may be present, allowing users to store
+    aggregated values (see below).
 
-    Saves an additional file to "directory/checkpoint" on host 0 which
-    contains the serialized structure of `item`, along with any parameters that
-    request aggregation.
+    Example usage::
+      ckptr = Checkpointer(PyTreeCheckpointHandler())
+      item = {
+          'layer0': {
+              'w': np.ndarray(...),
+              'b': np.ndarray(...),
+          },
+          'layer1': {
+              'w': np.ndarray(...),
+              'b': np.ndarray(...),
+          },
+      }
+      # Note: save_args may be None if no customization is desired for saved
+      # parameters.
+      # In this case, we "aggregate" small parameters into a single file to
+      # allow for greater file read/write efficiency (and potentially less)
+      # wasted space). With OCDBT format active, this parameter is obsolete.
+      save_args =
+        jax.tree_util.tree_map(
+            lambda x: SaveArgs(aggregate=x.size < some_size), item)
+      # Eventually calls through to `async_save`.
+      ckptr.save(path, item, save_args)
 
     Args:
       directory: save location directory.
@@ -752,8 +791,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       # Futures are already running, so sequential waiting is equivalent to
       # concurrent waiting.
       if commit_futures:  # May be None.
-        for future in commit_futures:
-          future.result()  # Block on result.
+        for f in commit_futures:
+          f.result()  # Block on result.
 
     asyncio.run(async_save(directory, item, *args, **kwargs))
     utils.sync_global_devices('PyTreeCheckpointHandler:save')
@@ -809,27 +848,94 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       transforms_default_to_original: bool = True,
       transform_fn: Optional[TransformFn] = None,
   ) -> PyTree:
-    """Restores a PyTree from the checkpoint directory at the given step.
+    """Restores a PyTree from the checkpoint directory at the given path.
 
-    Within `restore_args`, `sharding` defines how each array in the restored
+    In the most basic case, only `directory` is required. The tree will be
+    restored exactly as saved, and all leaves will be restored as the correct
+    types (assuming the tree metadata is present).
+
+    However, `restore_args` is often required as well. This PyTree gives a
+    `RestoreArgs` object (or subclass) for every leaf in the tree. Many types,
+    such as string or `np.ndarray` do not require any special options for
+    restoration. When restoring an individual leaf as `jax.Array`, however,
+    some properties may be required.
+
+    One example is `sharding`, which defines how a `jax.Array` in the restored
     tree should be partitioned. `mesh` and `mesh_axes` can also be used to
     specify `sharding`, but `sharding` is the preferred way of specifying this
-    partition since `mesh` and `mesh_axes` only construct a type of `sharding`
-    called NamedSharding. For more information, see ArrayTypeHandler
-    documentation and pjit documentation.
+    partition since `mesh` and `mesh_axes` only constructs
+    `jax.sharding.NamedSharding`. For more information, see `ArrayTypeHandler`
+    documentation and JAX sharding documentation.
+
+    Example::
+      ckptr = Checkpointer(PyTreeCheckpointHandler)
+      restore_args = {
+          'layer0': {
+              'w': RestoreArgs(),
+              'b': RestoreArgs(),
+          },
+          'layer1': {
+              'w': ArrayRestoreArgs(
+                  # Restores as jax.Array, regardless of how it was saved.
+                  restore_type=jax.Array,
+                  sharding=jax.sharding.Sharding(...),
+                  # Warning: may truncate or pad!
+                  global_shape=(x, y),
+                ),
+              'b': ArrayRestoreArgs(
+                  restore_type=jax.Array,
+                  sharding=jax.sharding.Sharding(...),
+                  global_shape=(x, y),
+                ),
+          },
+      }
+      ckptr.restore(path, restore_args=restore_args)
+      
+    Providing `item` is typically only necessary when restoring a custom PyTree
+    class (or when using transformations). In this case, the restored object
+    will take on the same structure as `item`.
+
+    Example::
+      @flax.struct.dataclass
+      class TrainState:
+        layer0: dict[str, jax.Array]
+        layer1: dict[str, jax.Array]
+
+      ckptr = Checkpointer(PyTreeCheckpointHandler)
+      train_state = TrainState(
+          layer0={
+              'w': jax.Array(...),  # zeros
+              'b': jax.Array(...),  # zeros
+          },
+          layer1={
+              'w': jax.Array(...),  # zeros
+              'b': jax.Array(...),  # zeros
+          },
+      )
+      restore_args = jax.tree_util.tree_map(_make_restore_args, train_state)
+      ckptr.restore(path, item=train_state, restore_args=restore_args)
+      # restored tree is of type `TrainState`.
 
     Args:
-      directory: save location directory.
-      item: provides the structure for the restored item. If not provided, will
-        infer the structure from the saved checkpoint. Transformations will not
-        be run.
+      directory: saved checkpoint location directory.
+      item: provides the tree structure for the restored item. If not provided,
+        will infer the structure from the saved checkpoint. Transformations will
+        not be run in this case. Necessary particularly in the case where the
+        caller needs to restore the tree as a custom object.
       restore_args: optional object containing additional arguments for
-        restoration. It should be a PyTree matching the structure of `item`, and
-        should contain a RestoreArgs object for every value. If `item` is not
-        provided, should match the structure of the checkpoint.
+        restoration. It should be a PyTree matching the structure of `item`, or
+        if `item` is not provided, then it should match the structure of the
+        checkpoint. Each value in the tree should be a `RestoreArgs` object (OR
+        a subclass of `RestoreArgs`). Importantly, note that when restoring a
+        leaf as a certain type, a specific subclass of `RestoreArgs` may be
+        required. `RestoreArgs` also provides the option to customize the
+        restore type of an individual leaf.
       transforms: a PyTree of transformations that should be applied to the
-        saved item in order to obtain a final structure. See `transform_utils`
-        for further information.
+        saved tree in order to obtain a final structure. The `transforms` tree
+        structure should conceptually match that of `item`, but the use of
+        regexes and implicit keys means that it does not need to match
+        completely.
+        See `transform_utils` for further information.
       transforms_default_to_original: See transform_utils.apply_transformations.
       transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which accepts
         the `item` argument, a PyTree checkpoint structure and a PyTree of
@@ -917,7 +1023,7 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
       item: PyTree,
       param_infos: PyTree,
       save_args: PyTree,
-  ) -> Future:
+  ) -> future.Future:
     ser_item = _get_tree_for_aggregation(param_infos, save_args, item)
     return await self._aggregate_handler.serialize(
         directory / self._aggregate_filename, ser_item
@@ -946,8 +1052,8 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
         _TREE_METADATA_KEY: {
           "(top_level_key, lower_level_key)": {
               _KEY_METADATA_KEY: (
-                  {_KEY_NAME: "top_level_key", _KEY_TYPE: <KeyType (int)>},
-                  {_KEY_NAME: "lower_level_key", _KEY_TYPE: <KeyType (int)>},
+                  {_KEY_NAME: "top_level_key", _KEY_TYPE: <_KeyType (int)>},
+                  {_KEY_NAME: "lower_level_key", _KEY_TYPE: <_KeyType (int)>},
               )
               _VALUE_METADATA_KEY: {
                   _VALUE_TYPE: "jax.Array",
@@ -1143,6 +1249,30 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     return utils.from_flat_dict(flat_metadatas, target=metadata)
 
   def metadata(self, directory: epath.Path) -> Optional[PyTree]:
+    """Returns tree metadata.
+
+    The result will be a PyTree matching the structure of the saved checkpoint.
+    Note that if the item saved was a custom class, the restored metadata will
+    be returned as a nested dictionary representation.
+
+    Example::
+      {
+        'layer0': {
+            'w': ArrayMetadata(dtype=jnp.float32, shape=(8, 8), shards=(1, 2)),
+            'b': ArrayMetadata(dtype=jnp.float32, shape=(8,), shards=(1,)),
+        },
+        'step': ScalarMetadata(dtype=jnp.int64),
+      }
+
+    If the required metadata file is not present, a warning will be logged and
+    `None` will be returned.
+
+    Args:
+      directory: checkpoint location.
+
+    Returns:
+      tree containing metadata or None if the metadata file is missing.
+    """
     if self._metadata is None:
       try:
         self._metadata = self._get_user_metadata(directory)
@@ -1151,5 +1281,5 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
     return self._metadata
 
   def close(self):
-    """See superclass documentation."""
+    """Closes the handler. Called automatically by Checkpointer."""
     self._aggregate_handler.close()

@@ -622,7 +622,6 @@ class ArrayRestoreArgs(RestoreArgs):
     global_shape is shorter than that of the saved array, excess elements will
     be dropped from the end of the array.
   """
-
   mesh: Optional[Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
   sharding: Optional[jax.sharding.Sharding] = None
