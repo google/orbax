@@ -811,9 +811,12 @@ class PyTreeCheckpointHandler(AsyncCheckpointHandler):
   ) -> PyTree:
     """Restores a PyTree from the checkpoint directory at the given step.
 
-    Optional arguments meshes and mesh_axes define how each array in the
-    restored tree should be partitioned. For more information, see below and see
-    pjit documentation.
+    Within `restore_args`, `sharding` defines how each array in the restored
+    tree should be partitioned. `mesh` and `mesh_axes` can also be used to
+    specify `sharding`, but `sharding` is the preferred way of specifying this
+    partition since `mesh` and `mesh_axes` only construct a type of `sharding`
+    called NamedSharding. For more information, see ArrayTypeHandler
+    documentation and pjit documentation.
 
     Args:
       directory: save location directory.
