@@ -631,6 +631,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
 
     if self._use_ocdbt:
+      jax.monitoring.record_event(
+          '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
+      )
       type_handlers.start_coordinator_server_and_create_context()
 
   def _get_param_names(self, item: PyTree) -> PyTree:
