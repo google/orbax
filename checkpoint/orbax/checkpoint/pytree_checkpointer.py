@@ -14,14 +14,11 @@
 
 """Shorthand for `Checkpointer(PyTreeCheckpointHandler())`."""
 
-from typing import Any, Optional
-from etils import epath
-from orbax.checkpoint import abstract_checkpointer
 from orbax.checkpoint import checkpointer
 from orbax.checkpoint import pytree_checkpoint_handler
 
 
-class PyTreeCheckpointer(abstract_checkpointer.AbstractCheckpointer):
+class PyTreeCheckpointer(checkpointer.Checkpointer):
   """Shorthand class.
 
   Instead of::
@@ -32,28 +29,7 @@ class PyTreeCheckpointer(abstract_checkpointer.AbstractCheckpointer):
   """
 
   def __init__(self, primary_host: int = 0):
-    self._checkpointer = checkpointer.Checkpointer(
+    super().__init__(
         pytree_checkpoint_handler.PyTreeCheckpointHandler(),
         primary_host=primary_host,
     )
-
-  def save(
-      self, directory: epath.PathLike, item: Any, *args: Any, **kwargs: Any
-  ):
-    return self._checkpointer.save(directory, item, *args, **kwargs)
-
-  def restore(
-      self,
-      directory: epath.PathLike,
-      *args: Any,
-      item: Optional[Any] = None,
-      **kwargs: Any
-  ) -> Any:
-    return self._checkpointer.restore(directory, *args, item=item, **kwargs)
-
-  def metadata(self, directory: epath.PathLike) -> Optional[Any]:
-    """See superclass documentation."""
-    return self._checkpointer.metadata(directory)
-
-  def close(self):
-    self._checkpointer.close()
