@@ -766,7 +766,8 @@ class ArrayHandler(TypeHandler):
 
     Raises:
       ValueError if `args` is not provided.
-      ValueError if `args.mesh` or `args.mesh_axes` are not provided.
+      ValueError if `args.sharding` is not provided or `args.mesh` and
+      `args.mesh_axes` are not provided.
     """
     if args is None:
       raise ValueError('Must provide ArrayRestoreArgs to restore as jax.Array.')
