@@ -377,10 +377,16 @@ def _get_cast_tspec_serialize(tspec, value, args):
 def _get_cast_tspec_deserialize(tspec, args):
   """Creates a Tensorstore spec for casting a param during deserialize."""
   if args.dtype is not None:
+    # Tensorstore currently doesn't support int4. As a temporary solution,
+    # int4 weights are stored as int8.
+    if args.dtype == jnp.int4:
+      dtype = jnp.dtype(jnp.int8)
+    else:
+      dtype = jnp.dtype(args.dtype)
     tspec = {
         'base': tspec,
         'driver': 'cast',
-        'dtype': jnp.dtype(args.dtype).name,
+        'dtype': dtype.name,
     }
   return tspec
 
@@ -797,6 +803,7 @@ class ArrayHandler(TypeHandler):
               sharding,
               tspec,
               global_shape=arg.global_shape,
+              dtype=arg.dtype,
               byte_limiter=info.byte_limiter,
               context=self._ts_context,
           )
