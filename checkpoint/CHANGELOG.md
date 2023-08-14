@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2022-08-12
+
 ### Fixed
 - Fix concurrency issue when `are_locked` check lags behind checkpoint deletion.
 
