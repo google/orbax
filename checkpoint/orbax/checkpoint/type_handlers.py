@@ -395,10 +395,15 @@ def _get_cast_tspec_deserialize(tspec, args):
 
 
 def _add_base_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
+  """Add base Tensorstore config parameters for OCDBT."""
   tspec.update({'recheck_cached_data': False, 'recheck_cached_metadata': False})
   tspec['kvstore'].update({
-      # Enable read coalescing.
+      # Enable read coalescing.  This feature merges adjacent read_ops into
+      # one, which could reduce I/O ops by a factor of 10. This is especially
+      # beneficial for unstacked models.
       'experimental_read_coalescing_threshold_bytes': 1000000,
+      'experimental_read_coalescing_merged_bytes': 500000000000,
+      'experimental_read_coalescing_interval': '1ms',
       # References the cache specified in ts.Context.
       'cache_pool': 'cache_pool#ocdbt',
   })
@@ -629,6 +634,7 @@ class ArrayRestoreArgs(RestoreArgs):
     global_shape is shorter than that of the saved array, excess elements will
     be dropped from the end of the array.
   """
+
   mesh: Optional[Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
   sharding: Optional[jax.sharding.Sharding] = None
