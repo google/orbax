@@ -165,6 +165,9 @@ class JaxModule(tf.Module):
           '`with_gradient=False` is specified in jax2tf_kwargs but the '
           'JaxModule contains trainable variables.')
 
+    if logging.vlog_is_on(3):
+      logging.vlog(3, 'jax2tf_kwargs=%s', jax2tf_kwargs)
+
     apply_fn_tf = jax2tf.convert(apply_fn, **jax2tf_kwargs)
     return tf.function(
         lambda x: apply_fn_tf(self._get_variable_tree(), x),
