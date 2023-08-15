@@ -69,6 +69,7 @@ Install from GitHub using the following.
 
    orbax_checkpoint_101
    optimized_checkpointing
+   transformations
    api_reference/checkpoint
 
 .. toctree::
