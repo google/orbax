@@ -443,9 +443,7 @@ class NumpyHandler(TypeHandler):
           'Must provide a ts.Context if use_ocdbt is True. Ensure that the'
           ' context contains a coordinator address.'
       )
-    self._ts_context = ts_context or ts.Context(
-        {'file_io_concurrency': {'limit': 128}}
-    )
+    self._ts_context = ts_context or serialization.TS_CONTEXT
 
   def enable_ocdbt(self, ts_context: ts.Context) -> None:
     self._use_ocdbt = True
@@ -651,9 +649,7 @@ class ArrayHandler(TypeHandler):
           'Must provide a ts.Context if use_ocdbt is True. Ensure that the'
           ' context contains a coordinator address.'
       )
-    self._ts_context = ts_context or ts.Context(
-        {'file_io_concurrency': {'limit': 128}}
-    )
+    self._ts_context = ts_context or serialization.TS_CONTEXT
 
   def enable_ocdbt(self, ts_context: ts.Context) -> None:
     self._use_ocdbt = True

@@ -53,7 +53,7 @@ ParamInfo = type_handlers.ParamInfo
 TypeHandler = type_handlers.TypeHandler
 AggregateHandler = aggregate_handlers.AggregateHandler
 MsgpackHandler = aggregate_handlers.MsgpackHandler
-TransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
+LegacyTransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
 Transform = transform_utils.Transform
 RestoreTransform = transform_utils.RestoreTransform
 JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
@@ -849,7 +849,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       restore_args: Optional[PyTree] = None,
       transforms: Optional[PyTree] = None,
       transforms_default_to_original: bool = True,
-      transform_fn: Optional[TransformFn] = None,
+      legacy_transform_fn: Optional[LegacyTransformFn] = None,
   ) -> PyTree:
     """Restores a PyTree from the checkpoint directory at the given path.
 
@@ -940,9 +940,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         completely.
         See `transform_utils` for further information.
       transforms_default_to_original: See transform_utils.apply_transformations.
-      transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which accepts
-        the `item` argument, a PyTree checkpoint structure and a PyTree of
-        ParamInfos based on the checkpoint. Returns a transformed PyTree
+      legacy_transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which
+        accepts the `item` argument, a PyTree checkpoint structure and a PyTree
+        of ParamInfos based on the checkpoint. Returns a transformed PyTree
         matching the desired return tree structure, and a matching ParamInfo
         tree.
 
@@ -982,10 +982,12 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         transforms_default_to_original=transforms_default_to_original,
     )
 
-    if transform_fn is not None and transforms is not None:
-      raise ValueError('Cannot provide both `transforms` and `transform_fn`.')
-    if transform_fn is not None:
-      structure, param_infos = transform_fn(item, structure, param_infos)
+    if legacy_transform_fn is not None and transforms is not None:
+      raise ValueError(
+          'Cannot provide both `transforms` and `legacy_transform_fn`.'
+      )
+    if legacy_transform_fn is not None:
+      structure, param_infos = legacy_transform_fn(item, structure, param_infos)
       if restore_args is None:
         restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), item)
       checkpoint_restore_args = restore_args
@@ -1009,7 +1011,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         self._maybe_deserialize(structure, param_infos, checkpoint_restore_args)
     )
 
-    if not transform_fn:
+    if not legacy_transform_fn:
       restored_item = _transform_checkpoint(
           item,
           restored_item,

@@ -36,7 +36,9 @@ class ArrayMetadata(Metadata):
     Tuple of integers describing the array shape.
   shards:
     Tuple of integers indicating how many shards each dimension is divided
-    into. May be None if the array is not sharded.
+    into. E.g. a dimension may be 1 if it is unsharded, or 2 if it is divided
+    into 2 chunks.
+    May be None if the array is not sharded.
   dtype:
     Dtype of array elements.
   """
