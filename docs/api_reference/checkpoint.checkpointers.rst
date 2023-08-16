@@ -25,6 +25,11 @@ Utility Functions
 .. autofunction:: checkpointer_context
 .. autofunction:: async_checkpointer_context
 
+StandardCheckpointer
+------------------------
+.. autoclass:: StandardCheckpointer
+  :members:
+
 PyTreeCheckpointer
 ------------------------
 .. autoclass:: PyTreeCheckpointer

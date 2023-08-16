@@ -15,7 +15,7 @@
 """AsyncCheckpointHandler interface."""
 
 import abc
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from etils import epath
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
@@ -26,8 +26,9 @@ class AsyncCheckpointHandler(CheckpointHandler):
   """An interface providing async methods that can be used with CheckpointHandler."""
 
   @abc.abstractmethod
-  async def async_save(self, directory: epath.Path, item: Any, *args,
-                       **kwargs) -> Optional[List[Future]]:
+  async def async_save(
+      self, directory: epath.Path, *args, **kwargs
+  ) -> Optional[List[Future]]:
     """Constructs a save operation.
 
     Synchronously awaits a copy of the item, before returning commit futures
@@ -35,7 +36,6 @@ class AsyncCheckpointHandler(CheckpointHandler):
 
     Args:
       directory: the directory to save to.
-      item: the item to be saved.
       *args: additional arguments for save.
       **kwargs: additional arguments for save.
     """

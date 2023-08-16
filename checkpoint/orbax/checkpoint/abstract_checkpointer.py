@@ -30,12 +30,11 @@ class AbstractCheckpointer(abc.ABC):
   """
 
   @abc.abstractmethod
-  def save(self, directory: epath.PathLike, item: Any, *args, **kwargs):
+  def save(self, directory: epath.PathLike, *args, **kwargs):
     """Saves the given item to the provided directory.
 
     Args:
       directory: a path to which to save.
-      item: an object to save, supported by a CheckpointHandler.
       *args: additional args to provide to the CheckpointHandler's save method.
       **kwargs: additional keyword args to provide to the CheckpointHandler's
         save method.
@@ -46,7 +45,6 @@ class AbstractCheckpointer(abc.ABC):
   def restore(self,
               directory: epath.PathLike,
               *args,
-              item: Optional[Any] = None,
               **kwargs) -> Any:
     """Restores from the provided directory.
 
@@ -56,7 +54,6 @@ class AbstractCheckpointer(abc.ABC):
       directory: a path to restore from.
       *args: additional args to provide to the CheckpointHandler's restore
         method.
-      item: an object structure to restore, provided to CheckpointHandler.
       **kwargs: additional keyword args to provide to the CheckpointHandler's
         restore method.
 

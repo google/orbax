@@ -27,6 +27,7 @@ from orbax.checkpoint import utils
 
 
 PyTree = Any
+STANDARD_ARRAY_TYPES = (int, float, np.ndarray, jax.Array)
 
 
 def _lock_checkpoint(
@@ -309,7 +310,9 @@ def checkpoints_iterator(
 
 
 def construct_restore_args(
-    target: PyTree, sharding_tree: PyTree, set_global_shape: bool = True
+    target: PyTree,
+    sharding_tree: Optional[PyTree] = None,
+    set_global_shape: bool = True,
 ) -> PyTree:
   """Creates restore_args given a target PyTree.
 
@@ -338,34 +341,53 @@ def construct_restore_args(
     restore_args = construct_restore_args(train_state, train_state_sharding)
     ckptr.restore(..., restore_args=restore_args)
 
-  If a leaf in target does is a np.ndarray, or int, or string, for example, a
+  If a leaf in target is a np.ndarray, or int, or string, for example, a
   corresponding value for that leaf must be provided in axes_tree, but will be
   ignored.
 
   Args:
-    target: The returned value will match the structure of `target`, will be
-      used to set the desired dtype and restoration shape.
+    target: The returned PyTree will match the structure of `target`. `target`
+      may contain real scalar or array values, or may contain
+      jax.ShapeDtypeStruct.
     sharding_tree: A PyTree matching `target` which will be used to set the
-      restoration sharding.
+      restoration sharding. If not provided, sharding will default to the
+      shardings specified by `target`.
     set_global_shape: If true, set the `global_shape` field of ArrayRestoreArgs.
 
   Returns:
     A PyTree matching target of RestoreArgs (or ArrayRestoreArgs) objects.
   """
 
-  def _restore_args(value: Any, sharding: jax.sharding.Sharding):
-    restore_type = type(value)
+  def _restore_args(
+      value: Any, sharding: Optional[jax.sharding.Sharding]
+  ) -> type_handlers.RestoreArgs:
     dtype = None
     if hasattr(value, 'dtype'):
       dtype = value.dtype
-    if isinstance(value, jax.Array):
+    if isinstance(value, jax.ShapeDtypeStruct):
+      if sharding is None:
+        return type_handlers.RestoreArgs(dtype=dtype)
+      else:
+        return type_handlers.ArrayRestoreArgs(
+            restore_type=jax.Array,
+            sharding=sharding,
+            global_shape=value.shape if set_global_shape else None,
+            dtype=dtype,
+        )
+    elif isinstance(value, jax.Array):
       return type_handlers.ArrayRestoreArgs(
-          restore_type=restore_type,
+          restore_type=jax.Array,
           sharding=sharding,
           global_shape=value.shape if set_global_shape else None,
-          dtype=value.dtype,
+          dtype=dtype,
       )
+    elif isinstance(value, STANDARD_ARRAY_TYPES):
+      return type_handlers.RestoreArgs(restore_type=type(value), dtype=dtype)
     else:
-      return type_handlers.RestoreArgs(restore_type=restore_type, dtype=dtype)
+      raise ValueError(f'Unsupported type: {type(value)}')
 
+  if sharding_tree is None:
+    sharding_tree = jax.tree_util.tree_map(
+        lambda x: x.sharding if hasattr(x, 'sharding') else None, target
+    )
   return jax.tree_util.tree_map(_restore_args, target, sharding_tree)

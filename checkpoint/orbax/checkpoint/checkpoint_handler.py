@@ -29,27 +29,23 @@ class CheckpointHandler(abc.ABC):
   """
 
   @abc.abstractmethod
-  def save(self, directory: epath.Path, item: Any, *args, **kwargs):
+  def save(self, directory: epath.Path, *args, **kwargs):
     """Saves the provided item synchronously.
 
     Args:
       directory: the directory to save to.
-      item: the item to be saved.
       *args: additional arguments for save.
       **kwargs: additional arguments for save.
     """
     pass
 
   @abc.abstractmethod
-  def restore(self,
-              directory: epath.Path,
-              item: Optional[Any] = None,
-              **kwargs) -> Any:
+  def restore(self, directory: epath.Path, *args, **kwargs) -> Any:
     """Restores the provided item synchronously.
 
     Args:
       directory: the directory to restore from.
-      item: an item with the same structure as that to be restored.
+      *args: additional arguments for restore.
       **kwargs: additional arguments for restore.
 
     Returns:

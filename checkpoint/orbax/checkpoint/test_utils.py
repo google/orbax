@@ -119,7 +119,9 @@ def setup_pytree(add: int = 0):
   return pytree
 
 
-def setup_sharded_pytree():
+def setup_sharded_pytree(
+    pytree: Optional[pytree_checkpoint_handler.PyTree] = None,
+):
   """Creates a PyTree of sharded arrays for testing."""
   devices = np.asarray(jax.devices())
 
@@ -132,7 +134,8 @@ def setup_sharded_pytree():
   mesh_0d = jax.sharding.Mesh(devices, ('x',))
   mesh_axes_0d = jax.sharding.PartitionSpec(None,)
 
-  pytree = setup_pytree()
+  if pytree is None:
+    pytree = setup_pytree()
   mesh_tree = {
       'a': mesh_0d,
       'b': mesh_1d,

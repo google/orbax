@@ -127,6 +127,11 @@ def get_key_name(key: Any) -> Union[int, str]:
     raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
 
 
+def tuple_path_from_keypath(keypath: Tuple[Any, ...]) -> Tuple[str, ...]:
+  """Converts JAX keypath tuple (from tree_map_with_path) to string tuple."""
+  return tuple([str(get_key_name(k)) for k in keypath])
+
+
 def is_dict_key(key) -> bool:
   return isinstance(key, (jax.tree_util.DictKey, jax.tree_util.GetAttrKey))
 
@@ -226,10 +231,6 @@ def to_flat_dict(
   Returns:
     A flattened dictionary and the tree structure.
   """
-
-  def tuple_path_from_keypath(keypath: Tuple[Any, ...]) -> Tuple[str, ...]:
-    return tuple([str(get_key_name(k)) for k in keypath])
-
   flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
       tree, is_leaf=is_empty_or_leaf if keep_empty_nodes else None
   )

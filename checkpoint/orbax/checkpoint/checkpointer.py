@@ -40,7 +40,6 @@ class Checkpointer(AbstractCheckpointer):
 
   def save(self,
            directory: epath.PathLike,
-           item: Any,
            *args,
            force: bool = False,
            **kwargs):
@@ -54,7 +53,6 @@ class Checkpointer(AbstractCheckpointer):
 
     Args:
       directory: a path to which to save.
-      item: an object to save, supported by a CheckpointHandler.
       *args: additional args to provide to the CheckpointHandler's save method.
       force: if True, allows overwriting an existing directory. May add overhead
         due to the need to delete any existing files.
@@ -78,7 +76,7 @@ class Checkpointer(AbstractCheckpointer):
         directory, primary_host=self._primary_host
     )
 
-    self._handler.save(tmpdir, item, *args, **kwargs)
+    self._handler.save(tmpdir, *args, **kwargs)
     utils.sync_global_devices('Checkpointer:write')
 
     # Ensure save operation atomicity and record time saved by checkpoint.
@@ -89,7 +87,6 @@ class Checkpointer(AbstractCheckpointer):
   def restore(self,
               directory: epath.PathLike,
               *args,
-              item: Optional[Any] = None,
               **kwargs) -> Any:
     """See superclass documentation."""
     directory = epath.Path(directory)
@@ -98,7 +95,7 @@ class Checkpointer(AbstractCheckpointer):
     if not utils.is_checkpoint_finalized(directory):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
     logging.info('Restoring item from %s.', directory)
-    restored = self._handler.restore(directory, *args, item=item, **kwargs)
+    restored = self._handler.restore(directory, *args, **kwargs)
     logging.info('Finished restoring checkpoint from %s.', directory)
     return restored
 

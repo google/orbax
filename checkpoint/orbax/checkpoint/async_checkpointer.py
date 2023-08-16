@@ -18,7 +18,7 @@ import asyncio
 import contextlib
 import functools
 import time
-from typing import Any, Optional
+from typing import Any
 
 from absl import logging
 from etils import epath
@@ -64,7 +64,6 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
 
   def save(self,
            directory: epath.PathLike,
-           item: Any,
            *args,
            force: bool = False,
            **kwargs):
@@ -79,7 +78,6 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
 
     Args:
       directory: a path to which to save.
-      item: an object to save, supported by a CheckpointHandler.
       *args: additional args to provide to the CheckpointHandler's save method.
       force: if True, allows overwriting an existing directory. May add overhead
         due to the need to delete any existing files.
@@ -108,7 +106,7 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
 
     # Run copy ops.
     commit_ops = asyncio.run(
-        self._handler.async_save(tmpdir, item, *args, **kwargs))
+        self._handler.async_save(tmpdir, *args, **kwargs))
     commit_ops, _ = jax.tree_util.tree_flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
 
@@ -124,11 +122,10 @@ class AsyncCheckpointer(Checkpointer, AsyncManager):
   def restore(self,
               directory: epath.PathLike,
               *args,
-              item: Optional[Any] = None,
               **kwargs) -> Any:
     """See superclass documentation."""
     self.wait_until_finished()
-    return super().restore(directory, *args, item=item, **kwargs)
+    return super().restore(directory, *args, **kwargs)
 
   def close(self):
     """Waits to finish any outstanding operations before closing."""
