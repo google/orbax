@@ -17,9 +17,6 @@ asynchronous checkpointing, various types, and various storage formats.
 We aim to provide a highly customizable and composable API which maximizes
 flexibility for diverse use cases.
 
-To get started, check out our [documentation](https://github.com/google/orbax/blob/main/docs/checkpoint.md).
-
-Check out our [colab](http://colab.research.google.com/github/google/orbax/blob/main/checkpoint/orbax//checkpoint/orbax_checkpoint.ipynb) for a hands-on introduction.
 
 ## Exporting
 
@@ -33,8 +30,6 @@ Orbax also includes a serialization library for JAX users, enabling the exportin
 
 Note that `orbax-export` requires TensorFlow, but does not include it by default to allow for flexibility in version choice. If you wish to install with standard TensorFlow, please use `pip install orbax-export[all]`.
 
-To get started, check out our [documentation](https://github.com/google/orbax/blob/main/docs/export.md).
-<!-- TODO(dinghua): Add information on export library. -->
 
 ## Support
 
