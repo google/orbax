@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5] - 2022-08-17
+
 ### Changed
 - Modify `_get_user_metadata` to exclude empty nodes.
 
@@ -15,8 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 with the same number as an existing tmp directory. This scenario arises when
 restarting after preemption, without enabling `cleanup_tmp_directories`
 in `CheckpointManager`.
+- Fix `create_coordinator_server_and_context()` breaking old codes that expect it to return a tuple.  The function also prints a deprecation warning.
 
-## [0.3.3] - 2022-08-15
+## [0.3.4] - 2022-08-15
 
 ### Added
 - `StandardCheckpointHandler`.

@@ -61,4 +61,4 @@ if _in_ipython_session:
   nest_asyncio.apply()
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
-__version__ = '0.3.4'
+__version__ = '0.3.5'

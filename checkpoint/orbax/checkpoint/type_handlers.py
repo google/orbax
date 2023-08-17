@@ -66,9 +66,10 @@ def _enable_ocdbt_for_handlers():
     _TYPESTR_REGISTRY = _make_typestr_registry(_TYPE_REGISTRY)
 
 
-def create_coordinator_server_and_context() -> None:
+def create_coordinator_server_and_context() -> Tuple[None, None]:
   # TODO(b/293331479) remove this once OCDBT is enabled by default
   warnings.warn('This function has been deprecated.  Do not use.')
+  return (None, None)
 
 
 def start_coordinator_server_and_create_context() -> None:
