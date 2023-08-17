@@ -46,6 +46,10 @@ _COORDINATOR_SETUP_TIMEOUT_SECS = 30
 _OCDBT_TS_CONTEXT = None
 _OCDBT_COORDINATOR_SERVER = None
 
+RESTORE_TYPE_NONE = 'None'
+RESTORE_TYPE_DICT = 'Dict'
+RESTORE_TYPE_LIST = 'List'
+
 
 def _get_coordinator_address_without_port(coordinator_address: str) -> str:
   """Returns JAX coordinator address stripped of port number."""
@@ -173,25 +177,29 @@ def get_empty_value_typestr(value: Any) -> str:
   if not utils.is_supported_empty_aggregation_type(value):
     raise ValueError(f'{value} is not a supported empty aggregation type.')
   if isinstance(value, list):
-    return 'List'
+    return RESTORE_TYPE_LIST
   elif isinstance(value, dict):
-    return 'Dict'
+    return RESTORE_TYPE_DICT
   elif isinstance(value, type(None)):
-    return 'None'
+    return RESTORE_TYPE_NONE
   else:
     raise ValueError(f'Unrecognized empty type: {value}.')
 
 
 def is_empty_typestr(typestr: str) -> bool:
-  return typestr == 'List' or typestr == 'Dict' or typestr == 'None'
+  return (
+      typestr == RESTORE_TYPE_LIST
+      or typestr == RESTORE_TYPE_DICT
+      or typestr == RESTORE_TYPE_NONE
+  )
 
 
 def get_empty_value_from_typestr(typestr: str) -> Any:
-  if typestr == 'List':
+  if typestr == RESTORE_TYPE_LIST:
     return []
-  elif typestr == 'Dict':
+  elif typestr == RESTORE_TYPE_DICT:
     return {}
-  elif typestr == 'None':
+  elif typestr == RESTORE_TYPE_NONE:
     return None
   else:
     raise ValueError(f'Unrecognized typestr: {typestr}.')

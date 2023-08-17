@@ -144,7 +144,7 @@ def _get_value_metadata(value: Any, save_arg: SaveArgs) -> Dict[str, Any]:
       # random unserializable objects in them (empty states, optimizer
       # objects, etc.). An error occurring due to a missing TypeHandler
       # will be surfaced elsewhere.
-      typestr = 'None'
+      typestr = type_handlers.RESTORE_TYPE_NONE
       skip_deserialize = True
   return {
       _VALUE_TYPE: typestr,
@@ -1100,11 +1100,14 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     metadata = {_TREE_METADATA_KEY: flat_metadata_with_keys}
     self._metadata_handler.save(directory, metadata)
 
-  def _read_metadata_file(self, directory: epath.Path) -> PyTree:
+  def _read_metadata_file(
+      self, directory: epath.Path, keep_empty_nodes: bool = False
+  ) -> PyTree:
     """Reads metadata file and returns a tree of restore types.
 
     Args:
       directory: directory
+      keep_empty_nodes: If True, does not discard empty nodes in the tree.
 
     Returns:
       Tree with _InternalValueMetadata as values.
@@ -1126,9 +1129,15 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     for metadata in tree_metadata.values():
       keypath = _keypath_from_metadata(metadata[_KEY_METADATA_KEY])
       value_meta = metadata[_VALUE_METADATA_KEY]
-      value_meta = _InternalValueMetadata(
+      restore_type, skip_deserialize = (
           value_meta[_VALUE_TYPE],
-          skip_deserialize=value_meta[_SKIP_DESERIALIZE],
+          value_meta[_SKIP_DESERIALIZE],
+      )
+      if type_handlers.is_empty_typestr(restore_type) and not keep_empty_nodes:
+        continue  # Exclude empty nodes
+      value_meta = _InternalValueMetadata(
+          restore_type=restore_type,
+          skip_deserialize=skip_deserialize,
       )
       flat_tree_metadata.append((keypath, value_meta))
 
@@ -1151,7 +1160,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     aggregate_tree = self._read_aggregate_file(directory)
     flat_aggregate = utils.to_flat_dict(aggregate_tree, keep_empty_nodes=True)
     try:
-      metadata_tree = self._read_metadata_file(directory)
+      metadata_tree = self._read_metadata_file(directory, keep_empty_nodes=True)
       flat_metadata = utils.to_flat_dict(metadata_tree, keep_empty_nodes=True)
     except FileNotFoundError:
       metadata_tree = None
@@ -1208,10 +1217,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     flat_param_infos = {}
     flat_restore_types = {}
-    metadata = self._read_metadata_file(directory)
-    for keypath, value_meta in utils.to_flat_dict(
-        metadata, keep_empty_nodes=True
-    ).items():
+    metadata = self._read_metadata_file(directory, keep_empty_nodes=False)
+    for keypath, value_meta in utils.to_flat_dict(metadata).items():
       param_name = '.'.join(keypath)
       restore_type, skip_deserialize = (
           value_meta.restore_type,

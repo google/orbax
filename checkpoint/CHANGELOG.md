@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Modify `_get_user_metadata` to exclude empty nodes.
+
 ### Fixed
 - Fix GCS issue where an error would be encountered when trying to save a step
 with the same number as an existing tmp directory. This scenario arises when
