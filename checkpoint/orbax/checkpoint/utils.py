@@ -478,25 +478,34 @@ def create_tmp_directory(final_dir: epath.PathLike,
   else:
     tmp_dir = get_tmp_directory(final_dir)
 
-  if tmp_dir.exists():
-    if is_gcs_path(tmp_dir):
-      raise FileExistsError(
-          f'Attempted to create temporary directory {tmp_dir} which already'
-          ' exists.'
-      )
-    else:
-      raise AssertionError(
-          f'Attempted to create temporary directory {tmp_dir} which already'
-          ' exists. This condition should never arise on non-GCS'
-          ' filesystems.'
-      )
-  # Sync after existence check to ensure that the directory has not just been
-  # created by another host.
+  # Sync before existence is checked and directory is created because there are
+  # additional existence checks happening in the callers of this function.
   sync_global_devices('create_tmp_directory:pre')
 
   if primary_host is None or jax.process_index() == primary_host:
+    if tmp_dir.exists():
+      if is_gcs_path(tmp_dir):
+        if is_tmp_checkpoint(tmp_dir):
+          logging.warning(
+              'Attempted to create temporary directory %s which already exists.'
+              ' Removing existing directory since it is not finalized.',
+              tmp_dir,
+          )
+          tmp_dir.rmtree(missing_ok=True)
+        else:
+          raise FileExistsError(
+              f'Attempted to create temporary directory {tmp_dir} which already'
+              ' exists.'
+          )
+      else:
+        raise AssertionError(
+            f'Attempted to create temporary directory {tmp_dir} which already'
+            ' exists. This condition should never arise on non-GCS'
+            ' filesystems.'
+        )
     tmp_dir.mkdir(parents=True)
-  sync_global_devices('create_tmp_directory')
+
+  sync_global_devices('create_tmp_directory:post')
   return tmp_dir
 
 

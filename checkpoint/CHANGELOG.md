@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fix GCS issue where an error would be encountered when trying to save a step
+with the same number as an existing tmp directory. This scenario arises when
+restarting after preemption, without enabling `cleanup_tmp_directories`
+in `CheckpointManager`.
+
 ## [0.3.3] - 2022-08-15
 
 ### Added
