@@ -383,6 +383,8 @@ def construct_restore_args(
       )
     elif isinstance(value, STANDARD_ARRAY_TYPES):
       return type_handlers.RestoreArgs(restore_type=type(value), dtype=dtype)
+    elif isinstance(value, str):
+      return type_handlers.RestoreArgs(restore_type=str)
     else:
       raise ValueError(f'Unsupported type: {type(value)}')
 
