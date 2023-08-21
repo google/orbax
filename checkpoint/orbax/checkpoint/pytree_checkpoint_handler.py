@@ -42,8 +42,6 @@ from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
 
 
-
-
 PyTree = Any
 TupleKey = Tuple[str, ...]
 RestoreArgs = type_handlers.RestoreArgs
