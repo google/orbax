@@ -441,7 +441,12 @@ class CheckpointManager:
         set. Allows users to specify a metric value to determine which
         checkpoints are best and should be kept (in conjunction with
         `options.max_to_keep`).
-      force: if True, forces a save regardless of `self.should_save`.
+      force: if `True`, this method will attempt to save a checkpoint
+        regardless of the result of `CheckpointManager.should_save(step)`. By
+        default, `save` will only write a checkpoint to disk when the options
+        permit, e.g. when `step` is in `options.save_interval_steps` or
+        `options.save_on_steps`.
+        Setting `force=True` will not overwrite existing checkpoints.
 
     Returns:
       bool indicating whether a save operation was performed.
