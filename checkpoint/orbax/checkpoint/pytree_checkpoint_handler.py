@@ -891,7 +891,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           },
       }
       ckptr.restore(path, restore_args=restore_args)
-      
+
     Providing `item` is typically only necessary when restoring a custom PyTree
     class (or when using transformations). In this case, the restored object
     will take on the same structure as `item`.
@@ -935,8 +935,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         saved tree in order to obtain a final structure. The `transforms` tree
         structure should conceptually match that of `item`, but the use of
         regexes and implicit keys means that it does not need to match
-        completely.
-        See `transform_utils` for further information.
+        completely. See `transform_utils` for further information.
       transforms_default_to_original: See transform_utils.apply_transformations.
       legacy_transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which
         accepts the `item` argument, a PyTree checkpoint structure and a PyTree
@@ -1124,7 +1123,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         Dict[Any, Any], self._metadata_handler.restore(directory)
     )[_TREE_METADATA_KEY]
     flat_tree_metadata = []
-    for metadata in tree_metadata.values():
+    for k in sorted(tree_metadata.keys()):
+      metadata = tree_metadata[k]
       keypath = _keypath_from_metadata(metadata[_KEY_METADATA_KEY])
       value_meta = metadata[_VALUE_METADATA_KEY]
       restore_type, skip_deserialize = (
@@ -1138,7 +1138,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           skip_deserialize=skip_deserialize,
       )
       flat_tree_metadata.append((keypath, value_meta))
-
     return utils.from_flattened_with_keypath(flat_tree_metadata)
 
   def _get_internal_metadata(self, directory: epath.Path) -> PyTree:
