@@ -17,21 +17,23 @@
 from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional
 
-from etils.epy.reraise_utils import maybe_reraise
+from orbax.export import dtensor_utils
+from orbax.export import export_manager_base
+from orbax.export import jax_module
 from orbax.export import utils
-from orbax.export.dtensor_utils import get_current_dtensor_mesh
-from orbax.export.export_manager_base import ExportManagerBase
-from orbax.export.jax_module import JaxModule
-from orbax.export.serving_config import ServingConfig
+from orbax.export.serving_config import ServingConfig  # pylint: disable=g-importing-member
 import tensorflow as tf
 from tensorflow.experimental import dtensor
 
 
-class ExportManager(ExportManagerBase):
+class ExportManager(export_manager_base.ExportManagerBase):
   """Exports a JAXModule with pre- and post-processors."""
 
-  def __init__(self, module: JaxModule,
-               serving_configs: Sequence[ServingConfig]):
+  def __init__(
+      self,
+      module: jax_module.JaxModuleProtocol,
+      serving_configs: Sequence[ServingConfig],
+  ):
     """ExportManager constructor.
 
     Args:
@@ -47,22 +49,21 @@ class ExportManager(ExportManagerBase):
     tf_trackable_resources = []
 
     for sc in serving_configs:
-      with maybe_reraise(f'Failed exporting signature_key={sc.signature_key} '):
-        method = sc.get_infer_step(module.methods)
-        inference_fn = make_e2e_inference_fn(method, sc)
-        if isinstance(sc.signature_key, str):
-          keys = [sc.signature_key]
-        else:
-          keys = sc.signature_key
-        for key in keys:
-          if key in self._serving_signatures:
-            raise ValueError(
-                f'Duplicated key "{sc.signature_key}" in `serving_configs`.'
-            )
-          self._serving_signatures[key] = inference_fn
+      method = sc.get_infer_step(module.methods)
+      inference_fn = make_e2e_inference_fn(method, sc)
+      if isinstance(sc.signature_key, str):
+        keys = [sc.signature_key]
+      else:
+        keys = sc.signature_key
+      for key in keys:
+        if key in self._serving_signatures:
+          raise ValueError(
+              f'Duplicated key "{sc.signature_key}" in `serving_configs`.'
+          )
+        self._serving_signatures[key] = inference_fn
 
-        if sc.extra_trackable_resources is not None:
-          tf_trackable_resources.append(sc.extra_trackable_resources)
+      if sc.extra_trackable_resources is not None:
+        tf_trackable_resources.append(sc.extra_trackable_resources)
 
       if len(serving_configs) == 1:
         # Make this module callable. Once exported, it can be loaded back in
@@ -110,10 +111,10 @@ class ExportManager(ExportManagerBase):
         self.tf_module, model_path, serving_signatures, options=save_options
     )
 
-    if get_current_dtensor_mesh():
+    if dtensor_utils.get_current_dtensor_mesh():
       # TODO(b/261191533): we can remove this once tf.saved_model.save is aware
       # of SPMD saving.
-      dtensor.barrier(get_current_dtensor_mesh(), 'export done')
+      dtensor.barrier(dtensor_utils.get_current_dtensor_mesh(), 'export done')
 
   def load(self, model_path: str, **kwargs: Any):
     loaded = tf.saved_model.load(model_path, **kwargs)
@@ -121,8 +122,8 @@ class ExportManager(ExportManagerBase):
 
 
 def make_e2e_inference_fn(
-    model_fn: Callable[..., Any],
-    serving_config: ServingConfig) -> Callable[..., Any]:
+    model_fn: Callable[..., Any], serving_config: ServingConfig
+) -> Callable[..., Any]:
   """Creates an concrete end-to-end inference tf.function.
 
   Args:
