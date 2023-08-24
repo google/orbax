@@ -1132,11 +1132,14 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           value_meta[_SKIP_DESERIALIZE],
       )
       if type_handlers.is_empty_typestr(restore_type) and not keep_empty_nodes:
-        continue  # Exclude empty nodes
-      value_meta = _InternalValueMetadata(
-          restore_type=restore_type,
-          skip_deserialize=skip_deserialize,
-      )
+        # Return node as the empty value itself rather than as
+        # _InternalValueMetadata.
+        value_meta = type_handlers.get_empty_value_from_typestr(restore_type)
+      else:
+        value_meta = _InternalValueMetadata(
+            restore_type=restore_type,
+            skip_deserialize=skip_deserialize,
+        )
       flat_tree_metadata.append((keypath, value_meta))
 
     return utils.from_flattened_with_keypath(flat_tree_metadata)

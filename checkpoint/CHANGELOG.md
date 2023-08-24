@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.5] - 2022-08-17
 
+### Fixed
+- User metadata when dealing with empty nodes that follow non-empty nodes in a
+list.
+
 ### Changed
 - Modify `_get_user_metadata` to exclude empty nodes.
 
