@@ -131,9 +131,12 @@ def jax_array_to_dtensor(
     A DTensor sharded in the same way as the input ``arr``.
 
   Raises:
-    ValueError: if a dimension of ``arr`` is sharded across more than one axes
-      of the mesh.
-    ValueError: if
+    ValueError: if a dimension of ``arr`` is product-sharded, i.e., sharded
+      across more than one axes of the mesh. For example, if a mesh has two axes
+      `'x'` and `'y'`, `PartitionSpec((x, y))` is considered product-sharded if
+      the mesh size of both axes are greater than 1. If the mesh size of the
+       `'x'` or `'y'` is 1, the spec is not considered product-sharded because
+       it is efftively sharded on one axis only.
   """
   if pspec is None:
     dspec = [dtensor.UNSHARDED] * len(arr.shape)
