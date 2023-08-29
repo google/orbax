@@ -498,6 +498,10 @@ class CheckpointManager:
 
     self._add_checkpoint_info(step, metrics)
     self._get_old_steps_to_remove()
+    # Sync needed to ensure that old steps to remove are retrieved before
+    # actually deleting them during finalize, since retrieval can involve
+    # looking at the directory.
+    utils.sync_global_devices('CheckpointManager:old_steps_to_remove')
 
     assert self._finalize_thread is None
     if self._all_checkpointers_are_sync:

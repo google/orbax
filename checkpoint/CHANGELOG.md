@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fix sync error with removing old checkpoints.
+
 ## [0.3.5] - 2022-08-17
 
 ### Fixed
