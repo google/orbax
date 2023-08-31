@@ -311,7 +311,8 @@ class CallableSignatures:
     Returns:
       A mapping of signature names to the callables.
     """
-    sess = tf.compat.v1.Session()
+    with tf.Graph().as_default():
+      sess = tf.compat.v1.Session()
     meta_graph_def = tf.compat.v1.saved_model.loader.load(sess, tags, model_dir)
     return cls(sess, meta_graph_def.signature_def)
 
