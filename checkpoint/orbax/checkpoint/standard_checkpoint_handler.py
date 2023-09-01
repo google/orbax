@@ -27,32 +27,6 @@ from orbax.checkpoint import utils
 PyTree = Any
 
 
-def _validate_save_state(state: PyTree):
-  if state is None:
-    raise ValueError('Must provide state to save.')
-
-  def _check_input(k, x):
-    if not isinstance(x, checkpoint_utils.STANDARD_ARRAY_TYPES):
-      k = utils.tuple_path_from_keypath(k)
-      raise ValueError(f'Unsupported type: {type(x)} for key: {k}.')
-
-  jax.tree_util.tree_map_with_path(_check_input, state)
-
-
-def _validate_restore_state(state: PyTree):
-  if state is None:
-    raise ValueError('Must provide target state.')
-
-  def _check_input(k, x):
-    if not isinstance(
-        x, checkpoint_utils.STANDARD_ARRAY_TYPES
-    ) and not isinstance(x, jax.ShapeDtypeStruct):
-      k = utils.tuple_path_from_keypath(k)
-      raise ValueError(f'Unsupported type: {type(x)} for key: {k}.')
-
-  jax.tree_util.tree_map_with_path(_check_input, state)
-
-
 class StandardCheckpointHandler(
     pytree_checkpoint_handler.PyTreeCheckpointHandler
 ):
@@ -88,6 +62,38 @@ class StandardCheckpointHandler(
     super().__init__(
         concurrent_gb=concurrent_gb, use_ocdbt=True, write_tree_metadata=True
     )
+    self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
+
+  def _validate_save_state(
+      self, state: PyTree, save_args: Optional[PyTree] = None
+  ):
+    if state is None:
+      raise ValueError('Must provide state to save.')
+    if save_args is None:
+      save_args = jax.tree_util.tree_map(lambda x: None, state)
+
+    def _check_input(k, x, arg):
+      if arg is not None:
+        if arg.aggregate:
+          raise ValueError(f'Unsupported option `aggregate` for key: {k}.')
+      if not isinstance(x, self._supported_types):
+        k = utils.tuple_path_from_keypath(k)
+        raise ValueError(f'Unsupported type: {type(x)} for key: {k}.')
+
+    jax.tree_util.tree_map_with_path(_check_input, state, save_args)
+
+  def _validate_restore_state(self, state: PyTree):
+    if state is None:
+      raise ValueError('Must provide target state.')
+
+    def _check_input(k, x):
+      if not isinstance(x, self._supported_types) and not isinstance(
+          x, jax.ShapeDtypeStruct
+      ):
+        k = utils.tuple_path_from_keypath(k)
+        raise ValueError(f'Unsupported type: {type(x)} for key: {k}.')
+
+    jax.tree_util.tree_map_with_path(_check_input, state)
 
   async def async_save(
       self,
@@ -96,7 +102,7 @@ class StandardCheckpointHandler(
       save_args: Optional[PyTree] = None,
   ) -> Optional[List[future.Future]]:
     """Saves a PyTree. See superclass documentation."""
-    _validate_save_state(state)
+    self._validate_save_state(state, save_args=save_args)
     return await super().async_save(directory, state, save_args=save_args)
 
   def restore(
@@ -138,6 +144,6 @@ class StandardCheckpointHandler(
     Returns:
       a restore PyTree.
     """
-    _validate_restore_state(state)
+    self._validate_restore_state(state)
     restore_args = checkpoint_utils.construct_restore_args(state)
     return super().restore(directory, item=state, restore_args=restore_args)

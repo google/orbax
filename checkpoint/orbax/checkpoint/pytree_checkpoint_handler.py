@@ -55,6 +55,8 @@ LegacyTransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
 Transform = transform_utils.Transform
 RestoreTransform = transform_utils.RestoreTransform
 JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
+# TODO(b/298487158) Clean up protected access.
+LimitInFlightBytes = serialization._LimitInFlightBytes  # pylint: disable=protected-access
 
 
 _METADATA_FILE = '_METADATA'
@@ -151,6 +153,19 @@ def _get_value_metadata(value: Any, save_arg: SaveArgs) -> Dict[str, Any]:
 
 
 ### End metadata utils
+
+
+def get_byte_limiter(concurrent_gb: int):
+  async def _create_byte_limiter():
+    # Wrap creation in async function to avoid issues on python<=3.9.
+    concurrent_bytes = concurrent_gb * 10**9
+    # Construction must take place here so that it is within the same async
+    # method, to prevent errors resulting from different event loops, and
+    # cannot be created below this level because there must be a single object
+    # for the entire restore call.
+    return LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
+
+  return asyncio.run(_create_byte_limiter())
 
 
 async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
@@ -299,7 +314,7 @@ def _get_restore_parameters(
     structure: PyTree,
     transforms: Optional[PyTree],
     restore_args: Optional[PyTree],
-    byte_limiter: Optional[serialization._LimitInFlightBytes] = None,
+    byte_limiter: Optional[LimitInFlightBytes] = None,
     transforms_default_to_original: bool = True,
 ) -> Tuple[PyTree, PyTree]:
   """Construct parameters needed for restoration.
@@ -956,17 +971,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
       )
-
-    async def _create_byte_limiter():
-      # Wrap creation in async function to avoid issues on python<=3.9.
-      concurrent_bytes = self._concurrent_gb * 10**9
-      # Construction must take place here so that it is within the same async
-      # method, to prevent errors resulting from different event loops, and
-      # cannot be created below this level because there must be a single object
-      # for the entire restore call.
-      return serialization._LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
-
-    byte_limiter = asyncio.run(_create_byte_limiter())
+    byte_limiter = get_byte_limiter(self._concurrent_gb)
     structure = self._get_internal_metadata(directory)
     # `checkpoint_restore_args` has a structure relative to the checkpoint,
     # while `restore_args` remains structured relative to the output.

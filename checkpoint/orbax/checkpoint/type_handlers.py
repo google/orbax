@@ -625,7 +625,7 @@ class ArrayRestoreArgs(RestoreArgs):
     jax.sharding.Sharding object which takes precedence over mesh and
     mesh_axes if provided. Otherwise, mesh and mesh_axes will be used to
     construct a NamedSharding object.
-  global_shapes:
+  global_shape:
     The global shape that the array should be restored into. If not
     provided, the shape will be restored as written. Presently, arbitrary shape
     transformations are not supported (for example, reshaping to different
