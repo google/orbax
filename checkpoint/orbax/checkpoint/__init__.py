@@ -17,7 +17,6 @@
 import contextlib
 import functools
 
-import nest_asyncio
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import msgpack_utils
@@ -52,8 +51,14 @@ from orbax.checkpoint.transform_utils import RestoreTransform
 from orbax.checkpoint.transform_utils import Transform
 
 
-nest_asyncio.apply()
-
+try:
+  __IPYTHON__
+  _in_ipython_session = True
+except NameError:
+  _in_ipython_session = False
+if _in_ipython_session:
+  import nest_asyncio
+  nest_asyncio.apply()
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
 __version__ = '0.3.5'

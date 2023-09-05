@@ -10,10 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fix sync error with removing old checkpoints.
 
-### Changed
-- Use `nest_asyncio` by default. This allows users to make calls to orbax from
-within `async` functions.
-
 ## [0.3.5] - 2022-08-17
 
 ### Fixed
