@@ -17,15 +17,15 @@
 import abc
 from concurrent import futures
 import functools
-from typing import Any
 
 from etils import epath
 import jax
+import jaxtyping
 from orbax.checkpoint import future as orbax_future
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import utils
 
-PyTree = Any
+PyTree = jaxtyping.PyTree[jaxtyping.ArrayLike]
 
 
 class AggregateHandler(abc.ABC):

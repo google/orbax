@@ -31,6 +31,7 @@ from absl import logging
 from etils import epath
 import jax
 from jax.experimental.array_serialization import serialization
+import jaxtyping
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import async_checkpoint_handler
@@ -42,7 +43,7 @@ from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
 
 
-PyTree = Any
+PyTree = jaxtyping.PyTree
 TupleKey = Tuple[str, ...]
 RestoreArgs = type_handlers.RestoreArgs
 ArrayRestoreArgs = type_handlers.ArrayRestoreArgs

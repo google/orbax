@@ -21,10 +21,12 @@ import re
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 from absl import logging
+import jaxtyping
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 
-PyTree = Any
+
+PyTree = jaxtyping.PyTree
 ValueFn = Callable[[Any], Any]
 MultiValueFn = Callable[[str, PyTree], Any]
 RestoreArgs = type_handlers.RestoreArgs

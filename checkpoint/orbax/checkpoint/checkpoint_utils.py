@@ -15,18 +15,18 @@
 """High-level checkpoint utils provided for user convenience."""
 import contextlib
 import time
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional, Union
 
 from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
+import jaxtyping
 import numpy as np
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 
 
-PyTree = Any
 STANDARD_ARRAY_TYPES = (int, float, np.ndarray, jax.Array)
 
 
@@ -310,10 +310,10 @@ def checkpoints_iterator(
 
 
 def construct_restore_args(
-    target: PyTree,
-    sharding_tree: Optional[PyTree] = None,
+    target: jaxtyping.PyTree[Union[jaxtyping.ArrayLike, str]],
+    sharding_tree: Optional[jaxtyping.PyTree[jax.sharding.Sharding]] = None,
     set_global_shape: bool = True,
-) -> PyTree:
+) -> jaxtyping.PyTree[type_handlers.RestoreArgs]:
   """Creates restore_args given a target PyTree.
 
   This method should be used in conjunction with a CheckpointManager or

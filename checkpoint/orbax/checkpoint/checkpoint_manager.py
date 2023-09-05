@@ -27,6 +27,7 @@ from etils import epath
 import jax
 from jax.experimental import multihost_utils
 from jax.experimental.array_serialization import serialization
+import jaxtyping
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
@@ -34,7 +35,7 @@ from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
 from orbax.checkpoint.proto_checkpoint_handler import ProtoCheckpointHandler
 
-PyTree = Any
+PyTree = jaxtyping.PyTree
 CheckpointDirs = Tuple[str, str]
 SaveParams = Mapping[str, Any]
 RestoreParams = SaveParams

@@ -23,6 +23,7 @@ import flax
 import flax.training.train_state
 import jax
 from jax import numpy as jnp
+import jaxtyping
 import numpy as np
 import optax
 from orbax.checkpoint import standard_checkpoint_handler
@@ -31,7 +32,7 @@ from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 
 
-PyTree = Any
+PyTree = jaxtyping.PyTree[jaxtyping.ArrayLike]
 StandardCheckpointHandler = (
     standard_checkpoint_handler.StandardCheckpointHandler
 )

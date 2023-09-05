@@ -28,6 +28,7 @@ from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
+import jaxtyping
 import numpy as np
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
@@ -48,7 +49,7 @@ _GCS_PATH_PREFIX = 'gs://'
 _LOCK_ITEM_NAME = 'LOCKED'
 _LAST_CHECKPOINT_WRITE_TIME = time.time()
 CheckpointDirs = Tuple[str, str]
-PyTree = Any
+PyTree = jaxtyping.PyTree
 
 
 

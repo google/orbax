@@ -14,17 +14,18 @@
 
 """StandardCheckpointHandler class."""
 
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from etils import epath
 import jax
+import jaxtyping
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import future
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import utils
 
 
-PyTree = Any
+PyTree = jaxtyping.PyTree[jaxtyping.ArrayLike]
 
 
 class StandardCheckpointHandler(
