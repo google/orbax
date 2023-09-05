@@ -28,5 +28,5 @@ PyTreeCheckpointHandler
 
 JsonCheckpointHandler
 -----------------------------
-.. autoclass:: PyTreeCheckpointHandler
+.. autoclass:: JsonCheckpointHandler
   :members:

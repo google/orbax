@@ -600,7 +600,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   As with all `CheckpointHandler` subclasses, `PyTreeCheckpointHandler` should
   only be used in conjunction with a `Checkpointer` (or subclass). By itself,
   the `CheckpointHandler` is non-atomic.
+
   Example::
+
     ckptr = Checkpointer(PyTreeCheckpointHandler())
   """
 
@@ -708,6 +710,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     aggregated values (see below).
 
     Example usage::
+
       ckptr = Checkpointer(PyTreeCheckpointHandler())
       item = {
           'layer0': {
@@ -884,6 +887,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     documentation and JAX sharding documentation.
 
     Example::
+
       ckptr = Checkpointer(PyTreeCheckpointHandler)
       restore_args = {
           'layer0': {
@@ -912,6 +916,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     will take on the same structure as `item`.
 
     Example::
+
       @flax.struct.dataclass
       class TrainState:
         layer0: dict[str, jax.Array]
@@ -1054,7 +1059,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   ):
     """Write PyTree metadata.
 
-    Uses JSON format:
+    Uses JSON format::
 
     {
         _TREE_METADATA_KEY: {
@@ -1274,6 +1279,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     be returned as a nested dictionary representation.
 
     Example::
+
       {
         'layer0': {
             'w': ArrayMetadata(dtype=jnp.float32, shape=(8, 8), shards=(1, 2)),

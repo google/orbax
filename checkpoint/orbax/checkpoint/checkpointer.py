@@ -121,6 +121,7 @@ def checkpointer_context(*args, **kwargs):
     **kwargs: Keyword arguments to initialize Checkpointer.
 
   Usage::
+
     with checkpointer_context(PyTreeCheckpointHandler()) as ckptr:
       ckptr.save(...)
       ckptr.restore(...)

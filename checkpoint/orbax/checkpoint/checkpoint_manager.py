@@ -978,6 +978,7 @@ def checkpoint_manager_context(*args, **kwargs):
     **kwargs: Keyword arguments to initialize CheckpointManager.
 
   Usage::
+
     with checkpoint_manager_context(
         directory, checkpointers, options) as mngr:
       mngr.save(...)

@@ -39,7 +39,9 @@ class StandardCheckpointHandler(
   As with all `CheckpointHandler` subclasses, `StandardCheckpointHandler` should
   only be used in conjunction with a `Checkpointer` (or subclass). By itself,
   the `CheckpointHandler` is non-atomic.
+  
   Example::
+
     ckptr = Checkpointer(StandardCheckpointHandler())
     # OR
     ckptr = StandardCheckpointer()
@@ -113,6 +115,7 @@ class StandardCheckpointHandler(
     """Restores a PyTree.
 
     Example::
+
       ckptr = StandardCheckpointer()
       state = {
           'layer0': {
