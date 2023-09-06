@@ -14,6 +14,7 @@
 
 """Defines exported symbols for the namespace package `orbax.checkpoint`."""
 
+import asyncio
 import contextlib
 import functools
 
@@ -51,8 +52,11 @@ from orbax.checkpoint.transform_utils import merge_trees
 from orbax.checkpoint.transform_utils import RestoreTransform
 from orbax.checkpoint.transform_utils import Transform
 
-
-nest_asyncio.apply()
+try:
+  asyncio.get_running_loop()
+  nest_asyncio.apply()
+except RuntimeError:
+  pass
 
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
