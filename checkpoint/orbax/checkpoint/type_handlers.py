@@ -16,11 +16,13 @@
 
 import abc
 import asyncio
+import copy
 import dataclasses
+from enum import Enum
 import json
-import os
+from os import fspath
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union, cast
-import warnings
+from warnings import warn
 
 from absl import logging
 from etils import epath
@@ -38,17 +40,31 @@ import tensorstore as ts
 
 Scalar = Union[int, float, np.number]
 Metadata = value_metadata.Metadata
+NamedSharding = jax.sharding.NamedSharding
 ScalarMetadata = value_metadata.ScalarMetadata
 ArrayMetadata = value_metadata.ArrayMetadata
 StringMetadata = value_metadata.StringMetadata
+_MESH_AXES = 'axis_names'
+_MESH_SHAPE = 'shape'
+_NAMED_SHARDING = 'NamedSharding'
 _OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
 _COORDINATOR_SETUP_TIMEOUT_SECS = 30
 _OCDBT_TS_CONTEXT = None
 _OCDBT_COORDINATOR_SERVER = None
+_PARTITION_SPEC = 'partition_spec'
+_SHARDING = '_sharding'
+_SHARDING_TYPE = 'sharding_type'
 
 RESTORE_TYPE_NONE = 'None'
 RESTORE_TYPE_DICT = 'Dict'
 RESTORE_TYPE_LIST = 'List'
+
+
+class ShardingTypes(Enum):
+  NAMED_SHARDING = 'NamedSharding'
+  SINGLE_DEVICE_SHARDING = 'SingleDeviceSharding'
+  POSITIONAL_SHARDING = 'PositionalSharding'
+  GSPMD_SHARDING = 'GSPMDSharding'
 
 
 def _get_coordinator_address_without_port(coordinator_address: str) -> str:
@@ -66,9 +82,74 @@ def _enable_ocdbt_for_handlers():
     _TYPESTR_REGISTRY = _make_typestr_registry(_TYPE_REGISTRY)
 
 
+def _serialize_sharding(sharding: jax.sharding.Sharding) -> str:
+  """Serializes `jax.sharding.Sharding` into a json string."""
+
+  if isinstance(sharding, NamedSharding):
+    sharding_data = {}
+
+    sharding_data[_SHARDING_TYPE] = ShardingTypes.NAMED_SHARDING.value
+    sharding_data[_MESH_SHAPE] = list(sharding.mesh.shape.values())
+    sharding_data[_MESH_AXES] = sharding.mesh.axis_names
+    sharding_data[_PARTITION_SPEC] = sharding.spec
+
+    serialized_string = json.dumps(sharding_data)
+    return serialized_string
+
+  elif isinstance(sharding, jax.sharding.SingleDeviceSharding):
+    warn(
+        'Serialization for `jax.sharding.SingleDeviceSharding` has not been'
+        ' implemented.'
+    )
+
+  elif isinstance(sharding, jax.sharding.PositionalSharding):
+    warn(
+        'Serialization for `jax.sharding.PositionalSharding` has not been'
+        ' implemented.'
+    )
+
+  elif isinstance(sharding, jax.sharding.GSPMDSharding):
+    warn(
+        'Serialization for `jax.sharding.PositionalSharding` has not been'
+        ' implemented.'
+    )
+
+  else:
+    warn(f'Sharding type {type(sharding)} is not supported.')
+
+  return ''
+
+
+def _deserialize_sharding_from_json_string(
+    sharding_string: str,
+) -> jax.sharding.Sharding:
+  """Deserializes a json string to `jax.sharding.Sharding`."""
+
+  deserialized_dict = json.loads(sharding_string)
+
+  if deserialized_dict[_SHARDING_TYPE] == ShardingTypes.NAMED_SHARDING.value:
+    shape = deserialized_dict[_MESH_SHAPE]
+    axis_names = list(deserialized_dict[_MESH_AXES])
+    partition_spec = tuple(deserialized_dict[_PARTITION_SPEC])
+
+    sharding = NamedSharding(
+        jax.sharding.Mesh(
+            np.array(jax.devices()).reshape(shape), axis_names=axis_names
+        ),
+        jax.sharding.PartitionSpec(*partition_spec),
+    )
+    return sharding
+
+  else:
+    raise NotImplementedError(
+        'Sharding types other than `jax.sharding.NamedSharding` have not been '
+        'implemented.'
+    )
+
+
 def create_coordinator_server_and_context() -> Tuple[None, None]:
   # TODO(b/293331479) remove this once OCDBT is enabled by default
-  warnings.warn('This function has been deprecated.  Do not use.')
+  warn('This function has been deprecated.  Do not use.')
   return (None, None)
 
 
@@ -471,7 +552,7 @@ class NumpyHandler(TypeHandler):
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
       raise ValueError('Must construct serialization path.')
-    path = os.fspath(info.path)
+    path = fspath(info.path)
     tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=use_ocdbt)
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
@@ -678,7 +759,7 @@ class ArrayHandler(TypeHandler):
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
       raise ValueError('Must construct serialization path.')
-    path = os.fspath(info.path)
+    path = fspath(info.path)
     tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=use_ocdbt)
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
@@ -745,12 +826,13 @@ class ArrayHandler(TypeHandler):
         )
     args = args or [SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
-    copy_ops = []
+    synchronous_ops = []
     futures = []
+    sharding_file_path = epath.Path(infos[0].path).parent / _SHARDING
     for value, info, arg in zip(values, infos, args):
       tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
-      copy_ops += [
+      synchronous_ops += [
           serialization.async_serialize(
               value,
               tspec,
@@ -758,7 +840,33 @@ class ArrayHandler(TypeHandler):
               context=self._ts_context,
           )
       ]
-    await asyncio.gather(*copy_ops)
+      if value.sharding is not None:
+        sharding_info = info
+        sharding_info.path = epath.Path(sharding_file_path)
+        tspec_sharding = self._get_json_tspec_write(
+            sharding_info, value, use_ocdbt=False
+        )
+        tspec_sharding = {
+            'driver': 'json',
+            'kvstore': tspec_sharding['kvstore'],
+            'json_pointer': '/' + sharding_info.name,
+        }
+        if jax.process_index() == 0:
+          open_future = ts.open(
+              tspec_sharding, open=True, context=self._ts_context
+          )
+          t = await ts.open(
+              tspec_sharding,
+              open=True,
+              assume_metadata=True,
+              context=self._ts_context,
+          )
+          serialized_sharding = _serialize_sharding(value.sharding)
+          if serialized_sharding is not None:
+            write_future = t.write(serialized_sharding)
+            synchronous_ops += [write_future.copy]
+            futures += [open_future, write_future]
+    await asyncio.gather(*synchronous_ops)
     return futures
 
   async def deserialize(
@@ -784,18 +892,51 @@ class ArrayHandler(TypeHandler):
       raise ValueError('Must provide ArrayRestoreArgs to restore as jax.Array.')
     check_input_arguments(infos, args)
     deserialize_ops = []
+    sharding_file_path = epath.Path(infos[0].path).parent / _SHARDING
+    sharding_file_exists = await utils.async_exists(sharding_file_path)
     for info, arg in zip(infos, args):
       arg = cast(ArrayRestoreArgs, arg)
-      if arg.sharding is None and (arg.mesh is None or arg.mesh_axes is None):
+      if (
+          isinstance(arg, ArrayRestoreArgs)
+          and arg.mesh is not None
+          and arg.mesh_axes is not None
+      ):
+        sharding = NamedSharding(arg.mesh, arg.mesh_axes)
+      elif isinstance(arg, ArrayRestoreArgs) and arg.sharding is not None:
+        sharding = arg.sharding
+      elif sharding_file_exists:
+        warn(
+            "Couldn't find sharding info under RestoreArgs. Populating sharding"
+            ' info from sharding file. Please note restoration time will be'
+            ' slightly increased due to reading from file instead of directly'
+            ' from RestoreArgs.'
+        )
+        sharding_info = copy.deepcopy(info)
+        sharding_info = dataclasses.replace(
+            sharding_info, path=sharding_file_path
+        )
+        tspec_sharding = self._get_json_tspec_read(
+            sharding_info, use_ocdbt=False
+        )
+        tspec_sharding = {
+            'driver': 'json',
+            'kvstore': tspec_sharding['kvstore'],
+            'json_pointer': '/' + sharding_info.name,
+        }
+        t = await ts.open(
+            tspec_sharding, context=self._ts_context, open=True, read=True
+        )
+        serialized_string = await t.read()
+        if serialized_string:
+          sharding = (
+              _deserialize_sharding_from_json_string(serialized_string.item())
+              or None
+          )
+      else:
         raise ValueError(
             'Sharding of jax.Array cannot be None. Provide `mesh`'
-            ' and `mesh_axes` OR `sharding`.'
+            ' and `mesh_axes` OR `sharding`'
         )
-
-      if arg.sharding is None:
-        sharding = jax.sharding.NamedSharding(arg.mesh, arg.mesh_axes)
-      else:
-        sharding = arg.sharding
       if not info.is_ocdbt_checkpoint:
         await _assert_parameter_files_exist(info.path, self._metadata_key)
       # Using OCDBT, but existing checkpoint may be stored in old format.
@@ -808,7 +949,9 @@ class ArrayHandler(TypeHandler):
           serialization.async_deserialize(
               sharding,
               tspec,
-              global_shape=arg.global_shape,
+              global_shape=arg.global_shape
+              if hasattr(arg, 'global_shape')
+              else None,
               byte_limiter=info.byte_limiter,
               context=self._ts_context,
           )
