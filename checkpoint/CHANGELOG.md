@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Use `nest_asyncio` by default. This allows users to make calls to orbax from
 within `async` functions.
+- Turn on OCDBT in checkpointings by default.
 
 ## [0.3.5] - 2022-08-17
 
