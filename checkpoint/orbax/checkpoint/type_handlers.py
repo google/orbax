@@ -18,11 +18,11 @@ import abc
 import asyncio
 import copy
 import dataclasses
-from enum import Enum
+import enum
 import json
-from os import fspath
+import os
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union, cast
-from warnings import warn
+import warnings
 
 from absl import logging
 from etils import epath
@@ -60,7 +60,7 @@ RESTORE_TYPE_DICT = 'Dict'
 RESTORE_TYPE_LIST = 'List'
 
 
-class ShardingTypes(Enum):
+class ShardingTypes(enum.Enum):
   NAMED_SHARDING = 'NamedSharding'
   SINGLE_DEVICE_SHARDING = 'SingleDeviceSharding'
   POSITIONAL_SHARDING = 'PositionalSharding'
@@ -97,25 +97,25 @@ def _serialize_sharding(sharding: jax.sharding.Sharding) -> str:
     return serialized_string
 
   elif isinstance(sharding, jax.sharding.SingleDeviceSharding):
-    warn(
+    warnings.warn(
         'Serialization for `jax.sharding.SingleDeviceSharding` has not been'
         ' implemented.'
     )
 
   elif isinstance(sharding, jax.sharding.PositionalSharding):
-    warn(
+    warnings.warn(
         'Serialization for `jax.sharding.PositionalSharding` has not been'
         ' implemented.'
     )
 
   elif isinstance(sharding, jax.sharding.GSPMDSharding):
-    warn(
+    warnings.warn(
         'Serialization for `jax.sharding.PositionalSharding` has not been'
         ' implemented.'
     )
 
   else:
-    warn(f'Sharding type {type(sharding)} is not supported.')
+    warnings.warn(f'Sharding type {type(sharding)} is not supported.')
 
   return ''
 
@@ -149,7 +149,7 @@ def _deserialize_sharding_from_json_string(
 
 def create_coordinator_server_and_context() -> Tuple[None, None]:
   # TODO(b/293331479) remove this once OCDBT is enabled by default
-  warn('This function has been deprecated.  Do not use.')
+  warnings.warn('This function has been deprecated.  Do not use.')
   return (None, None)
 
 
@@ -552,7 +552,7 @@ class NumpyHandler(TypeHandler):
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
       raise ValueError('Must construct serialization path.')
-    path = fspath(info.path)
+    path = os.fspath(info.path)
     tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=use_ocdbt)
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
@@ -759,7 +759,7 @@ class ArrayHandler(TypeHandler):
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
       raise ValueError('Must construct serialization path.')
-    path = fspath(info.path)
+    path = os.fspath(info.path)
     tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=use_ocdbt)
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
@@ -905,7 +905,7 @@ class ArrayHandler(TypeHandler):
       elif isinstance(arg, ArrayRestoreArgs) and arg.sharding is not None:
         sharding = arg.sharding
       elif sharding_file_exists:
-        warn(
+        warnings.warn(
             "Couldn't find sharding info under RestoreArgs. Populating sharding"
             ' info from sharding file. Please note restoration time will be'
             ' slightly increased due to reading from file instead of directly'
