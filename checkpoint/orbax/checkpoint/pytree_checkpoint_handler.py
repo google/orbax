@@ -641,7 +641,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._use_ocdbt = use_ocdbt
     self._restore_with_serialized_types = restore_with_serialized_types
     self._write_tree_metadata = write_tree_metadata
-    self._metadata = None
     self._metadata_handler = JsonCheckpointHandler(_METADATA_FILE)
 
 
@@ -910,7 +909,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           },
       }
       ckptr.restore(path, restore_args=restore_args)
-      
+
     Providing `item` is typically only necessary when restoring a custom PyTree
     class (or when using transformations). In this case, the restored object
     will take on the same structure as `item`.
@@ -955,8 +954,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         saved tree in order to obtain a final structure. The `transforms` tree
         structure should conceptually match that of `item`, but the use of
         regexes and implicit keys means that it does not need to match
-        completely.
-        See `transform_utils` for further information.
+        completely. See `transform_utils` for further information.
       transforms_default_to_original: See transform_utils.apply_transformations.
       legacy_transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which
         accepts the `item` argument, a PyTree checkpoint structure and a PyTree
@@ -1288,21 +1286,19 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         'step': ScalarMetadata(dtype=jnp.int64),
       }
 
-    If the required metadata file is not present, a warning will be logged and
-    `None` will be returned.
+    If the required metadata file is not present, this method will raise an
+    error.
 
     Args:
       directory: checkpoint location.
 
     Returns:
-      tree containing metadata or None if the metadata file is missing.
+      tree containing metadata.
     """
-    if self._metadata is None:
-      try:
-        self._metadata = self._get_user_metadata(directory)
-      except FileNotFoundError as e:
-        logging.warning(e)
-    return self._metadata
+    try:
+      return self._get_user_metadata(directory)
+    except FileNotFoundError as e:
+      raise FileNotFoundError('Could not locate metadata file.') from e
 
   def close(self):
     """Closes the handler. Called automatically by Checkpointer."""
