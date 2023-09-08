@@ -33,6 +33,8 @@ from sphinxcontrib import katex
 sys.path.insert(0, os.path.abspath('..'))
 # Include local extension.
 sys.path.append(os.path.abspath('./_ext'))
+# Include img extension.
+sys.path.append(os.path.abspath('./_img'))
 
 # -- Project information -----------------------------------------------------
 
