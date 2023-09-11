@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Fix sync error with removing old checkpoints.
+- Fix missing checkpoint benchmarks images in RTD page.
+https://orbax.readthedocs.io/en/latest/optimized_checkpointing.html#introducing-ocdbt
 
 ### Changed
 - Use `nest_asyncio` by default. This allows users to make calls to orbax from
