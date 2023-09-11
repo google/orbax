@@ -959,12 +959,31 @@ class ArrayHandler(TypeHandler):
     return await asyncio.gather(*deserialize_ops)
 
 
-# TODO(b/285888834) Consider using Tensorstore JSON driver.
 class StringHandler(TypeHandler):
   """TypeHandler for strings."""
 
-  def __init__(self, filename: Optional[str] = None):
+  def __init__(
+      self,
+      filename: Optional[str] = None,
+  ):
     self._filename = filename or '_strings.json'
+    self._ts_context = serialization.TS_CONTEXT
+
+  def _get_json_tspec(
+      self,
+      info: ParamInfo,
+  ) -> Dict[str, Any]:
+    """Gets Tensorstore spec in JSON format."""
+    if info.path is None:
+      raise ValueError('Must construct serialization path.')
+    path = os.fspath(info.path)
+    tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=False)
+    tspec = {
+        'driver': 'json',
+        'kvstore': tspec['kvstore'],
+        'json_pointer': '/' + info.name,
+    }
+    return tspec
 
   def typestr(self) -> str:
     return 'string'
@@ -973,6 +992,10 @@ class StringHandler(TypeHandler):
       self, infos: Sequence[ParamInfo]
   ) -> Sequence[StringMetadata]:
     return [StringMetadata()] * len(infos)
+
+  async def _convert_to_string(self, tensorstore):
+    result = await tensorstore.read()
+    return str(result)
 
   async def serialize(
       self,
@@ -983,12 +1006,28 @@ class StringHandler(TypeHandler):
     """See superclass documentation."""
     del args
     check_input_arguments(values, infos)
-    if jax.process_index() == 0:
-      directory = infos[0].path
-      strings = {info.name: value for value, info in zip(values, infos)}
-      path = directory / self._filename
-      path.write_text(json.dumps(strings))
-    return []
+    synchronous_ops = []
+    futures = []
+    directory = epath.Path(infos[0].path).parent
+    for (
+        info,
+        value,
+    ) in zip(infos, values):
+      info.path = epath.Path(directory / self._filename)
+      tspec = self._get_json_tspec(info)
+      if jax.process_index() == 0:
+        open_future = ts.open(tspec, open=True, context=self._ts_context)
+        t = await ts.open(
+            tspec,
+            open=True,
+            assume_metadata=True,
+            context=self._ts_context,
+        )
+        write_future = t.write(value)
+        synchronous_ops += [write_future.copy]
+        futures += [open_future, write_future]
+    await asyncio.gather(*synchronous_ops)
+    return futures
 
   async def deserialize(
       self,
@@ -998,13 +1037,19 @@ class StringHandler(TypeHandler):
     """See superclass documentation."""
     del args
     check_input_arguments(infos)
-    directory = infos[0].path
-    path = directory / self._filename
-    strings = json.loads(path.read_text())
-    return [
-        strings[info.name] if info.name in strings else None for info in infos
-    ]
+    directory = epath.Path(infos[0].path).parent
+    open_futures = []
 
+    for info in infos:
+      info.path = epath.Path(directory / self._filename)
+      tspec = self._get_json_tspec(info)
+      open_future = ts.open(
+          tspec, open=True, read=True, context=self._ts_context
+      )
+      open_futures += [open_future]
+    tensorstores = await asyncio.gather(*open_futures)
+    read_ops = [self._convert_to_string(t) for t in tensorstores]
+    return await asyncio.gather(*read_ops)
 
 _TYPE_REGISTRY = [
     (lambda ty: issubclass(ty, int), ScalarHandler()),
