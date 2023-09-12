@@ -96,7 +96,7 @@ def _get_defaults(input_signature: Sequence[PyTree]) -> list[PyTree]:
 def with_default_args(
     tf_fn: Callable[..., Any],
     input_signature: Sequence[PyTree],
-) -> tf.types.experimental.GenericFunction:
+) -> tf.types.experimental.PolymorphicFunction:
   """Creates a TF function with default args specified in `input_signature`.
 
   Args:
