@@ -40,6 +40,7 @@ from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.checkpointer import checkpointer_context
 from orbax.checkpoint.future import Future
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
+from orbax.checkpoint.proto_checkpoint_handler import ProtoCheckpointHandler
 from orbax.checkpoint.pytree_checkpoint_handler import ArrayRestoreArgs
 from orbax.checkpoint.pytree_checkpoint_handler import PyTreeCheckpointHandler
 from orbax.checkpoint.pytree_checkpoint_handler import RestoreArgs

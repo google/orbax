@@ -30,3 +30,15 @@ JsonCheckpointHandler
 -----------------------------
 .. autoclass:: JsonCheckpointHandler
   :members:
+
+
+ArrayCheckpointHandler
+-----------------------------
+.. autoclass:: ArrayCheckpointHandler
+  :members:
+
+
+ProtoCheckpointHandler
+-----------------------------
+.. autoclass:: ProtoCheckpointHandler
+  :members:
