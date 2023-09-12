@@ -182,20 +182,6 @@ async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
     await utils.async_makedirs(path, parents=True)
 
 
-def _maybe_set_default_save_args(value, args):
-  # If already set, return.
-  if isinstance(args, SaveArgs):
-    return args
-  aggregate = not type_handlers.has_type_handler(type(value))
-  return SaveArgs(aggregate=aggregate)
-
-
-def _maybe_set_default_restore_args(args):
-  if isinstance(args, RestoreArgs):
-    return args
-  return RestoreArgs(restore_type=None)
-
-
 def _try_array_cast(arr, dtype):
   if dtype is not None:
     if utils.is_scalar(arr):
@@ -357,7 +343,7 @@ def _get_restore_parameters(
   """
   flat_structure = utils.to_flat_dict(structure, keep_empty_nodes=True)
   if restore_args is None:
-    restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), structure)
+    restore_args = jax.tree_util.tree_map(lambda _: None, structure)
   flat_restore_args = utils.to_flat_dict(restore_args, keep_empty_nodes=True)
   flat_param_infos = {}
   flat_input_restore_args = {}
@@ -476,7 +462,7 @@ class _BatchRequest:
   handler: TypeHandler
   values: List[Any]
   infos: List[ParamInfo]
-  args: List[Union[SaveArgs, RestoreArgs]]
+  args: List[Union[Optional[SaveArgs], Optional[RestoreArgs]]]
 
 
 def _batched_serialization_requests(
@@ -745,7 +731,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     # Because of empty states, the user-provided args may not contain
     # all necessary arguments. These should be filled in with default args.
     save_args = jax.tree_util.tree_map(
-        _maybe_set_default_save_args,
+        lambda x: x if isinstance(x, SaveArgs) else None,
         item,
         item if save_args is None else save_args,
         is_leaf=utils.is_empty_or_leaf,

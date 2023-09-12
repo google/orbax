@@ -15,6 +15,9 @@ https://orbax.readthedocs.io/en/latest/optimized_checkpointing.html#introducing-
 ### Changed
 - Use `nest_asyncio` by default. This allows users to make calls to orbax from
 within `async` functions.
+- The `PytreeCheckpointHandler` now passes `None` as the default `save_args` and
+  `restore_args` when the user doesn't specify any (used to define `SaveArgs()`
+  and `RestoreArgs`).
 
 ## [0.3.5] - 2022-08-17
 
@@ -47,7 +50,7 @@ in `CheckpointManager`.
 ### Added
 - Fully self-describing PyTree checkpoints with type information, stored in
 metadata using JSON format (not currently enabled by default).
-- PyTree leaf metadata returned by `metadata` function (dependent on the 
+- PyTree leaf metadata returned by `metadata` function (dependent on the
 above.)
 
 ### Fixed
@@ -68,7 +71,7 @@ above.)
 ## [0.3.0] - 2022-07-24
 
 ### Added
-- `close` method for Checkpointer and CheckpointHandler. 
+- `close` method for Checkpointer and CheckpointHandler.
 - Context manager helper functions for Checkpointer and CheckpointManager.
 - Protobuf metadata saved by PyTreeCheckpointHandler.
 
