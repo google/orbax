@@ -11,7 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added support for automatically inferring sharding if not provided by
 `RestoreArgs`.
 
-
 ### Fixed
 - Fix sync error with removing old checkpoints.
 - Fix missing checkpoint benchmarks images in RTD page.
@@ -22,6 +21,7 @@ https://orbax.readthedocs.io/en/latest/optimized_checkpointing.html#introducing-
 within `async` functions.
 - Modified `StringHandler` serialization and deserialization to use Tensorstore
 Json driver for async file reads and writes.
+- Marked `transform_utils` as deprecated.
 
 ## [0.3.5] - 2022-08-17
 

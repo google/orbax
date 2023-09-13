@@ -240,6 +240,11 @@ def apply_transformations(original_tree: PyTree,
   Returns:
     a transformed PyTree with the structure of `new_tree`
   """
+  logging.warning(
+      'The transformations API will eventually be replaced by an upgraded'
+      ' design. The current API will not be removed until this point, but it'
+      ' will no longer be actively worked on.',
+  )
   if not new_tree:
     return {}
 
