@@ -303,7 +303,7 @@ class CheckpointManager:
     Returns:
       A step (int) or None if no steps are present.
     """
-    steps = self.all_steps()
+    steps = self.all_steps(read=False)
     return max(steps) if steps else None
 
   def best_step(self) -> Optional[int]:

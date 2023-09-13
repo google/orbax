@@ -32,7 +32,7 @@ class StandardCheckpointHandler(
 ):
   """A CheckpointHandler implementation for any PyTree structure.
 
-  See JAX documentation for more information on what consistutes a "PyTree".
+  See JAX documentation for more information on what constitutes a "PyTree".
   This handler is capable of saving and restoring PyTrees with leaves of type
   Python scalar, np.ndarray, and jax.Array
 
@@ -45,7 +45,7 @@ class StandardCheckpointHandler(
     ckptr = Checkpointer(StandardCheckpointHandler())
     # OR
     ckptr = StandardCheckpointer()
-    
+
   If you find that your use case is not covered by `StandardCheckpointHandler`,
   consider using the parent class directly, or explore a custom implementation
   of `CheckpointHandler`.
