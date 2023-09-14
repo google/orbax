@@ -165,27 +165,18 @@ def apply_transformations(original_tree: PyTree,
 
     original_tree = {
       'a': 1,
-      'b': {
-        'c': 5,
-        'd': [0, 1, 2, 3]
-      },
+      'b': {'c': 5, 'd': [0, 1, 2, 3]},
       'f': 2,
-      'b1': {
-        'c': 2,
-      },
-      'b2': {
-        'c': 3,
-      },
+      'b1': {'c': 2},
+      'b2': {'c': 3},
     }
     transformations = {
       'a1': Transform(original_key='a'),  # rename
-      'a1': Transform(multi_value_fn=lambda kv: kv['a']),  # another way of
-      doing
-      above
+      # another way of doing above
+      'a1': Transform(multi_value_fn=lambda kv: kv['a']),
       'b': {
-        'c': Transform(multi_value_fn=lambda kv: kv['b']['c'] * 2)  # doubled
-        original
-        # drop b/d
+        # doubled original, and drop b/d
+        'c': Transform(multi_value_fn=lambda kv: kv['b']['c'] * 2)
       },
       # Copy original into multiple new keys
       'c1': Transform(original_key='b/c'),
@@ -202,28 +193,23 @@ def apply_transformations(original_tree: PyTree,
     new_tree = {
       'a1': ...,
       'a1': ...,
-      'b': {
-        'c': ...,
-      },
+      'b': {'c': ...},
       'c1': ...,
       'c2': ...,
       'x': ...,
       'y': ...,
       'z': ...,
       # defined in original_tree and new_tree, but not in transforms. Value
-      carried over from original_tree.
+      # carried over from original_tree.
       'f': ...,
       # This value matters since it is not present in original_tree or
-      transformations, so the value here will simply be preserved in the result.
+      # transformations, so the value here will simply be preserved in the
+      # result.
       'g': 5,
       # These are just 'b1', 'b2', but renamed to 'x1', 'x2', with all values
-      copied over.
-      'x1': {
-        'c': 2,
-      }
-      'x2': {
-        'c': 3,
-      }
+      # copied over.
+      'x1': {'c': 2}
+      'x2': {'c': 3}
     }
 
   Args:
