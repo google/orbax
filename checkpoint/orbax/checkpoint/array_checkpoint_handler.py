@@ -131,10 +131,9 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if restore_args is None:
       restore_args = type_handlers.RestoreArgs()
 
-    if (directory / self._checkpoint_name).is_file():
-      result = self._aggregate_handler.deserialize(
-          directory / self._checkpoint_name
-      )
+    checkpoint_path = directory / self._checkpoint_name
+    if checkpoint_path.exists() and checkpoint_path.is_file():
+      result = self._aggregate_handler.deserialize(checkpoint_path)
       result = result[_ELEMENT_KEY]
       if not self._is_supported_type(result):
         raise TypeError(f'Unsupported type: {type(result)}.')
@@ -149,8 +148,11 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     else:
       info = type_handlers.ParamInfo(
           name=self._checkpoint_name,
-          path=directory / self._checkpoint_name,
+          path=checkpoint_path,
           skip_deserialize=False,
+          is_ocdbt_checkpoint=type_handlers.is_ocdbt_checkpoint(
+              directory
+          ),
       )
       restore_type = restore_args.restore_type
       if restore_type is None:

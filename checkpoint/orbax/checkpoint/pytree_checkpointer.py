@@ -28,8 +28,8 @@ class PyTreeCheckpointer(checkpointer.Checkpointer):
     ckptr = PyTreeCheckpointer()
   """
 
-  def __init__(self, primary_host: int = 0):
+  def __init__(self, primary_host: int = 0, use_ocdbt: bool = True):
     super().__init__(
-        pytree_checkpoint_handler.PyTreeCheckpointHandler(),
+        pytree_checkpoint_handler.PyTreeCheckpointHandler(use_ocdbt=use_ocdbt),
         primary_host=primary_host,
     )
