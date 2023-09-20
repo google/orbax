@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.4.0] - 2023-09-20
+
 ### Added
 - Added support for automatically inferring sharding if not provided by
 `RestoreArgs`.
@@ -24,7 +27,7 @@ Json driver for async file reads and writes.
 - Marked `transform_utils` as deprecated.
 - Change `PytreeCheckpointHandler`'s parameter `use_ocdbt` default to `True`
 
-## [0.3.5] - 2022-08-17
+## [0.3.5] - 2023-08-17
 
 ### Fixed
 - User metadata when dealing with empty nodes that follow non-empty nodes in a
@@ -40,17 +43,17 @@ restarting after preemption, without enabling `cleanup_tmp_directories`
 in `CheckpointManager`.
 - Fix `create_coordinator_server_and_context()` breaking old codes that expect it to return a tuple.  The function also prints a deprecation warning.
 
-## [0.3.4] - 2022-08-15
+## [0.3.4] - 2023-08-15
 
 ### Added
 - `StandardCheckpointHandler`.
 
-## [0.3.3] - 2022-08-12
+## [0.3.3] - 2023-08-12
 
 ### Fixed
 - Fix concurrency issue when `are_locked` check lags behind checkpoint deletion.
 
-## [0.3.2] - 2022-08-01
+## [0.3.2] - 2023-08-01
 
 ### Added
 - Fully self-describing PyTree checkpoints with type information, stored in
@@ -65,7 +68,7 @@ above.)
 - Deprecated `restore_args_from_target` function.
 
 
-## [0.3.1] - 2022-07-27
+## [0.3.1] - 2023-07-27
 
 ### Added
 - Option to not port `global_shape` to `ArrayRestoreArgs`.
@@ -73,7 +76,7 @@ above.)
 ### Removed
 - Protobuf metadata saved by PyTreeCheckpointHandler.
 
-## [0.3.0] - 2022-07-24
+## [0.3.0] - 2023-07-24
 
 ### Added
 - `close` method for Checkpointer and CheckpointHandler. 
@@ -86,7 +89,7 @@ JAX coordinator server and create TS metadata for numpy arrays on a single proce
 - Refactor TypeHandler to operate over batches of values, rather than individual ones.
 - Removed support for lazy restoration. Supported via transformations.
 
-## [0.2.6] - 2022-06-28
+## [0.2.6] - 2023-06-28
 
 ### Added
 - ProtoCheckpointHandler.
@@ -99,7 +102,7 @@ lockfile before checkpoint is finalized.
 - Fix unlocking function, which may fail if there are multiple evaluators
 running concurrently.
 
-## [0.2.6] - 2022-06-16
+## [0.2.6] - 2023-06-16
 
 ### Added
 - Locking mechanism for `checkpoints_iterator` to prevent checkpoints from
@@ -116,7 +119,7 @@ wait until a certain checkpoint, rather than strictly after a given step.
 - Support creating sharded array when ArrayRestoreArgs is passed and the value
 was originally aggregated.
 
-## [0.2.5] - 2022-06-09
+## [0.2.5] - 2023-06-09
 
 ### Added
 - Support `max_to_keep=0`.
@@ -126,7 +129,7 @@ was originally aggregated.
 - GCS error when `cleanup_tmp_directories=False` which caused an internal
 assertion to be raised when saving over an existing temporary directory.
 
-## [0.2.4] - 2022-06-01
+## [0.2.4] - 2023-06-01
 
 ### Added
 
@@ -138,14 +141,14 @@ assertion to be raised when saving over an existing temporary directory.
 not fully replicated.
 
 
-## [0.2.3] - 2022-05-12
+## [0.2.3] - 2023-05-12
 
 ### Added
 
 - Raise error message when the user tries to save host local arrays that are
 typically obtained using pmap.
 
-## [0.2.2] - 2022-05-08
+## [0.2.2] - 2023-05-08
 
 ### Added
 - Option to allow users to disable automatic temporary directory cleanup upon
@@ -159,12 +162,12 @@ CheckpointManager initialization.
 ### Fixed
 - Msgpack encoding of tuples.
 
-## [0.2.1] - 2022-04-14
+## [0.2.1] - 2023-04-14
 
 ### Fixed
 - Asyncio issue affecting python<=3.9.
 
-## [0.2.0] - 2022-04-10
+## [0.2.0] - 2023-04-10
 
 ### Added
 - Tensorstore options to improve OCDBT performance.
@@ -178,12 +181,12 @@ with lazy loading to avoid materializing unnecessary arrays.
 ### Fixed
 - Slow repeated calls to check whether a checkpoint is OCDBT format or not.
 
-## [0.1.8] - 2022-03-31
+## [0.1.8] - 2023-03-31
 
 ### Changed
 - Increased minimum tensorstore version to what's needed for OCDBT.
 
-## [0.1.7] - 2022-03-28
+## [0.1.7] - 2023-03-28
 
 ### Added
 - `orbax-checkpoint` is introduced, a namespace package under `orbax`. Importing
@@ -191,19 +194,19 @@ this package takes the form `import orbax.checkpoint` or 'from orbax import
 checkpoint`.
 - Support for OCDBT driver in Tensorstore.
 
-## [0.1.6] - 2022-03-22
+## [0.1.6] - 2023-03-22
 
 ### Fixed
 - Small bug fixes.
 
-## [0.1.5] - 2022-03-17
+## [0.1.5] - 2023-03-17
 
 ### Added
 - Use a more precise timestamp when generating temporary directory names to
 permit more than one concurrent checkpointing attempt per second.
 - Automatic import of nest_asyncio.
 
-## [0.1.4] - 2022-03-15
+## [0.1.4] - 2023-03-15
 
 ### Added
 - Support for generic transformation function in PyTreeCheckpointHandler.
@@ -212,12 +215,12 @@ permit more than one concurrent checkpointing attempt per second.
 ### Fixed
 - Eliminate Flax dependency to fix circular dependency problem.
 
-## [0.1.3] - 2022-03-03
+## [0.1.3] - 2023-03-03
 
 ### Added
 - `sharding` option on `ArrayRestoreArgs
 
-## [0.1.2] - 2022-02-17
+## [0.1.2] - 2023-02-17
 
 ### Added
 - Add "standard user recipe" to documentation.
@@ -238,7 +241,7 @@ checkpoints are finalized as soon as possible in async case.
 - Preemption when using keep_time_interval caused the most recent steps before
 preemption to be kept, despite not falling on the keep time interval.
 
-## [0.1.1] - 2022-01-30
+## [0.1.1] - 2023-01-30
 
 ### Added
 - A util function that constructs restore_args from a target PyTree.
@@ -251,7 +254,7 @@ user-convenience functions.
 - Guard option to create top-level directory behind `create` option.
 - Remove support for Python 3.7.
 
-## [0.1.0] - 2022-01-04
+## [0.1.0] - 2023-01-04
 
 ### Added
 
