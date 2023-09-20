@@ -27,6 +27,17 @@ from orbax.checkpoint import utils
 PyTree = Any
 
 
+def check_restored_shapes(expected: PyTree, restored: PyTree):
+  def _check(a: pytree_checkpoint_handler.RestoreArgs, b: jax.Array):
+    if a.global_shape != b.shape:
+      raise ValueError(
+          f'Restored parameter shape mismatch: {a.global_shape} (expected) vs.'
+          f' {b.shape} (restored).'
+      )
+
+  jax.tree_util.tree_map(_check, expected, restored)
+
+
 class StandardCheckpointHandler(
     pytree_checkpoint_handler.PyTreeCheckpointHandler
 ):
@@ -149,4 +160,6 @@ class StandardCheckpointHandler(
     """
     self._validate_restore_state(state)
     restore_args = checkpoint_utils.construct_restore_args(state)
-    return super().restore(directory, item=state, restore_args=restore_args)
+    restored = super().restore(directory, item=state, restore_args=restore_args)
+    check_restored_shapes(restore_args, restored)
+    return restored

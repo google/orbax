@@ -22,7 +22,8 @@ within `async` functions.
 - Modified `StringHandler` serialization and deserialization to use Tensorstore
 Json driver for async file reads and writes.
 - Marked `transform_utils` as deprecated.
-- Change `PytreeCheckpointHandler`'s parameter `use_ocdbt` default to `True`
+- Change `PytreeCheckpointHandler`'s parameter `use_ocdbt` default to `True`.
+- Disable implicit reshaping in `StandardCheckpointHandler`.
 
 ## [0.3.5] - 2022-08-17
 

@@ -216,3 +216,33 @@ class StandardCheckpointHandlerTestBase:
       self.handler.save(self.directory, state)
       restored = self.handler.restore(self.directory, state)
       self.assertDictEqual(restored, state)
+
+    def test_reshape_padding(self):
+      """Test case."""
+      mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
+      axes = jax.sharding.PartitionSpec(
+          'x',
+      )
+      tree = {'x': test_utils.create_sharded_array(np.arange(8), mesh, axes)}
+      self.handler.save(self.directory, tree)
+      target = {'x': test_utils.create_sharded_array(np.arange(16), mesh, axes)}
+      with self.assertRaises(ValueError):
+        self.handler.restore(
+            self.directory,
+            jax.tree_util.tree_map(to_shape_dtype_struct, target),
+        )
+
+    def test_reshape_truncate(self):
+      """Test case."""
+      mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
+      axes = jax.sharding.PartitionSpec(
+          'x',
+      )
+      tree = {'x': test_utils.create_sharded_array(np.arange(16), mesh, axes)}
+      self.handler.save(self.directory, tree)
+      target = {'x': test_utils.create_sharded_array(np.arange(8), mesh, axes)}
+      with self.assertRaises(ValueError):
+        self.handler.restore(
+            self.directory,
+            jax.tree_util.tree_map(to_shape_dtype_struct, target),
+        )
