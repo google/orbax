@@ -13,18 +13,18 @@
 # limitations under the License.
 
 """Wraps JAX functions and parameters into a tf.Module."""
-from typing import Any, Callable, Optional, Union, Mapping, Tuple
+from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
 from absl import logging
-
 import jax
 from jax.experimental import jax2tf
 from orbax.checkpoint import utils as ckpt_utils
 from orbax.export import dtensor_utils
+from orbax.export import utils as orbax_export_utils
 import tensorflow as tf
 from tensorflow.experimental import dtensor
 
-PyTree = Any
+PyTree = orbax_export_utils.PyTree
 ApplyFn = Callable[[PyTree, PyTree], PyTree]
 
 
