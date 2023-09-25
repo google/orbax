@@ -65,7 +65,7 @@ class JaxModule(tf.Module):
         boolean value to tell if all the parameters are trainable or not. By
         default all parameters are non-trainable. The default value is subject
         to change in the future, thus it is recommended to specify the value
-        explictly.
+        explicitly.
       input_polymorphic_shape: the polymorhpic shape for the inputs of
         ``apply_fn``. If ``apply_fn`` is a mapping, ``input_polymorphic_shape``
         must be a mapping of method key to the input polymorphic shape for the
@@ -134,11 +134,42 @@ class JaxModule(tf.Module):
     self._methods = jax.tree_util.tree_map(self._make_tf_closure, apply_fn,
                                            input_polymorphic_shape,
                                            jax2tf_kwargs, jit_compile)
+    self._jax2tf_kwargs_map = jax2tf_kwargs
 
     def bind_params(fn: ApplyFn):
       return lambda x: fn(params, x)
 
     self._jax_methods = jax.tree_util.tree_map(bind_params, apply_fn)
+
+  @property
+  def native_serialization_platforms(self) -> list[str]:
+    """Returns the `native_serialization_platforms` used in `jax2tf.convert`.
+
+    JaxModule can support multiple ApplyFn functions through ApplyFn map. In
+    that case, `native_serialization_platforms` must be same for
+    all ApplyFns.
+
+    If users do not provide `native_serialization_platforms`, we
+    can get the default value based on the system.
+    """
+    native_serialization_platforms_list = []
+    for _, jax2tf_kwargs in self._jax2tf_kwargs_map.items():
+      if jax2tf_kwargs and 'native_serialization_platforms' in jax2tf_kwargs:
+        native_serialization_platforms_list.append(
+            jax2tf_kwargs['native_serialization_platforms']
+        )
+
+    if not native_serialization_platforms_list:
+      return [jax2tf.jax_export.default_lowering_platform()]
+    else:
+      native_serialization_platforms = native_serialization_platforms_list[0]
+      for item in native_serialization_platforms_list:
+        assert item == native_serialization_platforms, (
+            'all ApplyFn must use exactly same native_serialization_platforms'
+            ' but not.'
+            f'{item} != {native_serialization_platforms}.'
+        )
+      return list(native_serialization_platforms)
 
   def _make_tf_closure(self, apply_fn: ApplyFn,
                        input_polymorphic_shape: Optional[PyTree],

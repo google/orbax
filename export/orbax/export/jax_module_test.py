@@ -282,6 +282,31 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
           jax2tf_kwargs={'with_gradient': True},
       )
 
+  def test_jax2tf_native_serialization_platforms(self):
+    params = {}
+    my_module = JaxModule(params, lambda params, x: x)
+    self.assertEqual(my_module.native_serialization_platforms, ['cpu'])
+
+    my_module = JaxModule(
+        params,
+        lambda params, x: x,
+        jax2tf_kwargs=dict(native_serialization_platforms=['cuda']),
+    )
+    self.assertEqual(my_module.native_serialization_platforms, ['cuda'])
+
+    with self.assertRaisesRegex(
+        NotImplementedError,
+        'native_serialization_platforms is not yet implemented for multiple'
+        ' platforms',
+    ):
+      _ = JaxModule(
+          params,
+          lambda params, x: x,
+          jax2tf_kwargs=dict(
+              native_serialization_platforms=['cuda', 'tpu', 'cpu']
+          ),
+      )
+
 
 if __name__ == '__main__':
   tf.test.main()
