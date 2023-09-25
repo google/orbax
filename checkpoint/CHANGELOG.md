@@ -26,6 +26,8 @@ within `async` functions.
 Json driver for async file reads and writes.
 - Marked `transform_utils` as deprecated.
 - Change `PytreeCheckpointHandler`'s parameter `use_ocdbt` default to `True`
+- Modified sharding property in value_metadata to
+`jax.sharding.Sharding`
 
 ## [0.3.5] - 2023-08-17
 

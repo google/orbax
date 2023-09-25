@@ -501,17 +501,13 @@ def _add_write_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
   return tspec
 
 
-def _array_metadata_from_tensorstore(t: Any) -> ArrayMetadata:
-  if t.chunk_layout.read_chunk.shape is None:
-    shards = None
-  else:
-    shards = tuple(
-        [int(s / c) for s, c in zip(t.shape, t.chunk_layout.read_chunk.shape)]
-    )
+def _array_metadata_from_tensorstore(
+    t: Any, sharding: Optional[jax.sharding.Sharding] = None
+) -> ArrayMetadata:
   return ArrayMetadata(
       shape=t.shape,
       dtype=jnp.dtype(t.dtype.name),
-      shards=shards,
+      sharding=sharding,
   )
 
 
@@ -598,7 +594,10 @@ class NumpyHandler(TypeHandler):
       )
 
     tensorstores = await asyncio.gather(*open_ops)
-    return [_array_metadata_from_tensorstore(t) for t in tensorstores]
+    return [
+        _array_metadata_from_tensorstore(t, sharding=None)
+        for (t) in tensorstores
+    ]
 
   async def serialize(
       self,
@@ -791,6 +790,10 @@ class ArrayHandler(TypeHandler):
       self, infos: Sequence[ParamInfo]
   ) -> Sequence[ArrayMetadata]:
     open_ops = []
+    sharding_open_ops = []
+    shardings = []
+    sharding_file_path = epath.Path(infos[0].path).parent / _SHARDING
+    sharding_file_exists = await utils.async_exists(sharding_file_path)
     for info in infos:
       # Using OCDBT, but existing checkpoint may be stored in old format.
       use_ocdbt = _use_ocdbt_for_restore(
@@ -800,9 +803,41 @@ class ArrayHandler(TypeHandler):
       open_ops.append(
           ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
       )
-
+      sharding_info = copy.deepcopy(info)
+      sharding_info = dataclasses.replace(
+          sharding_info, path=sharding_file_path
+      )
+      tspec_sharding = self._get_json_tspec_read(sharding_info, use_ocdbt=False)
+      tspec_sharding = {
+          'driver': 'json',
+          'kvstore': tspec_sharding['kvstore'],
+          'json_pointer': '/' + sharding_info.name,
+      }
+      if sharding_file_exists:
+        sharding_op = ts.open(
+            tspec_sharding, open=True, read=True, context=self._ts_context
+        )
+      else:
+        sharding_op = None
+      sharding_open_ops.append(sharding_op)
     tensorstores = await asyncio.gather(*open_ops)
-    return [_array_metadata_from_tensorstore(t) for t in tensorstores]
+    if sharding_file_exists:
+      sharding_tensorstores = await asyncio.gather(*sharding_open_ops)
+      for sharding_tensorstore in sharding_tensorstores:
+        if sharding_tensorstore:
+          sharding_string = await sharding_tensorstore.read()
+          deserialized = _deserialize_sharding_from_json_string(
+              sharding_string.item()
+          )
+          shardings.append(deserialized or None)
+        else:
+          shardings.append(None)
+    else:
+      shardings = [None] * len(tensorstores)
+    return [
+        _array_metadata_from_tensorstore(t, sharding)
+        for (t, sharding) in zip(tensorstores, shardings)
+    ]
 
   async def serialize(
       self,

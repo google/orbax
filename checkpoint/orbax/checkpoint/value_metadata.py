@@ -17,6 +17,7 @@
 import dataclasses
 from typing import Optional
 
+import jax
 from jax import numpy as jnp
 
 
@@ -34,24 +35,23 @@ class ArrayMetadata(Metadata):
 
   shape:
     Tuple of integers describing the array shape.
-  shards:
-    Tuple of integers indicating how many shards each dimension is divided
-    into. E.g. a dimension may be 1 if it is unsharded, or 2 if it is divided
-    into 2 chunks.
+  sharding:
+    jax.sharding.Sharding to indicate how the array is sharded. In most of the
+    cases, it's NamedSharding.
     May be None if the array is not sharded.
   dtype:
     Dtype of array elements.
   """
 
   shape: tuple[int, ...]
-  shards: Optional[tuple[int, ...]]
+  sharding: Optional[jax.sharding.Sharding]
   dtype: Optional[jnp.dtype]
 
   def __eq__(self, other: 'Metadata') -> bool:
     return (
         isinstance(other, ArrayMetadata)
         and self.shape == other.shape
-        and self.shards == other.shards
+        and self.sharding == other.sharding
         and self.dtype == other.dtype
     )
 
@@ -65,7 +65,7 @@ class ScalarMetadata(ArrayMetadata):
   """
 
   shape: tuple[int, ...] = tuple([])
-  shards: Optional[tuple[int, ...]] = None
+  sharding: Optional[jax.sharding.Sharding] = None
   dtype: Optional[jnp.dtype] = None
 
   def __eq__(self, other: 'Metadata') -> bool:
