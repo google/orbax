@@ -117,6 +117,14 @@ class StandardCheckpointHandlerTestBase:
       )
       test_utils.assert_tree_equal(self, self.pytree, restored)
 
+    def test_basic_no_state_arg(self):
+      self.handler.save(self.directory, self.pytree)
+      restored = self.handler.restore(self.directory)
+      self.assertTrue(
+          (self.directory / type_handlers._OCDBT_MANIFEST_FILE).exists()  # pylint: disable=protected-access
+      )
+      test_utils.assert_tree_equal(self, self.pytree, restored)
+
     def test_shape_dtype_struct(self):
       """Test case."""
       self.handler.save(self.directory, self.mixed_pytree)

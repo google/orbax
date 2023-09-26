@@ -39,7 +39,7 @@ class StandardCheckpointHandler(
   As with all `CheckpointHandler` subclasses, `StandardCheckpointHandler` should
   only be used in conjunction with a `Checkpointer` (or subclass). By itself,
   the `CheckpointHandler` is non-atomic.
-  
+
   Example::
 
     ckptr = Checkpointer(StandardCheckpointHandler())
@@ -85,9 +85,6 @@ class StandardCheckpointHandler(
     jax.tree_util.tree_map_with_path(_check_input, state, save_args)
 
   def _validate_restore_state(self, state: PyTree):
-    if state is None:
-      raise ValueError('Must provide target state.')
-
     def _check_input(k, x):
       if not isinstance(x, self._supported_types) and not isinstance(
           x, jax.ShapeDtypeStruct
@@ -147,6 +144,15 @@ class StandardCheckpointHandler(
     Returns:
       a restore PyTree.
     """
-    self._validate_restore_state(state)
-    restore_args = checkpoint_utils.construct_restore_args(state)
-    return super().restore(directory, item=state, restore_args=restore_args)
+    if state:
+      self._validate_restore_state(state)
+      restore_args = checkpoint_utils.construct_restore_args(state)
+    else:
+      restore_args = checkpoint_utils.construct_restore_args(
+          self.metadata(directory)
+      )
+    return super().restore(
+        directory,
+        item=state,
+        restore_args=restore_args,
+    )

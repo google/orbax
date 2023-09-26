@@ -24,6 +24,7 @@ from jax.experimental import multihost_utils
 import numpy as np
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint import value_metadata
 
 
 PyTree = Any
@@ -347,8 +348,8 @@ def construct_restore_args(
 
   Args:
     target: The returned PyTree will match the structure of `target`. `target`
-      may contain real scalar or array values, or may contain
-      jax.ShapeDtypeStruct.
+      may contain `value_metadata.Metadata`, real scalar or array values, or
+      may contain jax.ShapeDtypeStruct.
     sharding_tree: A PyTree matching `target` which will be used to set the
       restoration sharding. If not provided, sharding will default to the
       shardings specified by `target`.
@@ -359,7 +360,8 @@ def construct_restore_args(
   """
 
   def _restore_args(
-      value: Any, sharding: Optional[jax.sharding.Sharding]
+      value: Any,
+      sharding: Optional[jax.sharding.Sharding],
   ) -> type_handlers.RestoreArgs:
     dtype = None
     if hasattr(value, 'dtype'):
@@ -374,7 +376,11 @@ def construct_restore_args(
             global_shape=value.shape if set_global_shape else None,
             dtype=dtype,
         )
-    elif isinstance(value, jax.Array):
+    elif isinstance(value, value_metadata.ScalarMetadata):
+      return type_handlers.RestoreArgs(dtype=dtype)
+    elif isinstance(value, jax.Array) or isinstance(
+        value, value_metadata.ArrayMetadata
+    ):
       return type_handlers.ArrayRestoreArgs(
           restore_type=jax.Array,
           sharding=sharding,
@@ -383,7 +389,9 @@ def construct_restore_args(
       )
     elif isinstance(value, STANDARD_ARRAY_TYPES):
       return type_handlers.RestoreArgs(restore_type=type(value), dtype=dtype)
-    elif isinstance(value, str):
+    elif isinstance(value, str) or isinstance(
+        value, value_metadata.StringMetadata
+    ):
       return type_handlers.RestoreArgs(restore_type=str)
     else:
       raise ValueError(f'Unsupported type: {type(value)}')
