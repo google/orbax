@@ -16,16 +16,21 @@
 
 Implementation of CheckpointHandler interface.
 """
+import dataclasses
 import json
 from typing import Any, Mapping, Optional
 
 from etils import epath
 import jax
+from orbax.checkpoint import checkpoint_args
+from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import utils
-from orbax.checkpoint.checkpoint_handler import CheckpointHandler
+
+CheckpointArgs = checkpoint_args.CheckpointArgs
+register_with_handler = checkpoint_args.register_with_handler
 
 
-class JsonCheckpointHandler(CheckpointHandler):
+class JsonCheckpointHandler(checkpoint_handler.CheckpointHandler):
   """Saves nested dictionary using json."""
 
   def __init__(self, filename: Optional[str] = None):
@@ -49,9 +54,9 @@ class JsonCheckpointHandler(CheckpointHandler):
       path.write_text(json.dumps(item))
     utils.sync_global_devices('JsonCheckpointHandler:save')
 
-  def restore(self,
-              directory: epath.Path,
-              item: Optional[bytes] = None) -> bytes:
+  def restore(
+      self, directory: epath.Path, item: Optional[bytes] = None
+  ) -> bytes:
     """Restores json mapping from directory.
 
     `item` is unused.
@@ -70,3 +75,25 @@ class JsonCheckpointHandler(CheckpointHandler):
   def structure(self, directory: epath.Path) -> Any:
     """Unimplemented. See parent class."""
     return NotImplementedError
+
+
+@register_with_handler(JsonCheckpointHandler)
+@dataclasses.dataclass
+class JsonSaveArgs(CheckpointArgs):
+  """Parameters for saving to json.
+
+  Attributes:
+    item (required): a nested dictionary.
+  """
+
+  item: Mapping[str, Any]
+
+
+@register_with_handler(JsonCheckpointHandler)
+@dataclasses.dataclass
+class JsonRestoreArgs(CheckpointArgs):
+  """Json restore args.
+
+  No attributes, but use this class to indicate that an item should be restored
+  from json.
+  """

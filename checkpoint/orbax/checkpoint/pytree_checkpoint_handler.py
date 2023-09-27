@@ -34,6 +34,7 @@ from jax.experimental.array_serialization import serialization
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import async_checkpoint_handler
+from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import transform_utils
@@ -57,6 +58,8 @@ RestoreTransform = transform_utils.RestoreTransform
 JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
 # TODO(b/298487158) Clean up protected access.
 LimitInFlightBytes = serialization._LimitInFlightBytes  # pylint: disable=protected-access
+CheckpointArgs = checkpoint_args.CheckpointArgs
+register_with_handler = checkpoint_args.register_with_handler
 
 
 _METADATA_FILE = '_METADATA'
@@ -1303,3 +1306,57 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   def close(self):
     """Closes the handler. Called automatically by Checkpointer."""
     self._aggregate_handler.close()
+
+
+@register_with_handler(PyTreeCheckpointHandler)
+@dataclasses.dataclass
+class PyTreeSaveArgs(CheckpointArgs):
+  """Parameters for saving a PyTree.
+
+  Attributes:
+    item (required): a PyTree to be saved.
+    save_args: a PyTree with the same structure of `item`, which consists of
+      `ocp.SaveArgs` objects as values. `None` can be used for values where no
+      `SaveArgs` are specified.
+  """
+
+  item: PyTree
+  save_args: Optional[PyTree] = None
+
+
+@register_with_handler(PyTreeCheckpointHandler)
+@dataclasses.dataclass
+class PyTreeRestoreArgs(CheckpointArgs):
+  """Parameters for restoring a PyTree.
+
+  Attributes (all optional):
+    item: provides the tree structure for the restored item. If not provided,
+      will infer the structure from the saved checkpoint. Transformations will
+      not be run in this case. Necessary particularly in the case where the
+      caller needs to restore the tree as a custom object.
+    restore_args: optional object containing additional arguments for
+      restoration. It should be a PyTree matching the structure of `item`, or
+      if `item` is not provided, then it should match the structure of the
+      checkpoint. Each value in the tree should be a `RestoreArgs` object (OR
+      a subclass of `RestoreArgs`). Importantly, note that when restoring a
+      leaf as a certain type, a specific subclass of `RestoreArgs` may be
+      required. `RestoreArgs` also provides the option to customize the
+      restore type of an individual leaf.
+    transforms: a PyTree of transformations that should be applied to the
+      saved tree in order to obtain a final structure. The `transforms` tree
+      structure should conceptually match that of `item`, but the use of
+      regexes and implicit keys means that it does not need to match
+      completely. See `transform_utils` for further information.
+    transforms_default_to_original: See transform_utils.apply_transformations.
+    legacy_transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which
+      accepts the `item` argument, a PyTree checkpoint structure and a PyTree
+      of ParamInfos based on the checkpoint. Returns a transformed PyTree
+      matching the desired return tree structure, and a matching ParamInfo
+      tree.
+  """
+
+  item: Optional[PyTree] = None
+  restore_args: Optional[PyTree] = None
+  transforms: Optional[PyTree] = None
+  transforms_default_to_original: bool = True
+  legacy_transform_fn: Optional[LegacyTransformFn] = None

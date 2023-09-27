@@ -19,6 +19,7 @@ Implementation of CheckpointHandler interface.
 
 import asyncio
 from concurrent import futures
+import dataclasses
 import functools
 from typing import Any, List, Optional, Type
 
@@ -27,8 +28,13 @@ from google.protobuf import message
 from google.protobuf import text_format
 import jax
 from orbax.checkpoint import async_checkpoint_handler
+from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import utils
+
+
+CheckpointArgs = checkpoint_args.CheckpointArgs
+register_with_handler = checkpoint_args.register_with_handler
 
 
 class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
@@ -102,3 +108,27 @@ class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
   def close(self):
     self._executor.shutdown()
+
+
+@register_with_handler(ProtoCheckpointHandler)
+@dataclasses.dataclass
+class ProtoSaveArgs(CheckpointArgs):
+  """Parameters for saving a proto.
+
+  Attributes:
+    item (required): the proto to serialize.
+  """
+
+  item: message.Message
+
+
+@register_with_handler(ProtoCheckpointHandler)
+@dataclasses.dataclass
+class ProtoRestoreArgs(CheckpointArgs):
+  """Proto restore args.
+
+  Attributes:
+    item (required): the proto class
+  """
+
+  item: Type[message.Message]

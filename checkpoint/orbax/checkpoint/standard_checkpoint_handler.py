@@ -14,10 +14,12 @@
 
 """StandardCheckpointHandler class."""
 
+import dataclasses
 from typing import Any, List, Optional
 
 from etils import epath
 import jax
+from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import future
 from orbax.checkpoint import pytree_checkpoint_handler
@@ -25,6 +27,8 @@ from orbax.checkpoint import utils
 
 
 PyTree = Any
+CheckpointArgs = checkpoint_args.CheckpointArgs
+register_with_handler = checkpoint_args.register_with_handler
 
 
 class StandardCheckpointHandler(
@@ -156,3 +160,40 @@ class StandardCheckpointHandler(
         item=state,
         restore_args=restore_args,
     )
+
+
+@register_with_handler(StandardCheckpointHandler)
+@dataclasses.dataclass
+class StandardSaveArgs(CheckpointArgs):
+  """Parameters for saving a standard PyTree.
+
+  Attributes:
+    state (required): a PyTree to be saved.
+    save_args: a PyTree with the same structure of `state`, which consists of
+      `ocp.SaveArgs` objects as values. `None` can be used for values where no
+      `SaveArgs` are specified.
+  """
+
+  state: PyTree
+  save_args: Optional[PyTree] = None
+
+
+@register_with_handler(StandardCheckpointHandler)
+@dataclasses.dataclass
+class StandardRestoreArgs(CheckpointArgs):
+  """Parameters for restoring a standard PyTree.
+
+  If you require more flexibility, see `PyTreeRestore`.
+
+  Attributes (all optional):
+    state: target PyTree. Currently non-optional. Values may be either real
+        array or scalar values, or they may be jax.ShapeDtypeStruct. If real
+        values are provided, that value will be restored as the given type, with
+        the given properties. If jax.ShapeDtypeStruct is provided, the value
+        will be restored as np.ndarray, unless `sharding` is specified. If
+        `state` is a custom PyTree class, the tree will be restored with the
+        same structure as provided. If not provided, restores as a serialized
+        nested dict representation of the custom class.
+  """
+
+  state: Optional[PyTree] = None

@@ -15,6 +15,7 @@
 """ArrayCheckpointHandler for saving and restoring individual arrays/scalars."""
 
 import asyncio
+import dataclasses
 from typing import List, Optional, Union
 
 from etils import epath
@@ -22,9 +23,13 @@ import jax
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import async_checkpoint_handler
+from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+
+CheckpointArgs = checkpoint_args.CheckpointArgs
+register_with_handler = checkpoint_args.register_with_handler
 
 ArrayType = Union[int, float, np.number, np.ndarray, jax.Array]
 
@@ -174,3 +179,26 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   def close(self):
     """See superclass documentation."""
     self._aggregate_handler.close()
+
+
+@register_with_handler(ArrayCheckpointHandler)
+@dataclasses.dataclass
+class ArraySaveArgs(CheckpointArgs):
+  """Parameters for saving an array or scalar.
+
+  Attributes:
+    item (required): an array or scalar object.
+    save_args: a `ocp.SaveArgs` object specifying save options.
+  """
+
+  item: ArrayType
+
+
+@register_with_handler(ArrayCheckpointHandler)
+@dataclasses.dataclass
+class ArrayRestoreArgs(CheckpointArgs):
+  """Array restore args.
+
+  No attributes, but use this class to indicate that an array or scalar should
+  be restored.
+  """
