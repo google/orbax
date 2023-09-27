@@ -826,6 +826,9 @@ class ArrayHandler(TypeHandler):
       for sharding_tensorstore in sharding_tensorstores:
         if sharding_tensorstore:
           sharding_string = await sharding_tensorstore.read()
+          if not sharding_string.item():
+            shardings.append(None)
+            continue
           deserialized = _deserialize_sharding_from_json_string(
               sharding_string.item()
           )
