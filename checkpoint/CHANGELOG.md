@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Forked `AsyncManager` into Orbax and replaced `AsyncCheckpointer`'s
+inheritance from it with composition for easier customization.
 
 ## [0.4.0] - 2023-09-20
 
@@ -60,7 +63,7 @@ in `CheckpointManager`.
 ### Added
 - Fully self-describing PyTree checkpoints with type information, stored in
 metadata using JSON format (not currently enabled by default).
-- PyTree leaf metadata returned by `metadata` function (dependent on the 
+- PyTree leaf metadata returned by `metadata` function (dependent on the
 above.)
 
 ### Fixed
@@ -81,7 +84,7 @@ above.)
 ## [0.3.0] - 2023-07-24
 
 ### Added
-- `close` method for Checkpointer and CheckpointHandler. 
+- `close` method for Checkpointer and CheckpointHandler.
 - Context manager helper functions for Checkpointer and CheckpointManager.
 - Protobuf metadata saved by PyTreeCheckpointHandler.
 
@@ -305,4 +308,3 @@ auto-publish functionality.
 
 - Fix mistaken usages of placeholder "AGGREGATED" where "NOT-AGGREGATED" would
 be more appropriate. Ensure backwards compatibility is maintained.
-
