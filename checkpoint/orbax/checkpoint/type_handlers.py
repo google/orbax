@@ -970,6 +970,8 @@ class ArrayHandler(TypeHandler):
               _deserialize_sharding_from_json_string(serialized_string.item())
               or None
           )
+        else:
+          raise ValueError('Unable to deserialize sharding.')
       else:
         raise ValueError(
             'Sharding of jax.Array cannot be None. Provide `mesh`'
