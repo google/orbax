@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Barrier synchronization in `AsyncCheckpointer` refactored to allow plugging in
+alternative implementations.
+
 ## [0.4.1] - 2023-09-28
 
 ### Changed
