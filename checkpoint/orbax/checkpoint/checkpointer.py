@@ -15,6 +15,7 @@
 """Synchronous Checkpointer implementation."""
 
 import contextlib
+import pprint
 import time
 from typing import Any, Optional
 
@@ -76,12 +77,23 @@ class Checkpointer(AbstractCheckpointer):
         directory, primary_host=self._primary_host
     )
 
+    logging.info('!!! Calling save handler:\n%s.', pprint.pformat(kwargs))
     self._handler.save(tmpdir, *args, **kwargs)
+
+    logging.info('!!! sync_global_devices Checkpointer:write')
     utils.sync_global_devices('Checkpointer:write')
 
     # Ensure save operation atomicity and record time saved by checkpoint.
     if jax.process_index() == self._primary_host:
+      logging.info(
+          '!!! on_commit_callback:\n  tmp_dir: %s\n  dir: %s\ntime: %s',
+          tmpdir,
+          directory,
+          checkpoint_start_time,
+      )
       utils.on_commit_callback(tmpdir, directory, checkpoint_start_time)
+
+    logging.info('!!! sync_global_devices Checkpointer:save')
     utils.sync_global_devices('Checkpointer:save')
 
   def restore(self,
