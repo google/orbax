@@ -16,6 +16,7 @@
 
 import abc
 import asyncio
+import base64
 import copy
 import dataclasses
 import enum
@@ -808,17 +809,19 @@ class ArrayHandler(TypeHandler):
           sharding_info, path=sharding_file_path
       )
       tspec_sharding = self._get_json_tspec_read(sharding_info, use_ocdbt=False)
-      tspec_sharding = {
-          'driver': 'json',
-          'kvstore': tspec_sharding['kvstore'],
-          'json_pointer': '/' + sharding_info.name,
-      }
-      if sharding_file_exists:
-        sharding_op = ts.open(
-            tspec_sharding, open=True, read=True, context=self._ts_context
-        )
-      else:
-        sharding_op = None
+      sharding_op = None
+      if sharding_info.name:
+        tspec_sharding = {
+            'driver': 'json',
+            'kvstore': tspec_sharding['kvstore'],
+            'json_pointer': '/' + base64.urlsafe_b64encode(
+                sharding_info.name.encode()
+            ).decode('utf-8'),
+        }
+        if sharding_file_exists:
+          sharding_op = ts.open(
+              tspec_sharding, open=True, read=True, context=self._ts_context
+          )
       sharding_open_ops.append(sharding_op)
     tensorstores = await asyncio.gather(*open_ops)
     if sharding_file_exists:
@@ -887,7 +890,9 @@ class ArrayHandler(TypeHandler):
         tspec_sharding = {
             'driver': 'json',
             'kvstore': tspec_sharding['kvstore'],
-            'json_pointer': '/' + sharding_info.name,
+            'json_pointer': '/' + base64.urlsafe_b64encode(
+                sharding_info.name.encode()
+            ).decode('utf-8'),
         }
         if jax.process_index() == 0:
           open_future = ts.open(
@@ -956,20 +961,24 @@ class ArrayHandler(TypeHandler):
         tspec_sharding = self._get_json_tspec_read(
             sharding_info, use_ocdbt=False
         )
-        tspec_sharding = {
-            'driver': 'json',
-            'kvstore': tspec_sharding['kvstore'],
-            'json_pointer': '/' + sharding_info.name,
-        }
-        t = await ts.open(
-            tspec_sharding, context=self._ts_context, open=True, read=True
-        )
-        serialized_string = await t.read()
-        if serialized_string:
-          sharding = (
-              _deserialize_sharding_from_json_string(serialized_string.item())
-              or None
+        sharding = None
+        if sharding_info.name:
+          tspec_sharding = {
+              'driver': 'json',
+              'kvstore': tspec_sharding['kvstore'],
+              'json_pointer': '/' + base64.urlsafe_b64encode(
+                  sharding_info.name.encode()
+              ).decode('utf-8'),
+          }
+          t = await ts.open(
+              tspec_sharding, context=self._ts_context, open=True, read=True
           )
+          serialized_string = await t.read()
+          if serialized_string:
+            sharding = (
+                _deserialize_sharding_from_json_string(serialized_string.item())
+                or None
+            )
         else:
           raise ValueError('Unable to deserialize sharding.')
       else:
