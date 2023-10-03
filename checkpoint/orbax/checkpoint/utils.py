@@ -723,7 +723,9 @@ def fully_replicated_host_local_array_to_global_array(
   # Create a 1D mesh to create fully replicated global jax.Array.
   sharding = jax.sharding.NamedSharding(
       jax.sharding.Mesh(np.array(jax.devices()), axis_names=('x',)),
-      jax.sharding.PartitionSpec(None),
+      jax.sharding.PartitionSpec(None)
+      if global_shape
+      else jax.sharding.PartitionSpec(),
   )
   # pmap-produced Array has a "scrambled" device order.
   dbs = sorted(arr.device_buffers, key=lambda x: x.device().id)
