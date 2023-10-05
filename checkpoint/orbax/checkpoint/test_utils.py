@@ -121,12 +121,18 @@ def setup_pytree(add: int = 0):
 
 def setup_sharded_pytree(
     pytree: Optional[pytree_checkpoint_handler.PyTree] = None,
+    reverse_devices: bool = False,
 ):
   """Creates a PyTree of sharded arrays for testing."""
-  devices = np.asarray(jax.devices())
+  devices = jax.devices()
+  num_devices = len(devices)
+  if reverse_devices:
+    devices = np.asarray(list(reversed(devices)))
+  else:
+    devices = np.asarray(devices)
 
   mesh_2d = jax.sharding.Mesh(
-      devices.reshape((2, len(devices) // 2)), ('x', 'y')
+      devices.reshape((2, num_devices // 2)), ('x', 'y')
   )
   mesh_axes_2d = jax.sharding.PartitionSpec('x', 'y')
   mesh_1d = jax.sharding.Mesh(devices, ('x',))
