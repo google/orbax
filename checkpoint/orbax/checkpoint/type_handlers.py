@@ -301,6 +301,10 @@ class ParamInfo:
   path:
     A path providing a location where file(s) should be saved. The path is
     assumed to be a directory.
+  parent_dir:
+    A path providing location where all files under the same checkpoint should
+    be saved under. All `ParamInfo` provided to a given TypeHandler should have
+    the same `parent_dir`. The parent_dir is assumed to be a directory.
   skip_deserialize:
     If specified, skips deserialization of the given parameter using the
     TypeHandler. This may be for multiple different reasons, including that the
@@ -317,6 +321,7 @@ class ParamInfo:
 
   name: Optional[str] = None
   path: Optional[epath.Path] = None
+  parent_dir: Optional[epath.Path] = None
   skip_deserialize: Optional[bool] = None
   byte_limiter: Optional[serialization._LimitInFlightBytes] = (
       None  # pylint: disable=protected-access
@@ -793,7 +798,9 @@ class ArrayHandler(TypeHandler):
     open_ops = []
     sharding_open_ops = []
     shardings = []
-    sharding_file_path = epath.Path(infos[0].path).parent / _SHARDING
+    if infos[0].parent_dir is None:
+      raise ValueError('parent_dir cannot be None')
+    sharding_file_path = infos[0].parent_dir / _SHARDING
     sharding_file_exists = await utils.async_exists(sharding_file_path)
     for info in infos:
       # Using OCDBT, but existing checkpoint may be stored in old format.
@@ -869,7 +876,9 @@ class ArrayHandler(TypeHandler):
     check_input_arguments(values, infos, args)
     synchronous_ops = []
     futures = []
-    sharding_file_path = epath.Path(infos[0].path).parent / _SHARDING
+    if infos[0].parent_dir is None:
+      raise ValueError('parent_dir cannot be None')
+    sharding_file_path = infos[0].parent_dir / _SHARDING
     for value, info, arg in zip(values, infos, args):
       tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
@@ -935,7 +944,9 @@ class ArrayHandler(TypeHandler):
       raise ValueError('Must provide ArrayRestoreArgs to restore as jax.Array.')
     check_input_arguments(infos, args)
     deserialize_ops = []
-    sharding_file_path = epath.Path(infos[0].path).parent / _SHARDING
+    if infos[0].parent_dir is None:
+      raise ValueError('parent_dir cannot be None')
+    sharding_file_path = infos[0].parent_dir / _SHARDING
     sharding_file_exists = await utils.async_exists(sharding_file_path)
     for info, arg in zip(infos, args):
       arg = cast(ArrayRestoreArgs, arg)

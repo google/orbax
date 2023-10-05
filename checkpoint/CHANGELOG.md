@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Barrier synchronization in `AsyncCheckpointer` refactored to allow plugging in
 alternative implementations.
+- Added `parent_dir` under `ParamInfo` and modified sharding file to be saved
+under `ParamInfo.parent_dir`.
 
 ## [0.4.1] - 2023-09-28
 

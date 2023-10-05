@@ -377,6 +377,7 @@ def _get_restore_parameters(
     return ParamInfo(
         name=name,
         path=directory / name,
+        parent_dir=directory,
         skip_deserialize=meta.skip_deserialize,
         is_ocdbt_checkpoint=is_ocdbt_checkpoint,
         byte_limiter=byte_limiter,
@@ -684,7 +685,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       nonlocal all_params_aggregated
       all_params_aggregated &= args.aggregate
       return ParamInfo(
-          name=name, path=(directory / name), skip_deserialize=args.aggregate
+          name=name,
+          path=(directory / name),
+          parent_dir=directory,
+          skip_deserialize=args.aggregate,
       )
 
     return (
@@ -755,6 +759,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     )
     param_infos, all_params_aggregated = self._get_param_infos(
         item, directory, save_args
+    )
+    assert all(
+        leaf.parent_dir == directory
+        for leaf in jax.tree_util.tree_leaves(param_infos)
     )
     if not self._use_ocdbt and not all_params_aggregated:
       # Create directories in parallel.
@@ -1239,6 +1247,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       flat_param_infos[keypath] = ParamInfo(
           name=param_name,
           path=directory / param_name,
+          parent_dir=directory,
           skip_deserialize=skip_deserialize,
           is_ocdbt_checkpoint=is_ocdbt_checkpoint,
       )
