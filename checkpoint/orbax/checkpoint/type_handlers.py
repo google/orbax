@@ -517,6 +517,16 @@ def _array_metadata_from_tensorstore(
   )
 
 
+def _dump_debug_data(key, infos):
+  ts_metrics = ts.experimental_collect_matching_metrics('/tensorstore/')
+  ts_metrics += [
+      {'key': key},
+      {'infos': [f'{info.name}' for info in infos]},
+  ]
+
+  return json.dumps(ts_metrics)
+
+
 class NumpyHandler(TypeHandler):
   """Provides an implementation of TypeHandler for replicated numpy arrays."""
 
@@ -656,12 +666,28 @@ class NumpyHandler(TypeHandler):
       )
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       tspec = _get_cast_tspec_deserialize(tspec, arg)
+
+      if logging.level_debug():
+        logging.debug('tspec = %s', json.dumps(tspec))
+        logging.debug('infos = %s', infos)
+        logging.debug('args = %s', args)
       open_futures += [
           ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
       ]
     tensorstores = await asyncio.gather(*open_futures)
     read_ops = [t.read() for t in tensorstores]
-    return await asyncio.gather(*read_ops)
+    ret = await asyncio.gather(*read_ops)
+
+    if logging.level_debug():
+      for a in ret:
+        logging.debug(
+            'restored ndarray.shape = %s, array.dtype = %s', a.shape, a.dtype
+        )
+      logging.debug(
+          'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
+      )
+
+    return ret
 
 
 class ScalarHandler(NumpyHandler):
@@ -1005,6 +1031,10 @@ class ArrayHandler(TypeHandler):
       )
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       tspec = _get_cast_tspec_deserialize(tspec, arg)
+      if logging.level_debug():
+        logging.debug('tspec = %s', json.dumps(tspec))
+        logging.debug('infos = %s', infos)
+        logging.debug('args = %s', args)
       deserialize_ops += [
           serialization.async_deserialize(
               sharding,
@@ -1016,7 +1046,20 @@ class ArrayHandler(TypeHandler):
               context=self._ts_context,
           )
       ]
-    return await asyncio.gather(*deserialize_ops)
+    ret = await asyncio.gather(*deserialize_ops)
+
+    if logging.level_debug():
+      for a in ret:
+        logging.debug(
+            'restored jax.Array.shape = %s, jax.array.dtype = %s',
+            a.shape,
+            a.dtype,
+        )
+      logging.debug(
+          'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
+      )
+
+    return ret
 
 
 class StringHandler(TypeHandler):

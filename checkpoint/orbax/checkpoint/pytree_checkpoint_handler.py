@@ -23,6 +23,7 @@ import asyncio
 import collections
 import dataclasses
 import enum
+import json
 import re
 import typing
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -41,7 +42,7 @@ from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
-
+import tensorstore as ts
 
 PyTree = Any
 TupleKey = Tuple[str, ...]
@@ -981,6 +982,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       ValueError: `transforms` is provided without `item`.
       ValueError: `transforms` contains elements with `multi_value_fn`.
     """
+    logging.debug('directory=%s, restore_args=%s', directory, restore_args)
+
     if not directory.exists():
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
@@ -1037,6 +1040,16 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           transforms_default_to_original,
       )
     utils.sync_global_devices('PyTreeCheckpointHandler:restore')
+
+    if logging.level_debug():
+      logging.debug(
+          'restored_item: %s', jax.tree_util.tree_structure(restored_item)
+      )
+      logging.debug(
+          'ts_metrics: %s',
+          json.dumps(ts.experimental_collect_matching_metrics('/tensorstore/')),
+      )
+
     return restored_item
 
   async def _write_aggregate_file(
