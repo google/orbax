@@ -58,15 +58,24 @@ class StandardCheckpointHandler(
   def __init__(
       self,
       concurrent_gb: int = 96,
+      use_ocdbt: bool = True,
+      write_tree_metadata: bool = True,
   ):
     """Creates StandardCheckpointHandler.
 
     Args:
       concurrent_gb: max concurrent GB that are allowed to be read. Can help to
         reduce the possibility of OOM's when large checkpoints are restored.
+      use_ocdbt: enables Tensorstore OCDBT driver. This option allows using a
+        different checkpoint format which is faster to read and write, as well
+        as more space efficient.
+      write_tree_metadata: Writes tree metadata in JSON format. The tree
+        metadata is used to enable a checkpoint which is fully self-describing.
     """
     super().__init__(
-        concurrent_gb=concurrent_gb, use_ocdbt=True, write_tree_metadata=True
+        concurrent_gb=concurrent_gb,
+        use_ocdbt=use_ocdbt,
+        write_tree_metadata=write_tree_metadata,
     )
     self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
 
