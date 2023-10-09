@@ -609,7 +609,16 @@ def checkpoint_steps_paths(
     raise ValueError(f'Path {checkpoint_dir} does not exist.')
 
   def check_step_dir(step_dir: epath.Path) -> bool:
-    return _is_step_checkpoint(step_dir) and is_checkpoint_finalized(step_dir)
+    # This block allows catching errors in which the checkpoint was deleted
+    # between checking _is_step_checkpoint and is_checkpoint_finalized.
+    try:
+      result = _is_step_checkpoint(step_dir) and is_checkpoint_finalized(
+          step_dir
+      )
+    except ValueError:
+      return False
+
+    return result
 
   with concurrent.futures.ThreadPoolExecutor() as executor:
     futures = {
