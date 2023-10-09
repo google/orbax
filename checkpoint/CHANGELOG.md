@@ -13,6 +13,7 @@ alternative implementations.
 - Added `parent_dir` under `ParamInfo` and modified sharding file to be saved
 under `ParamInfo.parent_dir`.
 - In `all_steps`, minimize disk queries on non-leader processes.
+- Add `commit_success.txt` for all checkpoints that are final.
 
 ## [0.4.1] - 2023-09-28
 

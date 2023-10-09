@@ -515,12 +515,12 @@ def create_tmp_directory(final_dir: epath.PathLike,
 
 def ensure_atomic_save(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path):
   """Finalizes atomic save by renaming tmp_dir or writing a success file."""
-  if temp_ckpt_dir == final_ckpt_dir:
-    (final_ckpt_dir / _COMMIT_SUCCESS_FILE
-    ).write_text(f'Checkpoint commit was successful to {final_ckpt_dir}')
-  else:
+  if temp_ckpt_dir != final_ckpt_dir:
     logging.info('Renaming %s to %s', temp_ckpt_dir, final_ckpt_dir)
     temp_ckpt_dir.rename(final_ckpt_dir)
+  (final_ckpt_dir / _COMMIT_SUCCESS_FILE).write_text(
+      f'Checkpoint commit was successful to {final_ckpt_dir}'
+  )
 
 
 def record_saved_duration(checkpoint_start_time: float):
@@ -662,6 +662,8 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
 
     path/to/my/dir/<name>.orbax-checkpoint-tmp-<timestamp>/  # not finalized
     path/to/my/dir/<name>/  # finalized
+      commit_success.txt
+      ...
 
   Alternatively::
 
