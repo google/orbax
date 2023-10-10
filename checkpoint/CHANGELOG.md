@@ -12,7 +12,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 alternative implementations.
 - Added `parent_dir` under `ParamInfo` and modified sharding file to be saved
 under `ParamInfo.parent_dir`.
-- In `all_steps`, minimize disk queries on non-leader processes.
 
 ## [0.4.1] - 2023-09-28
 

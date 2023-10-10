@@ -27,7 +27,6 @@ from etils import epath
 import jax
 from jax.experimental import multihost_utils
 from jax.experimental.array_serialization import serialization
-import numpy as np
 from orbax.checkpoint import utils
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
@@ -292,18 +291,8 @@ class CheckpointManager:
       A sequence of steps (integers)
     """
     if read:
-      max_steps = len(list(self.directory.iterdir()))
-      # Read the step list only from host 0, and then broadcast the list.
-      # This minimizes queries on non-leader processes.
-      padded_step_list = np.array([-1] * max_steps)
-      if jax.process_index() == 0:
-        steps = np.array(utils.checkpoint_steps(self.directory))
-        assert len(steps) <= max_steps
-        padded_step_list[0 : len(steps)] = steps
-      padded_step_list = multihost_utils.broadcast_one_to_all(padded_step_list)
-      return [step for step in padded_step_list if step >= 0]
-    else:
-      return [ckpt.step for ckpt in self._checkpoints]
+      return utils.checkpoint_steps(self.directory)
+    return [ckpt.step for ckpt in self._checkpoints]
 
   def latest_step(self) -> Optional[int]:
     """Returns the latest step saved.
