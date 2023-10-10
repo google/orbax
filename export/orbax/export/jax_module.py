@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """Wraps JAX functions and parameters into a tf.Module."""
-from typing import Any, Callable, Mapping, Optional, Tuple, Union
+from typing import Any, Callable, Mapping, Optional, Protocol, Tuple, Union
 
 from absl import logging
 import jax
@@ -26,10 +26,27 @@ from tensorflow.experimental import dtensor
 
 PyTree = orbax_export_utils.PyTree
 ApplyFn = Callable[[PyTree, PyTree], PyTree]
+DEFAULT_METHOD_KEY = 'jax_module_default_method'
 
 
 def _same_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
   return set(a.keys()) == set(b.keys())
+
+
+class JaxModuleProtocol(Protocol):
+  """Protocol for JaxModule."""
+
+  @property
+  def native_serialization_platforms(self) -> list[str]:
+    ...
+
+  @property
+  def methods(self) -> Mapping[str, Callable[..., Any]]:
+    ...
+
+  @property
+  def jax_methods(self) -> Mapping[str, Callable[..., Any]]:
+    ...
 
 
 class JaxModule(tf.Module):
@@ -38,8 +55,6 @@ class JaxModule(tf.Module):
   Holds tf.Variables converted from JAX parameters, as well as TF functions
   converted from JAX functions and bound with the tf.Variables.
   """
-
-  DEFAULT_METHOD_KEY = 'jax_module_default_method'
 
   def __init__(
       self,
@@ -58,8 +73,8 @@ class JaxModule(tf.Module):
       params: a pytree of JAX parameters.
       apply_fn: A JAX ``ApplyFn`` (i.e. of signature ``apply_fn(params, x)``),
         or a mapping of method key to ``ApplyFn``. If it is an ``ApplyFn``, it
-        will be assigned a key ``JaxModule.DEFAULT_METHOD_KEY`` automatically,
-        which can be used to look up the TF function converted from it.
+        will be assigned a key ``DEFAULT_METHOD_KEY`` automatically, which can
+        be used to look up the TF function converted from it.
       trainable: a pytree in the same structure as ``params`` and boolean leaves
         to tell if a parameter is trainable. Alternatively, it can be a single
         boolean value to tell if all the parameters are trainable or not. By
@@ -82,18 +97,16 @@ class JaxModule(tf.Module):
         functions or a mapping of method key to the jit compile option for the
         method.
       name: the name of the module.
-      pspecs: an optional pytree of PartitionSpecs of the ``params`` in the
-        same structure as ``params``. If set, the leaves of ``params`` must be
+      pspecs: an optional pytree of PartitionSpecs of the ``params`` in the same
+        structure as ``params``. If set, the leaves of ``params`` must be
         jax.Array, and ``JaxModule`` must be created within a DTensor export
         context from ``with maybe_enable_dtensor_export_on(mesh)``.
     """
     if callable(apply_fn):
-      apply_fn: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
-      input_polymorphic_shape = {
-          self.DEFAULT_METHOD_KEY: input_polymorphic_shape
-      }
-      jax2tf_kwargs = {self.DEFAULT_METHOD_KEY: jax2tf_kwargs}
-      jit_compile = {self.DEFAULT_METHOD_KEY: jit_compile}
+      apply_fn: dict[str, ApplyFn] = {DEFAULT_METHOD_KEY: apply_fn}
+      input_polymorphic_shape = {DEFAULT_METHOD_KEY: input_polymorphic_shape}
+      jax2tf_kwargs = {DEFAULT_METHOD_KEY: jax2tf_kwargs}
+      jit_compile = {DEFAULT_METHOD_KEY: jit_compile}
     else:
       # Check if `apply_fn`, `input_polymorphic_shape` and `jax2tf_kwargs` have
       # the same structure.
