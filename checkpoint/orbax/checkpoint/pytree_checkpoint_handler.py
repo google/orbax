@@ -31,7 +31,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from absl import logging
 from etils import epath
 import jax
-from jax.experimental.array_serialization import serialization
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import async_checkpoint_handler
@@ -58,7 +57,7 @@ Transform = transform_utils.Transform
 RestoreTransform = transform_utils.RestoreTransform
 JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
 # TODO(b/298487158) Clean up protected access.
-LimitInFlightBytes = serialization._LimitInFlightBytes  # pylint: disable=protected-access
+LimitInFlightBytes = type_handlers.LimitInFlightBytes
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
 

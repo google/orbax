@@ -288,6 +288,16 @@ def get_empty_value_from_typestr(typestr: str) -> Any:
     raise ValueError(f'Unrecognized typestr: {typestr}.')
 
 
+class LimitInFlightBytes(serialization._LimitInFlightBytes):  # pylint: disable=protected-access
+  """Limits in-flight bytes when reading/writing checkpoints per process."""
+
+  def wait_for_bytes_sync(self, requested_bytes):
+    asyncio.run(self.wait_for_bytes(requested_bytes))
+
+  def release_bytes_sync(self, requested_bytes):
+    asyncio.run(self.release_bytes(requested_bytes))
+
+
 @dataclasses.dataclass
 class ParamInfo:
   """Information describing a parameter in a PyTree.
