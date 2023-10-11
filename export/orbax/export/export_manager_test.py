@@ -385,6 +385,29 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
               'serving', [tf.TensorSpec((), tf.float32)], method_key='baz'),
       ])
 
+  def test_variable_update(self):
+    jax_module = JaxModule({'bias': jnp.array(1)}, lambda p, x: x + p['bias'])
+    em = ExportManager(
+        jax_module,
+        serving_configs=[
+            ServingConfig(
+                'serving_default',
+                input_signature=[tf.TensorSpec((), tf.dtypes.int32, name='x')],
+                tf_postprocessor=lambda out: {'y': out},
+            ),
+        ],
+    )
+    em.save(self._output_dir)
+    loaded = tf.saved_model.load(self._output_dir, ['serve'])
+    res = loaded.signatures['serving_default'](x=1)['y']
+    self.assertAllEqual(res, 2)
+
+    jax_module.update_variables({'bias': jnp.array(2)})
+    em.save(self._output_dir)
+    loaded = tf.saved_model.load(self._output_dir, ['serve'])
+    res = loaded.signatures['serving_default'](x=1)['y']
+    self.assertAllEqual(res, 3)
+
 
 if __name__ == '__main__':
   tf.test.main()

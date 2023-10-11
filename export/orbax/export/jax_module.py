@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Wraps JAX functions and parameters into a tf.Module."""
+import dataclasses
 from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
 from absl import logging
@@ -30,6 +31,35 @@ ApplyFn = Callable[[PyTree, PyTree], PyTree]
 
 def _same_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
   return set(a.keys()) == set(b.keys())
+
+
+def _make_closures(
+    params: PyTree, apply_fn_map: Mapping[str, ApplyFn]
+) -> Mapping[str, Callable[..., Any]]:
+  """Creates closures for apply functions."""
+
+  def bind_params(apply_fn):
+    return lambda x: apply_fn(params, x)
+
+  return jax.tree_util.tree_map(bind_params, apply_fn_map)
+
+
+@dataclasses.dataclass(frozen=True)
+class _NonTrackableMetadata:
+  """A container that holds the metadata required for variable update.
+
+  Most fields of this dataclass are python containers (dict, list, tuple). If
+  they are attached a tf.Module directly, TF will turn them into TF trackable
+  wrappers (DictWrapper, ListWrapper, etc.), thus mutate their orginal PyTree
+  def. Therefore, we create this dataclass to hold the metadata to avoid such
+  implicit conversion. See also
+  https://github.com/google/jax/blob/main/jax/experimental/jax2tf/README.md#errors-due-to-tfmodule-magic-conversion-during-attribute-assignment
+  """
+
+  apply_fn_map: Mapping[str, ApplyFn]
+  var_treedef: Any
+  var_trainable: Mapping[str, bool]
+  var_pspecs: Optional[Mapping[str, PyTree]]
 
 
 class JaxModule(tf.Module):
@@ -88,7 +118,7 @@ class JaxModule(tf.Module):
         context from ``with maybe_enable_dtensor_export_on(mesh)``.
     """
     if callable(apply_fn):
-      apply_fn: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
+      apply_fn_map: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
       input_polymorphic_shape = {
           self.DEFAULT_METHOD_KEY: input_polymorphic_shape
       }
@@ -97,28 +127,35 @@ class JaxModule(tf.Module):
     else:
       # Check if `apply_fn`, `input_polymorphic_shape` and `jax2tf_kwargs` have
       # the same structure.
+      apply_fn_map = apply_fn
       if not isinstance(input_polymorphic_shape, Mapping) or not _same_keys(
-          input_polymorphic_shape, apply_fn):
+          input_polymorphic_shape, apply_fn_map
+      ):
         raise ValueError(
-            '`input_polymorphic_shape` must have the same structure as that of '
-            f'`apply_fn`. Got apply_fn={apply_fn}, input_polymorphic_shape='
-            f'{input_polymorphic_shape}.')
+            '`input_polymorphic_shape` must have the same structure as that of'
+            f' `apply_fn`. Got apply_fn={apply_fn_map},'
+            f' input_polymorphic_shape={input_polymorphic_shape}.'
+        )
       if jax2tf_kwargs is None:
         # OK if it is unspecified, which means `jax2tf_kwargs` is unspecified
         # for all apply functions.
-        jax2tf_kwargs = jax.tree_util.tree_map(lambda x: None, apply_fn)
-      elif not _same_keys(jax2tf_kwargs, apply_fn):
+        jax2tf_kwargs = jax.tree_util.tree_map(lambda x: None, apply_fn_map)
+      elif not _same_keys(jax2tf_kwargs, apply_fn_map):
         raise ValueError(
             '`jax2tf_kwargs` must either be unspecified or have the same '
-            f'structure as that of `apply_fn`. Got apply_fn={apply_fn}, '
-            f'jax2tf_kwargs={jax2tf_kwargs}.')
+            f'structure as that of `apply_fn`. Got apply_fn={apply_fn_map}, '
+            f'jax2tf_kwargs={jax2tf_kwargs}.'
+        )
       if not isinstance(jit_compile, Mapping) or isinstance(jit_compile, bool):
-        jit_compile = jax.tree_util.tree_map(lambda x: jit_compile, apply_fn)
-      elif not _same_keys(jit_compile, apply_fn):
+        jit_compile = jax.tree_util.tree_map(
+            lambda x: jit_compile, apply_fn_map
+        )
+      elif not _same_keys(jit_compile, apply_fn_map):
         raise ValueError(
             '`jit_compile` must either be a boolean or have the same '
-            f'structure as that of `apply_fn`. Got apply_fn={apply_fn}, '
-            f'jit_compile={jit_compile}.')
+            f'structure as that of `apply_fn`. Got apply_fn={apply_fn_map}, '
+            f'jit_compile={jit_compile}.'
+        )
 
     if trainable is None:
       trainable = False
@@ -129,17 +166,54 @@ class JaxModule(tf.Module):
     tf_vars = _jax_params_to_tf_variables(params, trainable, pspecs)
     # Do not attach `tf_vars` to `self` directly, otherwise its structure will
     # be mutated by `tf.Module.__setattr__`.
-    self._get_variable_tree = lambda: tf_vars
-    self._tf_vars = jax.tree_util.tree_leaves(tf_vars)
-    self._methods = jax.tree_util.tree_map(self._make_tf_closure, apply_fn,
-                                           input_polymorphic_shape,
-                                           jax2tf_kwargs, jit_compile)
+    self._var_leaves, var_treedef = jax.tree_util.tree_flatten(tf_vars)
+    self._methods = jax.tree_util.tree_map(
+        self._make_tf_closure,
+        apply_fn_map,
+        input_polymorphic_shape,
+        jax2tf_kwargs,
+        jit_compile,
+    )
     self._jax2tf_kwargs_map = jax2tf_kwargs
+    self._jax_methods = _make_closures(params, apply_fn_map)
 
-    def bind_params(fn: ApplyFn):
-      return lambda x: fn(params, x)
+    # Keep the following Metadata for variable update.
+    self._nontrackable_metadata = _NonTrackableMetadata(
+        apply_fn_map=apply_fn_map,
+        var_treedef=var_treedef,
+        var_trainable=trainable,
+        var_pspecs=pspecs,
+    )
 
-    self._jax_methods = jax.tree_util.tree_map(bind_params, apply_fn)
+  def update_variables(self, params: PyTree):
+    """Updates the variables associated with self.
+
+    Args:
+      params: A PyTree of JAX parameters. The PyTree structure must be the same
+        as that of the `params` used to initialize the model. Additionally, the
+        shape and dtype of each parameter must be the same as the original
+        parameter.
+    """
+    _, treedef = jax.tree_util.tree_flatten(params)
+    if treedef != self._nontrackable_metadata.var_treedef:
+      raise ValueError(
+          'The PyTree structure of the updated parameters must be the same as'
+          f' that of the original parameters. Got new treedef: {treedef},'
+          f' orignal treedef: {self._nontrackable_metadata.var_treedef}'
+      )
+    new_vars = _jax_params_to_tf_variables(
+        params,
+        self._nontrackable_metadata.var_trainable,
+        self._nontrackable_metadata.var_pspecs,
+    )
+
+    jax.tree_util.tree_map(
+        lambda v, new_v: v.assign(new_v), self._get_variable_tree(), new_vars
+    )
+
+    self._jax_methods = _make_closures(
+        params, self._nontrackable_metadata.apply_fn_map
+    )
 
   @property
   def native_serialization_platforms(self) -> list[str]:
@@ -170,6 +244,12 @@ class JaxModule(tf.Module):
             f'{item} != {native_serialization_platforms}.'
         )
       return list(native_serialization_platforms)
+
+  def _get_variable_tree(self) -> PyTree:
+    """Returns the PyTree of the tf.Variables associated with self."""
+    return jax.tree_util.tree_unflatten(
+        self._nontrackable_metadata.var_treedef, self._var_leaves
+    )
 
   def _make_tf_closure(self, apply_fn: ApplyFn,
                        input_polymorphic_shape: Optional[PyTree],

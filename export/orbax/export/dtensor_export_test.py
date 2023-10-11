@@ -83,6 +83,19 @@ class DtensorExportTest(absltest.TestCase):
       ](x=x)['y']
       np.testing.assert_allclose(jax_result, tf_result, atol=1e-5, rtol=1e-5)
 
+      with dtensor_utils.maybe_enable_dtensor_export_on(self._mesh):
+        new_params = {
+            'w': _create_sharded_jax_array(w + 1.0, pspec, self._mesh)
+        }
+        jm.update_variables(new_params)
+        em.save(self._export_dir)
+
+      jax_result = pjit_model_fn(new_params, x)
+      tf_result = tf.saved_model.load(self._export_dir).signatures[
+          'serving_default'
+      ](x=x)['y']
+      np.testing.assert_allclose(jax_result, tf_result, atol=1e-5, rtol=1e-5)
+
   def test_dtensor_export_error(self):
     pspec = P('x', 'y')
     w = np.random.rand(16, 8).astype(np.float32)

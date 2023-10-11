@@ -307,6 +307,47 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
           ),
       )
 
+  def test_variable_update(self):
+    def linear(params, batch):
+      return params['w'] @ batch + params['b']
+
+    key_w, key_b, key_x = jax.random.split(jax.random.PRNGKey(1234), 3)
+    params = {
+        'w': jax.random.normal(key_w, shape=(8, 8)),
+        'b': jax.random.normal(key_b, shape=(8, 1)),
+    }
+
+    jax_module = JaxModule(params, linear, input_polymorphic_shape='b, ...')
+
+    new_params = jax.tree_util.tree_map(lambda x: x + 1.0, params)
+    jax_module.update_variables(new_params)
+    x = jax.random.normal(key_x, shape=(4, 8, 1))
+    expected_res = linear(new_params, x)
+
+    self.assertAllClose(
+        jax_module.jax_methods[JaxModule.DEFAULT_METHOD_KEY](x), expected_res
+    )
+    self.assertAllClose(
+        jax_module.methods[JaxModule.DEFAULT_METHOD_KEY](x), expected_res
+    )
+
+  def test_variable_update_error(self):
+    params = {'w': np.zeros((4, 8), dtype=np.float32)}
+    jax_module = JaxModule(params, lambda params, x: params['w'] @ x)
+
+    with self.assertRaisesRegex(
+        ValueError,
+        'The PyTree structure of the updated parameters must be the same as'
+        ' that of the original parameters',
+    ):
+      jax_module.update_variables({'v': np.zeros((4, 8), dtype=np.float32)})
+
+    with self.assertRaisesRegex(ValueError, 'Shape mismatch'):
+      jax_module.update_variables({'w': np.zeros((1, 8), dtype=np.float32)})
+
+    with self.assertRaisesRegex(ValueError, 'Incompatible type conversion'):
+      jax_module.update_variables({'w': np.zeros((4, 8), dtype=np.int32)})
+
 
 if __name__ == '__main__':
   tf.test.main()
