@@ -1069,7 +1069,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if checkpoint_path.exists():
       return self._aggregate_handler.deserialize(checkpoint_path)
     elif self._use_ocdbt:
-      raise ValueError(
+      raise FileNotFoundError(
           f'Checkpoint structure file does not exist at {directory}.'
       )
     else:
