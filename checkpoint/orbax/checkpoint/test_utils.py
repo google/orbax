@@ -113,7 +113,7 @@ def setup_pytree(add: int = 0):
       'c': {
           'a': np.arange(8).reshape((2, 4)) * 3,
           'e': np.arange(16).reshape((4, 4)) * 4,
-      }
+      },
   }
   pytree = jax.tree_util.tree_map(lambda x: x + add, pytree, is_leaf=is_leaf)
   return pytree
@@ -136,9 +136,13 @@ def setup_sharded_pytree(
   )
   mesh_axes_2d = jax.sharding.PartitionSpec('x', 'y')
   mesh_1d = jax.sharding.Mesh(devices, ('x',))
-  mesh_axes_1d = jax.sharding.PartitionSpec('x',)
+  mesh_axes_1d = jax.sharding.PartitionSpec(
+      'x',
+  )
   mesh_0d = jax.sharding.Mesh(devices, ('x',))
-  mesh_axes_0d = jax.sharding.PartitionSpec(None,)
+  mesh_axes_0d = jax.sharding.PartitionSpec(
+      None,
+  )
 
   if pytree is None:
     pytree = setup_pytree()
@@ -148,7 +152,7 @@ def setup_sharded_pytree(
       'c': {
           'a': mesh_2d,
           'e': mesh_2d,
-      }
+      },
   }
   axes_tree = {
       'a': mesh_axes_0d,
@@ -156,11 +160,12 @@ def setup_sharded_pytree(
       'c': {
           'a': mesh_axes_2d,
           'e': mesh_axes_2d,
-      }
+      },
   }
 
   pytree = jax.tree_util.tree_map(
-      create_sharded_array, pytree, mesh_tree, axes_tree, is_leaf=is_leaf)
+      create_sharded_array, pytree, mesh_tree, axes_tree, is_leaf=is_leaf
+  )
   return pytree, mesh_tree, axes_tree
 
 
@@ -180,3 +185,23 @@ def create_sharded_array(arr, mesh, mesh_axes):
   return jax.make_array_from_callback(
       arr.shape, sharding.NamedSharding(mesh, mesh_axes), lambda idx: arr[idx]
   )
+
+
+def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
+  """Get ShapeDtypeStruct from array."""
+  if isinstance(x, jax.ShapeDtypeStruct):
+    return x
+  elif isinstance(x, jax.Array):
+    if dtype is None:
+      dtype = x.dtype
+    return jax.ShapeDtypeStruct(x.shape, dtype, sharding=x.sharding)
+  elif isinstance(x, np.ndarray):
+    if dtype is None:
+      dtype = x.dtype
+    return jax.ShapeDtypeStruct(x.shape, dtype)
+  elif utils.is_scalar(x):
+    if scalar_dtype is not None:
+      return scalar_dtype(x)
+    return x
+  else:
+    raise ValueError(f'Unexpected type: {type(x)}.')

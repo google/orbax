@@ -48,26 +48,6 @@ def init_flax_model(model):
   return jax.tree_util.tree_map(np.asarray, state)
 
 
-def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
-  """Get ShapeDtypeStruct from array."""
-  if isinstance(x, jax.ShapeDtypeStruct):
-    return x
-  elif isinstance(x, jax.Array):
-    if dtype is None:
-      dtype = x.dtype
-    return jax.ShapeDtypeStruct(x.shape, dtype, sharding=x.sharding)
-  elif isinstance(x, np.ndarray):
-    if dtype is None:
-      dtype = x.dtype
-    return jax.ShapeDtypeStruct(x.shape, dtype)
-  elif utils.is_scalar(x):
-    if scalar_dtype is not None:
-      return scalar_dtype(x)
-    return x
-  else:
-    raise ValueError(f'Unexpected type: {type(x)}.')
-
-
 class StandardCheckpointHandlerTestBase:
   """Base test cases for StandardCheckpointHandler."""
 
@@ -130,7 +110,9 @@ class StandardCheckpointHandlerTestBase:
       self.handler.save(self.directory, self.mixed_pytree)
       restored = self.handler.restore(
           self.directory,
-          jax.tree_util.tree_map(to_shape_dtype_struct, self.mixed_pytree),
+          jax.tree_util.tree_map(
+              test_utils.to_shape_dtype_struct, self.mixed_pytree
+          ),
       )
       test_utils.assert_tree_equal(self, self.mixed_pytree, restored)
 
@@ -176,7 +158,9 @@ class StandardCheckpointHandlerTestBase:
           self.directory,
           jax.tree_util.tree_map(
               functools.partial(
-                  to_shape_dtype_struct, dtype=jnp.bfloat16, scalar_dtype=int
+                  test_utils.to_shape_dtype_struct,
+                  dtype=jnp.bfloat16,
+                  scalar_dtype=int,
               ),
               self.pytree,
           ),
@@ -204,7 +188,7 @@ class StandardCheckpointHandlerTestBase:
           lambda arr: test_utils.create_sharded_array(arr, mesh, mesh_axes),
           params,
       )
-      target = jax.tree_util.tree_map(to_shape_dtype_struct, params)
+      target = jax.tree_util.tree_map(test_utils.to_shape_dtype_struct, params)
 
       self.handler.save(self.directory, params)
       restored = self.handler.restore(self.directory, target)
@@ -224,3 +208,43 @@ class StandardCheckpointHandlerTestBase:
       self.handler.save(self.directory, state)
       restored = self.handler.restore(self.directory, state)
       self.assertDictEqual(restored, state)
+
+    def test_masked_shape_dtype_struct(self):
+      """Test case."""
+
+      def _should_mask(keypath):
+        return keypath[0].key == 'a' or (
+            keypath[0].key == 'c' and keypath[1].key == 'e'
+        )
+
+      def _mask(keypath, x):
+        return optax.MaskedNode() if _should_mask(keypath) else x
+
+      def _none(keypath, x):
+        return None if _should_mask(keypath) else x
+
+      masked_tree = jax.tree_util.tree_map_with_path(_mask, self.pytree)
+      expected = jax.tree_util.tree_map_with_path(_none, self.pytree)
+
+      self.handler.save(self.directory, masked_tree)
+      self.assertTrue(
+          (self.directory / type_handlers._OCDBT_MANIFEST_FILE).exists()  # pylint: disable=protected-access
+      )
+
+      # Restore it with state which was given before applying masking.
+      restored = self.handler.restore(
+          self.directory,
+          jax.tree_util.tree_map(test_utils.to_shape_dtype_struct, self.pytree),
+      )
+      test_utils.assert_tree_equal(self, expected, restored)
+
+      # Restore it with state after applying masking to it.
+      restored = self.handler.restore(
+          self.directory,
+          jax.tree_util.tree_map(test_utils.to_shape_dtype_struct, masked_tree),
+      )
+      test_utils.assert_tree_equal(self, expected, restored)
+
+      # Restore it without any state.
+      restored = self.handler.restore(self.directory)
+      test_utils.assert_tree_equal(self, expected, restored)
