@@ -127,6 +127,11 @@ class CheckpointManagerOptions:
     Optional set of steps at which checkpoints should be saved.
     Useful to save checkpoints on a fixed set of steps that are not multiple of
     `save_interval_steps`.
+  single_host_load_and_broadcast:
+    If True, calling `all_steps(read=True)` will load on only a single host, and
+    will then be broadcast to other hosts. Otherwise, I/O will be performed on
+    every host. This can be helpful to reduce QPS to the filesystem if there
+    are a large number of hosts.
   """
   save_interval_steps: int = 1
   max_to_keep: Optional[int] = None
@@ -140,6 +145,7 @@ class CheckpointManagerOptions:
   create: bool = True
   cleanup_tmp_directories: bool = False
   save_on_steps: Optional[Container[int]] = None
+  single_host_load_and_broadcast: bool = False
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -292,16 +298,21 @@ class CheckpointManager:
       A sequence of steps (integers)
     """
     if read:
-      max_steps = len(list(self.directory.iterdir()))
-      # Read the step list only from host 0, and then broadcast the list.
-      # This minimizes queries on non-leader processes.
-      padded_step_list = np.array([-1] * max_steps)
-      if jax.process_index() == 0:
-        steps = np.array(utils.checkpoint_steps(self.directory))
-        assert len(steps) <= max_steps
-        padded_step_list[0 : len(steps)] = steps
-      padded_step_list = multihost_utils.broadcast_one_to_all(padded_step_list)
-      return [step for step in padded_step_list if step >= 0]
+      if self._options.single_host_load_and_broadcast:
+        max_steps = len(list(self.directory.iterdir()))
+        # Read the step list only from host 0, and then broadcast the list.
+        # This minimizes queries on non-leader processes.
+        padded_step_list = np.array([-1] * max_steps)
+        if jax.process_index() == 0:
+          steps = np.array(utils.checkpoint_steps(self.directory))
+          assert len(steps) <= max_steps
+          padded_step_list[0 : len(steps)] = steps
+        padded_step_list = multihost_utils.broadcast_one_to_all(
+            padded_step_list
+        )
+        return [step for step in padded_step_list if step >= 0]
+      else:
+        return utils.checkpoint_steps(self.directory)
     else:
       return [ckpt.step for ckpt in self._checkpoints]
 
