@@ -15,6 +15,7 @@ under `ParamInfo.parent_dir`.
 - In `all_steps`, minimize disk queries on non-leader processes.
 - Put `all_steps` load on single host and broadcast feature behind an option
 that defaults to False.
+- Rename StandardCheckpointHandler.save/restore named arg, 'state' to 'item'.
 
 ## [0.4.1] - 2023-09-28
 

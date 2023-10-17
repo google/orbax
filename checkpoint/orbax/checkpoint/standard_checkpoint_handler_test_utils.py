@@ -97,7 +97,7 @@ class StandardCheckpointHandlerTestBase:
       )
       test_utils.assert_tree_equal(self, self.pytree, restored)
 
-    def test_basic_no_state_arg(self):
+    def test_basic_no_item_arg(self):
       self.handler.save(self.directory, self.pytree)
       restored = self.handler.restore(self.directory)
       self.assertTrue(
@@ -199,15 +199,15 @@ class StandardCheckpointHandlerTestBase:
       with self.assertRaises(ValueError):
         self.handler.save(self.directory, {})
 
-      state = {'a': {}, 'b': 3}
-      self.handler.save(self.directory, state)
-      restored = self.handler.restore(self.directory, state)
-      self.assertDictEqual(restored, state)
+      item = {'a': {}, 'b': 3}
+      self.handler.save(self.directory, item)
+      restored = self.handler.restore(self.directory, item)
+      self.assertDictEqual(restored, item)
 
-      state = {'c': None, 'd': 2}
-      self.handler.save(self.directory, state)
-      restored = self.handler.restore(self.directory, state)
-      self.assertDictEqual(restored, state)
+      item = {'c': None, 'd': 2}
+      self.handler.save(self.directory, item)
+      restored = self.handler.restore(self.directory, item)
+      self.assertDictEqual(restored, item)
 
     def test_masked_shape_dtype_struct(self):
       """Test case."""
@@ -231,20 +231,20 @@ class StandardCheckpointHandlerTestBase:
           (self.directory / type_handlers._OCDBT_MANIFEST_FILE).exists()  # pylint: disable=protected-access
       )
 
-      # Restore it with state which was given before applying masking.
+      # Restore it with item which was given before applying masking.
       restored = self.handler.restore(
           self.directory,
           jax.tree_util.tree_map(test_utils.to_shape_dtype_struct, self.pytree),
       )
       test_utils.assert_tree_equal(self, expected, restored)
 
-      # Restore it with state after applying masking to it.
+      # Restore it with item after applying masking to it.
       restored = self.handler.restore(
           self.directory,
           jax.tree_util.tree_map(test_utils.to_shape_dtype_struct, masked_tree),
       )
       test_utils.assert_tree_equal(self, expected, restored)
 
-      # Restore it without any state.
+      # Restore it without any item.
       restored = self.handler.restore(self.directory)
       test_utils.assert_tree_equal(self, expected, restored)

@@ -71,12 +71,12 @@ class StandardCheckpointHandler(
     self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
 
   def _validate_save_state(
-      self, state: PyTree, save_args: Optional[PyTree] = None
+      self, item: PyTree, save_args: Optional[PyTree] = None
   ):
-    if state is None:
-      raise ValueError('Must provide state to save.')
+    if item is None:
+      raise ValueError('Must provide item to save.')
     if save_args is None:
-      save_args = jax.tree_util.tree_map(lambda x: None, state)
+      save_args = jax.tree_util.tree_map(lambda x: None, item)
 
     def _check_input(k, x, arg):
       if arg is not None:
@@ -86,9 +86,9 @@ class StandardCheckpointHandler(
         k = utils.tuple_path_from_keypath(k)
         raise ValueError(f'Unsupported type: {type(x)} for key: {k}.')
 
-    jax.tree_util.tree_map_with_path(_check_input, state, save_args)
+    jax.tree_util.tree_map_with_path(_check_input, item, save_args)
 
-  def _validate_restore_state(self, state: PyTree):
+  def _validate_restore_state(self, item: PyTree):
     def _check_input(k, x):
       if not isinstance(x, self._supported_types) and not isinstance(
           x, jax.ShapeDtypeStruct
@@ -96,35 +96,35 @@ class StandardCheckpointHandler(
         k = utils.tuple_path_from_keypath(k)
         raise ValueError(f'Unsupported type: {type(x)} for key: {k}.')
 
-    jax.tree_util.tree_map_with_path(_check_input, state)
+    jax.tree_util.tree_map_with_path(_check_input, item)
 
   async def async_save(
       self,
       directory: epath.Path,
-      state: PyTree,
+      item: PyTree,
       save_args: Optional[PyTree] = None,
   ) -> Optional[List[future.Future]]:
     """Saves a PyTree. See superclass documentation."""
-    self._validate_save_state(state, save_args=save_args)
-    return await super().async_save(directory, state, save_args=save_args)
+    self._validate_save_state(item, save_args=save_args)
+    return await super().async_save(directory, item, save_args=save_args)
 
   def restore(
       self,
       directory: epath.Path,
-      state: Optional[PyTree] = None,
+      item: Optional[PyTree] = None,
   ) -> PyTree:  # pytype: disable=signature-mismatch
     """Restores a PyTree.
 
     Example::
 
       ckptr = StandardCheckpointer()
-      state = {
+      item = {
           'layer0': {
               'w': jax.Array(...),
               'b': np.ndarray(...),
           },
       }
-      ckptr.save(dir, state)
+      ckptr.save(dir, item)
 
       target = {
           'layer0': {
@@ -136,28 +136,28 @@ class StandardCheckpointHandler(
 
     Args:
       directory: path from which to restore.
-      state: target PyTree. Currently non-optional. Values may be either real
+      item: target PyTree. Currently non-optional. Values may be either real
         array or scalar values, or they may be jax.ShapeDtypeStruct. If real
         values are provided, that value will be restored as the given type, with
         the given properties. If jax.ShapeDtypeStruct is provided, the value
         will be restored as np.ndarray, unless `sharding` is specified. If
-        `state` is a custom PyTree class, the tree will be restored with the
-        same structure as provided. If not provided, restores as a serialized
-        nested dict representation of the custom class.
+        `item` is a custom PyTree class, the tree will be restored with the same
+        structure as provided. If not provided, restores as a serialized nested
+        dict representation of the custom class.
 
     Returns:
       a restore PyTree.
     """
-    if state:
-      self._validate_restore_state(state)
-      restore_args = checkpoint_utils.construct_restore_args(state)
+    if item:
+      self._validate_restore_state(item)
+      restore_args = checkpoint_utils.construct_restore_args(item)
     else:
       restore_args = checkpoint_utils.construct_restore_args(
           self.metadata(directory)
       )
     return super().restore(
         directory,
-        item=state,
+        item=item,
         restore_args=restore_args,
     )
 
