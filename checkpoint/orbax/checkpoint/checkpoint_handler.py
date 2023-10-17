@@ -39,16 +39,6 @@ class CheckpointHandler(abc.ABC):
     """
     pass
 
-  def finalize(self, directory: epath.Path) -> None:
-    """Optional, custom checkpoint finalization callback.
-
-    Will be called on a single worker after all workers have finished writing.
-
-    Args:
-      directory: the directory where the checkpoint is located.
-    """
-    pass
-
   @abc.abstractmethod
   def restore(self, directory: epath.Path, *args, **kwargs) -> Any:
     """Restores the provided item synchronously.
