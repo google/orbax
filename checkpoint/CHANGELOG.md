@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Custom `finalize` callback for `CheckpointHandler`.
+
 ### Changed
 - Barrier synchronization in `AsyncCheckpointer` refactored to allow plugging in
 alternative implementations.
