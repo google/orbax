@@ -16,6 +16,8 @@ alternative implementations.
 - Added `parent_dir` under `ParamInfo` and modified sharding file to be saved
 under `ParamInfo.parent_dir`.
 - In `all_steps`, minimize disk queries on non-leader processes.
+- Put `all_steps` load on single host and broadcast feature behind an option
+that defaults to False.
 
 ## [0.4.1] - 2023-09-28
 
