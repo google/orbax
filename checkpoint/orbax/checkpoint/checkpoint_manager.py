@@ -14,6 +14,7 @@
 
 """A class providing functionalities for managing multiple checkpoints."""
 
+import abc
 import concurrent.futures
 import contextlib
 import dataclasses
@@ -172,6 +173,21 @@ class CheckpointInfo:
     return self.step == other.step and self.time == other.time
 
 
+class AbstractPreemption(abc.ABC):
+
+  @abc.abstractmethod
+  def reached_preemption(self, step: int) -> bool:
+    """Returns True if a preemption sync point has been reached."""
+    pass
+
+
+class DefaultPreemption(AbstractPreemption):
+
+  def reached_preemption(self, step: int) -> bool:
+    """See parent class."""
+    return multihost_utils.reached_preemption_sync_point(step)
+
+
 class CheckpointManager:
   """A generic, synchronous CheckpointManager implementation.
 
@@ -198,6 +214,7 @@ class CheckpointManager:
       checkpointers: Union[AbstractCheckpointer, CheckpointersDict],
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[Mapping[str, Any]] = None,
+      preemption: AbstractPreemption = DefaultPreemption(),
   ):
     """CheckpointManager constructor.
 
@@ -232,6 +249,7 @@ class CheckpointManager:
        arguments. If None, uses default values of CheckpointManagerOptions.
      metadata: High-level metadata that does not depend on step number, and only
        needs to be saved once.
+     preemption: Defines Preemption events.
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
     self._single_item = False
@@ -282,6 +300,8 @@ class CheckpointManager:
     self._finalize_thread = None
     # Steps that get cleaned up during finalize.
     self._steps_to_remove = []
+
+    self._preemption = preemption
 
   @property
   def directory(self) -> epath.Path:
@@ -346,7 +366,7 @@ class CheckpointManager:
 
   def reached_preemption(self, step: int) -> bool:
     """Returns True if a preemption sync point has been reached."""
-    return multihost_utils.reached_preemption_sync_point(step)
+    return self._preemption.reached_preemption(step)
 
   def should_save(self, step: int) -> bool:
     """Returns True if a checkpoint should be saved for the current step.
