@@ -16,7 +16,6 @@
 
 import asyncio
 import contextlib
-import functools
 import itertools
 import threading
 import time
@@ -25,10 +24,10 @@ from typing import Any, Callable, Optional, Protocol, Sequence
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint import async_checkpoint_handler
+from orbax.checkpoint import checkpointer
 from orbax.checkpoint import future as future_lib
 from orbax.checkpoint import utils
-from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
-from orbax.checkpoint.checkpointer import Checkpointer
 
 
 _module_unique_count = itertools.count()
@@ -47,16 +46,16 @@ def _on_commit_callback(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path,
       time.time() - checkpoint_start_time)
 
 
-class _BarrierSyncFn(Protocol):
+class BarrierSyncFn(Protocol):
   """Protocol for a barrier synchronization callable."""
 
-  def __call__(self, *, sync_key: str, timeout_ms: int) -> None:
-    """Blocks on a barrier identified by sync_key with the given timeout."""
+  def __call__(self, *, key: str, timeout_ms: int) -> None:
+    """Blocks on a barrier identified by key with the given timeout."""
     ...
 
 
 # TODO(dicentra): move this to jax/experimental/multihost_utils.py
-def _get_barrier_sync_fn() -> Optional[_BarrierSyncFn]:
+def _get_barrier_sync_fn() -> Optional[BarrierSyncFn]:
   """Provides a barrier synchronization function for JAX processes.
 
   Barriers with different sync keys are safe to use from independent background
@@ -64,7 +63,7 @@ def _get_barrier_sync_fn() -> Optional[_BarrierSyncFn]:
 
   Returns:
     None if there is a single JAX process.
-    A barrier synchronization callable which accepts two keyword arguments:
+    A barrier synchronization callable which accepts two arguments:
       - "key": [str] unique barrier id;
       - "timeout_ms": [int] timeout to use for waiting on the barrier.
     Should be called from all JAX processes with the same sync key and will
@@ -81,17 +80,13 @@ def _get_barrier_sync_fn() -> Optional[_BarrierSyncFn]:
         '`jax.distributed.initialize()` at the start of your program.'
     )
 
-  def _fn(*, sync_key: str, timeout_ms: int) -> None:
+  def _fn(*, key: str, timeout_ms: int) -> None:
     current_process = jax.process_index()
     logging.info(
-        'Key used for barrier is %s for process %s', sync_key, current_process
+        'Key used for barrier is %s for process %s', key, current_process
     )
-    client.wait_at_barrier(sync_key, timeout_ms)
-    logging.info(
-        'Finished waiting at barrier %s for process %s',
-        sync_key,
-        current_process,
-    )
+    client.wait_at_barrier(key, timeout_ms)
+    logging.info('Finished waiting at barrier for process %s', current_process)
 
   return _fn
 
@@ -101,25 +96,32 @@ class _AsyncManager:
 
   def __init__(
       self,
-      *,
       timeout_secs: int = 300,
-      barrier_sync_fn: Optional[_BarrierSyncFn],
+      primary_host: int = 0,
+      barrier_sync_fn: Optional[BarrierSyncFn] = None,
   ):
+    self._timeout_secs = timeout_secs
+    self._primary_host = primary_host
+
     self._thread = None
     self._exception = None
 
-    if jax.process_count() > 1 and barrier_sync_fn is None:
-      raise ValueError(
-          'Barrier sync function should be provided for multi-host setup!'
-      )
+    timeout_in_ms = self._timeout_secs * 1000
+    if barrier_sync_fn is None:
+      default_fn = _get_barrier_sync_fn()
+      if jax.process_count() > 1 and default_fn is None:
+        raise ValueError(
+            'Barrier sync function should be provided for multi-host setup!'
+        )
 
-    timeout_in_ms = timeout_secs * 1000
+      def _fn(*, key: str, timeout_ms: int) -> None:
+        if default_fn is not None:
+          default_fn(key=key, timeout_ms=timeout_ms)
 
-    def _fn(sync_key: str) -> None:
-      if barrier_sync_fn is not None:
-        barrier_sync_fn(sync_key=sync_key, timeout_ms=timeout_in_ms)
+      barrier_sync_fn = _fn
 
-    self._sync_fn: Callable[[str], None] = _fn
+    sync_fn = lambda key: barrier_sync_fn(key=key, timeout_ms=timeout_in_ms)
+    self._sync_fn: Callable[[str], None] = sync_fn
 
   def __del__(self):
     if self._thread is not None and self._thread.is_alive():
@@ -153,7 +155,7 @@ class _AsyncManager:
         # barrier, the barrier will be satisfied. If not, then it will timeout.
         self._sync_fn(_get_sync_key('write_complete', sync_count))
 
-      if current_process == 0:
+      if current_process == self._primary_host:
         on_commit_callback()
         logging.info('on_commit_callback successfully ran!')
       if process_count > 1:
@@ -199,7 +201,7 @@ class _AsyncManager:
     logging.info('Error check finished successfully')
 
 
-class AsyncCheckpointer(Checkpointer):
+class AsyncCheckpointer(checkpointer.Checkpointer):
   """An asynchronous implementation of Checkpointer.
 
   Save operations take place in a background thread (this functionality is
@@ -212,9 +214,11 @@ class AsyncCheckpointer(Checkpointer):
 
   def __init__(
       self,
-      handler: AsyncCheckpointHandler,
+      handler: async_checkpoint_handler.AsyncCheckpointHandler,
       timeout_secs: int = 300,
       primary_host: int = 0,
+      *,
+      barrier_sync_fn: Optional[BarrierSyncFn] = None,
   ):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
     self._handler = handler
@@ -222,7 +226,9 @@ class AsyncCheckpointer(Checkpointer):
 
     # TODO(dicentra): consider folding into AsyncCheckpointer directly.
     self._async_manager = _AsyncManager(
-        timeout_secs=timeout_secs, barrier_sync_fn=_get_barrier_sync_fn()
+        timeout_secs=timeout_secs,
+        primary_host=primary_host,
+        barrier_sync_fn=_get_barrier_sync_fn(),
     )
 
   def save(self,
@@ -273,13 +279,15 @@ class AsyncCheckpointer(Checkpointer):
     commit_ops, _ = jax.tree_util.tree_flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
 
-    # Directory is the final directory
+    # Directory is the final directory.
+    def _callback() -> None:
+      self._handler.finalize(tmpdir)
+      _on_commit_callback(tmpdir, directory, checkpoint_start_time)
+
     self._async_manager.start_async_commit(
-        commit_futures=commit_ops,
-        on_commit_callback=functools.partial(
-            _on_commit_callback, tmpdir, directory, checkpoint_start_time
-        ),
+        commit_futures=commit_ops, on_commit_callback=_callback
     )
+
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/async/blocking_duration_secs',
         time.time() - checkpoint_start_time)

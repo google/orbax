@@ -67,6 +67,16 @@ class CheckpointHandler(abc.ABC):
     """
     pass
 
+  def finalize(self, directory: epath.Path) -> None:
+    """Optional, custom checkpoint finalization callback.
+
+    Will be called on a single worker after all workers have finished writing.
+
+    Args:
+      directory: the directory where the checkpoint is located.
+    """
+    pass
+
   def close(self):
     """Closes the CheckpointHandler."""
     pass
