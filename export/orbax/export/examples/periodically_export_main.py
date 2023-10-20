@@ -72,7 +72,7 @@ class MLP(nn.Module):
 
 def mse(
     params: ArrayTree,
-    rng_key: jax.random.KeyArray,
+    rng_key: jax.Array,
     x_batched: jax.typing.ArrayLike,
     y_batched: jax.typing.ArrayLike,
     model: nn.Module,
@@ -111,7 +111,7 @@ def train(
   def train_step(
       params: ArrayTree,
       opt_state: ArrayTree,
-      key: jax.random.KeyArray,
+      key: jax.Array,
       x_samples: jax.typing.ArrayLike,
       y_samples: jax.typing.ArrayLike,
   ):
