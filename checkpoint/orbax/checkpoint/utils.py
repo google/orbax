@@ -15,6 +15,7 @@
 """Utility functions for Orbax.
 
 TODO(b/266449081) Increase unit test coverage.
+TODO(b/306715247) Move multihost_utils functions to new dedicated module.
 """
 import asyncio
 import concurrent.futures
@@ -67,6 +68,11 @@ def sync_global_devices(name: str):
 def broadcast_one_to_all(pytree: PyTree) -> PyTree:
   """Thin wrapper to provide additional features support."""
   return multihost_utils.broadcast_one_to_all(pytree)
+
+
+def reached_preemption(step: int) -> bool:
+  """Returns True if a preemption sync point has been reached."""
+  return multihost_utils.reached_preemption_sync_point(step)
 
 
 def _wrap(func):
