@@ -163,7 +163,8 @@ class JaxModule(tf.Module):
       trainable = jax.tree_util.tree_map(lambda x: trainable, params)
 
     self.with_gradient: bool = any(jax.tree_util.tree_leaves(trainable))
-    tf_vars = _jax_params_to_tf_variables(params, trainable, pspecs)
+    with tf.device('/CPU:0'):
+      tf_vars = _jax_params_to_tf_variables(params, trainable, pspecs)
     # Do not attach `tf_vars` to `self` directly, otherwise its structure will
     # be mutated by `tf.Module.__setattr__`.
     self._var_leaves, var_treedef = jax.tree_util.tree_flatten(tf_vars)
