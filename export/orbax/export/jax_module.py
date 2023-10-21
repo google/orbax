@@ -333,6 +333,7 @@ def _jax_params_to_tf_variables(
 ) -> PyTree:
   """Converts `params` to tf.Variables in the same pytree structure."""
   dmesh = dtensor_utils.get_current_dtensor_mesh()
+  default_cpu_device = tf.config.list_logical_devices('CPU')[0]
   if dmesh is not None:
     if pspecs is None:
       raise ValueError(
@@ -366,9 +367,10 @@ def _jax_params_to_tf_variables(
           name=name,
       )
 
-    return tf.Variable(
-        x, trainable=trainable, shape=x.shape, dtype=x.dtype, name=name
-    )
+    with tf.device(default_cpu_device):
+      return tf.Variable(
+          x, trainable=trainable, shape=x.shape, dtype=x.dtype, name=name
+      )
   names = _get_param_names(params)
   if pspecs is None:
     pspecs = jax.tree_util.tree_map(lambda x: None, params)
