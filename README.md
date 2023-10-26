@@ -3,6 +3,8 @@
 [Orbax](https://orbax.readthedocs.io/en/latest/) is a
 namespace providing common utility libraries for JAX users.
 
+## [Documentation](https://orbax.readthedocs.io/en/latest/)
+
 ## Checkpointing
 
 `pip install orbax-checkpoint` (latest PyPi release) OR

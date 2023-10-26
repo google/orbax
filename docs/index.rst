@@ -69,8 +69,10 @@ Install from GitHub using the following.
 
    orbax_checkpoint_101
    optimized_checkpointing
-   transformations
    custom_handlers
+   transformations
+   preemption_checkpointing
+   async_checkpointing
    api_reference/checkpoint
 
 .. toctree::
@@ -122,6 +124,13 @@ Checkpointing
       .. card:: Preemption Tolerance
          :class-card: sd-text-black sd-bg-light
          :link: preemption_checkpointing.html
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: Async Checkpointing
+         :class-card: sd-text-black sd-bg-light
+         :link: async_checkpointing.html
 
    .. grid-item::
       :columns: 6 6 6 4
