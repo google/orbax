@@ -639,6 +639,10 @@ class NumpyHandler(TypeHandler):
     for value, info, arg in zip(values, infos, args):
       tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
+      if logging.level_debug():
+        logging.debug('tspec = %s', json.dumps(tspec))
+        logging.debug('infos = %s', info)
+        logging.debug('args = %s', arg)
       if jax.process_index() == 0:
         # Open once to create metadata and allow the operation to happen
         # asynchronously.
@@ -656,6 +660,11 @@ class NumpyHandler(TypeHandler):
         copy_ops += [write_future.copy]
         futures += [open_future, write_future.commit]
     await asyncio.gather(*copy_ops)
+
+    if logging.level_debug():
+      logging.debug(
+          'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
+      )
     return futures
 
   async def deserialize(
@@ -918,6 +927,10 @@ class ArrayHandler(TypeHandler):
     for value, info, arg in zip(values, infos, args):
       tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
+      if logging.level_debug():
+        logging.debug('tspec = %s', json.dumps(tspec))
+        logging.debug('infos = %s', info)
+        logging.debug('args = %s', arg)
       synchronous_ops += [
           serialization.async_serialize(
               value,
@@ -955,6 +968,12 @@ class ArrayHandler(TypeHandler):
             synchronous_ops += [write_future.copy]
             futures += [open_future, write_future]
     await asyncio.gather(*synchronous_ops)
+
+    if logging.level_debug():
+      logging.debug(
+          'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
+      )
+
     return futures
 
   async def deserialize(
