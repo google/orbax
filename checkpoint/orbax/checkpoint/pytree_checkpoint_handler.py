@@ -475,12 +475,31 @@ def _get_tree_for_aggregation(param_infos, save_args, item):
 
 @dataclasses.dataclass
 class _BatchRequest:
-  """Represents a a request for batched serialization or deserialization."""
+  """Represents a a request for batched serialization or deserialization.
+
+  Attributes:
+    handler: Used to serialize or deserialize the parameters.
+    keys: Used to identify the original tree keys so that the PyTree can be
+      reconstructed.
+    values: Values to serialize.
+    infos: ParamInfos.
+    args: List of SaveArgs or RestoreArgs.
+  """
 
   handler: TypeHandler
+  keys: List[str]
   values: List[Any]
   infos: List[ParamInfo]
   args: List[Union[SaveArgs, RestoreArgs]]
+
+  def __post_init__(self):
+    length = len(self.values)
+    if not all((
+        length == len(self.infos),
+        length == len(self.args),
+        length == len(self.keys),
+    )):
+      raise AssertionError('Found `_BatchRequest` with mismatched parameters.')
 
 
 def _batched_serialization_requests(
@@ -490,11 +509,13 @@ def _batched_serialization_requests(
   grouped = {}
 
   def _group_value(
+      keypath: Tuple[Any, ...],
       info: ParamInfo,
       value: Union[Any, _InternalValueMetadata],
       arg: RestoreArgs,
   ):
     nonlocal grouped
+    tuple_key = utils.tuple_path_from_keypath(keypath)
     # Exclude from serialize/deserialize with TypeHandler if aggregated.
     if info.skip_deserialize:
       return
@@ -508,16 +529,17 @@ def _batched_serialization_requests(
     else:
       handler = type_handlers.get_type_handler(type(value))
     if handler not in grouped:
-      grouped[handler] = _BatchRequest(handler, [], [], [])
+      grouped[handler] = _BatchRequest(handler, [], [], [], [])
     request = grouped[handler]
     grouped[handler] = dataclasses.replace(
         request,
+        keys=request.keys + [tuple_key],
         values=request.values + [value],
         infos=request.infos + [info],
         args=request.args + [arg],
     )
 
-  jax.tree_util.tree_map(
+  jax.tree_util.tree_map_with_path(
       _group_value,
       param_infos,
       tree,
@@ -615,6 +637,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       aggregate_filename: Optional[str] = None,
       concurrent_gb: int = 96,
       use_ocdbt: bool = True,
+      ocdbt_merge: bool = False,
       restore_with_serialized_types: bool = True,
       write_tree_metadata: bool = False,
   ):
@@ -629,6 +652,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         different checkpoint format which is faster to read and write, as well
         as more space efficient. Currently, it is not yet enabled as the default
         option.
+      ocdbt_merge: If True, forgoes the use of the coordinator server and uses a
+        merge / finalize step during OCDBT save.
       restore_with_serialized_types: If True, the values with unspecified
         restore types will be restored using the typing information in the
         checkpoint. Otherwise, arrays will be restored as either np.ndarray or
@@ -643,6 +668,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._aggregate_filename = aggregate_filename
     self._concurrent_gb = concurrent_gb
     self._use_ocdbt = use_ocdbt
+    self._ocdbt_merge = ocdbt_merge
     self._restore_with_serialized_types = restore_with_serialized_types
     self._write_tree_metadata = write_tree_metadata
     self._metadata_handler = JsonCheckpointHandler(_METADATA_FILE)
@@ -652,7 +678,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       jax.monitoring.record_event(
           '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
       )
-      type_handlers.start_coordinator_server_and_create_context()
+      if self._ocdbt_merge:
+        type_handlers.enable_ocdbt_for_handlers()
+      else:
+        type_handlers.start_coordinator_server_and_create_context()
 
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
@@ -843,7 +872,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         jax.tree_util.tree_map(
             _process_aggregated_value, param_infos, structure, restore_args
         ),
-        sep='.',
     )
 
     batch_requests = _batched_serialization_requests(
@@ -859,14 +887,13 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     flat_restored = {}
     for request, deserialized in zip(batch_requests, deserialized_batches):
-      for info, value in zip(request.infos, deserialized):
-        assert not info.skip_deserialize
-        flat_restored[info.name] = value
+      for key, value in zip(request.keys, deserialized):
+        flat_restored[key] = value
     # Add in any values which were not deserialized, coming from aggregate file.
     for key in flat_aggregate.keys():
       if key not in flat_restored:
         flat_restored[key] = flat_aggregate[key]
-    return utils.from_flat_dict(flat_restored, target=structure, sep='.')
+    return utils.from_flat_dict(flat_restored, target=structure)
 
   def restore(
       self,
@@ -1323,6 +1350,20 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       return self._get_user_metadata(directory)
     except FileNotFoundError as e:
       raise FileNotFoundError('Could not locate metadata file.') from e
+
+  def finalize(self, directory: epath.Path) -> None:
+    """Finalization step.
+
+    Called automatically by the Checkpointer/AsyncCheckpointer just before the
+    checkpoint is considered "finalized" in the sense of ensuring atomicity. See
+    documentation for `type_handlers.merge_ocdbt_per_process_files`.
+
+    Args:
+      directory: Path where the checkpoint is located.
+    """
+    if not self._use_ocdbt or not self._ocdbt_merge:
+      return
+    type_handlers.merge_ocdbt_per_process_files(directory)
 
   def close(self):
     """Closes the handler. Called automatically by Checkpointer."""

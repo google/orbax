@@ -17,10 +17,12 @@
 import functools
 from typing import List, Optional
 
+from absl import logging
 from etils import epath
 import jax
 from jax import sharding
 from jax.experimental import pjit
+from jax.experimental.array_serialization import serialization
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import pytree_checkpoint_handler
@@ -205,3 +207,27 @@ def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
     return x
   else:
     raise ValueError(f'Unexpected type: {type(x)}.')
+
+
+def print_directory(directory: epath.Path, level: int = 0):
+  """Prints a directory tree for debugging purposes."""
+  assert directory.is_dir()
+  level_str = '..' * level
+  if level == 0:
+    logging.info('Printing directory tree: %s/', directory)
+  else:
+    logging.info('%s%s/', level_str, directory.name)
+
+  level_str = '..' * (level + 1)
+  for p in directory.iterdir():
+    if p.is_dir():
+      print_directory(p, level=level + 1)
+    else:
+      logging.info('%s%s', level_str, p.name)
+
+
+def set_tensorstore_driver_for_test():
+  # Sets TS driver for testing. Within Google, this defaults to `gfile`, which
+  # results in issues writing to the OCDBT manifest. When using `gfile` on the
+  # local filesystem, write operations are not atomic.
+  serialization._DEFAULT_DRIVER = 'file'  # pylint: disable=protected-access

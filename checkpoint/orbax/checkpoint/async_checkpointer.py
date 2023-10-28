@@ -157,7 +157,6 @@ class _AsyncManager:
 
       if current_process == self._primary_host:
         on_commit_callback()
-        logging.info('on_commit_callback successfully ran!')
       if process_count > 1:
         # Block until process 0 completes on_commit_callback.
         self._sync_fn(_get_sync_key('commit_complete', sync_count))

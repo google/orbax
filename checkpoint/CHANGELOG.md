@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- Custom `finalize` callback for `CheckpointHandler`.
+- Merge/finalize logic for Tensorstore when using OCDBT driver.
 
 ### Added
 - Custom `finalize` callback for `CheckpointHandler`.
@@ -16,9 +19,11 @@ alternative implementations.
 - Added `parent_dir` under `ParamInfo` and modified sharding file to be saved
 under `ParamInfo.parent_dir`.
 - In `all_steps`, minimize disk queries on non-leader processes.
-- Put `all_steps` load on single host and broadcast feature behind an option
-that defaults to False.
+- Put `all_steps` load on single host and broadcast feature behind an option that defaults to False.
 - Rename StandardCheckpointHandler.save/restore named arg, 'state' to 'item'.
+
+### Removed
+- OCDBT coordinator.
 
 ## [0.4.1] - 2023-09-28
 

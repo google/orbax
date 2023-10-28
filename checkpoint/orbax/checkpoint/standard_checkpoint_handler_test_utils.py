@@ -32,10 +32,18 @@ from orbax.checkpoint import utils
 
 
 PyTree = Any
-StandardCheckpointHandler = (
-    standard_checkpoint_handler.StandardCheckpointHandler
-)
 SaveArgs = type_handlers.SaveArgs
+
+
+class StandardCheckpointHandler(
+    standard_checkpoint_handler.StandardCheckpointHandler
+):
+
+  def save(self, directory, *args, **kwargs):
+    super().save(directory, *args, **kwargs)
+    if jax.process_index() == 0:
+      self.finalize(directory)
+    utils.sync_global_devices('StandardCheckpointHandler:finalize')
 
 
 # Not in common util because we need to eliminate OSS dependency on flax.
@@ -77,6 +85,7 @@ class StandardCheckpointHandlerTestBase:
       self.directory = epath.Path(
           self.create_tempdir(name='checkpointing_test').full_path
       )
+      test_utils.set_tensorstore_driver_for_test()
 
       utils.sync_global_devices('StandardCheckpointHandler:setup_complete')
 

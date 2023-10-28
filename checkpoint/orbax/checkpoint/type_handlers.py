@@ -17,11 +17,11 @@
 import abc
 import asyncio
 import base64
-import copy
 import dataclasses
 import enum
 import json
 import os
+import re
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union, cast
 import warnings
 
@@ -29,9 +29,7 @@ from absl import logging
 from etils import epath
 import jax
 from jax.experimental.array_serialization import serialization
-from jax.experimental.array_serialization.serialization import get_tensorstore_spec
 import jax.numpy as jnp
-from jax.sharding import Mesh
 import numpy as np
 from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
@@ -52,6 +50,15 @@ _OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
 _COORDINATOR_SETUP_TIMEOUT_SECS = 300
 _OCDBT_TS_CONTEXT = None
 _OCDBT_COORDINATOR_SERVER = None
+_DEFAULT_OCDBT_TS_CONTEXT = ts.Context(
+    {
+        # Provide cache pool for B-tree nodes to avoid repeated reads.
+        # 100MB limit.
+        'cache_pool#ocdbt': {'total_bytes_limit': 100000000},
+    },
+    parent=serialization.TS_CONTEXT,
+)
+
 _PARTITION_SPEC = 'partition_spec'
 _SHARDING = '_sharding'
 _SHARDING_TYPE = 'sharding_type'
@@ -60,27 +67,15 @@ RESTORE_TYPE_NONE = 'None'
 RESTORE_TYPE_DICT = 'Dict'
 RESTORE_TYPE_LIST = 'List'
 
+_DEFAULT_DRIVER = 'file'
+_PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
+
 
 class ShardingTypes(enum.Enum):
   NAMED_SHARDING = 'NamedSharding'
   SINGLE_DEVICE_SHARDING = 'SingleDeviceSharding'
   POSITIONAL_SHARDING = 'PositionalSharding'
   GSPMD_SHARDING = 'GSPMDSharding'
-
-
-def _get_coordinator_address_without_port(coordinator_address: str) -> str:
-  """Returns JAX coordinator address stripped of port number."""
-  return coordinator_address.split(':')[0]
-
-
-def _enable_ocdbt_for_handlers():
-  # TODO(b/293331479) remove this once OCDBT is enabled by default
-  global _TYPESTR_REGISTRY
-  if _OCDBT_TS_CONTEXT is not None:
-    for _, handler in _TYPE_REGISTRY:
-      if hasattr(handler, 'enable_ocdbt') and callable(handler.enable_ocdbt):
-        handler.enable_ocdbt(_OCDBT_TS_CONTEXT)
-    _TYPESTR_REGISTRY = _make_typestr_registry(_TYPE_REGISTRY)
 
 
 def _serialize_sharding(sharding: jax.sharding.Sharding) -> str:
@@ -148,9 +143,23 @@ def _deserialize_sharding_from_json_string(
     )
 
 
+def _get_coordinator_address_without_port(coordinator_address: str) -> str:
+  """Returns JAX coordinator address stripped of port number."""
+  return coordinator_address.split(':')[0]
+
+
+def enable_ocdbt_for_handlers(ts_context: Optional[ts.Context] = None):
+  # TODO(b/293331479) remove this once OCDBT is enabled by default.
+  global _TYPESTR_REGISTRY
+  for _, handler in _TYPE_REGISTRY:
+    if hasattr(handler, 'enable_ocdbt') and callable(handler.enable_ocdbt):
+      handler.enable_ocdbt(ts_context=ts_context)
+  _TYPESTR_REGISTRY = _make_typestr_registry(_TYPE_REGISTRY)
+
+
 def create_coordinator_server_and_context() -> Tuple[None, None]:
-  # TODO(b/293331479) remove this once OCDBT is enabled by default
-  warnings.warn('This function has been deprecated.  Do not use.')
+  # TODO(b/293331479) remove this once OCDBT is enabled by default.
+  warnings.warn('This function has been deprecated. Do not use.')
   return (None, None)
 
 
@@ -220,7 +229,7 @@ def start_coordinator_server_and_create_context() -> None:
     }
 
   _OCDBT_TS_CONTEXT = ts.Context(ts_context, parent=serialization.TS_CONTEXT)
-  _enable_ocdbt_for_handlers()
+  enable_ocdbt_for_handlers(ts_context=_OCDBT_TS_CONTEXT)
   logging.info('OCDBT is initialized successfully.')
 
 
@@ -447,6 +456,17 @@ class TypeHandler(abc.ABC):
     """
     pass
 
+  def finalize(self, directory: epath.Path):
+    """Performs any logic to finalize parameter files written by this class.
+
+    By default, does nothing.
+
+    Args:
+      directory: A path to the location of the checkpoint. This corresponds to
+        `param_info.parent_dir`.
+    """
+    pass
+
 
 def check_input_arguments(*args):
   l = None
@@ -462,6 +482,157 @@ def check_input_arguments(*args):
 def is_ocdbt_checkpoint(path: epath.Path) -> bool:
   """Determines whether a checkpoint uses OCDBT format."""
   return (path / _OCDBT_MANIFEST_FILE).exists()
+
+
+def merge_ocdbt_per_process_files(directory: epath.Path):
+  """Merges OCDBT files written to per-process subdirectories.
+
+  With Tensorstore's OCDBT format, arrays are initially written to per-process
+  subdirectories, depending on which host is doing the writing. This function
+  can be called to merge the per-process files into a global key-value store.
+
+  The original per-process subdirectories are not and should not be deleted -
+  the global kvstore continues to reference them.
+
+  Args:
+    directory: checkpoint location.
+  """
+  ts_context = _DEFAULT_OCDBT_TS_CONTEXT
+
+  open_ops = []
+
+  parent_tspec = get_tensorstore_spec(
+      os.fspath(directory), use_ocdbt=True
+  )
+  parent_tspec = parent_tspec['kvstore']
+  open_ops.append(
+      ts.KvStore.open(
+          ts.KvStore.Spec(parent_tspec),
+          context=ts_context,
+      )
+  )
+
+  for process_dir in directory.glob(f'{_PROCESS_SUBDIR_PREFIX}*'):
+    process_index = int(process_dir.name.split('_')[-1])
+    child_tspec = get_tensorstore_spec(
+        os.fspath(directory), use_ocdbt=True, process_index=process_index
+    )
+    child_tspec = child_tspec['kvstore']
+    open_ops.append(
+        ts.KvStore.open(
+            ts.KvStore.Spec(child_tspec),
+            context=ts_context,
+        )
+    )
+
+  async def open_and_copy():
+    opened = await asyncio.gather(*open_ops)
+    parent, children = opened[0], opened[1:]
+    copy_ops = []
+    for child in children:
+      copy_ops.append(child.experimental_copy_range_to(parent))
+    await asyncio.gather(*copy_ops)
+
+  asyncio.run(open_and_copy())
+
+
+def _get_kvstore_for_gcs(ckpt_path: str) -> Dict[str, Any]:
+  m = re.fullmatch('^gs://([^/]*)/(.*)$', ckpt_path, re.DOTALL)
+  if m is None:
+    raise ValueError(
+        'The ckpt_path should contain the bucket name and the '
+        f'file path inside the bucket. Got: {ckpt_path}'
+    )
+  gcs_bucket = m.group(1)
+  path_without_bucket = m.group(2)
+  return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
+
+
+def _get_metadata(arr):
+  if arr.dtype == jnp.bfloat16:
+    # Tensorstore uses 'bfloat16', not '<V2'.
+    dtype = 'bfloat16'
+  else:
+    dtype = np.dtype(arr.dtype).str
+  local_shape = arr.addressable_data(0).shape
+  return {
+      'compressor': {'id': 'zstd'},
+      'shape': arr.shape,
+      'chunks': np.array(np.maximum(1, local_shape)),
+      'dtype': dtype,
+  }
+
+
+def get_tensorstore_spec(
+    directory: str,
+    name: Optional[str] = None,
+    use_ocdbt: bool = True,
+    process_index: Optional[int] = None,
+) -> Dict[str, Any]:
+  """Constructs a Tensorstore spec.
+
+  Args:
+    directory: Parent directory where the parameter will be written.
+    name: Name of the parameter.
+    use_ocdbt: Whether to use OCDBT to write the array.
+    process_index: If provided, will write to a sub-directory named
+      `ocdbt.process_<process_index>`.
+
+  Returns:
+    A ts.Spec in dictionary form.
+  """
+  default_driver = serialization._DEFAULT_DRIVER  # pylint: disable=protected-access
+  # Normalize path to exclude trailing '/'. In GCS path case, we will need to
+  # fix the path prefix to add back the stripped '/'.
+  directory = os.path.normpath(directory).replace('gs:/', 'gs://')
+  is_gcs_path = directory.startswith('gs://')
+  spec = {'driver': 'zarr', 'kvstore': {}}
+  if use_ocdbt:
+    if not is_gcs_path and not os.path.isabs(directory):
+      raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
+    base_path = directory if is_gcs_path else f'{default_driver}://{directory}'
+    if process_index is not None:
+      base_path = os.path.join(
+          base_path, f'{_PROCESS_SUBDIR_PREFIX}{process_index}'
+      )
+    spec['kvstore'] = {
+        'driver': 'ocdbt',
+        'base': base_path,
+    }
+    if name is not None:
+      spec['kvstore']['path'] = name
+    spec.update(
+        {'recheck_cached_data': False, 'recheck_cached_metadata': False}
+    )
+    spec['kvstore'].update({
+        # Enable read coalescing.  This feature merges adjacent read_ops into
+        # one, which could reduce I/O ops by a factor of 10. This is especially
+        # beneficial for unstacked models.
+        'experimental_read_coalescing_threshold_bytes': 1000000,
+        'experimental_read_coalescing_merged_bytes': 500000000000,
+        'experimental_read_coalescing_interval': '1ms',
+        # References the cache specified in ts.Context.
+        'cache_pool': 'cache_pool#ocdbt',
+    })
+  else:
+    if name is None:
+      ckpt_path = directory
+    else:
+      ckpt_path = os.path.join(directory, name)
+    if is_gcs_path:
+      spec['kvstore'] = _get_kvstore_for_gcs(ckpt_path)
+    else:
+      spec['kvstore'] = {'driver': default_driver, 'path': ckpt_path}
+
+  return spec
+
+
+def _get_process_index_for_subdir() -> Optional[int]:
+  """If OCDBT + merge feature is in use, returns a process index."""
+  if _OCDBT_TS_CONTEXT is None:
+    return jax.process_index()
+  else:
+    return None
 
 
 def _get_cast_tspec_serialize(tspec, value, args):
@@ -488,22 +659,6 @@ def _get_cast_tspec_deserialize(tspec, args):
         'driver': 'cast',
         'dtype': jnp.dtype(args.dtype).name,
     }
-  return tspec
-
-
-def _add_base_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
-  """Add base Tensorstore config parameters for OCDBT."""
-  tspec.update({'recheck_cached_data': False, 'recheck_cached_metadata': False})
-  tspec['kvstore'].update({
-      # Enable read coalescing.  This feature merges adjacent read_ops into
-      # one, which could reduce I/O ops by a factor of 10. This is especially
-      # beneficial for unstacked models.
-      'experimental_read_coalescing_threshold_bytes': 1000000,
-      'experimental_read_coalescing_merged_bytes': 500000000000,
-      'experimental_read_coalescing_interval': '1ms',
-      # References the cache specified in ts.Context.
-      'cache_pool': 'cache_pool#ocdbt',
-  })
   return tspec
 
 
@@ -554,39 +709,52 @@ class NumpyHandler(TypeHandler):
       ts_context: Tensorstore context.
     """
     self._metadata_key = metadata_key
-    self._use_ocdbt = use_ocdbt
-    if self._use_ocdbt and not ts_context:
-      raise ValueError(
-          'Must provide a ts.Context if use_ocdbt is True. Ensure that the'
-          ' context contains a coordinator address.'
-      )
-    self._ts_context = ts_context or serialization.TS_CONTEXT
+    if use_ocdbt:
+      self.enable_ocdbt(ts_context)
+    else:
+      self._use_ocdbt = False
+      self._ts_context = ts_context or self._get_default_ts_context(use_ocdbt)
 
-  def enable_ocdbt(self, ts_context: ts.Context) -> None:
+  def enable_ocdbt(self, ts_context: Optional[ts.Context] = None) -> None:
     self._use_ocdbt = True
-    self._ts_context = ts_context
+    self._ts_context = ts_context or self._get_default_ts_context(
+        self._use_ocdbt
+    )
+
+  def _get_default_ts_context(self, use_ocdbt: bool) -> ts.Context:
+    return _DEFAULT_OCDBT_TS_CONTEXT if use_ocdbt else serialization.TS_CONTEXT
 
   def _get_json_tspec(
       self,
       info: ParamInfo,
       use_ocdbt: bool = False,
+      process_index: Optional[int] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
       raise ValueError('Must construct serialization path.')
-    path = os.fspath(info.path)
-    tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=use_ocdbt)
+    directory = os.fspath(info.parent_dir)
+    tspec: Dict[str, Any] = get_tensorstore_spec(
+        directory,
+        name=info.name,
+        use_ocdbt=use_ocdbt,
+        process_index=process_index,
+    )
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
-    if use_ocdbt:
-      tspec = _add_base_tspec_ocdbt_options(tspec)
     return tspec
 
   def _get_json_tspec_write(
-      self, info: ParamInfo, value: np.ndarray, use_ocdbt: bool = False
+      self,
+      info: ParamInfo,
+      value: np.ndarray,
+      use_ocdbt: bool = False,
+      process_index: Optional[int] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
-    tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
+    tspec = self._get_json_tspec(
+        info, use_ocdbt=use_ocdbt, process_index=process_index
+    )
     tspec['metadata'] = {
         'compressor': {'id': 'zstd'},
     }
@@ -637,7 +805,12 @@ class NumpyHandler(TypeHandler):
     copy_ops = []
     futures = []
     for value, info, arg in zip(values, infos, args):
-      tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
+      tspec = self._get_json_tspec_write(
+          info,
+          value,
+          use_ocdbt=self._use_ocdbt,
+          process_index=_get_process_index_for_subdir(),
+      )
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
       if logging.level_debug():
         logging.debug('tspec = %s', json.dumps(tspec))
@@ -744,6 +917,21 @@ class ScalarHandler(NumpyHandler):
     return [r.item() for r in results]
 
 
+def get_sharding_tensorstore_spec(
+    directory: str, param_name: str
+) -> Dict[str, Any]:
+  kvstore = get_tensorstore_spec(directory, name=_SHARDING, use_ocdbt=False)[
+      'kvstore'
+  ]
+  return {
+      'driver': 'json',
+      'kvstore': kvstore,
+      'json_pointer': '/' + base64.urlsafe_b64encode(
+          param_name.encode()
+      ).decode('utf-8'),
+  }
+
+
 @dataclasses.dataclass
 class ArrayRestoreArgs(RestoreArgs):
   """Arguments used when restoring with ArrayHandler.
@@ -766,7 +954,7 @@ class ArrayRestoreArgs(RestoreArgs):
     be dropped from the end of the array.
   """
 
-  mesh: Optional[Mesh] = None
+  mesh: Optional[jax.sharding.Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
   sharding: Optional[jax.sharding.Sharding] = None
   global_shape: Optional[Tuple[int, ...]] = None
@@ -789,40 +977,53 @@ class ArrayHandler(TypeHandler):
       ts_context: Tensorstore context.
     """
     self._metadata_key = metadata_key
-    self._use_ocdbt = use_ocdbt
-    if self._use_ocdbt and not ts_context:
-      raise ValueError(
-          'Must provide a ts.Context if use_ocdbt is True. Ensure that the'
-          ' context contains a coordinator address.'
-      )
-    self._ts_context = ts_context or serialization.TS_CONTEXT
+    if use_ocdbt:
+      self.enable_ocdbt(ts_context)
+    else:
+      self._use_ocdbt = False
+      self._ts_context = ts_context or self._get_default_ts_context(use_ocdbt)
 
-  def enable_ocdbt(self, ts_context: ts.Context) -> None:
+  def enable_ocdbt(self, ts_context: Optional[ts.Context] = None) -> None:
     self._use_ocdbt = True
-    self._ts_context = ts_context
+    self._ts_context = ts_context or self._get_default_ts_context(
+        self._use_ocdbt
+    )
+
+  def _get_default_ts_context(self, use_ocdbt: bool) -> ts.Context:
+    return _DEFAULT_OCDBT_TS_CONTEXT if use_ocdbt else serialization.TS_CONTEXT
 
   def _get_json_tspec(
       self,
       info: ParamInfo,
       use_ocdbt: bool = False,
+      process_index: Optional[int] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
       raise ValueError('Must construct serialization path.')
-    path = os.fspath(info.path)
-    tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=use_ocdbt)
+    directory = os.fspath(info.parent_dir)
+    tspec: Dict[str, Any] = get_tensorstore_spec(
+        directory,
+        name=info.name,
+        use_ocdbt=use_ocdbt,
+        process_index=process_index,
+    )
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
-    if use_ocdbt:
-      tspec = _add_base_tspec_ocdbt_options(tspec)
     return tspec
 
   def _get_json_tspec_write(
-      self, info: ParamInfo, value: Any, use_ocdbt: bool = False
+      self,
+      info: ParamInfo,
+      value: Any,
+      use_ocdbt: bool = False,
+      process_index: Optional[int] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
-    tspec = self._get_json_tspec(info, use_ocdbt=use_ocdbt)
-    tspec['metadata'] = serialization._get_metadata(value)  # pylint: disable=protected-access
+    tspec = self._get_json_tspec(
+        info, use_ocdbt=use_ocdbt, process_index=process_index
+    )
+    tspec['metadata'] = _get_metadata(value)
     del tspec['metadata']['dtype']
     if use_ocdbt:
       tspec = _add_write_tspec_ocdbt_options(tspec)
@@ -856,26 +1057,20 @@ class ArrayHandler(TypeHandler):
       open_ops.append(
           ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
       )
-      sharding_info = copy.deepcopy(info)
-      sharding_info = dataclasses.replace(
-          sharding_info, path=sharding_file_path
-      )
-      tspec_sharding = self._get_json_tspec_read(sharding_info, use_ocdbt=False)
+
       sharding_op = None
-      if sharding_info.name:
-        tspec_sharding = {
-            'driver': 'json',
-            'kvstore': tspec_sharding['kvstore'],
-            'json_pointer': '/' + base64.urlsafe_b64encode(
-                sharding_info.name.encode()
-            ).decode('utf-8'),
-        }
+      if info.name:
+        tspec_sharding = get_sharding_tensorstore_spec(
+            os.fspath(info.parent_dir), info.name
+        )
         if sharding_file_exists:
           sharding_op = ts.open(
               tspec_sharding, open=True, read=True, context=self._ts_context
           )
       sharding_open_ops.append(sharding_op)
+
     tensorstores = await asyncio.gather(*open_ops)
+
     if sharding_file_exists:
       sharding_tensorstores = await asyncio.gather(*sharding_open_ops)
       for sharding_tensorstore in sharding_tensorstores:
@@ -921,11 +1116,13 @@ class ArrayHandler(TypeHandler):
     check_input_arguments(values, infos, args)
     synchronous_ops = []
     futures = []
-    if infos[0].parent_dir is None:
-      raise ValueError('parent_dir cannot be None')
-    sharding_file_path = infos[0].parent_dir / _SHARDING
     for value, info, arg in zip(values, infos, args):
-      tspec = self._get_json_tspec_write(info, value, use_ocdbt=self._use_ocdbt)
+      tspec = self._get_json_tspec_write(
+          info,
+          value,
+          use_ocdbt=self._use_ocdbt,
+          process_index=_get_process_index_for_subdir(),
+      )
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
       if logging.level_debug():
         logging.debug('tspec = %s', json.dumps(tspec))
@@ -939,19 +1136,13 @@ class ArrayHandler(TypeHandler):
               context=self._ts_context,
           )
       ]
+
       if value.sharding is not None:
-        sharding_info = info
-        sharding_info.path = epath.Path(sharding_file_path)
-        tspec_sharding = self._get_json_tspec_write(
-            sharding_info, value, use_ocdbt=False
+        if info.parent_dir is None:
+          raise ValueError('parent_dir cannot be None')
+        tspec_sharding = get_sharding_tensorstore_spec(
+            os.fspath(info.parent_dir), info.name
         )
-        tspec_sharding = {
-            'driver': 'json',
-            'kvstore': tspec_sharding['kvstore'],
-            'json_pointer': '/' + base64.urlsafe_b64encode(
-                sharding_info.name.encode()
-            ).decode('utf-8'),
-        }
         if jax.process_index() == 0:
           open_future = ts.open(
               tspec_sharding, open=True, context=self._ts_context
@@ -1020,22 +1211,11 @@ class ArrayHandler(TypeHandler):
             ' slightly increased due to reading from file instead of directly'
             ' from RestoreArgs.'
         )
-        sharding_info = copy.deepcopy(info)
-        sharding_info = dataclasses.replace(
-            sharding_info, path=sharding_file_path
-        )
-        tspec_sharding = self._get_json_tspec_read(
-            sharding_info, use_ocdbt=False
-        )
         sharding = None
-        if sharding_info.name:
-          tspec_sharding = {
-              'driver': 'json',
-              'kvstore': tspec_sharding['kvstore'],
-              'json_pointer': '/' + base64.urlsafe_b64encode(
-                  sharding_info.name.encode()
-              ).decode('utf-8'),
-          }
+        if info.name:
+          tspec_sharding = get_sharding_tensorstore_spec(
+              os.fspath(info.parent_dir), info.name
+          )
           t = await ts.open(
               tspec_sharding, context=self._ts_context, open=True, read=True
           )
@@ -1108,8 +1288,8 @@ class StringHandler(TypeHandler):
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
       raise ValueError('Must construct serialization path.')
-    path = os.fspath(info.path)
-    tspec: Dict[str, Any] = get_tensorstore_spec(path, ocdbt=False)
+    directory = os.fspath(info.parent_dir / self._filename)
+    tspec: Dict[str, Any] = get_tensorstore_spec(directory, use_ocdbt=False)
     tspec = {
         'driver': 'json',
         'kvstore': tspec['kvstore'],
@@ -1140,12 +1320,10 @@ class StringHandler(TypeHandler):
     check_input_arguments(values, infos)
     synchronous_ops = []
     futures = []
-    directory = epath.Path(infos[0].path).parent
     for (
         info,
         value,
     ) in zip(infos, values):
-      info.path = epath.Path(directory / self._filename)
       tspec = self._get_json_tspec(info)
       if jax.process_index() == 0:
         open_future = ts.open(tspec, open=True, context=self._ts_context)

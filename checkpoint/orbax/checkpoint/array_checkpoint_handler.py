@@ -50,6 +50,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       checkpoint_name = 'checkpoint'
     self._checkpoint_name = checkpoint_name
     self._aggregate_handler = aggregate_handlers.MsgpackHandler()
+    type_handlers.enable_ocdbt_for_handlers()
 
   def _is_supported_type(self, item: ArrayType) -> bool:
     return isinstance(item, (np.ndarray, jax.Array)) or utils.is_scalar(item)
@@ -172,11 +173,8 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     utils.sync_global_devices('ArrayCheckpointHandler:restore')
     return result
 
-  def structure(self, directory: epath.Path) -> ArrayType:
-    """See superclass documentation."""
-    raise NotImplementedError(
-        'Unsupported method `structure` for ArrayCheckpointHandler.'
-    )
+  def finalize(self, directory: epath.Path):
+    type_handlers.merge_ocdbt_per_process_files(directory)
 
   def close(self):
     """See superclass documentation."""
