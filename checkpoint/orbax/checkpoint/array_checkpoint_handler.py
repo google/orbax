@@ -50,7 +50,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       checkpoint_name = 'checkpoint'
     self._checkpoint_name = checkpoint_name
     self._aggregate_handler = aggregate_handlers.MsgpackHandler()
-    type_handlers.enable_ocdbt_for_handlers()
+    type_handlers.start_coordinator_server_and_create_context()
 
   def _is_supported_type(self, item: ArrayType) -> bool:
     return isinstance(item, (np.ndarray, jax.Array)) or utils.is_scalar(item)
