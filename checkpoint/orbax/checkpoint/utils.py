@@ -555,8 +555,7 @@ def record_saved_duration(checkpoint_start_time: float):
   _LAST_CHECKPOINT_WRITE_TIME = checkpoint_start_time
 
 
-def on_commit_callback(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path,
-                       checkpoint_start_time: float):
+def on_commit_callback(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path):
   """A callback to run on completion of checkpoint save operation.
 
   Args:
@@ -565,10 +564,8 @@ def on_commit_callback(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path,
     final_ckpt_dir: A directory that represents the finalized name of the
       checkpoint. Should not exist yet if atomicity is ensured via `rename`, but
       may exist if atomicity is ensured by writing a commit success file.
-    checkpoint_start_time: The time at which checkpoint saving began.
   """
   ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir)
-  record_saved_duration(checkpoint_start_time)
   logging.info('Finished saving checkpoint to `%s`.', final_ckpt_dir)
 
 

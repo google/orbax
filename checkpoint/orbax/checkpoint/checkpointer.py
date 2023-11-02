@@ -82,8 +82,9 @@ class Checkpointer(AbstractCheckpointer):
     # Ensure save operation atomicity and record time saved by checkpoint.
     if jax.process_index() == self._primary_host:
       self._handler.finalize(tmpdir)
-      utils.on_commit_callback(tmpdir, directory, checkpoint_start_time)
+      utils.on_commit_callback(tmpdir, directory)
     utils.sync_global_devices('Checkpointer:save')
+    utils.record_saved_duration(checkpoint_start_time)
 
   def restore(self,
               directory: epath.PathLike,

@@ -37,15 +37,6 @@ def _get_sync_key(suffix: str, count: int) -> str:
   return f'orbax_checkpoint_{suffix}_{count}'
 
 
-def _on_commit_callback(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path,
-                        checkpoint_start_time: float):
-  """Finalize atomic save and record checkpoint save metrics."""
-  utils.on_commit_callback(temp_ckpt_dir, final_ckpt_dir, checkpoint_start_time)
-  jax.monitoring.record_event_duration_secs(
-      '/jax/checkpoint/write/async/total_duration_secs',
-      time.time() - checkpoint_start_time)
-
-
 class BarrierSyncFn(Protocol):
   """Protocol for a barrier synchronization callable."""
 
@@ -164,6 +155,7 @@ class _AsyncManager:
       jax.monitoring.record_event_duration_secs(
           '/jax/checkpoint/write/async/thread_duration_sec',
           time.time() - thread_start_time)
+      utils.record_saved_duration(thread_start_time)
 
     except Exception as e:  # pylint: disable=broad-exception-caught
       self._exception = e
@@ -281,7 +273,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     # Directory is the final directory.
     def _callback() -> None:
       self._handler.finalize(tmpdir)
-      _on_commit_callback(tmpdir, directory, checkpoint_start_time)
+      utils.on_commit_callback(tmpdir, directory)
 
     self._async_manager.start_async_commit(
         commit_futures=commit_ops, on_commit_callback=_callback
