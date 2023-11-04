@@ -6,12 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-### Added
-- Custom `finalize` callback for `CheckpointHandler`.
-- Merge/finalize logic for Tensorstore when using OCDBT driver.
+
+## [0.4.2] - 2023-10-03
 
 ### Added
 - Custom `finalize` callback for `CheckpointHandler`.
+- Merge/finalize logic for Tensorstore when using OCDBT driver.
 
 ### Changed
 - Barrier synchronization in `AsyncCheckpointer` refactored to allow plugging in
