@@ -976,7 +976,7 @@ class CheckpointManager:
     """Cleans up old checkpoints and synchronizes hosts."""
     if not self._all_checkpointers_are_sync:
       self.wait_until_finished(join_finalize_thread=False)
-    final_ckpt_dir = self._finalize_checkpoint(temp_ckpt_dir)
+    self._finalize_checkpoint(temp_ckpt_dir)
     for step in self._steps_to_remove:
       self._delete_directory(step)
 

@@ -26,6 +26,7 @@ from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 
 
+
 class Checkpointer(AbstractCheckpointer):
   """A synchronous implementation of AbstractCheckpointer.
 
