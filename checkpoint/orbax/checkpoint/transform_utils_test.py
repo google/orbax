@@ -304,12 +304,12 @@ class TransformUtilsTest(absltest.TestCase):
   def test_non_dict_tree(self):
 
     @flax.struct.dataclass
-    class SubTree:
+    class SubTree(flax.struct.PyTreeNode):
       x: Mapping[str, int]
       y: List[int]
 
     @flax.struct.dataclass
-    class Tree:
+    class Tree(flax.struct.PyTreeNode):
       a: int
       b: np.ndarray
       c: SubTree
@@ -321,7 +321,7 @@ class TransformUtilsTest(absltest.TestCase):
         }, y=[4, 5, 6]))
 
     @flax.struct.dataclass
-    class NewTree:
+    class NewTree(flax.struct.PyTreeNode):
       a1: int  # a
       b: np.ndarray  # times 2
       c: SubTree  # same
@@ -534,7 +534,7 @@ class TransformUtilsTest(absltest.TestCase):
     }
 
     @flax.struct.dataclass
-    class Expected:
+    class Expected(flax.struct.PyTreeNode):
       a: int
       b: Mapping[str, int]
       f: int

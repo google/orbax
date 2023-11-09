@@ -180,7 +180,7 @@ class StandardCheckpointHandlerTestBase:
       """Test case."""
 
       @flax.struct.dataclass
-      class Params:
+      class Params(flax.struct.PyTreeNode):
         params: Any
         opt_state: Any
 

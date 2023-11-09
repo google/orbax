@@ -186,7 +186,7 @@ class UtilsTest(parameterized.TestCase):
 
   def test_serialize_class(self):
     @flax.struct.dataclass
-    class Foo:
+    class Foo(flax.struct.PyTreeNode):
       a: int
       b: Mapping[str, str]
       c: Sequence[optax.EmptyState]
@@ -213,7 +213,7 @@ class UtilsTest(parameterized.TestCase):
 
   def test_serialize_nested_class(self):
     @flax.struct.dataclass
-    class Foo:
+    class Foo(flax.struct.PyTreeNode):
       a: int
 
     nested = {
