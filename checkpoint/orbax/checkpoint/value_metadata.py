@@ -17,13 +17,24 @@
 import dataclasses
 from typing import Optional
 
+from etils import epath
 import jax
 from jax import numpy as jnp
 
 
 @dataclasses.dataclass
 class Metadata:
-  """Metadata describing PyTree values."""
+  """Metadata describing PyTree values.
+
+  name:
+    A string representing the original name of the parameter.
+  directory:
+    The directory where the parameter can be found, after taking `name` into
+    account.
+  """
+
+  name: str
+  directory: Optional[epath.Path]
 
   def __eq__(self, other: 'Metadata') -> bool:
     return isinstance(other, Metadata)
@@ -53,6 +64,21 @@ class ArrayMetadata(Metadata):
         and self.shape == other.shape
         and self.sharding == other.sharding
         and self.dtype == other.dtype
+    )
+
+  @classmethod
+  def from_shape_dtype_struct(
+      cls,
+      s: jax.ShapeDtypeStruct,
+      name: Optional[str] = None,
+      directory: Optional[epath.Path] = None,
+  ) -> 'ArrayMetadata':
+    return cls(
+        name=name,
+        directory=directory,
+        shape=s.shape,
+        sharding=s.sharding,
+        dtype=s.dtype,
     )
 
 

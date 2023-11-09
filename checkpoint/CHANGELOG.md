@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `name` and `directory` properties in value `Metadata`.
+
 ## [0.4.2] - 2023-10-03
 
 ### Added
