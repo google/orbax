@@ -24,7 +24,6 @@ from etils import epath
 import jax
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_handler
-from orbax.checkpoint import utils
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
@@ -52,7 +51,6 @@ class JsonCheckpointHandler(checkpoint_handler.CheckpointHandler):
     if jax.process_index() == 0:
       path = directory / self._filename
       path.write_text(json.dumps(item))
-    utils.sync_global_devices('JsonCheckpointHandler:save')
 
   def restore(
       self, directory: epath.Path, item: Optional[bytes] = None

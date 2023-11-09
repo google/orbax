@@ -30,7 +30,6 @@ import jax
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
-from orbax.checkpoint import utils
 
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
@@ -80,7 +79,6 @@ class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           f.result()
 
     asyncio.run(async_save(directory, item))
-    utils.sync_global_devices("ProtoCheckpointHandler:save")
 
   def restore(
       self, directory: epath.Path, item: Optional[Type[message.Message]] = None
