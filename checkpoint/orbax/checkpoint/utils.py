@@ -30,6 +30,7 @@ from etils import epath
 import jax
 from jax.experimental import multihost_utils
 import numpy as np
+from orbax.checkpoint import value_metadata
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 # prefix_1000.orbax-checkpoint-tmp-1010101
@@ -786,3 +787,30 @@ def are_locked(
 
   ops = [_async_is_locked(_get_save_directory(step)) for step in steps]
   return asyncio.run(_run_in_parallel(ops))
+
+
+def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
+  """Get ShapeDtypeStruct from array."""
+  if isinstance(x, jax.ShapeDtypeStruct):
+    return x
+  elif isinstance(x, jax.Array):
+    dtype = dtype or x.dtype
+    return jax.ShapeDtypeStruct(x.shape, dtype, sharding=x.sharding)
+  elif isinstance(x, np.ndarray):
+    dtype = dtype or x.dtype
+    return jax.ShapeDtypeStruct(x.shape, dtype)
+  elif is_scalar(x):
+    if scalar_dtype is not None:
+      return scalar_dtype(x)
+    return x
+  elif isinstance(x, value_metadata.Metadata):
+    if not isinstance(x, value_metadata.ArrayMetadata):
+      raise ValueError(f'Unexpected Metadata type: {type(x)}.')
+    dtype = dtype or x.dtype
+    return jax.ShapeDtypeStruct(
+        shape=x.shape,
+        dtype=dtype,
+        sharding=x.sharding,
+    )
+  else:
+    raise ValueError(f'Unexpected type: {type(x)}.')

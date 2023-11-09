@@ -55,6 +55,10 @@ class ArrayMetadata(Metadata):
         and self.dtype == other.dtype
     )
 
+  @classmethod
+  def from_shape_dtype_struct(cls, s: jax.ShapeDtypeStruct) -> 'ArrayMetadata':
+    return cls(shape=s.shape, sharding=s.sharding, dtype=s.dtype)
+
 
 @dataclasses.dataclass
 class ScalarMetadata(ArrayMetadata):
