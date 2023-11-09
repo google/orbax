@@ -189,26 +189,6 @@ def create_sharded_array(arr, mesh, mesh_axes):
   )
 
 
-def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
-  """Get ShapeDtypeStruct from array."""
-  if isinstance(x, jax.ShapeDtypeStruct):
-    return x
-  elif isinstance(x, jax.Array):
-    if dtype is None:
-      dtype = x.dtype
-    return jax.ShapeDtypeStruct(x.shape, dtype, sharding=x.sharding)
-  elif isinstance(x, np.ndarray):
-    if dtype is None:
-      dtype = x.dtype
-    return jax.ShapeDtypeStruct(x.shape, dtype)
-  elif utils.is_scalar(x):
-    if scalar_dtype is not None:
-      return scalar_dtype(x)
-    return x
-  else:
-    raise ValueError(f'Unexpected type: {type(x)}.')
-
-
 def print_directory(directory: epath.Path, level: int = 0):
   """Prints a directory tree for debugging purposes."""
   assert directory.is_dir()

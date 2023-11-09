@@ -1299,7 +1299,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       param_info = flat_param_infos[keypath]
       restore_type = flat_restore_types[keypath]
       if param_info.skip_deserialize:
-        flat_metadatas[keypath] = value_metadata.Metadata()
+        flat_metadatas[keypath] = value_metadata.Metadata(
+            name=param_info.name, directory=directory
+        )
       else:
         batched_keypaths[restore_type].append(keypath)
         batched_param_infos[restore_type].append(param_info)
