@@ -74,6 +74,7 @@ def is_async_checkpointer(checkpointer: AbstractCheckpointer):
   )
 
 
+# TODO(b/309965339) Set todelete_subdir defaults if directory is on CNS.
 @dataclasses.dataclass
 class CheckpointManagerOptions:
   """Optional arguments for CheckpointManager.
@@ -132,6 +133,11 @@ class CheckpointManagerOptions:
     will then be broadcast to other hosts. Otherwise, I/O will be performed on
     every host. This can be helpful to reduce QPS to the filesystem if there
     are a large number of hosts.
+  todelete_subdir: If set, checkpoints to be deleted will be only renamed into a
+    subdirectory with the provided string. Otherwise, they will be directly
+    deleted from the file system. Useful if checkpoint deletion is time
+    consuming. By default, delete the checkpoint assets. Ignored if file system
+    is Google Cloud Storage (directory is prefixed with gs://)
   """
   save_interval_steps: int = 1
   max_to_keep: Optional[int] = None
@@ -146,6 +152,7 @@ class CheckpointManagerOptions:
   cleanup_tmp_directories: bool = False
   save_on_steps: Optional[Container[int]] = None
   single_host_load_and_broadcast: bool = False
+  todelete_subdir: Optional[str] = None
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -399,10 +406,7 @@ class CheckpointManager:
     """Deletes a step checkpoint."""
     if step not in self.all_steps():
       raise ValueError(f'Requested deleting a non-existent step: {step}.')
-    if jax.process_index() == 0:
-      step_dir = self._get_save_directory(step, self._directory)
-      # Erase files, but not in-memory record of past checkpoints.
-      step_dir.rmtree()
+    self._delete_directory(step)
     utils.sync_global_devices('CheckpointManager:deleted_step')
     for i, info in enumerate(self._checkpoints):
       if info.step == step:
@@ -787,9 +791,30 @@ class CheckpointManager:
     utils.cleanup_tmp_directories(self.directory)
 
   def _delete_directory(self, step: int):
-    if jax.process_index() == 0:
-      # TODO(cpgaffney) Optimize tree removal if possible.
+    """Deletes step dir or renames it if options.todelete_subdir is set.
+
+    See `CheckpointManagerOptions.todelete_subdir` for details.
+
+    Args:
+      step: checkpointing step number.
+    """
+    if jax.process_index() != 0:
+      return
+
+    # Delete if storage is on gcs or todelete_subdir is not set.
+    if self._options.todelete_subdir is None or utils.is_gcs_path(
+        self.directory
+    ):
       self._get_save_directory(step, self.directory).rmtree()
+      return
+
+    # Rename step dir.
+    rename_dir = self.directory / self._options.todelete_subdir
+    if not rename_dir.exists():
+      rename_dir.mkdir(parents=True)
+    src = self._get_save_directory(step, self.directory)
+    dst = self._get_save_directory(step, rename_dir)
+    src.replace(dst)
 
   def _get_old_steps_to_remove(self):
     """Collects checkpoints that should be deleted later."""
