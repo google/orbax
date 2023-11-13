@@ -120,7 +120,7 @@ class StandardCheckpointHandlerTestBase:
       restored = self.handler.restore(
           self.directory,
           jax.tree_util.tree_map(
-              test_utils.to_shape_dtype_struct, self.mixed_pytree
+              utils.to_shape_dtype_struct, self.mixed_pytree
           ),
       )
       test_utils.assert_tree_equal(self, self.mixed_pytree, restored)
@@ -167,7 +167,7 @@ class StandardCheckpointHandlerTestBase:
           self.directory,
           jax.tree_util.tree_map(
               functools.partial(
-                  test_utils.to_shape_dtype_struct,
+                  utils.to_shape_dtype_struct,
                   dtype=jnp.bfloat16,
                   scalar_dtype=int,
               ),
@@ -197,7 +197,7 @@ class StandardCheckpointHandlerTestBase:
           lambda arr: test_utils.create_sharded_array(arr, mesh, mesh_axes),
           params,
       )
-      target = jax.tree_util.tree_map(test_utils.to_shape_dtype_struct, params)
+      target = jax.tree_util.tree_map(utils.to_shape_dtype_struct, params)
 
       self.handler.save(self.directory, params)
       restored = self.handler.restore(self.directory, target)
@@ -243,14 +243,14 @@ class StandardCheckpointHandlerTestBase:
       # Restore it with item which was given before applying masking.
       restored = self.handler.restore(
           self.directory,
-          jax.tree_util.tree_map(test_utils.to_shape_dtype_struct, self.pytree),
+          jax.tree_util.tree_map(utils.to_shape_dtype_struct, self.pytree),
       )
       test_utils.assert_tree_equal(self, expected, restored)
 
       # Restore it with item after applying masking to it.
       restored = self.handler.restore(
           self.directory,
-          jax.tree_util.tree_map(test_utils.to_shape_dtype_struct, masked_tree),
+          jax.tree_util.tree_map(utils.to_shape_dtype_struct, masked_tree),
       )
       test_utils.assert_tree_equal(self, expected, restored)
 
