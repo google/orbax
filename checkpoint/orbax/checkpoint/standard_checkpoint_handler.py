@@ -101,30 +101,42 @@ class StandardCheckpointHandler(
   async def async_save(
       self,
       directory: epath.Path,
-      item: PyTree,
+      item: Optional[PyTree] = None,
       save_args: Optional[PyTree] = None,
-  ) -> Optional[List[future.Future]]:
+      args: Optional['StandardSaveArgs'] = None,
+  ) -> Optional[List[future.Future]]:  # pytype: disable=signature-mismatch
     """Saves a PyTree. See superclass documentation."""
-    self._validate_save_state(item, save_args=save_args)
-    return await super().async_save(directory, item, save_args=save_args)
+    if args:
+      state = args.state
+      save_args = args.save_args
+    else:
+      state = item
+    self._validate_save_state(state, save_args=save_args)
+    return await super().async_save(
+        directory,
+        args=pytree_checkpoint_handler.PyTreeSaveArgs(
+            item=state, save_args=save_args
+        ),
+    )
 
   def restore(
       self,
       directory: epath.Path,
       item: Optional[PyTree] = None,
+      args: Optional['StandardRestoreArgs'] = None,
   ) -> PyTree:  # pytype: disable=signature-mismatch
     """Restores a PyTree.
 
     Example::
 
       ckptr = StandardCheckpointer()
-      item = {
+      state = {
           'layer0': {
               'w': jax.Array(...),
               'b': np.ndarray(...),
           },
       }
-      ckptr.save(dir, item)
+      ckptr.save(dir, StandardSaveArgs(state))
 
       target = {
           'layer0': {
@@ -132,7 +144,7 @@ class StandardCheckpointHandler(
               'b': jax.Array(...),
           },
       }
-      ckptr.restore(dir, target)
+      ckptr.restore(dir, StandardRestoreArgs(target))
 
     Args:
       directory: path from which to restore.
@@ -141,24 +153,30 @@ class StandardCheckpointHandler(
         values are provided, that value will be restored as the given type, with
         the given properties. If jax.ShapeDtypeStruct is provided, the value
         will be restored as np.ndarray, unless `sharding` is specified. If
-        `item` is a custom PyTree class, the tree will be restored with the same
-        structure as provided. If not provided, restores as a serialized nested
-        dict representation of the custom class.
+        `state` is a custom PyTree class, the tree will be restored with the
+        same structure as provided. If not provided, restores as a serialized
+        nested dict representation of the custom class.
+      args: `StandardRestoreArgs` (see below).
 
     Returns:
-      a restore PyTree.
+      a restored PyTree.
     """
-    if item:
-      self._validate_restore_state(item)
-      restore_args = checkpoint_utils.construct_restore_args(item)
+    if args:
+      state = args.state
+    else:
+      state = item
+    if state is not None:
+      self._validate_restore_state(state)
+      restore_args = checkpoint_utils.construct_restore_args(state)
     else:
       restore_args = checkpoint_utils.construct_restore_args(
           self.metadata(directory)
       )
     return super().restore(
         directory,
-        item=item,
-        restore_args=restore_args,
+        args=pytree_checkpoint_handler.PyTreeRestoreArgs(
+            item=state, restore_args=restore_args
+        ),
     )
 
 
