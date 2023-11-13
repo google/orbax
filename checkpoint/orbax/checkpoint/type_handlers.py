@@ -40,6 +40,7 @@ import tensorstore as ts
 Scalar = Union[int, float, np.number]
 Metadata = value_metadata.Metadata
 NamedSharding = jax.sharding.NamedSharding
+SingleDeviceSharding = jax.sharding.SingleDeviceSharding
 ScalarMetadata = value_metadata.ScalarMetadata
 ArrayMetadata = value_metadata.ArrayMetadata
 StringMetadata = value_metadata.StringMetadata
@@ -62,6 +63,7 @@ _DEFAULT_OCDBT_TS_CONTEXT = ts.Context(
 _PARTITION_SPEC = 'partition_spec'
 _SHARDING = '_sharding'
 _SHARDING_TYPE = 'sharding_type'
+_DEVICE_STR = 'device_str'
 
 RESTORE_TYPE_NONE = 'None'
 RESTORE_TYPE_DICT = 'Dict'
@@ -81,22 +83,18 @@ class ShardingTypes(enum.Enum):
 def _serialize_sharding(sharding: jax.sharding.Sharding) -> str:
   """Serializes `jax.sharding.Sharding` into a json string."""
 
+  sharding_data = {}
   if isinstance(sharding, NamedSharding):
-    sharding_data = {}
-
     sharding_data[_SHARDING_TYPE] = ShardingTypes.NAMED_SHARDING.value
     sharding_data[_MESH_SHAPE] = list(sharding.mesh.shape.values())
     sharding_data[_MESH_AXES] = sharding.mesh.axis_names
     sharding_data[_PARTITION_SPEC] = sharding.spec
 
-    serialized_string = json.dumps(sharding_data)
-    return serialized_string
-
   elif isinstance(sharding, jax.sharding.SingleDeviceSharding):
-    warnings.warn(
-        'Serialization for `jax.sharding.SingleDeviceSharding` has not been'
-        ' implemented.'
-    )
+    sharding_data[_SHARDING_TYPE] = ShardingTypes.SINGLE_DEVICE_SHARDING.value
+    # There is no serialization method for Device.
+    # Get the Device object and then retreive the str representation
+    sharding_data[_DEVICE_STR] = str(next(iter(sharding.device_set)))
 
   elif isinstance(sharding, jax.sharding.PositionalSharding):
     warnings.warn(
@@ -113,7 +111,11 @@ def _serialize_sharding(sharding: jax.sharding.Sharding) -> str:
   else:
     warnings.warn(f'Sharding type {type(sharding)} is not supported.')
 
-  return ''
+  if _SHARDING_TYPE in sharding_data:
+    serialized_string = json.dumps(sharding_data)
+    return serialized_string
+  else:
+    return ''
 
 
 def _deserialize_sharding_from_json_string(
@@ -135,6 +137,28 @@ def _deserialize_sharding_from_json_string(
         jax.sharding.PartitionSpec(*partition_spec),
     )
     return sharding
+
+  elif (
+      deserialized_dict[_SHARDING_TYPE]
+      == ShardingTypes.SINGLE_DEVICE_SHARDING.value
+  ):
+    # Initialize a 'cached' Dict[str, Device] to help look up Devices by
+    # their str representation.
+    # Cache tip: See Function Attributes https://peps.python.org/pep-0232/.
+    if not hasattr(_deserialize_sharding_from_json_string, 'device_map'):
+      _deserialize_sharding_from_json_string.device_map = {
+          str(device): device for device in jax.local_devices()
+      }
+    device_str = deserialized_dict[_DEVICE_STR]
+    if device := _deserialize_sharding_from_json_string.device_map.get(
+        device_str, None
+    ):
+      return SingleDeviceSharding(device)
+
+    raise ValueError(
+        f'{ShardingTypes.SINGLE_DEVICE_SHARDING.value} with'
+        f' Device={device_str} was not found in jax.local_devices().'
+    )
 
   else:
     raise NotImplementedError(
@@ -813,7 +837,7 @@ class NumpyHandler(TypeHandler):
       )
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
       if logging.level_debug():
-        logging.debug('tspec = %s', json.dumps(tspec))
+        logging.debug('tspec = %s', tspec)
         logging.debug('infos = %s', info)
         logging.debug('args = %s', arg)
       if jax.process_index() == 0:
@@ -860,7 +884,7 @@ class NumpyHandler(TypeHandler):
       tspec = _get_cast_tspec_deserialize(tspec, arg)
 
       if logging.level_debug():
-        logging.debug('tspec = %s', json.dumps(tspec))
+        logging.debug('tspec = %s', tspec)
         logging.debug('infos = %s', infos)
         logging.debug('args = %s', args)
       open_futures += [
@@ -1125,7 +1149,13 @@ class ArrayHandler(TypeHandler):
       )
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
       if logging.level_debug():
-        logging.debug('tspec = %s', json.dumps(tspec))
+        logging.debug(
+            'sharding=%s, addressable_shards=%s, global_shards=%s',
+            value.sharding,
+            value.addressable_shards,
+            value.global_shards,
+        )
+        logging.debug('tspec = %s', tspec)
         logging.debug('infos = %s', info)
         logging.debug('args = %s', arg)
       synchronous_ops += [
@@ -1241,7 +1271,7 @@ class ArrayHandler(TypeHandler):
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       tspec = _get_cast_tspec_deserialize(tspec, arg)
       if logging.level_debug():
-        logging.debug('tspec = %s', json.dumps(tspec))
+        logging.debug('tspec = %s', tspec)
         logging.debug('infos = %s', infos)
         logging.debug('args = %s', args)
       deserialize_ops += [
