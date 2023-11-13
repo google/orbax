@@ -10,10 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Introduce CheckpointManagerOptions.todelete_subdir option to rename deletable dirs.
 - Support jax.sharding.SingleDeviceSharding in self-describing PyTree checkpoints.
+- `name` and `directory` properties in value `Metadata`.
 
 ### Changed
 - Turn on self-describing PyTree checkpoints by default.
-
 
 ## [0.4.2] - 2023-10-03
 

@@ -697,9 +697,11 @@ def _add_write_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _array_metadata_from_tensorstore(
-    t: Any, sharding: Optional[jax.sharding.Sharding] = None
+    t: Any, info: ParamInfo, sharding: Optional[jax.sharding.Sharding] = None
 ) -> ArrayMetadata:
   return ArrayMetadata(
+      name=info.name,
+      directory=info.parent_dir,
       shape=t.shape,
       dtype=jnp.dtype(t.dtype.name),
       sharding=sharding,
@@ -813,8 +815,8 @@ class NumpyHandler(TypeHandler):
 
     tensorstores = await asyncio.gather(*open_ops)
     return [
-        _array_metadata_from_tensorstore(t, sharding=None)
-        for (t) in tensorstores
+        _array_metadata_from_tensorstore(t, info, sharding=None)
+        for t, info in zip(tensorstores, infos)
     ]
 
   async def serialize(
@@ -916,7 +918,10 @@ class ScalarHandler(NumpyHandler):
       self, infos: Sequence[ParamInfo]
   ) -> Sequence[ScalarMetadata]:
     metadatas = await super().metadata(infos)
-    return [ScalarMetadata(dtype=m.dtype) for m in metadatas]
+    return [
+        ScalarMetadata(name=m.name, directory=m.directory, dtype=m.dtype)
+        for m in metadatas
+    ]
 
   async def serialize(
       self,
@@ -1112,8 +1117,8 @@ class ArrayHandler(TypeHandler):
     else:
       shardings = [None] * len(tensorstores)
     return [
-        _array_metadata_from_tensorstore(t, sharding)
-        for (t, sharding) in zip(tensorstores, shardings)
+        _array_metadata_from_tensorstore(t, info, sharding)
+        for (t, info, sharding) in zip(tensorstores, infos, shardings)
     ]
 
   async def serialize(
@@ -1333,7 +1338,10 @@ class StringHandler(TypeHandler):
   async def metadata(
       self, infos: Sequence[ParamInfo]
   ) -> Sequence[StringMetadata]:
-    return [StringMetadata()] * len(infos)
+    return [
+        StringMetadata(name=info.name, directory=info.parent_dir)
+        for info in infos
+    ]
 
   async def _convert_to_string(self, tensorstore):
     result = await tensorstore.read()
