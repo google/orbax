@@ -639,7 +639,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       use_ocdbt: bool = True,
       ocdbt_merge: bool = False,
       restore_with_serialized_types: bool = True,
-      write_tree_metadata: bool = False,
+      write_tree_metadata: bool = True,
   ):
     """Creates PyTreeCheckpointHandler.
 
