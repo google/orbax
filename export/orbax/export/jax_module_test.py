@@ -139,7 +139,7 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
     self.assertFalse(jm.with_gradient)
 
   def test_jax_array(self):
-    global_mesh = Mesh(np.array(jax.devices('cpu')), 'x')
+    global_mesh = Mesh(np.array(jax.local_devices(backend='cpu')), 'x')
     mesh_axes = PartitionSpec('x')
     global_input_shape = (jax.device_count('cpu'), 2)
     global_input_data = np.arange(
