@@ -14,8 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Turn on self-describing PyTree checkpoints by default.
-- `CheckpointArgs` arguments for save and restore in `StandardCheckpointHandler`
-and `PyTreeCheckpointHandler`.
 
 ## [0.4.2] - 2023-10-03
 
@@ -36,10 +34,6 @@ under `ParamInfo.parent_dir`.
 - OCDBT coordinator.
 
 ## [0.4.1] - 2023-09-28
-
-### Added
-- `CompositeCheckpointHandler`
-- `CheckpointArgs`
 
 ### Changed
 - Forked `AsyncManager` into Orbax and replaced `AsyncCheckpointer`'s

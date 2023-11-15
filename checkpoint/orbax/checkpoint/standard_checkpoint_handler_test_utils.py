@@ -33,8 +33,6 @@ from orbax.checkpoint import utils
 
 PyTree = Any
 SaveArgs = type_handlers.SaveArgs
-StandardSaveArgs = standard_checkpoint_handler.StandardSaveArgs
-StandardRestoreArgs = standard_checkpoint_handler.StandardRestoreArgs
 
 
 class StandardCheckpointHandler(
@@ -63,9 +61,6 @@ class StandardCheckpointHandlerTestBase:
 
   class Test(parameterized.TestCase):
     """Test class."""
-
-    save_args_cls = StandardSaveArgs
-    restore_args_cls = StandardRestoreArgs
 
     def setUp(self):
       super().setUp()
@@ -104,17 +99,15 @@ class StandardCheckpointHandlerTestBase:
       return StandardCheckpointHandler()
 
     def test_basic(self):
-      self.handler.save(self.directory, args=self.save_args_cls(self.pytree))
-      restored = self.handler.restore(
-          self.directory, args=self.restore_args_cls(self.zeros_pytree)
-      )
+      self.handler.save(self.directory, self.pytree)
+      restored = self.handler.restore(self.directory, self.zeros_pytree)
       self.assertTrue(
           (self.directory / type_handlers._OCDBT_MANIFEST_FILE).exists()  # pylint: disable=protected-access
       )
       test_utils.assert_tree_equal(self, self.pytree, restored)
 
     def test_basic_no_item_arg(self):
-      self.handler.save(self.directory, args=self.save_args_cls(self.pytree))
+      self.handler.save(self.directory, self.pytree)
       restored = self.handler.restore(self.directory)
       self.assertTrue(
           (self.directory / type_handlers._OCDBT_MANIFEST_FILE).exists()  # pylint: disable=protected-access
@@ -123,15 +116,11 @@ class StandardCheckpointHandlerTestBase:
 
     def test_shape_dtype_struct(self):
       """Test case."""
-      self.handler.save(
-          self.directory, args=self.save_args_cls(self.mixed_pytree)
-      )
+      self.handler.save(self.directory, self.mixed_pytree)
       restored = self.handler.restore(
           self.directory,
-          args=self.restore_args_cls(
-              jax.tree_util.tree_map(
-                  utils.to_shape_dtype_struct, self.mixed_pytree
-              )
+          jax.tree_util.tree_map(
+              utils.to_shape_dtype_struct, self.mixed_pytree
           ),
       )
       test_utils.assert_tree_equal(self, self.mixed_pytree, restored)
@@ -143,30 +132,26 @@ class StandardCheckpointHandlerTestBase:
       save_args = jax.tree_util.tree_map(_save_args, self.numpy_pytree)
       with self.assertRaisesRegex(ValueError, 'Unsupported option `aggregate`'):
         self.handler.save(
-            self.directory,
-            args=self.save_args_cls(self.numpy_pytree, save_args=save_args),
+            self.directory, self.numpy_pytree, save_args=save_args
         )
 
     def test_save_unsupported_type(self):
       pytree = {'str_key': 'str_value', **self.pytree}
       with self.assertRaisesRegex(ValueError, 'Unsupported type'):
-        self.handler.save(self.directory, args=self.save_args_cls(pytree))
+        self.handler.save(self.directory, pytree)
 
     def test_restore_unsupported_type(self):
       pytree = {'str_key': 'str_value', **self.pytree}
-      self.handler.save(self.directory, args=self.save_args_cls(self.pytree))
+      self.handler.save(self.directory, self.pytree)
       with self.assertRaisesRegex(ValueError, 'Unsupported type'):
-        self.handler.restore(self.directory, args=self.restore_args_cls(pytree))
+        self.handler.restore(self.directory, pytree)
 
     def test_cast(self):
       """Test case."""
       save_args = jax.tree_util.tree_map(
           lambda _: SaveArgs(dtype=jnp.int16), self.pytree
       )
-      self.handler.save(
-          self.directory,
-          args=self.save_args_cls(self.pytree, save_args=save_args),
-      )
+      self.handler.save(self.directory, self.pytree, save_args=save_args)
       metadata = self.handler.metadata(self.directory)
       jax.tree_util.tree_map(
           lambda m: self.assertEqual(m.dtype, jnp.int16), metadata
@@ -180,15 +165,13 @@ class StandardCheckpointHandlerTestBase:
 
       restored = self.handler.restore(
           self.directory,
-          args=self.restore_args_cls(
-              jax.tree_util.tree_map(
-                  functools.partial(
-                      utils.to_shape_dtype_struct,
-                      dtype=jnp.bfloat16,
-                      scalar_dtype=int,
-                  ),
-                  self.pytree,
-              )
+          jax.tree_util.tree_map(
+              functools.partial(
+                  utils.to_shape_dtype_struct,
+                  dtype=jnp.bfloat16,
+                  scalar_dtype=int,
+              ),
+              self.pytree,
           ),
       )
       jax.tree_util.tree_map(lambda x: check_dtype(x, jnp.bfloat16), restored)
@@ -216,29 +199,23 @@ class StandardCheckpointHandlerTestBase:
       )
       target = jax.tree_util.tree_map(utils.to_shape_dtype_struct, params)
 
-      self.handler.save(self.directory, args=self.save_args_cls(params))
-      restored = self.handler.restore(
-          self.directory, args=self.restore_args_cls(target)
-      )
+      self.handler.save(self.directory, params)
+      restored = self.handler.restore(self.directory, target)
       test_utils.assert_tree_equal(self, params, restored)
 
     def test_empty_pytrees(self):
       """Test case."""
       with self.assertRaises(ValueError):
-        self.handler.save(self.directory, args=self.save_args_cls({}))
+        self.handler.save(self.directory, {})
 
       item = {'a': {}, 'b': 3}
-      self.handler.save(self.directory, args=self.save_args_cls(item))
-      restored = self.handler.restore(
-          self.directory, args=self.restore_args_cls(item)
-      )
+      self.handler.save(self.directory, item)
+      restored = self.handler.restore(self.directory, item)
       self.assertDictEqual(restored, item)
 
       item = {'c': None, 'd': 2}
-      self.handler.save(self.directory, args=self.save_args_cls(item))
-      restored = self.handler.restore(
-          self.directory, args=self.restore_args_cls(item)
-      )
+      self.handler.save(self.directory, item)
+      restored = self.handler.restore(self.directory, item)
       self.assertDictEqual(restored, item)
 
     def test_masked_shape_dtype_struct(self):
@@ -258,7 +235,7 @@ class StandardCheckpointHandlerTestBase:
       masked_tree = jax.tree_util.tree_map_with_path(_mask, self.pytree)
       expected = jax.tree_util.tree_map_with_path(_none, self.pytree)
 
-      self.handler.save(self.directory, args=self.save_args_cls(masked_tree))
+      self.handler.save(self.directory, masked_tree)
       self.assertTrue(
           (self.directory / type_handlers._OCDBT_MANIFEST_FILE).exists()  # pylint: disable=protected-access
       )
@@ -266,18 +243,14 @@ class StandardCheckpointHandlerTestBase:
       # Restore it with item which was given before applying masking.
       restored = self.handler.restore(
           self.directory,
-          args=self.restore_args_cls(
-              jax.tree_util.tree_map(utils.to_shape_dtype_struct, self.pytree)
-          ),
+          jax.tree_util.tree_map(utils.to_shape_dtype_struct, self.pytree),
       )
       test_utils.assert_tree_equal(self, expected, restored)
 
       # Restore it with item after applying masking to it.
       restored = self.handler.restore(
           self.directory,
-          args=self.restore_args_cls(
-              jax.tree_util.tree_map(utils.to_shape_dtype_struct, masked_tree)
-          ),
+          jax.tree_util.tree_map(utils.to_shape_dtype_struct, masked_tree),
       )
       test_utils.assert_tree_equal(self, expected, restored)
 
