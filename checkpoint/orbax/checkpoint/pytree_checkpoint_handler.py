@@ -728,8 +728,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   async def async_save(
       self,
       directory: epath.Path,
-      item: PyTree,
+      item: Optional[PyTree] = None,
       save_args: Optional[PyTree] = None,
+      args: Optional['PyTreeSaveArgs'] = None,
   ) -> Optional[List[future.Future]]:
     """Saves a PyTree to a given directory.
 
@@ -773,11 +774,15 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       item: a PyTree to be saved.
       save_args: a PyTree matching `item` which consists of SaveArgs objects as
         values.
+      args: `PyTreeSaveArgs` (see below).
 
     Returns:
       A Future that will commit the data to `directory` when awaited. Copying
       the data from its source will be awaited in this function.
     """
+    if args is not None:
+      item = args.item
+      save_args = args.save_args
     # Because of empty states, the user-provided args may not contain
     # all necessary arguments. These should be filled in with default args.
     save_args = jax.tree_util.tree_map(
@@ -830,7 +835,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     )
     return commit_futures + [aggregate_commit_future]
 
-  def save(self, directory: epath.Path, item: Any, *args, **kwargs):
+  def save(self, directory: epath.Path, *args, **kwargs):
     """Saves the provided item.
 
     Blocks until both copy and commit complete.
@@ -839,7 +844,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     Args:
       directory: the directory to save to.
-      item: the item to be saved.
       *args: additional arguments for save.
       **kwargs: additional arguments for save.
     """
@@ -852,7 +856,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         for f in commit_futures:
           f.result()  # Block on result.
 
-    asyncio.run(async_save(directory, item, *args, **kwargs))
+    asyncio.run(async_save(directory, *args, **kwargs))
     utils.sync_global_devices('PyTreeCheckpointHandler:save')
 
   async def _maybe_deserialize(
@@ -903,6 +907,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       transforms: Optional[PyTree] = None,
       transforms_default_to_original: bool = True,
       legacy_transform_fn: Optional[LegacyTransformFn] = None,
+      args: Optional['PyTreeRestoreArgs'] = None,
   ) -> PyTree:
     """Restores a PyTree from the checkpoint directory at the given path.
 
@@ -925,7 +930,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     Example::
 
-      ckptr = Checkpointer(PyTreeCheckpointHandler)
+      ckptr = Checkpointer(PyTreeCheckpointHandler())
       restore_args = {
           'layer0': {
               'w': RestoreArgs(),
@@ -959,7 +964,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         layer0: dict[str, jax.Array]
         layer1: dict[str, jax.Array]
 
-      ckptr = Checkpointer(PyTreeCheckpointHandler)
+      ckptr = Checkpointer(PyTreeCheckpointHandler())
       train_state = TrainState(
           layer0={
               'w': jax.Array(...),  # zeros
@@ -999,6 +1004,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         of ParamInfos based on the checkpoint. Returns a transformed PyTree
         matching the desired return tree structure, and a matching ParamInfo
         tree.
+      args: `PyTreeRestoreArgs` (see below).
 
     Returns:
       A PyTree matching the structure of `item`.
@@ -1010,6 +1016,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """
     logging.debug('directory=%s, restore_args=%s', directory, restore_args)
 
+    if args is not None:
+      item = args.item
+      restore_args = args.restore_args
     if not directory.exists():
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
@@ -1406,21 +1415,7 @@ class PyTreeRestoreArgs(CheckpointArgs):
       leaf as a certain type, a specific subclass of `RestoreArgs` may be
       required. `RestoreArgs` also provides the option to customize the
       restore type of an individual leaf.
-    transforms: a PyTree of transformations that should be applied to the
-      saved tree in order to obtain a final structure. The `transforms` tree
-      structure should conceptually match that of `item`, but the use of
-      regexes and implicit keys means that it does not need to match
-      completely. See `transform_utils` for further information.
-    transforms_default_to_original: See transform_utils.apply_transformations.
-    legacy_transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which
-      accepts the `item` argument, a PyTree checkpoint structure and a PyTree
-      of ParamInfos based on the checkpoint. Returns a transformed PyTree
-      matching the desired return tree structure, and a matching ParamInfo
-      tree.
   """
 
   item: Optional[PyTree] = None
   restore_args: Optional[PyTree] = None
-  transforms: Optional[PyTree] = None
-  transforms_default_to_original: bool = True
-  legacy_transform_fn: Optional[LegacyTransformFn] = None
