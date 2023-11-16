@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Turn on self-describing PyTree checkpoints by default.
 - `CheckpointArgs` arguments for save and restore in `StandardCheckpointHandler`
 and `PyTreeCheckpointHandler`.
+- Return empty dict if the CheckpointManager level metadata is not available.
+Currently it raises error due to missing metadata dir.
 
 ## [0.4.2] - 2023-10-03
 

@@ -753,16 +753,21 @@ class CheckpointManager:
       self._interval_preserved_checkpoints.append(self._checkpoints[-1])
 
   def _save_metadata(self, metadata: Mapping[str, Any]):
-    checkpointer = Checkpointer(JsonCheckpointHandler())
+    """Saves CheckpointManager level metadata, skips if already present."""
     path = self.directory / METADATA_ITEM_NAME
     if not path.exists():  # May have been created by a previous run.
+      checkpointer = Checkpointer(JsonCheckpointHandler())
       checkpointer.save(path, metadata)
 
   def metadata(self) -> Mapping[str, Any]:
+    """Returns CheckpointManager level metadata if present, empty otherwise."""
     if self._metadata is None:
-      checkpointer = Checkpointer(JsonCheckpointHandler())
       path = self.directory / METADATA_ITEM_NAME
-      self._metadata = checkpointer.restore(path)
+      if path.exists():
+        checkpointer = Checkpointer(JsonCheckpointHandler())
+        self._metadata = checkpointer.restore(path)
+      else:
+        self._metadata = {}
     return self._metadata
 
   def _sort_checkpoints_by_metrics(
