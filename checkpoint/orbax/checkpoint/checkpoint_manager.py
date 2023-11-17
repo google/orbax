@@ -403,9 +403,25 @@ class CheckpointManager(AbstractCheckpointManager):
         logging.warning('Requested `tracked_metric`; did not provide metrics.')
       else:
         items[METRIC_ITEM_NAME] = metrics
-    tmp_step_dir = self._create_tmp_directory(
-        self._get_save_directory(step, self.directory)
-    )
+
+    save_directory = self._get_save_directory(step, self.directory)
+    # If a folder for the step to save exists and is not finalized, remove the
+    # existing folder.
+    if (
+        utils.is_gcs_path(save_directory)
+        and save_directory.exists()
+        and utils.is_tmp_checkpoint(save_directory)
+    ):
+      logging.warning(
+          'Attempting to save at step %s which has an unfinalized checkpoint'
+          ' from previous runs. Removing the unfinalized checkpoint before'
+          ' saving.',
+          step,
+      )
+      self._delete_directory(step)
+
+    tmp_step_dir = self._create_tmp_directory(save_directory)
+
     for k, item in items.items():
       # Gets save dirs given top directory, step number, and a "collection". All
       # files from the same input object should be saved under this collection.

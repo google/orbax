@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.4.3] - 2023-11-17
+
 ### Added
 - Introduce CheckpointManagerOptions.todelete_subdir option to rename deletable dirs.
 - Support jax.sharding.SingleDeviceSharding in self-describing PyTree checkpoints.
@@ -21,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 and `PyTreeCheckpointHandler`.
 - Return empty dict if the CheckpointManager level metadata is not available.
 Currently it raises error due to missing metadata dir.
+- Remove unfinalized checkpoint directory from previous runs for GCS.
 
 ## [0.4.2] - 2023-10-03
 
