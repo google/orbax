@@ -50,7 +50,7 @@ class _NonTrackableMetadata:
 
   Most fields of this dataclass are python containers (dict, list, tuple). If
   they are attached a tf.Module directly, TF will turn them into TF trackable
-  wrappers (DictWrapper, ListWrapper, etc.), thus mutate their orginal PyTree
+  wrappers (DictWrapper, ListWrapper, etc.), thus mutate their original PyTree
   def. Therefore, we create this dataclass to hold the metadata to avoid such
   implicit conversion. See also
   https://github.com/google/jax/blob/main/jax/experimental/jax2tf/README.md#errors-due-to-tfmodule-magic-conversion-during-attribute-assignment
@@ -81,6 +81,7 @@ class JaxModule(tf.Module):
       jit_compile: Union[bool, Mapping[str, bool]] = True,
       name: Optional[str] = None,
       pspecs: Optional[PyTree] = None,
+      target_platform: Optional[str] = None,
   ):
     """JaxModule constructor.
 
@@ -116,6 +117,8 @@ class JaxModule(tf.Module):
         same structure as ``params``. If set, the leaves of ``params`` must be
         jax.Array, and ``JaxModule`` must be created within a DTensor export
         context from ``with maybe_enable_dtensor_export_on(mesh)``.
+      target_platform: the target platform to export the model on; used to
+      generate the serve tags.
     """
     if callable(apply_fn):
       apply_fn_map: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
@@ -184,6 +187,7 @@ class JaxModule(tf.Module):
         var_trainable=trainable,
         var_pspecs=pspecs,
     )
+    self._target_platform = target_platform
 
   def update_variables(self, params: PyTree):
     """Updates the variables associated with self.
@@ -199,7 +203,7 @@ class JaxModule(tf.Module):
       raise ValueError(
           'The PyTree structure of the updated parameters must be the same as'
           f' that of the original parameters. Got new treedef: {treedef},'
-          f' orignal treedef: {self._nontrackable_metadata.var_treedef}'
+          f' original treedef: {self._nontrackable_metadata.var_treedef}'
       )
     new_vars = _jax_params_to_tf_variables(
         params,
@@ -232,11 +236,18 @@ class JaxModule(tf.Module):
         native_serialization_platforms_list.append(
             jax2tf_kwargs['native_serialization_platforms']
         )
+        if len(jax2tf_kwargs['native_serialization_platforms']) > 1:
+          assert (
+              self._target_platform
+          ), 'target_platform must be provided for multi-platform export.'
 
     if not native_serialization_platforms_list:
       return [jax2tf.jax_export.default_lowering_platform()]
     else:
-      native_serialization_platforms = native_serialization_platforms_list[0]
+      if len(native_serialization_platforms_list[0]) > 1:
+        native_serialization_platforms = self._target_platform
+      else:
+        native_serialization_platforms = native_serialization_platforms_list[0]
       for item in native_serialization_platforms_list:
         assert item == native_serialization_platforms, (
             'all ApplyFn must use exactly same native_serialization_platforms'
