@@ -71,6 +71,7 @@ RESTORE_TYPE_LIST = 'List'
 
 _DEFAULT_DRIVER = 'file'
 _PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
+_OCDBT_PROCESS_ID_RE = r'[A-Za-z0-9]+'
 
 
 class ShardingTypes(enum.Enum):
@@ -537,9 +538,9 @@ def merge_ocdbt_per_process_files(directory: epath.Path):
   )
 
   for process_dir in directory.glob(f'{_PROCESS_SUBDIR_PREFIX}*'):
-    process_index = int(process_dir.name.split('_')[-1])
+    process_id = process_dir.name.split('_')[-1]
     child_tspec = get_tensorstore_spec(
-        os.fspath(directory), use_ocdbt=True, process_index=process_index
+        os.fspath(directory), use_ocdbt=True, process_id=process_id
     )
     child_tspec = child_tspec['kvstore']
     open_ops.append(
@@ -591,7 +592,7 @@ def get_tensorstore_spec(
     directory: str,
     name: Optional[str] = None,
     use_ocdbt: bool = True,
-    process_index: Optional[int] = None,
+    process_id: Optional[Union[int, str]] = None,
 ) -> Dict[str, Any]:
   """Constructs a Tensorstore spec.
 
@@ -599,8 +600,9 @@ def get_tensorstore_spec(
     directory: Parent directory where the parameter will be written.
     name: Name of the parameter.
     use_ocdbt: Whether to use OCDBT to write the array.
-    process_index: If provided, will write to a sub-directory named
-      `ocdbt.process_<process_index>`.
+    process_id: If provided, will write to a sub-directory named
+      `ocdbt.process_<process_id>`. If a string, must conform to [A-Za-z0-9]+
+      pattern.
 
   Returns:
     A ts.Spec in dictionary form.
@@ -615,9 +617,14 @@ def get_tensorstore_spec(
     if not is_gcs_path and not os.path.isabs(directory):
       raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
     base_path = directory if is_gcs_path else f'{default_driver}://{directory}'
-    if process_index is not None:
+    if process_id is not None:
+      process_id = str(process_id)
+      assert re.fullmatch(_OCDBT_PROCESS_ID_RE, process_id) is not None, (
+          f'process_id must conform to {_OCDBT_PROCESS_ID_RE} pattern'
+          f', got {process_id}'
+      )
       base_path = os.path.join(
-          base_path, f'{_PROCESS_SUBDIR_PREFIX}{process_index}'
+          base_path, f'{_PROCESS_SUBDIR_PREFIX}{process_id}'
       )
     spec['kvstore'] = {
         'driver': 'ocdbt',
@@ -764,7 +771,7 @@ class NumpyHandler(TypeHandler):
         directory,
         name=info.name,
         use_ocdbt=use_ocdbt,
-        process_index=process_index,
+        process_id=process_index,
     )
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
@@ -1035,7 +1042,7 @@ class ArrayHandler(TypeHandler):
         directory,
         name=info.name,
         use_ocdbt=use_ocdbt,
-        process_index=process_index,
+        process_id=process_index,
     )
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
