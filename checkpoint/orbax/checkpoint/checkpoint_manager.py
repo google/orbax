@@ -793,17 +793,6 @@ class CheckpointManager(AbstractCheckpointManager):
     """
     final_ckpt_dir = None
     if jax.process_index() == 0:
-      try:
-        self.check_for_errors()
-      except Exception as e:  # pylint: disable=broad-except
-        logging.error(
-            (
-                'Received error: %s from Checkpointer. One or more items may'
-                ' not be finalized. Skipping finalization of step checkpoint.'
-            ),
-            e,
-        )
-        return None
       step = utils.step_from_checkpoint_name(temp_ckpt_dir.name)
       # If at a preemption step, record the time since the previous checkpoint.
       # This represents training time that would otherwise have been wasted.
@@ -828,6 +817,7 @@ class CheckpointManager(AbstractCheckpointManager):
     """Cleans up old checkpoints and synchronizes hosts."""
     if not self._all_checkpointers_are_sync:
       self.wait_until_finished(join_finalize_thread=False)
+      self.check_for_errors()
     final_ckpt_dir = self._finalize_checkpoint(temp_ckpt_dir)
     for step in self._steps_to_remove:
       self._delete_directory(step)
