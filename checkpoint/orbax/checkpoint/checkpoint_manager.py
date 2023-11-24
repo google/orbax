@@ -502,7 +502,8 @@ class CheckpointManager(AbstractCheckpointManager):
       item = items.get(item_name, None)
       kwargs = restore_kwargs.get(item_name, {})
       restored[item_name] = self._checkpointers[item_name].restore(
-          path, item=item, **kwargs)
+          path, item, **kwargs
+      )
 
     return restored
 
