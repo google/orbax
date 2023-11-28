@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Use `json` directly instead of `JsonCheckpointHandler` to write and read
+`PyTreeCheckpointHandler`'s metadata.
 
 ## [0.4.3] - 2023-11-17
 

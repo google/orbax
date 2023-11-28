@@ -36,7 +36,6 @@ from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
-from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
@@ -55,7 +54,6 @@ MsgpackHandler = aggregate_handlers.MsgpackHandler
 LegacyTransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
 Transform = transform_utils.Transform
 RestoreTransform = transform_utils.RestoreTransform
-JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
 # TODO(b/298487158) Clean up protected access.
 LimitInFlightBytes = type_handlers.LimitInFlightBytes
 CheckpointArgs = checkpoint_args.CheckpointArgs
@@ -671,7 +669,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._ocdbt_merge = ocdbt_merge
     self._restore_with_serialized_types = restore_with_serialized_types
     self._write_tree_metadata = write_tree_metadata
-    self._metadata_handler = JsonCheckpointHandler(_METADATA_FILE)
 
 
     if self._use_ocdbt:
@@ -829,7 +826,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
 
     # TODO(b/285888834): Allow this to be asynchronous.
-    self._write_metadata_file(directory, item, save_args)
+    if self._write_tree_metadata and jax.process_index() == 0:
+      self._write_metadata_file(directory, item, save_args)
+
     aggregate_commit_future = await self._write_aggregate_file(
         directory, item, param_infos, save_args
     )
@@ -1142,9 +1141,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     Returns:
       None
     """
-    if not self._write_tree_metadata:
-      return []
-
     flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
         item, is_leaf=utils.is_empty_or_leaf
     )
@@ -1163,7 +1159,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       }
 
     metadata = {_TREE_METADATA_KEY: flat_metadata_with_keys}
-    self._metadata_handler.save(directory, metadata)
+    (directory / _METADATA_FILE).write_text(json.dumps(metadata))
 
   def _read_metadata_file(
       self, directory: epath.Path, keep_empty_nodes: bool = False
@@ -1188,7 +1184,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       )
 
     tree_metadata = typing.cast(
-        Dict[Any, Any], self._metadata_handler.restore(directory)
+        Dict[Any, Any], json.loads(path.read_text()),
     )[_TREE_METADATA_KEY]
     flat_tree_metadata = []
     for metadata in tree_metadata.values():
