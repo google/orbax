@@ -41,19 +41,30 @@ class JsonCheckpointHandler(checkpoint_handler.CheckpointHandler):
     """
     self._filename = filename or 'metadata'
 
-  def save(self, directory: epath.Path, item: Mapping[str, Any]):
+  def save(
+      self,
+      directory: epath.Path,
+      item: Optional[Mapping[str, Any]] = None,
+      args: Optional['JsonSaveArgs'] = None,
+  ):
     """Saves the given item.
 
     Args:
       directory: save location directory.
-      item: nested dictionary.
+      item: Deprecated, use `args` instead.
+      args: JsonSaveArgs (see below).
     """
+    if args is not None:
+      item = args.item
     if jax.process_index() == 0:
       path = directory / self._filename
       path.write_text(json.dumps(item))
 
   def restore(
-      self, directory: epath.Path, item: Optional[bytes] = None
+      self,
+      directory: epath.Path,
+      item: Optional[Mapping[str, Any]] = None,
+      args: Optional['JsonRestoreArgs'] = None,
   ) -> bytes:
     """Restores json mapping from directory.
 
@@ -62,20 +73,18 @@ class JsonCheckpointHandler(checkpoint_handler.CheckpointHandler):
     Args:
       directory: restore location directory.
       item: unused
+      args: unused
 
     Returns:
       Binary data read from `directory`.
     """
     del item
+    del args
     path = directory / self._filename
     return json.loads(path.read_text())
 
-  def structure(self, directory: epath.Path) -> Any:
-    """Unimplemented. See parent class."""
-    return NotImplementedError
 
-
-@register_with_handler(JsonCheckpointHandler)
+@register_with_handler(JsonCheckpointHandler, for_save=True)
 @dataclasses.dataclass
 class JsonSaveArgs(CheckpointArgs):
   """Parameters for saving to json.
@@ -87,11 +96,13 @@ class JsonSaveArgs(CheckpointArgs):
   item: Mapping[str, Any]
 
 
-@register_with_handler(JsonCheckpointHandler)
+@register_with_handler(JsonCheckpointHandler, for_save=False)
 @dataclasses.dataclass
 class JsonRestoreArgs(CheckpointArgs):
   """Json restore args.
 
-  No attributes, but use this class to indicate that an item should be restored
-  from json.
+  Attributes:
+    item: unused, but included for legacy-compatibility reasons.
   """
+
+  item: Optional[bytes] = None

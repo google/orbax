@@ -106,16 +106,15 @@ class StandardCheckpointHandler(
       args: Optional['StandardSaveArgs'] = None,
   ) -> Optional[List[future.Future]]:  # pytype: disable=signature-mismatch
     """Saves a PyTree. See superclass documentation."""
-    if args:
-      state = args.state
+    if args is not None:
+      item = args.item
       save_args = args.save_args
-    else:
-      state = item
-    self._validate_save_state(state, save_args=save_args)
+
+    self._validate_save_state(item, save_args=save_args)
     return await super().async_save(
         directory,
         args=pytree_checkpoint_handler.PyTreeSaveArgs(
-            item=state, save_args=save_args
+            item=item, save_args=save_args
         ),
     )
 
@@ -130,13 +129,13 @@ class StandardCheckpointHandler(
     Example::
 
       ckptr = StandardCheckpointer()
-      state = {
+      item = {
           'layer0': {
               'w': jax.Array(...),
               'b': np.ndarray(...),
           },
       }
-      ckptr.save(dir, StandardSaveArgs(state))
+      ckptr.save(dir, StandardSaveArgs(item))
 
       target = {
           'layer0': {
@@ -148,26 +147,17 @@ class StandardCheckpointHandler(
 
     Args:
       directory: path from which to restore.
-      item: target PyTree. Currently non-optional. Values may be either real
-        array or scalar values, or they may be jax.ShapeDtypeStruct. If real
-        values are provided, that value will be restored as the given type, with
-        the given properties. If jax.ShapeDtypeStruct is provided, the value
-        will be restored as np.ndarray, unless `sharding` is specified. If
-        `state` is a custom PyTree class, the tree will be restored with the
-        same structure as provided. If not provided, restores as a serialized
-        nested dict representation of the custom class.
+      item: Deprecated, use `args`.
       args: `StandardRestoreArgs` (see below).
 
     Returns:
       a restored PyTree.
     """
-    if args:
-      state = args.state
-    else:
-      state = item
-    if state is not None:
-      self._validate_restore_state(state)
-      restore_args = checkpoint_utils.construct_restore_args(state)
+    if not args:
+      args = StandardRestoreArgs(item=item)
+    if args.item is not None:
+      self._validate_restore_state(args.item)
+      restore_args = checkpoint_utils.construct_restore_args(args.item)
     else:
       restore_args = checkpoint_utils.construct_restore_args(
           self.metadata(directory)
@@ -175,28 +165,28 @@ class StandardCheckpointHandler(
     return super().restore(
         directory,
         args=pytree_checkpoint_handler.PyTreeRestoreArgs(
-            item=state, restore_args=restore_args
+            item=args.item, restore_args=restore_args
         ),
     )
 
 
-@register_with_handler(StandardCheckpointHandler)
+@register_with_handler(StandardCheckpointHandler, for_save=True)
 @dataclasses.dataclass
 class StandardSaveArgs(CheckpointArgs):
   """Parameters for saving a standard PyTree.
 
   Attributes:
-    state (required): a PyTree to be saved.
-    save_args: a PyTree with the same structure of `state`, which consists of
+    item (required): a PyTree to be saved.
+    save_args: a PyTree with the same structure of `item`, which consists of
       `ocp.SaveArgs` objects as values. `None` can be used for values where no
       `SaveArgs` are specified.
   """
 
-  state: PyTree
+  item: PyTree
   save_args: Optional[PyTree] = None
 
 
-@register_with_handler(StandardCheckpointHandler)
+@register_with_handler(StandardCheckpointHandler, for_save=False)
 @dataclasses.dataclass
 class StandardRestoreArgs(CheckpointArgs):
   """Parameters for restoring a standard PyTree.
@@ -204,14 +194,14 @@ class StandardRestoreArgs(CheckpointArgs):
   If you require more flexibility, see `PyTreeRestore`.
 
   Attributes (all optional):
-    state: target PyTree. Currently non-optional. Values may be either real
+    item: target PyTree. Currently non-optional. Values may be either real
         array or scalar values, or they may be jax.ShapeDtypeStruct. If real
         values are provided, that value will be restored as the given type, with
         the given properties. If jax.ShapeDtypeStruct is provided, the value
         will be restored as np.ndarray, unless `sharding` is specified. If
-        `state` is a custom PyTree class, the tree will be restored with the
+        `item` is a custom PyTree class, the tree will be restored with the
         same structure as provided. If not provided, restores as a serialized
         nested dict representation of the custom class.
   """
 
-  state: Optional[PyTree] = None
+  item: Optional[PyTree] = None

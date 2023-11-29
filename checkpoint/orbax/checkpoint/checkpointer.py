@@ -21,22 +21,89 @@ from typing import Any, Optional
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint import abstract_checkpointer
+from orbax.checkpoint import checkpoint_args
+from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import utils
-from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
-from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 
 
-class Checkpointer(AbstractCheckpointer):
+class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
   """A synchronous implementation of AbstractCheckpointer.
 
   This class saves synchronously to a given directory using an underlying
-  CheckpointHandler. Atomicity of the operation is guaranteed.
+  `CheckpointHandler`. Atomicity of the operation is guaranteed.
+
+  IMPORTANT: Async checkpointing can often be faster for saving. Strongly
+  consider using `AsyncCheckpointer` instead.
+
+  IMPORTANT: Remember that to save and restore a checkpoint, one should always
+  use an `AbstractCheckpointer` coupled with a `CheckpointHandler`. The specific
+  `CheckpointHandler` to use depends on the object being saved or restored.
+
+  Basic example::
+
+    ckptr = Checkpointer(StandardCheckpointHandler())
+    args = ocp.args.StandardSave(state=pytree_of_arrays)
+    ckptr.save(path, args=args)
+    args = ocp.args.StandardRestore(state=abstract_pytree_target)
+    ckptr.restore(path, args=args)
+
+  Each handler includes `...SaveArgs` and `...RestoreArgs` classes that document
+  what arguments are expected. When using `Checkpointer`, you can either use
+  this dataclass directly, or you can provide the arguments in keyword form.
+
+  For example::
+
+    ckptr = Checkpointer(StandardCheckpointHandler())
+    ckptr.save(path, state=pytree_of_arays)
+    ckptr.restore(path, state=abstract_pytree_target)
   """
 
-  def __init__(self, handler: CheckpointHandler, primary_host: int = 0):
+  def __init__(
+      self, handler: checkpoint_handler.CheckpointHandler, primary_host: int = 0
+  ):
     self._handler = handler
     self._primary_host = primary_host
     jax.monitoring.record_event('/jax/orbax/checkpointer/init')
+
+  def _construct_checkpoint_args(
+      self, for_save: bool, *args, **kwargs
+  ) -> Optional[checkpoint_args.CheckpointArgs]:
+    for arg in args:
+      if isinstance(arg, checkpoint_args.CheckpointArgs):
+        return arg
+    for arg in kwargs.values():
+      if isinstance(arg, checkpoint_args.CheckpointArgs):
+        return arg
+
+    try:
+      save_arg_cls, restore_arg_cls = checkpoint_args.get_registered_args_cls(
+          self._handler
+      )
+    except ValueError:
+      return None
+
+    if for_save:
+      return save_arg_cls(*args, **kwargs)
+    else:
+      return restore_arg_cls(*args, **kwargs)
+
+  def _save_with_args(self, tmpdir: epath.Path, *args, **kwargs):
+    """Try to save using new CheckpointArgs API if supported by the handler."""
+    ckpt_args = self._construct_checkpoint_args(True, *args, **kwargs)
+    if ckpt_args:
+      self._handler.save(tmpdir, args=ckpt_args)
+    else:
+      self._handler.save(tmpdir, *args, **kwargs)
+
+  def _restore_with_args(self, directory: epath.Path, *args, **kwargs):
+    """Try to restore using new CheckpointArgs API if supported by the handler."""
+    ckpt_args = self._construct_checkpoint_args(False, *args, **kwargs)
+    if ckpt_args:
+      restored = self._handler.restore(directory, args=ckpt_args)
+    else:
+      restored = self._handler.restore(directory, *args, **kwargs)
+    return restored
 
   def save(self,
            directory: epath.PathLike,
@@ -75,8 +142,7 @@ class Checkpointer(AbstractCheckpointer):
     tmpdir = utils.create_tmp_directory(
         directory, primary_host=self._primary_host
     )
-
-    self._handler.save(tmpdir, *args, **kwargs)
+    self._save_with_args(tmpdir, *args, **kwargs)
     utils.sync_global_devices('Checkpointer:write')
 
     # Ensure save operation atomicity and record time saved by checkpoint.
@@ -96,7 +162,7 @@ class Checkpointer(AbstractCheckpointer):
     if not utils.is_checkpoint_finalized(directory):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
     logging.info('Restoring item from %s.', directory)
-    restored = self._handler.restore(directory, *args, **kwargs)
+    restored = self._restore_with_args(directory, *args, **kwargs)
     logging.info('Finished restoring checkpoint from %s.', directory)
     return restored
 

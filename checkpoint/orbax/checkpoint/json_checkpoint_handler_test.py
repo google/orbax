@@ -17,12 +17,16 @@ from absl import flags
 from absl.testing import absltest
 from etils import epath
 import jax
-from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
+from orbax.checkpoint import json_checkpoint_handler
 
 # Parse absl flags test_srcdir and test_tmpdir.
 jax.config.parse_flags_with_absl()
 
 FLAGS = flags.FLAGS
+
+JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
+JsonSaveArgs = json_checkpoint_handler.JsonSaveArgs
+JsonRestoreArgs = json_checkpoint_handler.JsonRestoreArgs
 
 
 class JsonCheckpointHandlerTest(absltest.TestCase):
@@ -35,14 +39,14 @@ class JsonCheckpointHandlerTest(absltest.TestCase):
   def test_save_restore(self):
     item = {'a': 1, 'b': {'c': 'test1', 'b': 'test2'}, 'd': 5.5}
     checkpointer = JsonCheckpointHandler()
-    checkpointer.save(self.directory, item)
+    checkpointer.save(self.directory, args=JsonSaveArgs(item))
     restored = checkpointer.restore(self.directory)
     self.assertEqual(item, restored)
 
   def test_save_restore_filename(self):
     item = {'a': 1, 'b': {'c': 'test1', 'b': 'test2'}, 'd': 5.5}
     checkpointer = JsonCheckpointHandler(filename='file')
-    checkpointer.save(self.directory, item)
+    checkpointer.save(self.directory, args=JsonSaveArgs(item))
     restored = checkpointer.restore(self.directory)
     self.assertEqual(item, restored)
     self.assertTrue((self.directory / 'file').exists())

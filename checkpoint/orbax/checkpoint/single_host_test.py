@@ -48,7 +48,10 @@ class SingleHostTest(parameterized.TestCase):
     key = jax.random.PRNGKey(0)
     x = jax.random.normal(key, (10,))
     assert isinstance(x.sharding, jax.sharding.SingleDeviceSharding)
-    handler.save(self.ckpt_dir, {'array_x': x})
+    handler.save(
+        self.ckpt_dir,
+        args=pytree_checkpoint_handler.PyTreeSaveArgs({'array_x': x}),
+    )
 
     restored_tree = handler.restore(self.ckpt_dir)
     np.testing.assert_array_equal(x, restored_tree['array_x'])

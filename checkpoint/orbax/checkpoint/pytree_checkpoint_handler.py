@@ -725,7 +725,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       self,
       directory: epath.Path,
       item: Optional[PyTree] = None,
-      save_args: Optional[PyTree] = None,
+      save_args: Optional['PyTreeSaveArgs'] = None,
       args: Optional['PyTreeSaveArgs'] = None,
   ) -> Optional[List[future.Future]]:
     """Saves a PyTree to a given directory.
@@ -767,18 +767,21 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     Args:
       directory: save location directory.
-      item: a PyTree to be saved.
-      save_args: a PyTree matching `item` which consists of SaveArgs objects as
-        values.
+      item: Deprecated, use `args.
+      save_args: Deprecated, use `args`.
       args: `PyTreeSaveArgs` (see below).
 
     Returns:
       A Future that will commit the data to `directory` when awaited. Copying
       the data from its source will be awaited in this function.
     """
-    if args is not None:
-      item = args.item
-      save_args = args.save_args
+    if args is None:
+      args = PyTreeSaveArgs(
+          item=item,
+          save_args=save_args,
+      )
+    item = args.item
+    save_args = args.save_args
     # Because of empty states, the user-provided args may not contain
     # all necessary arguments. These should be filled in with default args.
     save_args = jax.tree_util.tree_map(
@@ -979,29 +982,11 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     Args:
       directory: saved checkpoint location directory.
-      item: provides the tree structure for the restored item. If not provided,
-        will infer the structure from the saved checkpoint. Transformations will
-        not be run in this case. Necessary particularly in the case where the
-        caller needs to restore the tree as a custom object.
-      restore_args: optional object containing additional arguments for
-        restoration. It should be a PyTree matching the structure of `item`, or
-        if `item` is not provided, then it should match the structure of the
-        checkpoint. Each value in the tree should be a `RestoreArgs` object (OR
-        a subclass of `RestoreArgs`). Importantly, note that when restoring a
-        leaf as a certain type, a specific subclass of `RestoreArgs` may be
-        required. `RestoreArgs` also provides the option to customize the
-        restore type of an individual leaf.
-      transforms: a PyTree of transformations that should be applied to the
-        saved tree in order to obtain a final structure. The `transforms` tree
-        structure should conceptually match that of `item`, but the use of
-        regexes and implicit keys means that it does not need to match
-        completely. See `transform_utils` for further information.
+      item: Deprecated, use `args`.
+      restore_args: Deprecated, use `args`.
+      transforms: Deprecated, use `args`.
       transforms_default_to_original: See transform_utils.apply_transformations.
-      legacy_transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which
-        accepts the `item` argument, a PyTree checkpoint structure and a PyTree
-        of ParamInfos based on the checkpoint. Returns a transformed PyTree
-        matching the desired return tree structure, and a matching ParamInfo
-        tree.
+      legacy_transform_fn: Deprecated, use `args`.
       args: `PyTreeRestoreArgs` (see below).
 
     Returns:
@@ -1012,11 +997,21 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       ValueError: `transforms` is provided without `item`.
       ValueError: `transforms` contains elements with `multi_value_fn`.
     """
-    logging.debug('directory=%s, restore_args=%s', directory, restore_args)
+    if args is None:
+      args = PyTreeRestoreArgs(
+          item,
+          restore_args,
+          transforms,
+          transforms_default_to_original,
+          legacy_transform_fn,
+      )
+    item = args.item
+    restore_args = args.restore_args
+    transforms = args.transforms
+    transforms_default_to_original = args.transforms_default_to_original
+    legacy_transform_fn = args.legacy_transform_fn
 
-    if args is not None:
-      item = args.item
-      restore_args = args.restore_args
+    logging.debug('directory=%s, restore_args=%s', directory, restore_args)
     if not directory.exists():
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
@@ -1376,7 +1371,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._aggregate_handler.close()
 
 
-@register_with_handler(PyTreeCheckpointHandler)
+@register_with_handler(PyTreeCheckpointHandler, for_save=True)
 @dataclasses.dataclass
 class PyTreeSaveArgs(CheckpointArgs):
   """Parameters for saving a PyTree.
@@ -1392,7 +1387,7 @@ class PyTreeSaveArgs(CheckpointArgs):
   save_args: Optional[PyTree] = None
 
 
-@register_with_handler(PyTreeCheckpointHandler)
+@register_with_handler(PyTreeCheckpointHandler, for_save=False)
 @dataclasses.dataclass
 class PyTreeRestoreArgs(CheckpointArgs):
   """Parameters for restoring a PyTree.
@@ -1410,7 +1405,21 @@ class PyTreeRestoreArgs(CheckpointArgs):
       leaf as a certain type, a specific subclass of `RestoreArgs` may be
       required. `RestoreArgs` also provides the option to customize the
       restore type of an individual leaf.
+    transforms: a PyTree of transformations that should be applied to the
+      saved tree in order to obtain a final structure. The `transforms` tree
+      structure should conceptually match that of `item`, but the use of
+      regexes and implicit keys means that it does not need to match
+      completely. See `transform_utils` for further information.
+    transforms_default_to_original: See transform_utils.apply_transformations.
+    legacy_transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which
+      accepts the `item` argument, a PyTree checkpoint structure and a PyTree
+      of ParamInfos based on the checkpoint. Returns a transformed PyTree
+      matching the desired return tree structure, and a matching ParamInfo
+      tree.
   """
 
   item: Optional[PyTree] = None
   restore_args: Optional[PyTree] = None
+  transforms: Optional[PyTree] = None
+  transforms_default_to_original: bool = True
+  legacy_transform_fn: Optional[LegacyTransformFn] = None

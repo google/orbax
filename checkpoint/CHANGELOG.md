@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Support for `CheckpointArgs` in core `CheckpointHandler` implementations. Allowed specifying either `CheckpointArgs` or keyword args in `Checkpointer`.
+
 ### Changed
 - Use `json` directly instead of `JsonCheckpointHandler` to write and read
 `PyTreeCheckpointHandler`'s metadata.

@@ -16,6 +16,7 @@
 import dataclasses
 from absl.testing import absltest
 from orbax.checkpoint import checkpoint_args
+from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import standard_checkpoint_handler
 
 StandardCheckpointHandler = (
@@ -23,7 +24,7 @@ StandardCheckpointHandler = (
 )
 
 
-@checkpoint_args.register_with_handler(StandardCheckpointHandler)
+@checkpoint_args.register_with_handler(StandardCheckpointHandler, for_save=True)
 @dataclasses.dataclass
 class StandardSaveArgs(checkpoint_args.CheckpointArgs):
   pass
@@ -46,8 +47,11 @@ class CheckpointArgsTest(absltest.TestCase):
     class StandardRestoreArgs(checkpoint_args.CheckpointArgs):
       pass
 
-    checkpoint_args.register_with_handler(StandardCheckpointHandler)(
-        StandardRestoreArgs
+    checkpoint_args.register_with_handler(
+        StandardCheckpointHandler,
+        for_save=False,
+    )(
+        StandardRestoreArgs,
     )
 
     self.assertIs(
@@ -65,9 +69,44 @@ class CheckpointArgsTest(absltest.TestCase):
       pass
 
     with self.assertRaisesRegex(TypeError, 'must subclass'):
-      checkpoint_args.register_with_handler(StandardCheckpointHandler)(
-          MyInvalidArgs
+      checkpoint_args.register_with_handler(
+          StandardCheckpointHandler, for_save=True
+      )(
+          MyInvalidArgs,
       )
+
+  def test_get_registered_args_cls(self):
+    class MyCheckpointHandler(checkpoint_handler.CheckpointHandler):
+
+      def save(self, *args, **kwargs):
+        pass
+
+      def restore(self, *args, **kwargs):
+        pass
+
+    @checkpoint_args.register_with_handler(MyCheckpointHandler, for_save=True)
+    @dataclasses.dataclass
+    class MySaveArgs(checkpoint_args.CheckpointArgs):
+      pass
+
+    with self.assertRaises(ValueError):
+      checkpoint_args.get_registered_args_cls(MyCheckpointHandler)
+
+    @checkpoint_args.register_with_handler(MyCheckpointHandler, for_save=False)
+    @dataclasses.dataclass
+    class MyRestoreArgs(checkpoint_args.CheckpointArgs):
+      pass
+
+    save_args, restore_args = checkpoint_args.get_registered_args_cls(
+        MyCheckpointHandler
+    )
+    self.assertIs(save_args, MySaveArgs)
+    self.assertIs(restore_args, MyRestoreArgs)
+    save_args, restore_args = checkpoint_args.get_registered_args_cls(
+        MyCheckpointHandler()
+    )
+    self.assertIs(save_args, MySaveArgs)
+    self.assertIs(restore_args, MyRestoreArgs)
 
 
 if __name__ == '__main__':

@@ -58,19 +58,25 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   async def async_save(
       self,
       directory: epath.Path,
-      item: ArrayType,
+      item: Optional[ArrayType] = None,
       save_args: Optional[type_handlers.SaveArgs] = None,
+      args: Optional['ArraySaveArgs'] = None,
   ) -> Optional[List[future.Future]]:
     """Saves an object asynchronously.
 
     Args:
       directory: Folder in which to save.
-      item: An array or scalar object.
-      save_args: A single SaveArgs object specifying save information.
+      item: Deprecated, use `args`.
+      save_args: Deprecated, use `args`.
+      args: An ocp.array_checkpoint_handler.ArraySaveArgs (see below).
 
     Returns:
       A list of commit futures which can be run to complete the save.
     """
+    if args is not None:
+      item = args.item
+      save_args = args.save_args
+
     if not self._is_supported_type(item):
       raise TypeError(f'Unsupported type: {type(item)}.')
 
@@ -92,28 +98,17 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     futures = await type_handler.serialize([item], [info], args=[save_args])
     return list(futures)
 
-  def save(self, directory: epath.Path, item: ArrayType, *args, **kwargs):
-    """Saves the provided item.
+  def save(self, directory: epath.Path, *args, **kwargs):
+    """Saves an array synchronously."""
 
-    Blocks until both copy and commit complete.
-
-    See async_save.
-
-    Args:
-      directory: the directory to save to.
-      item: the item to be saved.
-      *args: additional arguments for save.
-      **kwargs: additional arguments for save.
-    """
-
-    async def async_save(*args, **kwargs):
-      commit_futures = await self.async_save(*args, **kwargs)  # pytype: disable=bad-return-type
+    async def async_save():
+      commit_futures = await self.async_save(directory, *args, **kwargs)  # pytype: disable=bad-return-type
       # Futures are already running, so sequential waiting is equivalent to
       # concurrent waiting.
       for f in commit_futures:
         f.result()  # Block on result.
 
-    asyncio.run(async_save(directory, item, *args, **kwargs))
+    asyncio.run(async_save())
     utils.sync_global_devices('ArrayCheckpointHandler:save')
 
   def restore(
@@ -121,22 +116,23 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       directory: epath.Path,
       item: Optional[ArrayType] = None,
       restore_args: Optional[type_handlers.RestoreArgs] = None,
+      args: Optional['ArrayRestoreArgs'] = None,
   ) -> ArrayType:
     """Restores an object.
 
     Args:
       directory: folder from which to read.
-      item: unused.
-      restore_args: a single RestoreArgs object specifying relevant information.
-        Must specify restore_type to indicate the desired restoration type. If
-        the restore_type is jax.Array, RestoreArgs should be ArrayRestoreArgs.
+      item: Deprecated, use `args`.
+      restore_args: Deprecated, use `args`.
+      args: An ocp.array_checkpoint_handler.ArrayRestoreArgs object (see below).
 
     Returns:
       The restored object.
     """
-    del item
-    if restore_args is None:
-      restore_args = type_handlers.RestoreArgs()
+    if args is None:
+      args = ArrayRestoreArgs(item=item, restore_args=restore_args)
+
+    restore_args = args.restore_args or type_handlers.RestoreArgs()
 
     checkpoint_path = directory / self._checkpoint_name
     if checkpoint_path.exists() and checkpoint_path.is_file():
@@ -181,7 +177,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._aggregate_handler.close()
 
 
-@register_with_handler(ArrayCheckpointHandler)
+@register_with_handler(ArrayCheckpointHandler, for_save=True)
 @dataclasses.dataclass
 class ArraySaveArgs(CheckpointArgs):
   """Parameters for saving an array or scalar.
@@ -192,13 +188,18 @@ class ArraySaveArgs(CheckpointArgs):
   """
 
   item: ArrayType
+  save_args: Optional[type_handlers.SaveArgs] = None
 
 
-@register_with_handler(ArrayCheckpointHandler)
+@register_with_handler(ArrayCheckpointHandler, for_save=False)
 @dataclasses.dataclass
 class ArrayRestoreArgs(CheckpointArgs):
   """Array restore args.
 
-  No attributes, but use this class to indicate that an array or scalar should
-  be restored.
+  Attributes:
+    item: unused, but provided as an option for legacy-compatibility reasons.
+    restore_args: a `ocp.RestoreArgs` object specifying restore options.
   """
+
+  item: Optional[ArrayType] = None
+  restore_args: Optional[type_handlers.RestoreArgs] = None

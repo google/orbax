@@ -21,7 +21,7 @@ import asyncio
 from concurrent import futures
 import dataclasses
 import functools
-from typing import Any, List, Optional, Type
+from typing import List, Optional, Type
 
 from etils import epath
 from google.protobuf import message
@@ -49,17 +49,23 @@ class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._executor = futures.ThreadPoolExecutor(max_workers=1)
 
   async def async_save(
-      self, directory: epath.Path, item: message.Message
+      self,
+      directory: epath.Path,
+      item: Optional[message.Message] = None,
+      args: Optional["ProtoSaveArgs"] = None,
   ) -> Optional[List[future.Future]]:
     """Saves the given proto.
 
     Args:
       directory: save location directory.
-      item: the proto to serialize.
+      item: Deprecated, use `args`.
+      args: ProtoSaveArgs (see below).
 
     Returns:
       A commit future.
     """
+    if args is not None:
+      item = args.item
 
     def _save_fn(x):
       if jax.process_index() == 0:
@@ -69,46 +75,48 @@ class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     return [self._executor.submit(functools.partial(_save_fn, item))]
 
-  def save(self, directory: epath.Path, item: message.Message):
+  def save(self, *args, **kwargs):
     """Saves the provided item."""
 
-    async def async_save(directory, item):
-      commit_futures = await self.async_save(directory, item)
+    async def async_save():
+      commit_futures = await self.async_save(*args, **kwargs)
       if commit_futures:
         for f in commit_futures:
           f.result()
 
-    asyncio.run(async_save(directory, item))
+    asyncio.run(async_save())
 
   def restore(
-      self, directory: epath.Path, item: Optional[Type[message.Message]] = None
+      self,
+      directory: epath.Path,
+      item: Optional[Type[message.Message]] = None,
+      args: Optional["ProtoRestoreArgs"] = None,
   ):
     """Restores the proto from directory.
 
     Args:
       directory: restore location directory.
-      item: the proto class
+      item: Deprecated, use `args`.
+      args: ProtoRestoreArgs (see below).
 
     Returns:
       The deserialized proto read from `directory` if item is not None
     """
-    if item is None:
+    if not args and not item:
       raise ValueError(
           "Must provide `item` in order to deserialize proto to the correct"
           " type."
       )
+    if args:
+      item = args.item
     path = directory / self._filename
     return text_format.Parse(path.read_text(), item())
-
-  def structure(self, directory: epath.Path) -> Any:
-    """Unimplemented. See parent class."""
-    return NotImplementedError
 
   def close(self):
     self._executor.shutdown()
 
 
-@register_with_handler(ProtoCheckpointHandler)
+@register_with_handler(ProtoCheckpointHandler, for_save=True)
 @dataclasses.dataclass
 class ProtoSaveArgs(CheckpointArgs):
   """Parameters for saving a proto.
@@ -120,7 +128,7 @@ class ProtoSaveArgs(CheckpointArgs):
   item: message.Message
 
 
-@register_with_handler(ProtoCheckpointHandler)
+@register_with_handler(ProtoCheckpointHandler, for_save=False)
 @dataclasses.dataclass
 class ProtoRestoreArgs(CheckpointArgs):
   """Proto restore args.

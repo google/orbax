@@ -209,6 +209,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
 
   Like its parent, AsyncCheckpointer also makes use of an underlying
   CheckpointHandler to deal with type-specific logic.
+
+  Please see `Checkpointer` documentation for more generic usage instructions.
   """
 
   def __init__(
@@ -273,8 +275,15 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
 
     # Run copy ops.
-    commit_ops = asyncio.run(
-        self._handler.async_save(tmpdir, *args, **kwargs))
+    # Try to save using new CheckpointArgs API if supported by the handler.
+    ckpt_args = self._construct_checkpoint_args(True, *args, **kwargs)
+    if ckpt_args:
+      commit_ops = asyncio.run(self._handler.async_save(tmpdir, args=ckpt_args))
+    else:
+      commit_ops = asyncio.run(
+          self._handler.async_save(tmpdir, *args, **kwargs)
+      )
+
     commit_ops, _ = jax.tree_util.tree_flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
 

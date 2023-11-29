@@ -16,7 +16,7 @@
 
 import dataclasses
 import inspect
-from typing import Type, Union
+from typing import Tuple, Type, Union
 from orbax.checkpoint import checkpoint_handler
 
 CheckpointHandler = checkpoint_handler.CheckpointHandler
@@ -35,13 +35,13 @@ class CheckpointArgs:
   ```
   import ocp.checkpoint as ocp
 
-  @ocp.args.register_with_handler(MyCheckpointHandler)
+  @ocp.args.register_with_handler(MyCheckpointHandler, for_save=True)
   @dataclasses.dataclass
   class MyCheckpointSave(ocp.args.CheckpointArgs):
     item: Any
     options: Any
 
-  @ocp.args.register_with_handler(MyCheckpointHandler)
+  @ocp.args.register_with_handler(MyCheckpointHandler, for_save=False)
   @dataclasses.dataclass
   class MyCheckpointRestore(ocp.args.CheckpointArgs):
     options: Any
@@ -64,10 +64,16 @@ class CheckpointArgs:
 
   pass
 
-_CHECKPOINT_ARG_TO_HANDLER = {}
+_SAVE_ARG_TO_HANDLER: dict[Type[CheckpointArgs], Type[CheckpointHandler]] = {}
+
+_RESTORE_ARG_TO_HANDLER: dict[Type[CheckpointArgs], Type[CheckpointHandler]] = (
+    {}
+)
 
 
-def register_with_handler(handler_cls: Type[CheckpointHandler]):
+def register_with_handler(
+    handler_cls: Type[CheckpointHandler], *, for_save: bool
+):
   """Registers a CheckpointArg subclass with a specific handler.
 
   This registration is necessary so that when the user passes uses this
@@ -76,6 +82,8 @@ def register_with_handler(handler_cls: Type[CheckpointHandler]):
 
   Args:
     handler_cls: `CheckpointHandler` to be associated with this `CheckpointArg`.
+    for_save: indicates whether the `CheckpointArg` is registered as a save
+      argument or restore argument
 
   Returns:
     Decorator.
@@ -86,7 +94,10 @@ def register_with_handler(handler_cls: Type[CheckpointHandler]):
       raise TypeError(
           f'{cls} must subclass `CheckpointArgs` in order to be registered.'
       )
-    _CHECKPOINT_ARG_TO_HANDLER[cls] = handler_cls
+    if for_save:
+      _SAVE_ARG_TO_HANDLER[cls] = handler_cls
+    else:
+      _RESTORE_ARG_TO_HANDLER[cls] = handler_cls
     return cls
 
   return decorator
@@ -94,8 +105,45 @@ def register_with_handler(handler_cls: Type[CheckpointHandler]):
 
 def get_registered_handler_cls(
     arg: Union[Type[CheckpointArgs], CheckpointArgs]
-) -> Type[CheckpointArgs]:
+) -> Type[CheckpointHandler]:
   """Returns the registered CheckpointHandler."""
-  if inspect.isclass(arg):
-    return _CHECKPOINT_ARG_TO_HANDLER[arg]
-  return _CHECKPOINT_ARG_TO_HANDLER[type(arg)]
+  if not inspect.isclass(arg):
+    arg = type(arg)
+  if arg in _SAVE_ARG_TO_HANDLER:
+    return _SAVE_ARG_TO_HANDLER[arg]
+  else:
+    return _RESTORE_ARG_TO_HANDLER[arg]
+
+
+def get_registered_args_cls(
+    handler: Union[Type[CheckpointHandler], CheckpointHandler]
+) -> Tuple[Type[CheckpointArgs], Type[CheckpointArgs]]:
+  """Returns the registered CheckpointArgs corresponding to the handler.
+
+  Args:
+    handler: `CheckpointHandler` instance or class.
+
+  Returns:
+    Tuple of (save, restore) `CheckpointArgs` classes.
+  """
+  save_args = None
+  restore_args = None
+  if not inspect.isclass(handler):
+    handler = type(handler)
+  for arg_cls, handler_cls in _SAVE_ARG_TO_HANDLER.items():
+    if handler_cls == handler:
+      save_args = arg_cls
+      break
+  if save_args is None:
+    raise ValueError(
+        f'Unable to find registered `CheckpointArgs` for save for {handler}.'
+    )
+  for arg_cls, handler_cls in _RESTORE_ARG_TO_HANDLER.items():
+    if handler_cls == handler:
+      restore_args = arg_cls
+      break
+  if restore_args is None:
+    raise ValueError(
+        f'Unable to find registered `CheckpointArgs` for restore for {handler}.'
+    )
+  return save_args, restore_args
