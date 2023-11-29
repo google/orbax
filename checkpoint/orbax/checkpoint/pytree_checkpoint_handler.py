@@ -635,7 +635,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       aggregate_filename: Optional[str] = None,
       concurrent_gb: int = 96,
       use_ocdbt: bool = True,
-      ocdbt_merge: bool = False,
+      ocdbt_merge: bool = True,
       restore_with_serialized_types: bool = True,
       write_tree_metadata: bool = True,
   ):

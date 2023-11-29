@@ -19,7 +19,19 @@ from absl.testing import parameterized
 from etils import epath
 import jax
 import numpy as np
-import orbax.checkpoint as ocp
+from orbax.checkpoint import pytree_checkpoint_handler
+from orbax.checkpoint import utils
+
+
+class PyTreeCheckpointHandler(
+    pytree_checkpoint_handler.PyTreeCheckpointHandler
+):
+
+  def save(self, directory, *args, **kwargs):
+    super().save(directory, *args, **kwargs)
+    if jax.process_index() == 0:
+      self.finalize(directory)
+    utils.sync_global_devices('PyTreeCheckpointHandler:finalize')
 
 
 class SingleHostTest(parameterized.TestCase):
@@ -32,9 +44,7 @@ class SingleHostTest(parameterized.TestCase):
   def test_save_and_restore_a_single_device_sharded_jax_array(
       self, write_tree_metadata
   ):
-    handler = ocp.PyTreeCheckpointHandler(
-        write_tree_metadata=write_tree_metadata
-    )
+    handler = PyTreeCheckpointHandler(write_tree_metadata=write_tree_metadata)
     key = jax.random.PRNGKey(0)
     x = jax.random.normal(key, (10,))
     assert isinstance(x.sharding, jax.sharding.SingleDeviceSharding)
