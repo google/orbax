@@ -648,8 +648,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         reduce the possibility of OOM's when large checkpoints are restored.
       use_ocdbt: enables Tensorstore OCDBT driver. This option allows using a
         different checkpoint format which is faster to read and write, as well
-        as more space efficient. Currently, it is not yet enabled as the default
-        option.
+        as more space efficient.
       ocdbt_merge: If True, forgoes the use of the coordinator server and uses a
         merge / finalize step during OCDBT save.
       restore_with_serialized_types: If True, the values with unspecified
