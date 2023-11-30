@@ -141,7 +141,10 @@ class CheckpointManagerOptions:
     deleted from the file system. Useful if checkpoint deletion is time
     consuming. By default, delete the checkpoint assets. Ignored if file system
     is Google Cloud Storage (directory is prefixed with gs://)
+  read_only: If True, then checkpoints save and delete are skipped. However,
+    checkpoints restore works as usual.
   """
+
   save_interval_steps: int = 1
   max_to_keep: Optional[int] = None
   keep_time_interval: Optional[datetime.timedelta] = None
@@ -156,15 +159,55 @@ class CheckpointManagerOptions:
   save_on_steps: Optional[Container[int]] = None
   single_host_load_and_broadcast: bool = False
   todelete_subdir: Optional[str] = None
+  read_only: bool = False
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
-      msg = ("`CheckpointManagerOptions.best_mode` must be one of None, 'min' "
-             "or 'max'. Got {self.dtype}.")
+      msg = (
+          "`CheckpointManagerOptions.best_mode` must be one of None, 'min' "
+          "or 'max'. Got {self.dtype}."
+      )
       raise ValueError(msg)
-    self.save_on_steps = frozenset(self.save_on_steps or ())
     if self.max_to_keep is not None and self.max_to_keep < 0:
       raise ValueError('Setting of `max_to_keep` must be None or non-negative.')
+    if self.read_only and self.save_interval_steps > 0:
+      raise ValueError(
+          'CheckpointManagerOptions.save_interval_steps must be 0 as'
+          ' read_only=True.'
+      )
+    if self.read_only and self.max_to_keep is not None:
+      raise ValueError(
+          'CheckpointManagerOptions.max_to_keep must be None as read_only=True.'
+      )
+    if self.read_only and self.keep_time_interval is not None:
+      raise ValueError(
+          'CheckpointManagerOptions.keep_time_interval must be None as'
+          ' read_only=True.'
+      )
+    if self.read_only and self.keep_period is not None:
+      raise ValueError(
+          'CheckpointManagerOptions.keep_period must be None as read_only=True.'
+      )
+    if self.read_only and self.create:
+      raise ValueError(
+          'CheckpointManagerOptions.create must be False as read_only=True.'
+      )
+    if self.read_only and self.cleanup_tmp_directories:
+      raise ValueError(
+          'CheckpointManagerOptions.cleanup_tmp_directories must be False as'
+          ' read_only=True.'
+      )
+    if self.read_only and self.save_on_steps is not None:
+      raise ValueError(
+          'CheckpointManagerOptions.save_on_steps must be None as'
+          ' read_only=True.'
+      )
+    if self.read_only and self.todelete_subdir is not None:
+      raise ValueError(
+          'CheckpointManagerOptions.todelete_subdir must be None as'
+          ' read_only=True.'
+      )
+    self.save_on_steps = frozenset(self.save_on_steps or ())
 
 
 @dataclasses.dataclass
@@ -223,8 +266,14 @@ class CheckpointManager(AbstractCheckpointManager):
         details.
      options: CheckpointManagerOptions. May be provided to specify additional
        arguments. If None, uses default values of CheckpointManagerOptions.
-     metadata: High-level metadata that does not depend on step number, and only
-       needs to be saved once.
+     metadata: High-level metadata that does not depend on step number. If
+       `directory` is write enabled then given metadata is saved only once. A
+       new CheckpointManager instance with that `directory` does not overwrite
+       the existing metadata and ignores the current given metadata. If
+       `directory` is read-only then the current given metadata is not saved as
+       expected. A CheckpointManager instance with a read-only `directory`
+       uses the metadata if already present, otherwise always uses the current
+       given metadata.
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
     self._single_item = False
@@ -251,6 +300,8 @@ class CheckpointManager(AbstractCheckpointManager):
       )
 
     self._directory = epath.Path(directory)
+    if self._options.read_only:
+      logging.warning('Given directory is read only=%s', self._directory)
     if self._options.create:
       if jax.process_index() == 0 and not self._directory.exists():
         self._directory.mkdir(parents=True)
@@ -268,8 +319,11 @@ class CheckpointManager(AbstractCheckpointManager):
     else:
       self._last_checkpoint = None
 
-    self._metadata = None
-    if metadata is not None:
+    if self._options.read_only and not self._metadata_path().exists():
+      self._metadata = {} if metadata is None else metadata
+    else:
+      self._metadata = None
+    if metadata is not None and not self._options.read_only:
       self._save_metadata(metadata)
 
     self._finalize_thread = None
@@ -324,6 +378,9 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def should_save(self, step: int) -> bool:
     """See superclass documentation."""
+    if self._options.read_only:
+      logging.warning('%s is read only, save will be skipped', self.directory)
+      return False
     if self.reached_preemption(step):
       return True
     last_checkpoint_step = (
@@ -362,6 +419,9 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def delete(self, step: int):
     """See superclass documentation."""
+    if self._options.read_only:
+      logging.warning('%s is read only, delete will be skipped', self.directory)
+      return
     if step not in self.all_steps():
       raise ValueError(f'Requested deleting a non-existent step: {step}.')
     self._delete_directory(step)
@@ -589,9 +649,12 @@ class CheckpointManager(AbstractCheckpointManager):
     if not self._interval_preserved_checkpoints:
       self._interval_preserved_checkpoints.append(self._checkpoints[-1])
 
+  def _metadata_path(self) -> epath.Path:
+    return self.directory / METADATA_ITEM_NAME
+
   def _save_metadata(self, metadata: Mapping[str, Any]):
     """Saves CheckpointManager level metadata, skips if already present."""
-    path = self.directory / METADATA_ITEM_NAME
+    path = self._metadata_path()
     if not path.exists():  # May have been created by a previous run.
       checkpointer = Checkpointer(JsonCheckpointHandler())
       checkpointer.save(path, metadata)
@@ -599,7 +662,7 @@ class CheckpointManager(AbstractCheckpointManager):
   def metadata(self) -> Mapping[str, Any]:
     """See superclass documentation."""
     if self._metadata is None:
-      path = self.directory / METADATA_ITEM_NAME
+      path = self._metadata_path()
       if path.exists():
         checkpointer = Checkpointer(JsonCheckpointHandler())
         self._metadata = checkpointer.restore(path)

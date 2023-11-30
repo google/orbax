@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Support for `CheckpointArgs` in core `CheckpointHandler` implementations. Allowed specifying either `CheckpointArgs` or keyword args in `Checkpointer`.
+- Introduce CheckpointManagerOptions.read_only to control save/delete behaviors.
 
 ### Changed
 - Use `json` directly instead of `JsonCheckpointHandler` to write and read
@@ -23,7 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `name` and `directory` properties in value `Metadata`.
 - Introduce AbstractCheckpointManager protocol for the already existing
  CheckpointManager concrete class.
-
 
 ### Changed
 - Turn on self-describing PyTree checkpoints by default.
