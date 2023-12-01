@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2023-11-29
+
+### Fixed
+- Bug where errors in the background thread of `AsyncCheckpointer` would not be
+raised in `CheckpointManager`, causing later errors when trying to remove non-
+existent checkpoints.
+
 ### Added
-- Support for `CheckpointArgs` in core `CheckpointHandler` implementations. Allowed specifying either `CheckpointArgs` or keyword args in `Checkpointer`.
+- Support for `CheckpointArgs` in core `CheckpointHandler` implementations. 
+Allowed specifying either `CheckpointArgs` or keyword args in `Checkpointer`.
 - Introduce CheckpointManagerOptions.read_only to control save/delete behaviors.
 
 ### Changed

@@ -69,6 +69,25 @@ def _descriptor_file_exists(descriptor_item_path: epath.Path) -> bool:
   )
 
 
+class _FinalizeThread(threading.Thread):
+  """Thread wrapper that raises an exception if encountered."""
+
+  exception = None
+
+  def run(self):
+    try:
+      super().run()
+    except BaseException as e:  # pylint:disable=broad-exception-caught
+      self.exception = e
+
+  def join(self, *args, **kwargs):
+    super().join(*args, **kwargs)
+    if self.exception:
+      exception = self.exception
+      self.exception = None
+      raise exception
+
+
 # TODO(b/268051457) Clean up when no longer depended upon by internal users.
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
   return isinstance(checkpointer, AsyncCheckpointer) or isinstance(
@@ -383,8 +402,8 @@ class CheckpointManager(AbstractCheckpointManager):
       return False
     if self.reached_preemption(step):
       return True
-    last_checkpoint_step = (
-        self._last_checkpoint.step if self._last_checkpoint else None)
+    last_checkpoint = self._last_checkpoint
+    last_checkpoint_step = last_checkpoint.step if last_checkpoint else None
     # Ensure current step is between the last step and next step (accounting for
     # save interval). The `last_checkpoint_step` may not be initialized, in
     # which case we should save. Otherwise, step must fall on the specified
@@ -438,14 +457,14 @@ class CheckpointManager(AbstractCheckpointManager):
            metrics: Optional[PyTree] = None,
            force: Optional[bool] = False) -> bool:
     """See superclass documentation."""
+    # Wait for ongoing saves to complete. Only applicable if some of the
+    # checkpointers are AsyncCheckpointers.
+    self.wait_until_finished()
+
     if not force and not self.should_save(step):
       return False
     if self.reached_preemption(step):
       logging.info('Saving checkpoint at step %d due to preemption.', step)
-
-    # Wait for ongoing saves to complete. Only applicable if some of the
-    # checkpointers are AsyncCheckpointers.
-    self.wait_until_finished()
 
     if step in self.all_steps():
       raise ValueError(f'Checkpoint for step {step} already exists.')
@@ -505,10 +524,9 @@ class CheckpointManager(AbstractCheckpointManager):
       self._finalize(tmp_step_dir)
       utils.sync_global_devices('CheckpointManager:finalize')
     else:
-      self._finalize_thread = threading.Thread(
-          target=self._finalize, args=(tmp_step_dir,)
-      )
-      self._finalize_thread.start()
+      t = _FinalizeThread(target=self._finalize, args=(tmp_step_dir,))
+      t.start()
+      self._finalize_thread = t
     return True
 
   def restore(
@@ -821,15 +839,35 @@ class CheckpointManager(AbstractCheckpointManager):
     else:
       self._checkpoints = kept_checkpoints
 
+  def _remove_old_steps(self):
+    for step in self._steps_to_remove:
+      self._delete_directory(step)
+    self._checkpoints = [
+        info
+        for info in self._checkpoints
+        if info.step not in self._steps_to_remove
+    ]
+
   def wait_until_finished(self, join_finalize_thread=True):
     """See superclass documentation."""
     for checkpointer in self._checkpointers.values():
       if is_async_checkpointer(checkpointer):
         checkpointer.wait_until_finished()  # pytype: disable=attribute-error
     if join_finalize_thread:
-      if self._finalize_thread is not None:
-        self._finalize_thread.join()
+      t = self._finalize_thread
+      if t is not None:
         self._finalize_thread = None
+        try:
+          t.join()
+        except BaseException as e:  # pylint:disable=broad-exception-caught
+          # If an exception occurred in the in finalization of the previous
+          # save, we clean up since that checkpoint was never actually saved.
+          self._last_checkpoint = (
+              self._checkpoints[-2] if len(self._checkpoints) > 1 else None
+          )
+          self._interval_preserved_checkpoints.remove(self._checkpoints[-1])
+          self._checkpoints = self._checkpoints[:-1]
+          raise e
         # Additional work is being done on process 0 of the finalize threads.
         # When joining the threads, we must wait for all threads to complete
         # before proceeding.
@@ -889,11 +927,11 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def _finalize(self, temp_ckpt_dir: epath.Path):
     """Cleans up old checkpoints and synchronizes hosts."""
-    if not self._all_checkpointers_are_sync:
-      self.wait_until_finished(join_finalize_thread=False)
+    self.wait_until_finished(join_finalize_thread=False)
+    # If an error is encountered while waiting for commit futures to complete,
+    # we will not proceed past this point.
     final_ckpt_dir = self._finalize_checkpoint(temp_ckpt_dir)
-    for step in self._steps_to_remove:
-      self._delete_directory(step)
+    self._remove_old_steps()
 
   def close(self):
     """See superclass documentation."""
