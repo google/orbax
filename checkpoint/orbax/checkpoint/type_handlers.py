@@ -73,6 +73,9 @@ _DEFAULT_DRIVER = 'file'
 _PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
 _OCDBT_PROCESS_ID_RE = r'[A-Za-z0-9]+'
 
+ZARR_VER2 = 'zarr'
+ZARR_VER3 = 'zarr3'
+
 
 class ShardingTypes(enum.Enum):
   NAMED_SHARDING = 'NamedSharding'
@@ -231,11 +234,9 @@ def start_coordinator_server_and_create_context() -> None:
 
     if jax_global_state.process_id == 0:
       bind_address = f'{ocdbt_address}:0'
-      _OCDBT_COORDINATOR_SERVER = ts.ocdbt.DistributedCoordinatorServer(
-          {
-              'bind_addresses': [bind_address],
-          }
-      )
+      _OCDBT_COORDINATOR_SERVER = ts.ocdbt.DistributedCoordinatorServer({
+          'bind_addresses': [bind_address],
+      })
       ocdbt_coordinator = f'{ocdbt_address}:{_OCDBT_COORDINATOR_SERVER.port}'
       logging.info(
           'Started OCDBT DistributedCoordinatorServer at: %s', ocdbt_coordinator
@@ -271,7 +272,7 @@ def _use_ocdbt_for_restore(
 
 
 async def _assert_parameter_files_exist(
-    param_dir: epath.Path, metadata_key: Optional[str]
+    param_dir: epath.Path, metadata_key: Optional[str], use_zarr3: bool = False
 ):
   """Checks for existence of parameter subdir and .zarray file."""
   exists = await utils.async_exists(param_dir)
@@ -280,7 +281,7 @@ async def _assert_parameter_files_exist(
         f'Individual parameter subdirectory not found at path: {param_dir}.'
     )
   if metadata_key is None:
-    metadata_key = '.zarray'
+    metadata_key = 'zarr.json' if use_zarr3 else '.zarray'
   metadata_path = param_dir / metadata_key
   exists = await utils.async_exists(metadata_path)
   if not exists:
@@ -361,6 +362,8 @@ class ParamInfo:
   is_ocdbt_checkpoint:
     Indicates whether the checkpoint path uses OCDBT format
     or not. Only used for restoration.
+  use_zarr3:
+    If True, use Zarr ver3 otherwise ver2.
   """
 
   name: Optional[str] = None
@@ -371,6 +374,7 @@ class ParamInfo:
       None  # pylint: disable=protected-access
   )
   is_ocdbt_checkpoint: Optional[bool] = None
+  use_zarr3: Optional[bool] = False
 
 
 @dataclasses.dataclass
@@ -384,10 +388,21 @@ class SaveArgs:
     If provided, casts the parameter to the given dtype before saving.
     Note that the parameter must be compatible with the given type (e.g.
     jnp.bfloat16 is not compatible with np.ndarray).
+  write_chunk_shape:
+    This only applies to Zarr version 3.  This specifies the shape of a shard
+    used in writing.  The default(None) is set to equal to the array shard size,
+    so there are equal number of write chunks and shards. The write_chunk_shape
+    needs to be a divisor of the array shape.
+  read_chunk_shape:
+    This only applies to Zarr version 3.  This specifies the chunk sizes within
+    a write chunk. Default is set to equal to the write_chunk_shape. The
+    read_chunk_shape is reqired to be a divisor of the write_chunk_shape.
   """
 
   aggregate: bool = False
   dtype: Optional[jnp.dtype] = None
+  write_chunk_shape: Optional[tuple[int, ...]] = None
+  read_chunk_shape: Optional[tuple[int, ...]] = None
 
 
 @dataclasses.dataclass
@@ -406,6 +421,85 @@ class RestoreArgs:
 
   restore_type: Optional[Any] = None
   dtype: Optional[jnp.dtype] = None
+
+
+def _validate_divisible_shapes(
+    shape1: tuple[int, ...], shape2: tuple[int, ...]
+) -> bool:
+  """Return True if shape2 is a divisor of shape1 otherwise False."""
+  try:
+    return not np.mod(shape1, shape2).any()
+  except ValueError:
+    # eg. imcompatible shape
+    return False
+
+
+def _build_ts_zarr_shard_and_chunk_metadata(
+    shard_shape: tuple[int, ...],
+    use_zarr3: bool,
+    write_chunk_shape: Optional[tuple[int, ...]] = None,
+    read_chunk_shape: Optional[tuple[int, ...]] = None,
+) -> Dict[Any, Any]:
+  """This function returns the TS metadata for write spec."""
+  metadata = {}
+
+  if not use_zarr3:
+    # Zarr ver2
+    metadata['chunks'] = np.array(np.maximum(1, shard_shape))
+    metadata['compressor'] = {'id': 'zstd'}
+  else:
+    # Zarr ver3
+    # Shard configs{
+    # If `write_chunk_shape` is not specified, make it the same as Jax sharding
+    if write_chunk_shape:
+      if not _validate_divisible_shapes(shard_shape, write_chunk_shape):
+        raise ValueError(
+            f'write_chunk_shape={write_chunk_shape} must be a divisor of'
+            f' shard_shape={shard_shape}'
+        )
+      write_shape = write_chunk_shape
+    else:
+      write_shape = shard_shape
+
+    metadata['chunk_grid'] = {
+        'name': 'regular',
+        'configuration': {
+            'chunk_shape': write_shape,
+        },
+    }
+
+    # Sub-chunk configs
+    # If `read_chunk_shape` is not specified, # make it the same as
+    # `write_chunk_shape`
+    if read_chunk_shape:
+      if not _validate_divisible_shapes(write_shape, read_chunk_shape):
+        raise ValueError(
+            f'read_chunk_shape={read_chunk_shape} must be a divisor of'
+            f' write_chunk_shape={write_shape}'
+        )
+      read_shape = read_chunk_shape
+    else:
+      read_shape = shard_shape
+
+    metadata['codecs'] = [
+        {
+            'name': 'sharding_indexed',
+            'configuration': {
+                'chunk_shape': read_shape,
+                'codecs': [
+                    {'name': 'bytes', 'configuration': {'endian': 'little'}},
+                    {'name': 'zstd'},
+                ],
+                'index_codecs': [
+                    {'name': 'bytes', 'configuration': {'endian': 'little'}},
+                    {'name': 'crc32c'},
+                ],
+                'index_location': 'end',
+            },
+        },
+    ]
+
+  return metadata
 
 
 class TypeHandler(abc.ABC):
@@ -526,9 +620,7 @@ def merge_ocdbt_per_process_files(directory: epath.Path):
 
   open_ops = []
 
-  parent_tspec = get_tensorstore_spec(
-      os.fspath(directory), use_ocdbt=True
-  )
+  parent_tspec = get_tensorstore_spec(os.fspath(directory), use_ocdbt=True)
   parent_tspec = parent_tspec['kvstore']
   open_ops.append(
       ts.KvStore.open(
@@ -573,19 +665,24 @@ def _get_kvstore_for_gcs(ckpt_path: str) -> Dict[str, Any]:
   return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
 
 
-def _get_metadata(arr):
+def _get_metadata(arr, use_zarr3, write_chunk_shape, read_chunk_shape):
+  """build metadata for a Tensorstore array."""
   if arr.dtype == jnp.bfloat16:
     # Tensorstore uses 'bfloat16', not '<V2'.
     dtype = 'bfloat16'
   else:
     dtype = np.dtype(arr.dtype).str
-  local_shape = arr.addressable_data(0).shape
-  return {
-      'compressor': {'id': 'zstd'},
+  metadata = {
       'shape': arr.shape,
-      'chunks': np.array(np.maximum(1, local_shape)),
       'dtype': dtype,
   }
+  local_shape = arr.addressable_data(0).shape
+  metadata.update(
+      _build_ts_zarr_shard_and_chunk_metadata(
+          local_shape, use_zarr3, write_chunk_shape, read_chunk_shape
+      )
+  )
+  return metadata
 
 
 def get_tensorstore_spec(
@@ -593,6 +690,7 @@ def get_tensorstore_spec(
     name: Optional[str] = None,
     use_ocdbt: bool = True,
     process_id: Optional[Union[int, str]] = None,
+    use_zarr3: Optional[bool] = False,
 ) -> Dict[str, Any]:
   """Constructs a Tensorstore spec.
 
@@ -603,6 +701,7 @@ def get_tensorstore_spec(
     process_id: If provided, will write to a sub-directory named
       `ocdbt.process_<process_id>`. If a string, must conform to [A-Za-z0-9]+
       pattern.
+    use_zarr3: If True, use ZARR_VER3 driver, otherwise, use ZARR_VER2 driver.
 
   Returns:
     A ts.Spec in dictionary form.
@@ -612,7 +711,8 @@ def get_tensorstore_spec(
   # fix the path prefix to add back the stripped '/'.
   directory = os.path.normpath(directory).replace('gs:/', 'gs://')
   is_gcs_path = directory.startswith('gs://')
-  spec = {'driver': 'zarr', 'kvstore': {}}
+  spec = {'driver': ZARR_VER3 if use_zarr3 else ZARR_VER2, 'kvstore': {}}
+
   if use_ocdbt:
     if not is_gcs_path and not os.path.isabs(directory):
       raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
@@ -783,16 +883,23 @@ class NumpyHandler(TypeHandler):
       value: np.ndarray,
       use_ocdbt: bool = False,
       process_index: Optional[int] = None,
+      arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
     tspec = self._get_json_tspec(
         info, use_ocdbt=use_ocdbt, process_index=process_index
     )
     tspec['metadata'] = {
-        'compressor': {'id': 'zstd'},
+        'shape': value.shape,
     }
-    tspec['metadata']['shape'] = value.shape
-    tspec['metadata']['chunks'] = value.shape
+    tspec['metadata'].update(
+        _build_ts_zarr_shard_and_chunk_metadata(
+            value.shape,
+            info.use_zarr3,
+            arg.write_chunk_shape if arg else None,
+            arg.read_chunk_shape if arg else None,
+        )
+    )
     if use_ocdbt:
       tspec = _add_write_tspec_ocdbt_options(tspec)
     return tspec
@@ -843,6 +950,7 @@ class NumpyHandler(TypeHandler):
           value,
           use_ocdbt=self._use_ocdbt,
           process_index=_get_process_index_for_subdir(),
+          arg=arg,
       )
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
       if logging.level_debug():
@@ -884,7 +992,9 @@ class NumpyHandler(TypeHandler):
     open_futures = []
     for info, arg in zip(infos, args):
       if not info.is_ocdbt_checkpoint:
-        await _assert_parameter_files_exist(info.path, self._metadata_key)
+        await _assert_parameter_files_exist(
+            info.path, self._metadata_key, info.use_zarr3
+        )
       # Using OCDBT, but existing checkpoint may be stored in old format.
       use_ocdbt = _use_ocdbt_for_restore(
           self._use_ocdbt, info.is_ocdbt_checkpoint
@@ -1043,6 +1153,7 @@ class ArrayHandler(TypeHandler):
         name=info.name,
         use_ocdbt=use_ocdbt,
         process_id=process_index,
+        use_zarr3=info.use_zarr3,
     )
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
@@ -1051,15 +1162,21 @@ class ArrayHandler(TypeHandler):
   def _get_json_tspec_write(
       self,
       info: ParamInfo,
-      value: Any,
+      value: jax.Array,
       use_ocdbt: bool = False,
       process_index: Optional[int] = None,
+      arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
     tspec = self._get_json_tspec(
         info, use_ocdbt=use_ocdbt, process_index=process_index
     )
-    tspec['metadata'] = _get_metadata(value)
+    tspec['metadata'] = _get_metadata(
+        value,
+        info.use_zarr3,
+        arg.write_chunk_shape if arg else None,
+        arg.read_chunk_shape if arg else None,
+    )
     del tspec['metadata']['dtype']
     if use_ocdbt:
       tspec = _add_write_tspec_ocdbt_options(tspec)
@@ -1158,6 +1275,7 @@ class ArrayHandler(TypeHandler):
           value,
           use_ocdbt=self._use_ocdbt,
           process_index=_get_process_index_for_subdir(),
+          arg=arg,
       )
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
       if logging.level_debug():
@@ -1275,7 +1393,9 @@ class ArrayHandler(TypeHandler):
             ' and `mesh_axes` OR `sharding`'
         )
       if not info.is_ocdbt_checkpoint:
-        await _assert_parameter_files_exist(info.path, self._metadata_key)
+        await _assert_parameter_files_exist(
+            info.path, self._metadata_key, info.use_zarr3
+        )
       # Using OCDBT, but existing checkpoint may be stored in old format.
       use_ocdbt = _use_ocdbt_for_restore(
           self._use_ocdbt, info.is_ocdbt_checkpoint
@@ -1405,6 +1525,7 @@ class StringHandler(TypeHandler):
     tensorstores = await asyncio.gather(*open_futures)
     read_ops = [self._convert_to_string(t) for t in tensorstores]
     return await asyncio.gather(*read_ops)
+
 
 _TYPE_REGISTRY = [
     (lambda ty: issubclass(ty, int), ScalarHandler()),

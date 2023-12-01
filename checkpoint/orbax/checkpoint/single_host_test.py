@@ -20,7 +20,9 @@ from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint import pytree_checkpoint_handler
+from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+import tensorstore as ts
 
 
 class PyTreeCheckpointHandler(
@@ -63,6 +65,95 @@ class SingleHostTest(parameterized.TestCase):
       # previously, Orbax just return numpyarray even the saved
       # the array is a SigmleDeviceSharded Jax Array.
       self.assertIsInstance(restored_tree['array_x'], np.ndarray)
+
+  @parameterized.parameters([False, True])
+  def test_save_and_restore_jax_array(self, use_zarr3):
+    handler = PyTreeCheckpointHandler(use_zarr3=use_zarr3)
+    key = jax.random.PRNGKey(0)
+    x = jax.random.normal(key, (10,))
+    handler.save(self.ckpt_dir, {'x': x})
+    restored_tree = handler.restore(self.ckpt_dir)
+
+    np.testing.assert_array_equal(x, restored_tree['x'])
+    assert isinstance(restored_tree['x'], jax.Array)
+
+  def test_save_and_restore_zarrv3_jax_array_custom_chunk_size(self):
+    handler = PyTreeCheckpointHandler(use_zarr3=True)
+    key = jax.random.PRNGKey(0)
+    x = jax.random.normal(key, (10,))
+    pytree = {'x': x}
+    write_chunk_shape = (2,)
+    read_chunk_shape = (1,)
+
+    save_args = jax.tree_map(
+        lambda x: type_handlers.SaveArgs(
+            write_chunk_shape=write_chunk_shape,
+            read_chunk_shape=read_chunk_shape,
+        ),
+        pytree,
+    )
+    handler.save(self.ckpt_dir, pytree, save_args=save_args)
+
+    # validate the stored array is in the chunk_layout specified
+    tsstore = ts.open({
+        'driver': 'zarr3',
+        'kvstore': {
+            'driver': 'ocdbt',
+            'base': f'file://{self.ckpt_dir}',
+            'path': 'x',
+        },
+    }).result()
+
+    np.testing.assert_array_equal(
+        tsstore.chunk_layout.read_chunk.shape, read_chunk_shape
+    )
+    np.testing.assert_array_equal(
+        tsstore.chunk_layout.write_chunk.shape, write_chunk_shape
+    )
+
+    # validate the restored_tree is identical as the written one
+    restore_handler = PyTreeCheckpointHandler(use_zarr3=True)
+    restored_tree = restore_handler.restore(self.ckpt_dir)
+    np.testing.assert_array_equal(x, restored_tree['x'])
+    self.assertIsInstance(restored_tree['x'], jax.Array)
+
+  def test_save_and_restore_zarrv3_with_metadata(self):
+    handler = PyTreeCheckpointHandler(use_zarr3=True, write_tree_metadata=True)
+    key = jax.random.PRNGKey(0)
+    x = jax.random.normal(key, (10,))
+    pytree = {'x': x}
+    handler.save(self.ckpt_dir, pytree)
+
+    # even use_zarr3 is set to False, checkpoint can still be restored
+    restore_handler = PyTreeCheckpointHandler(use_zarr3=False)
+    restored_tree = restore_handler.restore(self.ckpt_dir)
+
+    # validate the restored_tree is identical as the written one
+    np.testing.assert_array_equal(x, restored_tree['x'])
+    self.assertIsInstance(restored_tree['x'], jax.Array)
+
+  @parameterized.parameters([
+      ((3,), None),
+      (None, (3,)),
+      ((5,), (2,)),
+  ])
+  def test_save_zarrv3_jax_array_with_invalid_write_or_read_chunk_sizes(
+      self, write_chunk_shape, read_chunk_shape
+  ):
+    handler = PyTreeCheckpointHandler(use_zarr3=True)
+    key = jax.random.PRNGKey(0)
+    x = jax.random.normal(key, (10,))
+    pytree = {'x': x}
+
+    save_args = jax.tree_map(
+        lambda x: type_handlers.SaveArgs(
+            write_chunk_shape=write_chunk_shape,
+            read_chunk_shape=read_chunk_shape,
+        ),
+        pytree,
+    )
+    with self.assertRaises(ValueError):
+      handler.save(self.ckpt_dir, pytree, save_args=save_args)
 
 
 if __name__ == '__main__':

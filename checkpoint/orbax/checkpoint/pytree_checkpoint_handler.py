@@ -73,6 +73,7 @@ _SKIP_DESERIALIZE = 'skip_deserialize'
 _TREE_METADATA_KEY = 'tree_metadata'
 _KEY_METADATA_KEY = 'key_metadata'
 _VALUE_METADATA_KEY = 'value_metadata'
+_USE_ZARR3 = 'use_zarr3'
 
 
 class _KeyType(enum.Enum):
@@ -317,6 +318,7 @@ def _get_restore_parameters(
     restore_args: Optional[PyTree],
     byte_limiter: Optional[LimitInFlightBytes] = None,
     transforms_default_to_original: bool = True,
+    use_zarr3: bool = False,
 ) -> Tuple[PyTree, PyTree]:
   """Construct parameters needed for restoration.
 
@@ -352,6 +354,7 @@ def _get_restore_parameters(
       tree.
     byte_limiter: A _LimitInFlightBytes object.
     transforms_default_to_original: See transform_utils.apply_transformations.
+    use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
 
   Returns:
     Tuple of param_infos, and restore_args.
@@ -379,6 +382,7 @@ def _get_restore_parameters(
         skip_deserialize=meta.skip_deserialize,
         is_ocdbt_checkpoint=is_ocdbt_checkpoint,
         byte_limiter=byte_limiter,
+        use_zarr3=use_zarr3,
     )
 
   if transforms is None:
@@ -638,6 +642,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       ocdbt_merge: bool = True,
       restore_with_serialized_types: bool = True,
       write_tree_metadata: bool = True,
+      use_zarr3: bool = False,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -658,6 +663,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         checkpoint. Note: this option is not applicable to most users.
       write_tree_metadata: Writes tree metadata in JSON format. The tree
         metadata is used to enable a checkpoint which is fully self-describing.
+      use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
     """
     self._aggregate_handler = MsgpackHandler()
     if aggregate_filename is None:
@@ -668,6 +674,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._ocdbt_merge = ocdbt_merge
     self._restore_with_serialized_types = restore_with_serialized_types
     self._write_tree_metadata = write_tree_metadata
+    self._use_zarr3 = use_zarr3
 
 
     if self._use_ocdbt:
@@ -714,6 +721,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           path=(directory / name),
           parent_dir=directory,
           skip_deserialize=args.aggregate,
+          use_zarr3=self._use_zarr3,
       )
 
     return (
@@ -829,7 +837,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     # TODO(b/285888834): Allow this to be asynchronous.
     if self._write_tree_metadata and jax.process_index() == 0:
-      self._write_metadata_file(directory, item, save_args)
+      self._write_metadata_file(directory, item, save_args, self._use_zarr3)
 
     aggregate_commit_future = await self._write_aggregate_file(
         directory, item, param_infos, save_args
@@ -1017,7 +1025,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           f'Requested directory for restore does not exist at {directory}'
       )
     byte_limiter = get_byte_limiter(self._concurrent_gb)
-    structure = self._get_internal_metadata(directory)
+    structure, use_zarr3_metadata = self._get_internal_metadata(directory)
     # `checkpoint_restore_args` has a structure relative to the checkpoint,
     # while `restore_args` remains structured relative to the output.
     param_infos, checkpoint_restore_args = _get_restore_parameters(
@@ -1028,6 +1036,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         restore_args,
         byte_limiter=byte_limiter,
         transforms_default_to_original=transforms_default_to_original,
+        use_zarr3=use_zarr3_metadata
+        if use_zarr3_metadata is not None
+        else self._use_zarr3,
     )
 
     if legacy_transform_fn is not None and transforms is not None:
@@ -1105,7 +1116,11 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       return utils.pytree_structure(directory)
 
   def _write_metadata_file(
-      self, directory: epath.Path, item: PyTree, save_args: PyTree
+      self,
+      directory: epath.Path,
+      item: PyTree,
+      save_args: PyTree,
+      use_zarr3: bool = False,
   ):
     """Write PyTree metadata.
 
@@ -1131,6 +1146,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       directory: directory
       item: item to save
       save_args: save_args
+      use_zarr3: save the zarr version used
 
     Returns:
       None
@@ -1152,12 +1168,15 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           _VALUE_METADATA_KEY: _get_value_metadata(value, save_arg),
       }
 
-    metadata = {_TREE_METADATA_KEY: flat_metadata_with_keys}
+    metadata = {
+        _TREE_METADATA_KEY: flat_metadata_with_keys,
+        _USE_ZARR3: use_zarr3,
+    }
     (directory / _METADATA_FILE).write_text(json.dumps(metadata))
 
   def _read_metadata_file(
       self, directory: epath.Path, keep_empty_nodes: bool = False
-  ) -> PyTree:
+  ) -> Tuple[PyTree, bool]:
     """Reads metadata file and returns a tree of restore types.
 
     Args:
@@ -1177,8 +1196,16 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           f' {directory}.'
       )
 
+    metadata_dict = json.loads(path.read_text())
+
+    if _USE_ZARR3 in metadata_dict:
+      use_zarr3_metadata = metadata_dict[_USE_ZARR3]
+    else:
+      use_zarr3_metadata = False
+
     tree_metadata = typing.cast(
-        Dict[Any, Any], json.loads(path.read_text()),
+        Dict[Any, Any],
+        metadata_dict,
     )[_TREE_METADATA_KEY]
     flat_tree_metadata = []
     for metadata in tree_metadata.values():
@@ -1199,9 +1226,14 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         )
       flat_tree_metadata.append((keypath, value_meta))
 
-    return utils.from_flattened_with_keypath(flat_tree_metadata)
+    return (
+        utils.from_flattened_with_keypath(flat_tree_metadata),
+        use_zarr3_metadata,
+    )
 
-  def _get_internal_metadata(self, directory: epath.Path) -> PyTree:
+  def _get_internal_metadata(
+      self, directory: epath.Path
+  ) -> Tuple[PyTree, Optional[bool]]:
     """Gets limited information needed to fully restore the checkpoint.
 
     This information just consists of the restore type for each leaf, as well
@@ -1218,11 +1250,14 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     aggregate_tree = self._read_aggregate_file(directory)
     flat_aggregate = utils.to_flat_dict(aggregate_tree, keep_empty_nodes=True)
     try:
-      metadata_tree = self._read_metadata_file(directory, keep_empty_nodes=True)
+      metadata_tree, use_zarr3 = self._read_metadata_file(
+          directory, keep_empty_nodes=True
+      )
       flat_metadata = utils.to_flat_dict(metadata_tree, keep_empty_nodes=True)
     except FileNotFoundError:
       metadata_tree = None
       flat_metadata = None
+      use_zarr3 = None
     if flat_metadata is None:
       flat_metadata = jax.tree_util.tree_map(
           lambda _: None, flat_aggregate, is_leaf=utils.is_empty_or_leaf
@@ -1255,7 +1290,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           flat_metadata[tuple_key], flat_aggregate[tuple_key]
       )
     target = metadata_tree if metadata_tree is not None else aggregate_tree
-    return utils.from_flat_dict(result, target=target)
+    return utils.from_flat_dict(result, target=target), use_zarr3
 
   def _get_user_metadata(self, directory: epath.Path) -> PyTree:
     """Reads metadata file and constructs user-friendly metadata.
@@ -1275,7 +1310,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     flat_param_infos = {}
     flat_restore_types = {}
-    metadata = self._read_metadata_file(directory, keep_empty_nodes=False)
+    metadata, use_zarr3_metadata = self._read_metadata_file(
+        directory, keep_empty_nodes=False
+    )
     for keypath, value_meta in utils.to_flat_dict(metadata).items():
       param_name = '.'.join(keypath)
       restore_type, skip_deserialize = (
@@ -1288,6 +1325,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           parent_dir=directory,
           skip_deserialize=skip_deserialize,
           is_ocdbt_checkpoint=is_ocdbt_checkpoint,
+          use_zarr3=use_zarr3_metadata,
       )
       flat_restore_types[keypath] = restore_type
 
