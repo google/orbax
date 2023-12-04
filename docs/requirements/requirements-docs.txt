@@ -18,6 +18,6 @@ jax
 jaxlib
 numpy
 pyyaml
-tensorstore>=0.1.44
+tensorstore>=0.1.50
 nest_asyncio
 tensorflow
