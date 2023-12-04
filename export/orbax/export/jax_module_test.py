@@ -223,7 +223,7 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
         })
 
     # `add` cannot accept polymorphic shapes.
-    with self.assertRaisesRegex(ValueError, 'polymorphic shape'):
+    with self.assertRaisesRegex(ValueError, 'syntax error'):
       jax_module.methods['add'].get_concrete_function(
           tf.TensorSpec([None], tf.int32))
 
