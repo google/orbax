@@ -30,7 +30,7 @@ dependencies = [
     'jaxlib',
     'numpy',
     'pyyaml',
-    'tensorstore >= 0.1.50',
+    'tensorstore >= 0.1.51',
     'nest_asyncio',
     'protobuf'
 ]
