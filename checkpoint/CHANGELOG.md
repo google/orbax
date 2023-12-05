@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `CompositeCheckpointHandler` API. This will soon replace `CheckpointManager`'s
+handling of distinct items, and allows users to work with separate items at the
+`Checkpointer` layer.
+
 ## [0.4.5] - 2023-12-04
-- added Zarr Version 3 allowing custom write and read chunk configurations
+
+### Added
+- Zarr Version 3 allowing custom write and read chunk configurations
 
 ## [0.4.4] - 2023-11-29
 

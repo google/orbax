@@ -17,8 +17,8 @@
 import dataclasses
 import inspect
 from typing import Tuple, Type, Union
-from orbax.checkpoint import checkpoint_handler
 
+from orbax.checkpoint import checkpoint_handler
 CheckpointHandler = checkpoint_handler.CheckpointHandler
 
 
@@ -109,6 +109,13 @@ def get_registered_handler_cls(
   """Returns the registered CheckpointHandler."""
   if not inspect.isclass(arg):
     arg = type(arg)
+  if not issubclass(arg, CheckpointArgs):
+    raise TypeError(f'{arg} must be a subclass of `CheckpointArgs`.')
+  if arg not in _SAVE_ARG_TO_HANDLER and arg not in _RESTORE_ARG_TO_HANDLER:
+    raise ValueError(
+        f'Unable to find registered `CheckpointHandler` for {arg}. Use'
+        ' `register_with_handler`.'
+    )
   if arg in _SAVE_ARG_TO_HANDLER:
     return _SAVE_ARG_TO_HANDLER[arg]
   else:
