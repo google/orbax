@@ -862,10 +862,13 @@ class CheckpointManager(AbstractCheckpointManager):
         except BaseException as e:  # pylint:disable=broad-exception-caught
           # If an exception occurred in the in finalization of the previous
           # save, we clean up since that checkpoint was never actually saved.
+          assert self._last_checkpoint is not None
+          assert self._checkpoints
           self._last_checkpoint = (
               self._checkpoints[-2] if len(self._checkpoints) > 1 else None
           )
-          self._interval_preserved_checkpoints.remove(self._checkpoints[-1])
+          if self._checkpoints[-1] in self._interval_preserved_checkpoints:
+            self._interval_preserved_checkpoints.remove(self._checkpoints[-1])
           self._checkpoints = self._checkpoints[:-1]
           raise e
         # Additional work is being done on process 0 of the finalize threads.

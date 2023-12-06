@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2023-12-06
+
 ### Added
 - `CompositeCheckpointHandler` API. This will soon replace `CheckpointManager`'s
 handling of distinct items, and allows users to work with separate items at the
@@ -16,6 +18,11 @@ handling of distinct items, and allows users to work with separate items at the
 - `use_ocdbt` `PyTreeCheckpointHandler` option is no longer kept as a mutable
 global state on type handlers and is now passed around with the state to save or
 restore.
+
+### Fixed
+- Bug arising when an error occurs in the background thread, and we try to
+remove a non-existent checkpoint from `_interval_preserved_checkpoints` in
+`CheckpointManager`.
 
 ## [0.4.5] - 2023-12-04
 
