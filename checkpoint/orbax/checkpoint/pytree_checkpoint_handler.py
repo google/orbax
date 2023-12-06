@@ -681,9 +681,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       jax.monitoring.record_event(
           '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
       )
-      if self._ocdbt_merge:
-        type_handlers.enable_ocdbt_for_handlers()
-      else:
+      if not self._ocdbt_merge:
         type_handlers.start_coordinator_server_and_create_context()
 
   def _get_param_names(self, item: PyTree) -> PyTree:
@@ -721,6 +719,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           path=(directory / name),
           parent_dir=directory,
           skip_deserialize=args.aggregate,
+          is_ocdbt_checkpoint=self._use_ocdbt,
+          ocdbt_merge=self._ocdbt_merge,
           use_zarr3=self._use_zarr3,
       )
 

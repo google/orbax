@@ -93,6 +93,8 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         name=self._checkpoint_name,
         path=directory / self._checkpoint_name,
         parent_dir=directory,
+        is_ocdbt_checkpoint=True,
+        ocdbt_merge=False,
     )
     type_handler = type_handlers.get_type_handler(type(item))
     futures = await type_handler.serialize([item], [info], args=[save_args])

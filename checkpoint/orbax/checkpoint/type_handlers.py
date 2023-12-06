@@ -176,15 +176,6 @@ def _get_coordinator_address_without_port(coordinator_address: str) -> str:
   return coordinator_address.split(':')[0]
 
 
-def enable_ocdbt_for_handlers(ts_context: Optional[ts.Context] = None):
-  # TODO(b/293331479) remove this once OCDBT is enabled by default.
-  global _TYPESTR_REGISTRY
-  for _, handler in _TYPE_REGISTRY:
-    if hasattr(handler, 'enable_ocdbt') and callable(handler.enable_ocdbt):
-      handler.enable_ocdbt(ts_context=ts_context)
-  _TYPESTR_REGISTRY = _make_typestr_registry(_TYPE_REGISTRY)
-
-
 def create_coordinator_server_and_context() -> Tuple[None, None]:
   # TODO(b/293331479) remove this once OCDBT is enabled by default.
   warnings.warn('This function has been deprecated. Do not use.')
@@ -255,20 +246,7 @@ def start_coordinator_server_and_create_context() -> None:
     }
 
   _OCDBT_TS_CONTEXT = ts.Context(ts_context, parent=serialization.TS_CONTEXT)
-  enable_ocdbt_for_handlers(ts_context=_OCDBT_TS_CONTEXT)
   logging.info('OCDBT is initialized successfully.')
-
-
-def _use_ocdbt_for_restore(
-    maybe_use_ocdbt: bool, checkpoint_is_ocdbt: bool
-) -> bool:
-  """Determines whether the checkpoint should be restored using OCDBT."""
-  if not maybe_use_ocdbt and checkpoint_is_ocdbt:
-    raise ValueError(
-        'TypeHandler is not configured to allow OCDBT restoration, but found'
-        ' OCDBT checkpoint.'
-    )
-  return maybe_use_ocdbt and checkpoint_is_ocdbt
 
 
 async def _assert_parameter_files_exist(
@@ -374,6 +352,7 @@ class ParamInfo:
       None  # pylint: disable=protected-access
   )
   is_ocdbt_checkpoint: Optional[bool] = None
+  ocdbt_merge: Optional[bool] = None
   use_zarr3: Optional[bool] = False
 
 
@@ -758,12 +737,30 @@ def get_tensorstore_spec(
   return spec
 
 
-def _get_process_index_for_subdir() -> Optional[int]:
+def get_process_index_for_subdir(
+    use_ocdbt: bool,
+    ocdbt_merge: bool,
+) -> Optional[int]:
   """If OCDBT + merge feature is in use, returns a process index."""
-  if _OCDBT_TS_CONTEXT is None:
+  if use_ocdbt and ocdbt_merge:
     return jax.process_index()
   else:
     return None
+
+
+def get_ts_context(use_ocdbt: bool, ocdbt_merge: bool = True) -> ts.Context:
+  """Returns a shared global TensorStore Context instance to use."""
+  if not use_ocdbt:
+    return serialization.TS_CONTEXT
+
+  if ocdbt_merge:
+    return _DEFAULT_OCDBT_TS_CONTEXT
+  if _OCDBT_TS_CONTEXT is None:
+    raise ValueError(
+        'Coordinator-based TensorStore context should be configured'
+        ' if OCDBT merging is not enabled.'
+    )
+  return _OCDBT_TS_CONTEXT
 
 
 def _get_cast_tspec_serialize(tspec, value, args):
@@ -831,36 +828,18 @@ class NumpyHandler(TypeHandler):
   def __init__(
       self,
       metadata_key: Optional[str] = None,
-      use_ocdbt: bool = False,
-      ts_context: Optional[ts.Context] = None,
   ):
     """Constructor.
 
     Args:
       metadata_key: name to give to Tensorstore metadata files.
-      use_ocdbt: enables Tensorstore OCDBT driver.
-      ts_context: Tensorstore context.
     """
     self._metadata_key = metadata_key
-    if use_ocdbt:
-      self.enable_ocdbt(ts_context)
-    else:
-      self._use_ocdbt = False
-      self._ts_context = ts_context or self._get_default_ts_context(use_ocdbt)
-
-  def enable_ocdbt(self, ts_context: Optional[ts.Context] = None) -> None:
-    self._use_ocdbt = True
-    self._ts_context = ts_context or self._get_default_ts_context(
-        self._use_ocdbt
-    )
-
-  def _get_default_ts_context(self, use_ocdbt: bool) -> ts.Context:
-    return _DEFAULT_OCDBT_TS_CONTEXT if use_ocdbt else serialization.TS_CONTEXT
 
   def _get_json_tspec(
       self,
       info: ParamInfo,
-      use_ocdbt: bool = False,
+      use_ocdbt: bool,
       process_index: Optional[int] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec in JSON format."""
@@ -881,7 +860,7 @@ class NumpyHandler(TypeHandler):
       self,
       info: ParamInfo,
       value: np.ndarray,
-      use_ocdbt: bool = False,
+      use_ocdbt: bool,
       process_index: Optional[int] = None,
       arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
@@ -905,7 +884,9 @@ class NumpyHandler(TypeHandler):
     return tspec
 
   def _get_json_tspec_read(
-      self, info: ParamInfo, use_ocdbt: bool = False
+      self,
+      info: ParamInfo,
+      use_ocdbt: bool,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
     return self._get_json_tspec(info, use_ocdbt=use_ocdbt)
@@ -918,13 +899,15 @@ class NumpyHandler(TypeHandler):
   ) -> Sequence[ArrayMetadata]:
     open_ops = []
     for info in infos:
-      # Using OCDBT, but existing checkpoint may be stored in old format.
-      use_ocdbt = _use_ocdbt_for_restore(
-          self._use_ocdbt, info.is_ocdbt_checkpoint
-      )
+      # Use OCDBT flag from the existing checkpoint.
+      use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       open_ops.append(
-          ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
+          ts.open(
+              ts.Spec(tspec),
+              open=True,
+              context=get_ts_context(use_ocdbt)
+          )
       )
 
     tensorstores = await asyncio.gather(*open_ops)
@@ -948,8 +931,10 @@ class NumpyHandler(TypeHandler):
       tspec = self._get_json_tspec_write(
           info,
           value,
-          use_ocdbt=self._use_ocdbt,
-          process_index=_get_process_index_for_subdir(),
+          use_ocdbt=info.is_ocdbt_checkpoint,
+          process_index=get_process_index_for_subdir(
+              info.is_ocdbt_checkpoint, info.ocdbt_merge
+          ),
           arg=arg,
       )
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
@@ -958,17 +943,18 @@ class NumpyHandler(TypeHandler):
         logging.debug('infos = %s', info)
         logging.debug('args = %s', arg)
       if jax.process_index() == 0:
+        ts_context = get_ts_context(info.is_ocdbt_checkpoint, info.ocdbt_merge)
         # Open once to create metadata and allow the operation to happen
         # asynchronously.
         open_future = ts.open(
-            ts.Spec(tspec), create=True, open=True, context=self._ts_context
+            ts.Spec(tspec), create=True, open=True, context=ts_context
         )
         # Open again (no disk I/O) to get the write location.
         t = await ts.open(
             ts.Spec(tspec),
             open=True,
             assume_metadata=True,
-            context=self._ts_context,
+            context=ts_context,
         )
         write_future = t.write(value)
         copy_ops += [write_future.copy]
@@ -995,10 +981,8 @@ class NumpyHandler(TypeHandler):
         await _assert_parameter_files_exist(
             info.path, self._metadata_key, info.use_zarr3
         )
-      # Using OCDBT, but existing checkpoint may be stored in old format.
-      use_ocdbt = _use_ocdbt_for_restore(
-          self._use_ocdbt, info.is_ocdbt_checkpoint
-      )
+      # Use OCDBT flag from the existing checkpoint.
+      use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       tspec = _get_cast_tspec_deserialize(tspec, arg)
 
@@ -1007,7 +991,9 @@ class NumpyHandler(TypeHandler):
         logging.debug('infos = %s', infos)
         logging.debug('args = %s', args)
       open_futures += [
-          ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
+          ts.open(
+              ts.Spec(tspec), open=True, context=get_ts_context(use_ocdbt)
+          )
       ]
     tensorstores = await asyncio.gather(*open_futures)
     read_ops = [t.read() for t in tensorstores]
@@ -1112,36 +1098,18 @@ class ArrayHandler(TypeHandler):
   def __init__(
       self,
       metadata_key: Optional[str] = None,
-      use_ocdbt: bool = False,
-      ts_context: Optional[ts.Context] = None,
   ):
     """Constructor.
 
     Args:
       metadata_key: name to give to Tensorstore metadata files.
-      use_ocdbt: allows using Tensorstore OCDBT driver.
-      ts_context: Tensorstore context.
     """
     self._metadata_key = metadata_key
-    if use_ocdbt:
-      self.enable_ocdbt(ts_context)
-    else:
-      self._use_ocdbt = False
-      self._ts_context = ts_context or self._get_default_ts_context(use_ocdbt)
-
-  def enable_ocdbt(self, ts_context: Optional[ts.Context] = None) -> None:
-    self._use_ocdbt = True
-    self._ts_context = ts_context or self._get_default_ts_context(
-        self._use_ocdbt
-    )
-
-  def _get_default_ts_context(self, use_ocdbt: bool) -> ts.Context:
-    return _DEFAULT_OCDBT_TS_CONTEXT if use_ocdbt else serialization.TS_CONTEXT
 
   def _get_json_tspec(
       self,
       info: ParamInfo,
-      use_ocdbt: bool = False,
+      use_ocdbt: bool,
       process_index: Optional[int] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec in JSON format."""
@@ -1163,7 +1131,7 @@ class ArrayHandler(TypeHandler):
       self,
       info: ParamInfo,
       value: jax.Array,
-      use_ocdbt: bool = False,
+      use_ocdbt: bool,
       process_index: Optional[int] = None,
       arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
@@ -1183,7 +1151,9 @@ class ArrayHandler(TypeHandler):
     return tspec
 
   def _get_json_tspec_read(
-      self, info: ParamInfo, use_ocdbt: bool = False
+      self,
+      info: ParamInfo,
+      use_ocdbt: bool,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
     return self._get_json_tspec(info, use_ocdbt=use_ocdbt)
@@ -1202,14 +1172,11 @@ class ArrayHandler(TypeHandler):
     sharding_file_path = infos[0].parent_dir / _SHARDING
     sharding_file_exists = await utils.async_exists(sharding_file_path)
     for info in infos:
-      # Using OCDBT, but existing checkpoint may be stored in old format.
-      use_ocdbt = _use_ocdbt_for_restore(
-          self._use_ocdbt, info.is_ocdbt_checkpoint
-      )
+      # Use OCDBT flag from the existing checkpoint.
+      use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-      open_ops.append(
-          ts.open(ts.Spec(tspec), open=True, context=self._ts_context)
-      )
+      ts_context = get_ts_context(use_ocdbt)
+      open_ops.append(ts.open(ts.Spec(tspec), open=True, context=ts_context))
 
       sharding_op = None
       if info.name:
@@ -1218,7 +1185,11 @@ class ArrayHandler(TypeHandler):
         )
         if sharding_file_exists:
           sharding_op = ts.open(
-              tspec_sharding, open=True, read=True, context=self._ts_context
+              tspec_sharding,
+              open=True,
+              read=True,
+              # OCDBT is not used for sharding metadata.
+              context=get_ts_context(use_ocdbt=False),
           )
       sharding_open_ops.append(sharding_op)
 
@@ -1273,8 +1244,10 @@ class ArrayHandler(TypeHandler):
       tspec = self._get_json_tspec_write(
           info,
           value,
-          use_ocdbt=self._use_ocdbt,
-          process_index=_get_process_index_for_subdir(),
+          use_ocdbt=info.is_ocdbt_checkpoint,
+          process_index=get_process_index_for_subdir(
+              info.is_ocdbt_checkpoint, info.ocdbt_merge
+          ),
           arg=arg,
       )
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
@@ -1288,12 +1261,13 @@ class ArrayHandler(TypeHandler):
         logging.debug('tspec = %s', tspec)
         logging.debug('infos = %s', info)
         logging.debug('args = %s', arg)
+      ts_context = get_ts_context(info.is_ocdbt_checkpoint, info.ocdbt_merge)
       synchronous_ops += [
           serialization.async_serialize(
               value,
               tspec,
               commit_future=futures,
-              context=self._ts_context,
+              context=ts_context,
           )
       ]
 
@@ -1304,14 +1278,18 @@ class ArrayHandler(TypeHandler):
             os.fspath(info.parent_dir), info.name
         )
         if jax.process_index() == 0:
+          # OCDBT is not used for sharding metadata.
+          sharding_ts_context = get_ts_context(use_ocdbt=False)
           open_future = ts.open(
-              tspec_sharding, open=True, context=self._ts_context
+              tspec_sharding,
+              open=True,
+              context=sharding_ts_context,
           )
           t = await ts.open(
               tspec_sharding,
               open=True,
               assume_metadata=True,
-              context=self._ts_context,
+              context=sharding_ts_context,
           )
           serialized_sharding = _serialize_sharding(value.sharding)
           if serialized_sharding is not None:
@@ -1377,7 +1355,11 @@ class ArrayHandler(TypeHandler):
               os.fspath(info.parent_dir), info.name
           )
           t = await ts.open(
-              tspec_sharding, context=self._ts_context, open=True, read=True
+              tspec_sharding,
+              # OCDBT is not used for sharding metadata.
+              context=get_ts_context(use_ocdbt=False),
+              open=True,
+              read=True,
           )
           serialized_string = await t.read()
           if serialized_string:
@@ -1394,12 +1376,10 @@ class ArrayHandler(TypeHandler):
         )
       if not info.is_ocdbt_checkpoint:
         await _assert_parameter_files_exist(
-            info.path, self._metadata_key, info.use_zarr3
+            info.path, self._metadata_key, info.use_zarr3,
         )
-      # Using OCDBT, but existing checkpoint may be stored in old format.
-      use_ocdbt = _use_ocdbt_for_restore(
-          self._use_ocdbt, info.is_ocdbt_checkpoint
-      )
+      # Use OCDBT flag from the existing checkpoint.
+      use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       tspec = _get_cast_tspec_deserialize(tspec, arg)
       if logging.level_debug():
@@ -1414,7 +1394,7 @@ class ArrayHandler(TypeHandler):
               if hasattr(arg, 'global_shape')
               else None,
               byte_limiter=info.byte_limiter,
-              context=self._ts_context,
+              context=get_ts_context(use_ocdbt),
           )
       ]
     ret = await asyncio.gather(*deserialize_ops)
@@ -1627,6 +1607,8 @@ def has_type_handler(ty: Any) -> bool:
 
 def register_standard_handlers_with_options(**kwargs):
   """Re-registers a select set of handlers with the given options."""
+  # TODO(b/314258967): clean those up.
+  del kwargs['use_ocdbt'], kwargs['ts_context']
   register_type_handler(int, ScalarHandler(**kwargs), override=True)
   register_type_handler(float, ScalarHandler(**kwargs), override=True)
   register_type_handler(

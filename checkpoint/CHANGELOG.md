@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 handling of distinct items, and allows users to work with separate items at the
 `Checkpointer` layer.
 
+### Changed
+- `use_ocdbt` `PyTreeCheckpointHandler` option is no longer kept as a mutable
+global state on type handlers and is now passed around with the state to save or
+restore.
+
 ## [0.4.5] - 2023-12-04
 
 ### Added
@@ -25,7 +30,7 @@ raised in `CheckpointManager`, causing later errors when trying to remove non-
 existent checkpoints.
 
 ### Added
-- Support for `CheckpointArgs` in core `CheckpointHandler` implementations. 
+- Support for `CheckpointArgs` in core `CheckpointHandler` implementations.
 Allowed specifying either `CheckpointArgs` or keyword args in `Checkpointer`.
 - Introduce CheckpointManagerOptions.read_only to control save/delete behaviors.
 
