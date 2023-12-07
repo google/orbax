@@ -271,7 +271,7 @@ class AbstractCheckpointManager(Protocol):
     """Returns CheckpointManager level metadata if present, empty otherwise."""
 
   @abc.abstractmethod
-  def wait_until_finished(self, join_finalize_thread=True):
+  def wait_until_finished(self):
     """Blocks until any incomplete save operations are completed.
 
     Note that this method will typically be a no-op if all checkpointers are
@@ -280,10 +280,6 @@ class AbstractCheckpointManager(Protocol):
 
     If some checkpointers are of type AsyncCheckpointer, however, this method
     will wait until each of these checkpointers is finished.
-
-    Args:
-      join_finalize_thread: Whether to join the _finalize_thread. This should
-        always be True for external callers.
     """
 
   @abc.abstractmethod

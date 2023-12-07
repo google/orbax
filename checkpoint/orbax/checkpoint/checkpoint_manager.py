@@ -486,18 +486,20 @@ class CheckpointManager(AbstractCheckpointManager):
     save_directory = self._get_save_directory(step, self.directory)
     # If a folder for the step to save exists and is not finalized, remove the
     # existing folder.
-    if (
-        utils.is_gcs_path(save_directory)
-        and save_directory.exists()
-        and utils.is_tmp_checkpoint(save_directory)
-    ):
-      logging.warning(
-          'Attempting to save at step %s which has an unfinalized checkpoint'
-          ' from previous runs. Removing the unfinalized checkpoint before'
-          ' saving.',
-          step,
-      )
-      self._delete_directory(step)
+    if utils.is_gcs_path(save_directory):
+      if (
+          jax.process_index() == 0
+          and save_directory.exists()
+          and utils.is_tmp_checkpoint(save_directory)
+      ):
+        logging.warning(
+            'Attempting to save at step %s which has an unfinalized checkpoint'
+            ' from previous runs. Removing the unfinalized checkpoint before'
+            ' saving.',
+            step,
+        )
+        self._delete_directory(step)
+      utils.sync_global_devices('CheckpointManager:deleted_unfinalized_step')
 
     tmp_step_dir = self._create_tmp_directory(save_directory)
 
@@ -848,33 +850,34 @@ class CheckpointManager(AbstractCheckpointManager):
         if info.step not in self._steps_to_remove
     ]
 
-  def wait_until_finished(self, join_finalize_thread=True):
-    """See superclass documentation."""
+  def _wait_for_checkpointers(self):
     for checkpointer in self._checkpointers.values():
       if is_async_checkpointer(checkpointer):
         checkpointer.wait_until_finished()  # pytype: disable=attribute-error
-    if join_finalize_thread:
-      t = self._finalize_thread
-      if t is not None:
-        self._finalize_thread = None
-        try:
-          t.join()
-        except BaseException as e:  # pylint:disable=broad-exception-caught
-          # If an exception occurred in the in finalization of the previous
-          # save, we clean up since that checkpoint was never actually saved.
-          assert self._last_checkpoint is not None
-          assert self._checkpoints
-          self._last_checkpoint = (
-              self._checkpoints[-2] if len(self._checkpoints) > 1 else None
-          )
-          if self._checkpoints[-1] in self._interval_preserved_checkpoints:
-            self._interval_preserved_checkpoints.remove(self._checkpoints[-1])
-          self._checkpoints = self._checkpoints[:-1]
-          raise e
-        # Additional work is being done on process 0 of the finalize threads.
-        # When joining the threads, we must wait for all threads to complete
-        # before proceeding.
-        utils.sync_global_devices('CheckpointManager:join_finalize_thread')
+
+  def wait_until_finished(self):
+    """See superclass documentation."""
+    t = self._finalize_thread
+    if t is not None:
+      self._finalize_thread = None
+      try:
+        t.join()
+      except BaseException as e:  # pylint:disable=broad-exception-caught
+        # If an exception occurred in the in finalization of the previous
+        # save, we clean up since that checkpoint was never actually saved.
+        assert self._last_checkpoint is not None
+        assert self._checkpoints
+        self._last_checkpoint = (
+            self._checkpoints[-2] if len(self._checkpoints) > 1 else None
+        )
+        if self._checkpoints[-1] in self._interval_preserved_checkpoints:
+          self._interval_preserved_checkpoints.remove(self._checkpoints[-1])
+        self._checkpoints = self._checkpoints[:-1]
+        raise e
+      # Additional work is being done on process 0 of the finalize threads.
+      # When joining the threads, we must wait for all threads to complete
+      # before proceeding.
+      utils.sync_global_devices('CheckpointManager:join_finalize_thread')
 
   def check_for_errors(self):
     """See superclass documentation."""
@@ -930,7 +933,7 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def _finalize(self, temp_ckpt_dir: epath.Path):
     """Cleans up old checkpoints and synchronizes hosts."""
-    self.wait_until_finished(join_finalize_thread=False)
+    self._wait_for_checkpointers()
     # If an error is encountered while waiting for commit futures to complete,
     # we will not proceed past this point.
     final_ckpt_dir = self._finalize_checkpoint(temp_ckpt_dir)
