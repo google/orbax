@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Provide better support for custom `CheckpointHandler`s without registered
+`CheckpointArgs` by providing a wrapper `CheckpointHandler` as a fallback. This
+class is introduced for backwards compatibility, and will eventually be removed.
+
 ### Added
 - New parameter `chunk_byte_size` in `SaveArgs`.  A convenient way to choose 
 the write and read chunk shapes using Zarr3.

@@ -25,6 +25,7 @@ from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import async_checkpoint_handler
+from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpointer
 from orbax.checkpoint import future as future_lib
 from orbax.checkpoint import utils
@@ -222,6 +223,15 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       barrier_sync_fn: Optional[BarrierSyncFn] = None,
   ):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
+    if not checkpoint_args.has_registered_args(handler):
+      logging.warning(
+          'No registered CheckpointArgs found for handler type: %s',
+          type(handler),
+      )
+      handler = checkpointer.get_legacy_handler_wrapper(handler)
+      assert isinstance(
+          handler, async_checkpoint_handler.AsyncCheckpointHandler
+      )
     self._handler = handler
     self._primary_host = primary_host
 
@@ -276,14 +286,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
 
     # Run copy ops.
     # Try to save using new CheckpointArgs API if supported by the handler.
-    ckpt_args = self._construct_checkpoint_args(True, *args, **kwargs)
-    if ckpt_args:
-      commit_ops = asyncio.run(self._handler.async_save(tmpdir, args=ckpt_args))
-    else:
-      commit_ops = asyncio.run(
-          self._handler.async_save(tmpdir, *args, **kwargs)
-      )
-
+    ckpt_args = checkpointer.construct_checkpoint_args(
+        self._handler, True, *args, **kwargs
+    )
+    commit_ops = asyncio.run(self._handler.async_save(tmpdir, args=ckpt_args))
     commit_ops, _ = jax.tree_util.tree_flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
 

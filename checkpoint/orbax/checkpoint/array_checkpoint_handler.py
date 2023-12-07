@@ -193,7 +193,7 @@ class ArraySaveArgs(CheckpointArgs):
   save_args: Optional[type_handlers.SaveArgs] = None
 
 
-@register_with_handler(ArrayCheckpointHandler, for_save=False)
+@register_with_handler(ArrayCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
 class ArrayRestoreArgs(CheckpointArgs):
   """Array restore args.

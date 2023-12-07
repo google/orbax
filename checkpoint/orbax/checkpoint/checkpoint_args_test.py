@@ -49,7 +49,7 @@ class CheckpointArgsTest(absltest.TestCase):
 
     checkpoint_args.register_with_handler(
         StandardCheckpointHandler,
-        for_save=False,
+        for_restore=True,
     )(
         StandardRestoreArgs,
     )
@@ -92,7 +92,9 @@ class CheckpointArgsTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       checkpoint_args.get_registered_args_cls(MyCheckpointHandler)
 
-    @checkpoint_args.register_with_handler(MyCheckpointHandler, for_save=False)
+    @checkpoint_args.register_with_handler(
+        MyCheckpointHandler, for_restore=True
+    )
     @dataclasses.dataclass
     class MyRestoreArgs(checkpoint_args.CheckpointArgs):
       pass
@@ -107,6 +109,33 @@ class CheckpointArgsTest(absltest.TestCase):
     )
     self.assertIs(save_args, MySaveArgs)
     self.assertIs(restore_args, MyRestoreArgs)
+
+  def test_get_registered_args_cls_save_and_restore(self):
+    class MyCheckpointHandler(checkpoint_handler.CheckpointHandler):
+
+      def save(self, *args, **kwargs):
+        pass
+
+      def restore(self, *args, **kwargs):
+        pass
+
+    @checkpoint_args.register_with_handler(
+        MyCheckpointHandler, for_save=True, for_restore=True
+    )
+    @dataclasses.dataclass
+    class MyHandlerArgs(checkpoint_args.CheckpointArgs):
+      pass
+
+    save_args, restore_args = checkpoint_args.get_registered_args_cls(
+        MyCheckpointHandler
+    )
+    self.assertIs(save_args, MyHandlerArgs)
+    self.assertIs(restore_args, MyHandlerArgs)
+    save_args, restore_args = checkpoint_args.get_registered_args_cls(
+        MyCheckpointHandler()
+    )
+    self.assertIs(save_args, MyHandlerArgs)
+    self.assertIs(restore_args, MyHandlerArgs)
 
 
 if __name__ == '__main__':
