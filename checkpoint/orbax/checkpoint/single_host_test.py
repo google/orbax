@@ -18,6 +18,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 import jax
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import type_handlers
@@ -154,6 +155,73 @@ class SingleHostTest(parameterized.TestCase):
     )
     with self.assertRaises(ValueError):
       handler.save(self.ckpt_dir, pytree, save_args=save_args)
+
+  def test_choose_chunk_shape(self):
+    shape = (10, 100, 200)
+    dtype = np.dtype('float32')
+
+    # allow only 1 element
+    chosen_shape = type_handlers._choose_chunk_shape(
+        write_shape=shape, dtype=dtype, target_byte_size=dtype.itemsize
+    )
+    np.testing.assert_array_equal(chosen_shape, (1, 1, 1))
+
+    # allow 3 elements
+    chosen_shape = type_handlers._choose_chunk_shape(
+        write_shape=shape, dtype=dtype, target_byte_size=5**3 * dtype.itemsize
+    )
+    np.testing.assert_array_equal(chosen_shape, (5, 5, 5))
+
+    # allow 4 elements
+    chosen_shape = type_handlers._choose_chunk_shape(
+        write_shape=shape, dtype=dtype, target_byte_size=5**4 * dtype.itemsize
+    )
+    np.testing.assert_array_equal(chosen_shape, (5, 10, 10))
+
+    # not divisble target_byte_size should still result a correct shape
+    chosen_shape = type_handlers._choose_chunk_shape(
+        write_shape=shape,
+        dtype=dtype,
+        target_byte_size=5**4 * dtype.itemsize + 3,
+    )
+    np.testing.assert_array_equal(chosen_shape, (5, 10, 10))
+
+  def test_chunk_byte_size(self):
+    handler = PyTreeCheckpointHandler(use_zarr3=True)
+    key = jax.random.PRNGKey(0)
+    x = jax.random.normal(key, (10, 100, 200), dtype=jnp.dtype('float32'))
+    pytree = {'x': x}
+
+    save_args = jax.tree_map(
+        lambda x: type_handlers.SaveArgs(
+            chunk_byte_size=jnp.dtype('float32').itemsize * 5**3,
+        ),
+        pytree,
+    )
+    handler.save(self.ckpt_dir, pytree, save_args=save_args)
+
+    # validate the stored array is in the chunk_layout specified
+    tsstore = ts.open({
+        'driver': 'zarr3',
+        'kvstore': {
+            'driver': 'ocdbt',
+            'base': f'file://{self.ckpt_dir}',
+            'path': 'x',
+        },
+    }).result()
+
+    np.testing.assert_array_equal(
+        tsstore.chunk_layout.read_chunk.shape, (5, 5, 5)
+    )
+    np.testing.assert_array_equal(
+        tsstore.chunk_layout.write_chunk.shape, (5, 5, 5)
+    )
+
+    # validate the restored_tree is identical as the written one
+    restore_handler = PyTreeCheckpointHandler(use_zarr3=True)
+    restored_tree = restore_handler.restore(self.ckpt_dir)
+    np.testing.assert_array_equal(x, restored_tree['x'])
+    assert isinstance(restored_tree['x'], jax.Array)
 
 
 if __name__ == '__main__':

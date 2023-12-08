@@ -348,9 +348,7 @@ class ParamInfo:
   path: Optional[epath.Path] = None
   parent_dir: Optional[epath.Path] = None
   skip_deserialize: Optional[bool] = None
-  byte_limiter: Optional[serialization._LimitInFlightBytes] = (
-      None  # pylint: disable=protected-access
-  )
+  byte_limiter: Optional[serialization._LimitInFlightBytes] = None  # pylint: disable=protected-access
   is_ocdbt_checkpoint: Optional[bool] = None
   ocdbt_merge: Optional[bool] = None
   use_zarr3: Optional[bool] = False
@@ -376,12 +374,20 @@ class SaveArgs:
     This only applies to Zarr version 3.  This specifies the chunk sizes within
     a write chunk. Default is set to equal to the write_chunk_shape. The
     read_chunk_shape is reqired to be a divisor of the write_chunk_shape.
+  chunk_byte_size:
+    This is an experimental feature that automatically chooses the largest chunk
+    shape possible, while keeping the chunk byte size less than or equal to the
+    specified chunk_byte_size. Both the write_chunk_shape and read_chunk_shape
+    are automatically set to the chosen shape. This uses a greedy algorithm that
+    prioritizes splitting the largest dimensions first. In order to enable this
+    feature, both write_chunk_shape and read_chunk_shape must be set to None.
   """
 
   aggregate: bool = False
   dtype: Optional[jnp.dtype] = None
   write_chunk_shape: Optional[tuple[int, ...]] = None
   read_chunk_shape: Optional[tuple[int, ...]] = None
+  chunk_byte_size: Optional[int] = None
 
 
 @dataclasses.dataclass
@@ -402,6 +408,77 @@ class RestoreArgs:
   dtype: Optional[jnp.dtype] = None
 
 
+def _choose_chunk_shape(
+    write_shape: Sequence[int],
+    dtype: Union[jnp.dtype, np.dtype],
+    target_byte_size: int,
+) -> Sequence[int]:
+  """Chooses a chunk shape that evenly divides write_shape.
+
+  The chunk shape is chosen such that the resulting byte size is less than
+  or equal to `target_byte_size`, but is otherwise as large as possible.
+
+  This uses a greedy algorithm that attempts to split the largest dimensions
+  first.
+
+  Args:
+    write_shape: Write shape for which to choose a chunk shape.
+    dtype: the dtype of the array
+    target_byte_size: Desired chunk byte size.  Must be >= dtype.itemsize.
+
+  Returns:
+    List of length `len(write_shape)` specifying the chosen chunk shape.
+  """
+  dtype_size = dtype.itemsize
+  target_elements = target_byte_size // dtype_size
+
+  rank = len(write_shape)
+
+  # `dim_factors[i]` is the list of divisors of `write_shape[i]`
+  dim_factors = [
+      [i for i in range(1, size + 1) if size % i == 0] for size in write_shape
+  ]
+
+  # The current chunk shape is:
+  # [dim_factors[i][-1] for i in range(rank)]
+
+  def get_total_elements():
+    """Returns the number of elements in the current chunk shape."""
+    total_elements = 1
+    for i in range(rank):
+      total_elements *= dim_factors[i][-1]
+    return total_elements
+
+  # Reduce the current chunk shape until the desired number of elements is
+  # reached.
+  while get_total_elements() > target_elements:
+    # Greedily reduce the largest dimension.  This is not guaranteed to bring us
+    # the closest to `target_elements`, but is simple to implement and should
+    # work well enough.
+    dim_to_reduce = -1
+    dim_to_reduce_size = 1
+    for i in range(rank):
+      size = dim_factors[i][-1]
+      if size > dim_to_reduce_size:
+        dim_to_reduce_size = size
+        dim_to_reduce = i
+    # Can only fail to choose `dim_to_reduce` if all dimensions have size of 1.
+    # But that cannot happen since `target_elements >= 1`.
+    assert dim_to_reduce_size > 1
+    dim_factors[dim_to_reduce].pop()
+  chosen_shape = [dim_factors[i][-1] for i in range(rank)]
+
+  logging.debug(
+      'write_shape=%s, dtype=%s, target_byte_size=%d, chosen_shape=%s',
+      write_shape,
+      dtype,
+      target_byte_size,
+      chosen_shape,
+  )
+
+  return chosen_shape
+
+
 def _validate_divisible_shapes(
     shape1: tuple[int, ...], shape2: tuple[int, ...]
 ) -> bool:
@@ -416,8 +493,10 @@ def _validate_divisible_shapes(
 def _build_ts_zarr_shard_and_chunk_metadata(
     shard_shape: tuple[int, ...],
     use_zarr3: bool,
+    dtype: Union[jnp.dtype, np.dtype],
     write_chunk_shape: Optional[tuple[int, ...]] = None,
     read_chunk_shape: Optional[tuple[int, ...]] = None,
+    chunk_byte_size: Optional[int] = None,
 ) -> Dict[Any, Any]:
   """This function returns the TS metadata for write spec."""
   metadata = {}
@@ -429,11 +508,29 @@ def _build_ts_zarr_shard_and_chunk_metadata(
   else:
     # Zarr ver3
     # Shard configs{
+
+    # choose write_chunk_shape and read_chunk_shape that result a chunk byte
+    # size equal or less than the `chunk_byte_size`
+    if chunk_byte_size:
+      if write_chunk_shape is None and read_chunk_shape is None:
+        if chunk_byte_size < dtype.itemsize:
+          raise ValueError(
+              f'chunk_byte_size={chunk_byte_size} must be >= {dtype.itemsize}'
+          )
+        write_chunk_shape = read_chunk_shape = _choose_chunk_shape(
+            shard_shape, dtype, chunk_byte_size
+        )
+      else:
+        logging.warning(
+            '`chunk_byte_size` is ignored because `write_chunk_shape` or'
+            ' `read_chunk_shape` is not None.'
+        )
+
     # If `write_chunk_shape` is not specified, make it the same as Jax sharding
     if write_chunk_shape:
       if not _validate_divisible_shapes(shard_shape, write_chunk_shape):
         raise ValueError(
-            f'write_chunk_shape={write_chunk_shape} must be a divisor of'
+            f'write_chunk_shape={write_chunk_shape} is not a divisor of'
             f' shard_shape={shard_shape}'
         )
       write_shape = write_chunk_shape
@@ -448,12 +545,12 @@ def _build_ts_zarr_shard_and_chunk_metadata(
     }
 
     # Sub-chunk configs
-    # If `read_chunk_shape` is not specified, # make it the same as
-    # `write_chunk_shape`
+    # If `read_chunk_shape` is not specified, make it the same as
+    # `write_shape`
     if read_chunk_shape:
       if not _validate_divisible_shapes(write_shape, read_chunk_shape):
         raise ValueError(
-            f'read_chunk_shape={read_chunk_shape} must be a divisor of'
+            f'read_chunk_shape={read_chunk_shape} is not a divisor of'
             f' write_chunk_shape={write_shape}'
         )
       read_shape = read_chunk_shape
@@ -644,7 +741,13 @@ def _get_kvstore_for_gcs(ckpt_path: str) -> Dict[str, Any]:
   return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
 
 
-def _get_metadata(arr, use_zarr3, write_chunk_shape, read_chunk_shape):
+def _get_metadata(
+    arr,
+    use_zarr3,
+    write_chunk_shape,
+    read_chunk_shape,
+    chunk_byte_size,
+):
   """build metadata for a Tensorstore array."""
   if arr.dtype == jnp.bfloat16:
     # Tensorstore uses 'bfloat16', not '<V2'.
@@ -658,7 +761,12 @@ def _get_metadata(arr, use_zarr3, write_chunk_shape, read_chunk_shape):
   local_shape = arr.addressable_data(0).shape
   metadata.update(
       _build_ts_zarr_shard_and_chunk_metadata(
-          local_shape, use_zarr3, write_chunk_shape, read_chunk_shape
+          shard_shape=local_shape,
+          dtype=arr.dtype,
+          use_zarr3=use_zarr3,
+          write_chunk_shape=write_chunk_shape,
+          read_chunk_shape=read_chunk_shape,
+          chunk_byte_size=chunk_byte_size,
       )
   )
   return metadata
@@ -873,10 +981,12 @@ class NumpyHandler(TypeHandler):
     }
     tspec['metadata'].update(
         _build_ts_zarr_shard_and_chunk_metadata(
-            value.shape,
-            info.use_zarr3,
-            arg.write_chunk_shape if arg else None,
-            arg.read_chunk_shape if arg else None,
+            shard_shape=value.shape,
+            dtype=value.dtype,
+            use_zarr3=info.use_zarr3,
+            write_chunk_shape=arg.write_chunk_shape if arg else None,
+            read_chunk_shape=arg.read_chunk_shape if arg else None,
+            chunk_byte_size=arg.chunk_byte_size if arg else None,
         )
     )
     if use_ocdbt:
@@ -903,11 +1013,7 @@ class NumpyHandler(TypeHandler):
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       open_ops.append(
-          ts.open(
-              ts.Spec(tspec),
-              open=True,
-              context=get_ts_context(use_ocdbt)
-          )
+          ts.open(ts.Spec(tspec), open=True, context=get_ts_context(use_ocdbt))
       )
 
     tensorstores = await asyncio.gather(*open_ops)
@@ -991,9 +1097,7 @@ class NumpyHandler(TypeHandler):
         logging.debug('infos = %s', infos)
         logging.debug('args = %s', args)
       open_futures += [
-          ts.open(
-              ts.Spec(tspec), open=True, context=get_ts_context(use_ocdbt)
-          )
+          ts.open(ts.Spec(tspec), open=True, context=get_ts_context(use_ocdbt))
       ]
     tensorstores = await asyncio.gather(*open_futures)
     read_ops = [t.read() for t in tensorstores]
@@ -1144,6 +1248,7 @@ class ArrayHandler(TypeHandler):
         info.use_zarr3,
         arg.write_chunk_shape if arg else None,
         arg.read_chunk_shape if arg else None,
+        arg.chunk_byte_size if arg else None,
     )
     del tspec['metadata']['dtype']
     if use_ocdbt:
@@ -1376,7 +1481,9 @@ class ArrayHandler(TypeHandler):
         )
       if not info.is_ocdbt_checkpoint:
         await _assert_parameter_files_exist(
-            info.path, self._metadata_key, info.use_zarr3,
+            info.path,
+            self._metadata_key,
+            info.use_zarr3,
         )
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
