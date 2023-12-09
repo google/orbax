@@ -19,6 +19,7 @@ from typing import Any, Callable, Mapping, Optional, Tuple, Union
 from absl import logging
 import jax
 from jax.experimental import jax2tf
+from jax.experimental.export import export as jax_export
 from orbax.checkpoint import utils as ckpt_utils
 from orbax.export import dtensor_utils
 from orbax.export import utils as orbax_export_utils
@@ -234,7 +235,7 @@ class JaxModule(tf.Module):
         )
 
     if not native_serialization_platforms_list:
-      return [jax2tf.jax_export.default_lowering_platform()]
+      return [jax_export.default_lowering_platform()]
     else:
       native_serialization_platforms = native_serialization_platforms_list[0]
       for item in native_serialization_platforms_list:
