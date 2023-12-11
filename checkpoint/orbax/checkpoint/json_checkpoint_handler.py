@@ -96,7 +96,7 @@ class JsonSaveArgs(CheckpointArgs):
   item: Mapping[str, Any]
 
 
-@register_with_handler(JsonCheckpointHandler, for_save=False)
+@register_with_handler(JsonCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
 class JsonRestoreArgs(CheckpointArgs):
   """Json restore args.

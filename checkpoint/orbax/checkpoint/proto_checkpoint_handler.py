@@ -128,7 +128,7 @@ class ProtoSaveArgs(CheckpointArgs):
   item: message.Message
 
 
-@register_with_handler(ProtoCheckpointHandler, for_save=False)
+@register_with_handler(ProtoCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
 class ProtoRestoreArgs(CheckpointArgs):
   """Proto restore args.

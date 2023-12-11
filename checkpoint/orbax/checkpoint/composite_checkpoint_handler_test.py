@@ -26,24 +26,12 @@ from orbax.checkpoint import value_metadata
 
 CompositeArgs = composite_checkpoint_handler.CompositeArgs
 JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
-
-
-class StandardCheckpointHandler(
+StandardCheckpointHandler = (
     standard_checkpoint_handler.StandardCheckpointHandler
-):
-
-  def save(self, directory, *args, **kwargs):
-    super().save(directory, *args, **kwargs)
-    self.finalize(directory)
-
-
-class CompositeCheckpointHandler(
+)
+CompositeCheckpointHandler = (
     composite_checkpoint_handler.CompositeCheckpointHandler
-):
-
-  def save(self, directory, *args, **kwargs):
-    super().save(directory, *args, **kwargs)
-    self.finalize(directory)
+)
 
 
 class CompositeArgsTest(absltest.TestCase):
@@ -102,6 +90,10 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     super().setUp()
     self.directory = epath.Path(self.create_tempdir(name='test_dir'))
 
+  def save(self, handler, *args, **kwargs):
+    handler.save(*args, **kwargs)
+    handler.finalize(self.directory)
+
   def test_init(self):
     handler = CompositeCheckpointHandler('state', 'dataset')
     self.assertDictEqual(
@@ -129,7 +121,8 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     state = {'a': 1, 'b': 2}
     dummy_state = {'a': 0, 'b': 0}
     metadata = {'lang': 'en', 'version': 1.0}
-    handler.save(
+    self.save(
+        handler,
         self.directory,
         CompositeArgs(
             state=args_lib.StandardSave(state),
@@ -155,7 +148,8 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     opt_state = {'x': 1, 'y': 2}
     dummy_opt_state = {'x': 0, 'y': 0}
     metadata = {'lang': 'en', 'version': 1.0}
-    handler.save(
+    self.save(
+        handler,
         self.directory,
         CompositeArgs(
             state=args_lib.StandardSave(state),
@@ -165,7 +159,8 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     self.assertTrue((self.directory / 'state').exists())
     self.assertTrue((self.directory / 'metadata').exists())
     self.assertFalse((self.directory / 'opt_state').exists())
-    handler.save(
+    self.save(
+        handler,
         self.directory,
         CompositeArgs(
             opt_state=args_lib.StandardSave(opt_state),
@@ -192,8 +187,21 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     handler = CompositeCheckpointHandler('state')
     state = {'a': 1, 'b': 2}
     handler.save(dir1, CompositeArgs(state=args_lib.StandardSave(state)))
+    self.save(
+        handler,
+        dir1,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+        ),
+    )
     with self.assertRaises(ValueError):
-      handler.save(dir2, CompositeArgs(state=args_lib.JsonSave(state)))
+      self.save(
+          handler,
+          dir2,
+          CompositeArgs(
+              state=args_lib.JsonSave(state),
+          ),
+      )
     with self.assertRaises(ValueError):
       handler.restore(dir1, CompositeArgs(state=args_lib.JsonRestore(state)))
 
@@ -202,7 +210,8 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     state = {'a': 1, 'b': 2}
     dummy_state = {'a': 0, 'b': 0}
     metadata = {'lang': 'en', 'version': 1.0}
-    handler.save(
+    self.save(
+        handler,
         self.directory,
         CompositeArgs(
             state=args_lib.StandardSave(state),
@@ -229,7 +238,8 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     )
     state = {'a': 1, 'b': 2}
     dummy_state = {'a': 0, 'b': 0}
-    handler.save(
+    self.save(
+        handler,
         self.directory,
         CompositeArgs(
             state=args_lib.StandardSave(state),
@@ -254,7 +264,8 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     state = {'a': 1, 'b': 2}
     dummy_state = {'a': 0, 'b': 0}
     metadata = {'lang': 'en', 'version': 1.0}
-    handler.save(
+    self.save(
+        handler,
         self.directory,
         CompositeArgs(
             state=args_lib.StandardSave(state),
@@ -285,7 +296,8 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     self.assertNotIn('extra', metadata.items())
 
     state = {'a': 1, 'b': 2}
-    handler.save(
+    self.save(
+        handler,
         self.directory,
         CompositeArgs(
             state=args_lib.StandardSave(state),

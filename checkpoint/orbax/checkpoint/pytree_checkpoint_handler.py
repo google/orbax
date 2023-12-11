@@ -1425,7 +1425,7 @@ class PyTreeSaveArgs(CheckpointArgs):
   save_args: Optional[PyTree] = None
 
 
-@register_with_handler(PyTreeCheckpointHandler, for_save=False)
+@register_with_handler(PyTreeCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
 class PyTreeRestoreArgs(CheckpointArgs):
   """Parameters for restoring a PyTree.

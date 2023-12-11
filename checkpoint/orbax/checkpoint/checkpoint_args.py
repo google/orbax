@@ -41,7 +41,7 @@ class CheckpointArgs:
     item: Any
     options: Any
 
-  @ocp.args.register_with_handler(MyCheckpointHandler, for_save=False)
+  @ocp.args.register_with_handler(MyCheckpointHandler, for_restore=True)
   @dataclasses.dataclass
   class MyCheckpointRestore(ocp.args.CheckpointArgs):
     options: Any
@@ -72,7 +72,9 @@ _RESTORE_ARG_TO_HANDLER: dict[Type[CheckpointArgs], Type[CheckpointHandler]] = (
 
 
 def register_with_handler(
-    handler_cls: Type[CheckpointHandler], *, for_save: bool
+    handler_cls: Type[CheckpointHandler],
+    for_save: bool = False,
+    for_restore: bool = False,
 ):
   """Registers a CheckpointArg subclass with a specific handler.
 
@@ -80,14 +82,20 @@ def register_with_handler(
   CheckpointArg class with `CompositeCheckpointHandler`, we can automatically
   find the correct Handler to use to save this class.
 
+  Note, `for_save` and `for_restore` may both be true, but cannot both be false.
+
   Args:
     handler_cls: `CheckpointHandler` to be associated with this `CheckpointArg`.
     for_save: indicates whether the `CheckpointArg` is registered as a save
-      argument or restore argument
+      argument.
+    for_restore: indicates whether the `CheckpointArg` is registered as a
+      restore argument.
 
   Returns:
     Decorator.
   """
+  if not for_save and not for_restore:
+    raise ValueError('`for_save` and `for_restore` cannot both be False.')
 
   def decorator(cls: Type[CheckpointArgs]):
     if not issubclass(cls, CheckpointArgs):
@@ -96,7 +104,7 @@ def register_with_handler(
       )
     if for_save:
       _SAVE_ARG_TO_HANDLER[cls] = handler_cls
-    else:
+    if for_restore:
       _RESTORE_ARG_TO_HANDLER[cls] = handler_cls
     return cls
 
@@ -154,3 +162,13 @@ def get_registered_args_cls(
         f'Unable to find registered `CheckpointArgs` for restore for {handler}.'
     )
   return save_args, restore_args
+
+
+def has_registered_args(
+    handler: Union[Type[CheckpointHandler], CheckpointHandler]
+) -> bool:
+  try:
+    get_registered_args_cls(handler)
+  except ValueError:
+    return False
+  return True
