@@ -84,7 +84,7 @@ class ShardingTypes(enum.Enum):
   GSPMD_SHARDING = 'GSPMDSharding'
 
 
-def _serialize_sharding(sharding: jax.sharding.Sharding) -> str:
+def sharding_to_json(sharding: jax.sharding.Sharding) -> str:
   """Serializes `jax.sharding.Sharding` into a json string."""
 
   sharding_data = {}
@@ -1153,7 +1153,7 @@ class ScalarHandler(NumpyHandler):
     return [r.item() for r in results]
 
 
-def get_sharding_tensorstore_spec(
+def _get_sharding_tensorstore_spec(
     directory: str, param_name: str
 ) -> Dict[str, Any]:
   kvstore = get_tensorstore_spec(directory, name=_SHARDING, use_ocdbt=False)[
@@ -1166,6 +1166,19 @@ def get_sharding_tensorstore_spec(
           param_name.encode()
       ).decode('utf-8'),
   }
+
+
+def sharding_ts_spec_and_context(
+    param_info: ParamInfo,
+) -> Tuple[Dict[str, Any], ts.Context]:
+  if param_info.parent_dir is None:
+    raise ValueError(f'ParamInfo.parent_dir cannot be None: {param_info}')
+  sharding_tspec = _get_sharding_tensorstore_spec(
+      os.fspath(param_info.parent_dir), param_info.name
+  )
+  # OCDBT is not used for sharding metadata.
+  sharding_ts_context = get_ts_context(use_ocdbt=False)
+  return sharding_tspec, sharding_ts_context
 
 
 @dataclasses.dataclass
@@ -1285,16 +1298,13 @@ class ArrayHandler(TypeHandler):
 
       sharding_op = None
       if info.name:
-        tspec_sharding = get_sharding_tensorstore_spec(
-            os.fspath(info.parent_dir), info.name
-        )
+        sharding_tspec, sharding_ts_context = sharding_ts_spec_and_context(info)
         if sharding_file_exists:
           sharding_op = ts.open(
-              tspec_sharding,
+              sharding_tspec,
               open=True,
               read=True,
-              # OCDBT is not used for sharding metadata.
-              context=get_ts_context(use_ocdbt=False),
+              context=sharding_ts_context,
           )
       sharding_open_ops.append(sharding_op)
 
@@ -1377,28 +1387,22 @@ class ArrayHandler(TypeHandler):
       ]
 
       if value.sharding is not None:
-        if info.parent_dir is None:
-          raise ValueError('parent_dir cannot be None')
-        tspec_sharding = get_sharding_tensorstore_spec(
-            os.fspath(info.parent_dir), info.name
-        )
+        sharding_tspec, sharding_ts_context = sharding_ts_spec_and_context(info)
         if jax.process_index() == 0:
-          # OCDBT is not used for sharding metadata.
-          sharding_ts_context = get_ts_context(use_ocdbt=False)
           open_future = ts.open(
-              tspec_sharding,
+              sharding_tspec,
               open=True,
               context=sharding_ts_context,
           )
           t = await ts.open(
-              tspec_sharding,
+              sharding_tspec,
               open=True,
               assume_metadata=True,
               context=sharding_ts_context,
           )
-          serialized_sharding = _serialize_sharding(value.sharding)
-          if serialized_sharding is not None:
-            write_future = t.write(serialized_sharding)
+          sharding_json = sharding_to_json(value.sharding)
+          if sharding_json is not None:
+            write_future = t.write(sharding_json)
             synchronous_ops += [write_future.copy]
             futures += [open_future, write_future]
     await asyncio.gather(*synchronous_ops)
@@ -1456,13 +1460,12 @@ class ArrayHandler(TypeHandler):
         )
         sharding = None
         if info.name:
-          tspec_sharding = get_sharding_tensorstore_spec(
-              os.fspath(info.parent_dir), info.name
+          sharding_tspec, sharding_ts_context = sharding_ts_spec_and_context(
+              info
           )
           t = await ts.open(
-              tspec_sharding,
-              # OCDBT is not used for sharding metadata.
-              context=get_ts_context(use_ocdbt=False),
+              sharding_tspec,
+              context=sharding_ts_context,
               open=True,
               read=True,
           )
