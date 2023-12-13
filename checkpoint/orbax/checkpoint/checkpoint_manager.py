@@ -323,7 +323,7 @@ class CheckpointManager(AbstractCheckpointManager):
       logging.warning('Given directory is read only=%s', self._directory)
     if self._options.create:
       if jax.process_index() == 0 and not self._directory.exists():
-        self._directory.mkdir(parents=True)
+        self._directory.mkdir(parents=True, mode=0o775)
       utils.sync_global_devices('CheckpointManager:create_directory')
 
     # Cleanup directories from previous runs that may not have been finalized.
