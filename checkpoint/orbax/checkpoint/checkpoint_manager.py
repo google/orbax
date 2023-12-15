@@ -28,20 +28,28 @@ import jax
 from jax.experimental import multihost_utils
 from jax.experimental.array_serialization import serialization
 import numpy as np
+from orbax.checkpoint import abstract_checkpoint_manager
+from orbax.checkpoint import abstract_checkpointer
+from orbax.checkpoint import async_checkpointer
+from orbax.checkpoint import checkpointer as checkpointer_lib
+from orbax.checkpoint import json_checkpoint_handler
+from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
-# pylint: disable=g-importing-member
-from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
-from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
-from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
-from orbax.checkpoint.checkpointer import Checkpointer
-from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
-from orbax.checkpoint.proto_checkpoint_handler import ProtoCheckpointHandler
-# pylint: enable=g-importing-member
+
 PyTree = Any
 CheckpointDirs = Tuple[str, str]
 SaveParams = Mapping[str, Any]
 RestoreParams = SaveParams
+AbstractCheckpointer = abstract_checkpointer.AbstractCheckpointer
 CheckpointersDict = Mapping[str, AbstractCheckpointer]
+AbstractCheckpointManager = (
+    abstract_checkpoint_manager.AbstractCheckpointManager
+)
+AsyncCheckpointer = async_checkpointer.AsyncCheckpointer
+Checkpointer = checkpointer_lib.Checkpointer
+JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
+ProtoCheckpointHandler = proto_checkpoint_handler.ProtoCheckpointHandler
+
 
 DEFAULT_ITEM_NAME = 'default'
 DESCRIPTOR_ITEM_NAME = 'descriptor'
