@@ -156,35 +156,67 @@ class SingleHostTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       handler.save(self.ckpt_dir, pytree, save_args=save_args)
 
-  def test_choose_chunk_shape(self):
+  def test_choose_chunk_shape_equal_global_shape(self):
     shape = (10, 100, 200)
     dtype = np.dtype('float32')
 
     # allow only 1 element
     chosen_shape = type_handlers._choose_chunk_shape(
-        write_shape=shape, dtype=dtype, target_byte_size=dtype.itemsize
+        global_shape=shape,
+        write_shape=shape,
+        dtype=dtype,
+        target_byte_size=dtype.itemsize,
     )
     np.testing.assert_array_equal(chosen_shape, (1, 1, 1))
 
     # allow 3 elements
     chosen_shape = type_handlers._choose_chunk_shape(
-        write_shape=shape, dtype=dtype, target_byte_size=5**3 * dtype.itemsize
+        global_shape=shape,
+        write_shape=shape,
+        dtype=dtype,
+        target_byte_size=5**3 * dtype.itemsize,
     )
     np.testing.assert_array_equal(chosen_shape, (5, 5, 5))
 
     # allow 4 elements
     chosen_shape = type_handlers._choose_chunk_shape(
-        write_shape=shape, dtype=dtype, target_byte_size=5**4 * dtype.itemsize
+        global_shape=shape,
+        write_shape=shape,
+        dtype=dtype,
+        target_byte_size=5**4 * dtype.itemsize,
     )
     np.testing.assert_array_equal(chosen_shape, (5, 10, 10))
 
     # not divisble target_byte_size should still result a correct shape
     chosen_shape = type_handlers._choose_chunk_shape(
+        global_shape=shape,
         write_shape=shape,
         dtype=dtype,
         target_byte_size=5**4 * dtype.itemsize + 3,
     )
     np.testing.assert_array_equal(chosen_shape, (5, 10, 10))
+
+  def test_choose_chunk_shape_for_sharded_array(self):
+    local_shape = (10, 100, 200)
+    dtype = np.dtype('float32')
+
+    # allow to split on at the sharded axis
+    chosen_shape = type_handlers._choose_chunk_shape(
+        global_shape=(10, 500, 200),
+        write_shape=local_shape,
+        dtype=dtype,
+        target_byte_size=10 * 5 * 200 * dtype.itemsize,
+    )
+    np.testing.assert_array_equal(chosen_shape, (10, 5, 200))
+
+    # forced to split on unsharded axis when the target_byte_size is small
+    chosen_shape = type_handlers._choose_chunk_shape(
+        global_shape=(10, 500, 200),
+        write_shape=local_shape,
+        dtype=dtype,
+        target_byte_size=10 * 1 * 100 * dtype.itemsize,
+    )
+    np.testing.assert_array_equal(chosen_shape, (10, 1, 100))
 
   def test_chunk_byte_size(self):
     handler = PyTreeCheckpointHandler(use_zarr3=True)

@@ -65,4 +65,4 @@ except RuntimeError:
 
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
-__version__ = '0.4.7'
+__version__ = '0.4.8'

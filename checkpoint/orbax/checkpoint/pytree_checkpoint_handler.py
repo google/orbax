@@ -835,6 +835,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       commit_futures = await asyncio.gather(*serialize_ops)
       commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
 
+    if logging.level_debug():
+      logging.debug('param_info: %s', param_infos)
+      logging.debug('save_args: %s', save_args)
+
     # TODO(b/285888834): Allow this to be asynchronous.
     if self._write_tree_metadata and jax.process_index() == 0:
       self._write_metadata_file(directory, item, save_args, self._use_zarr3)
@@ -1081,6 +1085,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     utils.sync_global_devices('PyTreeCheckpointHandler:restore')
 
     if logging.level_debug():
+      logging.debug('param_infos: %s', param_infos)
+      logging.debug('checkpoint_restore_args: %s', checkpoint_restore_args)
       logging.debug(
           'restored_item: %s', jax.tree_util.tree_structure(restored_item)
       )

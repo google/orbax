@@ -409,26 +409,35 @@ class RestoreArgs:
 
 
 def _choose_chunk_shape(
+    global_shape: Sequence[int],
     write_shape: Sequence[int],
     dtype: Union[jnp.dtype, np.dtype],
     target_byte_size: int,
 ) -> Sequence[int]:
-  """Chooses a chunk shape that evenly divides write_shape.
+  """Chooses a chunk shape that divides the `write_shape`.
 
   The chunk shape is chosen such that the resulting byte size is less than
   or equal to `target_byte_size`, but is otherwise as large as possible.
 
-  This uses a greedy algorithm that attempts to split the largest dimensions
-  first.
+  This uses a greedy algorithm that attempts to split the largest and sharded
+  dimensions first.
 
   Args:
-    write_shape: Write shape for which to choose a chunk shape.
+    global_shape: the global shape of the array
+    write_shape: the local shape being written
     dtype: the dtype of the array
     target_byte_size: Desired chunk byte size.  Must be >= dtype.itemsize.
 
   Returns:
     List of length `len(write_shape)` specifying the chosen chunk shape.
   """
+  assert len(global_shape) == len(write_shape)
+  if target_byte_size < 52428800:  # 50MB
+    logging.warning(
+        'Setting the target_byte_size too small could reduce performance.'
+    )
+
+  sharded_dimensions = np.array(global_shape) != np.array(write_shape)
   dtype_size = dtype.itemsize
   target_elements = target_byte_size // dtype_size
 
@@ -459,17 +468,22 @@ def _choose_chunk_shape(
     dim_to_reduce_size = 1
     for i in range(rank):
       size = dim_factors[i][-1]
-      if size > dim_to_reduce_size:
+      if sharded_dimensions[i] and size > dim_to_reduce_size:
         dim_to_reduce_size = size
         dim_to_reduce = i
-    # Can only fail to choose `dim_to_reduce` if all dimensions have size of 1.
-    # But that cannot happen since `target_elements >= 1`.
-    assert dim_to_reduce_size > 1
-    dim_factors[dim_to_reduce].pop()
+
+    if dim_to_reduce_size > 1:
+      dim_factors[dim_to_reduce].pop()
+    else:
+      # need to start spliting on unsharded dimension
+      sharded_dimensions = np.ones(len(write_shape))
+
   chosen_shape = [dim_factors[i][-1] for i in range(rank)]
 
   logging.debug(
-      'write_shape=%s, dtype=%s, target_byte_size=%d, chosen_shape=%s',
+      'global_shape=%s, write_shape=%s, dtype=%s, target_byte_size=%d,'
+      ' chosen_shape=%s',
+      global_shape,
       write_shape,
       dtype,
       target_byte_size,
@@ -491,6 +505,7 @@ def _validate_divisible_shapes(
 
 
 def _build_ts_zarr_shard_and_chunk_metadata(
+    global_shape: tuple[int, ...],
     shard_shape: tuple[int, ...],
     use_zarr3: bool,
     dtype: Union[jnp.dtype, np.dtype],
@@ -518,7 +533,7 @@ def _build_ts_zarr_shard_and_chunk_metadata(
               f'chunk_byte_size={chunk_byte_size} must be >= {dtype.itemsize}'
           )
         write_chunk_shape = read_chunk_shape = _choose_chunk_shape(
-            shard_shape, dtype, chunk_byte_size
+            global_shape, shard_shape, dtype, chunk_byte_size
         )
       else:
         logging.warning(
@@ -761,6 +776,7 @@ def _get_metadata(
   local_shape = arr.addressable_data(0).shape
   metadata.update(
       _build_ts_zarr_shard_and_chunk_metadata(
+          global_shape=arr.shape,
           shard_shape=local_shape,
           dtype=arr.dtype,
           use_zarr3=use_zarr3,
@@ -981,6 +997,7 @@ class NumpyHandler(TypeHandler):
     }
     tspec['metadata'].update(
         _build_ts_zarr_shard_and_chunk_metadata(
+            global_shape=value.shape,
             shard_shape=value.shape,
             dtype=value.dtype,
             use_zarr3=info.use_zarr3,
