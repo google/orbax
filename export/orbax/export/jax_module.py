@@ -18,8 +18,8 @@ from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
 from absl import logging
 import jax
+from jax.experimental import export as jax_export
 from jax.experimental import jax2tf
-from jax.experimental.export import export as jax_export
 from orbax.checkpoint import utils as ckpt_utils
 from orbax.export import dtensor_utils
 from orbax.export import utils as orbax_export_utils
