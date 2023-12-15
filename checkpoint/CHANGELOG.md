@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New parameter `chunk_byte_size` in `SaveArgs`.  A convenient way to choose 
 the write and read chunk shapes using Zarr3.
 
+### Fixed
+- Issues interpreting `ValueMetadata` in `construct_restore_args`.
+
 ## [0.4.7] - 2023-12-07
 
 ### Fixed

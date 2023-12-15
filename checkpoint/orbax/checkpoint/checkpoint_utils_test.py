@@ -24,9 +24,24 @@ import orbax.checkpoint
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
+from orbax.checkpoint import value_metadata
 
 
 class CheckpointUtilsTest(absltest.TestCase):
+
+  def _check_restore_args(self, expected, actual):
+    self.assertIsInstance(actual, orbax.checkpoint.RestoreArgs)
+    self.assertEqual(expected.restore_type, actual.restore_type)
+    if hasattr(expected, 'dtype'):
+      self.assertEqual(expected.dtype, actual.dtype)
+
+  def _check_array_restore_args(self, expected, actual):
+    self.assertIsInstance(actual, orbax.checkpoint.ArrayRestoreArgs)
+    self.assertEqual(expected.restore_type, jax.Array)
+    self.assertEqual(expected.sharding.mesh, actual.sharding.mesh)
+    self.assertEqual(expected.sharding.spec, actual.sharding.spec)
+    self.assertEqual(expected.global_shape, actual.global_shape)
+    self.assertEqual(expected.dtype, actual.dtype)
 
   def test_construct_restore_args(self):
     devices = np.asarray(jax.devices())
@@ -40,6 +55,7 @@ class CheckpointUtilsTest(absltest.TestCase):
         ),
         'x': None,
         'y': None,
+        'z': None,
     }
     pytree = {
         'a': test_utils.create_sharded_array(
@@ -51,6 +67,7 @@ class CheckpointUtilsTest(absltest.TestCase):
         ),
         'x': np.ones(8, dtype=np.float64),
         'y': 1,
+        'z': 'hi',
     }
 
     expected_restore_args = {
@@ -69,6 +86,7 @@ class CheckpointUtilsTest(absltest.TestCase):
             restore_type=np.ndarray, dtype=np.float64
         ),
         'y': orbax.checkpoint.RestoreArgs(restore_type=int),
+        'z': orbax.checkpoint.RestoreArgs(restore_type=str),
     }
     restore_args = checkpoint_utils.construct_restore_args(
         pytree, sharding_tree
@@ -76,24 +94,71 @@ class CheckpointUtilsTest(absltest.TestCase):
 
     self.assertSameElements(expected_restore_args.keys(), restore_args.keys())
 
-    def _check_restore_args(expected, actual):
-      self.assertIsInstance(actual, orbax.checkpoint.RestoreArgs)
-      self.assertEqual(expected.restore_type, actual.restore_type)
-      self.assertEqual(expected.dtype, actual.dtype)
+    with self.subTest(name='array_restore_args'):
+      self._check_array_restore_args(
+          expected_restore_args['a'], restore_args['a']
+      )
+    with self.subTest(name='restore_args'):
+      self._check_restore_args(expected_restore_args['x'], restore_args['x'])
+      self._check_restore_args(expected_restore_args['y'], restore_args['y'])
+      self._check_restore_args(expected_restore_args['z'], restore_args['z'])
 
-    def _check_array_restore_args(expected, actual):
-      self.assertIsInstance(actual, orbax.checkpoint.ArrayRestoreArgs)
-      self.assertEqual(expected.restore_type, jax.Array)
-      self.assertEqual(expected.sharding.mesh, actual.sharding.mesh)
-      self.assertEqual(expected.sharding.spec, actual.sharding.spec)
-      self.assertEqual(expected.global_shape, actual.global_shape)
-      self.assertEqual(expected.dtype, actual.dtype)
+  def test_construct_restore_args_value_metadata(self):
+    devices = np.asarray(jax.devices())
+    mesh = jax.sharding.Mesh(devices, ('x',))
+    pytree = {
+        'a': value_metadata.ScalarMetadata(
+            name='', directory=epath.Path(''), dtype=np.int32
+        ),
+        'b': value_metadata.ArrayMetadata(
+            name='',
+            directory=epath.Path(''),
+            shape=(2, 4),
+            sharding=None,
+            dtype=np.float64,
+        ),
+        'c': value_metadata.ArrayMetadata(
+            name='',
+            directory=epath.Path(''),
+            shape=(2, 4),
+            sharding=jax.sharding.NamedSharding(
+                mesh=mesh, spec=jax.sharding.PartitionSpec('x')
+            ),
+            dtype=np.float64,
+        ),
+        'd': value_metadata.StringMetadata(name='', directory=epath.Path('')),
+    }
+
+    expected_restore_args = {
+        'a': orbax.checkpoint.RestoreArgs(restore_type=int, dtype=np.int32),
+        'b': orbax.checkpoint.RestoreArgs(
+            restore_type=np.ndarray, dtype=np.float64
+        ),
+        'c': orbax.checkpoint.ArrayRestoreArgs(
+            restore_type=jax.Array,
+            sharding=jax.sharding.NamedSharding(
+                mesh,
+                jax.sharding.PartitionSpec(
+                    'x',
+                ),
+            ),
+            global_shape=(2, 4),
+            dtype=np.float64,
+        ),
+        'd': orbax.checkpoint.RestoreArgs(restore_type=str),
+    }
+    restore_args = checkpoint_utils.construct_restore_args(pytree)
+
+    self.assertSameElements(expected_restore_args.keys(), restore_args.keys())
 
     with self.subTest(name='array_restore_args'):
-      _check_array_restore_args(expected_restore_args['a'], restore_args['a'])
+      self._check_array_restore_args(
+          expected_restore_args['c'], restore_args['c']
+      )
     with self.subTest(name='restore_args'):
-      _check_restore_args(expected_restore_args['x'], restore_args['x'])
-      _check_restore_args(expected_restore_args['y'], restore_args['y'])
+      self._check_restore_args(expected_restore_args['a'], restore_args['a'])
+      self._check_restore_args(expected_restore_args['b'], restore_args['b'])
+      self._check_restore_args(expected_restore_args['d'], restore_args['d'])
 
 
 class CheckpointIteratorTest(parameterized.TestCase):

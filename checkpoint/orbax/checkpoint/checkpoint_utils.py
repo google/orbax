@@ -310,6 +310,13 @@ def checkpoints_iterator(
       time.sleep(time_to_next_eval)
 
 
+def _python_type_from_dtype(dtype):
+  if hasattr(dtype, 'type'):
+    return type(dtype.type(0).item())
+  else:
+    return type(dtype(0).item())
+
+
 def construct_restore_args(
     target: PyTree,
     sharding_tree: Optional[PyTree] = None,
@@ -359,39 +366,49 @@ def construct_restore_args(
     A PyTree matching target of RestoreArgs (or ArrayRestoreArgs) objects.
   """
 
+  def _array_restore_args(
+      value: Any,
+      sharding: Optional[jax.sharding.Sharding],
+      dtype: Optional[np.dtype] = None,
+  ) -> type_handlers.ArrayRestoreArgs:
+    return type_handlers.ArrayRestoreArgs(
+        restore_type=jax.Array,
+        sharding=sharding,
+        global_shape=value.shape if set_global_shape else None,
+        dtype=dtype,
+    )
+
   def _restore_args(
       value: Any,
       sharding: Optional[jax.sharding.Sharding],
   ) -> type_handlers.RestoreArgs:
-    dtype = None
-    if hasattr(value, 'dtype'):
-      dtype = value.dtype
+    dtype = value.dtype if hasattr(value, 'dtype') else None
     if isinstance(value, jax.ShapeDtypeStruct):
       if sharding is None:
         return type_handlers.RestoreArgs(dtype=dtype)
       else:
-        return type_handlers.ArrayRestoreArgs(
-            restore_type=jax.Array,
-            sharding=sharding,
-            global_shape=value.shape if set_global_shape else None,
-            dtype=dtype,
+        return _array_restore_args(value, sharding, dtype)
+    elif isinstance(value, value_metadata.Metadata):
+      if isinstance(value, value_metadata.StringMetadata):
+        return type_handlers.RestoreArgs(restore_type=str)
+      elif isinstance(value, value_metadata.ScalarMetadata):
+        assert dtype is not None
+        return type_handlers.RestoreArgs(
+            restore_type=_python_type_from_dtype(dtype), dtype=dtype
         )
-    elif isinstance(value, value_metadata.ScalarMetadata):
-      return type_handlers.RestoreArgs(dtype=dtype)
-    elif isinstance(value, jax.Array) or isinstance(
-        value, value_metadata.ArrayMetadata
-    ):
-      return type_handlers.ArrayRestoreArgs(
-          restore_type=jax.Array,
-          sharding=sharding,
-          global_shape=value.shape if set_global_shape else None,
-          dtype=dtype,
-      )
+      elif isinstance(value, value_metadata.ArrayMetadata):
+        if sharding is None:
+          return type_handlers.RestoreArgs(restore_type=np.ndarray, dtype=dtype)
+        else:
+          return _array_restore_args(value, sharding, dtype)
+      else:
+        raise ValueError(f'Unsupported value_metadata class: {type(value)}.')
     elif isinstance(value, STANDARD_ARRAY_TYPES):
-      return type_handlers.RestoreArgs(restore_type=type(value), dtype=dtype)
-    elif isinstance(value, str) or isinstance(
-        value, value_metadata.StringMetadata
-    ):
+      if not isinstance(value, jax.Array):
+        return type_handlers.RestoreArgs(restore_type=type(value), dtype=dtype)
+      else:
+        return _array_restore_args(value, sharding, dtype)
+    elif isinstance(value, str):
       return type_handlers.RestoreArgs(restore_type=str)
     else:
       raise ValueError(f'Unsupported type: {type(value)}')
