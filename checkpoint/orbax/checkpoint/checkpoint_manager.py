@@ -337,9 +337,6 @@ class CheckpointManager(AbstractCheckpointManager):
     if self._options.cleanup_tmp_directories:
       self._cleanup_tmp_directories()
     self._checkpoints = self._create_checkpoints()
-    self._interval_preserved_checkpoints = (
-        self._get_interval_preserved_checkpoints(self._checkpoints)
-    )
     if self._checkpoints:
       self._last_checkpoint = self._checkpoints[-1]
     else:
@@ -670,10 +667,6 @@ class CheckpointManager(AbstractCheckpointManager):
         )
     )
     self._last_checkpoint = self._checkpoints[-1]
-    # Only empty if this is the very first checkpoint. First checkpoint is
-    # always preserved based on save_time_interval.
-    if not self._interval_preserved_checkpoints:
-      self._interval_preserved_checkpoints.append(self._checkpoints[-1])
 
   def _metadata_path(self) -> epath.Path:
     return self.directory / METADATA_ITEM_NAME
@@ -795,6 +788,9 @@ class CheckpointManager(AbstractCheckpointManager):
       maybe_delete = all_checkpoints[:-keep] if keep > 0 else sorted_checkpoints
       active_checkpoints = all_checkpoints[-keep:] if keep > 0 else []
 
+    interval_preserved_checkpoints = self._get_interval_preserved_checkpoints(
+        self._checkpoints
+    )
     kept_checkpoints = []
     self._steps_to_remove = []
     for info in maybe_delete:
@@ -807,9 +803,9 @@ class CheckpointManager(AbstractCheckpointManager):
         continue
       if (
           self._options.keep_time_interval is not None
-          and self._interval_preserved_checkpoints
+          and interval_preserved_checkpoints
       ):
-        if info in self._interval_preserved_checkpoints:
+        if info in interval_preserved_checkpoints:
           logging.info(
               'Preserving %s: (Reason: older falling on keep_time_interval).',
               info,
@@ -818,10 +814,10 @@ class CheckpointManager(AbstractCheckpointManager):
           continue
         elif (
             info.time
-            >= self._interval_preserved_checkpoints[-1].time
+            >= interval_preserved_checkpoints[-1].time
             + self._options.keep_time_interval
         ):
-          self._interval_preserved_checkpoints.append(info)
+          interval_preserved_checkpoints.append(info)
           logging.info(
               'Preserving %s: (Reason: latest falling on keep_time_interval).',
               info,
@@ -877,8 +873,6 @@ class CheckpointManager(AbstractCheckpointManager):
         self._last_checkpoint = (
             self._checkpoints[-2] if len(self._checkpoints) > 1 else None
         )
-        if self._checkpoints[-1] in self._interval_preserved_checkpoints:
-          self._interval_preserved_checkpoints.remove(self._checkpoints[-1])
         self._checkpoints = self._checkpoints[:-1]
         raise e
       # Additional work is being done on process 0 of the finalize threads.
