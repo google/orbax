@@ -17,6 +17,7 @@
 TODO(b/266449081) Increase unit test coverage.
 TODO(b/306715247) Move multihost_utils functions to new dedicated module.
 """
+
 import asyncio
 import concurrent.futures
 import functools
@@ -333,10 +334,11 @@ def from_flat_dict(
 
 
 def leaf_is_placeholder(leaf: Any) -> bool:
-  """Determines if `leaf` represents a placeholder for a non-aggregated value.
-  """
-  return isinstance(leaf, str) and (leaf.startswith(_PLACEHOLDER_PREFIX) or
-                                    leaf.startswith(_AGGREGATED_PREFIX))
+  """Determines if `leaf` represents a placeholder for a non-aggregated value."""
+  return isinstance(leaf, str) and (
+      leaf.startswith(_PLACEHOLDER_PREFIX)
+      or leaf.startswith(_AGGREGATED_PREFIX)
+  )
 
 
 def leaf_placeholder(name: str) -> str:
@@ -347,8 +349,10 @@ def leaf_placeholder(name: str) -> str:
 def name_from_leaf_placeholder(placeholder: str) -> str:
   """Gets the param name from a placeholder with the correct prefix."""
   if not leaf_is_placeholder(placeholder):
-    msg = ('Requested name from placeholder, but value did not contain required'
-           ' prefix.')
+    msg = (
+        'Requested name from placeholder, but value did not contain required'
+        ' prefix.'
+    )
     raise ValueError(msg)
   if placeholder.startswith(_AGGREGATED_PREFIX):
     return placeholder.replace(_AGGREGATED_PREFIX, '', 1)
@@ -403,8 +407,9 @@ def pytree_structure(directory: epath.PathLike) -> PyTree:
   return tree
 
 
-def cleanup_tmp_directories(directory: epath.PathLike,
-                            primary_host: Optional[int] = 0):
+def cleanup_tmp_directories(
+    directory: epath.PathLike, primary_host: Optional[int] = 0
+):
   """Cleanup steps in `directory` with tmp files, as these are not finalized."""
   directory = epath.Path(directory)
   if primary_host is None or jax.process_index() == primary_host:
@@ -477,8 +482,9 @@ def get_save_directory(
   return result
 
 
-def create_tmp_directory(final_dir: epath.PathLike,
-                         primary_host: Optional[int] = 0) -> epath.Path:
+def create_tmp_directory(
+    final_dir: epath.PathLike, primary_host: Optional[int] = 0
+) -> epath.Path:
   """Creates a temporary directory for saving at the given path."""
   # Share a timestamp across devices.
   final_dir = epath.Path(final_dir)
@@ -523,8 +529,9 @@ def create_tmp_directory(final_dir: epath.PathLike,
 def ensure_atomic_save(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path):
   """Finalizes atomic save by renaming tmp_dir or writing a success file."""
   if temp_ckpt_dir == final_ckpt_dir:
-    (final_ckpt_dir / _COMMIT_SUCCESS_FILE
-    ).write_text(f'Checkpoint commit was successful to {final_ckpt_dir}')
+    (final_ckpt_dir / _COMMIT_SUCCESS_FILE).write_text(
+        f'Checkpoint commit was successful to {final_ckpt_dir}'
+    )
   else:
     logging.info('Renaming %s to %s', temp_ckpt_dir, final_ckpt_dir)
     temp_ckpt_dir.rename(final_ckpt_dir)
@@ -547,17 +554,22 @@ def record_saved_duration(checkpoint_start_time: float):
   # Note: for the very first checkpoint, this is the interval between program
   # init and the current checkpoint start time.
   duration_since_last_checkpoint = (
-      checkpoint_start_time - _LAST_CHECKPOINT_WRITE_TIME)
+      checkpoint_start_time - _LAST_CHECKPOINT_WRITE_TIME
+  )
   # TODO(hanyangtay): Remove version guard.
   if jax.version.__version_info__ > (0, 3, 25):
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/duration_since_last_checkpoint_secs',
-        duration_since_last_checkpoint)
+        duration_since_last_checkpoint,
+    )
   _LAST_CHECKPOINT_WRITE_TIME = checkpoint_start_time
 
 
-def on_commit_callback(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path,
-                       checkpoint_start_time: float):
+def on_commit_callback(
+    temp_ckpt_dir: epath.Path,
+    final_ckpt_dir: epath.Path,
+    checkpoint_start_time: float,
+):
   """A callback to run on completion of checkpoint save operation.
 
   Args:

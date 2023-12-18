@@ -240,6 +240,7 @@ class CheckpointManagerOptions:
 @dataclasses.dataclass
 class CheckpointInfo:
   """Metadata about a checkpoint."""
+
   step: int
   time: datetime.datetime
   metrics: Optional[PyTree]
@@ -298,9 +299,9 @@ class CheckpointManager(AbstractCheckpointManager):
        new CheckpointManager instance with that `directory` does not overwrite
        the existing metadata and ignores the current given metadata. If
        `directory` is read-only then the current given metadata is not saved as
-       expected. A CheckpointManager instance with a read-only `directory`
-       uses the metadata if already present, otherwise always uses the current
-       given metadata.
+       expected. A CheckpointManager instance with a read-only `directory` uses
+       the metadata if already present, otherwise always uses the current given
+       metadata.
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
     self._single_item = False
@@ -419,9 +420,12 @@ class CheckpointManager(AbstractCheckpointManager):
     # on preemption, in which case we want to maintain the same save period as
     # if preemption had not happened.
     return last_checkpoint_step is None or (
-        last_checkpoint_step < step and
-        (step % self._options.save_interval_steps == 0 or
-         step in self._options.save_on_steps))
+        last_checkpoint_step < step
+        and (
+            step % self._options.save_interval_steps == 0
+            or step in self._options.save_on_steps
+        )
+    )
 
   def _get_save_directory(
       self,
@@ -457,13 +461,14 @@ class CheckpointManager(AbstractCheckpointManager):
       if info.step == step:
         self._checkpoints.pop(i)
 
-  def save(self,
-           step: int,
-           items: Union[Any, Mapping[str, Any]],
-           save_kwargs: Optional[Union[SaveParams, Mapping[str,
-                                                           SaveParams]]] = None,
-           metrics: Optional[PyTree] = None,
-           force: Optional[bool] = False) -> bool:
+  def save(
+      self,
+      step: int,
+      items: Union[Any, Mapping[str, Any]],
+      save_kwargs: Optional[Union[SaveParams, Mapping[str, SaveParams]]] = None,
+      metrics: Optional[PyTree] = None,
+      force: Optional[bool] = False,
+  ) -> bool:
     """See superclass documentation."""
     # Wait for ongoing saves to complete. Only applicable if some of the
     # checkpointers are AsyncCheckpointers.
@@ -543,9 +548,10 @@ class CheckpointManager(AbstractCheckpointManager):
       self,
       step: int,
       items: Optional[Union[Any, Mapping[str, Any]]] = None,
-      restore_kwargs: Optional[Union[RestoreParams,
-                                     Mapping[str, RestoreParams]]] = None,
-      directory: Optional[epath.PathLike] = None
+      restore_kwargs: Optional[
+          Union[RestoreParams, Mapping[str, RestoreParams]]
+      ] = None,
+      directory: Optional[epath.PathLike] = None,
   ) -> Union[Any, Mapping[str, Any]]:
     """See superclass documentation."""
     if items is None:
@@ -558,7 +564,8 @@ class CheckpointManager(AbstractCheckpointManager):
       restore_kwargs = {DEFAULT_ITEM_NAME: restore_kwargs}
 
     restored_items = self._restore_impl(
-        step, items, restore_kwargs, directory=directory)
+        step, items, restore_kwargs, directory=directory
+    )
 
     if self._single_item:
       return restored_items[DEFAULT_ITEM_NAME]
@@ -569,7 +576,8 @@ class CheckpointManager(AbstractCheckpointManager):
       step: int,
       items: Mapping[str, Any],
       restore_kwargs: Mapping[str, RestoreParams],
-      directory: Optional[epath.PathLike] = None) -> Mapping[str, Any]:
+      directory: Optional[epath.PathLike] = None,
+  ) -> Mapping[str, Any]:
     """Restores only the provided items, or all items if empty."""
     if directory is None:
       directory = self.directory
@@ -590,7 +598,8 @@ class CheckpointManager(AbstractCheckpointManager):
       item = items.get(item_name, None)
       kwargs = restore_kwargs.get(item_name, {})
       restored[item_name] = self._checkpointers[item_name].restore(
-          path, item=item, **kwargs)
+          path, item=item, **kwargs
+      )
 
     return restored
 
@@ -618,8 +627,10 @@ class CheckpointManager(AbstractCheckpointManager):
 
   @property
   def _all_checkpointers_are_sync(self):
-    return all(not is_async_checkpointer(checkpointer)
-               for checkpointer in self._checkpointers.values())
+    return all(
+        not is_async_checkpointer(checkpointer)
+        for checkpointer in self._checkpointers.values()
+    )
 
   def _create_checkpoints(self) -> List[CheckpointInfo]:
     """Create a list of CheckpointInfo for existing checkpoints.
@@ -669,8 +680,10 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def _add_checkpoint_info(self, step: int, metrics: Optional[PyTree]):
     self._checkpoints.append(
-        CheckpointInfo(step, datetime.datetime.now(tz=datetime.timezone.utc),
-                       metrics))
+        CheckpointInfo(
+            step, datetime.datetime.now(tz=datetime.timezone.utc), metrics
+        )
+    )
     self._last_checkpoint = self._checkpoints[-1]
     # Only empty if this is the very first checkpoint. First checkpoint is
     # always preserved based on save_time_interval.
@@ -718,7 +731,8 @@ class CheckpointManager(AbstractCheckpointManager):
     return without_metrics, sorted(
         with_metrics,
         key=lambda info: self._options.best_fn(info.metrics),
-        reverse=(self._options.best_mode == 'min'))
+        reverse=(self._options.best_mode == 'min'),
+    )
 
   def _cleanup_tmp_directories(self):
     utils.cleanup_tmp_directories(self.directory)
