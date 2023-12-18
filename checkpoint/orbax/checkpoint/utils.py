@@ -647,13 +647,29 @@ def checkpoint_steps_paths(
     return [step_dir for step_dir, future in futures.items() if future.result()]
 
 
-def checkpoint_steps(checkpoint_dir: epath.PathLike) -> List[int]:
+def checkpoint_steps(
+    checkpoint_dir: epath.PathLike, single_host_load_and_broadcast: bool = False
+) -> List[int]:
   """Returns a list of finalized checkpoint steps in the directory."""
+
+  def _checkpoint_steps(path: epath.Path) -> List[int]:
+    return [
+        step_from_checkpoint_name(s.name) for s in checkpoint_steps_paths(path)
+    ]
+
   checkpoint_dir = epath.Path(checkpoint_dir)
-  return [
-      step_from_checkpoint_name(s.name)
-      for s in checkpoint_steps_paths(checkpoint_dir)
-  ]
+  if single_host_load_and_broadcast:
+    max_steps = len(list(checkpoint_dir.iterdir()))
+    # Read the step list only from host 0, and then broadcast the list.
+    # This minimizes queries on non-leader processes.
+    padded_step_list = np.array([-1] * max_steps)
+    if jax.process_index() == 0:
+      steps = np.array(_checkpoint_steps(checkpoint_dir))
+      assert len(steps) <= max_steps
+      padded_step_list[0 : len(steps)] = steps
+    padded_step_list = multihost_utils.broadcast_one_to_all(padded_step_list)
+    return [step for step in padded_step_list if step >= 0]
+  return _checkpoint_steps(checkpoint_dir)
 
 
 def any_checkpoint_step(checkpoint_dir: epath.PathLike) -> Optional[int]:

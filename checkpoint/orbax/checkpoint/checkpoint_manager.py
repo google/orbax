@@ -25,9 +25,7 @@ import uuid
 from absl import logging
 from etils import epath
 import jax
-from jax.experimental import multihost_utils
 from jax.experimental.array_serialization import serialization
-import numpy as np
 from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import abstract_checkpointer
 from orbax.checkpoint import async_checkpointer
@@ -366,23 +364,10 @@ class CheckpointManager(AbstractCheckpointManager):
   def all_steps(self, read: bool = False) -> Sequence[int]:
     """See superclass documentation."""
     if read:
-      if self._options.single_host_load_and_broadcast:
-        max_steps = len(list(self.directory.iterdir()))
-        # Read the step list only from host 0, and then broadcast the list.
-        # This minimizes queries on non-leader processes.
-        padded_step_list = np.array([-1] * max_steps)
-        if jax.process_index() == 0:
-          steps = np.array(utils.checkpoint_steps(self.directory))
-          assert len(steps) <= max_steps
-          padded_step_list[0 : len(steps)] = steps
-        padded_step_list = multihost_utils.broadcast_one_to_all(
-            padded_step_list
-        )
-        return [step for step in padded_step_list if step >= 0]
-      else:
-        return utils.checkpoint_steps(self.directory)
-    else:
-      return [ckpt.step for ckpt in self._checkpoints]
+      return utils.checkpoint_steps(
+          self.directory, self._options.single_host_load_and_broadcast
+      )
+    return [ckpt.step for ckpt in self._checkpoints]
 
   def latest_step(self) -> Optional[int]:
     """See superclass documentation."""
