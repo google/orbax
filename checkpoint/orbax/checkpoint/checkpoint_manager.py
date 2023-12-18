@@ -336,11 +336,8 @@ class CheckpointManager(AbstractCheckpointManager):
     # Cleanup directories from previous runs that may not have been finalized.
     if self._options.cleanup_tmp_directories:
       self._cleanup_tmp_directories()
+
     self._checkpoints = self._create_checkpoints()
-    if self._checkpoints:
-      self._last_checkpoint = self._checkpoints[-1]
-    else:
-      self._last_checkpoint = None
 
     if self._options.read_only and not self._metadata_path().exists():
       self._metadata = {} if metadata is None else metadata
@@ -368,8 +365,7 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def latest_step(self) -> Optional[int]:
     """See superclass documentation."""
-    steps = self.all_steps(read=False)
-    return max(steps) if steps else None
+    return self._checkpoints[-1].step if self._checkpoints else None
 
   def best_step(self) -> Optional[int]:
     """See superclass documentation."""
@@ -393,8 +389,7 @@ class CheckpointManager(AbstractCheckpointManager):
       return False
     if self.reached_preemption(step):
       return True
-    last_checkpoint = self._last_checkpoint
-    last_checkpoint_step = last_checkpoint.step if last_checkpoint else None
+    last_checkpoint_step = self.latest_step()
     # Ensure current step is between the last step and next step (accounting for
     # save interval). The `last_checkpoint_step` may not be initialized, in
     # which case we should save. Otherwise, step must fall on the specified
@@ -666,7 +661,6 @@ class CheckpointManager(AbstractCheckpointManager):
             step, datetime.datetime.now(tz=datetime.timezone.utc), metrics
         )
     )
-    self._last_checkpoint = self._checkpoints[-1]
 
   def _metadata_path(self) -> epath.Path:
     return self.directory / METADATA_ITEM_NAME
@@ -868,11 +862,7 @@ class CheckpointManager(AbstractCheckpointManager):
       except BaseException as e:  # pylint:disable=broad-exception-caught
         # If an exception occurred in the in finalization of the previous
         # save, we clean up since that checkpoint was never actually saved.
-        assert self._last_checkpoint is not None
         assert self._checkpoints
-        self._last_checkpoint = (
-            self._checkpoints[-2] if len(self._checkpoints) > 1 else None
-        )
         self._checkpoints = self._checkpoints[:-1]
         raise e
       # Additional work is being done on process 0 of the finalize threads.
@@ -922,8 +912,8 @@ class CheckpointManager(AbstractCheckpointManager):
           previous_time = self._checkpoints[-2].time
         else:
           previous_time = _INIT_TIME
-        assert self._last_checkpoint is not None
-        duration = self._last_checkpoint.time - previous_time
+        assert self._checkpoints
+        duration = self._checkpoints[-1].time - previous_time
         jax.monitoring.record_event_duration_secs(
             '/jax/checkpoint/write/preempt/duration_saved_secs',
             duration.total_seconds(),
