@@ -24,7 +24,36 @@ import jax
 from orbax.checkpoint import abstract_checkpointer
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_handler
+from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import utils
+
+CheckpointArgs = checkpoint_args.CheckpointArgs
+register_with_handler = checkpoint_args.register_with_handler
+get_legacy_handler_wrapper = (
+    composite_checkpoint_handler.get_legacy_handler_wrapper
+)
+
+
+def construct_checkpoint_args(
+    handler: checkpoint_handler.CheckpointHandler,
+    for_save: bool,
+    *args,
+    **kwargs,
+) -> checkpoint_args.CheckpointArgs:
+  """Constructs `CheckpointArgs` for save or restore for the handler."""
+  for arg in args:
+    if isinstance(arg, checkpoint_args.CheckpointArgs):
+      return arg
+  for arg in kwargs.values():
+    if isinstance(arg, checkpoint_args.CheckpointArgs):
+      return arg
+  save_arg_cls, restore_arg_cls = checkpoint_args.get_registered_args_cls(
+      handler
+  )
+  if for_save:
+    return save_arg_cls(*args, **kwargs)
+  else:
+    return restore_arg_cls(*args, **kwargs)
 
 
 class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
@@ -62,48 +91,15 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
   def __init__(
       self, handler: checkpoint_handler.CheckpointHandler, primary_host: int = 0
   ):
+    if not checkpoint_args.has_registered_args(handler):
+      logging.warning(
+          'No registered CheckpointArgs found for handler type: %s',
+          type(handler),
+      )
+      handler = get_legacy_handler_wrapper(handler)
     self._handler = handler
     self._primary_host = primary_host
     jax.monitoring.record_event('/jax/orbax/checkpointer/init')
-
-  def _construct_checkpoint_args(
-      self, for_save: bool, *args, **kwargs
-  ) -> Optional[checkpoint_args.CheckpointArgs]:
-    for arg in args:
-      if isinstance(arg, checkpoint_args.CheckpointArgs):
-        return arg
-    for arg in kwargs.values():
-      if isinstance(arg, checkpoint_args.CheckpointArgs):
-        return arg
-
-    try:
-      save_arg_cls, restore_arg_cls = checkpoint_args.get_registered_args_cls(
-          self._handler
-      )
-    except ValueError:
-      return None
-
-    if for_save:
-      return save_arg_cls(*args, **kwargs)
-    else:
-      return restore_arg_cls(*args, **kwargs)
-
-  def _save_with_args(self, tmpdir: epath.Path, *args, **kwargs):
-    """Try to save using new CheckpointArgs API if supported by the handler."""
-    ckpt_args = self._construct_checkpoint_args(True, *args, **kwargs)
-    if ckpt_args:
-      self._handler.save(tmpdir, args=ckpt_args)
-    else:
-      self._handler.save(tmpdir, *args, **kwargs)
-
-  def _restore_with_args(self, directory: epath.Path, *args, **kwargs):
-    """Try to restore using new CheckpointArgs API if supported by the handler."""
-    ckpt_args = self._construct_checkpoint_args(False, *args, **kwargs)
-    if ckpt_args:
-      restored = self._handler.restore(directory, args=ckpt_args)
-    else:
-      restored = self._handler.restore(directory, *args, **kwargs)
-    return restored
 
   def save(self,
            directory: epath.PathLike,
@@ -142,7 +138,8 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
     tmpdir = utils.create_tmp_directory(
         directory, primary_host=self._primary_host
     )
-    self._save_with_args(tmpdir, *args, **kwargs)
+    ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)
+    self._handler.save(tmpdir, args=ckpt_args)
     utils.sync_global_devices('Checkpointer:write')
 
     # Ensure save operation atomicity and record time saved by checkpoint.
@@ -162,7 +159,8 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
     if not utils.is_checkpoint_finalized(directory):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
     logging.info('Restoring item from %s.', directory)
-    restored = self._restore_with_args(directory, *args, **kwargs)
+    ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
+    restored = self._handler.restore(directory, args=ckpt_args)
     logging.info('Finished restoring checkpoint from %s.', directory)
     return restored
 

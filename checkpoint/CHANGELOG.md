@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Provide better support for custom `CheckpointHandler`s without registered
+`CheckpointArgs` by providing a wrapper `CheckpointHandler` as a fallback. This
+class is introduced for backwards compatibility, and will eventually be removed.
+
 ## [0.4.8] - 2023-12-14
 
 ### Added

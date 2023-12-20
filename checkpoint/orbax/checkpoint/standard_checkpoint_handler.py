@@ -186,7 +186,7 @@ class StandardSaveArgs(CheckpointArgs):
   save_args: Optional[PyTree] = None
 
 
-@register_with_handler(StandardCheckpointHandler, for_save=False)
+@register_with_handler(StandardCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
 class StandardRestoreArgs(CheckpointArgs):
   """Parameters for restoring a standard PyTree.

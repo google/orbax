@@ -49,7 +49,7 @@ json_dict = restored.metadata
 import asyncio
 from collections.abc import Collection, KeysView
 from typing import AbstractSet, Any, List, Mapping, Optional, Tuple
-
+from absl import logging
 from etils import epath
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
@@ -62,62 +62,99 @@ Future = future.Future
 CheckpointArgs = checkpoint_args.CheckpointArgs
 CheckpointHandler = checkpoint_handler.CheckpointHandler
 AsyncCheckpointHandler = async_checkpoint_handler.AsyncCheckpointHandler
+register_with_handler = checkpoint_args.register_with_handler
 
 
-class CompositeArgs(CheckpointArgs):
-  """Args for wrapping multiple checkpoint items together.
+# TODO(b/295899152) Clean up when users are all registering `CheckpointArgs`.
+class _LegacyCheckpointHandlerWrapper(checkpoint_handler.CheckpointHandler):
+  """Wrapper for `CheckpointHandler`s without registered `CheckpointArgs`."""
 
-  For simplicity, this object is immutable (although objects attached to it
-  may be mutable).
-  """
+  def __init__(self, handler: checkpoint_handler.CheckpointHandler):
+    self._handler = handler
 
-  __items__: Mapping[str, CheckpointArgs]
+  def save(self, directory: epath.Path, args: '_WrapperArgs'):
+    return self._handler.save(directory, *args.args, **args.kwargs)
 
-  def __init__(self, **items: CheckpointArgs):
-    super().__setattr__('__items__', items)
+  async def async_save(self, directory: epath.Path, args: '_WrapperArgs'):
+    if isinstance(
+        self._handler, async_checkpoint_handler.AsyncCheckpointHandler
+    ):
+      return await self._handler.async_save(
+          directory, *args.args, **args.kwargs
+      )
+    else:
+      raise NameError(
+          f'CheckpointHandler of type: {type(self._handler)} has no method'
+          ' `async_save`.'
+      )
 
-    reserved_keys = set(dir(self))
+  def restore(self, directory: epath.Path, args: '_WrapperArgs'):
+    return self._handler.restore(directory, *args.args, **args.kwargs)
 
-    for key, value in items.items():
-      # Reserve and prevent users from setting keys that start with '__'. These
-      # may be used later to define options for CompositeCheckpointManager.
-      if key.startswith('__'):
-        raise ValueError(f'Composiite keys cannot start with "__". Got: {key}')
-      if key not in reserved_keys:
-        # We do not raise an error if the user specifies a key that matches an
-        # existing attribute (like 'keys', 'values', 'items'). These can be
-        # accessed through self[key], but not self.key.
-        super().__setattr__(key, value)
+  def metadata(self, directory: epath.Path) -> Optional[Any]:
+    return self._handler.metadata(directory)
 
-  def __getitem__(self, key: str) -> CheckpointArgs:
-    return self.__items__[key]
+  def finalize(self, directory: epath.Path):
+    return self._handler.finalize(directory)
 
-  def __setattr__(self, key: str, value: Any):
-    del key
-    del value
-    raise ValueError('CompositeArgs is immutable after initialization.')
-
-  def __len__(self) -> int:
-    return len(self.__items__)
-
-  def keys(self) -> KeysView[str]:
-    return self.__items__.keys()
-
-  def values(self) -> Collection[CheckpointArgs]:
-    return self.__items__.values()
-
-  def items(self) -> AbstractSet[Tuple[str, CheckpointArgs]]:
-    return self.__items__.items()
-
-  def get(self, key: str, default=None) -> Optional[CheckpointArgs]:
-    try:
-      return self.__getitem__(key)
-    except KeyError:
-      return default
+  def close(self):
+    return self._handler.close()
 
 
-# Returned object of CompositeCheckpointHandler is an alias of CompositeArgs.
-CompositeResults = CompositeArgs
+@register_with_handler(
+    _LegacyCheckpointHandlerWrapper, for_save=True, for_restore=True
+)
+class _WrapperArgs(CheckpointArgs):
+
+  def __init__(self, *args, **kwargs):
+    self.args = args
+    self.kwargs = kwargs
+
+
+# TODO(b/295899152) Clean up when users are all registering `CheckpointArgs`.
+class _AsyncLegacyCheckpointHandlerWrapper(
+    async_checkpoint_handler.AsyncCheckpointHandler
+):
+  """Wrapper for `CheckpointHandler`s without registered `CheckpointArgs`."""
+
+  def __init__(self, handler: async_checkpoint_handler.AsyncCheckpointHandler):
+    self._handler = handler
+
+  def save(self, directory: epath.Path, args: '_AsyncWrapperArgs'):
+    return self._handler.save(directory, *args.args, **args.kwargs)
+
+  async def async_save(self, directory: epath.Path, args: '_AsyncWrapperArgs'):
+    return await self._handler.async_save(directory, *args.args, **args.kwargs)
+
+  def restore(self, directory: epath.Path, args: '_AsyncWrapperArgs'):
+    return self._handler.restore(directory, *args.args, **args.kwargs)
+
+  def metadata(self, directory: epath.Path) -> Optional[Any]:
+    return self._handler.metadata(directory)
+
+  def finalize(self, directory: epath.Path):
+    return self._handler.finalize(directory)
+
+  def close(self):
+    return self._handler.close()
+
+
+@register_with_handler(
+    _AsyncLegacyCheckpointHandlerWrapper, for_save=True, for_restore=True
+)
+class _AsyncWrapperArgs(CheckpointArgs):
+
+  def __init__(self, *args, **kwargs):
+    self.args = args
+    self.kwargs = kwargs
+
+
+def get_legacy_handler_wrapper(
+    handler: checkpoint_handler.CheckpointHandler,
+) -> checkpoint_handler.CheckpointHandler:
+  if isinstance(handler, async_checkpoint_handler.AsyncCheckpointHandler):
+    return _AsyncLegacyCheckpointHandlerWrapper(handler)
+  return _LegacyCheckpointHandlerWrapper(handler)
 
 
 class CompositeCheckpointHandler(AsyncCheckpointHandler):
@@ -221,6 +258,15 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     for item in item_names:
       if item not in self._known_handlers:
         self._known_handlers[item] = None
+    for item_name, handler in self._known_handlers.items():
+      if handler and not checkpoint_args.has_registered_args(handler):
+        logging.warning(
+            'No registered CheckpointArgs found for handler type: %s',
+            type(handler),
+        )
+        self._known_handlers[item_name] = _LegacyCheckpointHandlerWrapper(
+            handler
+        )
 
   def _get_or_set_handler(
       self, item_name: str, args: CheckpointArgs
@@ -251,7 +297,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     return directory / item_name
 
   async def async_save(
-      self, directory: epath.Path, args: CompositeArgs
+      self, directory: epath.Path, args: 'CompositeArgs'
   ) -> Optional[List[Future]]:
     """Saves multiple items to individual subdirectories."""
     futures = []
@@ -298,8 +344,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   def restore(
       self,
       directory: epath.Path,
-      args: Optional[CompositeArgs] = None,
-  ) -> CompositeResults:
+      args: Optional['CompositeArgs'] = None,
+  ) -> 'CompositeResults':
     """Restores the provided item synchronously.
 
     Args:
@@ -347,7 +393,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       )
     return CompositeResults(**restored)
 
-  def metadata(self, directory: epath.Path) -> CompositeResults:
+  def metadata(self, directory: epath.Path) -> 'CompositeResults':
     items_exist = asyncio.run(
         self._items_exist(directory, list(self._known_handlers.keys()))
     )
@@ -372,3 +418,62 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       if handler is not None:
         handler.close()
         self._known_handlers[item_name] = None
+
+
+@register_with_handler(
+    CompositeCheckpointHandler, for_save=True, for_restore=True
+)
+class CompositeArgs(CheckpointArgs):
+  """Args for wrapping multiple checkpoint items together.
+
+  For simplicity, this object is immutable (although objects attached to it
+  may be mutable).
+  """
+
+  __items__: Mapping[str, CheckpointArgs]
+
+  def __init__(self, **items: CheckpointArgs):
+    super().__setattr__('__items__', items)
+
+    reserved_keys = set(dir(self))
+
+    for key, value in items.items():
+      # Reserve and prevent users from setting keys that start with '__'. These
+      # may be used later to define options for CompositeCheckpointManager.
+      if key.startswith('__'):
+        raise ValueError(f'Composiite keys cannot start with "__". Got: {key}')
+      if key not in reserved_keys:
+        # We do not raise an error if the user specifies a key that matches an
+        # existing attribute (like 'keys', 'values', 'items'). These can be
+        # accessed through self[key], but not self.key.
+        super().__setattr__(key, value)
+
+  def __getitem__(self, key: str) -> CheckpointArgs:
+    return self.__items__[key]
+
+  def __setattr__(self, key: str, value: Any):
+    del key
+    del value
+    raise ValueError('CompositeArgs is immutable after initialization.')
+
+  def __len__(self) -> int:
+    return len(self.__items__)
+
+  def keys(self) -> KeysView[str]:
+    return self.__items__.keys()
+
+  def values(self) -> Collection[CheckpointArgs]:
+    return self.__items__.values()
+
+  def items(self) -> AbstractSet[Tuple[str, CheckpointArgs]]:
+    return self.__items__.items()
+
+  def get(self, key: str, default=None) -> Optional[CheckpointArgs]:
+    try:
+      return self.__getitem__(key)
+    except KeyError:
+      return default
+
+
+# Returned object of CompositeCheckpointHandler is an alias of CompositeArgs.
+CompositeResults = CompositeArgs
