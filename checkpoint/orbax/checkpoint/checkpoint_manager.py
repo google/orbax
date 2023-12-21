@@ -244,11 +244,19 @@ class CheckpointInfo:
   metrics: Optional[PyTree]
   is_locked: Optional[bool] = None
 
+  def __post_init__(self):
+    # Users may provide step as a jax.Array.
+    if isinstance(self.step, jax.Array):
+      self.step = int(self.step)
+
   def __str__(self) -> str:
     return f'Checkpoint[step={self.step} | time={self.time}]'
 
   def __eq__(self, other: 'CheckpointInfo') -> bool:
     return self.step == other.step and self.time == other.time
+
+  def __hash__(self) -> int:
+    return hash((self.step, self.time))
 
 
 class CheckpointManager(AbstractCheckpointManager):
@@ -347,8 +355,6 @@ class CheckpointManager(AbstractCheckpointManager):
       self._save_metadata(metadata)
 
     self._finalize_thread = None
-    # Steps that get cleaned up during finalize.
-    self._steps_to_remove = []
 
   @property
   def directory(self) -> epath.Path:
@@ -505,7 +511,10 @@ class CheckpointManager(AbstractCheckpointManager):
       self._checkpointers[k].save(item_dir, item, **kwargs)
 
     self._add_checkpoint_info(step, metrics)
-    self._get_old_steps_to_remove()
+    steps_to_remove = self._get_old_steps_to_remove()
+    self._checkpoints = [
+        info for info in self._checkpoints if info.step not in steps_to_remove
+    ]
     # Sync needed to ensure that old steps to remove are retrieved before
     # actually deleting them during finalize, since retrieval can involve
     # looking at the directory.
@@ -513,10 +522,12 @@ class CheckpointManager(AbstractCheckpointManager):
 
     assert self._finalize_thread is None
     if self._all_checkpointers_are_sync:
-      self._finalize(tmp_step_dir)
+      self._finalize(tmp_step_dir, steps_to_remove)
       utils.sync_global_devices('CheckpointManager:finalize')
     else:
-      t = _FinalizeThread(target=self._finalize, args=(tmp_step_dir,))
+      t = _FinalizeThread(
+          target=self._finalize, args=(tmp_step_dir, steps_to_remove)
+      )
       t.start()
       self._finalize_thread = t
     return True
@@ -735,14 +746,14 @@ class CheckpointManager(AbstractCheckpointManager):
     dst = self._get_save_directory(step, rename_dir)
     src.replace(dst)
 
-  def _get_old_steps_to_remove(self):
-    """Collects checkpoints that should be deleted later."""
+  def _get_old_steps_to_remove(self) -> List[int]:
+    """Returns checkpoints that should be deleted."""
     # Must have set max_to_keep in order to remove any checkpoints.
     if self._options.max_to_keep is None:
-      return
+      return []
     # Not enough checkpoints accumulated to consider deletion.
     if len(self._checkpoints) <= self._options.max_to_keep:
-      return
+      return []
 
     # Exclude the latest checkpoint, since it is not finalized.
     are_locked = utils.are_locked(
@@ -772,7 +783,7 @@ class CheckpointManager(AbstractCheckpointManager):
       maybe_delete = (
           sorted_checkpoints[:-keep] if keep > 0 else sorted_checkpoints
       )
-      active_checkpoints = (
+      active_checkpoints = set(
           checkpoints_without_metrics + sorted_checkpoints[-keep:]
           if keep > 0
           else []
@@ -780,20 +791,19 @@ class CheckpointManager(AbstractCheckpointManager):
     else:
       all_checkpoints = checkpoints_without_metrics + sorted_checkpoints
       maybe_delete = all_checkpoints[:-keep] if keep > 0 else sorted_checkpoints
-      active_checkpoints = all_checkpoints[-keep:] if keep > 0 else []
+      active_checkpoints = set(all_checkpoints[-keep:] if keep > 0 else [])
 
     interval_preserved_checkpoints = self._get_interval_preserved_checkpoints(
         self._checkpoints
     )
-    kept_checkpoints = []
-    self._steps_to_remove = []
+    kept_checkpoints = set()
     for info in maybe_delete:
       if info.is_locked:
         logging.info(
             'Preserving %s: (Reason: checkpoint is locked).',
             info,
         )
-        kept_checkpoints.append(info)
+        kept_checkpoints.add(info)
         continue
       if (
           self._options.keep_time_interval is not None
@@ -804,7 +814,7 @@ class CheckpointManager(AbstractCheckpointManager):
               'Preserving %s: (Reason: older falling on keep_time_interval).',
               info,
           )
-          kept_checkpoints.append(info)
+          kept_checkpoints.add(info)
           continue
         elif (
             info.time
@@ -816,7 +826,7 @@ class CheckpointManager(AbstractCheckpointManager):
               'Preserving %s: (Reason: latest falling on keep_time_interval).',
               info,
           )
-          kept_checkpoints.append(info)
+          kept_checkpoints.add(info)
           continue
 
       if (
@@ -824,28 +834,18 @@ class CheckpointManager(AbstractCheckpointManager):
           and info.step % self._options.keep_period == 0
       ):
         logging.info('Preserving %s: (Reason: on keep_period).', info)
-        kept_checkpoints.append(info)
+        kept_checkpoints.add(info)
         continue
 
-      reason = 'worse metric' if self._track_best else 'old checkpoint'
-      logging.info('Deleting %s: (Reason: %s).', info, reason)
-      self._steps_to_remove.append(info.step)
+    kept_checkpoints.update(active_checkpoints)
 
-    kept_checkpoints += active_checkpoints
-    if self._track_best:
-      # Maintain in ascending step order.
-      self._checkpoints = sorted(kept_checkpoints, key=lambda info: info.step)
-    else:
-      self._checkpoints = kept_checkpoints
-
-  def _remove_old_steps(self):
-    for step in self._steps_to_remove:
-      self._delete_directory(step)
-    self._checkpoints = [
-        info
-        for info in self._checkpoints
-        if info.step not in self._steps_to_remove
-    ]
+    steps_to_remove = []
+    for info in self._checkpoints:
+      if info not in kept_checkpoints:
+        reason = 'worse metric' if self._track_best else 'old checkpoint'
+        logging.info('Deleting %s: (Reason: %s).', info, reason)
+        steps_to_remove.append(info.step)
+    return steps_to_remove
 
   def _wait_for_checkpointers(self):
     for checkpointer in self._checkpointers.values():
@@ -922,13 +922,14 @@ class CheckpointManager(AbstractCheckpointManager):
       utils.ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir)
     return final_ckpt_dir
 
-  def _finalize(self, temp_ckpt_dir: epath.Path):
+  def _finalize(self, temp_ckpt_dir: epath.Path, steps_to_remove: List[int]):
     """Cleans up old checkpoints and synchronizes hosts."""
     self._wait_for_checkpointers()
     # If an error is encountered while waiting for commit futures to complete,
     # we will not proceed past this point.
     final_ckpt_dir = self._finalize_checkpoint(temp_ckpt_dir)
-    self._remove_old_steps()
+    for step in steps_to_remove:
+      self._delete_directory(step)
 
   def close(self):
     """See superclass documentation."""
