@@ -24,6 +24,7 @@ import jax
 from orbax.checkpoint import abstract_checkpointer
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_handler
+from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import utils
 
