@@ -94,6 +94,14 @@ class _LegacyCheckpointHandlerWrapper(checkpoint_handler.CheckpointHandler):
   def metadata(self, directory: epath.Path) -> Optional[Any]:
     return self._handler.metadata(directory)
 
+  def structure(self, directory: epath.Path) -> Optional[Any]:
+    if hasattr(self._handler, 'structure'):
+      return self._handler.structure(directory)
+    raise AttributeError(
+        f'CheckpointHandler of type: {type(self._handler)} has no method'
+        ' `structure`.'
+    )
+
   def finalize(self, directory: epath.Path):
     return self._handler.finalize(directory)
 
@@ -131,6 +139,14 @@ class _AsyncLegacyCheckpointHandlerWrapper(
 
   def metadata(self, directory: epath.Path) -> Optional[Any]:
     return self._handler.metadata(directory)
+
+  def structure(self, directory: epath.Path) -> Optional[Any]:
+    if hasattr(self._handler, 'structure'):
+      return self._handler.structure(directory)
+    raise AttributeError(
+        f'CheckpointHandler of type: {type(self._handler)} has no method'
+        ' `structure`.'
+    )
 
   def finalize(self, directory: epath.Path):
     return self._handler.finalize(directory)
