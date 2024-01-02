@@ -823,7 +823,11 @@ def are_locked(
 def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
   """Get ShapeDtypeStruct from array."""
   if isinstance(x, jax.ShapeDtypeStruct):
-    return x
+    return jax.ShapeDtypeStruct(
+        shape=x.shape,
+        dtype=dtype if dtype is not None else x.dtype,
+        sharding=x.sharding,
+    )
   elif isinstance(x, jax.Array):
     dtype = dtype or x.dtype
     return jax.ShapeDtypeStruct(x.shape, dtype, sharding=x.sharding)
