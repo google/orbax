@@ -124,7 +124,7 @@ def sharding_to_json(sharding: jax.sharding.Sharding) -> str:
 
 def _deserialize_sharding_from_json_string(
     sharding_string: str,
-) -> jax.sharding.Sharding:
+) -> Optional[jax.sharding.Sharding]:
   """Deserializes a json string to `jax.sharding.Sharding`."""
 
   deserialized_dict = json.loads(sharding_string)
@@ -134,13 +134,15 @@ def _deserialize_sharding_from_json_string(
     axis_names = list(deserialized_dict[_MESH_AXES])
     partition_spec = tuple(deserialized_dict[_PARTITION_SPEC])
 
-    sharding = NamedSharding(
-        jax.sharding.Mesh(
-            np.array(jax.devices()).reshape(shape), axis_names=axis_names
-        ),
-        jax.sharding.PartitionSpec(*partition_spec),
-    )
-    return sharding
+    if len(jax.devices()) != np.prod(shape):
+      return None
+    else:
+      return NamedSharding(
+          jax.sharding.Mesh(
+              np.array(jax.devices()).reshape(shape), axis_names=axis_names
+          ),
+          jax.sharding.PartitionSpec(*partition_spec),
+      )
 
   elif (
       deserialized_dict[_SHARDING_TYPE]
