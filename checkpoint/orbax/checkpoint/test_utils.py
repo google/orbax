@@ -14,7 +14,9 @@
 
 """Utils for orbax tests."""
 
+from concurrent import futures
 import functools
+import time
 from typing import List, Optional
 
 from absl import logging
@@ -25,6 +27,8 @@ from jax.experimental import pjit
 from jax.experimental.array_serialization import serialization
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint import async_checkpoint_handler
+from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import utils
 
@@ -211,3 +215,47 @@ def set_tensorstore_driver_for_test():
   # results in issues writing to the OCDBT manifest. When using `gfile` on the
   # local filesystem, write operations are not atomic.
   serialization._DEFAULT_DRIVER = 'file'  # pylint: disable=protected-access
+
+
+class ErrorCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
+  """Wrapper for PyTreeCheckpointHandler that has an error during save."""
+
+  def __init__(
+      self,
+      handler: pytree_checkpoint_handler.PyTreeCheckpointHandler,
+      executor: futures.ThreadPoolExecutor,
+  ):
+    self._handler = handler
+    self._executor = executor
+
+  def save(self, directory: epath.Path, args: 'ErrorSaveArgs'):
+    return self._handler.save(directory, args=args)
+
+  def restore(self, directory: epath.Path, args: 'ErrorRestoreArgs'):
+    return self._handler.restore(directory, args=args)
+
+  async def async_save(self, directory: epath.Path, args: 'ErrorSaveArgs'):
+    commit_futures = await self._handler.async_save(directory, args=args)
+
+    def error_commit():
+      time.sleep(3)  # Pretend to write data.
+      a = 1
+      b = 2
+      if a != b:
+        raise SystemError()
+      return 42
+
+    return commit_futures + [self._executor.submit(error_commit)]
+
+  def finalize(self, directory: epath.Path):
+    self._handler.finalize(directory)
+
+
+@checkpoint_args.register_with_handler(ErrorCheckpointHandler, for_save=True)
+class ErrorSaveArgs(pytree_checkpoint_handler.PyTreeSaveArgs):
+  pass
+
+
+@checkpoint_args.register_with_handler(ErrorCheckpointHandler, for_restore=True)
+class ErrorRestoreArgs(pytree_checkpoint_handler.PyTreeSaveArgs):
+  pass
