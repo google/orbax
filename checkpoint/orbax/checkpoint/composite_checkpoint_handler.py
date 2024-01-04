@@ -48,13 +48,18 @@ json_dict = restored.metadata
 
 import asyncio
 from collections.abc import Collection, KeysView
+import concurrent.futures
 from typing import AbstractSet, Any, List, Mapping, Optional, Tuple
+import uuid
+
 from absl import logging
 from etils import epath
+import nest_asyncio
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import future
+from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
@@ -63,6 +68,12 @@ CheckpointArgs = checkpoint_args.CheckpointArgs
 CheckpointHandler = checkpoint_handler.CheckpointHandler
 AsyncCheckpointHandler = async_checkpoint_handler.AsyncCheckpointHandler
 register_with_handler = checkpoint_args.register_with_handler
+ProtoCheckpointHandler = proto_checkpoint_handler.ProtoCheckpointHandler
+ProtoSaveArgs = proto_checkpoint_handler.ProtoSaveArgs
+
+_CONCURRENT_WORKERS = 3
+RESERVED_ITEM_NAMES = []
+
 
 
 # TODO(b/295899152) Clean up when users are all registering `CheckpointArgs`.
@@ -74,19 +85,6 @@ class _LegacyCheckpointHandlerWrapper(checkpoint_handler.CheckpointHandler):
 
   def save(self, directory: epath.Path, args: '_WrapperArgs'):
     return self._handler.save(directory, *args.args, **args.kwargs)
-
-  async def async_save(self, directory: epath.Path, args: '_WrapperArgs'):
-    if isinstance(
-        self._handler, async_checkpoint_handler.AsyncCheckpointHandler
-    ):
-      return await self._handler.async_save(
-          directory, *args.args, **args.kwargs
-      )
-    else:
-      raise NameError(
-          f'CheckpointHandler of type: {type(self._handler)} has no method'
-          ' `async_save`.'
-      )
 
   def restore(self, directory: epath.Path, args: '_WrapperArgs'):
     return self._handler.restore(directory, *args.args, **args.kwargs)
@@ -171,6 +169,11 @@ def get_legacy_handler_wrapper(
   if isinstance(handler, async_checkpoint_handler.AsyncCheckpointHandler):
     return _AsyncLegacyCheckpointHandlerWrapper(handler)
   return _LegacyCheckpointHandlerWrapper(handler)
+
+
+def _maybe_raise_reserved_item_error(item_name: str):
+  if item_name in RESERVED_ITEM_NAMES:
+    raise ValueError(f'Cannot specify reserved item name: {item_name}.')
 
 
 class CompositeCheckpointHandler(AsyncCheckpointHandler):
@@ -275,17 +278,16 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       if item not in self._known_handlers:
         self._known_handlers[item] = None
     for item_name, handler in self._known_handlers.items():
+      _maybe_raise_reserved_item_error(item_name)
       if handler and not checkpoint_args.has_registered_args(handler):
         logging.warning(
             'No registered CheckpointArgs found for handler type: %s',
             type(handler),
         )
-        self._known_handlers[item_name] = _LegacyCheckpointHandlerWrapper(
-            handler
-        )
+        self._known_handlers[item_name] = get_legacy_handler_wrapper(handler)
 
   def _get_or_set_handler(
-      self, item_name: str, args: CheckpointArgs
+      self, item_name: str, args: CheckpointArgs,
   ) -> CheckpointHandler:
     if item_name not in self._known_handlers:
       raise ValueError(
@@ -301,8 +303,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       self._known_handlers[item_name] = handler
     if not isinstance(handler, registered_handler_cls_for_args):
       raise ValueError(
-          f'Provided args of type: {type(args)}, which does not correspond to'
-          ' the registered handler for these args:'
+          f'For "{item_name}", Provided args of type: {type(args)}, which does'
+          ' not correspond to the registered handler for these args:'
           f' {registered_handler_cls_for_args}.'
       )
     return handler
@@ -325,19 +327,25 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         utils.async_makedirs(path, parents=False, exist_ok=True)
         for path in item_directories
     ])
+
     for item_name, arg in args.items():
+      _maybe_raise_reserved_item_error(item_name)
       item_directory = self._get_item_directory(directory, item_name)
       handler = self._get_or_set_handler(item_name, arg)
       if isinstance(handler, AsyncCheckpointHandler):
         futures.extend(await handler.async_save(item_directory, args=arg))
       else:
         handler.save(item_directory, args=arg)
+
     return futures
 
   def save(self, *args, **kwargs):
     """Saves synchronously."""
 
     async def async_save():
+      # Needed for item handlers that also call `asyncio.run`.
+      asyncio.get_running_loop()
+      nest_asyncio.apply()
       commit_futures = await self.async_save(*args, **kwargs)
       if commit_futures:
         for f in commit_futures:
@@ -346,13 +354,18 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     asyncio.run(async_save())
     utils.sync_global_devices('CompositeCheckpointHandler:save')
 
-  async def _items_exist(
+  def _items_exist(
       self, directory: epath.Path, item_names: List[str]
   ) -> Mapping[str, bool]:
-    items_exist = await asyncio.gather(*[
-        utils.async_exists(self._get_item_directory(directory, item_name))
-        for item_name in item_names
-    ])
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=_CONCURRENT_WORKERS
+    ) as executor:
+      items_exist = executor.map(
+          lambda item_name: self._get_item_directory(
+              directory, item_name
+          ).exists(),
+          item_names,
+      )
     return {
         item_name: exists for item_name, exists in zip(item_names, items_exist)
     }
@@ -376,14 +389,17 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       A CompositeResults object with keys matching `CompositeArgs`, or with keys
       for all known items as specified at creation.
     """
-    items_exist = asyncio.run(
-        self._items_exist(directory, list(self._known_handlers.keys()))
+    items_exist = self._items_exist(
+        directory, list(self._known_handlers.keys())
     )
     if args is None or not args.items():
       composite_args_items = {}
       for item_name, handler in self._known_handlers.items():
         if not items_exist[item_name]:
           composite_args_items[item_name] = None
+          continue
+        # Skip reserved items unless specifically requested.
+        if item_name in RESERVED_ITEM_NAMES:
           continue
         if handler is None:
           raise ValueError(
@@ -410,8 +426,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     return CompositeResults(**restored)
 
   def metadata(self, directory: epath.Path) -> 'CompositeResults':
-    items_exist = asyncio.run(
-        self._items_exist(directory, list(self._known_handlers.keys()))
+    items_exist = self._items_exist(
+        directory, list(self._known_handlers.keys())
     )
     metadata = {}
     for item_name, handler in self._known_handlers.items():
@@ -424,10 +440,31 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         )
     return CompositeResults(**metadata)
 
+  def _finalize_individual_items_on_gcs(self, directory: epath.Path):
+    # On GCS, ensure that a COMMIT_SUCCESS.txt file gets generated, so the
+    # checkpoint doesn't look incomplete.
+    # TODO(b/296271331) Unify when possible.
+    if utils.is_gcs_path(directory):
+      with concurrent.futures.ThreadPoolExecutor(
+          max_workers=_CONCURRENT_WORKERS
+      ) as executor:
+        executor.map(
+            lambda item_name: utils.ensure_atomic_save(
+                self._get_item_directory(directory, item_name),
+                self._get_item_directory(directory, item_name),
+            ),
+            self._known_handlers.keys(),
+        )
+
   def finalize(self, directory: epath.Path):
+    items_exist = self._items_exist(
+        directory, list(self._known_handlers.keys())
+    )
     for item_name, handler in self._known_handlers.items():
-      if handler is not None:
-        handler.finalize(self._get_item_directory(directory, item_name))
+      if not items_exist[item_name] or handler is None:
+        continue
+      handler.finalize(self._get_item_directory(directory, item_name))
+    self._finalize_individual_items_on_gcs(directory)
 
   def close(self):
     for item_name, handler in self._known_handlers.items():
@@ -457,7 +494,7 @@ class CompositeArgs(CheckpointArgs):
       # Reserve and prevent users from setting keys that start with '__'. These
       # may be used later to define options for CompositeCheckpointManager.
       if key.startswith('__'):
-        raise ValueError(f'Composiite keys cannot start with "__". Got: {key}')
+        raise ValueError(f'Composite keys cannot start with "__". Got: {key}')
       if key not in reserved_keys:
         # We do not raise an error if the user specifies a key that matches an
         # existing attribute (like 'keys', 'values', 'items'). These can be
@@ -465,7 +502,14 @@ class CompositeArgs(CheckpointArgs):
         super().__setattr__(key, value)
 
   def __getitem__(self, key: str) -> CheckpointArgs:
+    if key not in self.__items__:
+      raise KeyError(
+          f'Unknown key: {key}. Available keys: {self.__items__.keys()}'
+      )
     return self.__items__[key]
+
+  def __contains__(self, key: str) -> bool:
+    return key in self.__items__
 
   def __setattr__(self, key: str, value: Any):
     del key
@@ -489,6 +533,19 @@ class CompositeArgs(CheckpointArgs):
       return self.__getitem__(key)
     except KeyError:
       return default
+
+  def __and__(self, other: 'CompositeArgs') -> 'CompositeArgs':
+    if isinstance(other, dict):
+      other = CompositeArgs(**other)
+    return CompositeArgs(**(self.__items__ & other.__items__))
+
+  def __or__(self, other: 'CompositeArgs') -> 'CompositeArgs':
+    if isinstance(other, dict):
+      other = CompositeArgs(**other)
+    return CompositeArgs(**(self.__items__ | other.__items__))
+
+  def __repr__(self):
+    return f'CompositeArgs({repr(self.__items__)})'
 
 
 # Returned object of CompositeCheckpointHandler is an alias of CompositeArgs.

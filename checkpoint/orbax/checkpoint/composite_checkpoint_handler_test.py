@@ -21,7 +21,9 @@ from jax import numpy as jnp
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import json_checkpoint_handler
+from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import standard_checkpoint_handler
+from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
 
 CompositeArgs = composite_checkpoint_handler.CompositeArgs
@@ -32,6 +34,7 @@ StandardCheckpointHandler = (
 CompositeCheckpointHandler = (
     composite_checkpoint_handler.CompositeCheckpointHandler
 )
+ProtoCheckpointHandler = proto_checkpoint_handler.ProtoCheckpointHandler
 
 
 class CompositeArgsTest(absltest.TestCase):
@@ -90,25 +93,28 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     super().setUp()
     self.directory = epath.Path(self.create_tempdir(name='test_dir'))
 
-  def save(self, handler, *args, **kwargs):
-    handler.save(*args, **kwargs)
-    handler.finalize(self.directory)
+  def save(self, handler, directory, *args, **kwargs):
+    handler.save(directory, *args, **kwargs)
+    handler.finalize(directory)
 
   def test_init(self):
     handler = CompositeCheckpointHandler('state', 'dataset')
-    self.assertDictEqual(
-        handler._known_handlers, {'state': None, 'dataset': None}
+    self.assertIsNone(handler._known_handlers['state'])
+    self.assertIsNone(handler._known_handlers['dataset'])
+    self.assertContainsSubset(
+        {'state', 'dataset'}, handler._known_handlers.keys()
     )
     handler = CompositeCheckpointHandler(state=StandardCheckpointHandler())
-    self.assertSameElements(handler._known_handlers.keys(), {'state'})
+    self.assertContainsSubset({'state'}, handler._known_handlers.keys())
     self.assertIsInstance(
         handler._known_handlers['state'], StandardCheckpointHandler
     )
     handler = CompositeCheckpointHandler(
         'tree', 'dataset', state=StandardCheckpointHandler()
     )
-    self.assertSameElements(
-        handler._known_handlers.keys(), {'tree', 'state', 'dataset'}
+    self.assertContainsSubset(
+        {'tree', 'state', 'dataset'},
+        handler._known_handlers.keys(),
     )
     self.assertIsInstance(
         handler._known_handlers['state'], StandardCheckpointHandler
@@ -186,7 +192,7 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     dir2 = epath.Path(self.create_tempdir(name='dir2'))
     handler = CompositeCheckpointHandler('state')
     state = {'a': 1, 'b': 2}
-    handler.save(dir1, CompositeArgs(state=args_lib.StandardSave(state)))
+    self.save(handler, dir1, CompositeArgs(state=args_lib.StandardSave(state)))
     self.save(
         handler,
         dir1,
@@ -324,9 +330,48 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     handler = CompositeCheckpointHandler(
         'extra', state=state_handler, metadata=metadata_handler
     )
-    handler.finalize(self.directory)
-    state_handler.finalize.assert_called_once()
-    metadata_handler.finalize.assert_called_once()
+    with mock.patch.object(
+        handler,
+        '_get_or_set_handler',
+        return_value=state_handler,
+        autospec=True,
+    ):
+      self.save(
+          handler,
+          self.directory,
+          CompositeArgs(
+              state=args_lib.StandardSave({'a': 1, 'b': 2}),
+          ),
+      )
+      # Finalize only called for items that are actually present.
+      state_handler.finalize.assert_called_once()
+      metadata_handler.finalize.assert_not_called()
+      self.assertFalse(
+          (self.directory / 'state' / utils._COMMIT_SUCCESS_FILE).exists()
+      )
+
+  @mock.patch.object(utils, 'is_gcs_path', autospec=True, return_value=True)
+  def test_finalize_gcs(self, is_gcs_path):
+    del is_gcs_path
+    state_handler = mock.create_autospec(StandardCheckpointHandler)
+    handler = CompositeCheckpointHandler(state=state_handler)
+    with mock.patch.object(
+        handler,
+        '_get_or_set_handler',
+        return_value=state_handler,
+        autospec=True,
+    ):
+      self.save(
+          handler,
+          self.directory,
+          CompositeArgs(
+              state=args_lib.StandardSave({'a': 1, 'b': 2}),
+          ),
+      )
+      state_handler.finalize.assert_called_once()
+      self.assertTrue(
+          (self.directory / 'state' / utils._COMMIT_SUCCESS_FILE).exists()
+      )
 
   def test_close(self):
     state_handler = mock.create_autospec(StandardCheckpointHandler)
@@ -337,6 +382,7 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     handler.close()
     state_handler.close.assert_called_once()
     metadata_handler.close.assert_called_once()
+
 
 
 if __name__ == '__main__':
