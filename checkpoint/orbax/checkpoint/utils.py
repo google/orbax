@@ -161,11 +161,23 @@ def _extend_list(ls, idx, nextvalue):
   return ls
 
 
-def from_flattened_with_keypath(flat_with_keys: PyTree) -> PyTree:
+def from_flattened_with_keypath(
+    flat_with_keys: list[tuple[tuple[Any, ...], Any]]
+) -> PyTree:
   """Reconstructs a tree given the a flat dict with keypaths."""
+  if not flat_with_keys:
+    raise ValueError(
+        'Unable to uniquely reconstruct tree from empty flattened list '
+        '(it could be {} or []).'
+    )
+  first_el = flat_with_keys[0]
+  assert first_el, f'Invalid data format: expected a pair, got {first_el=}'
+  if not first_el[0]:
+    # The tree is a single element (the path is empty), just return it.
+    return first_el[1]
   # Accesses the first path element (arbitrary), first tuple element
   # (keypath tuple), first key in keypath (outermost key in the PyTree).
-  outerkey = flat_with_keys[0][0][0]
+  outerkey = first_el[0][0]
   if is_dict_key(outerkey):
     result = {}
   elif is_sequence_key(outerkey):
@@ -252,7 +264,8 @@ def serialize_tree(tree: PyTree, keep_empty_nodes: bool = False) -> PyTree:
   """Transforms a PyTree to a serializable format.
 
   Args:
-    tree: The tree to serialize.
+    tree: The tree to serialize, if tree is empty and keep_empty_nodes is False,
+      an error is raised as there is no valid representation.
     keep_empty_nodes: If true, does not filter out empty nodes.
 
   Returns:

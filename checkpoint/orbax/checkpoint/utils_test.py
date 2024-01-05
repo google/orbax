@@ -166,6 +166,27 @@ class UtilsTest(parameterized.TestCase):
     )
     test_utils.assert_tree_equal(self, tree, deserialized)
 
+  def test_serialize_empty(self):
+    serialized = utils.serialize_tree({}, keep_empty_nodes=True)
+    test_utils.assert_tree_equal(self, {}, serialized)
+    deserialized = utils.deserialize_tree(
+        serialized, target={}, keep_empty_nodes=True
+    )
+    test_utils.assert_tree_equal(self, {}, deserialized)
+
+  def test_serialize_empty_no_keep_empty(self):
+    with self.assertRaises(ValueError):
+      utils.serialize_tree({}, keep_empty_nodes=False)
+
+  def test_serialize_single_element(self):
+    tree = {}
+    serialized = utils.serialize_tree(12345, keep_empty_nodes=True)
+    test_utils.assert_tree_equal(self, 12345, serialized)
+    deserialized = utils.deserialize_tree(
+        serialized, target=tree, keep_empty_nodes=True
+    )
+    test_utils.assert_tree_equal(self, 12345, deserialized)
+
   def test_serialize_list(self):
     tree = [1, {'a': 2}, [3, 4]]
     serialized = utils.serialize_tree(tree, keep_empty_nodes=True)
