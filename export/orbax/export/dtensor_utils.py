@@ -105,7 +105,7 @@ def jax_mesh_to_dtensor_mesh(mesh: jax.sharding.Mesh) -> dtensor.Mesh:
     )(global_device_ids)
 
   local_device_ids = [
-      int(s.data) for s in sharded_device_ids.addressable_shards
+      int(s.data.item()) for s in sharded_device_ids.addressable_shards
   ]
   return dtensor.Mesh(
       list(mesh.shape.keys()),
