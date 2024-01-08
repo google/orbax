@@ -222,9 +222,9 @@ class CheckpointManagerOptions:
           'CheckpointManagerOptions.cleanup_tmp_directories must be False as'
           ' read_only=True.'
       )
-    if self.read_only and self.save_on_steps is not None:
+    if self.read_only and self.save_on_steps:
       raise ValueError(
-          'CheckpointManagerOptions.save_on_steps must be None as'
+          'CheckpointManagerOptions.save_on_steps must be None or empty as'
           ' read_only=True.'
       )
     if self.read_only and self.todelete_subdir is not None:
