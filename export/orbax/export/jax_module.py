@@ -18,8 +18,8 @@ from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
 from absl import logging
 import jax
+from jax.experimental import export as jax_export
 from jax.experimental import jax2tf
-from jax.experimental.export import export as jax_export
 from orbax.checkpoint import utils as ckpt_utils
 from orbax.export import dtensor_utils
 from orbax.export import utils as orbax_export_utils
@@ -28,6 +28,9 @@ from tensorflow.experimental import dtensor
 
 PyTree = orbax_export_utils.PyTree
 ApplyFn = Callable[[PyTree, PyTree], PyTree]
+
+if jax.__version_info__ <= (0, 4, 23):
+  jax_export = jax_export.export
 
 
 def _same_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
@@ -235,7 +238,7 @@ class JaxModule(tf.Module):
         )
 
     if not native_serialization_platforms_list:
-      return [jax_export.default_lowering_platform()]
+      return [jax_export.default_lowering_platform()]  # type: ignore[attribute-error]
     else:
       native_serialization_platforms = native_serialization_platforms_list[0]
       for item in native_serialization_platforms_list:
