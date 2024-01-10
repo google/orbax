@@ -18,7 +18,6 @@ from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
 from absl import logging
 import jax
-from jax.experimental import export as jax_export
 from jax.experimental import jax2tf
 from orbax.checkpoint import utils as ckpt_utils
 from orbax.export import dtensor_utils
@@ -28,9 +27,6 @@ from tensorflow.experimental import dtensor
 
 PyTree = orbax_export_utils.PyTree
 ApplyFn = Callable[[PyTree, PyTree], PyTree]
-
-if jax.__version_info__ <= (0, 4, 23):
-  jax_export = jax_export.export
 
 
 def _same_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
@@ -218,36 +214,6 @@ class JaxModule(tf.Module):
     self._jax_methods = _make_closures(
         params, self._nontrackable_metadata.apply_fn_map
     )
-
-  @property
-  def native_serialization_platforms(self) -> list[str]:
-    """Returns the `native_serialization_platforms` used in `jax2tf.convert`.
-
-    JaxModule can support multiple ApplyFn functions through ApplyFn map. In
-    that case, `native_serialization_platforms` must be same for
-    all ApplyFns.
-
-    If users do not provide `native_serialization_platforms`, we
-    can get the default value based on the system.
-    """
-    native_serialization_platforms_list = []
-    for _, jax2tf_kwargs in self._jax2tf_kwargs_map.items():
-      if jax2tf_kwargs and 'native_serialization_platforms' in jax2tf_kwargs:
-        native_serialization_platforms_list.append(
-            jax2tf_kwargs['native_serialization_platforms']
-        )
-
-    if not native_serialization_platforms_list:
-      return [jax_export.default_lowering_platform()]  # type: ignore[attribute-error]
-    else:
-      native_serialization_platforms = native_serialization_platforms_list[0]
-      for item in native_serialization_platforms_list:
-        assert item == native_serialization_platforms, (
-            'all ApplyFn must use exactly same native_serialization_platforms'
-            ' but not.'
-            f'{item} != {native_serialization_platforms}.'
-        )
-      return list(native_serialization_platforms)
 
   def _get_variable_tree(self) -> PyTree:
     """Returns the PyTree of the tf.Variables associated with self."""

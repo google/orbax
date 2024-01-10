@@ -282,29 +282,6 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
           jax2tf_kwargs={'with_gradient': True},
       )
 
-  def test_jax2tf_native_serialization_platforms(self):
-    params = {}
-    my_module = JaxModule(params, lambda params, x: x)
-    self.assertEqual(my_module.native_serialization_platforms, ['cpu'])
-
-    my_module = JaxModule(
-        params,
-        lambda params, x: x,
-        jax2tf_kwargs=dict(native_serialization_platforms=['cuda']),
-    )
-    self.assertEqual(my_module.native_serialization_platforms, ['cuda'])
-
-  def test_multiple_native_serialization_platforms(self):
-    params = {}
-    multiple_platform_module = JaxModule(
-        params,
-        lambda params, x: x,
-        jax2tf_kwargs=dict(
-            native_serialization_platforms=['cuda', 'rocm', 'tpu', 'cpu']
-        ),
-    )
-    self.assertLen(multiple_platform_module.native_serialization_platforms, 4)
-
   def test_variable_update(self):
     def linear(params, batch):
       return params['w'] @ batch + params['b']

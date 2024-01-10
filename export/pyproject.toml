@@ -47,5 +47,6 @@ all = [
 testing = [
     'pytest',
     'pytest-xdist',
-    'tf-nightly'
+    'tf-nightly',
+    'requests',
 ]
