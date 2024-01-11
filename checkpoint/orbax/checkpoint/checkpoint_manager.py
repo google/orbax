@@ -126,8 +126,8 @@ class CheckpointManagerOptions:
     in this way. For example, this may be used to ensure checkpoints are
     retained at a frequency of approximately than one per hour.
   keep_period:
-    If set, will not delete any checkpoint where checkpoint_step %
-    keep_period == 0.
+    If set, any existing checkpoints matching checkpoint_step % keep_period == 0
+    will not be deleted.
   best_fn:
     If set, maintains checkpoints based on the quality of given
     metrics rather than recency. The function should accept a PyTree of metrics,
