@@ -69,6 +69,7 @@ Install from GitHub using the following.
 
    orbax_checkpoint_101
    orbax_checkpoint_api_overview
+   api_refactor
    optimized_checkpointing
    custom_handlers
    transformations
@@ -88,6 +89,10 @@ Install from GitHub using the following.
 Checkpointing
 ---------------
 
+IMPORTANT: The `CheckpointManager` API is changing. Please see the
+[migration instructions](https://orbax.readthedocs.io/en/latest/orbax_checkpoint_101.html)
+and complete your migration by May 1st, 2024.
+
 .. grid::
 
    .. grid-item::
@@ -103,6 +108,13 @@ Checkpointing
       .. card:: API Overview
          :class-card: sd-text-black sd-bg-light
          :link: orbax_checkpoint_api_overview.html
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: API Refactor
+         :class-card: sd-text-black sd-bg-light
+         :link: api_refactor.html
 
    .. grid-item::
       :columns: 6 6 6 4

@@ -300,6 +300,12 @@ class CheckpointManager(AbstractCheckpointManager):
   ):
     """CheckpointManager constructor.
 
+    IMPORTANT: `CheckpointManager` has been refactored to provide a new API.
+    Please ensure you have migrated all existing use cases to the newer style by
+    May 1st, 2024. Please see
+    https://orbax.readthedocs.io/en/latest/api_refactor.html
+    for technical details.
+
     The `CheckpointManager` is ultimately backed by a single `Checkpointer`, to
     which saving and restoring is delegated. Behind step management options,
     metrics-related logic, and other frills, saving and restoring with
@@ -338,6 +344,10 @@ class CheckpointManager(AbstractCheckpointManager):
       train_state = mngr.restore(0)
       train_state = mngr.restore(0, args=StandardRestore(abstract_train_state))
 
+    IMPORTANT: Don't forget to use the keyword `args=...` for save and restore!
+    Otherwise you will get the legacy API. This will not be necessary forever,
+    but only until the legacy API is removed.
+
     Args:
       directory: the top level directory in which to save all files.
       checkpointers: a mapping of object name to Checkpointer object. For
@@ -373,6 +383,12 @@ class CheckpointManager(AbstractCheckpointManager):
           ' together.'
       )
     elif checkpointers:
+      logging.warning(
+          'Configured `CheckpointManager` using deprecated legacy API. Please'
+          ' follow the instructions at'
+          ' https://orbax.readthedocs.io/en/latest/api_refactor.html to'
+          ' migrate by May 1st, 2024.'
+      )
       self._single_item = isinstance(checkpointers, AbstractCheckpointer)
       self._checkpointer = self._configure_checkpointer_legacy_init(
           checkpointers, self._options

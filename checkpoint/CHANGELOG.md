@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Deprecation warning for users of the old `CheckpointManager` API.
+- `CheckpointManager` API migration guide.
 - New backwards-compatible API for `CheckpointManager` making use of
 `CheckpointArgs` and `CompositeCheckpointHandler`.
 - Documentation for new APIs.
