@@ -68,6 +68,7 @@ Install from GitHub using the following.
    :caption: Checkpointing
 
    orbax_checkpoint_101
+   orbax_checkpoint_api_overview
    optimized_checkpointing
    custom_handlers
    transformations
@@ -99,10 +100,16 @@ Checkpointing
    .. grid-item::
       :columns: 6 6 6 4
 
+      .. card:: API Overview
+         :class-card: sd-text-black sd-bg-light
+         :link: orbax_checkpoint_api_overview.html
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
       .. card:: Optimized Checkpointing
          :class-card: sd-text-black sd-bg-light
          :link: optimized_checkpointing.html
-
 
    .. grid-item::
       :columns: 6 6 6 4

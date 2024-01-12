@@ -26,6 +26,11 @@ PyTreeCheckpointHandler
 .. autoclass:: PyTreeCheckpointHandler
   :members:
 
+CompositeCheckpointHandler
+-----------------------------
+.. autoclass:: CompositeCheckpointHandler
+  :members:
+
 JsonCheckpointHandler
 -----------------------------
 .. autoclass:: JsonCheckpointHandler

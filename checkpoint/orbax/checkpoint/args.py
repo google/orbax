@@ -34,4 +34,6 @@ from orbax.checkpoint.standard_checkpoint_handler import StandardSaveArgs as Sta
 # For defining custom CheckpointArgs.
 from orbax.checkpoint.checkpoint_args import CheckpointArgs
 from orbax.checkpoint.checkpoint_args import get_registered_handler_cls
+from orbax.checkpoint.checkpoint_args import get_registered_args_cls
+from orbax.checkpoint.checkpoint_args import has_registered_args
 from orbax.checkpoint.checkpoint_args import register_with_handler

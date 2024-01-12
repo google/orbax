@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - New backwards-compatible API for `CheckpointManager` making use of
 `CheckpointArgs` and `CompositeCheckpointHandler`.
+- Documentation for new APIs.
 
 ### Changed
 - Provide better support for custom `CheckpointHandler`s without registered

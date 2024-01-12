@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A class providing functionalities for managing multiple checkpoints."""
+"""A class providing functionalities for managing a series of checkpoints."""
 
 import concurrent.futures
 import contextlib
@@ -300,24 +300,43 @@ class CheckpointManager(AbstractCheckpointManager):
   ):
     """CheckpointManager constructor.
 
+    The `CheckpointManager` is ultimately backed by a single `Checkpointer`, to
+    which saving and restoring is delegated. Behind step management options,
+    metrics-related logic, and other frills, saving and restoring with
+    `CheckpointManager` is quite similar to using
+    `Checkpointer(CompositeCheckpointHandler)`.
+
     Example::
 
-      CheckpointManager(
+      mngr = CheckpointManager(
         'path/to/dir/',
         # Multiple items.
-        checkpointers = {
-            'train_state': AsyncCheckpointer(PyTreeCheckpointHandler()),
-            'dataset': Checkpointer(CustomTFDatasetCheckpointHandler()),
-        },
+        item_names=('train_state', 'custom_metadata'),
         metadata={'version': 1.1, 'lang': 'en'},
       )
+      mngr.save(0, args=args.Composite(
+          train_state=args.StandardSave(train_state),
+          custom_metadata=args.JsonSave(custom_metadata),
+        )
+      )
+      restored = mngr.restore(0)
+      print(restored.train_state)
+      print(restored.custom_metadata)
+      restored = mngr.restore(0, args=args.Composite(
+          train_state=args.StandardRestore(abstract_train_state),
+        )
+      )
+      print(restored.train_state)
+      print(restored.custom_metadata)  # Error, not restored
 
-      CheckpointManager(
+      # Single item, no need to specify `item_names`.
+      mngr = CheckpointManager(
         'path/to/dir/',
-        # Single item.
-        checkpointers = AsyncCheckpointer(PyTreeCheckpointHandler()),
         options = CheckpointManagerOptions(max_to_keep=5, ...),
       )
+      mngr.save(0, args=StandardSave(train_state))
+      train_state = mngr.restore(0)
+      train_state = mngr.restore(0, args=StandardRestore(abstract_train_state))
 
     Args:
       directory: the top level directory in which to save all files.
@@ -326,7 +345,8 @@ class CheckpointManager(AbstractCheckpointManager):
         keys in this argument. Alternatively, a single Checkpointer may be
         provided, in which case `save` and `restore` should always be called
         with a single item rather than a dictionary of items. See below for more
-        details.
+        details. `item_names` and `checkpointers` are mutually exclusive - do
+        not use together.
       options: CheckpointManagerOptions. May be provided to specify additional
         arguments. If None, uses default values of CheckpointManagerOptions.
       metadata: High-level metadata that does not depend on step number. If
@@ -338,7 +358,8 @@ class CheckpointManager(AbstractCheckpointManager):
         the metadata if already present, otherwise always uses the current given
         metadata.
       item_names: Names of distinct items that may be saved/restored with this
-        `CheckpointManager`.
+        `CheckpointManager`. `item_names` and `checkpointers` are mutually
+        exclusive - do not use together.
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
 
@@ -346,7 +367,12 @@ class CheckpointManager(AbstractCheckpointManager):
     if self._options.best_mode not in ['min', 'max']:
       raise ValueError('`best_mode` must be one of: "min", "max"')
 
-    if checkpointers:
+    if checkpointers and item_names:
+      raise ValueError(
+          '`item_names` and `checkpointers` are mutually exclusive - do not use'
+          ' together.'
+      )
+    elif checkpointers:
       self._single_item = isinstance(checkpointers, AbstractCheckpointer)
       self._checkpointer = self._configure_checkpointer_legacy_init(
           checkpointers, self._options
@@ -539,6 +565,35 @@ class CheckpointManager(AbstractCheckpointManager):
       if info.step == step:
         self._checkpoints.pop(i)
 
+  def _validate_args(
+      self,
+      items: Optional[Union[Any, Mapping[str, Any]]],
+      args: Optional[args_lib.CheckpointArgs],
+  ):
+    if isinstance(items, args_lib.CheckpointArgs):
+      raise ValueError(
+          'Found an instance of `CheckpointArgs` provided for `items`. This may'
+          ' be due to misuse of the newer API - make sure to specify the'
+          ' argument keyword (e.g. `args=args`).'
+      )
+    if args is not None:
+      if not isinstance(args, args_lib.CheckpointArgs):
+        raise ValueError(
+            f'Expected args of type `CheckpointArgs`; found {type(args)}.'
+        )
+      if self._single_item:
+        if isinstance(args, args_lib.Composite):
+          raise ValueError(
+              'Cannot provide `args` of type `Composite` when dealing with a'
+              ' single checkpointable object.'
+          )
+      else:
+        if not isinstance(args, args_lib.Composite):
+          raise ValueError(
+              'Must provide `args` of type `Composite` when dealing with'
+              ' multiple checkpointable objects.'
+          )
+
   def save(
       self,
       step: int,
@@ -555,6 +610,7 @@ class CheckpointManager(AbstractCheckpointManager):
 
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')
+    self._validate_args(items, args)
 
     if not force and not self.should_save(step):
       return False
@@ -659,6 +715,7 @@ class CheckpointManager(AbstractCheckpointManager):
     """See superclass documentation."""
     directory = directory or self.directory
     directory = epath.Path(directory)
+    self._validate_args(items, args)
 
     if items is None:
       items = {}

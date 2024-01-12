@@ -24,20 +24,21 @@ my_state = ...
 # A dictionary to be serialized as JSON
 json_dict = ...
 
-ckpter = ocp.Checkpointer(ocp.CompositeCheckpointHandler(
-    'state', 'metadata'))
-ckpter.save(
+ckptr = ocp.Checkpointer(
+    ocp.CompositeCheckpointHandler('state', 'metadata')
+)
+ckptr.save(
     path,
     args=ocp.args.Composite(
-        state=ocp.args.PyTreeSave(my_state),
+        state=ocp.args.StandardSave(my_state),
         metadata=ocp.args.JsonSave(json_dict)
     )
 )
 
-restored = ckpter.save(
+restored = ckptr.restore(
     path,
     args=ocp.args.Composite(
-        state=ocp.args.PyTreeRestore(),
+        state=ocp.args.StandardRestore(),
         metadata=ocp.args.JsonRestore()
     )
 )
@@ -417,7 +418,15 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         _, restore_ckpt_args_cls = checkpoint_args.get_registered_args_cls(
             handler
         )
-        composite_args_items[item_name] = restore_ckpt_args_cls()
+        try:
+          composite_args_items[item_name] = restore_ckpt_args_cls()
+        except TypeError as e:
+          raise ValueError(
+              'Attempted to construct default restoration arguments for item'
+              f' {item_name}, but the `CheckpointArgs` class of type'
+              f' {restore_ckpt_args_cls} is not default constructible. Original'
+              f' error: {e}.'
+          ) from e
       args = CompositeArgs(**composite_args_items)
 
     restored = {}
@@ -493,6 +502,32 @@ class CompositeArgs(CheckpointArgs):
 
   For simplicity, this object is immutable (although objects attached to it
   may be mutable).
+
+  Generally, this object can be treated as a key-value store similar to a dict.
+
+  Usage examples::
+
+    CompositeArgs(
+        state=my_train_state,
+        dataset=my_dataset,
+        metadata=json_metadata,
+    )
+
+    CompositeArgs(
+        **{
+            'state': my_train_state,
+            'dataset': my_dataset,
+            'metadata': json_metadata,
+          }
+    )
+
+    args = CompositeArgs(...)
+    args.state
+    args['state']
+    'state' in args
+
+    for key, value in args.items():
+      ...
   """
 
   __items__: Mapping[str, CheckpointArgs]
