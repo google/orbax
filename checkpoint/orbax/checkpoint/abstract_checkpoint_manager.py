@@ -18,6 +18,7 @@ import abc
 from typing import Any, Mapping, Optional, Protocol, Sequence, Union
 
 from etils import epath
+from orbax.checkpoint import args as args_lib
 
 PyTree = Any
 SaveParams = Mapping[str, Any]
@@ -106,46 +107,42 @@ class AbstractCheckpointManager(Protocol):
   def save(
       self,
       step: int,
-      items: Union[Any, Mapping[str, Any]],
+      items: Optional[Union[Any, Mapping[str, Any]]] = None,
       save_kwargs: Optional[Union[SaveParams, Mapping[str, SaveParams]]] = None,
       metrics: Optional[PyTree] = None,
       force: Optional[bool] = False,
+      args: Optional[args_lib.CheckpointArgs] = None,
   ) -> bool:
     """Saves the provided items.
 
     This method should be called by all hosts - process synchronization and
     actions that need to be performed on only one host are managed internally.
 
-    Items and save_kwargs must have a top-level structure matching that of
-    self._checkpointers, meaning that for every key in items and save_kwargs, a
-    corresponding key must be present in self._checkpointers.
+    NOTE: The `items` and `save_kwargs` arguments are deprecated, use `args`
+    instead. Make sure to configure `CheckpointManager` with `item_names`.
 
-    Items takes a form similar to the following::
+    `args` should be a subclass of
+    `orbax.checkpoint.args.CheckpointArgs`, the specific type of which is used
+    to indicate what logic is used to save the object. For a typical, PyTree of
+    arrays, use `StandardSave`/`StandardRestore`.
 
-      {
-        'params': PyTree(),
-        'metadata': <nested k/v>,
-        ...
-      }
-      Similarly, save_kwargs takes the form:
-      {
-        'params': {
-          <kwargs for PyTreeCheckpointHandler.save>
-        },
-        'metadata': {
-          <kwargs for JsonCheckpointHandler.save>
-        }
-        ...
-      }
+    When constructing the `CheckpointManager`, if no `item_names` were provided,
+    it is assumed that we are managing a single object. If `item_names` were
+    provided, it is assumed that we are managing multiple objects, and `args`
+    must be ``orbax.checkpoint.args.CompositeArgs`. See below for details.
 
-    The kwargs under 'params' correspond to PyTreeCheckpointHandler.save. If a
-    key is not present in save_kwargs, it is assumed that no kwargs are needed
-    for saving that item. If not provided at all, it is assumed that no items
-    need extra kwargs for saving.
+    Example::
 
-    Note that if a single Checkpointer was provided at construction time,
-    `items` must be a singular saveable object, and `save_kwargs` must be the
-    kwargs needed by a single Checkpointer.
+      # Single item
+      mngr = ocp.CheckpointManager(directory)
+      mngr.save(step, args=ocp.args.StandardSave(my_train_state))
+
+      # Multiple items
+      mngr = ocp.CheckpointManager(directory, item_names=('state', 'meta'))
+      mngr.save(step, args=ocp.args.Composite(
+          state=ocp.args.StandardSave(my_train_state),
+          meta=ocp.args.JsonSave(my_metadata)
+      ))
 
     Args:
       step: current step, int
@@ -164,6 +161,8 @@ class AbstractCheckpointManager(Protocol):
         permit, e.g. when `step` is in `options.save_interval_steps` or
         `options.save_on_steps`. Setting `force=True` will not overwrite
         existing checkpoints.
+      args: `CheckpointArgs` which is used to save checkpointable objects with
+        the appropriate logic.
 
     Returns:
       bool indicating whether a save operation was performed.
@@ -184,52 +183,35 @@ class AbstractCheckpointManager(Protocol):
           Union[RestoreParams, Mapping[str, RestoreParams]]
       ] = None,
       directory: Optional[epath.PathLike] = None,
-  ) -> Union[Any, Mapping[str, Any]]:
+      args: Optional[args_lib.CheckpointArgs] = None,
+  ) -> Union[Any, Mapping[str, Any], args_lib.Composite]:
     """Restores from the given step and provided items.
 
     This method should be called by all hosts - process synchronization and
     actions that need to be performed on only one host are managed internally.
 
-    Items and restore_kwargs must have a top-level structure matching that of
-    self._checkpointers, meaning that for every key in items and restore_kwargs,
-    a
-    corresponding key must be present in self._checkpointers.
+    NOTE: The `items` and `restore_kwargs` arguments are deprecated, use `args`
+    instead. Make sure to configure `CheckpointManager` with `item_names`.
+    See `save` docstring for additional details.
 
-    Items takes a form similar to the following::
+    Example::
 
-      {
-        'params': PyTree(),
-        'metadata': <nested k/v>,
-        ...
-      }
+      # Single item
+      mngr = ocp.CheckpointManager(directory)
+      mngr.restore(step, args=ocp.args.StandardRestore(abstract_train_state))
 
-    Items may not be provided at all, in which case it the items restored are
-    those specified in self._checkpointers, and item=None is provided to
-    Checkpointer.restore. Similarly, an item may be omitted from `items`,
-    in
-    which case item=None will be provided to Checkpointer.restore.
-
-    Similarly, restore_kwargs takes the form::
-
-      {
-        'params': {
-          'meshes': PyTree(),
-          'mesh_axes': PyTree(),
-        },
-        'metadata': {
-          <kwargs for JsonCheckpointHandler.save>
-        }
-        ...
-      }
-
-    The kwargs under 'params' correspond to PyTreeCheckpointHandler.restore. If
-    a key is not present in restore_kwargs, it is assumed that no kwargs are
-    needed for restoring that item. If not provided at all, it is assumed that
-    no items need extra kwargs for restoring.
-
-    Note that if a single Checkpointer was provided at construction time,
-    `items` must be a singular saveable object, and `restore_kwargs` must be the
-    kwargs needed by a single Checkpointer.
+      # Multiple items
+      mngr = ocp.CheckpointManager(directory, item_names=('state', 'meta'))
+      mngr.restore(step, args=ocp.args.Composite(
+          state=ocp.args.StandardRestore(abstract_train_state),
+          meta=ocp.args.JsonRestore(),
+      ))
+      # If it is acceptable to restore without providing additional arguments,
+      # and if a save has already been performed, it is ok to do the following:
+      mngr.restore(step, args=ocp.args.Composite(state=None, meta=None))
+      # If a save has not already been performed, there is no way for Orbax to
+      # know how to restore the objects. If a save has already been performed,
+      # it remembers the logic used to save the objects.
 
     Args:
       step: current step, int
@@ -241,16 +223,19 @@ class AbstractCheckpointManager(Protocol):
       directory: if provided, uses the given directory rather than the
         `directory` property of this class. Can be used to restore checkpoints
         from an independent location.
+      args: `CheckpointArgs` which is used to restore checkpointable objects
+        with the appropriate logic.
 
     Returns:
-      A dictionary matching the structure of self._checkpointers, with one
-      object returned for each Checkpointer, or a single restored object,
-      if a
-      single item is being tracked by this manager.
+      If managing a single item, returns a single checkpointable object.
+      If managing multiple items, returns ocp.args.Composite, where the keys
+      are item names, and values are checkpointable objects.
     """
 
   @abc.abstractmethod
-  def item_metadata(self, step: int) -> Union[Any, Mapping[str, Optional[Any]]]:
+  def item_metadata(
+      self, step: int
+  ) -> Union[Any, Mapping[str, Any], args_lib.Composite]:
     """For all Checkpointers, returns any metadata associated with the item.
 
     Calls the `metadata` method for each Checkpointer and returns a
@@ -269,6 +254,10 @@ class AbstractCheckpointManager(Protocol):
   @abc.abstractmethod
   def metadata(self) -> Mapping[str, Any]:
     """Returns CheckpointManager level metadata if present, empty otherwise."""
+
+  @abc.abstractmethod
+  def metrics(self, step: int) -> Optional[PyTree]:
+    """Returns metrics for step, if present."""
 
   @abc.abstractmethod
   def wait_until_finished(self):

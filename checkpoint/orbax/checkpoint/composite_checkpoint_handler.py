@@ -328,7 +328,13 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         for path in item_directories
     ])
 
-    for item_name, arg in args.items():
+    # Sort keys to maintain consistent ordering across processes, otherwise
+    # we may hit timeouts if processes wait at different barriers in per-item
+    # handlers.
+    # TODO(b/295899152): Find a less brittle solution or support
+    # async-compatible barrier function.
+    for item_name in sorted(args.keys()):
+      arg = args[item_name]
       _maybe_raise_reserved_item_error(item_name)
       item_directory = self._get_item_directory(directory, item_name)
       handler = self._get_or_set_handler(item_name, arg)
@@ -415,7 +421,13 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       args = CompositeArgs(**composite_args_items)
 
     restored = {}
-    for item_name, arg in args.items():
+    # Sort keys to maintain consistent ordering across processes, otherwise
+    # we may hit timeouts if processes wait at different barriers in per-item
+    # handlers.
+    # TODO(b/295899152): Find a less brittle solution or support
+    # async-compatible barrier function.
+    for item_name in sorted(args.keys()):
+      arg = args[item_name]
       if not items_exist[item_name]:
         restored[item_name] = None
         continue

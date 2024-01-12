@@ -327,6 +327,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     self.wait_until_finished()
     super().close()
 
+  @property
+  def handler(self) -> async_checkpoint_handler.AsyncCheckpointHandler:
+    return self._handler
+
 
 @contextlib.contextmanager
 def async_checkpointer_context(*args, **kwargs):

@@ -28,6 +28,8 @@ from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import utils
 
+
+
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
 get_legacy_handler_wrapper = (
@@ -173,6 +175,10 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
   def close(self):
     """Closes the underlying CheckpointHandler."""
     self._handler.close()
+
+  @property
+  def handler(self) -> checkpoint_handler.CheckpointHandler:
+    return self._handler
 
 
 @contextlib.contextmanager

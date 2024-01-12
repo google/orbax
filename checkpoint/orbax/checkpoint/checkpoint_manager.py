@@ -19,8 +19,8 @@ import contextlib
 import dataclasses
 import datetime
 import threading
-from typing import Any, Callable, Container, List, Mapping, Optional, Sequence, Tuple, Union
-import uuid
+import typing
+from typing import Any, Callable, Container, List, Mapping, Optional, Sequence, Tuple, Type, Union
 
 from absl import logging
 from etils import epath
@@ -28,11 +28,16 @@ import jax
 from jax.experimental.array_serialization import serialization
 from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import abstract_checkpointer
+from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import async_checkpointer
+from orbax.checkpoint import checkpoint_args
+from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import checkpointer as checkpointer_lib
+from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
+
 
 PyTree = Any
 CheckpointDirs = Tuple[str, str]
@@ -47,13 +52,16 @@ AsyncCheckpointer = async_checkpointer.AsyncCheckpointer
 Checkpointer = checkpointer_lib.Checkpointer
 JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
 ProtoCheckpointHandler = proto_checkpoint_handler.ProtoCheckpointHandler
-
+CompositeCheckpointHandler = (
+    composite_checkpoint_handler.CompositeCheckpointHandler
+)
+CheckpointHandler = checkpoint_handler.CheckpointHandler
+CheckpointArgs = checkpoint_args.CheckpointArgs
 
 DEFAULT_ITEM_NAME = 'default'
 DESCRIPTOR_ITEM_NAME = 'descriptor'
 METRIC_ITEM_NAME = 'metrics'
 METADATA_ITEM_NAME = 'metadata'
-
 RESERVED_ITEM_NAMES = [DESCRIPTOR_ITEM_NAME, METRIC_ITEM_NAME]
 
 _INIT_TIME = datetime.datetime.now(tz=datetime.timezone.utc)
@@ -96,7 +104,9 @@ class _FinalizeThread(threading.Thread):
 
 # TODO(b/268051457) Clean up when no longer depended upon by internal users.
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
-  return isinstance(checkpointer, AsyncCheckpointer) or isinstance(
+  return isinstance(
+      checkpointer, async_checkpointer.AsyncCheckpointer
+  ) or isinstance(
       checkpointer,
       serialization.GlobalAsyncCheckpointManagerBase,
   )
@@ -168,6 +178,7 @@ class CheckpointManagerOptions:
     is Google Cloud Storage (directory is prefixed with gs://)
   read_only: If True, then checkpoints save and delete are skipped. However,
     checkpoints restore works as usual.
+  enable_async_checkpointing: If True, enables async checkpointing.
   """
 
   save_interval_steps: int = 1
@@ -185,6 +196,7 @@ class CheckpointManagerOptions:
   single_host_load_and_broadcast: bool = False
   todelete_subdir: Optional[str] = None
   read_only: bool = False
+  enable_async_checkpointing: bool = True
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -259,15 +271,32 @@ class CheckpointInfo:
     return hash((self.step, self.time))
 
 
+def _get_args_for_key(
+    handler: CheckpointHandler, item_name: str
+) -> Tuple[Type[CheckpointArgs], Type[CheckpointArgs]]:
+  if not isinstance(handler, CompositeCheckpointHandler):
+    raise ValueError(
+        'Expected handler to be a `CompositeCheckpointHandler`, but got'
+        f' {type(handler)}.'
+    )
+  for key, handler in handler._known_handlers.items():  # pylint: disable=protected-access
+    if key == item_name:
+      return checkpoint_args.get_registered_args_cls(handler)
+  raise ValueError(f'Unknown key "{item_name}" in CompositeCheckpointHandler.')
+
+
 class CheckpointManager(AbstractCheckpointManager):
   """A generic, synchronous AbstractCheckpointManager implementation."""
 
   def __init__(
       self,
       directory: epath.PathLike,
-      checkpointers: Union[AbstractCheckpointer, CheckpointersDict],
+      checkpointers: Optional[
+          Union[AbstractCheckpointer, CheckpointersDict]
+      ] = None,
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[Mapping[str, Any]] = None,
+      item_names: Optional[Sequence[str]] = None,
   ):
     """CheckpointManager constructor.
 
@@ -298,39 +327,34 @@ class CheckpointManager(AbstractCheckpointManager):
         provided, in which case `save` and `restore` should always be called
         with a single item rather than a dictionary of items. See below for more
         details.
-     options: CheckpointManagerOptions. May be provided to specify additional
-       arguments. If None, uses default values of CheckpointManagerOptions.
-     metadata: High-level metadata that does not depend on step number. If
-       `directory` is write enabled then given metadata is saved only once. A
-       new CheckpointManager instance with that `directory` does not overwrite
-       the existing metadata and ignores the current given metadata. If
-       `directory` is read-only then the current given metadata is not saved as
-       expected. A CheckpointManager instance with a read-only `directory` uses
-       the metadata if already present, otherwise always uses the current given
-       metadata.
+      options: CheckpointManagerOptions. May be provided to specify additional
+        arguments. If None, uses default values of CheckpointManagerOptions.
+      metadata: High-level metadata that does not depend on step number. If
+        `directory` is write enabled then given metadata is saved only once. A
+        new CheckpointManager instance with that `directory` does not overwrite
+        the existing metadata and ignores the current given metadata. If
+        `directory` is read-only then the current given metadata is not saved as
+        expected. A CheckpointManager instance with a read-only `directory` uses
+        the metadata if already present, otherwise always uses the current given
+        metadata.
+      item_names: Names of distinct items that may be saved/restored with this
+        `CheckpointManager`.
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
-    self._single_item = False
-    if isinstance(checkpointers, AbstractCheckpointer):
-      self._single_item = True
-      checkpointers = {DEFAULT_ITEM_NAME: checkpointers}
-    elif isinstance(checkpointers, dict):
-      for item in [k for k in checkpointers if k in RESERVED_ITEM_NAMES]:
-        raise ValueError(
-            f'Found {item} in `checkpointers`; this is a reserved key.'
-        )
-    else:
-      raise ValueError(
-          f'Invalid type for `checkpointers`. Found {checkpointers}.'
-      )
 
-    self._checkpointers = checkpointers
     self._options = options or CheckpointManagerOptions()
     if self._options.best_mode not in ['min', 'max']:
       raise ValueError('`best_mode` must be one of: "min", "max"')
-    if self._track_best:
-      self._checkpointers[METRIC_ITEM_NAME] = Checkpointer(
-          JsonCheckpointHandler(filename=METRIC_ITEM_NAME)
+
+    if checkpointers:
+      self._single_item = isinstance(checkpointers, AbstractCheckpointer)
+      self._checkpointer = self._configure_checkpointer_legacy_init(
+          checkpointers, self._options
+      )
+    else:
+      self._single_item = item_names is None
+      self._checkpointer = self._configure_checkpointer(
+          item_names, self._options
       )
 
     self._directory = epath.Path(directory)
@@ -355,6 +379,81 @@ class CheckpointManager(AbstractCheckpointManager):
       self._save_metadata(metadata)
 
     self._finalize_thread = None
+
+  def _configure_checkpointer_common(
+      self,
+      handler: CompositeCheckpointHandler,
+      options: CheckpointManagerOptions,
+      use_async: bool,
+  ) -> Checkpointer:
+    if use_async:
+      return async_checkpointer.AsyncCheckpointer(handler)
+    else:
+      return Checkpointer(handler)
+
+  def _configure_checkpointer_legacy_init(
+      self,
+      checkpointers: Union[AbstractCheckpointer, CheckpointersDict],
+      options: CheckpointManagerOptions,
+  ) -> Checkpointer:
+    """Initializes _CompositeCheckpointer with legacy style checkpointers."""
+    item_handlers = {}
+    if isinstance(checkpointers, Checkpointer):
+      use_async = is_async_checkpointer(checkpointers)
+      item_handlers[DEFAULT_ITEM_NAME] = checkpointers.handler
+    elif isinstance(checkpointers, dict):
+      use_async = False
+      for item_name, checkpointer in checkpointers.items():
+        if not isinstance(checkpointer, Checkpointer):
+          raise ValueError(
+              f'Value corresponding to {item_name} in `checkpointers` is not a'
+              f' Checkpointer. Found {type(checkpointer)}.'
+          )
+        use_async |= is_async_checkpointer(checkpointer)
+        if item_name in RESERVED_ITEM_NAMES:
+          raise ValueError(
+              f'Found {item_name} in `checkpointers`; this is a reserved key.'
+          )
+        item_handlers[item_name] = checkpointer.handler
+    else:
+      raise ValueError(
+          f'Invalid type for `checkpointers`. Found {checkpointers}.'
+      )
+
+    # if options.best_fn:
+    item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
+        filename=METRIC_ITEM_NAME
+    )
+    return self._configure_checkpointer_common(
+        CompositeCheckpointHandler(**item_handlers), options, use_async
+    )
+
+  def _configure_checkpointer(
+      self,
+      item_names: Optional[Sequence[str]],
+      options: CheckpointManagerOptions,
+  ) -> Checkpointer:
+    """Initializes _CompositeCheckpointer given `item_names`."""
+    if item_names:
+      item_handlers = {item_name: None for item_name in item_names}
+    else:
+      item_handlers = {DEFAULT_ITEM_NAME: None}
+    for item_name in item_handlers:
+      if item_name in RESERVED_ITEM_NAMES:
+        raise ValueError(
+            f'Found {item_name} in `checkpointers`; this is a reserved key.'
+        )
+    if options.best_fn:
+      item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
+          filename=METRIC_ITEM_NAME
+      )
+    # CompositeCheckpointHandler defers per-item handler creation until
+    # save/restore time.
+    return self._configure_checkpointer_common(
+        CompositeCheckpointHandler(**item_handlers),
+        options,
+        options.enable_async_checkpointing,
+    )
 
   @property
   def directory(self) -> epath.Path:
@@ -414,16 +513,12 @@ class CheckpointManager(AbstractCheckpointManager):
       self,
       step: int,
       directory: epath.Path,
-      key_name: Optional[str] = None,
-      tmp_directory: Optional[epath.Path] = None,
   ) -> epath.Path:
     """Returns the standardized path to a save directory for a single item."""
     return utils.get_save_directory(
         step,
         directory,
-        name=key_name,
         step_prefix=self._options.step_prefix,
-        override_directory=tmp_directory,
         step_format_fixed_length=self._options.step_format_fixed_length,
     )
 
@@ -447,15 +542,19 @@ class CheckpointManager(AbstractCheckpointManager):
   def save(
       self,
       step: int,
-      items: Union[Any, Mapping[str, Any]],
+      items: Optional[Union[Any, Mapping[str, Any]]] = None,
       save_kwargs: Optional[Union[SaveParams, Mapping[str, SaveParams]]] = None,
       metrics: Optional[PyTree] = None,
       force: Optional[bool] = False,
+      args: Optional[args_lib.CheckpointArgs] = None,
   ) -> bool:
     """See superclass documentation."""
     # Wait for ongoing saves to complete. Only applicable if some of the
     # checkpointers are AsyncCheckpointers.
     self.wait_until_finished()
+
+    if items is None and args is None:
+      raise ValueError('Must provide `args` for `save`.')
 
     if not force and not self.should_save(step):
       return False
@@ -465,24 +564,46 @@ class CheckpointManager(AbstractCheckpointManager):
     if step in self.all_steps():
       raise ValueError(f'Checkpoint for step {step} already exists.')
 
+    if items is None:
+      items = {}
     if save_kwargs is None:
       save_kwargs = {}
     if self._single_item:
       items = {DEFAULT_ITEM_NAME: items}
       save_kwargs = {DEFAULT_ITEM_NAME: save_kwargs}
-    else:
-      items = dict(items)
 
-    if self._track_best:
-      if metrics is None:
-        logging.warning('Requested `tracked_metric`; did not provide metrics.')
+    if self._track_best and metrics is None:
+      logging.warning('Requested `tracked_metric`; did not provide metrics.')
+
+    if args is None:
+      args_dict = {}
+      for key, item in items.items():
+        save_ckpt_arg_cls, _ = _get_args_for_key(
+            self._checkpointer.handler,
+            key,
+        )
+        extra_args = save_kwargs[key] if key in save_kwargs else {}
+        args_dict[key] = save_ckpt_arg_cls(item, **extra_args)  # pytype: disable=wrong-arg-count
+      args = args_lib.Composite(**args_dict)
+    else:
+      if self._single_item:
+        args = args_lib.Composite(**{DEFAULT_ITEM_NAME: args})
       else:
-        items[METRIC_ITEM_NAME] = metrics
+        if not isinstance(args, args_lib.Composite):
+          raise ValueError(
+              f'Expected args of type `Composite`; found {type(args)}.'
+          )
+        args = typing.cast(args_lib.Composite, args)
+
+    args_dict = dict(args.items())
+    if metrics is not None and self._track_best:
+      args_dict['metrics'] = args_lib.JsonSave(metrics)
+    args = args_lib.Composite(**args_dict)
 
     save_directory = self._get_save_directory(step, self.directory)
     # If a folder for the step to save exists and is not finalized, remove the
     # existing folder.
-    if utils.is_gcs_path(save_directory):
+    if utils.is_gcs_path(self.directory):
       if (
           jax.process_index() == 0
           and save_directory.exists()
@@ -495,20 +616,11 @@ class CheckpointManager(AbstractCheckpointManager):
             step,
         )
         self._delete_directory(step)
-      utils.sync_global_devices('CheckpointManager:deleted_unfinalized_step')
-
-    tmp_step_dir = self._create_tmp_directory(save_directory)
-
-    for k, item in items.items():
-      # Gets save dirs given top directory, step number, and a "collection". All
-      # files from the same input object should be saved under this collection.
-      item_dir = self._get_save_directory(
-          step, self.directory, k, tmp_directory=tmp_step_dir
+      utils.sync_global_devices(
+          'CheckpointManager:maybe_delete_unfinalized_step'
       )
-      if k not in self._checkpointers:
-        raise ValueError(f'Checkpointer for item "{k}" not found')
-      kwargs = save_kwargs.get(k, {})
-      self._checkpointers[k].save(item_dir, item, **kwargs)
+
+    self._checkpointer.save(save_directory, args=args)
 
     self._add_checkpoint_info(step, metrics)
     steps_to_remove = self._get_old_steps_to_remove()
@@ -521,15 +633,17 @@ class CheckpointManager(AbstractCheckpointManager):
     utils.sync_global_devices('CheckpointManager:old_steps_to_remove')
 
     assert self._finalize_thread is None
-    if self._all_checkpointers_are_sync:
-      self._finalize(tmp_step_dir, steps_to_remove)
-      utils.sync_global_devices('CheckpointManager:finalize')
-    else:
+    if is_async_checkpointer(self._checkpointer):
+      logging.info('Beginning asynchronous save.')
       t = _FinalizeThread(
-          target=self._finalize, args=(tmp_step_dir, steps_to_remove)
+          target=self._finalize, args=(save_directory, steps_to_remove)
       )
       t.start()
       self._finalize_thread = t
+    else:
+      self._finalize(save_directory, steps_to_remove)
+      logging.info('Finished synchronous save.')
+      utils.sync_global_devices('CheckpointManager:finalize')
     return True
 
   def restore(
@@ -540,8 +654,12 @@ class CheckpointManager(AbstractCheckpointManager):
           Union[RestoreParams, Mapping[str, RestoreParams]]
       ] = None,
       directory: Optional[epath.PathLike] = None,
+      args: Optional[args_lib.CheckpointArgs] = None,
   ) -> Union[Any, Mapping[str, Any]]:
     """See superclass documentation."""
+    directory = directory or self.directory
+    directory = epath.Path(directory)
+
     if items is None:
       items = {}
     elif self._single_item:
@@ -551,74 +669,59 @@ class CheckpointManager(AbstractCheckpointManager):
     elif self._single_item:
       restore_kwargs = {DEFAULT_ITEM_NAME: restore_kwargs}
 
-    restored_items = self._restore_impl(
-        step, items, restore_kwargs, directory=directory
-    )
-
-    if self._single_item:
-      return restored_items[DEFAULT_ITEM_NAME]
-    return restored_items
-
-  def _restore_impl(
-      self,
-      step: int,
-      items: Mapping[str, Any],
-      restore_kwargs: Mapping[str, RestoreParams],
-      directory: Optional[epath.PathLike] = None,
-  ) -> Mapping[str, Any]:
-    """Restores only the provided items, or all items if empty."""
-    if directory is None:
-      directory = self.directory
+    if args is None:
+      args_dict = {}
+      item_keys = set(items.keys()) | set(restore_kwargs.keys())
+      for key in item_keys:
+        _, restore_ckpt_arg_cls = _get_args_for_key(
+            self._checkpointer.handler,
+            key,
+        )
+        item = items[key] if key in items else None
+        extra_args = restore_kwargs[key] if key in restore_kwargs else {}
+        args_dict[key] = restore_ckpt_arg_cls(item, **extra_args)  # pytype: disable=wrong-arg-count
+      args = args_lib.Composite(**args_dict)
     else:
-      directory = epath.Path(directory)
-    restored = {}
-    item_keys_to_restore = items.keys() or self._checkpointers.keys()
-    for item_name in item_keys_to_restore:
-      path = self._get_save_directory(step, directory, item_name)
-      if item_name == METRIC_ITEM_NAME:
-        assert self._track_best
-        # No metrics file present: not an error.
-        if not _metrics_file_exists(path):
-          logging.warning('Missing metrics for step %d', step)
-          continue
-      if item_name not in self._checkpointers:
-        raise ValueError(f'Checkpointer for item "{item_name}" not found')
-      item = items.get(item_name, None)
-      kwargs = restore_kwargs.get(item_name, {})
-      restored[item_name] = self._checkpointers[item_name].restore(
-          path, item=item, **kwargs
-      )
+      if self._single_item:
+        args = args_lib.Composite(**{DEFAULT_ITEM_NAME: args})
+      else:
+        args = typing.cast(args_lib.Composite, args)
 
+    restore_directory = self._get_save_directory(step, directory)
+    restored = self._checkpointer.restore(restore_directory, args=args)
+    if self._single_item:
+      return restored[DEFAULT_ITEM_NAME]
     return restored
 
-  def item_metadata(self, step: int) -> Union[Any, Mapping[str, Optional[Any]]]:
+  def item_metadata(self, step: int) -> Union[Any, args_lib.Composite]:
     """See superclass documentation."""
-    result = {}
-    for name, checkpointer in self._checkpointers.items():
-      path = self._get_save_directory(step, self.directory, name)
-      if name == METRIC_ITEM_NAME:
-        assert self._track_best
-        # No metrics file present: not an error.
-        if not _metrics_file_exists(path):
-          logging.warning('Missing metrics for step %d', step)
-          continue
-      metadata = checkpointer.metadata(path)
-      result[name] = metadata
+    result = self._checkpointer.metadata(
+        self._get_save_directory(step, self.directory)
+    )
     if self._single_item:
       return result[DEFAULT_ITEM_NAME]
     return result
+
+  def metrics(self, step: int) -> Optional[PyTree]:
+    if self._track_best:
+      try:
+        restored = self._checkpointer.restore(
+            self._get_save_directory(step, self.directory),
+            args=args_lib.Composite(
+                **{METRIC_ITEM_NAME: args_lib.JsonRestore()}
+            ),
+        )
+        return restored[METRIC_ITEM_NAME]
+      except FileNotFoundError:
+        logging.warning('Missing metrics for step %d', step)
+        return None
+    else:
+      return None
 
   @property
   def _track_best(self):
     """Returns true if we should track the best checkpoints by given metric."""
     return self._options.best_fn is not None
-
-  @property
-  def _all_checkpointers_are_sync(self):
-    return all(
-        not is_async_checkpointer(checkpointer)
-        for checkpointer in self._checkpointers.values()
-    )
 
   def _create_checkpoints(self) -> List[CheckpointInfo]:
     """Create a list of CheckpointInfo for existing checkpoints.
@@ -637,13 +740,7 @@ class CheckpointManager(AbstractCheckpointManager):
           self._get_save_directory(step, self.directory).stat().mtime,
           tz=datetime.timezone.utc,
       )
-
-      metrics = None
-      if self._track_best:
-        restored = self._restore_impl(step, {METRIC_ITEM_NAME: None}, {})
-        if METRIC_ITEM_NAME in restored:
-          metrics = restored[METRIC_ITEM_NAME]
-      return CheckpointInfo(step=step, time=time, metrics=metrics)
+      return CheckpointInfo(step=step, time=time, metrics=self.metrics(step))
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
       futures = {step: executor.submit(checkpoint_info, step) for step in steps}
@@ -736,6 +833,7 @@ class CheckpointManager(AbstractCheckpointManager):
         self.directory
     ):
       self._get_save_directory(step, self.directory).rmtree()
+      logging.info('Deleted step %d.', step)
       return
 
     # Rename step dir.
@@ -745,6 +843,7 @@ class CheckpointManager(AbstractCheckpointManager):
     src = self._get_save_directory(step, self.directory)
     dst = self._get_save_directory(step, rename_dir)
     src.replace(dst)
+    logging.info('Renamed step %d (todelete_subdir option specified).', step)
 
   def _get_old_steps_to_remove(self) -> List[int]:
     """Returns checkpoints that should be deleted."""
@@ -848,9 +947,8 @@ class CheckpointManager(AbstractCheckpointManager):
     return steps_to_remove
 
   def _wait_for_checkpointers(self):
-    for checkpointer in self._checkpointers.values():
-      if is_async_checkpointer(checkpointer):
-        checkpointer.wait_until_finished()  # pytype: disable=attribute-error
+    if is_async_checkpointer(self._checkpointer):
+      self._checkpointer.wait_until_finished()  # pytype: disable=attribute-error
 
   def wait_until_finished(self):
     """See superclass documentation."""
@@ -872,24 +970,15 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def check_for_errors(self):
     """See superclass documentation."""
-    for checkpointer in self._checkpointers.values():
-      if is_async_checkpointer(checkpointer):
-        checkpointer.check_for_errors()  # pytype: disable=attribute-error
+    if is_async_checkpointer(self._checkpointer):
+      self._checkpointer.check_for_errors()  # pytype: disable=attribute-error
 
-  def _finalize_checkpoint(
-      self, temp_ckpt_dir: epath.Path
-  ) -> Optional[epath.Path]:
+  def _finalize_checkpoint(self, step: int):
     """Moves tmp step checkpoint to final.
 
     Args:
-      temp_ckpt_dir: The temporary checkpoint directory. If not None, only
-        finalize the checkpoints in `temp_ckpt_dir`. If None, it will iterate
-        through all temp checkpoints in `self.directory` and finalize them all.
-
-    Returns:
-      the final checkpoint dir
+      step: finalized checkpoint step.
     """
-    final_ckpt_dir = None
     if jax.process_index() == 0:
       try:
         self.check_for_errors()
@@ -902,7 +991,6 @@ class CheckpointManager(AbstractCheckpointManager):
             e,
         )
         return None
-      step = utils.step_from_checkpoint_name(temp_ckpt_dir.name)
       # If at a preemption step, record the time since the previous checkpoint.
       # This represents training time that would otherwise have been wasted.
       # If another checkpoint has not been previously saved, measures the time
@@ -918,24 +1006,20 @@ class CheckpointManager(AbstractCheckpointManager):
             '/jax/checkpoint/write/preempt/duration_saved_secs',
             duration.total_seconds(),
         )
-      final_ckpt_dir = self._get_save_directory(step, self.directory)
-      utils.ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir)
-    return final_ckpt_dir
 
-  def _finalize(self, temp_ckpt_dir: epath.Path, steps_to_remove: List[int]):
+  def _finalize(self, directory: epath.Path, steps_to_remove: List[int]):
     """Cleans up old checkpoints and synchronizes hosts."""
     self._wait_for_checkpointers()
     # If an error is encountered while waiting for commit futures to complete,
     # we will not proceed past this point.
-    final_ckpt_dir = self._finalize_checkpoint(temp_ckpt_dir)
+    self._finalize_checkpoint(utils.step_from_checkpoint_name(directory.name))
     for step in steps_to_remove:
       self._delete_directory(step)
 
   def close(self):
     """See superclass documentation."""
     self.wait_until_finished()
-    for c in self._checkpointers.values():
-      c.close()
+    self._checkpointer.close()
 
 
 @contextlib.contextmanager

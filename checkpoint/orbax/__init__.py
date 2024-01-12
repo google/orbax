@@ -17,6 +17,7 @@
 import asyncio
 import contextlib
 import functools
+import logging
 
 import nest_asyncio
 from orbax.checkpoint import aggregate_handlers
@@ -41,6 +42,7 @@ from orbax.checkpoint.checkpoint_manager import CheckpointManager
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
 from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.checkpointer import checkpointer_context
+from orbax.checkpoint.composite_checkpoint_handler import CompositeCheckpointHandler
 from orbax.checkpoint.future import Future
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
 from orbax.checkpoint.proto_checkpoint_handler import ProtoCheckpointHandler
@@ -60,8 +62,8 @@ from orbax.checkpoint.transform_utils import Transform
 try:
   asyncio.get_running_loop()
   nest_asyncio.apply()
-except RuntimeError:
-  pass
+except RuntimeError as e:
+  logging.info('Failed to apply nest_asyncio. Received error: %s', e)
 
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
