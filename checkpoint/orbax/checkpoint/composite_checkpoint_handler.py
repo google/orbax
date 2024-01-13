@@ -174,7 +174,7 @@ def get_legacy_handler_wrapper(
 
 def _maybe_raise_reserved_item_error(item_name: str):
   if item_name in RESERVED_ITEM_NAMES:
-    raise ValueError(f'Cannot specify reserved item name: {item_name}.')
+    raise ValueError(f'Cannot specify reserved item name: "{item_name}".')
 
 
 class CompositeCheckpointHandler(AsyncCheckpointHandler):
@@ -288,14 +288,30 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         self._known_handlers[item_name] = get_legacy_handler_wrapper(handler)
 
   def _get_or_set_handler(
-      self, item_name: str, args: CheckpointArgs,
+      self,
+      item_name: str,
+      args: Optional[CheckpointArgs],
   ) -> CheckpointHandler:
     if item_name not in self._known_handlers:
       raise ValueError(
-          f'Unknown key {item_name}. Please make sure that this key was'
+          f'Unknown key "{item_name}". Please make sure that this key was'
           ' specified during initialization.'
       )
     handler = self._known_handlers[item_name]
+    if args is None:
+      if handler is None:
+        raise ValueError(
+            'Provided `None` for `CheckpointArgs`, and the `CheckpointHandler`'
+            f' for item "{item_name}" was not configured. If saving, this'
+            f' indicates that "{item_name}" was saved with `None` (an instance'
+            ' of `CheckpointArgs` was expected). If restoring, providing'
+            ' `None` for the item is valid, but only if the `CheckpointHandler'
+            ' was already configured. Provide a `CheckpointArgs` subclass so'
+            ' that `CompositeCheckpointHandler` will know how to restore the'
+            ' item.'
+        )
+      return handler
+
     registered_handler_cls_for_args = (
         checkpoint_args.get_registered_handler_cls(args)
     )
@@ -410,7 +426,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
           continue
         if handler is None:
           raise ValueError(
-              f'Item with name: {item_name} had an undetermined'
+              f'Item with name: "{item_name}" had an undetermined'
               ' `CheckpointHandler` when restoring. Please ensure the handler'
               ' was specified during initialization, or use the appropriate'
               ' `CheckpointArgs` subclass to indicate the item type.'
@@ -423,7 +439,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         except TypeError as e:
           raise ValueError(
               'Attempted to construct default restoration arguments for item'
-              f' {item_name}, but the `CheckpointArgs` class of type'
+              f' "{item_name}", but the `CheckpointArgs` class of type'
               f' {restore_ckpt_args_cls} is not default constructible. Original'
               f' error: {e}.'
           ) from e

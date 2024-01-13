@@ -176,7 +176,7 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     restored = handler.restore(
         self.directory,
         CompositeArgs(
-            state=args_lib.StandardRestore, metadata=args_lib.JsonRestore()
+            state=args_lib.StandardRestore(), metadata=args_lib.JsonRestore()
         ),
     )
     self.assertDictEqual(restored.state, state)
@@ -186,6 +186,14 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
         CompositeArgs(opt_state=args_lib.StandardRestore(dummy_opt_state)),
     )
     self.assertDictEqual(restored.opt_state, opt_state)
+
+    # Knows to use JSON restore.
+    restored = handler.restore(
+        self.directory,
+        CompositeArgs(metadata=None),
+    )
+    self.assertSameElements(restored.keys(), {'metadata'})
+    self.assertDictEqual(restored.metadata, metadata)
 
   def test_incorrect_args(self):
     dir1 = epath.Path(self.create_tempdir(name='dir1'))

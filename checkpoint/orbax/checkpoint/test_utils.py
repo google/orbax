@@ -210,6 +210,14 @@ def print_directory(directory: epath.Path, level: int = 0):
       logging.info('%s%s', level_str, p.name)
 
 
+def create_empty(directory: epath.PathLike) -> epath.Path:
+  directory = epath.Path(directory)
+  if directory.exists():
+    directory.rmtree()
+  directory.mkdir()
+  return directory
+
+
 def set_tensorstore_driver_for_test():
   # Sets TS driver for testing. Within Google, this defaults to `gfile`, which
   # results in issues writing to the OCDBT manifest. When using `gfile` on the

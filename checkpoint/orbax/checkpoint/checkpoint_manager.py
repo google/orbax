@@ -444,19 +444,31 @@ class CheckpointManager(AbstractCheckpointManager):
       use_async = is_async_checkpointer(checkpointers)
       item_handlers[DEFAULT_ITEM_NAME] = checkpointers.handler
     elif isinstance(checkpointers, dict):
-      use_async = False
+      individual_use_async = []
       for item_name, checkpointer in checkpointers.items():
         if not isinstance(checkpointer, Checkpointer):
           raise ValueError(
               f'Value corresponding to {item_name} in `checkpointers` is not a'
               f' Checkpointer. Found {type(checkpointer)}.'
           )
-        use_async |= is_async_checkpointer(checkpointer)
+        individual_use_async.append(is_async_checkpointer(checkpointer))
         if item_name in RESERVED_ITEM_NAMES:
           raise ValueError(
               f'Found {item_name} in `checkpointers`; this is a reserved key.'
           )
         item_handlers[item_name] = checkpointer.handler
+      if any(individual_use_async) and not all(individual_use_async):
+        logging.error(
+            'Orbax `CheckpointManager` is transitioning toward using'
+            ' asynchronous saving logic under the hood in all cases. Users that'
+            ' configure `CheckpointManager` with some `Checkpointer`s and some'
+            ' `AsyncCheckpointer`s will now see asynchronous logic used to save'
+            ' all items. This may result in breakages if the code is assuming'
+            ' that certain objects will be available immediately after saving.'
+            ' Ensure that if you depend on the result of `save` being fully'
+            ' written at a particular moment, use `wait_until_finished()`.'
+        )
+      use_async = any(individual_use_async)
     else:
       raise ValueError(
           f'Invalid type for `checkpointers`. Found {checkpointers}.'
@@ -655,6 +667,7 @@ class CheckpointManager(AbstractCheckpointManager):
             key,
         )
         extra_args = save_kwargs[key] if key in save_kwargs else {}
+        extra_args = extra_args or {}
         args_dict[key] = save_ckpt_arg_cls(item, **extra_args)  # pytype: disable=wrong-arg-count
       args = args_lib.Composite(**args_dict)
     else:
@@ -752,6 +765,7 @@ class CheckpointManager(AbstractCheckpointManager):
         )
         item = items[key] if key in items else None
         extra_args = restore_kwargs[key] if key in restore_kwargs else {}
+        extra_args = extra_args or {}
         args_dict[key] = restore_ckpt_arg_cls(item, **extra_args)  # pytype: disable=wrong-arg-count
       args = args_lib.Composite(**args_dict)
     else:
