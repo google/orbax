@@ -31,6 +31,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from absl import logging
 from etils import epath
 import jax
+from jax.experimental import mesh_utils
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import async_checkpoint_handler
@@ -41,6 +42,7 @@ from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
 import tensorstore as ts
+
 
 PyTree = Any
 TupleKey = Tuple[str, ...]
@@ -1066,6 +1068,17 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     # If metadata file was missing in the checkpoint, we need to decide
     # restore_type based on RestoreArgs.
+    num_devices = len(jax.devices())
+    mesh = jax.sharding.Mesh(
+        mesh_utils.create_device_mesh((num_devices,)), ('data',)
+    )
+    sharding = jax.sharding.NamedSharding(
+        mesh=mesh, spec=jax.sharding.PartitionSpec()
+    )
+    checkpoint_restore_args = jax.tree_util.tree_map(
+        lambda arr: ArrayRestoreArgs(sharding=sharding),
+        checkpoint_restore_args,
+    )
     structure = jax.tree_util.tree_map(
         _maybe_set_default_restore_types, structure, checkpoint_restore_args
     )
