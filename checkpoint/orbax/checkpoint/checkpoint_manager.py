@@ -632,9 +632,6 @@ class CheckpointManager(AbstractCheckpointManager):
       args: Optional[args_lib.CheckpointArgs] = None,
   ) -> bool:
     """See superclass documentation."""
-    # Wait for ongoing saves to complete. Only applicable if some of the
-    # checkpointers are AsyncCheckpointers.
-    self.wait_until_finished()
 
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')
@@ -644,6 +641,11 @@ class CheckpointManager(AbstractCheckpointManager):
       return False
     if self.reached_preemption(step):
       logging.info('Saving checkpoint at step %d due to preemption.', step)
+
+    # Wait for ongoing saves to complete. Only applicable if some of the
+    # checkpointers are AsyncCheckpointers.
+    # Must happen after `should_save` to avoid blocking callers.
+    self.wait_until_finished()
 
     if step in self.all_steps():
       raise ValueError(f'Checkpoint for step {step} already exists.')
