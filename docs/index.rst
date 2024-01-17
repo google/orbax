@@ -51,6 +51,9 @@ can be used to obtain the most recent version of Optax.
 
 ``pip install 'git+https://github.com/google/orbax/#subdirectory=checkpoint'``
 
+NOTE: Certain edge cases of `orbax-checkpoint` may not work on Windows.
+ Also, supporting them is not planned yet.
+
 Similarly, `orbax-export` can be installed from
 `PyPI <https://pypi.org/project/orbax-export/>`_ using
 
