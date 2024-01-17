@@ -31,6 +31,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from absl import logging
 from etils import epath
 import jax
+from jax.experimental import mesh_utils
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import async_checkpoint_handler
@@ -41,6 +42,7 @@ from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
 import tensorstore as ts
+
 
 PyTree = Any
 TupleKey = Tuple[str, ...]
@@ -643,6 +645,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       restore_with_serialized_types: bool = True,
       write_tree_metadata: bool = True,
       use_zarr3: bool = False,
+      add_sharding_to_ckpt_restore_args: bool = False,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -664,6 +667,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       write_tree_metadata: Writes tree metadata in JSON format. The tree
         metadata is used to enable a checkpoint which is fully self-describing.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
+      add_sharding_to_ckpt_restore_args: IF True, add sharding configuration to
+        checkpoint_restore_args.
     """
     self._aggregate_handler = MsgpackHandler()
     if aggregate_filename is None:
@@ -675,6 +680,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._restore_with_serialized_types = restore_with_serialized_types
     self._write_tree_metadata = write_tree_metadata
     self._use_zarr3 = use_zarr3
+    self._add_sharding_to_ckpt_restore_args = add_sharding_to_ckpt_restore_args
 
 
     if self._use_ocdbt:
@@ -1063,6 +1069,21 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
             meta, restore_type=type_handlers.default_restore_type(arg)
         )
       return meta
+
+    # This is for fixing b/320744108 in order to correctly load ckpt that
+    # contains sharding configs.
+    if self._add_sharding_to_ckpt_restore_args:
+      num_devices = len(jax.devices())
+      mesh = jax.sharding.Mesh(
+          mesh_utils.create_device_mesh((num_devices,)), ('data',)
+      )
+      sharding = jax.sharding.NamedSharding(
+          mesh=mesh, spec=jax.sharding.PartitionSpec()
+      )
+      checkpoint_restore_args = jax.tree_util.tree_map(
+          lambda arr: ArrayRestoreArgs(sharding=sharding),
+          checkpoint_restore_args,
+      )
 
     # If metadata file was missing in the checkpoint, we need to decide
     # restore_type based on RestoreArgs.
