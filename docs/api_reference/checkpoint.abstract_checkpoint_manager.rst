@@ -6,6 +6,6 @@ AbstractCheckpointManager
 .. automodule:: orbax.checkpoint.abstract_checkpoint_manager
 
 AbstractCheckpointManager
-------------------------
+------------------------------
 .. autoclass:: AbstractCheckpointManager
   :members:

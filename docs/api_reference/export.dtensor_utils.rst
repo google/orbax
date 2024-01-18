@@ -1,5 +1,5 @@
 DTensor utilities for multi-device/host export
-============================
+======================================
 
 .. currentmodule:: orbax.export.dtensor_utils
 
