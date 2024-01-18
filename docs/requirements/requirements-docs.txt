@@ -8,16 +8,5 @@ IPython==7.16.3
 ipykernel==5.3.4
 myst_nb==0.13.1
 docutils==0.16
-absl-py
 cached_property
 importlib_resources
-etils
-typing_extensions
-msgpack
-jax
-jaxlib
-numpy
-pyyaml
-tensorstore>=0.1.51
-nest_asyncio
-tensorflow
