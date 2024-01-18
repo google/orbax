@@ -214,6 +214,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   Please see `Checkpointer` documentation for more generic usage instructions.
   """
 
+  # Options mirror checkpoint_manager.AsyncOptions.
   def __init__(
       self,
       handler: async_checkpoint_handler.AsyncCheckpointHandler,

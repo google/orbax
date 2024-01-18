@@ -112,6 +112,18 @@ def is_async_checkpointer(checkpointer: AbstractCheckpointer):
   )
 
 
+@dataclasses.dataclass
+class AsyncOptions:
+  """Options used to configure async behavior.
+
+  See `AsyncCheckpointer` for details.
+  """
+
+  timeout_secs: int = 300
+  primary_host: int = 0
+  barrier_sync_fn: Optional[async_checkpointer.BarrierSyncFn] = None
+
+
 # TODO(b/309965339) Set todelete_subdir defaults if directory is on CNS.
 @dataclasses.dataclass
 class CheckpointManagerOptions:
@@ -179,6 +191,7 @@ class CheckpointManagerOptions:
   read_only: If True, then checkpoints save and delete are skipped. However,
     checkpoints restore works as usual.
   enable_async_checkpointing: If True, enables async checkpointing.
+  async_options: Used to configure properties of async behavior. See above.
   """
 
   save_interval_steps: int = 1
@@ -197,6 +210,7 @@ class CheckpointManagerOptions:
   todelete_subdir: Optional[str] = None
   read_only: bool = False
   enable_async_checkpointing: bool = True
+  async_options: Optional[AsyncOptions] = None
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -429,7 +443,15 @@ class CheckpointManager(AbstractCheckpointManager):
       use_async: bool,
   ) -> Checkpointer:
     if use_async:
-      return async_checkpointer.AsyncCheckpointer(handler)
+      if options.async_options is not None:
+        return async_checkpointer.AsyncCheckpointer(
+            handler,
+            timeout_secs=options.async_options.timeout_secs,
+            primary_host=options.async_options.primary_host,
+            barrier_sync_fn=options.async_options.barrier_sync_fn,
+        )
+      else:
+        return async_checkpointer.AsyncCheckpointer(handler)
     else:
       return Checkpointer(handler)
 

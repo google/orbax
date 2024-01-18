@@ -15,6 +15,11 @@ CheckpointManagerOptions
 .. autoclass:: CheckpointManagerOptions
   :members:
 
+AsyncOptions
+------------------------
+.. autoclass:: AsyncOptions
+  :members:
+
 Utility functions
 ------------------------
 

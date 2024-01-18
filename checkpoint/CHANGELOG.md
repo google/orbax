@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Stop blocking on previous save when `should_save` is False.
 
+### Added
+- Expose `AsyncOptions` for `CheckpointManager` users.
+
 ## [0.5.0] - 2024-01-16
 
 ### Added
