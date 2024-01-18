@@ -41,7 +41,7 @@ repository = 'http://github.com/google/orbax'
 
 [project.optional-dependencies]
 all = [
-  'tensorflow',
+  'tensorflow>=2.15.0',
 ]
 
 testing = [
