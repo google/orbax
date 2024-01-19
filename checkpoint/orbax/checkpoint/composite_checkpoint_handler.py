@@ -322,7 +322,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       raise ValueError(
           f'For "{item_name}", Provided args of type: {type(args)}, which does'
           ' not correspond to the registered handler for these args:'
-          f' {registered_handler_cls_for_args}.'
+          f' {type(handler)}.'
       )
     return handler
 
