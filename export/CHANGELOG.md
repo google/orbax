@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.4] - 2024-1-19
+
+### Added
+- Add a `update_variables` method to JaxModule class to allow variable update.
+- Add an example of periodically exporting JAX model during training.
+
+### Changed
+- Make `ValidationManager` and `ExportManager` share same API interface.
+- Use different `tf.Graph`s in `utils.from_saved_model` when loading a
+SavedModel and reconstructing its signature as python callable.
+- Migrate `tf.types.experimental.GenericFunction` usages to
+`tf.types.experimental.PolymorphicFunction`, as TensorFlow 2.15.0 renamed the
+class. As a result, this will require TensorFlow >= 2.15.0.
+- Use CPU device to convert params to tf.Variable, since TensorFlow by default
+uses GPUs when available to create the variable copies. This can lead to GPU OOM
+when using Orbax Exporter during training.
+
 ## [0.0.3] - 2023-08-01
 
 ### Added
