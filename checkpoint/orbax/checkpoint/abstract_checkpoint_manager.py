@@ -1,4 +1,4 @@
-# Copyright 2023 The Orbax Authors.
+# Copyright 2024 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -241,6 +241,40 @@ class AbstractCheckpointManager(Protocol):
     Calls the `metadata` method for each Checkpointer and returns a
     mapping of each item name to the restored metadata. If the manager only
     manages a single item, a single metadata will be returned instead.
+
+    To avoid errors due to missing CheckpointHandlers, concrete
+    CheckpointManager constructor must allow mapping from item names to
+    respective CheckpointHandlers to be input other than via save() and
+    restore(). Please note that save() and restore() calls automatically
+    map CheckpointHandlers to respective item names and retain it during the
+    lifetime of the CheckpointManager instance.
+
+    Example::
+
+      # Single item
+      mngr = ocp.CheckpointManager(directory)
+      # No calls to save() or restore() before calling item_metadata().
+      mngr.item_metadata(step)  # Raises error.
+
+      mngr = ocp.CheckpointManager(directory,
+          item_handlers=ocp.StandardCheckpointHandler)
+      # No calls to save() or restore() before calling item_metadata().
+      metadata = mngr.item_metadata(step)  # Successful.
+
+      # Multiple items
+      mngr = ocp.CheckpointManager(directory, item_names=('state', 'extra'))
+      # No calls to save() or restore() before calling item_metadata().
+      mngr.item_metadata(step)  # Raises error.
+
+      mngr = ocp.CheckpointManager(directory,
+        item_names=('state', 'extra'),
+        item_handlers={
+            'state': ocp.StandardCheckpointHandler,
+            'extra': ocp.PytreeCheckpointHandler,
+        }
+      )
+      # No calls to save() or restore() before calling item_metadata().
+      metadata = mngr.item_metadata(step)  # Successful.
 
     Metadata may be None for an individual item.
 

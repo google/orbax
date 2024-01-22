@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Expose `AsyncOptions` for `CheckpointManager` users.
+- Introduce item_handlers to CheckpointManager ctor to allow configurable
+ Handler setup.
 
 ## [0.5.0] - 2024-01-16
 

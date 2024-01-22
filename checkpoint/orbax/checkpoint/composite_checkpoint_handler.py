@@ -1,4 +1,4 @@
-# Copyright 2023 The Orbax Authors.
+# Copyright 2024 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -270,7 +270,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       **items_and_handlers: A mapping of item name to `CheckpointHandler`
         instance, which will be used as the handler for objects of the
         corresponding name.
-
     """
     self._known_handlers: dict[str, Optional[CheckpointHandler]] = (
         items_and_handlers
@@ -320,9 +319,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       self._known_handlers[item_name] = handler
     if not isinstance(handler, registered_handler_cls_for_args):
       raise ValueError(
-          f'For "{item_name}", Provided args of type: {type(args)}, which does'
-          ' not correspond to the registered handler for these args:'
-          f' {registered_handler_cls_for_args}.'
+          f'For item, "{item_name}", CheckpointHandler {type(handler)} does not'
+          f' match with registered handler {registered_handler_cls_for_args}'
+          f' for provided args of type: {type(args)}'
       )
     return handler
 

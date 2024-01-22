@@ -1,4 +1,4 @@
-# Copyright 2023 The Orbax Authors.
+# Copyright 2024 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -57,6 +57,7 @@ CompositeCheckpointHandler = (
 )
 CheckpointHandler = checkpoint_handler.CheckpointHandler
 CheckpointArgs = checkpoint_args.CheckpointArgs
+CheckpointHandlersDict = Mapping[str, CheckpointHandler]
 
 DEFAULT_ITEM_NAME = 'default'
 DESCRIPTOR_ITEM_NAME = 'descriptor'
@@ -311,6 +312,9 @@ class CheckpointManager(AbstractCheckpointManager):
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[Mapping[str, Any]] = None,
       item_names: Optional[Sequence[str]] = None,
+      item_handlers: Optional[
+          Union[CheckpointHandler, CheckpointHandlersDict]
+      ] = None,
   ):
     """CheckpointManager constructor.
 
@@ -370,7 +374,8 @@ class CheckpointManager(AbstractCheckpointManager):
         provided, in which case `save` and `restore` should always be called
         with a single item rather than a dictionary of items. See below for more
         details. `item_names` and `checkpointers` are mutually exclusive - do
-        not use together.
+        not use together. Also, please don't use `checkpointers` and
+        `item_handlers` together.
       options: CheckpointManagerOptions. May be provided to specify additional
         arguments. If None, uses default values of CheckpointManagerOptions.
       metadata: High-level metadata that does not depend on step number. If
@@ -383,7 +388,14 @@ class CheckpointManager(AbstractCheckpointManager):
         metadata.
       item_names: Names of distinct items that may be saved/restored with this
         `CheckpointManager`. `item_names` and `checkpointers` are mutually
-        exclusive - do not use together.
+        exclusive - do not use together. Also see `item_handlers` below.
+      item_handlers: A mapping of item name to `CheckpointHandler`. The mapped
+        CheckpointHandler must be registered against the `CheckpointArgs` input
+        in save/restore operations. Please don't use `checkpointers` and
+        `item_handlers` together. It can be used with or without `item_names`.
+        The item name key may or may not be present in `item_names`.
+        Alternatively, a single CheckpointHandler may be provided, in which case
+        `save` and `restore` should always be called in a single item context.
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
 
@@ -396,7 +408,17 @@ class CheckpointManager(AbstractCheckpointManager):
           '`item_names` and `checkpointers` are mutually exclusive - do not use'
           ' together.'
       )
-    elif checkpointers:
+    if checkpointers and item_handlers:
+      raise ValueError(
+          '`item_handlers` and `checkpointers` are mutually exclusive - do not'
+          ' use together.'
+      )
+    if item_names and isinstance(item_handlers, CheckpointHandler):
+      raise ValueError(
+          '`item_handlers` in single item mode and `item_names` should not be'
+          ' provided together.'
+      )
+    if checkpointers:
       logging.warning(
           'Configured `CheckpointManager` using deprecated legacy API. Please'
           ' follow the instructions at'
@@ -408,9 +430,11 @@ class CheckpointManager(AbstractCheckpointManager):
           checkpointers, self._options
       )
     else:
-      self._single_item = item_names is None
+      self._single_item = isinstance(item_handlers, CheckpointHandler) or (
+          item_names is None and item_handlers is None
+      )
       self._checkpointer = self._configure_checkpointer(
-          item_names, self._options
+          item_names, item_handlers, self._options, self._single_item
       )
 
     self._directory = epath.Path(directory)
@@ -507,26 +531,43 @@ class CheckpointManager(AbstractCheckpointManager):
   def _configure_checkpointer(
       self,
       item_names: Optional[Sequence[str]],
+      item_handlers: Optional[Union[CheckpointHandler, CheckpointHandlersDict]],
       options: CheckpointManagerOptions,
+      single_item: bool,
   ) -> Checkpointer:
     """Initializes _CompositeCheckpointer given `item_names`."""
-    if item_names:
-      item_handlers = {item_name: None for item_name in item_names}
+    if single_item:
+      all_item_handlers = {
+          DEFAULT_ITEM_NAME: (
+              item_handlers
+              if isinstance(item_handlers, CheckpointHandler)
+              else None
+          )
+      }
     else:
-      item_handlers = {DEFAULT_ITEM_NAME: None}
-    for item_name in item_handlers:
+      # Initialize all_item_handlers with None or empty.
+      if item_names:
+        all_item_handlers = {item_name: None for item_name in item_names}
+      else:
+        all_item_handlers = {}
+      # Update all_item_handlers with provided CheckpointHandlers.
+      if item_handlers and isinstance(item_handlers, Mapping):
+        for item_name, handler in item_handlers.items():
+          all_item_handlers[item_name] = handler
+
+    for item_name in all_item_handlers:
       if item_name in RESERVED_ITEM_NAMES:
         raise ValueError(
             f'Found {item_name} in `checkpointers`; this is a reserved key.'
         )
     if options.best_fn:
-      item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
+      all_item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
           filename=METRIC_ITEM_NAME
       )
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
     return self._configure_checkpointer_common(
-        CompositeCheckpointHandler(**item_handlers),
+        CompositeCheckpointHandler(**all_item_handlers),
         options,
         options.enable_async_checkpointing,
     )
@@ -806,6 +847,23 @@ class CheckpointManager(AbstractCheckpointManager):
 
   def item_metadata(self, step: int) -> Union[Any, args_lib.Composite]:
     """See superclass documentation."""
+    # TODO(b/321751056): Move the validation to CompositeCheckpointHandler by
+    # changing the current metadata() biz logic.
+    if isinstance(self._checkpointer.handler, CompositeCheckpointHandler):
+      items_missing_handlers = []
+      for (
+          item_name,
+          handler,
+      ) in self._checkpointer.handler._known_handlers.items():  # pylint: disable=protected-access
+        if handler is None:
+          items_missing_handlers.append(item_name)
+      if items_missing_handlers:
+        raise ValueError(
+            'No mapped CheckpointHandler found for items:'
+            f' {items_missing_handlers}. Please see documentation of'
+            ' `item_handlers` in CheckpointManager.'
+        )
+
     result = self._checkpointer.metadata(
         self._get_save_directory(step, self.directory)
     )
