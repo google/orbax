@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2024-01-19
+
 ### Fixed
 - Stop blocking on previous save when `should_save` is False.
 
@@ -14,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expose `AsyncOptions` for `CheckpointManager` users.
 - Introduce item_handlers to CheckpointManager ctor to allow configurable
  Handler setup.
+- Add JaxRandomKeyCheckpointHandler to store Jax random key generated from 
+jax.random.key() or jax.random.PRNGKey()
+- Add NumpyRandomKeyCheckpointHandler to store Numpy random state from 
+numpy.random.get_state()
 
 ## [0.5.0] - 2024-01-16
 

@@ -39,10 +39,7 @@ Generic PyTree
 
 Composite
 ------------------------------
-.. autoclass:: CompositeSave
-  :members:
-
-.. autoclass:: CompositeRestore
+.. autoclass:: Composite
   :members:
 
 JSON
@@ -61,6 +58,21 @@ Proto
 .. autoclass:: ProtoRestore
   :members:
 
+JaxRandomKey
+------------------------------
+.. autoclass:: JaxRandomKeySave
+  :members:
+
+.. autoclass:: JaxRandomKeyRestore
+  :members:
+
+NumpyRandomKey
+------------------------------
+.. autoclass:: NumpyRandomKeySave
+  :members:
+
+.. autoclass:: NumpyRandomKeyRestore
+  :members:
 
 Utilities
 ------------------------------

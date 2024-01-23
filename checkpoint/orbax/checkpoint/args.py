@@ -30,6 +30,10 @@ from orbax.checkpoint.pytree_checkpoint_handler import PyTreeRestoreArgs as PyTr
 from orbax.checkpoint.pytree_checkpoint_handler import PyTreeSaveArgs as PyTreeSave
 from orbax.checkpoint.standard_checkpoint_handler import StandardRestoreArgs as StandardRestore
 from orbax.checkpoint.standard_checkpoint_handler import StandardSaveArgs as StandardSave
+from orbax.checkpoint.random_key_checkpoint_handler import JaxRandomKeySaveArgs as JaxRandomKeySave
+from orbax.checkpoint.random_key_checkpoint_handler import JaxRandomKeyRestoreArgs as JaxRandomKeyRestore
+from orbax.checkpoint.random_key_checkpoint_handler import NumpyRandomKeySaveArgs as NumpyRandomKeySave
+from orbax.checkpoint.random_key_checkpoint_handler import NumpyRandomKeyRestoreArgs as NumpyRandomKeyRestore
 
 # For defining custom CheckpointArgs.
 from orbax.checkpoint.checkpoint_args import CheckpointArgs

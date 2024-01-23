@@ -51,6 +51,8 @@ from orbax.checkpoint.pytree_checkpoint_handler import PyTreeCheckpointHandler
 from orbax.checkpoint.pytree_checkpoint_handler import RestoreArgs
 from orbax.checkpoint.pytree_checkpoint_handler import SaveArgs
 from orbax.checkpoint.pytree_checkpointer import PyTreeCheckpointer
+from orbax.checkpoint.random_key_checkpoint_handler import JaxRandomKeyCheckpointHandler
+from orbax.checkpoint.random_key_checkpoint_handler import NumpyRandomKeyCheckpointHandler
 from orbax.checkpoint.standard_checkpoint_handler import StandardCheckpointHandler
 from orbax.checkpoint.standard_checkpointer import StandardCheckpointer
 from orbax.checkpoint.transform_utils import apply_transformations
@@ -67,4 +69,4 @@ except RuntimeError as e:
 
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
-__version__ = '0.5.0'
+__version__ = '0.5.1'

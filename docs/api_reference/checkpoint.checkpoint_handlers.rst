@@ -47,3 +47,14 @@ ProtoCheckpointHandler
 -----------------------------
 .. autoclass:: ProtoCheckpointHandler
   :members:
+
+
+JaxRandomKeyCheckpointHandler
+-----------------------------
+.. autoclass:: JaxRandomKeyCheckpointHandler
+  :members: save, async_save, restore
+
+NumpyRandomKeyCheckpointHandler
+-----------------------------
+.. autoclass:: NumpyRandomKeyCheckpointHandler
+  :members: save, async_save, restore
