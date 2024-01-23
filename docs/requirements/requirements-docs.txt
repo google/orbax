@@ -2,6 +2,11 @@ sphinx==4.5.0
 sphinx-book-theme==0.3.3
 sphinxcontrib-katex==0.9.0
 sphinxcontrib-bibtex==2.4.2
+sphinxcontrib-applehelp==1.0.3
+sphinxcontrib-devhelp==1.0.2
+sphinxcontrib-htmlhelp==2.0.1
+sphinxcontrib-serializinghtml==1.1.5
+sphinxcontrib-qthelp==1.0.3
 sphinx-autodoc-typehints==1.11.1
 sphinx-design
 IPython==7.16.3
