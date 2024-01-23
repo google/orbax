@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+### Added
+### Changed
+
+## [0.5.1] - 2024-01-22
+### Fixed
 - Stop blocking on previous save when `should_save` is False.
 
 ### Added
