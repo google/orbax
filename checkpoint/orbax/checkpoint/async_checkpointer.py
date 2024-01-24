@@ -240,7 +240,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     self._async_manager = _AsyncManager(
         timeout_secs=timeout_secs,
         primary_host=primary_host,
-        barrier_sync_fn=_get_barrier_sync_fn(),
+        barrier_sync_fn=barrier_sync_fn or _get_barrier_sync_fn(),
     )
 
   def save(self,
