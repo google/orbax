@@ -37,6 +37,7 @@ from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint.async_checkpointer import async_checkpointer_context
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
+from orbax.checkpoint.checkpoint_manager import AsyncOptions
 from orbax.checkpoint.checkpoint_manager import checkpoint_manager_context
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
@@ -59,6 +60,8 @@ from orbax.checkpoint.transform_utils import apply_transformations
 from orbax.checkpoint.transform_utils import merge_trees
 from orbax.checkpoint.transform_utils import RestoreTransform
 from orbax.checkpoint.transform_utils import Transform
+
+
 # pylint: enable=g-importing-member
 
 try:
