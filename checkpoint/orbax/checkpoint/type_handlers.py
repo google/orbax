@@ -1404,11 +1404,6 @@ class ArrayHandler(TypeHandler):
         if jax.process_index() == 0:
           # OCDBT is not used for sharding metadata.
           sharding_ts_context = get_ts_context(use_ocdbt=False)
-          open_future = ts.open(
-              tspec_sharding,
-              open=True,
-              context=sharding_ts_context,
-          )
           t = await ts.open(
               tspec_sharding,
               open=True,
@@ -1419,7 +1414,7 @@ class ArrayHandler(TypeHandler):
           if serialized_sharding is not None:
             write_future = t.write(serialized_sharding)
             synchronous_ops += [write_future.copy]
-            futures += [open_future, write_future]
+            futures += [write_future]
     await asyncio.gather(*synchronous_ops)
 
     if logging.level_debug():
