@@ -1364,6 +1364,7 @@ class ArrayHandler(TypeHandler):
     check_input_arguments(values, infos, args)
     synchronous_ops = []
     futures = []
+    txn = ts.Transaction()
     for value, info, arg in zip(values, infos, args):
       tspec = self._get_json_tspec_write(
           info,
@@ -1404,29 +1405,22 @@ class ArrayHandler(TypeHandler):
         if jax.process_index() == 0:
           # OCDBT is not used for sharding metadata.
           sharding_ts_context = get_ts_context(use_ocdbt=False)
-          open_future = ts.open(
-              tspec_sharding,
-              open=True,
-              context=sharding_ts_context,
-          )
           t = await ts.open(
               tspec_sharding,
               open=True,
-              assume_metadata=True,
               context=sharding_ts_context,
           )
           serialized_sharding = _serialize_sharding(value.sharding)
           if serialized_sharding is not None:
-            write_future = t.write(serialized_sharding)
+            write_future = t.with_transaction(txn).write(serialized_sharding)
             synchronous_ops += [write_future.copy]
-            futures += [open_future, write_future]
     await asyncio.gather(*synchronous_ops)
 
     if logging.level_debug():
       logging.debug(
           'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
       )
-
+    futures.append(txn.commit_async())
     return futures
 
   async def deserialize(
@@ -1591,23 +1585,22 @@ class StringHandler(TypeHandler):
     check_input_arguments(values, infos)
     synchronous_ops = []
     futures = []
+    txn = ts.Transaction()
     for (
         info,
         value,
     ) in zip(infos, values):
       tspec = self._get_json_tspec(info)
       if jax.process_index() == 0:
-        open_future = ts.open(tspec, open=True, context=self._ts_context)
         t = await ts.open(
             tspec,
             open=True,
-            assume_metadata=True,
             context=self._ts_context,
         )
-        write_future = t.write(value)
+        write_future = t.with_transaction(txn).write(value)
         synchronous_ops += [write_future.copy]
-        futures += [open_future, write_future]
     await asyncio.gather(*synchronous_ops)
+    futures.append(txn.commit_async())
     return futures
 
   async def deserialize(

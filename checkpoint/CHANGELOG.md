@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.5.2] - 2024-01-26
+
 ### Fixed
 - Ensure timeout passed via `AsyncCheckpointer` in `CheckpointManager` is
 propagated, for legacy compatibility.
+- Modified sharding file writes to use `tensorstore.Transaction` due to recent
+tensorstore change. This resolves a slowdown in save speed recently observed.
 
 ## [0.5.1] - 2024-01-19
 
