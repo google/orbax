@@ -16,6 +16,15 @@ propagated, for legacy compatibility.
 - Modified sharding file writes to use `tensorstore.Transaction` due to recent
 tensorstore change. This resolves a slowdown in save speed recently observed.
 
+### Added
+- Add documentation associated with `item_handlers`, the new arguments
+ introduced in `CheckpointManager` constructor.
+
+### Changed
+- Update documentation of the new `CheckpointArgs` based `CheckpointHandler` API.
+
+
+
 ## [0.5.1] - 2024-01-19
 
 ### Fixed
