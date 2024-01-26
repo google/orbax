@@ -797,7 +797,7 @@ class CheckpointManager(AbstractCheckpointManager):
 
     assert self._finalize_thread is None
     if is_async_checkpointer(self._checkpointer):
-      logging.info('Beginning asynchronous save.')
+      logging.info('Beginning async checkpoint finalize.')
       t = _FinalizeThread(
           target=self._finalize, args=(save_directory, steps_to_remove)
       )

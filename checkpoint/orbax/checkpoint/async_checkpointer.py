@@ -38,13 +38,17 @@ def _get_sync_key(suffix: str, count: int) -> str:
   return f'orbax_checkpoint_{suffix}_{count}'
 
 
-def _on_commit_callback(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path,
-                        checkpoint_start_time: float):
+def _on_commit_callback(
+    temp_ckpt_dir: epath.Path,
+    final_ckpt_dir: epath.Path,
+    checkpoint_start_time: float,
+):
   """Finalize atomic save and record checkpoint save metrics."""
   utils.on_commit_callback(temp_ckpt_dir, final_ckpt_dir, checkpoint_start_time)
   jax.monitoring.record_event_duration_secs(
       '/jax/checkpoint/write/async/total_duration_secs',
-      time.time() - checkpoint_start_time)
+      time.time() - checkpoint_start_time,
+  )
 
 
 class BarrierSyncFn(Protocol):
@@ -126,10 +130,12 @@ class _AsyncManager:
 
   def __del__(self):
     if self._thread is not None and self._thread.is_alive():
-      logging.warning('Please add `.wait_until_finished()` in the main thread '
-                      'before your program finishes because there is a '
-                      'possibility of losing errors raised if the '
-                      'this class is deleted before writing is completed.')
+      logging.warning(
+          'Please add `.wait_until_finished()` in the main thread '
+          'before your program finishes because there is a '
+          'possibility of losing errors raised if the '
+          'this class is deleted before writing is completed.'
+      )
 
   def _thread_func(
       self,
@@ -141,15 +147,17 @@ class _AsyncManager:
     try:
       current_process = jax.process_index()
       process_count = jax.process_count()
-      logging.info('Starting commit to storage layer by process: %s',
-                   current_process)
+      logging.info(
+          'Starting commit to storage layer by process: %s', current_process
+      )
       thread_start_time = time.time()
 
       # Wait for commit operations to complete.
       for future in commit_futures:
         future.result()
-      logging.info('Finished committing to storage layer by process: %s',
-                   current_process)
+      logging.info(
+          'Finished committing to storage layer by process: %s', current_process
+      )
 
       if process_count > 1:
         # All processes will wait at the barrier. When all processes are at the
@@ -164,7 +172,8 @@ class _AsyncManager:
 
       jax.monitoring.record_event_duration_secs(
           '/jax/checkpoint/write/async/thread_duration_sec',
-          time.time() - thread_start_time)
+          time.time() - thread_start_time,
+      )
 
     except Exception as e:  # pylint: disable=broad-exception-caught
       self._exception = e
@@ -178,7 +187,7 @@ class _AsyncManager:
     sync_count = next(_module_unique_count)
     self._thread = threading.Thread(
         target=self._thread_func,
-        args=(commit_futures, on_commit_callback, sync_count)
+        args=(commit_futures, on_commit_callback, sync_count),
     )
     self._thread.start()
 
@@ -195,10 +204,10 @@ class _AsyncManager:
     if self._thread is not None:
       self._thread.join()
       self._thread = None
-      logging.info('Thread joined successfully')
+      logging.info('Commit thread joined successfully')
 
     self.check_for_errors()
-    logging.info('Error check finished successfully')
+    logging.info('Commit thread error check finished successfully')
 
 
 class AsyncCheckpointer(checkpointer.Checkpointer):
@@ -243,11 +252,9 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         barrier_sync_fn=barrier_sync_fn or _get_barrier_sync_fn(),
     )
 
-  def save(self,
-           directory: epath.PathLike,
-           *args,
-           force: bool = False,
-           **kwargs):
+  def save(
+      self, directory: epath.PathLike, *args, force: bool = False, **kwargs
+  ):
     """Saves the given item to the provided directory.
 
     Delegates to the underlying CheckpointHandler. Ensures save operation
@@ -270,8 +277,6 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     """
     checkpoint_start_time = time.time()
     directory = epath.Path(directory)
-    logging.info('Saving item to %s. Waiting for thread to finish save.',
-                 directory)
     self.wait_until_finished()
 
     if directory.exists():
@@ -285,6 +290,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         directory, primary_host=self._primary_host
     )
 
+    logging.info('Async saving item to %s.', directory)
     # Run copy ops.
     # Try to save using new CheckpointArgs API if supported by the handler.
     ckpt_args = checkpointer.construct_checkpoint_args(
@@ -305,12 +311,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
 
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/async/blocking_duration_secs',
-        time.time() - checkpoint_start_time)
+        time.time() - checkpoint_start_time,
+    )
 
-  def restore(self,
-              directory: epath.PathLike,
-              *args,
-              **kwargs) -> Any:
+  def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""
     self.wait_until_finished()
     return super().restore(directory, *args, **kwargs)
