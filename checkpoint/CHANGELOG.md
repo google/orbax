@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Ensure timeout passed via `AsyncCheckpointer` in `CheckpointManager` is
+propagated, for legacy compatibility.
+
 ## [0.5.1] - 2024-01-19
 
 ### Fixed

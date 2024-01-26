@@ -488,9 +488,14 @@ class CheckpointManager(AbstractCheckpointManager):
     item_handlers = {}
     if isinstance(checkpointers, Checkpointer):
       use_async = is_async_checkpointer(checkpointers)
+      if isinstance(checkpointers, async_checkpointer.AsyncCheckpointer):
+        async_timeout = checkpointers._async_manager._timeout_secs  # pylint: disable=protected-access
+      else:
+        async_timeout = None
       item_handlers[DEFAULT_ITEM_NAME] = checkpointers.handler
     elif isinstance(checkpointers, dict):
       individual_use_async = []
+      async_timeout = 0
       for item_name, checkpointer in checkpointers.items():
         if not isinstance(checkpointer, Checkpointer):
           raise ValueError(
@@ -498,6 +503,10 @@ class CheckpointManager(AbstractCheckpointManager):
               f' Checkpointer. Found {type(checkpointer)}.'
           )
         individual_use_async.append(is_async_checkpointer(checkpointer))
+        if isinstance(checkpointer, async_checkpointer.AsyncCheckpointer):
+          async_timeout = max(
+              async_timeout, checkpointer._async_manager._timeout_secs  # pylint: disable=protected-access
+          )
         if item_name in RESERVED_ITEM_NAMES:
           raise ValueError(
               f'Found {item_name} in `checkpointers`; this is a reserved key.'
@@ -515,6 +524,7 @@ class CheckpointManager(AbstractCheckpointManager):
             ' written at a particular moment, use `wait_until_finished()`.'
         )
       use_async = any(individual_use_async)
+      async_timeout = async_timeout or None
     else:
       raise ValueError(
           f'Invalid type for `checkpointers`. Found {checkpointers}.'
@@ -523,6 +533,9 @@ class CheckpointManager(AbstractCheckpointManager):
     # if options.best_fn:
     item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
         filename=METRIC_ITEM_NAME
+    )
+    options.async_options = options.async_options or AsyncOptions(
+        timeout_secs=async_timeout
     )
     return self._configure_checkpointer_common(
         CompositeCheckpointHandler(**item_handlers), options, use_async
