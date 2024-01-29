@@ -156,17 +156,8 @@ class ServingConfig:
             )
         else:
           preprocessed_inputs = inputs
-
           if len(preprocessed_inputs) != 1:
-            raise ValueError(
-                'JaxModule only takes single arg as the input, but got'
-                f' len(inputs)={len(inputs)} from the preprocessor or input'
-                ' signature. Please pack all inputs into one PyTree by'
-                ' modifying the `input_signature` (if no `tf_preprocessor`) or'
-                ' the ServingConfig.tf_preprocessor.'
-            )
-
-          preprocessed_inputs = preprocessed_inputs[0]
+            preprocessed_inputs = [preprocessed_inputs]
 
         # Currently Jax Module only takes 1 input
         outputs = infer_step(preprocessed_inputs)

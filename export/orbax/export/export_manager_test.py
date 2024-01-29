@@ -128,6 +128,36 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     )
     self.assertAllEqual(inference_fn(*inputs), outputs)
 
+  def test_make_e2e_inference_fn_multiple_inputs(
+      self,
+  ):
+    """Tests that make_e2e_inference_fn works with multiple inputs when there is no tf_preprocessor."""
+
+    def apply_fn(params, mdl_inputs):
+      x, y = mdl_inputs
+      return x + y + params['bias']
+
+    method = JaxModule(
+        params={'bias': jnp.array(1)},
+        apply_fn=apply_fn,
+    ).methods[JaxModule.DEFAULT_METHOD_KEY]
+
+    input_signature = [
+        tf.TensorSpec((), tf.dtypes.int32, 'x'),
+        tf.TensorSpec((), tf.dtypes.int32, 'y'),
+    ]
+    inputs = [tf.constant(1), tf.constant(2)]
+    expected_outputs = tf.constant(4)
+
+    inference_fn = make_e2e_inference_fn(
+        method,
+        ServingConfig(
+            'key',
+            input_signature,
+        ),
+    )
+    self.assertAllEqual(inference_fn(*inputs), expected_outputs)
+
   @parameterized.named_parameters(
       dict(
           testcase_name='multiple signatures',
