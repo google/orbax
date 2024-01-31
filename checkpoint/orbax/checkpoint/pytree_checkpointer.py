@@ -14,6 +14,7 @@
 
 """Shorthand for `Checkpointer(PyTreeCheckpointHandler())`."""
 
+from typing import Optional
 from orbax.checkpoint import checkpointer
 from orbax.checkpoint import pytree_checkpoint_handler
 
@@ -30,7 +31,7 @@ class PyTreeCheckpointer(checkpointer.Checkpointer):
 
   def __init__(
       self,
-      primary_host: int = 0,
+      primary_host: Optional[int] = 0,
       use_ocdbt: bool = True,
       use_zarr3=False,
   ):

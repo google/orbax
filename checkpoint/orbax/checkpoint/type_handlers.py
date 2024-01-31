@@ -1258,13 +1258,23 @@ class ArrayHandler(TypeHandler):
   def __init__(
       self,
       metadata_key: Optional[str] = None,
+      primary_host: Optional[int] = 0,
+      replica_id: Optional[int] = 0,
   ):
     """Constructor.
 
     Args:
       metadata_key: name to give to Tensorstore metadata files.
+      primary_host: the host id of the primary host.  Default to 0.  If it's set
+        to None, then all hosts will be considered as primary.  It's useful in
+        the case that all hosts are only working with local storage.
+      replica_id: the replica id to be used for saving.  Default to 0.  If it's
+        set to None, each shards will pick first replica_id to be used.  It's
+        useful in the case that all hosts are only working with local storage.
     """
     self._metadata_key = metadata_key
+    self._primary_host = primary_host
+    self._replica_id = replica_id
 
   def _get_json_tspec(
       self,
@@ -1413,6 +1423,11 @@ class ArrayHandler(TypeHandler):
           arg=arg,
       )
       tspec = _get_cast_tspec_serialize(tspec, value, arg)
+      ts_context = get_ts_context(info.is_ocdbt_checkpoint, info.ocdbt_merge)
+      if self._replica_id is None:
+        replica_id = value.addressable_shards[0].replica_id
+      else:
+        replica_id = self._replica_id
       if logging.level_debug():
         logging.debug(
             'sharding=%s, addressable_shards=%s, global_shards=%s',
@@ -1423,13 +1438,16 @@ class ArrayHandler(TypeHandler):
         logging.debug('tspec = %s', tspec)
         logging.debug('infos = %s', info)
         logging.debug('args = %s', arg)
-      ts_context = get_ts_context(info.is_ocdbt_checkpoint, info.ocdbt_merge)
+        logging.debug('replica_id = %s', replica_id)
+
       synchronous_ops += [
           serialization.async_serialize(
               value,
               tspec,
               commit_future=futures,
               context=ts_context,
+              primary_host=self._primary_host,
+              replica_id=replica_id,
           )
       ]
 
@@ -1439,7 +1457,10 @@ class ArrayHandler(TypeHandler):
         tspec_sharding = get_sharding_tensorstore_spec(
             os.fspath(info.parent_dir), info.name
         )
-        if jax.process_index() == 0:
+        if (
+            self._primary_host is None
+            or jax.process_index() == self._primary_host
+        ):
           # OCDBT is not used for sharding metadata.
           sharding_ts_context = get_ts_context(use_ocdbt=False)
           t = await ts.open(

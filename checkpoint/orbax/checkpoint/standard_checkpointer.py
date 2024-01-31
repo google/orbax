@@ -14,6 +14,7 @@
 
 """Shorthand for `Checkpointer(StandardCheckpointHandler())`."""
 
+from typing import Optional
 from orbax.checkpoint import checkpointer
 from orbax.checkpoint import standard_checkpoint_handler
 
@@ -28,7 +29,7 @@ class StandardCheckpointer(checkpointer.Checkpointer):
     ckptr = StandardCheckpointer()
   """
 
-  def __init__(self, primary_host: int = 0):
+  def __init__(self, primary_host: Optional[int] = 0):
     super().__init__(
         standard_checkpoint_handler.StandardCheckpointHandler(),
         primary_host=primary_host,
