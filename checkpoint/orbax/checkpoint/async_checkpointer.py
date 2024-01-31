@@ -227,7 +227,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   def __init__(
       self,
       handler: async_checkpoint_handler.AsyncCheckpointHandler,
-      timeout_secs: int = 300,
+      timeout_secs: int = 600,
       primary_host: int = 0,
       *,
       barrier_sync_fn: Optional[BarrierSyncFn] = None,
