@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Deprecate `read` option in `all_steps`.
+- Deprecate `SaveArgs.aggregate`.
 
 ## [0.5.2] - 2024-01-26
 

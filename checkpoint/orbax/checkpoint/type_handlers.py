@@ -361,8 +361,11 @@ class SaveArgs:
   """Extra arguments that can be provided for saving.
 
   aggregate:
-    If true, saves the given parameter in an aggregated tree format
-    rather than individually. See AggregateHandler.
+    Deprecated, please use custom TypeHandler
+    (https://orbax.readthedocs.io/en/latest/custom_handlers.html#typehandler) or
+    contact Orbax team to migrate before May 1st, 2024. If true, saves the given
+    parameter in an aggregated tree format rather than individually. See
+    AggregateHandler.
   dtype:
     If provided, casts the parameter to the given dtype before saving.
     Note that the parameter must be compatible with the given type (e.g.
@@ -390,6 +393,14 @@ class SaveArgs:
   write_chunk_shape: Optional[tuple[int, ...]] = None
   read_chunk_shape: Optional[tuple[int, ...]] = None
   chunk_byte_size: Optional[int] = None
+
+  def __post_init__(self):
+    if self.aggregate:
+      logging.warning(
+          'SaveArgs.aggregate is deprecated, please use custom TypeHandler'
+          ' (https://orbax.readthedocs.io/en/latest/custom_handlers.html#typehandler)'
+          ' or contact Orbax team to migrate before May 1st, 2024.'
+      )
 
 
 @dataclasses.dataclass
