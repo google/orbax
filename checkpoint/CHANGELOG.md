@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Add `reload` method in `CheckpointManager` which resets internal properties.
+
+### Changed
+- Deprecate `read` option in `all_steps`.
 
 ## [0.5.2] - 2024-01-26
 
@@ -22,8 +27,6 @@ tensorstore change. This resolves a slowdown in save speed recently observed.
 
 ### Changed
 - Update documentation of the new `CheckpointArgs` based `CheckpointHandler` API.
-
-
 
 ## [0.5.1] - 2024-01-19
 

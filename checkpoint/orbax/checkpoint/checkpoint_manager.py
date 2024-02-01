@@ -593,6 +593,9 @@ class CheckpointManager(AbstractCheckpointManager):
   def all_steps(self, read: bool = False) -> Sequence[int]:
     """See superclass documentation."""
     if read:
+      logging.warning(
+          '`read` option is deprecated. Use `reload` to read from disk.'
+      )
       return utils.checkpoint_steps(
           self.directory, self._options.single_host_load_and_broadcast
       )
@@ -612,6 +615,14 @@ class CheckpointManager(AbstractCheckpointManager):
     if not sorted_checkpoints:
       return None
     return sorted_checkpoints[-1].step
+
+  def reload(self):
+    """Reloads internal properties.
+
+    Resets internal cache of checkpoint steps, in case the directory managed
+    by this object has been updated externally.
+    """
+    self._checkpoints = self._create_checkpoints()
 
   def reached_preemption(self, step: int) -> bool:
     """See superclass documentation."""
@@ -913,7 +924,11 @@ class CheckpointManager(AbstractCheckpointManager):
     Returns:
       a list of CheckpointInfo, sorted by increasing step.
     """
-    steps = sorted(self.all_steps(read=True))
+    steps = sorted(
+        utils.checkpoint_steps(
+            self.directory, self._options.single_host_load_and_broadcast
+        )
+    )
     if not steps:
       return []
 

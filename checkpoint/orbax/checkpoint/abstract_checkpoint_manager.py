@@ -83,6 +83,10 @@ class AbstractCheckpointManager(Protocol):
     """
 
   @abc.abstractmethod
+  def reload(self):
+    """Performs disk reads to ensure internal properties are up to date."""
+
+  @abc.abstractmethod
   def reached_preemption(self, step: int) -> bool:
     """Returns True if a preemption sync point has been reached."""
 
