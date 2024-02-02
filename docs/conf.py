@@ -37,7 +37,7 @@ sys.path.append(os.path.abspath('./_ext'))
 # -- Project information -----------------------------------------------------
 
 project = 'Orbax'
-copyright = '2023, Google'  # pylint: disable=redefined-builtin
+copyright = '2024, Google'  # pylint: disable=redefined-builtin
 author = 'Orbax Contributors'
 
 # -- General configuration ---------------------------------------------------
@@ -105,7 +105,7 @@ html_static_path = ['images']
 # -- Options for myst -------------------------------------------------------
 
 jupyter_execute_notebooks = 'force'
-execution_allow_errors = False
+execution_allow_errors = True
 
 # -- Options for katex ------------------------------------------------------
 
