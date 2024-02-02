@@ -19,9 +19,9 @@ asynchronous checkpointing, various types, and various storage formats.
 We aim to provide a highly customizable and composable API which maximizes
 flexibility for diverse use cases.
 
-IMPORTANT: The `CheckpointManager` API is changing. Please see the
-[migration instructions](https://orbax.readthedocs.io/en/latest/orbax_checkpoint_101.html)
-and complete your migration by May 1st, 2024.
+==Please see
+ [Announcements](https://orbax.readthedocs.io/en/latest/orbax_checkpoint_announcements.html)
+  for important updates.==
 
 
 ## Exporting

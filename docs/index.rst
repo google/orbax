@@ -70,6 +70,7 @@ Install from GitHub using the following.
    :maxdepth: 1
    :caption: Checkpointing
 
+   orbax_checkpoint_announcements
    orbax_checkpoint_101
    orbax_checkpoint_api_overview
    api_refactor
@@ -91,17 +92,14 @@ Install from GitHub using the following.
 
 Checkpointing
 ---------------
-
-IMPORTANT: The `CheckpointManager` API is changing. Please see the
-[migration instructions](https://orbax.readthedocs.io/en/latest/orbax_checkpoint_101.html)
-and complete your migration by May 1st, 2024.
-
-IMPORTANT: `CheckpointManager.save(...)` is now async by default. Make sure you
-call `wait_until_finished` if depending on a previous save being completed.
-Otherwise, the behavior can be disabled via the
-`CheckpointManagerOptions.enable_async_checkpointing` option.
-
 .. grid::
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: Announcements
+         :class-card: sd-text-black sd-bg-warning
+         :link: orbax_checkpoint_announcements.html
 
    .. grid-item::
       :columns: 6 6 6 4
