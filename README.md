@@ -19,9 +19,8 @@ asynchronous checkpointing, various types, and various storage formats.
 We aim to provide a highly customizable and composable API which maximizes
 flexibility for diverse use cases.
 
-==Please see
- [Announcements](https://orbax.readthedocs.io/en/latest/orbax_checkpoint_announcements.html)
-  for important updates.==
+> [!NOTE]
+> Please see [Announcements](https://orbax.readthedocs.io/en/latest/orbax_checkpoint_announcements.html) for important updates.
 
 
 ## Exporting

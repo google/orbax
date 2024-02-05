@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deprecate `SaveArgs.aggregate`.
 - Update copyright to use 2024. Also, allow notebook cells to continue if last
  cell raises error.
+- Improve RTD by using `ocp.utils.to_shape_dtype_struct` instead of `jax.eval_shape`.
 
 ## [0.5.2] - 2024-01-26
 
