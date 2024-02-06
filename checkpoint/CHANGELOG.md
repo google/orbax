@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fix broken logging issue.
+
 ### Added
 - Add `reload` method in `CheckpointManager` which resets internal properties.
 - Add checkpoint announcements RTD page.

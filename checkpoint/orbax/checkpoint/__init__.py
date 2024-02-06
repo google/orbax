@@ -17,7 +17,6 @@
 import asyncio
 import contextlib
 import functools
-import logging
 
 import nest_asyncio
 from orbax.checkpoint import aggregate_handlers
@@ -67,8 +66,8 @@ from orbax.checkpoint.transform_utils import Transform
 try:
   asyncio.get_running_loop()
   nest_asyncio.apply()
-except RuntimeError as e:
-  logging.info('Failed to apply nest_asyncio. Received error: %s', e)
+except RuntimeError:
+  pass
 
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
