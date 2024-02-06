@@ -1,5 +1,9 @@
 # Announcements
 
+## 2024-02-06
+Custom logging configuration was broken from `0.5.0` to `0.5.2`. It is fixed in
+`0.5.3`. Please see https://github.com/google/orbax/issues/699 for details.
+
 ## 2024-02-01
 `SaveArgs.aggregate` is deprecated. Please use
  [custom TypeHandler](https://orbax.readthedocs.io/en/latest/custom_handlers.html#typehandler)
