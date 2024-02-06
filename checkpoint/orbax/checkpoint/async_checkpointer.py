@@ -105,6 +105,9 @@ class _AsyncManager:
       primary_host: int = 0,
       barrier_sync_fn: Optional[BarrierSyncFn] = None,
   ):
+    logging.info(
+        'Using timeout: %d secs for async checkpoint writes.', timeout_secs
+    )
     self._timeout_secs = timeout_secs
     self._primary_host = primary_host
 
