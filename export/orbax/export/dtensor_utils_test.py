@@ -16,15 +16,14 @@ from typing import Optional
 
 from absl.testing import absltest
 from absl.testing import parameterized
-
 import jax
+from jax import numpy as jnp
 from jax.experimental import pjit
-from jax.sharding import PartitionSpec as P
 import numpy as np
 from orbax.export import dtensor_utils
 from tensorflow.experimental import dtensor
 
-
+P = jax.sharding.PartitionSpec
 PartitionSpec = Optional[P]
 
 
@@ -166,6 +165,58 @@ class DtensorUtilsTest(parameterized.TestCase):
 
     with dtensor_utils.maybe_enable_dtensor_export_on(None):
       self.assertIsNone(dtensor_utils.get_current_dtensor_mesh())
+
+  def test_get_pspec_from_jax_arrays_same_mesh(self):
+    mesh = self._create_mesh((2, 4), ('x', 'y'))
+    global_arrs = {
+        'param_1': jax.ShapeDtypeStruct(
+            shape=(10,),
+            dtype=jnp.float32,
+            sharding=jax.sharding.NamedSharding(
+                mesh, jax.sharding.PartitionSpec('x')
+            ),
+        ),
+        'param_2': jax.ShapeDtypeStruct(
+            shape=(10,),
+            dtype=jnp.float32,
+            sharding=jax.sharding.NamedSharding(
+                mesh, jax.sharding.PartitionSpec('y')
+            ),
+        ),
+    }
+    expected_pspecs = {
+        'param_1': P('x'),
+        'param_2': P('y'),
+    }
+
+    pspecs = dtensor_utils.get_pspec_from_jax_arrays(global_arrs)
+
+    self.assertDictEqual(pspecs, expected_pspecs)
+
+  def test_get_pspec_from_jax_arrays_diff_mesh(self):
+    mesh1 = self._create_mesh((2, 4), ('x', 'y'))
+    mesh2 = self._create_mesh((4, 2), ('x', 'y'))
+    global_arrs = {
+        'param_1': jax.ShapeDtypeStruct(
+            shape=(10,),
+            dtype=jnp.float32,
+            sharding=jax.sharding.NamedSharding(
+                mesh1, jax.sharding.PartitionSpec('x')
+            ),
+        ),
+        'param_2': jax.ShapeDtypeStruct(
+            shape=(10,),
+            dtype=jnp.float32,
+            sharding=jax.sharding.NamedSharding(
+                mesh2, jax.sharding.PartitionSpec('y')
+            ),
+        ),
+    }
+
+    with self.assertRaisesRegex(
+        AssertionError, 'All those NamedShardings must have the same mesh'
+    ):
+      _ = dtensor_utils.get_pspec_from_jax_arrays(global_arrs)
 
 
 if __name__ == '__main__':

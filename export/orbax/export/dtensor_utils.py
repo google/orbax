@@ -13,12 +13,14 @@
 # limitations under the License.
 
 """Utilities for transforming distributed JAX arrays to DTensors."""
+
 import contextlib
 import threading
 from typing import Optional
 
 import jax
 from jax.experimental import pjit
+import jaxtyping
 import numpy as np
 import tensorflow as tf
 from tensorflow.experimental import dtensor
@@ -221,3 +223,45 @@ def maybe_enable_dtensor_export_on(mesh: Optional[jax.sharding.Mesh]):
 def get_current_dtensor_mesh() -> Optional[dtensor.Mesh]:
   """Returns the DTensor mesh in the current context."""
   return _MESH_STACK.stack[-1] if _MESH_STACK.stack else None
+
+
+def get_pspec_from_jax_arrays(
+    nested_jax_arrays: jaxtyping.PyTree,
+) -> jax.sharding.PartitionSpec:
+  """Get the partition spec of a nested jax.Array or jax.ShapeDtypeStruct.
+
+  Args:
+    nested_jax_arrays: a nested structure of jax.Array or jax.ShapeDtypeStruct.
+
+  Returns:
+    A nested structure of jax.sharding.PartitionSpec.
+
+  Raises:
+    AssertionError: if the input nested structure contains jax.Array with
+    different meshes.
+  """
+  expected_mesh = None
+
+  def _get_partition_spec(jax_arr):
+    nonlocal expected_mesh
+    if not hasattr(jax_arr, 'sharding'):
+      return jax.sharding.PartitionSpec()
+
+    if not isinstance(jax_arr.sharding, jax.sharding.NamedSharding):
+      raise AssertionError(
+          f'Unsupported sharding type: {type(jax_arr.sharding)}, only support'
+          ' NamedSharding'
+      )
+
+    expected_mesh = (
+        jax_arr.sharding.mesh if not expected_mesh else expected_mesh
+    )
+    if expected_mesh != jax_arr.sharding.mesh:
+      raise AssertionError(
+          'All those NamedShardings must have the same mesh.'
+          f' {expected_mesh} != {jax_arr.sharding.mesh}'
+      )
+    else:
+      return jax_arr.sharding.spec
+
+  return jax.tree_util.tree_map(_get_partition_spec, nested_jax_arrays)
