@@ -14,7 +14,7 @@
 
 """Wraps JAX functions and parameters into a tf.Module."""
 import dataclasses
-from typing import Any, Callable, Mapping, Optional, Tuple, Union
+from typing import Any, Callable, Mapping, Tuple
 
 from absl import logging
 import jax
@@ -59,7 +59,7 @@ class _NonTrackableMetadata:
   apply_fn_map: Mapping[str, ApplyFn]
   var_treedef: Any
   var_trainable: Mapping[str, bool]
-  var_pspecs: Optional[Mapping[str, PyTree]]
+  var_pspecs: Mapping[str, PyTree] | None
 
 
 class JaxModule(tf.Module):
@@ -74,13 +74,13 @@ class JaxModule(tf.Module):
   def __init__(
       self,
       params: PyTree,
-      apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
-      trainable: Optional[Union[bool, PyTree]] = None,
-      input_polymorphic_shape: Union[PyTree, Mapping[str, PyTree]] = None,
-      jax2tf_kwargs: Optional[Mapping[str, Any]] = None,
-      jit_compile: Union[bool, Mapping[str, bool]] = True,
-      name: Optional[str] = None,
-      pspecs: Optional[PyTree] = None,
+      apply_fn: ApplyFn | Mapping[str, ApplyFn],
+      trainable: bool | PyTree | None = None,
+      input_polymorphic_shape: PyTree | Mapping[str, PyTree] | None = None,
+      jax2tf_kwargs: Mapping[str, Any] | None = None,
+      jit_compile: bool | Mapping[str, bool] = True,
+      name: str | None = None,
+      pspecs: PyTree | None = None,
   ):
     """JaxModule constructor.
 
@@ -112,10 +112,10 @@ class JaxModule(tf.Module):
         functions or a mapping of method key to the jit compile option for the
         method.
       name: the name of the module.
-      pspecs: an optional pytree of PartitionSpecs of the ``params`` in the
-        same structure as ``params``. If set, the leaves of ``params`` must be
-        jax.Array, and ``JaxModule`` must be created within a DTensor export
-        context from ``with maybe_enable_dtensor_export_on(mesh)``.
+      pspecs: pytree of PartitionSpecs of the ``params`` in the same structure
+        as ``params``. If set, the leaves of ``params`` must be jax.Array, and
+        ``JaxModule`` must be created within a DTensor export context from
+        ``with maybe_enable_dtensor_export_on(mesh)``.
     """
     if callable(apply_fn):
       apply_fn_map: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
@@ -221,10 +221,13 @@ class JaxModule(tf.Module):
         self._nontrackable_metadata.var_treedef, self._var_leaves
     )
 
-  def _make_tf_closure(self, apply_fn: ApplyFn,
-                       input_polymorphic_shape: Optional[PyTree],
-                       jax2tf_kwargs: Optional[Mapping[str, Any]],
-                       jit_compile: bool) -> Callable[..., Any]:
+  def _make_tf_closure(
+      self,
+      apply_fn: ApplyFn,
+      input_polymorphic_shape: PyTree | None,
+      jax2tf_kwargs: Mapping[str, Any] | None,
+      jit_compile: bool,
+  ) -> Callable[..., Any]:
     """Creates a closure for `apply_fn` in TF context."""
     jax2tf_kwargs = dict(jax2tf_kwargs or {})
     if 'polymorphic_shapes' in jax2tf_kwargs:
@@ -299,7 +302,7 @@ def _get_param_names(params: PyTree) -> PyTree:
 
 
 def _jax_params_to_tf_variables(
-    params: PyTree, trainable: PyTree, pspecs: Optional[PyTree]
+    params: PyTree, trainable: PyTree, pspecs: PyTree | None
 ) -> PyTree:
   """Converts `params` to tf.Variables in the same pytree structure."""
   dmesh = dtensor_utils.get_current_dtensor_mesh()

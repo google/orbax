@@ -14,7 +14,7 @@
 
 """The definition of ValidationManager class."""
 from collections.abc import Mapping, Sequence
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Union
 
 from absl import logging
 import jax
@@ -140,7 +140,7 @@ class ValidationManager:
       self,
       loaded_model: Any,
       with_xprof: bool = False,
-      report_option: Optional[ValidationReportOption] = None,
+      report_option: ValidationReportOption | None = None,
   ) -> Mapping[str, ValidationReport]:
     """Validates the baseline and candidate function map."""
     candidate_fns = self._create_candidate_fns(loaded_model)

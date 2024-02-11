@@ -16,7 +16,6 @@
 
 import contextlib
 import threading
-from typing import Optional
 
 import jax
 from jax.experimental import pjit
@@ -199,7 +198,7 @@ _MESH_STACK = _ThreadLocalStack()
 
 
 @contextlib.contextmanager
-def maybe_enable_dtensor_export_on(mesh: Optional[jax.sharding.Mesh]):
+def maybe_enable_dtensor_export_on(mesh: jax.sharding.Mesh | None):
   """Creates a DTensor context from a JAX mesh for Orbax Export.
 
   If DTensor is not initialized or `mesh` is None, this function is a no-op.
@@ -220,7 +219,7 @@ def maybe_enable_dtensor_export_on(mesh: Optional[jax.sharding.Mesh]):
       _MESH_STACK.stack.pop(-1)
 
 
-def get_current_dtensor_mesh() -> Optional[dtensor.Mesh]:
+def get_current_dtensor_mesh() -> dtensor.Mesh | None:
   """Returns the DTensor mesh in the current context."""
   return _MESH_STACK.stack[-1] if _MESH_STACK.stack else None
 
