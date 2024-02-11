@@ -227,7 +227,7 @@ def get_current_dtensor_mesh() -> Optional[dtensor.Mesh]:
 
 def get_pspec_from_jax_arrays(
     nested_jax_arrays: jaxtyping.PyTree,
-) -> jax.sharding.PartitionSpec:
+) -> jaxtyping.PyTree[jax.sharding.PartitionSpec]:
   """Get the partition spec of a nested jax.Array or jax.ShapeDtypeStruct.
 
   Args:
