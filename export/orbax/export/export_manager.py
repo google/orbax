@@ -15,7 +15,7 @@
 """Manage the exporting of a JAXModule."""
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from etils.epy.reraise_utils import maybe_reraise
 from orbax.export import utils
@@ -85,15 +85,14 @@ class ExportManager(ExportManagerBase):
   def save(
       self,
       model_path: str,
-      save_options: Optional[tf.saved_model.SaveOptions] = None,
-      signature_overrides: Optional[Mapping[str, Callable[..., Any]]] = None,
+      save_options: tf.saved_model.SaveOptions | None = None,
+      signature_overrides: Mapping[str, Callable[..., Any]] | None = None,
   ):
     """Saves the JAX model to a Savemodel.
 
     Args:
       model_path: a directory in which to write the SavedModel.
-      save_options: an optional tf.saved_model.SaveOptions for configuring save
-        options.
+      save_options: a tf.saved_model.SaveOptions for configuring save options.
       signature_overrides: signatures to override the self-maintained ones, or
         additional signatures to export.
     """

@@ -17,7 +17,7 @@ from collections.abc import Mapping, Sequence
 import dataclasses
 import functools
 import inspect
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 import jax
 import tensorflow as tf
 
@@ -154,7 +154,7 @@ def _runtime_batch_size(x: tf.Tensor) -> tf.Tensor:
 def _repeat_to_batch(
     x: tf.Tensor,
     primary_batch_size: tf.Tensor,
-    tensor_name: Optional[str] = None,
+    tensor_name: str | None = None,
 ) -> tf.Tensor:
   """Repeats a tensor to match a primary batch size."""
   input_batch_size = _runtime_batch_size(x)

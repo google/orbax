@@ -15,7 +15,7 @@
 """Define ValidationReport class here."""
 import dataclasses
 import pathlib
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict
 
 from absl import logging
 import dataclasses_json
@@ -37,7 +37,7 @@ class ValidationReportOption:
   floating_atol: float = 1e-7
   floating_rtol: float = 1e-7
   max_non_floating_mismatch_ratio: float = 1e-2
-  output_report_path: Optional[Union[str, pathlib.Path]] = None
+  output_report_path: str | pathlib.Path | None = None
   print_debug_info: bool = False
 
   def __post_init__(self):
@@ -87,16 +87,18 @@ class NonFloatingPointDiffReport:
 class ValidationReport:
   """Generate validation report based on ValidationSingleJobResult.
   """
-  outputs: Dict[str, Union[FloatingPointDiffReport, NonFloatingPointDiffReport]]
+  outputs: Dict[str, FloatingPointDiffReport | NonFloatingPointDiffReport]
   latency: Dict[str, LatencyStat]
   xprof_url: Dict[str, XprofURL]
   metadata: Dict[str, MetaData]
   status: Status
 
-  def __init__(self,
-               baseline: ValidationSingleJobResult,
-               candidate: ValidationSingleJobResult,
-               option: Optional[ValidationReportOption] = None):
+  def __init__(
+      self,
+      baseline: ValidationSingleJobResult,
+      candidate: ValidationSingleJobResult,
+      option: ValidationReportOption | None = None,
+  ):
     """Generate validation result report with users config options.
 
     Args:

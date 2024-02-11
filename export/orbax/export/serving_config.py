@@ -15,7 +15,7 @@
 """ServingConfig class."""
 
 import dataclasses
-from typing import Any, Callable, Mapping, Optional, Sequence, Text, Union
+from typing import Any, Callable, Mapping, Sequence, Text, Union
 from absl import logging
 import jax
 from orbax.export import utils as orbax_export_utils
@@ -41,11 +41,11 @@ class ServingConfig:
   # `tf_preprocessor`, in which case `tf_preprocessor` must be a tf.function
   # with `input_signature` annotation. See
   # https://www.tensorflow.org/api_docs/python/tf/function#input_signatures.
-  input_signature: Optional[Sequence[PyTree]] = None
+  input_signature: Sequence[PyTree] | None = None
   # Optional pre-precessing function written in TF.
-  tf_preprocessor: Optional[Callable[..., Any]] = None
+  tf_preprocessor: Callable[..., Any] | None = None
   # Optional post-processing function written in TF.
-  tf_postprocessor: Optional[Callable[..., Any]] = None
+  tf_postprocessor: Callable[..., Any] | None = None
   # A nested structure of tf.saved_model.experimental.TrackableResource that are
   # used in `tf_preprocessor` and/or `tf_postprocessor`. If a TrackableResource
   # an attritute of the `tf_preprocessor` (or `tf_postprocessor`), and the
@@ -55,7 +55,7 @@ class ServingConfig:
   # Specify the key of the JAX method of the `JaxModule` to be bound
   # with this serving config. If unspecified, the `JaxModule` should have
   # exactly one method which will be used.
-  method_key: Optional[str] = None
+  method_key: str | None = None
 
   def get_signature_keys(self) -> Sequence[str]:
     if isinstance(self.signature_key, str):
