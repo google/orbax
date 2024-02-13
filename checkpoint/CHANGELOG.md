@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Log `SaveArgs.aggregate` deprecation warning message once in 12 hours.
+
 ## [0.5.3] - 2024-02-05
 
 ### Fixed
