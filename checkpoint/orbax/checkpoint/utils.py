@@ -30,6 +30,7 @@ from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import value_metadata
 
@@ -812,7 +813,7 @@ def is_locked(directory: epath.Path) -> bool:
 
 def are_locked(
     directory: epath.Path,
-    steps: Tuple[int],
+    steps: Tuple[int, ...],
     step_prefix: Optional[str],
     step_format_fixed_length: Optional[int],
 ) -> List[bool]:
@@ -862,3 +863,75 @@ def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
     )
   else:
     raise ValueError(f'Unexpected type: {type(x)}.')
+
+
+def _sum(x, replica_axis_index):
+  return jax.tree_map(functools.partial(jnp.sum, axis=replica_axis_index), x)
+
+
+@functools.partial(jax.jit, static_argnums=0)
+def fake_zero_data(sharding, x):
+  x = jnp.zeros_like(x)
+  return jax.lax.with_sharding_constraint(x, sharding)
+
+
+def broadcast_one_replica_to_all(
+    in_tree: Tuple[PyTree, ...],
+    global_mesh: jax.sharding.Mesh,
+    per_replica_shardings: Tuple[Optional[jax.sharding.NamedSharding], ...],
+    replica_axis_index: int,
+    is_source: bool,
+    ) -> Tuple[PyTree, ...]:
+  """One replica reads the data and broadcasts to others."""
+  num_replicas = global_mesh.devices.shape[replica_axis_index]
+  replica_axis_name = global_mesh.axis_names[replica_axis_index]
+
+  def pre_jit(x, per_replica_sharding):
+    if is_source:
+      inp = x
+    else:
+      inp = fake_zero_data(per_replica_sharding, x)
+    inp = jnp.expand_dims(inp, axis=replica_axis_index)
+    in_spec = jax.sharding.PartitionSpec(
+        *x.sharding.spec[:replica_axis_index],
+        replica_axis_name,
+        *x.sharding.spec[replica_axis_index:]
+        )
+    global_shape = (x.shape[:replica_axis_index] +
+                    (num_replicas,) + x.shape[replica_axis_index:])
+    global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
+    return jax.make_array_from_single_device_arrays(
+        global_shape, global_sharding, [s.data for s in inp.addressable_shards]
+    )
+
+  out_sharding = jax.tree_map(
+      lambda x: jax.sharding.NamedSharding(
+          global_mesh, jax.sharding.PartitionSpec(*x.sharding.spec)
+      ),
+      in_tree)
+  in_tree_sharded = jax.tree_map(
+      pre_jit,
+      in_tree,
+      per_replica_shardings
+  )
+  out_tree = jax.jit(
+      functools.partial(_sum, replica_axis_index=replica_axis_index),
+      out_shardings=out_sharding,
+      )(in_tree_sharded)
+
+  jax.tree_map(lambda x: x.delete(), in_tree)
+
+  return out_tree
+
+
+def get_primary_replica_ids_and_pids(
+    replica_axis_idx: int,
+    mesh: jax.sharding.Mesh,
+    primary_replica_idx: int = 0
+    ):
+  replica_devices = np.take(mesh.devices,
+                            primary_replica_idx,
+                            axis=replica_axis_idx).flatten()
+  pids = set([d.process_index for d in replica_devices])
+  ids = set([d.id for d in replica_devices])
+  return ids, pids

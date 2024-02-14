@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix broken logging issue.
 
 ### Added
+- Single replica broadcasting when training on multiple hosts/pods. By default, replica zero along the first axis dimension reads the checkpoint then broadcasts to other replicas.
+
+### Added
 - Add `reload` method in `CheckpointManager` which resets internal properties.
 - Add checkpoint announcements RTD page.
 
@@ -40,6 +43,7 @@ tensorstore change. This resolves a slowdown in save speed recently observed.
 
 ### Changed
 - Update documentation of the new `CheckpointArgs` based `CheckpointHandler` API.
+
 
 ## [0.5.1] - 2024-01-19
 

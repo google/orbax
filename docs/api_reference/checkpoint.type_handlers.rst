@@ -36,6 +36,11 @@ ArrayHandler
 .. autoclass:: ArrayHandler
   :members:
 
+SingleSliceArrayHandler
+------------------------
+.. autoclass:: ArrayHandler
+  :members:
+
 StringHandler
 ------------------------
 .. autoclass:: StringHandler

@@ -19,9 +19,11 @@ import asyncio
 import base64
 import dataclasses
 import enum
+import functools
 import json
 import os
 import re
+import time
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union, cast
 import warnings
 
@@ -31,9 +33,9 @@ import jax
 from jax.experimental.array_serialization import serialization
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint import future
 from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
-from orbax.checkpoint.future import Future
 import tensorstore as ts
 
 
@@ -640,7 +642,7 @@ class TypeHandler(abc.ABC):
       values: Sequence[Any],
       infos: Sequence[ParamInfo],
       args: Optional[Sequence[SaveArgs]] = None,
-  ) -> Sequence[Future]:
+  ) -> Sequence[future.Future]:
     """Writes the parameter to a storage location.
 
     This method is responsible for copying the parameter from a remote device in
@@ -1059,7 +1061,7 @@ class NumpyHandler(TypeHandler):
       values: Sequence[np.ndarray],
       infos: Sequence[ParamInfo],
       args: Optional[Sequence[SaveArgs]] = None,
-  ) -> Sequence[Future]:
+  ) -> Sequence[future.Future]:
     """Uses Tensorstore to serialize a numpy array."""
     args = args or [SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
@@ -1167,7 +1169,7 @@ class ScalarHandler(NumpyHandler):
       values: Sequence[Scalar],  # pytype: disable=signature-mismatch
       infos: Sequence[ParamInfo],
       args: Optional[Sequence[SaveArgs]] = None,
-  ) -> Sequence[Future]:
+  ) -> Sequence[future.Future]:
     """See superclass documentation."""
     values = [np.asarray(v) for v in values]
     return await super().serialize(values, infos, args)
@@ -1226,6 +1228,28 @@ class ArrayRestoreArgs(RestoreArgs):
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
   sharding: Optional[jax.sharding.Sharding] = None
   global_shape: Optional[Tuple[int, ...]] = None
+
+
+@dataclasses.dataclass
+class SingleReplicaArrayRestoreArgs(ArrayRestoreArgs):
+  """Arguments used when restoring with SingleReplicaArrayHandler.
+
+  In case when training at scale loading checkpoint to all host may be
+  very slow especially when checkpoint file is large. To mitigate this
+  issue `SingleReplicaArrayHandler` suggests to read the checkpoint only
+  on one replica hosts and do broadcasting which should significantly
+  improve the training start time at scale.
+
+  single_replica_sharding:
+    jax.sharding.NamedSharding object which describes the single replica
+    sharding to which current host belongs to.
+  replica_axis_index:
+    The index of the axis dimension of the array, along which the replicas are
+    defined. Currently works only when replica is taken along the first
+    dimension, i.e. replica_axis_index is 0.
+  """
+  single_replica_sharding: Optional[jax.sharding.NamedSharding] = None
+  replica_axis_index: Optional[int] = 0
 
 
 class ArrayHandler(TypeHandler):
@@ -1358,7 +1382,7 @@ class ArrayHandler(TypeHandler):
       values: Sequence[jax.Array],
       infos: Sequence[ParamInfo],
       args: Optional[Sequence[SaveArgs]] = None,
-  ) -> Sequence[Future]:
+  ) -> Sequence[future.Future]:
     """See superclass documentation."""
     for v in values:
       if (
@@ -1546,6 +1570,170 @@ class ArrayHandler(TypeHandler):
     return ret
 
 
+def _is_sharding_valid(primary_replica_ids: set[int],
+                       primary_replica_pids: set[int]) -> bool:
+  if jax.process_index() in primary_replica_pids:
+    loc_devices_in_replica = primary_replica_ids.intersection(
+        set([d.id for d in jax.local_devices()])
+        )
+    return len(loc_devices_in_replica) == len(jax.local_devices())
+  return True
+
+
+def _is_host_for_primary_replica(primary_replica_ids: set[int]) -> bool:
+  return jax.process_index() in primary_replica_ids
+
+
+class SingleReplicaArrayHandler(ArrayHandler):
+  """An implementation TypeHandler for jax.
+
+  ArrayHandler that optimizes checkpoint read performance during multi-pod or
+  multihost training. Normally each host reads relevant data from the
+  checkpoint, even if other hosts are reading the exact same data. This can be
+  very inefficient with large number of pods/hosts and large checkpoint size.
+  With SingleReplicaArrayhandler the data is read only on hosts that are in
+  primary replica. Then these hosts broadcast the data to other hosts. It is
+  assumed that all hosts have ALL their devices either inside the primary 
+  replica or outside.
+  Consider, for example, the following sharding on v4-128 wich has 16 hosts and
+  64 devices::
+
+      shape = (32, 2)
+      mesh = jax.sharding.Mesh(jax.devices().reshape(shape), ('x', 'y'))
+      pspec = jax.sharding.PartitionSpec(None, 'y')
+      sharding=jax.sharding.NamedSharding(mesh, pspec)
+
+  This sharding will not work since the primary replica has only two devices,
+  and hence there is a host which has 2 devices in the primary replica, and 2
+  devices outside of primary replica. However, changing shape, for example, to
+  (4, 16) will result in a valid sharding.
+
+  This TypeHandler can be registered by running
+  ```
+  ocp.type_handlers.register_type_handler(
+      jax.Array,
+      type_handlers.SingleReplicaArrayHandler(),
+      override=True)
+  ```
+  Example usage can be found in MaxText (TO BE MERGED).
+  https://github.com/google/maxtext/blob/main/MaxText/checkpointing.py
+  """
+
+  async def deserialize(
+      self,
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[SingleReplicaArrayRestoreArgs]] = None,   # pytype: disable=signature-mismatch
+  ) -> Sequence[jax.Array]:
+    """Deserializing in case of single replica broadcasting.
+
+    Args:
+      infos: ParamInfo.
+      args: must be of type `SingleReplicaArrayRestoreArgs`.
+    Returns:
+      The deserialized parameter.
+    Raises:
+      ValueError if `args` is not provided.
+      ValueError if `args.sharding` is not provided or `args.mesh` and
+      `args.mesh_axes` or `single_replica_pids` or `single_replica_ids` are
+      not provided.
+    """
+    if args is None:
+      raise ValueError('Must provide SingleReplicaArrayRestoreArgs to restore '
+                       'as jax.Array.')
+    check_input_arguments(infos, args)
+    deserialize_ops = []
+    shardings = []
+    primary_replica_pids = set()
+    single_replica_shardings = []
+    replica_axis_index = None
+    for info, arg in zip(infos, args):
+      arg = cast(SingleReplicaArrayRestoreArgs, arg)
+      if isinstance(arg, SingleReplicaArrayRestoreArgs):
+        if arg.sharding is not None:
+          sharding = arg.sharding
+          shardings.append(sharding)
+          replica_axis_index = arg.replica_axis_index
+          primary_replica_ids, primary_replica_pids = (
+              utils.get_primary_replica_ids_and_pids(replica_axis_index,
+                                                     sharding.mesh)  # pytype: disable=attribute-error
+          )
+          if not _is_sharding_valid(primary_replica_ids, primary_replica_pids):
+            raise ValueError('The provided sharding configuration is '
+                             'invalid because it includes a host with devices '
+                             'assigned to the primary replica and devices '
+                             'outside of the primary replica.'
+                             )
+        else:
+          raise ValueError('Must provide `sharding`.')
+
+        if arg.single_replica_sharding is not None:
+          single_replica_sharding = arg.single_replica_sharding
+          single_replica_shardings.append(single_replica_sharding)
+        else:
+          raise ValueError('Must provide `sharding`.')
+      else:
+        raise ValueError('Must provide `SingleReplicaArrayRestoreArgs`.')
+      if not info.is_ocdbt_checkpoint:
+        await _assert_parameter_files_exist(  # pylint: disable=protected-access
+            info.path, self._metadata_key
+        )
+
+      use_ocdbt = info.is_ocdbt_checkpoint
+      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+      tspec = _get_cast_tspec_deserialize(tspec, arg)  # pylint: disable=protected-access
+
+      if _is_host_for_primary_replica(primary_replica_pids):
+        deserialize_ops += [
+            serialization.async_deserialize(
+                single_replica_sharding,
+                tspec,
+                global_shape=arg.global_shape
+                if hasattr(arg, 'global_shape')
+                else None,
+                byte_limiter=info.byte_limiter,
+                context=get_ts_context(use_ocdbt)
+            )
+        ]
+
+    @functools.partial(
+        jax.jit, static_argnums=0,
+        out_shardings=tuple(single_replica_shardings)
+    )
+    def create_zeros(shape_dtype_tup):
+      return jax.tree_util.tree_map(
+          lambda sd: jnp.zeros(sd.shape, dtype=sd.dtype),
+          shape_dtype_tup)
+
+    if _is_host_for_primary_replica(primary_replica_pids):
+      deserialized = await asyncio.gather(*deserialize_ops)
+    else:
+      single_replica_shardings = [arg.single_replica_sharding for arg in args]
+      shape_dtype = [
+          jax.ShapeDtypeStruct(arg.global_shape, arg.dtype) for arg in args
+      ]
+      deserialized = create_zeros(tuple(shape_dtype))
+
+    deserialized = tuple(deserialized)
+    single_replica_shardings = tuple(single_replica_shardings)
+
+    start_broadcast = time.time()
+    global_mesh = cast(jax.sharding.NamedSharding, shardings[0])
+    shared_state = utils.broadcast_one_replica_to_all(
+        deserialized,
+        global_mesh.mesh,
+        single_replica_shardings,
+        replica_axis_index,
+        is_source=_is_host_for_primary_replica(primary_replica_pids),
+    )
+
+    jax.block_until_ready(shared_state)
+    end_broadcast = time.time()
+    logging.info('Finished broadcasting in %.2f',
+                 end_broadcast - start_broadcast
+                 )
+    return shared_state
+
+
 class StringHandler(TypeHandler):
   """TypeHandler for strings."""
 
@@ -1592,7 +1780,7 @@ class StringHandler(TypeHandler):
       values: Sequence[str],
       infos: Sequence[ParamInfo],
       args: Optional[Sequence[SaveArgs]] = None,
-  ) -> Sequence[Future]:
+  ) -> Sequence[future.Future]:
     """See superclass documentation."""
     del args
     check_input_arguments(values, infos)

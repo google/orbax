@@ -793,7 +793,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     # Because of empty states, the user-provided args may not contain
     # all necessary arguments. These should be filled in with default args.
     save_args = jax.tree_util.tree_map(
-        _maybe_set_default_save_args,
+        _maybe_set_default_save_args,  # pylint: disable=protected-access
         item,
         item if save_args is None else save_args,
         is_leaf=utils.is_empty_or_leaf,

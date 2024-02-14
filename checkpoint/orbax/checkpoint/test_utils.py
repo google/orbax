@@ -16,8 +16,9 @@
 
 from concurrent import futures
 import functools
+import string
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from absl import logging
 from etils import epath
@@ -173,6 +174,34 @@ def setup_sharded_pytree(
       create_sharded_array, pytree, mesh_tree, axes_tree, is_leaf=is_leaf
   )
   return pytree, mesh_tree, axes_tree
+
+
+def setup_sharded_array_for_broadcasting(
+    array_size: int,
+    shape: Tuple[int, ...],
+    is_replica_first: Optional[bool] = True,
+):
+  """Creates a tuple of sharded arrays for testing."""
+
+  array = (np.arange(array_size*8).reshape((8, array_size)) * 1,
+           np.arange(array_size*16).reshape((16, array_size)) * 2,
+           np.arange(array_size*8).reshape((8, array_size)) * 3,
+           np.arange(array_size*16).reshape((16, array_size)) * 4,)
+  devices = jax.devices()
+  devices = np.asarray(devices)
+
+  dim = len(shape)
+  axis_names = list(string.ascii_lowercase)
+  mesh = jax.sharding.Mesh(
+      devices.reshape(shape), axis_names[-dim:]
+  )
+  if is_replica_first:
+    mesh_axes = jax.sharding.PartitionSpec(None, axis_names[-dim+1:])
+  else:
+    mesh_axes = jax.sharding.PartitionSpec(axis_names[-dim:-1], None)
+
+  sharded_arr = [create_sharded_array(arr, mesh, mesh_axes) for arr in array]
+  return sharded_arr, mesh, mesh_axes
 
 
 def is_leaf(x):
