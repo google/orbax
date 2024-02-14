@@ -10,13 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Log `SaveArgs.aggregate` deprecation warning message once in 12 hours.
 
+### Added
+- Single replica broadcasting when training on multiple hosts/pods. By default, replica zero along the first axis dimension reads the checkpoint then broadcasts to other replicas.
+
 ## [0.5.3] - 2024-02-05
 
 ### Fixed
 - Fix broken logging issue.
-
-### Added
-- Single replica broadcasting when training on multiple hosts/pods. By default, replica zero along the first axis dimension reads the checkpoint then broadcasts to other replicas.
 
 ### Added
 - Add `reload` method in `CheckpointManager` which resets internal properties.
