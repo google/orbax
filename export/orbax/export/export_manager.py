@@ -21,6 +21,7 @@ from etils.epy.reraise_utils import maybe_reraise
 from orbax.export import utils
 from orbax.export.dtensor_utils import get_current_dtensor_mesh
 from orbax.export.export_manager_base import ExportManagerBase
+from orbax.export.google import fs_utils
 from orbax.export.jax_module import JaxModule
 from orbax.export.serving_config import ServingConfig
 import tensorflow as tf
