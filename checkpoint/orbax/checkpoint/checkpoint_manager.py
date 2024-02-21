@@ -924,6 +924,8 @@ class CheckpointManager(AbstractCheckpointManager):
     Returns:
       a list of CheckpointInfo, sorted by increasing step.
     """
+    # TODO(b/322223283): Try the following barrier to debug flaky test failures.
+    utils.sync_global_devices('CheckpointManager:load_checkpoint_infos')
     steps = sorted(
         utils.checkpoint_steps(
             self.directory, self._options.single_host_load_and_broadcast
