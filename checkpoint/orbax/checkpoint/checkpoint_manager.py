@@ -19,6 +19,7 @@ import contextlib
 import dataclasses
 import datetime
 import threading
+import time
 import typing
 from typing import Any, Callable, Container, List, Mapping, Optional, Sequence, Tuple, Type, Union
 
@@ -797,7 +798,12 @@ class CheckpointManager(AbstractCheckpointManager):
     self._checkpointer.save(save_directory, args=args)
 
     self._add_checkpoint_info(step, metrics)
+    get_old_steps_start_time = time.time()
     steps_to_remove = self._get_old_steps_to_remove()
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/get_old_steps_duration_secs',
+        time.time() - get_old_steps_start_time,
+    )
     self._checkpoints = [
         info for info in self._checkpoints if info.step not in steps_to_remove
     ]
@@ -935,11 +941,13 @@ class CheckpointManager(AbstractCheckpointManager):
       return []
 
     def checkpoint_info(step: int) -> CheckpointInfo:
-      time = datetime.datetime.fromtimestamp(
+      timestamp = datetime.datetime.fromtimestamp(
           self._get_save_directory(step, self.directory).stat().mtime,
           tz=datetime.timezone.utc,
       )
-      return CheckpointInfo(step=step, time=time, metrics=self.metrics(step))
+      return CheckpointInfo(
+          step=step, time=timestamp, metrics=self.metrics(step)
+      )
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
       futures = {step: executor.submit(checkpoint_info, step) for step in steps}
@@ -1212,8 +1220,13 @@ class CheckpointManager(AbstractCheckpointManager):
     # If an error is encountered while waiting for commit futures to complete,
     # we will not proceed past this point.
     self._finalize_checkpoint(utils.step_from_checkpoint_name(directory.name))
+    remove_steps_start_time = time.time()
     for step in steps_to_remove:
       self._delete_directory(step)
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/remove_steps_duration_secs',
+        time.time() - remove_steps_start_time,
+    )
 
   def close(self):
     """See superclass documentation."""
