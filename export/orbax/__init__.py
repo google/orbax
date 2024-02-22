@@ -16,6 +16,7 @@
 
 from orbax.export import utils
 from orbax.export.dtensor_utils import dtensor_initialized
+from orbax.export.dtensor_utils import get_current_dtensor_mesh
 from orbax.export.dtensor_utils import get_pspec_from_jax_arrays
 from orbax.export.dtensor_utils import initialize_dtensor
 from orbax.export.dtensor_utils import maybe_enable_dtensor_export_on
