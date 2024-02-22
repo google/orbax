@@ -81,6 +81,60 @@ class TestShardingMetadata(absltest.TestCase):
     )
     self.assertEqual(converted_jax_sharding, jax_sharding)
 
+  def test_convert_between_named_sharding_string_to_named_sharding_metadata(
+      self,
+  ):
+    # Convert from `NamedShardingMetadata` to `str`
+    named_sharding_metadata = sharding_metadata.NamedShardingMetadata(
+        shape=np.array([1]), axis_names=(["x"]), partition_spec=(None,)
+    )
+    expected_named_sharding_string = (
+        '{"sharding_type": "NamedSharding", "shape": [1], "axis_names": ["x"],'
+        ' "partition_spec": [null]}'
+    )
+    named_sharding_string = named_sharding_metadata.to_serialized_string()
+    self.assertEqual(named_sharding_string, expected_named_sharding_string)
+
+    # Convert from `str` to `NamedShardingMetadata`
+    converted_named_sharding_metadata = (
+        sharding_metadata.from_serialized_string(named_sharding_string)
+    )
+    self.assertIsInstance(
+        converted_named_sharding_metadata,
+        sharding_metadata.NamedShardingMetadata,
+    )
+    self.assertEqual(converted_named_sharding_metadata, named_sharding_metadata)
+
+  def test_single_device_sharding_string_to_metadata(
+      self,
+  ):
+    # Convert from `SingleDeviceShardingMetadata` to `str`
+    single_device_sharding_metadata = (
+        sharding_metadata.SingleDeviceShardingMetadata(device_str="TFRT_CPU_0")
+    )
+    expected_single_device_sharding_string = (
+        '{"sharding_type": "SingleDeviceSharding", "device_str": "TFRT_CPU_0"}'
+    )
+    single_device_sharding_string = (
+        single_device_sharding_metadata.to_serialized_string()
+    )
+    self.assertEqual(
+        single_device_sharding_string, expected_single_device_sharding_string
+    )
+
+    # Convert from `str` to `SingleDeviceShardingMetadata`
+    converted_single_device_sharding_metadata = (
+        sharding_metadata.from_serialized_string(single_device_sharding_string)
+    )
+    self.assertIsInstance(
+        converted_single_device_sharding_metadata,
+        sharding_metadata.SingleDeviceShardingMetadata,
+    )
+    self.assertEqual(
+        converted_single_device_sharding_metadata,
+        single_device_sharding_metadata,
+    )
+
   def test_convert_to_jax_sharding_unsupported_types(self):
     jax_sharding = jax.sharding.PositionalSharding(jax.devices())
     with pytest.raises(NotImplementedError):

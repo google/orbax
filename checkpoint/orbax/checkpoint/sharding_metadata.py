@@ -16,11 +16,27 @@
 
 import abc
 import dataclasses
-from typing import List, Optional, Tuple, Union
+import enum
+import json
+from typing import List, Tuple, Union
 import jax
 import numpy as np
 
 PartitionSpecElement = Union[None, str, Tuple[str, ...]]
+
+_PARTITION_SPEC = 'partition_spec'
+_SHARDING = '_sharding'
+_SHARDING_TYPE = 'sharding_type'
+_DEVICE_STR = 'device_str'
+_MESH_AXES = 'axis_names'
+_MESH_SHAPE = 'shape'
+
+
+class ShardingTypes(enum.Enum):
+  NAMED_SHARDING = 'NamedSharding'
+  SINGLE_DEVICE_SHARDING = 'SingleDeviceSharding'
+  POSITIONAL_SHARDING = 'PositionalSharding'
+  GSPMD_SHARDING = 'GSPMDSharding'
 
 
 def _convert_jax_partition_spec_to_partition_spec_elements(
@@ -62,8 +78,16 @@ class ShardingMetadata(abc.ABC):
   def to_jax_sharding(self) -> jax.sharding.Sharding:
     """Converts `ShardingMetadata` to `jax.sharding.Sharding`."""
 
-  def to_serialized_string(self) -> Optional[str]:
-    pass
+  @classmethod
+  @abc.abstractmethod
+  def from_deserialized_dict(
+      cls, deserialized_dict: dict[str, str]
+  ) -> 'ShardingMetadata':
+    """Converts serialized_string in the form of `dict[str, str]` to `ShardingMetadata`."""
+
+  @abc.abstractmethod
+  def to_serialized_string(self) -> str:
+    """Converts `ShardingMetadata` to `serialized_string`."""
 
 
 @dataclasses.dataclass
@@ -95,6 +119,36 @@ class NamedShardingMetadata(ShardingMetadata):
         ),
         spec=jax.sharding.PartitionSpec(*self.partition_spec),
     )
+
+  @classmethod
+  def from_deserialized_dict(
+      cls, deserialized_dict: dict[str, str]
+  ) -> 'NamedShardingMetadata':
+    if (
+        _MESH_SHAPE in deserialized_dict
+        and _MESH_AXES in deserialized_dict
+        and _PARTITION_SPEC in deserialized_dict
+    ):
+      shape = np.array(deserialized_dict[_MESH_SHAPE])
+      axis_names = list(deserialized_dict[_MESH_AXES])
+      partition_spec = tuple(deserialized_dict[_PARTITION_SPEC])
+      return cls(
+          shape=shape,
+          axis_names=axis_names,
+          partition_spec=partition_spec,
+      )
+    else:
+      raise ValueError(
+          f'Sharding data not found in deserialized_dict: {deserialized_dict}'
+      )
+
+  def to_serialized_string(self) -> str:
+    sharding_data = {}
+    sharding_data[_SHARDING_TYPE] = ShardingTypes.NAMED_SHARDING.value
+    sharding_data[_MESH_SHAPE] = self.shape.tolist()
+    sharding_data[_MESH_AXES] = self.axis_names
+    sharding_data[_PARTITION_SPEC] = self.partition_spec
+    return json.dumps(sharding_data)
 
   def __repr__(self):
     return (
@@ -132,6 +186,25 @@ class SingleDeviceShardingMetadata(ShardingMetadata):
           f'Device {device_str} was not found in jax.local_devices().'
       )
 
+  @classmethod
+  def from_deserialized_dict(
+      cls, deserialized_dict: dict[str, str]
+  ) -> 'SingleDeviceShardingMetadata':
+    if (
+        _DEVICE_STR in deserialized_dict
+        and deserialized_dict[_DEVICE_STR] is not None
+    ):
+      return cls(device_str=deserialized_dict[_DEVICE_STR])
+    raise ValueError(
+        f'Device str not found in deserialized_dict: {deserialized_dict}'
+    )
+
+  def to_serialized_string(self) -> str:
+    sharding_data = {}
+    sharding_data[_SHARDING_TYPE] = ShardingTypes.SINGLE_DEVICE_SHARDING.value
+    sharding_data[_DEVICE_STR] = self.device_str
+    return json.dumps(sharding_data)
+
   def __repr__(self):
     return f'SingleDeviceShardingMetadata(device_str={self.device_str})'
 
@@ -158,4 +231,23 @@ def from_jax_sharding(jax_sharding) -> ShardingMetadata:
   else:
     raise NotImplementedError(
         f'Conversion for {type(jax_sharding)} has not been implemented.'
+    )
+
+
+def from_serialized_string(serialized_str) -> ShardingMetadata:
+  """Converts `serialized_string` to `ShardingMetadata`."""
+  deserialized_dict = json.loads(serialized_str)
+  if deserialized_dict[_SHARDING_TYPE] == ShardingTypes.NAMED_SHARDING.value:
+    return NamedShardingMetadata.from_deserialized_dict(deserialized_dict)
+  elif (
+      deserialized_dict[_SHARDING_TYPE]
+      == ShardingTypes.SINGLE_DEVICE_SHARDING.value
+  ):
+    return SingleDeviceShardingMetadata.from_deserialized_dict(
+        deserialized_dict
+    )
+  else:
+    raise NotImplementedError(
+        f'Conversion for {deserialized_dict[_SHARDING_TYPE]} has not been'
+        ' implemented.'
     )
