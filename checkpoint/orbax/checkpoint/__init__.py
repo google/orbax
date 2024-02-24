@@ -23,6 +23,7 @@ from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import args
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import msgpack_utils
+from orbax.checkpoint import storage
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
