@@ -224,41 +224,48 @@ class CheckpointManagerOptions:
     if self.max_to_keep is not None and self.max_to_keep < 0:
       raise ValueError('Setting of `max_to_keep` must be None or non-negative.')
     if self.read_only and self.save_interval_steps > 0:
-      raise ValueError(
-          'CheckpointManagerOptions.save_interval_steps must be 0 as'
-          ' read_only=True.'
+      self.save_interval_steps = 0
+      logging.warning(
+          'CheckpointManagerOptions.read_only=True, setting'
+          ' save_interval_steps=0.'
       )
     if self.read_only and self.max_to_keep is not None:
-      raise ValueError(
-          'CheckpointManagerOptions.max_to_keep must be None as read_only=True.'
+      self.max_to_keep = None
+      logging.warning(
+          'CheckpointManagerOptions.read_only=True, setting max_to_keep=None.'
       )
     if self.read_only and self.keep_time_interval is not None:
-      raise ValueError(
-          'CheckpointManagerOptions.keep_time_interval must be None as'
-          ' read_only=True.'
+      self.keep_time_interval = None
+      logging.warning(
+          'CheckpointManagerOptions.read_only=True, setting'
+          ' keep_time_interval=None.'
       )
     if self.read_only and self.keep_period is not None:
-      raise ValueError(
-          'CheckpointManagerOptions.keep_period must be None as read_only=True.'
+      self.keep_period = None
+      logging.warning(
+          'CheckpointManagerOptions.read_only=True, setting keep_period=None.'
       )
     if self.read_only and self.create:
-      raise ValueError(
-          'CheckpointManagerOptions.create must be False as read_only=True.'
+      self.create = False
+      logging.warning(
+          'CheckpointManagerOptions.read_only=True, setting create=False.'
       )
     if self.read_only and self.cleanup_tmp_directories:
-      raise ValueError(
-          'CheckpointManagerOptions.cleanup_tmp_directories must be False as'
-          ' read_only=True.'
+      self.cleanup_tmp_directories = False
+      logging.warning(
+          'CheckpointManagerOptions.read_only=True, setting'
+          ' cleanup_tmp_directories=False.'
       )
     if self.read_only and self.save_on_steps:
-      raise ValueError(
-          'CheckpointManagerOptions.save_on_steps must be None or empty as'
-          ' read_only=True.'
+      self.save_on_steps = None
+      logging.warning(
+          'CheckpointManagerOptions.read_only=True, setting save_on_steps=None.'
       )
     if self.read_only and self.todelete_subdir is not None:
-      raise ValueError(
-          'CheckpointManagerOptions.todelete_subdir must be None as'
-          ' read_only=True.'
+      self.todelete_subdir = None
+      logging.warning(
+          'CheckpointManagerOptions.read_only=True, setting'
+          ' todelete_subdir=None.'
       )
     self.save_on_steps = frozenset(self.save_on_steps or ())
 
