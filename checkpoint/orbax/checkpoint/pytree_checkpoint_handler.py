@@ -25,6 +25,7 @@ import dataclasses
 import enum
 import json
 import re
+import time
 import typing
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -841,10 +842,20 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     # TODO(b/285888834): Allow this to be asynchronous.
     if self._write_tree_metadata and jax.process_index() == 0:
+      metadata_write_start_time = time.time()
       self._write_metadata_file(directory, item, save_args, self._use_zarr3)
+      jax.monitoring.record_event_duration_secs(
+          '/jax/checkpoint/write/async/metadata_write_duration_secs',
+          time.time() - metadata_write_start_time,
+      )
 
+    aggregate_file_write_start_time = time.time()
     aggregate_commit_future = await self._write_aggregate_file(
         directory, item, param_infos, save_args
+    )
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/async/aggregate_write_duration_secs',
+        time.time() - aggregate_file_write_start_time,
     )
     return commit_futures + [aggregate_commit_future]
 
@@ -1408,7 +1419,12 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """
     if not self._use_ocdbt or not self._ocdbt_merge:
       return
+    merge_start_time = time.time()
     type_handlers.merge_ocdbt_per_process_files(directory)
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/async/ocdbt_merge_duration_secs',
+        time.time() - merge_start_time,
+    )
 
   def close(self):
     """Closes the handler. Called automatically by Checkpointer."""
