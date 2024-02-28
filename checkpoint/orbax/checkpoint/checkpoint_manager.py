@@ -740,7 +740,12 @@ class CheckpointManager(AbstractCheckpointManager):
     # Wait for ongoing saves to complete. Only applicable if some of the
     # checkpointers are AsyncCheckpointers.
     # Must happen after `should_save` to avoid blocking callers.
+    wait_for_prev_start_time = time.time()
     self.wait_until_finished()
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/wait_for_prev_duration_secs',
+        time.time() - wait_for_prev_start_time,
+    )
 
     if step in self.all_steps():
       raise ValueError(f'Checkpoint for step {step} already exists.')
@@ -1067,6 +1072,13 @@ class CheckpointManager(AbstractCheckpointManager):
     # Not enough checkpoints accumulated to consider deletion.
     if len(self._checkpoints) <= self._options.max_to_keep:
       return []
+
+    # This isn't a duration but there isn't a general counter that we can use so
+    # we abuse a duration metric to count the number of steps examined.
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/old_steps_examined_count',
+        len(self._checkpoints),
+    )
 
     # Exclude the latest checkpoint, since it is not finalized.
     are_locked = utils.are_locked(

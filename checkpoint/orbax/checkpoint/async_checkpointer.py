@@ -161,6 +161,18 @@ class _AsyncManager:
       logging.info(
           'Finished committing to storage layer by process: %s', current_process
       )
+      # Log the number of async writes that are in flight. Abuses a duration
+      # metric as a counter since jax.monitoring only has events and durations.
+      jax.monitoring.record_event_duration_secs(
+          '/jax/checkpoint/write/async/commit_future_count',
+          len(commit_futures),
+      )
+
+      # Log the per process storage commit latency excluding the barrier time.
+      jax.monitoring.record_event_duration_secs(
+          '/jax/checkpoint/write/async/commit_duration_sec',
+          time.time() - thread_start_time,
+      )
 
       if process_count > 1:
         # All processes will wait at the barrier. When all processes are at the

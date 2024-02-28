@@ -65,7 +65,15 @@ def sync_global_devices(name: str):
   """Thin wrapper to provide additional features support."""
   if should_skip_device_sync():
     return
+  sync_start_time = time.time()
   multihost_utils.sync_global_devices(name)
+  # This may end up just being too noisy given how many barriers there are, but
+  # it does represent how long different processes waited around waiting for
+  # other processes to reach a barrier.
+  jax.monitoring.record_event_duration_secs(
+      '/jax/checkpoint/sync_global_devices_duration_sec',
+      time.time() - sync_start_time,
+  )
 
 
 def broadcast_one_to_all(pytree: PyTree) -> PyTree:
