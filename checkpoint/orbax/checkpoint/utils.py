@@ -848,7 +848,9 @@ def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
     return jax.ShapeDtypeStruct(
         shape=x.shape,
         dtype=dtype if dtype is not None else x.dtype,
-        sharding=x.sharding,
+        sharding=x.sharding
+        if isinstance(x.sharding, jax.sharding.Sharding)
+        else x.sharding.to_jax_sharding(),
     )
   elif isinstance(x, jax.Array):
     dtype = dtype or x.dtype
@@ -867,7 +869,9 @@ def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
     return jax.ShapeDtypeStruct(
         shape=x.shape,
         dtype=dtype,
-        sharding=x.sharding,
+        sharding=x.sharding
+        if isinstance(x.sharding, jax.sharding.Sharding)
+        else x.sharding.to_jax_sharding(),
     )
   else:
     raise ValueError(f'Unexpected type: {type(x)}.')

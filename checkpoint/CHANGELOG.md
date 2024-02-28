@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Single replica broadcasting when training on multiple hosts/pods. By default, replica zero along the first axis dimension reads the checkpoint then broadcasts to other replicas.
+- `ShardingMetadata` class that represents `jax.sharding.Sharding` properties but does not require accessing real devices.
 
 ## [0.5.3] - 2024-02-05
 
