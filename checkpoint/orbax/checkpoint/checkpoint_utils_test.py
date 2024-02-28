@@ -22,6 +22,7 @@ import jax
 import numpy as np
 import orbax.checkpoint
 from orbax.checkpoint import checkpoint_utils
+from orbax.checkpoint import storage
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
@@ -166,7 +167,8 @@ class CheckpointIteratorTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.directory = epath.Path(
-        self.create_tempdir(name='checkpointing_test').full_path)
+        self.create_tempdir(name='checkpointing_test').full_path
+    )
     self.manager = orbax.checkpoint.CheckpointManager(
         self.directory, {'params': orbax.checkpoint.PyTreeCheckpointer()}
     )
@@ -272,7 +274,13 @@ class CheckpointIteratorTest(parameterized.TestCase):
     self.manager.save(0, self.items)
     self.manager.save(1, self.items)
 
-    checkpoint_utils._lock_checkpoint(self.directory, 0, None, None)
+    checkpoint_utils._lock_checkpoint(
+        self.directory,
+        step=0,
+        step_lookup=storage.DefaultStepLookup(
+            step_prefix=None, step_format_fixed_length=None
+        ),
+    )
     self.assertTrue(utils.is_locked(self.directory / str(0)))
     self.assertFalse(utils.is_locked(self.directory / str(1)))
 

@@ -32,6 +32,7 @@ import jax
 from jax.experimental import multihost_utils
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint import storage
 from orbax.checkpoint import value_metadata
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
@@ -467,6 +468,7 @@ def get_save_directory(
     step_prefix: Optional[str] = None,
     override_directory: Optional[epath.PathLike] = None,
     step_format_fixed_length: Optional[int] = None,
+    step_def: Optional[storage.StepDef] = None,
 ) -> epath.Path:
   """Returns the standardized path to a save directory for a single item.
 
@@ -479,26 +481,23 @@ def get_save_directory(
       ignored.
     step_format_fixed_length: Uses a fixed number of digits with leading zeros
       to represent the step number. If None, there are no leading zeros.
+    step_def: StepDef used to define step name for step and under given root
+      directory. If provided, `step_prefix` and `step_format_fixed_length` are
+      ignored.
 
   Returns:
     A directory.
   """
   if directory is None:
     raise ValueError('Directory cannot be None.')
-  directory = epath.Path(directory)
-  step_str = (
-      f'{step:0{step_format_fixed_length}d}'
-      if step_format_fixed_length is not None
-      else str(step)
-  )
   if override_directory is not None:
     result = epath.Path(override_directory)
   else:
-    result = (
-        directory / step_str
-        if step_prefix is None
-        else directory / f'{step_prefix}_{step_str}'
+    step_def = step_def or storage.StepDef(
+        step_prefix=step_prefix,
+        step_format_fixed_length=step_format_fixed_length,
     )
+    result = storage.root(directory).define(step, step_def).path
   if name is not None:
     result /= name
   return result
@@ -822,23 +821,23 @@ def is_locked(directory: epath.Path) -> bool:
 def are_locked(
     directory: epath.Path,
     steps: Tuple[int, ...],
-    step_prefix: Optional[str],
-    step_format_fixed_length: Optional[int],
+    step_prefix: Optional[str] = None,
+    step_format_fixed_length: Optional[int] = None,
+    step_lookup: Optional[storage.StepLookup] = None,
 ) -> List[bool]:
   """In parallel, determines whether the steps is considered `locked`."""
-
-  def _get_save_directory(step):
-    return get_save_directory(
-        step,
-        directory,
-        step_prefix=step_prefix,
-        step_format_fixed_length=step_format_fixed_length,
-    )
+  step_lookup = step_lookup or storage.DefaultStepLookup(
+      step_prefix=step_prefix,
+      step_format_fixed_length=step_format_fixed_length,
+  )
 
   async def _run_in_parallel(ops):
     return await asyncio.gather(*ops)
 
-  ops = [_async_is_locked(_get_save_directory(step)) for step in steps]
+  ops = [
+      _async_is_locked(storage.root(directory).lookup(step, step_lookup).path)
+      for step in steps
+  ]
   return asyncio.run(_run_in_parallel(ops))
 
 
@@ -889,7 +888,7 @@ def broadcast_one_replica_to_all(
     per_replica_shardings: Tuple[Optional[jax.sharding.NamedSharding], ...],
     replica_axis_index: int,
     is_source: bool,
-    ) -> Tuple[PyTree, ...]:
+) -> Tuple[PyTree, ...]:
   """One replica reads the data and broadcasts to others."""
   num_replicas = global_mesh.devices.shape[replica_axis_index]
   replica_axis_name = global_mesh.axis_names[replica_axis_index]
@@ -903,10 +902,13 @@ def broadcast_one_replica_to_all(
     in_spec = jax.sharding.PartitionSpec(
         *x.sharding.spec[:replica_axis_index],
         replica_axis_name,
-        *x.sharding.spec[replica_axis_index:]
-        )
-    global_shape = (x.shape[:replica_axis_index] +
-                    (num_replicas,) + x.shape[replica_axis_index:])
+        *x.sharding.spec[replica_axis_index:],
+    )
+    global_shape = (
+        x.shape[:replica_axis_index]
+        + (num_replicas,)
+        + x.shape[replica_axis_index:]
+    )
     global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
     return jax.make_array_from_single_device_arrays(
         global_shape, global_sharding, [s.data for s in inp.addressable_shards]
@@ -916,16 +918,13 @@ def broadcast_one_replica_to_all(
       lambda x: jax.sharding.NamedSharding(
           global_mesh, jax.sharding.PartitionSpec(*x.sharding.spec)
       ),
-      in_tree)
-  in_tree_sharded = jax.tree_map(
-      pre_jit,
       in_tree,
-      per_replica_shardings
   )
+  in_tree_sharded = jax.tree_map(pre_jit, in_tree, per_replica_shardings)
   out_tree = jax.jit(
       functools.partial(_sum, replica_axis_index=replica_axis_index),
       out_shardings=out_sharding,
-      )(in_tree_sharded)
+  )(in_tree_sharded)
 
   jax.tree_map(lambda x: x.delete(), in_tree)
 
@@ -935,11 +934,14 @@ def broadcast_one_replica_to_all(
 def get_primary_replica_ids_and_pids(
     replica_axis_idx: int,
     mesh: jax.sharding.Mesh,
-    primary_replica_idx: int = 0
-    ):
-  replica_devices = np.take(mesh.devices,
-                            primary_replica_idx,
-                            axis=replica_axis_idx).flatten()
+    primary_replica_idx: int = 0,
+):
+  """Returns the primary replica ids and process ids."""
+  replica_devices = np.take(
+      mesh.devices,
+      primary_replica_idx,
+      axis=replica_axis_idx,
+  ).flatten()
   pids = set([d.process_index for d in replica_devices])
   ids = set([d.id for d in replica_devices])
   return ids, pids

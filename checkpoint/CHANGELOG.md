@@ -13,9 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  options (instead of raising error).
 - Modify `create_empty` to be `erase_and_create_empty` instead to make its
 potential dangers a bit more apparent.
+- Use `StepDef` and `StepLookup` in Orbax `CheckpointManager`, `utils` and
+ `checkpoint_utils` modules.
 
 ### Added
 - Single replica broadcasting when training on multiple hosts/pods. By default, replica zero along the first axis dimension reads the checkpoint then broadcasts to other replicas.
+- Add new `storage` module with extensible step naming and lookup support.
 
 ## [0.5.3] - 2024-02-05
 

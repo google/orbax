@@ -37,6 +37,7 @@ from orbax.checkpoint import checkpointer as checkpointer_lib
 from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import proto_checkpoint_handler
+from orbax.checkpoint import storage
 from orbax.checkpoint import utils
 
 
@@ -166,11 +167,19 @@ class CheckpointManagerOptions:
     If False, checkpoints without metrics present
     are eligible for cleanup. Otherwise, they will never be deleted.
   step_prefix:
-    If provided, step directories will take the form
-    f'{step_prefix}_<step>'. Otherwise, they will simply be an integer <step>.
+    If provided, step directories will take the form f'{step_prefix}_<step>'.
+    Otherwise, they will simply be an integer <step>. Note that before applying
+    it is appended with *underscore*.
   step_format_fixed_length:
     If set, formats step with n digits (leading zeros).
     This makes sorting steps easier. Otherwise, step has no leading zeros.
+  step_def:
+    Defines a step subdir under input root directory to save checkpoint. If
+    provided,`step_prefix`, `step_format_fixed_length` are ignored.
+  step_lookup:
+    Helps in resolving a step subdir under input root directory to read
+    checkpoint. If provided,`step_prefix`, `step_format_fixed_length` are
+    ignored.
   create:
     If True, creates the top-level directory if it does not already exist.
   cleanup_tmp_directories:
@@ -205,6 +214,8 @@ class CheckpointManagerOptions:
   keep_checkpoints_without_metrics: bool = True
   step_prefix: Optional[str] = None
   step_format_fixed_length: Optional[int] = None
+  step_def: Optional[storage.StepDef] = None
+  step_lookup: Optional[storage.StepLookup] = None
   create: bool = True
   cleanup_tmp_directories: bool = False
   save_on_steps: Optional[Container[int]] = None
@@ -664,12 +675,24 @@ class CheckpointManager(AbstractCheckpointManager):
       directory: epath.Path,
   ) -> epath.Path:
     """Returns the standardized path to a save directory for a single item."""
-    return utils.get_save_directory(
-        step,
-        directory,
+    step_def = self._options.step_def or storage.StepDef(
         step_prefix=self._options.step_prefix,
         step_format_fixed_length=self._options.step_format_fixed_length,
     )
+    return storage.root(directory).define(step, step_def).path
+
+  def _get_new_step_directory(
+      self, step: int, root_dir: epath.Path
+  ) -> epath.Path:
+    return self._get_save_directory(step, root_dir)
+
+  def _get_existing_step_directory(
+      self, step: int, root_dir: epath.Path
+  ) -> epath.Path:
+    if self._options.step_lookup:
+      return storage.root(root_dir).lookup(step, self._options.step_lookup).path
+    else:
+      return self._get_save_directory(step, root_dir)
 
   def _create_tmp_directory(self, directory: epath.Path) -> epath.Path:
     """Creates a tmp directory based on the given directory."""
@@ -787,7 +810,7 @@ class CheckpointManager(AbstractCheckpointManager):
       args_dict['metrics'] = args_lib.JsonSave(metrics)
     args = args_lib.Composite(**args_dict)
 
-    save_directory = self._get_save_directory(step, self.directory)
+    save_directory = self._get_new_step_directory(step, self.directory)
     # If a folder for the step to save exists and is not finalized, remove the
     # existing folder.
     if utils.is_gcs_path(self.directory):
@@ -880,8 +903,7 @@ class CheckpointManager(AbstractCheckpointManager):
         args = args_lib.Composite(**{DEFAULT_ITEM_NAME: args})
       else:
         args = typing.cast(args_lib.Composite, args)
-
-    restore_directory = self._get_save_directory(step, directory)
+    restore_directory = self._get_existing_step_directory(step, directory)
     restored = self._checkpointer.restore(restore_directory, args=args)
     if self._single_item:
       return restored[DEFAULT_ITEM_NAME]
@@ -907,7 +929,7 @@ class CheckpointManager(AbstractCheckpointManager):
         )
 
     result = self._checkpointer.metadata(
-        self._get_save_directory(step, self.directory)
+        self._get_existing_step_directory(step, self.directory)
     )
     if self._single_item:
       return result[DEFAULT_ITEM_NAME]
@@ -917,7 +939,7 @@ class CheckpointManager(AbstractCheckpointManager):
     if self._track_best:
       try:
         restored = self._checkpointer.restore(
-            self._get_save_directory(step, self.directory),
+            self._get_existing_step_directory(step, self.directory),
             args=args_lib.Composite(
                 **{METRIC_ITEM_NAME: args_lib.JsonRestore()}
             ),
@@ -954,7 +976,7 @@ class CheckpointManager(AbstractCheckpointManager):
 
     def checkpoint_info(step: int) -> CheckpointInfo:
       timestamp = datetime.datetime.fromtimestamp(
-          self._get_save_directory(step, self.directory).stat().mtime,
+          self._get_existing_step_directory(step, self.directory).stat().mtime,
           tz=datetime.timezone.utc,
       )
       return CheckpointInfo(
@@ -1051,7 +1073,7 @@ class CheckpointManager(AbstractCheckpointManager):
     if self._options.todelete_subdir is None or utils.is_gcs_path(
         self.directory
     ):
-      self._get_save_directory(step, self.directory).rmtree()
+      self._get_existing_step_directory(step, self.directory).rmtree()
       logging.info('Deleted step %d.', step)
       return
 
@@ -1059,10 +1081,25 @@ class CheckpointManager(AbstractCheckpointManager):
     rename_dir = self.directory / self._options.todelete_subdir
     if not rename_dir.exists():
       rename_dir.mkdir(parents=True)
-    src = self._get_save_directory(step, self.directory)
-    dst = self._get_save_directory(step, rename_dir)
+    src = self._get_existing_step_directory(step, self.directory)
+    dst = self._get_new_step_directory(step, rename_dir)
     src.replace(dst)
     logging.info('Renamed step %d (todelete_subdir option specified).', step)
+
+  def _resolve_step_lookup(self) -> storage.StepLookup:
+    if self._options.step_lookup:
+      return self._options.step_lookup
+
+    if self._options.step_def is not None:
+      return storage.DefaultStepLookup(
+          step_prefix=self._options.step_def.step_prefix,
+          step_format_fixed_length=self._options.step_def.step_format_fixed_length,
+      )
+
+    return storage.DefaultStepLookup(
+        step_prefix=self._options.step_prefix,
+        step_format_fixed_length=self._options.step_format_fixed_length,
+    )
 
   def _get_old_steps_to_remove(self) -> List[int]:
     """Returns checkpoints that should be deleted."""
@@ -1083,9 +1120,8 @@ class CheckpointManager(AbstractCheckpointManager):
     # Exclude the latest checkpoint, since it is not finalized.
     are_locked = utils.are_locked(
         self.directory,
-        tuple([info.step for info in self._checkpoints[:-1]]),
-        self._options.step_prefix,
-        self._options.step_format_fixed_length,
+        steps=tuple([info.step for info in self._checkpoints[:-1]]),
+        step_lookup=self._resolve_step_lookup(),
     )
     self._checkpoints[:-1] = [
         dataclasses.replace(info, is_locked=is_locked)
