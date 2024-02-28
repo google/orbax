@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Log `SaveArgs.aggregate` deprecation warning message once in 12 hours.
 - If CheckpointManagerOptions.read_only=True then automatically reset "write"
  options (instead of raising error).
+- Modify `create_empty` to be `erase_and_create_empty` instead to make its
+potential dangers a bit more apparent.
 
 ### Added
 - Single replica broadcasting when training on multiple hosts/pods. By default, replica zero along the first axis dimension reads the checkpoint then broadcasts to other replicas.
