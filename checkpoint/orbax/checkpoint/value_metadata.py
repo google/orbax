@@ -20,7 +20,6 @@ from typing import Optional
 from etils import epath
 import jax
 from jax import numpy as jnp
-from orbax.checkpoint import sharding_metadata
 
 
 @dataclasses.dataclass
@@ -48,15 +47,15 @@ class ArrayMetadata(Metadata):
   shape:
     Tuple of integers describing the array shape.
   sharding:
-    ShardingMetadata to indicate how the array is sharded. ShardingMetadata is
-    an orbax representation of `jax.sharding.Sharding` which stores the same
-    properties but not require accessing real devices.
+    jax.sharding.Sharding to indicate how the array is sharded. In most of the
+    cases, it's NamedSharding.
+    May be None if the array is not sharded.
   dtype:
     Dtype of array elements.
   """
 
   shape: tuple[int, ...]
-  sharding: Optional[sharding_metadata.ShardingMetadata]
+  sharding: Optional[jax.sharding.Sharding]
   dtype: Optional[jnp.dtype]
 
   def __eq__(self, other: 'Metadata') -> bool:
@@ -92,7 +91,7 @@ class ScalarMetadata(ArrayMetadata):
   """
 
   shape: tuple[int, ...] = tuple([])
-  sharding: Optional[sharding_metadata.ShardingMetadata] = None
+  sharding: Optional[jax.sharding.Sharding] = None
   dtype: Optional[jnp.dtype] = None
 
   def __eq__(self, other: 'Metadata') -> bool:

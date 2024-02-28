@@ -18,6 +18,7 @@ import abc
 import asyncio
 import base64
 import dataclasses
+import enum
 import functools
 import json
 import os
@@ -33,7 +34,6 @@ from jax.experimental.array_serialization import serialization
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import future
-from orbax.checkpoint import sharding_metadata
 from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
 import tensorstore as ts
@@ -42,10 +42,13 @@ import tensorstore as ts
 Scalar = Union[int, float, np.number]
 Metadata = value_metadata.Metadata
 NamedSharding = jax.sharding.NamedSharding
+SingleDeviceSharding = jax.sharding.SingleDeviceSharding
 ScalarMetadata = value_metadata.ScalarMetadata
 ArrayMetadata = value_metadata.ArrayMetadata
 StringMetadata = value_metadata.StringMetadata
-ShardingMetadata = sharding_metadata.ShardingMetadata
+_MESH_AXES = 'axis_names'
+_MESH_SHAPE = 'shape'
+_NAMED_SHARDING = 'NamedSharding'
 _OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
 _COORDINATOR_SETUP_TIMEOUT_SECS = 300
 _OCDBT_TS_CONTEXT = None
@@ -59,6 +62,10 @@ _DEFAULT_OCDBT_TS_CONTEXT = ts.Context(
     parent=serialization.TS_CONTEXT,
 )
 
+_PARTITION_SPEC = 'partition_spec'
+_SHARDING = '_sharding'
+_SHARDING_TYPE = 'sharding_type'
+_DEVICE_STR = 'device_str'
 
 RESTORE_TYPE_NONE = 'None'
 RESTORE_TYPE_DICT = 'Dict'
@@ -67,10 +74,105 @@ RESTORE_TYPE_LIST = 'List'
 _DEFAULT_DRIVER = 'file'
 _PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
 _OCDBT_PROCESS_ID_RE = r'[A-Za-z0-9]+'
-_SHARDING = '_sharding'
 
 ZARR_VER2 = 'zarr'
 ZARR_VER3 = 'zarr3'
+
+
+class ShardingTypes(enum.Enum):
+  NAMED_SHARDING = 'NamedSharding'
+  SINGLE_DEVICE_SHARDING = 'SingleDeviceSharding'
+  POSITIONAL_SHARDING = 'PositionalSharding'
+  GSPMD_SHARDING = 'GSPMDSharding'
+
+
+def _serialize_sharding(sharding: jax.sharding.Sharding) -> str:
+  """Serializes `jax.sharding.Sharding` into a json string."""
+
+  sharding_data = {}
+  if isinstance(sharding, NamedSharding):
+    sharding_data[_SHARDING_TYPE] = ShardingTypes.NAMED_SHARDING.value
+    sharding_data[_MESH_SHAPE] = list(sharding.mesh.shape.values())
+    sharding_data[_MESH_AXES] = sharding.mesh.axis_names
+    sharding_data[_PARTITION_SPEC] = sharding.spec
+
+  elif isinstance(sharding, jax.sharding.SingleDeviceSharding):
+    sharding_data[_SHARDING_TYPE] = ShardingTypes.SINGLE_DEVICE_SHARDING.value
+    # There is no serialization method for Device.
+    # Get the Device object and then retreive the str representation
+    sharding_data[_DEVICE_STR] = str(next(iter(sharding.device_set)))
+
+  elif isinstance(sharding, jax.sharding.PositionalSharding):
+    warnings.warn(
+        'Serialization for `jax.sharding.PositionalSharding` has not been'
+        ' implemented.'
+    )
+
+  elif isinstance(sharding, jax.sharding.GSPMDSharding):
+    warnings.warn(
+        'Serialization for `jax.sharding.PositionalSharding` has not been'
+        ' implemented.'
+    )
+
+  else:
+    warnings.warn(f'Sharding type {type(sharding)} is not supported.')
+
+  if _SHARDING_TYPE in sharding_data:
+    serialized_string = json.dumps(sharding_data)
+    return serialized_string
+  else:
+    return ''
+
+
+def _deserialize_sharding_from_json_string(
+    sharding_string: str,
+) -> Optional[jax.sharding.Sharding]:
+  """Deserializes a json string to `jax.sharding.Sharding`."""
+
+  deserialized_dict = json.loads(sharding_string)
+
+  if deserialized_dict[_SHARDING_TYPE] == ShardingTypes.NAMED_SHARDING.value:
+    shape = deserialized_dict[_MESH_SHAPE]
+    axis_names = list(deserialized_dict[_MESH_AXES])
+    partition_spec = tuple(deserialized_dict[_PARTITION_SPEC])
+
+    if len(jax.devices()) != np.prod(shape):
+      return None
+    else:
+      return NamedSharding(
+          jax.sharding.Mesh(
+              np.array(jax.devices()).reshape(shape), axis_names=axis_names
+          ),
+          jax.sharding.PartitionSpec(*partition_spec),
+      )
+
+  elif (
+      deserialized_dict[_SHARDING_TYPE]
+      == ShardingTypes.SINGLE_DEVICE_SHARDING.value
+  ):
+    # Initialize a 'cached' Dict[str, Device] to help look up Devices by
+    # their str representation.
+    # Cache tip: See Function Attributes https://peps.python.org/pep-0232/.
+    if not hasattr(_deserialize_sharding_from_json_string, 'device_map'):
+      _deserialize_sharding_from_json_string.device_map = {
+          str(device): device for device in jax.local_devices()
+      }
+    device_str = deserialized_dict[_DEVICE_STR]
+    if device := _deserialize_sharding_from_json_string.device_map.get(
+        device_str, None
+    ):
+      return SingleDeviceSharding(device)
+
+    raise ValueError(
+        f'{ShardingTypes.SINGLE_DEVICE_SHARDING.value} with'
+        f' Device={device_str} was not found in jax.local_devices().'
+    )
+
+  else:
+    raise NotImplementedError(
+        'Sharding types other than `jax.sharding.NamedSharding` have not been '
+        'implemented.'
+    )
 
 
 def _get_coordinator_address_without_port(coordinator_address: str) -> str:
@@ -840,9 +942,7 @@ def _add_write_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _array_metadata_from_tensorstore(
-    t: Any,
-    info: ParamInfo,
-    sharding: Optional[sharding_metadata.ShardingMetadata] = None,
+    t: Any, info: ParamInfo, sharding: Optional[jax.sharding.Sharding] = None
 ) -> ArrayMetadata:
   return ArrayMetadata(
       name=info.name,
@@ -1111,11 +1211,9 @@ class ArrayRestoreArgs(RestoreArgs):
   mesh_axes:
     The mesh_axes that the array should be restored as. Cannot be None.
   sharding:
-   `jax.sharding.Sharding` object which takes precedence over mesh and
+    jax.sharding.Sharding object which takes precedence over mesh and
     mesh_axes if provided. Otherwise, mesh and mesh_axes will be used to
-    construct a NamedSharding object OR `ShardingMetadata` which is an orbax
-    representation of `jax.sharding.Sharding` that stores the same properties
-    but does not require accessing real devices.
+    construct a NamedSharding object.
   global_shape:
     The global shape that the array should be restored into. If not
     provided, the shape will be restored as written. Presently, arbitrary shape
@@ -1128,7 +1226,7 @@ class ArrayRestoreArgs(RestoreArgs):
 
   mesh: Optional[jax.sharding.Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
-  sharding: Optional[Union[jax.sharding.Sharding, ShardingMetadata]] = None
+  sharding: Optional[jax.sharding.Sharding] = None
   global_shape: Optional[Tuple[int, ...]] = None
 
 
@@ -1266,10 +1364,10 @@ class ArrayHandler(TypeHandler):
           if not sharding_string.item():
             shardings.append(None)
             continue
-          deserialized = sharding_metadata.from_serialized_string(
+          deserialized = _deserialize_sharding_from_json_string(
               sharding_string.item()
           )
-          shardings.append(deserialized)
+          shardings.append(deserialized or None)
         else:
           shardings.append(None)
     else:
@@ -1349,9 +1447,7 @@ class ArrayHandler(TypeHandler):
               open=True,
               context=sharding_ts_context,
           )
-          serialized_sharding = sharding_metadata.from_jax_sharding(
-              value.sharding
-          ).to_serialized_string()
+          serialized_sharding = _serialize_sharding(value.sharding)
           if serialized_sharding is not None:
             write_future = t.with_transaction(txn).write(serialized_sharding)
             synchronous_ops += [write_future.copy]
@@ -1392,7 +1488,6 @@ class ArrayHandler(TypeHandler):
     sharding_file_path = infos[0].parent_dir / _SHARDING
     sharding_file_exists = await utils.async_exists(sharding_file_path)
     for info, arg in zip(infos, args):
-      sharding = None
       arg = cast(ArrayRestoreArgs, arg)
       if (
           isinstance(arg, ArrayRestoreArgs)
@@ -1401,10 +1496,7 @@ class ArrayHandler(TypeHandler):
       ):
         sharding = NamedSharding(arg.mesh, arg.mesh_axes)
       elif isinstance(arg, ArrayRestoreArgs) and arg.sharding is not None:
-        if isinstance(arg.sharding, ShardingMetadata):
-          sharding = arg.sharding.to_jax_sharding()
-        else:
-          sharding = arg.sharding
+        sharding = arg.sharding
       elif sharding_file_exists:
         warnings.warn(
             "Couldn't find sharding info under RestoreArgs. Populating sharding"
@@ -1412,6 +1504,7 @@ class ArrayHandler(TypeHandler):
             ' slightly increased due to reading from file instead of directly'
             ' from RestoreArgs.'
         )
+        sharding = None
         if info.name:
           tspec_sharding = get_sharding_tensorstore_spec(
               os.fspath(info.parent_dir), info.name
@@ -1425,7 +1518,10 @@ class ArrayHandler(TypeHandler):
           )
           serialized_string = await t.read()
           if serialized_string:
-            sharding = sharding_metadata.get_sharding_or_none(serialized_string)
+            sharding = (
+                _deserialize_sharding_from_json_string(serialized_string.item())
+                or None
+            )
         else:
           raise ValueError('Unable to deserialize sharding.')
       else:

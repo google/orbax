@@ -16,7 +16,6 @@ potential dangers a bit more apparent.
 
 ### Added
 - Single replica broadcasting when training on multiple hosts/pods. By default, replica zero along the first axis dimension reads the checkpoint then broadcasts to other replicas.
-- `ShardingMetadata` class that represents `jax.sharding.Sharding` properties but does not require accessing real devices.
 
 ## [0.5.3] - 2024-02-05
 

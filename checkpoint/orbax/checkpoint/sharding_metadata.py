@@ -18,7 +18,6 @@ import abc
 import dataclasses
 import enum
 import json
-import logging
 from typing import List, Tuple, Union
 import jax
 import numpy as np
@@ -51,7 +50,7 @@ def _convert_jax_partition_spec_to_partition_spec_elements(
       converted_element = None
     elif isinstance(element, str):
       converted_element = element
-    elif isinstance(element, (tuple, list)):
+    elif isinstance(element, tuple):
       converted_element = tuple(element)
     else:
       raise ValueError(f'Unsupported element type: {type(element)}')
@@ -159,7 +158,7 @@ class NamedShardingMetadata(ShardingMetadata):
 
   def __eq__(self, other):
     return (
-        np.array_equal(self.shape, other.shape)
+        self.shape == other.shape
         and self.axis_names == other.axis_names
         and self.partition_spec == other.partition_spec
     )
@@ -252,10 +251,3 @@ def from_serialized_string(serialized_str) -> ShardingMetadata:
         f'Conversion for {deserialized_dict[_SHARDING_TYPE]} has not been'
         ' implemented.'
     )
-
-
-def get_sharding_or_none(serialized_string):
-  try:
-    return from_serialized_string(serialized_string.item()).to_jax_sharding()
-  except ValueError as e:
-    logging.error(e)
