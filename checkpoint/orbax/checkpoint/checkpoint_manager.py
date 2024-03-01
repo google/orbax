@@ -467,6 +467,16 @@ class CheckpointManager(AbstractCheckpointManager):
       self._save_metadata(metadata)
 
     self._finalize_thread = None
+    logging.info(
+        'jax.process_index=%s, primary_host=%s. CheckpointManager created: %s',
+        jax.process_index(),
+        (
+            self._options.async_options.primary_host
+            if self._options.async_options
+            else 0
+        ),
+        self,
+    )
 
   def _configure_checkpointer_common(
       self,
@@ -797,15 +807,13 @@ class CheckpointManager(AbstractCheckpointManager):
           and utils.is_tmp_checkpoint(save_directory)
       ):
         logging.warning(
-            'Attempting to save at step %s which has an unfinalized checkpoint'
-            ' from previous runs. Removing the unfinalized checkpoint before'
-            ' saving.',
+            'Attempting to save on GCS at step %s which has an unfinalized'
+            ' checkpoint from previous runs. Removing the unfinalized'
+            ' checkpoint before saving.',
             step,
         )
         self._delete_directory(step)
-      utils.sync_global_devices(
-          'CheckpointManager:maybe_delete_unfinalized_step'
-      )
+      utils.sync_global_devices('CheckpointManager:delete_unfinalized_step_gcs')
 
     self._checkpointer.save(save_directory, args=args)
 
@@ -942,28 +950,40 @@ class CheckpointManager(AbstractCheckpointManager):
     Returns:
       a list of CheckpointInfo, sorted by increasing step.
     """
-    # TODO(b/322223283): Try the following barrier to debug flaky test failures.
-    utils.sync_global_devices('CheckpointManager:load_checkpoint_infos')
-    steps = sorted(
-        utils.checkpoint_steps(
-            self.directory, self._options.single_host_load_and_broadcast
-        )
+    start = time.time()
+    steps = utils.checkpoint_steps(
+        self.directory, self._options.single_host_load_and_broadcast
     )
+    steps.sort()  # Prefer in-place sort.
+
     if not steps:
-      return []
+      logging.info('No checkpoint steps found in %s', self.directory)
+      checkpoint_infos = []
+    else:
 
-    def checkpoint_info(step: int) -> CheckpointInfo:
-      timestamp = datetime.datetime.fromtimestamp(
-          self._get_save_directory(step, self.directory).stat().mtime,
-          tz=datetime.timezone.utc,
-      )
-      return CheckpointInfo(
-          step=step, time=timestamp, metrics=self.metrics(step)
-      )
+      def checkpoint_info(step: int) -> CheckpointInfo:
+        timestamp = datetime.datetime.fromtimestamp(
+            self._get_save_directory(step, self.directory).stat().mtime,
+            tz=datetime.timezone.utc,
+        )
+        return CheckpointInfo(
+            step=step, time=timestamp, metrics=self.metrics(step)
+        )
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-      futures = {step: executor.submit(checkpoint_info, step) for step in steps}
-      return [futures[step].result() for step in steps]
+      with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = {
+            step: executor.submit(checkpoint_info, step) for step in steps
+        }
+        checkpoint_infos = [futures[step].result() for step in steps]
+
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/read/load_all_step_metadata_duration_secs',
+        time.time() - start,
+    )
+    logging.info(
+        'Found %d checkpoint steps in %s', len(checkpoint_infos), self.directory
+    )
+    return checkpoint_infos
 
   def _get_interval_preserved_checkpoints(
       self, checkpoints: List[CheckpointInfo]
@@ -1200,7 +1220,10 @@ class CheckpointManager(AbstractCheckpointManager):
       self._checkpointer.check_for_errors()  # pytype: disable=attribute-error
 
   def _finalize_checkpoint(self, step: int):
-    """Moves tmp step checkpoint to final.
+    """Executes final actions just before the checkpoint write completes.
+
+    * Logs error if any.
+    * Records duration saved due to preemption if any.
 
     Args:
       step: finalized checkpoint step.

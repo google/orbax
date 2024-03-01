@@ -64,6 +64,7 @@ def should_skip_device_sync() -> bool:
 def sync_global_devices(name: str):
   """Thin wrapper to provide additional features support."""
   if should_skip_device_sync():
+    logging.info('Skipping global device sync, barrier name: %s', name)
     return
   sync_start_time = time.time()
   multihost_utils.sync_global_devices(name)
@@ -592,7 +593,11 @@ def on_commit_callback(
     final_ckpt_dir: epath.Path,
     checkpoint_start_time: float,
 ):
-  """A callback to run on completion of checkpoint save operation.
+  """To commit save operation, atomically finalizes step dir.
+
+  Delegates to `ensure_atomic_save(...)`.
+
+  Records save duration and lineage-logs step dir.
 
   Args:
     temp_ckpt_dir: A temporary checkpoint directory, where the checkpoint data
@@ -889,7 +894,7 @@ def broadcast_one_replica_to_all(
     per_replica_shardings: Tuple[Optional[jax.sharding.NamedSharding], ...],
     replica_axis_index: int,
     is_source: bool,
-    ) -> Tuple[PyTree, ...]:
+) -> Tuple[PyTree, ...]:
   """One replica reads the data and broadcasts to others."""
   num_replicas = global_mesh.devices.shape[replica_axis_index]
   replica_axis_name = global_mesh.axis_names[replica_axis_index]
@@ -903,10 +908,13 @@ def broadcast_one_replica_to_all(
     in_spec = jax.sharding.PartitionSpec(
         *x.sharding.spec[:replica_axis_index],
         replica_axis_name,
-        *x.sharding.spec[replica_axis_index:]
-        )
-    global_shape = (x.shape[:replica_axis_index] +
-                    (num_replicas,) + x.shape[replica_axis_index:])
+        *x.sharding.spec[replica_axis_index:],
+    )
+    global_shape = (
+        x.shape[:replica_axis_index]
+        + (num_replicas,)
+        + x.shape[replica_axis_index:]
+    )
     global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
     return jax.make_array_from_single_device_arrays(
         global_shape, global_sharding, [s.data for s in inp.addressable_shards]
@@ -916,16 +924,13 @@ def broadcast_one_replica_to_all(
       lambda x: jax.sharding.NamedSharding(
           global_mesh, jax.sharding.PartitionSpec(*x.sharding.spec)
       ),
-      in_tree)
-  in_tree_sharded = jax.tree_map(
-      pre_jit,
       in_tree,
-      per_replica_shardings
   )
+  in_tree_sharded = jax.tree_map(pre_jit, in_tree, per_replica_shardings)
   out_tree = jax.jit(
       functools.partial(_sum, replica_axis_index=replica_axis_index),
       out_shardings=out_sharding,
-      )(in_tree_sharded)
+  )(in_tree_sharded)
 
   jax.tree_map(lambda x: x.delete(), in_tree)
 
@@ -935,11 +940,14 @@ def broadcast_one_replica_to_all(
 def get_primary_replica_ids_and_pids(
     replica_axis_idx: int,
     mesh: jax.sharding.Mesh,
-    primary_replica_idx: int = 0
-    ):
-  replica_devices = np.take(mesh.devices,
-                            primary_replica_idx,
-                            axis=replica_axis_idx).flatten()
+    primary_replica_idx: int = 0,
+):
+  """Returns the primary replica ids and process ids."""
+  replica_devices = np.take(
+      mesh.devices,
+      primary_replica_idx,
+      axis=replica_axis_idx,
+  ).flatten()
   pids = set([d.process_index for d in replica_devices])
   ids = set([d.id for d in replica_devices])
   return ids, pids
