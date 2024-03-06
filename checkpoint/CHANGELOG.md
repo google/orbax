@@ -17,9 +17,6 @@ potential dangers a bit more apparent.
 ### Added
 - Single replica broadcasting when training on multiple hosts/pods. By default, replica zero along the first axis dimension reads the checkpoint then broadcasts to other replicas.
 
-### Fixed
-- Add 'default' to `reserved item names` list to avoid internal name conflicts.
-
 ## [0.5.3] - 2024-02-05
 
 ### Fixed

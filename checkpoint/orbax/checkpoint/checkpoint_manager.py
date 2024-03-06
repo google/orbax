@@ -64,11 +64,7 @@ DEFAULT_ITEM_NAME = 'default'
 DESCRIPTOR_ITEM_NAME = 'descriptor'
 METRIC_ITEM_NAME = 'metrics'
 METADATA_ITEM_NAME = 'metadata'
-RESERVED_ITEM_NAMES = [
-    DEFAULT_ITEM_NAME,
-    DESCRIPTOR_ITEM_NAME,
-    METRIC_ITEM_NAME,
-]
+RESERVED_ITEM_NAMES = [DESCRIPTOR_ITEM_NAME, METRIC_ITEM_NAME]
 
 _INIT_TIME = datetime.datetime.now(tz=datetime.timezone.utc)
 
@@ -524,14 +520,14 @@ class CheckpointManager(AbstractCheckpointManager):
               f'Value corresponding to {item_name} in `checkpointers` is not a'
               f' Checkpointer. Found {type(checkpointer)}.'
           )
-        if item_name in RESERVED_ITEM_NAMES:
-          raise ValueError(
-              f'Found `{item_name}` in `checkpointers`; this is a reserved key.'
-          )
         individual_use_async.append(is_async_checkpointer(checkpointer))
         if isinstance(checkpointer, async_checkpointer.AsyncCheckpointer):
           async_timeout = max(
               async_timeout, checkpointer._async_manager._timeout_secs  # pylint: disable=protected-access
+          )
+        if item_name in RESERVED_ITEM_NAMES:
+          raise ValueError(
+              f'Found {item_name} in `checkpointers`; this is a reserved key.'
           )
         item_handlers[item_name] = checkpointer.handler
       if any(individual_use_async) and not all(individual_use_async):
@@ -589,12 +585,12 @@ class CheckpointManager(AbstractCheckpointManager):
       if item_handlers and isinstance(item_handlers, Mapping):
         for item_name, handler in item_handlers.items():
           all_item_handlers[item_name] = handler
-      for item_name in all_item_handlers:
-        if item_name in RESERVED_ITEM_NAMES:
-          raise ValueError(
-              f'Found `{item_name}` in `item_names` or `item_handlers`; this is'
-              ' a reserved key.'
-          )
+
+    for item_name in all_item_handlers:
+      if item_name in RESERVED_ITEM_NAMES:
+        raise ValueError(
+            f'Found {item_name} in `checkpointers`; this is a reserved key.'
+        )
     if options.best_fn:
       all_item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
           filename=METRIC_ITEM_NAME
