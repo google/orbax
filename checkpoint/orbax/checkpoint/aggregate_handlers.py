@@ -17,10 +17,9 @@
 import abc
 from concurrent import futures
 import functools
-from typing import Any
+from typing import Any, Optional
 
 from etils import epath
-import jax
 from orbax.checkpoint import future as orbax_future
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import utils
@@ -61,8 +60,9 @@ class MsgpackHandler(AggregateHandler):
   """An implementation of AggregateHandler that uses msgpack to store the tree.
   """
 
-  def __init__(self):
+  def __init__(self, primary_host: Optional[int] = 0):
     self._executor = futures.ThreadPoolExecutor(max_workers=1)
+    self._primary_host = primary_host
 
   async def serialize(
       self, path: epath.Path, item: PyTree
@@ -70,7 +70,7 @@ class MsgpackHandler(AggregateHandler):
     """See superclass documentation."""
 
     def _serialize_fn(x):
-      if jax.process_index() == 0:
+      if utils.is_primary_host(self._primary_host):
         serializable_dict = utils.serialize_tree(x, keep_empty_nodes=True)
         msgpack = msgpack_utils.msgpack_serialize(serializable_dict)
         # Explicit "copy" phase is not needed because msgpack only contains

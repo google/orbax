@@ -21,9 +21,9 @@ import json
 from typing import Any, Mapping, Optional
 
 from etils import epath
-import jax
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_handler
+from orbax.checkpoint import utils
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
@@ -32,14 +32,20 @@ register_with_handler = checkpoint_args.register_with_handler
 class JsonCheckpointHandler(checkpoint_handler.CheckpointHandler):
   """Saves nested dictionary using json."""
 
-  def __init__(self, filename: Optional[str] = None):
+  def __init__(
+      self, filename: Optional[str] = None, primary_host: Optional[int] = 0
+  ):
     """Initializes JsonCheckpointHandler.
 
     Args:
       filename: optional file name given to the written file; defaults to
         'metadata'
+      primary_host: the host id of the primary host.  Default to 0.  If it's set
+        to None, then all hosts will be considered as primary.  It's useful in
+        the case that all hosts are only working with local storage.
     """
     self._filename = filename or 'metadata'
+    self._primary_host = primary_host
 
   def save(
       self,
@@ -56,7 +62,7 @@ class JsonCheckpointHandler(checkpoint_handler.CheckpointHandler):
     """
     if args is not None:
       item = args.item
-    if jax.process_index() == 0:
+    if utils.is_primary_host(self._primary_host):
       path = directory / self._filename
       path.write_text(json.dumps(item))
 

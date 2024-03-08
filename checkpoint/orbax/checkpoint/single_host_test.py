@@ -20,6 +20,8 @@ from etils import epath
 import jax
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
@@ -254,6 +256,57 @@ class SingleHostTest(parameterized.TestCase):
     restored_tree = restore_handler.restore(self.ckpt_dir)
     np.testing.assert_array_equal(x, restored_tree['x'])
     assert isinstance(restored_tree['x'], jax.Array)
+
+  def test_validate_checkpoint_manager_and_handler_primary_host(self):
+    options = checkpoint_manager.CheckpointManagerOptions(
+        enable_async_checkpointing=True,
+        save_interval_steps=1,
+        max_to_keep=1,
+    )
+
+    # default is fine
+    checkpoint_manager.CheckpointManager(
+        options=options,
+        directory=self.ckpt_dir,
+    )
+
+    with self.assertRaises(ValueError):
+      checkpoint_manager.CheckpointManager(
+          options=options, directory=self.ckpt_dir, primary_host=None
+      )
+
+    # single handler with non-zero primary_host
+    with self.assertRaises(ValueError):
+      checkpoint_manager.CheckpointManager(
+          options=options,
+          directory=self.ckpt_dir,
+          item_handlers=pytree_checkpoint_handler.PyTreeCheckpointHandler(
+              primary_host=None,
+          ),
+      )
+
+    # multple handlers with non-zero primary_host
+    with self.assertRaises(ValueError):
+      checkpoint_manager.CheckpointManager(
+          options=options,
+          directory=self.ckpt_dir,
+          item_names={'x', 'y'},
+          item_handlers={
+              'x': pytree_checkpoint_handler.PyTreeCheckpointHandler(),
+              'y': json_checkpoint_handler.JsonCheckpointHandler(
+                  primary_host=None
+              ),
+          },
+      )
+
+    # manager is set to non-zero
+    with self.assertRaises(ValueError):
+      checkpoint_manager.CheckpointManager(
+          options=options,
+          directory=self.ckpt_dir,
+          primary_host=None,
+          item_handlers=pytree_checkpoint_handler.PyTreeCheckpointHandler(),
+      )
 
 
 if __name__ == '__main__':

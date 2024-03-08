@@ -15,6 +15,7 @@
 """Utils for orbax tests."""
 
 from concurrent import futures
+import contextlib
 import functools
 import string
 import time
@@ -31,6 +32,7 @@ import numpy as np
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import pytree_checkpoint_handler
+from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 
 
@@ -258,6 +260,18 @@ def erase_and_create_empty(directory: epath.PathLike) -> epath.Path:
   return directory
 
 
+def empty_directory(directory: epath.PathLike) -> bool:
+  directory = epath.Path(directory)
+  if not directory.exists():
+    return False
+  for p in directory.iterdir():
+    if p.is_dir():
+      p.rmtree()
+    else:
+      p.unlink()
+  return True
+
+
 def set_tensorstore_driver_for_test():
   # Sets TS driver for testing. Within Google, this defaults to `gfile`, which
   # results in issues writing to the OCDBT manifest. When using `gfile` on the
@@ -307,3 +321,16 @@ class ErrorSaveArgs(pytree_checkpoint_handler.PyTreeSaveArgs):
 @checkpoint_args.register_with_handler(ErrorCheckpointHandler, for_restore=True)
 class ErrorRestoreArgs(pytree_checkpoint_handler.PyTreeSaveArgs):
   pass
+
+
+@contextlib.contextmanager
+def register_type_handler(ty, handler, func):
+  """Registers new func for type, and restores original handler when done."""
+  original_handler = type_handlers.get_type_handler(ty)
+  type_handlers.register_type_handler(ty, handler, func=func, override=True)
+  try:
+    yield
+  finally:
+    type_handlers.register_type_handler(
+        ty, original_handler, func=func, override=True
+    )

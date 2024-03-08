@@ -102,11 +102,14 @@ class _AsyncManager:
   def __init__(
       self,
       timeout_secs: int = 300,
-      primary_host: int = 0,
+      primary_host: Optional[int] = 0,
       barrier_sync_fn: Optional[BarrierSyncFn] = None,
   ):
     logging.info(
-        'Using timeout: %d secs for async checkpoint writes.', timeout_secs
+        'Using timeout: %d secs and primary_host=%s for async checkpoint'
+        ' writes',
+        timeout_secs,
+        primary_host,
     )
     self._timeout_secs = timeout_secs
     self._primary_host = primary_host
@@ -179,7 +182,7 @@ class _AsyncManager:
         # barrier, the barrier will be satisfied. If not, then it will timeout.
         self._sync_fn(_get_sync_key('write_complete', sync_count))
 
-      if current_process == self._primary_host:
+      if utils.is_primary_host(self._primary_host):
         on_commit_callback()
       if process_count > 1:
         # Block until process 0 completes on_commit_callback.
@@ -243,7 +246,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       self,
       handler: async_checkpoint_handler.AsyncCheckpointHandler,
       timeout_secs: int = 300,
-      primary_host: int = 0,
+      primary_host: Optional[int] = 0,
       *,
       barrier_sync_fn: Optional[BarrierSyncFn] = None,
   ):
@@ -296,7 +299,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
 
     if directory.exists():
       if force:
-        if jax.process_index() == self._primary_host:
+        if utils.is_primary_host(self._primary_host):
           logging.info('Specified `force`: removing existing directory.')
           directory.rmtree()  # Post-sync handled by create_tmp_directory.
       else:

@@ -92,7 +92,9 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
   """
 
   def __init__(
-      self, handler: checkpoint_handler.CheckpointHandler, primary_host: int = 0
+      self,
+      handler: checkpoint_handler.CheckpointHandler,
+      primary_host: Optional[int] = 0,
   ):
     if not checkpoint_args.has_registered_args(handler):
       logging.warning(
@@ -133,7 +135,7 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
     logging.info('Saving item to %s.', directory)
     if directory.exists():
       if force:
-        if jax.process_index() == self._primary_host:
+        if utils.is_primary_host(self._primary_host):
           logging.info('Specified `force`: removing existing directory.')
           directory.rmtree()  # Post-sync handled by create_tmp_directory.
       else:
@@ -146,7 +148,7 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
     utils.sync_global_devices('Checkpointer:write')
 
     # Ensure save operation atomicity and record time saved by checkpoint.
-    if jax.process_index() == self._primary_host:
+    if utils.is_primary_host(self._primary_host):
       self._handler.finalize(tmpdir)
       utils.on_commit_callback(tmpdir, directory, checkpoint_start_time)
     utils.sync_global_devices('Checkpointer:save')

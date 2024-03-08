@@ -122,7 +122,6 @@ class AsyncOptions:
   """
 
   timeout_secs: int = 300
-  primary_host: int = 0
   barrier_sync_fn: Optional[async_checkpointer.BarrierSyncFn] = None
 
 
@@ -323,6 +322,7 @@ class CheckpointManager(AbstractCheckpointManager):
       item_handlers: Optional[
           Union[CheckpointHandler, CheckpointHandlersDict]
       ] = None,
+      primary_host: Optional[int] = 0,
   ):
     """CheckpointManager constructor.
 
@@ -404,12 +404,17 @@ class CheckpointManager(AbstractCheckpointManager):
         The item name key may or may not be present in `item_names`.
         Alternatively, a single CheckpointHandler may be provided, in which case
         `save` and `restore` should always be called in a single item context.
+      primary_host: the host id of the primary host.  Default to 0.  If it's set
+        to None, then all hosts will be considered as primary.  It's useful in
+        the case that all hosts are only working with local storage.
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
 
     self._options = options or CheckpointManagerOptions()
     if self._options.best_mode not in ['min', 'max']:
       raise ValueError('`best_mode` must be one of: "min", "max"')
+
+    self._primary_host = primary_host
 
     if checkpointers and item_names:
       raise ValueError(
@@ -449,7 +454,10 @@ class CheckpointManager(AbstractCheckpointManager):
     if self._options.read_only:
       logging.warning('Given directory is read only=%s', self._directory)
     if self._options.create:
-      if jax.process_index() == 0 and not self._directory.exists():
+      if (
+          utils.is_primary_host(self._primary_host)
+          and not self._directory.exists()
+      ):
         self._directory.mkdir(parents=True)
       utils.sync_global_devices('CheckpointManager:create_directory')
 
@@ -470,11 +478,7 @@ class CheckpointManager(AbstractCheckpointManager):
     logging.info(
         'jax.process_index=%s, primary_host=%s. CheckpointManager created: %s',
         jax.process_index(),
-        (
-            self._options.async_options.primary_host
-            if self._options.async_options
-            else 0
-        ),
+        self._primary_host,
         self,
     )
 
@@ -489,13 +493,15 @@ class CheckpointManager(AbstractCheckpointManager):
         return async_checkpointer.AsyncCheckpointer(
             handler,
             timeout_secs=options.async_options.timeout_secs,
-            primary_host=options.async_options.primary_host,
+            primary_host=self._primary_host,
             barrier_sync_fn=options.async_options.barrier_sync_fn,
         )
       else:
-        return async_checkpointer.AsyncCheckpointer(handler)
+        return async_checkpointer.AsyncCheckpointer(
+            handler, primary_host=self._primary_host
+        )
     else:
-      return Checkpointer(handler)
+      return Checkpointer(handler, primary_host=self._primary_host)
 
   def _configure_checkpointer_legacy_init(
       self,
@@ -503,6 +509,11 @@ class CheckpointManager(AbstractCheckpointManager):
       options: CheckpointManagerOptions,
   ) -> Checkpointer:
     """Initializes _CompositeCheckpointer with legacy style checkpointers."""
+    if self._primary_host != 0:
+      raise ValueError(
+          f'`primary_host`={self._primary_host} is not supported in legacy API.'
+      )
+
     item_handlers = {}
     if isinstance(checkpointers, Checkpointer):
       use_async = is_async_checkpointer(checkpointers)
@@ -559,6 +570,16 @@ class CheckpointManager(AbstractCheckpointManager):
         CompositeCheckpointHandler(**item_handlers), options, use_async
     )
 
+  def _validate_handler(self, handler):
+    if (
+        hasattr(handler, '_primary_host')
+        and handler._primary_host != self._primary_host  # pylint: disable=protected-access
+    ):
+      raise ValueError(
+          f'Inconsistent primary_host, CheckpointManager={self._primary_host}, '
+          f'handler[{type(handler)}]={handler._primary_host} '  # pylint: disable=protected-access
+      )
+
   def _configure_checkpointer(
       self,
       item_names: Optional[Sequence[str]],
@@ -567,14 +588,20 @@ class CheckpointManager(AbstractCheckpointManager):
       single_item: bool,
   ) -> Checkpointer:
     """Initializes _CompositeCheckpointer given `item_names`."""
+    if self._primary_host is None and item_handlers is None:
+      raise ValueError(
+          'When primary_host is set to None, item_handlers must be provided to'
+          ' match with the primary_host setting.'
+      )
     if single_item:
-      all_item_handlers = {
-          DEFAULT_ITEM_NAME: (
-              item_handlers
-              if isinstance(item_handlers, CheckpointHandler)
-              else None
-          )
-      }
+      item_handler = (
+          item_handlers
+          if isinstance(item_handlers, CheckpointHandler)
+          else None
+      )
+      if item_handler:
+        self._validate_handler(item_handler)
+      all_item_handlers = {DEFAULT_ITEM_NAME: item_handler}
     else:
       # Initialize all_item_handlers with None or empty.
       if item_names:
@@ -584,6 +611,7 @@ class CheckpointManager(AbstractCheckpointManager):
       # Update all_item_handlers with provided CheckpointHandlers.
       if item_handlers and isinstance(item_handlers, Mapping):
         for item_name, handler in item_handlers.items():
+          self._validate_handler(handler)
           all_item_handlers[item_name] = handler
 
     for item_name in all_item_handlers:
@@ -593,7 +621,7 @@ class CheckpointManager(AbstractCheckpointManager):
         )
     if options.best_fn:
       all_item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
-          filename=METRIC_ITEM_NAME
+          filename=METRIC_ITEM_NAME, primary_host=self._primary_host
       )
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
@@ -802,7 +830,7 @@ class CheckpointManager(AbstractCheckpointManager):
     # existing folder.
     if utils.is_gcs_path(self.directory):
       if (
-          jax.process_index() == 0
+          utils.is_primary_host(self._primary_host)
           and save_directory.exists()
           and utils.is_tmp_checkpoint(save_directory)
       ):
@@ -1064,7 +1092,7 @@ class CheckpointManager(AbstractCheckpointManager):
     Args:
       step: checkpointing step number.
     """
-    if jax.process_index() != 0:
+    if not utils.is_primary_host(self._primary_host):
       return
 
     # Delete if storage is on gcs or todelete_subdir is not set.
@@ -1228,7 +1256,7 @@ class CheckpointManager(AbstractCheckpointManager):
     Args:
       step: finalized checkpoint step.
     """
-    if jax.process_index() == 0:
+    if utils.is_primary_host(self._primary_host):
       try:
         self.check_for_errors()
       except Exception as e:  # pylint: disable=broad-except

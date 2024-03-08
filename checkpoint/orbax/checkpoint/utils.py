@@ -66,6 +66,7 @@ def sync_global_devices(name: str):
   if should_skip_device_sync():
     logging.info('Skipping global device sync, barrier name: %s', name)
     return
+  logging.debug('sync_global_devices: %s', name)
   sync_start_time = time.time()
   multihost_utils.sync_global_devices(name)
   # This may end up just being too noisy given how many barriers there are, but
@@ -435,7 +436,7 @@ def cleanup_tmp_directories(
 ):
   """Cleanup steps in `directory` with tmp files, as these are not finalized."""
   directory = epath.Path(directory)
-  if primary_host is None or jax.process_index() == primary_host:
+  if is_primary_host(primary_host):
     logging.info('Cleaning up existing temporary directories at %s.', directory)
     tmp_files = tmp_checkpoints(directory)
     for tmp_file in tmp_files:
@@ -522,7 +523,7 @@ def create_tmp_directory(
   # additional existence checks happening in the callers of this function.
   sync_global_devices('create_tmp_directory:pre')
 
-  if primary_host is None or jax.process_index() == primary_host:
+  if is_primary_host(primary_host):
     if tmp_dir.exists():
       if is_gcs_path(tmp_dir):
         if is_tmp_checkpoint(tmp_dir):
@@ -951,3 +952,9 @@ def get_primary_replica_ids_and_pids(
   pids = set([d.process_index for d in replica_devices])
   ids = set([d.id for d in replica_devices])
   return ids, pids
+
+
+def is_primary_host(primary_host: Optional[int]):
+  if primary_host is None or primary_host == jax.process_index():
+    return True
+  return False

@@ -55,18 +55,21 @@ class StandardCheckpointHandler(
   of `CheckpointHandler`.
   """
 
-  def __init__(
-      self,
-      concurrent_gb: int = 96,
-  ):
+  def __init__(self, concurrent_gb: int = 96, primary_host: Optional[int] = 0):
     """Creates StandardCheckpointHandler.
 
     Args:
       concurrent_gb: max concurrent GB that are allowed to be read. Can help to
         reduce the possibility of OOM's when large checkpoints are restored.
+      primary_host: the host id of the primary host.  Default to 0.  If it's set
+        to None, then all hosts will be considered as primary.  It's useful in
+        the case that all hosts are only working with local storage.
     """
     super().__init__(
-        concurrent_gb=concurrent_gb, use_ocdbt=True, write_tree_metadata=True
+        concurrent_gb=concurrent_gb,
+        use_ocdbt=True,
+        write_tree_metadata=True,
+        primary_host=primary_host,
     )
     self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
 
