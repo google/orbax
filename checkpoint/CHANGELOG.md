@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2024-03-08
 ### Changed
 - Log `SaveArgs.aggregate` deprecation warning message once in 12 hours.
 - If CheckpointManagerOptions.read_only=True then automatically reset "write"
