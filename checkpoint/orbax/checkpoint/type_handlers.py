@@ -1276,6 +1276,11 @@ class ArrayHandler(TypeHandler):
     self._primary_host = primary_host
     self._replica_id = replica_id
 
+    if self._primary_host is None and jax.__version_info__ <= (0, 4, 25):  # pylint:disable=unreachable
+      raise ValueError(
+          'Setting `primary_host` to None requires JAX version > 0.4.25.'
+      )
+
   def _get_json_tspec(
       self,
       info: ParamInfo,
@@ -1440,16 +1445,26 @@ class ArrayHandler(TypeHandler):
         logging.debug('args = %s', arg)
         logging.debug('replica_id = %s', replica_id)
 
-      synchronous_ops += [
-          serialization.async_serialize(
-              value,
-              tspec,
-              commit_future=futures,
-              context=ts_context,
-              primary_host=self._primary_host,
-              replica_id=replica_id,
-          )
-      ]
+      if jax.__version_info__ > (0, 4, 25):
+        synchronous_ops += [
+            serialization.async_serialize(
+                value,
+                tspec,
+                commit_future=futures,
+                context=ts_context,
+                primary_host=self._primary_host,
+                replica_id=replica_id,
+            )
+        ]
+      else:
+        synchronous_ops += [
+            serialization.async_serialize(
+                value,
+                tspec,
+                commit_future=futures,
+                context=ts_context,
+            )
+        ]
 
       if value.sharding is not None:
         if info.parent_dir is None:

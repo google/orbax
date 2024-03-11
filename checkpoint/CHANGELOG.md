@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5] - 2024-03-11
+
+## Fixed
+- Add JAX version guards to changes that require newer version of JAX
+
 ## [0.5.4] - 2024-03-08
 
 ### Fixed
