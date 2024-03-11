@@ -72,7 +72,6 @@ class RandomKeyCheckpointHandlerTest(absltest.TestCase):
         self.assertEqual(v, right[i])
 
   def test_save_and_restore_jax_random_key_typed(self):
-    # JAX typed random key
     typed_key = jax.random.key(0)
     handler = JaxRandomKeyCheckpointHandler('typed_key')
     handler.save(self.directory, args_lib.JaxRandomKeySave(item=typed_key))
@@ -82,9 +81,10 @@ class RandomKeyCheckpointHandlerTest(absltest.TestCase):
     restore_typed_keys = restore_handler.restore(
         directory=self.directory, args=args_lib.JaxRandomKeyRestore()
     )
-    assert jax.numpy.array_equal(typed_key, restore_typed_keys)
+    self.assertTrue(jax.numpy.array_equal(typed_key, restore_typed_keys))
 
-    # JAX untyped random key
+  def test_save_and_restore_jax_random_key_untyped(self):
+    typed_key = jax.random.key(0)
     untyped_key = jax.random.PRNGKey(0)
     handler = JaxRandomKeyCheckpointHandler('untyped_key')
     handler.save(
@@ -100,9 +100,6 @@ class RandomKeyCheckpointHandlerTest(absltest.TestCase):
     self.assertTrue(jax.numpy.array_equal(untyped_key, restore_untyped_keys))
 
     self.assertFalse(jax.numpy.array_equal(typed_key, untyped_key))
-    self.assertFalse(
-        jax.numpy.array_equal(restore_typed_keys, restore_untyped_keys)
-    )
 
   def test_save_and_restore_numpy_random_key_legacy(self):
     # np random state

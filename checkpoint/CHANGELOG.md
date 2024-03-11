@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2024-03-08
+
+### Fixed
+- Issue in which `CompositeCheckpointHandler` would create item directories
+repeatedly in parallel, resulting in multiple requests per host, for every host.
+
 ### Changed
 - Log `SaveArgs.aggregate` deprecation warning message once in 12 hours.
 - If CheckpointManagerOptions.read_only=True then automatically reset "write"
@@ -15,7 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 potential dangers a bit more apparent.
 
 ### Added
-- Single replica broadcasting when training on multiple hosts/pods. By default, replica zero along the first axis dimension reads the checkpoint then broadcasts to other replicas.
+- Single replica broadcasting when training on multiple hosts/pods. By default,
+replica zero along the first axis dimension reads the checkpoint then broadcasts
+to other replicas.
 - Added experimental_emergency_checkpoint
 
 ## [0.5.3] - 2024-02-05

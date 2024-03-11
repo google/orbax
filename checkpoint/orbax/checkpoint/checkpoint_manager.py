@@ -567,7 +567,12 @@ class CheckpointManager(AbstractCheckpointManager):
         timeout_secs=async_timeout
     )
     return self._configure_checkpointer_common(
-        CompositeCheckpointHandler(**item_handlers), options, use_async
+        CompositeCheckpointHandler(
+            primary_host=self._primary_host,
+            **item_handlers,
+        ),
+        options,
+        use_async,
     )
 
   def _validate_handler(self, handler):
@@ -626,7 +631,10 @@ class CheckpointManager(AbstractCheckpointManager):
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
     return self._configure_checkpointer_common(
-        CompositeCheckpointHandler(**all_item_handlers),
+        CompositeCheckpointHandler(
+            primary_host=self._primary_host,
+            **all_item_handlers,
+        ),
         options,
         options.enable_async_checkpointing,
     )

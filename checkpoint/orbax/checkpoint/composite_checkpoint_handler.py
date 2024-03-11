@@ -259,6 +259,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   def __init__(
       self,
       *item_names: str,
+      primary_host: Optional[int] = 0,
       **items_and_handlers: CheckpointHandler,
   ):
     """Constructor.
@@ -267,6 +268,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
     Args:
       *item_names: A list of string item names that this handler will manage.
+      enable_descriptor: Whether to enable descriptor for lineage logging.
+      primary_host: Host treated as primary. If None, all hosts are considered
+        to be primary.
       **items_and_handlers: A mapping of item name to `CheckpointHandler`
         instance, which will be used as the handler for objects of the
         corresponding name.
@@ -285,6 +289,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
             type(handler),
         )
         self._known_handlers[item_name] = get_legacy_handler_wrapper(handler)
+    self._primary_host = primary_host
 
   def _get_or_set_handler(
       self,
@@ -339,10 +344,10 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         self._get_item_directory(directory, item_name)
         for item_name in args.keys()
     ]
-    await asyncio.gather(*[
-        utils.async_makedirs(path, parents=False, exist_ok=True)
-        for path in item_directories
-    ])
+    if utils.is_primary_host(self._primary_host):
+      for path in item_directories:
+        path.mkdir(parents=False, exist_ok=False)
+    utils.sync_global_devices('CompositeCheckpointHandler:create_item_subdirs')
 
     # Sort keys to maintain consistent ordering across processes, otherwise
     # we may hit timeouts if processes wait at different barriers in per-item

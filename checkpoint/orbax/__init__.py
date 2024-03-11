@@ -71,4 +71,5 @@ except RuntimeError:
 
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
-__version__ = '0.5.3'
+# Also modify version and date in CHANGELOG.
+__version__ = '0.5.4'

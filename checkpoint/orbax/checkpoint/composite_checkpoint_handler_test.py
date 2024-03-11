@@ -154,27 +154,34 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     opt_state = {'x': 1, 'y': 2}
     dummy_opt_state = {'x': 0, 'y': 0}
     metadata = {'lang': 'en', 'version': 1.0}
+    directory_one = self.directory / 'one'
+    directory_one.mkdir(exist_ok=True)
     self.save(
         handler,
-        self.directory,
+        directory_one,
         CompositeArgs(
             state=args_lib.StandardSave(state),
             metadata=args_lib.JsonSave(metadata),
         ),
     )
-    self.assertTrue((self.directory / 'state').exists())
-    self.assertTrue((self.directory / 'metadata').exists())
-    self.assertFalse((self.directory / 'opt_state').exists())
+    self.assertTrue((directory_one / 'state').exists())
+    self.assertTrue((directory_one / 'metadata').exists())
+    self.assertFalse((directory_one / 'opt_state').exists())
+
+    directory_two = self.directory / 'two'
+    directory_two.mkdir(exist_ok=True)
     self.save(
         handler,
-        self.directory,
+        directory_two,
         CompositeArgs(
             opt_state=args_lib.StandardSave(opt_state),
         ),
     )
-    self.assertTrue((self.directory / 'opt_state').exists())
+    self.assertTrue((directory_two / 'opt_state').exists())
+    self.assertFalse((directory_two / 'state').exists())
+
     restored = handler.restore(
-        self.directory,
+        directory_one,
         CompositeArgs(
             state=args_lib.StandardRestore(), metadata=args_lib.JsonRestore()
         ),
@@ -182,14 +189,14 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     self.assertDictEqual(restored.state, state)
     self.assertDictEqual(restored.metadata, metadata)
     restored = handler.restore(
-        self.directory,
+        directory_two,
         CompositeArgs(opt_state=args_lib.StandardRestore(dummy_opt_state)),
     )
     self.assertDictEqual(restored.opt_state, opt_state)
 
     # Knows to use JSON restore.
     restored = handler.restore(
-        self.directory,
+        directory_one,
         CompositeArgs(metadata=None),
     )
     self.assertSameElements(restored.keys(), {'metadata'})
@@ -201,13 +208,6 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     handler = CompositeCheckpointHandler('state')
     state = {'a': 1, 'b': 2}
     self.save(handler, dir1, CompositeArgs(state=args_lib.StandardSave(state)))
-    self.save(
-        handler,
-        dir1,
-        CompositeArgs(
-            state=args_lib.StandardSave(state),
-        ),
-    )
     with self.assertRaises(ValueError):
       self.save(
           handler,
