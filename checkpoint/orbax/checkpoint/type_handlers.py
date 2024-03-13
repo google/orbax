@@ -1248,6 +1248,7 @@ class SingleReplicaArrayRestoreArgs(ArrayRestoreArgs):
     defined. Currently works only when replica is taken along the first
     dimension, i.e. replica_axis_index is 0.
   """
+
   single_replica_sharding: Optional[jax.sharding.NamedSharding] = None
   replica_axis_index: Optional[int] = 0
 
@@ -1603,12 +1604,13 @@ class ArrayHandler(TypeHandler):
     return ret
 
 
-def _is_sharding_valid(primary_replica_ids: set[int],
-                       primary_replica_pids: set[int]) -> bool:
+def _is_sharding_valid(
+    primary_replica_ids: set[int], primary_replica_pids: set[int]
+) -> bool:
   if jax.process_index() in primary_replica_pids:
     loc_devices_in_replica = primary_replica_ids.intersection(
         set([d.id for d in jax.local_devices()])
-        )
+    )
     return len(loc_devices_in_replica) == len(jax.local_devices())
   return True
 
@@ -1626,7 +1628,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
   very inefficient with large number of pods/hosts and large checkpoint size.
   With SingleReplicaArrayhandler the data is read only on hosts that are in
   primary replica. Then these hosts broadcast the data to other hosts. It is
-  assumed that all hosts have ALL their devices either inside the primary 
+  assumed that all hosts have ALL their devices either inside the primary
   replica or outside.
   Consider, for example, the following sharding on v4-128 wich has 16 hosts and
   64 devices::
@@ -1655,13 +1657,14 @@ class SingleReplicaArrayHandler(ArrayHandler):
   async def deserialize(
       self,
       infos: Sequence[ParamInfo],
-      args: Optional[Sequence[SingleReplicaArrayRestoreArgs]] = None,   # pytype: disable=signature-mismatch
+      args: Optional[Sequence[SingleReplicaArrayRestoreArgs]] = None,  # pytype: disable=signature-mismatch
   ) -> Sequence[jax.Array]:
     """Deserializing in case of single replica broadcasting.
 
     Args:
       infos: ParamInfo.
       args: must be of type `SingleReplicaArrayRestoreArgs`.
+
     Returns:
       The deserialized parameter.
     Raises:
@@ -1671,8 +1674,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
       not provided.
     """
     if args is None:
-      raise ValueError('Must provide SingleReplicaArrayRestoreArgs to restore '
-                       'as jax.Array.')
+      raise ValueError(
+          'Must provide SingleReplicaArrayRestoreArgs to restore as jax.Array.'
+      )
     check_input_arguments(infos, args)
     deserialize_ops = []
     shardings = []
@@ -1687,15 +1691,16 @@ class SingleReplicaArrayHandler(ArrayHandler):
           shardings.append(sharding)
           replica_axis_index = arg.replica_axis_index
           primary_replica_ids, primary_replica_pids = (
-              utils.get_primary_replica_ids_and_pids(replica_axis_index,
-                                                     sharding.mesh)  # pytype: disable=attribute-error
+              utils.get_primary_replica_ids_and_pids(
+                  replica_axis_index, sharding.mesh  # pytype: disable=attribute-error
+              )
           )
           if not _is_sharding_valid(primary_replica_ids, primary_replica_pids):
-            raise ValueError('The provided sharding configuration is '
-                             'invalid because it includes a host with devices '
-                             'assigned to the primary replica and devices '
-                             'outside of the primary replica.'
-                             )
+            raise ValueError(
+                'The provided sharding configuration is invalid because it'
+                ' includes a host with devices assigned to the primary replica'
+                ' and devices outside of the primary replica.'
+            )
         else:
           raise ValueError('Must provide `sharding`.')
 
@@ -1724,18 +1729,17 @@ class SingleReplicaArrayHandler(ArrayHandler):
                 if hasattr(arg, 'global_shape')
                 else None,
                 byte_limiter=info.byte_limiter,
-                context=get_ts_context(use_ocdbt)
+                context=get_ts_context(use_ocdbt),
             )
         ]
 
     @functools.partial(
-        jax.jit, static_argnums=0,
-        out_shardings=tuple(single_replica_shardings)
+        jax.jit, static_argnums=0, out_shardings=tuple(single_replica_shardings)
     )
     def create_zeros(shape_dtype_tup):
       return jax.tree_util.tree_map(
-          lambda sd: jnp.zeros(sd.shape, dtype=sd.dtype),
-          shape_dtype_tup)
+          lambda sd: jnp.zeros(sd.shape, dtype=sd.dtype), shape_dtype_tup
+      )
 
     if _is_host_for_primary_replica(primary_replica_pids):
       deserialized = await asyncio.gather(*deserialize_ops)
@@ -1761,9 +1765,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
 
     jax.block_until_ready(shared_state)
     end_broadcast = time.time()
-    logging.info('Finished broadcasting in %.2f',
-                 end_broadcast - start_broadcast
-                 )
+    logging.info(
+        'Finished broadcasting in %.2f', end_broadcast - start_broadcast
+    )
     return shared_state
 
 
