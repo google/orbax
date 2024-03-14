@@ -73,9 +73,9 @@ def build_step_metadatas(
       yield step_metadata
 
 
-def step_prefix_with_underscore(step_prefix: Optional[str]) -> Optional[str]:
-  """Returns `step_prefix` appended with `underscore`."""
-  return step_prefix if step_prefix is None else f'{step_prefix}_'
+def step_prefix_with_underscore(step_prefix: Optional[str]) -> str:
+  """Returns `step_prefix` appended with `underscore` or <empty> if None."""
+  return '' if step_prefix is None else f'{step_prefix}_'
 
 
 def select_the_only_metadata(metadatas: Iterator[MetadataT]) -> MetadataT:
@@ -112,19 +112,16 @@ class StandardNameFormat(NameFormat):
 
   def build_name(self, step: int) -> str:
     """Returns `(prefix_)?(zero padding)?step` name."""
-    step_prefix_ = step_prefix_with_underscore(self.step_prefix) or ''
-
     if self.step_format_fixed_length is not None:
       step_str = f'{step:0{self.step_format_fixed_length}d}'
     else:
       step_str = f'{step}'
 
     # [prefix]step
-    return f'{step_prefix_}{step_str}'
+    return f'{step_prefix_with_underscore(self.step_prefix)}{step_str}'
 
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps matching with name_format attributes."""
-    step_prefix_ = step_prefix_with_underscore(self.step_prefix) or ''
 
     def _build_metadata(step_path: epath.Path) -> Optional[Metadata]:
       if not step_path.is_dir():
@@ -136,7 +133,7 @@ class StandardNameFormat(NameFormat):
         zero_padded_step_group = rf'({zero_present}|{zero_not_present})'
       else:
         zero_padded_step_group = r'(0|[1-9]\d*)'
-      name_regex = f'^{step_prefix_}{zero_padded_step_group}$'
+      name_regex = f'^{step_prefix_with_underscore(self.step_prefix)}{zero_padded_step_group}$'
 
       match = re.search(name_regex, step_path.name)
       if match is None:
@@ -147,7 +144,9 @@ class StandardNameFormat(NameFormat):
       return Metadata(step=step_, path=step_path)
 
     # <step_prefix>_?<0 padding>?*
-    step_paths = epath.Path(base_path).glob(f'{step_prefix_}*')
+    step_paths = epath.Path(base_path).glob(
+        f'{step_prefix_with_underscore(self.step_prefix)}*'
+    )
 
     return build_step_metadatas(step_paths, _build_metadata)
 
@@ -159,6 +158,7 @@ class StandardNameFormat(NameFormat):
         return None
       return Metadata(step=step, path=step_path)
 
+    # glob with precise file name (no wild card).
     step_paths = epath.Path(base_path).glob(self.build_name(step))
 
     metadatas = build_step_metadatas(step_paths, _build_metadata)
