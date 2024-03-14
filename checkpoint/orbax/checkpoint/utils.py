@@ -33,6 +33,10 @@ from jax.experimental import multihost_utils
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import value_metadata
+from orbax.checkpoint.path import step as step_lib
+
+# pylint: disable=g-bad-import-order
+# pylint: enable=g-bad-import-order
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 # prefix_1000.orbax-checkpoint-tmp-1010101
@@ -469,6 +473,7 @@ def get_save_directory(
     step_prefix: Optional[str] = None,
     override_directory: Optional[epath.PathLike] = None,
     step_format_fixed_length: Optional[int] = None,
+    step_name_format: Optional[step_lib.NameFormat] = None,
 ) -> epath.Path:
   """Returns the standardized path to a save directory for a single item.
 
@@ -481,6 +486,9 @@ def get_save_directory(
       ignored.
     step_format_fixed_length: Uses a fixed number of digits with leading zeros
       to represent the step number. If None, there are no leading zeros.
+    step_name_format: NameFormat used to define step name for step and under
+      given root directory. If provided, `step_prefix` and
+      `step_format_fixed_length` are ignored.
 
   Returns:
     A directory.
@@ -488,19 +496,14 @@ def get_save_directory(
   if directory is None:
     raise ValueError('Directory cannot be None.')
   directory = epath.Path(directory)
-  step_str = (
-      f'{step:0{step_format_fixed_length}d}'
-      if step_format_fixed_length is not None
-      else str(step)
-  )
   if override_directory is not None:
     result = epath.Path(override_directory)
   else:
-    result = (
-        directory / step_str
-        if step_prefix is None
-        else directory / f'{step_prefix}_{step_str}'
+    step_name_format = step_name_format or step_lib.StandardNameFormat(
+        step_prefix=step_prefix,
+        step_format_fixed_length=step_format_fixed_length,
     )
+    result = step_lib.build_step_path(directory, step_name_format, step)
   if name is not None:
     result /= name
   return result
@@ -828,23 +831,24 @@ def is_locked(directory: epath.Path) -> bool:
 def are_locked(
     directory: epath.Path,
     steps: Tuple[int, ...],
-    step_prefix: Optional[str],
-    step_format_fixed_length: Optional[int],
+    step_prefix: Optional[str] = None,
+    step_format_fixed_length: Optional[int] = None,
+    step_name_format: Optional[step_lib.NameFormat] = None,
 ) -> List[bool]:
-  """In parallel, determines whether the steps is considered `locked`."""
-
-  def _get_save_directory(step):
-    return get_save_directory(
-        step,
-        directory,
-        step_prefix=step_prefix,
-        step_format_fixed_length=step_format_fixed_length,
-    )
+  """In parallel, determines whether the steps are considered `locked`."""
+  step_name_format = step_name_format or step_lib.StandardNameFormat(
+      step_prefix=step_prefix,
+      step_format_fixed_length=step_format_fixed_length,
+  )
+  assert step_name_format is not None
 
   async def _run_in_parallel(ops):
     return await asyncio.gather(*ops)
 
-  ops = [_async_is_locked(_get_save_directory(step)) for step in steps]
+  ops = [
+      _async_is_locked(step_name_format.find_step(directory, step).path)
+      for step in steps
+  ]
   return asyncio.run(_run_in_parallel(ops))
 
 

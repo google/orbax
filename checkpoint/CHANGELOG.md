@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Add new `step` module with step naming and query support.
 
+### Changed
+- Use step `NameFormat` and `StandardNameFormat` in Orbax `CheckpointManager`,
+ `utils` and `checkpoint_utils` modules.
 
 ## [0.5.5] - 2024-03-11
 

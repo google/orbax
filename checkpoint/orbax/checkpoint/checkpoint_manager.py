@@ -38,6 +38,7 @@ from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
+from orbax.checkpoint.path import step as step_lib
 
 
 PyTree = Any
@@ -170,6 +171,9 @@ class CheckpointManagerOptions:
   step_format_fixed_length:
     If set, formats step with n digits (leading zeros).
     This makes sorting steps easier. Otherwise, step has no leading zeros.
+  step_name_format:
+    NameFormat to build or find steps under input root directory. If provided,
+    `step_prefix`, `step_format_fixed_length` are ignored.
   create:
     If True, creates the top-level directory if it does not already exist.
   cleanup_tmp_directories:
@@ -204,6 +208,7 @@ class CheckpointManagerOptions:
   keep_checkpoints_without_metrics: bool = True
   step_prefix: Optional[str] = None
   step_format_fixed_length: Optional[int] = None
+  step_name_format: Optional[step_lib.NameFormat] = None
   create: bool = True
   cleanup_tmp_directories: bool = False
   save_on_steps: Optional[Container[int]] = None
@@ -710,12 +715,27 @@ class CheckpointManager(AbstractCheckpointManager):
       directory: epath.Path,
   ) -> epath.Path:
     """Returns the standardized path to a save directory for a single item."""
-    return utils.get_save_directory(
-        step,
-        directory,
-        step_prefix=self._options.step_prefix,
-        step_format_fixed_length=self._options.step_format_fixed_length,
+    step_name_format = (
+        self._options.step_name_format
+        or step_lib.StandardNameFormat(
+            step_prefix=self._options.step_prefix,
+            step_format_fixed_length=self._options.step_format_fixed_length,
+        )
     )
+    return step_lib.build_step_path(directory, step_name_format, step)
+
+  def _get_write_step_directory(
+      self, step: int, root_dir: epath.Path
+  ) -> epath.Path:
+    return self._get_save_directory(step, root_dir)
+
+  def _get_read_step_directory(
+      self, step: int, root_dir: epath.Path
+  ) -> epath.Path:
+    if self._options.step_name_format is not None:
+      return self._options.step_name_format.find_step(root_dir, step).path
+    else:
+      return self._get_save_directory(step, root_dir)
 
   def _create_tmp_directory(self, directory: epath.Path) -> epath.Path:
     """Creates a tmp directory based on the given directory."""
@@ -833,7 +853,7 @@ class CheckpointManager(AbstractCheckpointManager):
       args_dict['metrics'] = args_lib.JsonSave(metrics)
     args = args_lib.Composite(**args_dict)
 
-    save_directory = self._get_save_directory(step, self.directory)
+    save_directory = self._get_write_step_directory(step, self.directory)
     # If a folder for the step to save exists and is not finalized, remove the
     # existing folder.
     if utils.is_gcs_path(self.directory):
@@ -925,7 +945,7 @@ class CheckpointManager(AbstractCheckpointManager):
       else:
         args = typing.cast(args_lib.Composite, args)
 
-    restore_directory = self._get_save_directory(step, directory)
+    restore_directory = self._get_read_step_directory(step, directory)
     restored = self._checkpointer.restore(restore_directory, args=args)
     if self._single_item:
       return restored[DEFAULT_ITEM_NAME]
@@ -951,7 +971,7 @@ class CheckpointManager(AbstractCheckpointManager):
         )
 
     result = self._checkpointer.metadata(
-        self._get_save_directory(step, self.directory)
+        self._get_read_step_directory(step, self.directory)
     )
     if self._single_item:
       return result[DEFAULT_ITEM_NAME]
@@ -961,7 +981,7 @@ class CheckpointManager(AbstractCheckpointManager):
     if self._track_best:
       try:
         restored = self._checkpointer.restore(
-            self._get_save_directory(step, self.directory),
+            self._get_read_step_directory(step, self.directory),
             args=args_lib.Composite(
                 **{METRIC_ITEM_NAME: args_lib.JsonRestore()}
             ),
@@ -999,7 +1019,7 @@ class CheckpointManager(AbstractCheckpointManager):
 
       def checkpoint_info(step: int) -> CheckpointInfo:
         timestamp = datetime.datetime.fromtimestamp(
-            self._get_save_directory(step, self.directory).stat().mtime,
+            self._get_read_step_directory(step, self.directory).stat().mtime,
             tz=datetime.timezone.utc,
         )
         return CheckpointInfo(
@@ -1107,7 +1127,7 @@ class CheckpointManager(AbstractCheckpointManager):
     if self._options.todelete_subdir is None or utils.is_gcs_path(
         self.directory
     ):
-      self._get_save_directory(step, self.directory).rmtree()
+      self._get_read_step_directory(step, self.directory).rmtree()
       logging.info('Deleted step %d.', step)
       return
 
@@ -1115,8 +1135,8 @@ class CheckpointManager(AbstractCheckpointManager):
     rename_dir = self.directory / self._options.todelete_subdir
     if not rename_dir.exists():
       rename_dir.mkdir(parents=True)
-    src = self._get_save_directory(step, self.directory)
-    dst = self._get_save_directory(step, rename_dir)
+    src = self._get_read_step_directory(step, self.directory)
+    dst = self._get_write_step_directory(step, rename_dir)
     src.replace(dst)
     logging.info('Renamed step %d (todelete_subdir option specified).', step)
 
@@ -1137,11 +1157,17 @@ class CheckpointManager(AbstractCheckpointManager):
     )
 
     # Exclude the latest checkpoint, since it is not finalized.
+    step_name_format = (
+        self._options.step_name_format
+        or step_lib.StandardNameFormat(
+            step_prefix=self._options.step_prefix,
+            step_format_fixed_length=self._options.step_format_fixed_length,
+        )
+    )
     are_locked = utils.are_locked(
         self.directory,
-        tuple([info.step for info in self._checkpoints[:-1]]),
-        self._options.step_prefix,
-        self._options.step_format_fixed_length,
+        steps=tuple([info.step for info in self._checkpoints[:-1]]),
+        step_name_format=step_name_format,
     )
     self._checkpoints[:-1] = [
         dataclasses.replace(info, is_locked=is_locked)

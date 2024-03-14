@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """High-level checkpoint utils provided for user convenience."""
+
 import contextlib
 import os
 import time
@@ -26,28 +27,34 @@ import numpy as np
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
+from orbax.checkpoint.path import step as step_lib
 
 
 PyTree = Any
 STANDARD_ARRAY_TYPES = (int, float, np.ndarray, jax.Array)
 
 
-def _lock_checkpoint(
-    checkpoint_dir: epath.Path,
-    step: int,
-    step_prefix: Optional[str],
-    step_format_fixed_length: Optional[int],
-) -> bool:
-  """Locks a checkpoint by writing a LOCKED directory."""
-  directory = utils.get_save_directory(
-      step,
-      checkpoint_dir,
+def _init_step_name_format(
+    step_name_format: Optional[step_lib.NameFormat] = None,
+    step_prefix: Optional[str] = None,
+    step_format_fixed_length: Optional[int] = None,
+):
+  return step_name_format or step_lib.StandardNameFormat(
       step_prefix=step_prefix,
       step_format_fixed_length=step_format_fixed_length,
   )
-  if not directory.exists():
-    raise ValueError(f'Parent directory {directory} does not exist.')
-  lockdir = utils.lockdir(directory)
+
+
+def _lock_checkpoint(
+    checkpoint_dir: epath.Path,
+    step: int,
+    step_name_format: step_lib.NameFormat,
+) -> bool:
+  """Locks a checkpoint by writing a LOCKED directory."""
+  step_dir = step_name_format.find_step(checkpoint_dir, step).path
+  if not step_dir.exists():
+    raise ValueError(f'Step directory {step_dir} does not exist.')
+  lockdir = utils.lockdir(step_dir)
   try:
     lockdir.mkdir(parents=False, exist_ok=True)
     return True
@@ -64,38 +71,41 @@ def _lock_checkpoint(
 def _unlock_checkpoint(
     checkpoint_dir: epath.Path,
     step: int,
-    step_prefix: Optional[str],
-    step_format_fixed_length: Optional[int],
+    step_name_format: step_lib.NameFormat,
 ):
   """Removes a LOCKED directory to indicate unlocking."""
   if jax.process_index() == 0:
-    directory = utils.get_save_directory(
-        step,
-        checkpoint_dir,
-        step_prefix=step_prefix,
-        step_format_fixed_length=step_format_fixed_length,
-    )
-    utils.lockdir(directory).unlink(missing_ok=True)
+    step_dir = step_name_format.find_step(checkpoint_dir, step).path
+    utils.lockdir(step_dir).unlink(missing_ok=True)
 
 
 def unlock_existing_checkpoints(
     checkpoint_dir: epath.Path,
-    step_prefix: Optional[str],
-    step_format_fixed_length: Optional[int],
+    step_prefix: Optional[str] = None,
+    step_format_fixed_length: Optional[int] = None,
+    step_name_format: Optional[step_lib.NameFormat] = None,
 ):
-  """Removes LOCKED file for all existing steps, if present."""
+  """Removes LOCKED file for all existing steps, if present.
+
+  Args:
+    checkpoint_dir: The directory containing StepDirs.
+    step_prefix: A prefix applied to step numbers (e.g. <prefix>_42).
+    step_format_fixed_length: Expects to find checkpoint step directories with
+      exactly this number of digits (leading zeros if necessary).
+    step_name_format: Step NameFormat used to find step under given root
+      directory. If provided, `step_prefix` and `step_format_fixed_length` are
+      ignored.
+  """
   steps = utils.checkpoint_steps(checkpoint_dir)
+  step_name_format = _init_step_name_format(
+      step_name_format=step_name_format,
+      step_prefix=step_prefix,
+      step_format_fixed_length=step_format_fixed_length,
+  )
   for step in steps:
-    directory = utils.get_save_directory(
-        step,
-        checkpoint_dir,
-        step_prefix=step_prefix,
-        step_format_fixed_length=step_format_fixed_length,
-    )
-    if utils.is_locked(directory):
-      _unlock_checkpoint(
-          checkpoint_dir, step, step_prefix, step_format_fixed_length
-      )
+    step_dir = step_name_format.find_step(checkpoint_dir, step).path
+    if utils.is_locked(step_dir):
+      _unlock_checkpoint(checkpoint_dir, step, step_name_format)
 
 
 def checkpoint_dir_is_world_readable(
@@ -120,11 +130,10 @@ def _reached_desired_step(step: int, until_step: Optional[int]) -> bool:
 
 def _wait_for_new_checkpoint(
     checkpoint_dir: epath.Path,
+    step_name_format: step_lib.NameFormat,
     until_step: Optional[int] = None,
     seconds_to_sleep: int = 1,
     timeout: Optional[int] = None,
-    step_prefix: Optional[str] = None,
-    step_format_fixed_length: Optional[int] = None,
 ) -> int:
   """See documentation for wait_for_new_checkpoint."""
   start = time.time()
@@ -154,10 +163,7 @@ def _wait_for_new_checkpoint(
       checkpoint_step = max(steps) if steps else None
       if _reached_desired_step(checkpoint_step, until_step):
         if not _lock_checkpoint(
-            checkpoint_dir,
-            checkpoint_step,
-            step_prefix,
-            step_format_fixed_length,
+            checkpoint_dir, checkpoint_step, step_name_format
         ):
           continue
         result = checkpoint_step
@@ -186,6 +192,7 @@ def wait_for_new_checkpoint(
     timeout: Optional[int] = None,
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
+    step_name_format: Optional[step_lib.NameFormat] = None,
 ):
   """Waits until a new checkpoint file is found.
 
@@ -204,26 +211,31 @@ def wait_for_new_checkpoint(
     step_prefix: A prefix applied to step numbers (e.g. <prefix>_42).
     step_format_fixed_length: Expects to find checkpoint step directories with
       exactly this number of digits (leading zeros if necessary).
+    step_name_format: Step NameFormat used to find step under given root
+      directory. If provided, `step_prefix` and `step_format_fixed_length` are
+      ignored.
 
   Yields:
     a new checkpoint step, or -1 if the timeout was reached.
   """
+  step_name_format = _init_step_name_format(
+      step_name_format=step_name_format,
+      step_prefix=step_prefix,
+      step_format_fixed_length=step_format_fixed_length,
+  )
   step = _wait_for_new_checkpoint(
       checkpoint_dir,
+      step_name_format,
       until_step=until_step,
       seconds_to_sleep=seconds_to_sleep,
       timeout=timeout,
-      step_prefix=step_prefix,
-      step_format_fixed_length=step_format_fixed_length,
   )
   try:
     yield step
   finally:
     # Release lock on the checkpoint step.
     if step != -1:
-      _unlock_checkpoint(
-          checkpoint_dir, step, step_prefix, step_format_fixed_length
-      )
+      _unlock_checkpoint(checkpoint_dir, step, step_name_format)
 
 
 def checkpoints_iterator(
@@ -233,6 +245,7 @@ def checkpoints_iterator(
     timeout_fn: Optional[Callable[[], bool]] = None,
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
+    step_name_format: Optional[step_lib.NameFormat] = None,
 ) -> Iterator[int]:
   """Continuously yield new checkpoint files as they appear.
 
@@ -278,14 +291,22 @@ def checkpoints_iterator(
     step_prefix: A prefix applied to step numbers (e.g. <prefix>_42).
     step_format_fixed_length: Expects to find checkpoint step directories with
       exactly this number of digits (leading zeros if necessary).
+    step_name_format: Step NameFormat used to find step under given root
+      directory. If provided, `step_prefix` and `step_format_fixed_length` are
+      ignored.
 
   Yields:
     Integer step numbers of the latest checkpoints as they arrive.
   """
   checkpoint_dir = epath.Path(checkpoint_dir)
+  step_name_format = _init_step_name_format(
+      step_name_format=step_name_format,
+      step_prefix=step_prefix,
+      step_format_fixed_length=step_format_fixed_length,
+  )
   try:
     unlock_existing_checkpoints(
-        checkpoint_dir, step_prefix, step_format_fixed_length
+        checkpoint_dir, step_name_format=step_name_format
     )
   except FileNotFoundError as e:
     logging.warning(
@@ -300,8 +321,7 @@ def checkpoints_iterator(
         checkpoint_dir,
         until_step=until_step,
         timeout=timeout,
-        step_prefix=step_prefix,
-        step_format_fixed_length=step_format_fixed_length,
+        step_name_format=step_name_format,
     ) as new_checkpoint_step:
       if new_checkpoint_step == -1:
         if not timeout_fn:
@@ -366,8 +386,8 @@ def construct_restore_args(
 
   Args:
     target: The returned PyTree will match the structure of `target`. `target`
-      may contain `value_metadata.Metadata`, real scalar or array values, or
-      may contain jax.ShapeDtypeStruct.
+      may contain `value_metadata.Metadata`, real scalar or array values, or may
+      contain jax.ShapeDtypeStruct.
     sharding_tree: A PyTree matching `target` which will be used to set the
       restoration sharding. If not provided, sharding will default to the
       shardings specified by `target`.
