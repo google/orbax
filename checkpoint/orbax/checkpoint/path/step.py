@@ -14,6 +14,7 @@
 
 """Orbax step storage entities."""
 
+import abc
 from collections.abc import Callable
 import dataclasses
 import re
@@ -34,8 +35,23 @@ class Metadata:
 class NameFormat(Protocol):
   """Protocol responsible for naming and querying steps."""
 
+  @abc.abstractmethod
   def build_name(self, step: int) -> str:
     """Returns `step` name."""
+    ...
+
+  @abc.abstractmethod
+  def build_metadata(
+      self, step_path: epath.Path, *args, **kwargs
+  ) -> Optional[MetadataT]:
+    """Returns metadata for given `step_path` if it is valid or None."""
+    ...
+
+  @abc.abstractmethod
+  def find_metadata(
+      self, base_path: epath.PathLike, step: int, *args, **kwargs
+  ) -> Optional[MetadataT]:
+    """Returns metadata for given `base_path` and `step` or None."""
     ...
 
   def find_all(self, base_path: epath.PathLike) -> Iterator[MetadataT]:
@@ -44,7 +60,13 @@ class NameFormat(Protocol):
 
   def find_step(self, base_path: epath.PathLike, step: int) -> MetadataT:
     """Returns the metadata for `step` or raises ValueError."""
-    ...
+    metadata = self.find_metadata(base_path, step)
+    if metadata is not None:
+      return metadata
+    raise ValueError(
+        f'No step path found for step={step} with NameFormat={self} under'
+        f' {base_path}'
+    )
 
 
 def build_step_path(
@@ -120,46 +142,46 @@ class StandardNameFormat(NameFormat):
     # [prefix]step
     return f'{step_prefix_with_underscore(self.step_prefix)}{step_str}'
 
+  def build_metadata(
+      self, step_path: epath.Path, step: Optional[int] = None
+  ) -> Optional[Metadata]:
+    """Returns metadata for given `step_path` if it is valid or None."""
+    if not step_path.is_dir():
+      return None
+
+    if step is not None:
+      # step already known, just check exists.
+      if step_path.exists():
+        return Metadata(step=step, path=step_path)
+
+    # Regex: [prefix]*(step)
+    if self.step_format_fixed_length and self.step_format_fixed_length > 0:
+      zero_present = rf'0\d{{{self.step_format_fixed_length-1}}}'
+      zero_not_present = rf'[1-9]\d{{{self.step_format_fixed_length-1}}}\d*'
+      zero_padded_step_group = rf'({zero_present}|{zero_not_present})'
+    else:
+      zero_padded_step_group = r'(0|[1-9]\d*)'
+    name_regex = f'^{step_prefix_with_underscore(self.step_prefix)}{zero_padded_step_group}$'
+
+    match = re.search(name_regex, step_path.name)
+    if match is None:
+      return None
+    (step_,) = match.groups()
+    step_ = int(step_)
+
+    return Metadata(step=step_, path=step_path)
+
+  def find_metadata(
+      self, base_path: epath.PathLike, step: int
+  ) -> Optional[MetadataT]:
+    """Returns metadata for given `base_path` and `step` or None."""
+    step_path = build_step_path(base_path, self, step)
+    return self.build_metadata(step_path, step=step)
+
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps matching with name_format attributes."""
-
-    def _build_metadata(step_path: epath.Path) -> Optional[Metadata]:
-      if not step_path.is_dir():
-        return None
-      # Regex: [prefix]*(step)
-      if self.step_format_fixed_length and self.step_format_fixed_length > 0:
-        zero_present = rf'0\d{{{self.step_format_fixed_length-1}}}'
-        zero_not_present = rf'[1-9]\d{{{self.step_format_fixed_length-1}}}\d*'
-        zero_padded_step_group = rf'({zero_present}|{zero_not_present})'
-      else:
-        zero_padded_step_group = r'(0|[1-9]\d*)'
-      name_regex = f'^{step_prefix_with_underscore(self.step_prefix)}{zero_padded_step_group}$'
-
-      match = re.search(name_regex, step_path.name)
-      if match is None:
-        return None
-      (step_,) = match.groups()
-      step_ = int(step_)
-
-      return Metadata(step=step_, path=step_path)
-
     # <step_prefix>_?<0 padding>?*
     step_paths = epath.Path(base_path).glob(
         f'{step_prefix_with_underscore(self.step_prefix)}*'
     )
-
-    return build_step_metadatas(step_paths, _build_metadata)
-
-  def find_step(self, base_path: epath.PathLike, step: int) -> Metadata:
-    """Returns the metadata for `step` matching with name_format attributes."""
-
-    def _build_metadata(step_path: epath.Path) -> Optional[Metadata]:
-      if not step_path.is_dir():
-        return None
-      return Metadata(step=step, path=step_path)
-
-    # glob with precise file name (no wild card).
-    step_paths = epath.Path(base_path).glob(self.build_name(step))
-
-    metadatas = build_step_metadatas(step_paths, _build_metadata)
-    return select_the_only_metadata(metadatas)
+    return build_step_metadatas(step_paths, self.build_metadata)
