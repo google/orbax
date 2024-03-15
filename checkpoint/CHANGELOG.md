@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6] - 2024-03-14
+
 ### Added
 - Add new `step` module with step naming and query support.
 
