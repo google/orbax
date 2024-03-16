@@ -392,6 +392,7 @@ def name_from_leaf_placeholder(placeholder: str) -> str:
 
 def is_supported_empty_aggregation_type(value: Any) -> bool:
   """Determines if the *empty* value is supported for aggregation."""
+  # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
   return isinstance(value, (dict, list, type(None))) and not value
 
 
