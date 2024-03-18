@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## Fixed
+- Fix TypeHandler Registry errors for `empty ([], {}, None)` values with
+ `SaveArgs(aggregate=False)`.
+
 ## [0.5.6] - 2024-03-14
 
 ### Added

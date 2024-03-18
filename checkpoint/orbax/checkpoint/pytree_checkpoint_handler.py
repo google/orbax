@@ -111,7 +111,7 @@ def _keypath_from_key_type(key_name: str, key_type: _KeyType) -> Any:
     raise ValueError(f'Unsupported KeyEntry: {key_type}')
 
 
-def _get_keypath_metadata(keypath: Any) -> Tuple[Dict[str, Any]]:
+def _get_keypath_metadata(keypath: Any) -> Tuple[Dict[str, Any]]:  # pylint: disable=g-one-element-tuple
   """Gets JSON metadata for a JAX keypath."""
   keypath_serialized = []
   for k in keypath:
@@ -122,7 +122,7 @@ def _get_keypath_metadata(keypath: Any) -> Tuple[Dict[str, Any]]:
   return tuple(keypath_serialized)
 
 
-def _keypath_from_metadata(keypath_serialized: Tuple[Dict[str, Any]]) -> Any:
+def _keypath_from_metadata(keypath_serialized: Tuple[Dict[str, Any]]) -> Any:  # pylint: disable=g-one-element-tuple
   """Creates a JAX keypath from JSON metadata."""
   keypath = []
   for k in keypath_serialized:
@@ -182,14 +182,6 @@ async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
   # discrepancy, while potentially problematic, will not be addressed since we
   # anticipate moving fully to OCDBT within a quarter or two.
   await utils.async_makedirs(path, parents=True)
-
-
-def _maybe_set_default_save_args(value, args):
-  # If already set, return.
-  if isinstance(args, SaveArgs):
-    return args
-  aggregate = not type_handlers.has_type_handler(type(value))
-  return SaveArgs(aggregate=aggregate)
 
 
 def _maybe_set_default_restore_args(args):
@@ -693,6 +685,22 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """Gets parameter names for PyTree elements."""
     return _get_param_names(item)
 
+  def _skip_deserialize(self, value: Any, args: SaveArgs) -> bool:
+    """Returns True if _METADATA write is enabled and value is []/{}/None."""
+    if self._write_tree_metadata and utils.is_supported_empty_aggregation_type(
+        value
+    ):
+      # Skip deser if value is empty ([], {}, None) and _METADATA is enabled.
+      # We don't want to write TypeHandlers for empty values, so will simply
+      # identify them in metadata and skip deser.
+      return True
+    else:
+      # Follow aggregate based flow: requires TypeHandler registry if
+      # aggregate=False. Empty values will raise registry error if
+      # aggregate=False. Users will be prompted to enable _METADATA to avoid
+      # these errors for empty values.
+      return args.aggregate
+
   def _get_param_infos(
       self, item: PyTree, directory: epath.Path, save_args: PyTree
   ) -> Tuple[PyTree, bool]:
@@ -716,21 +724,24 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     names = self._get_param_names(item)
     all_params_aggregated = True
 
-    def _param_info(name, args):
+    def _param_info(value, name, args):
       nonlocal all_params_aggregated
       all_params_aggregated &= args.aggregate
+      skip_deserialize = self._skip_deserialize(value, args)
       return ParamInfo(
           name=name,
           path=(directory / name),
           parent_dir=directory,
-          skip_deserialize=args.aggregate,
+          skip_deserialize=skip_deserialize,
           is_ocdbt_checkpoint=self._use_ocdbt,
           ocdbt_merge=self._ocdbt_merge,
           use_zarr3=self._use_zarr3,
       )
 
     return (
-        jax.tree_util.tree_map(_param_info, names, save_args),
+        jax.tree_util.tree_map(
+            _param_info, item, names, save_args, is_leaf=utils.is_empty_or_leaf
+        ),
         all_params_aggregated,
     )
 
@@ -795,8 +806,26 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       )
     item = args.item
     save_args = args.save_args
+
     # Because of empty states, the user-provided args may not contain
     # all necessary arguments. These should be filled in with default args.
+    def _maybe_set_default_save_args(value, args_):
+      # If already set, return.
+      if isinstance(args_, SaveArgs):
+        return args_
+      if (
+          self._write_tree_metadata
+          and utils.is_supported_empty_aggregation_type(value)
+      ):
+        # If _METADATA is enabled and value is empty ([], {}, None) then stop
+        # aggregating for a smooth SaveArgs.aggregate deprecation. Otherwise, we
+        # will need to write TypeHandlers for empty values.
+        return SaveArgs(aggregate=False)
+      # Empty values will still raise TypeHandler registry error if _METADATA is
+      # disabled. We will prompt users to enable _METADATA to avoid this error.
+      aggregate = not type_handlers.has_type_handler(type(value))
+      return SaveArgs(aggregate=aggregate)
+
     save_args = jax.tree_util.tree_map(
         _maybe_set_default_save_args,  # pylint: disable=protected-access
         item,

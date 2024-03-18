@@ -276,6 +276,32 @@ class UtilsTest(parameterized.TestCase):
         utils.checkpoint_steps(self.directory),
     )
 
+  @parameterized.parameters(
+      (1, True),
+      (dict(), True),
+      ({}, True),
+      ({'a': {}}, False),
+      ([], True),
+      ([[]], False),
+      (None, True),
+      ((1, 2), False),
+  )
+  def test_is_empty_or_leaf(self, value, expected):
+    self.assertEqual(expected, utils.is_empty_or_leaf(value))
+
+  @parameterized.parameters(
+      (1, False),
+      (dict(), True),
+      ({}, True),
+      ({'a': {}}, False),
+      ([], True),
+      ([[]], False),
+      (None, True),
+      ((1, 2), False),
+  )
+  def test_iis_supported_empty_aggregation_type(self, value, expected):
+    self.assertEqual(expected, utils.is_supported_empty_aggregation_type(value))
+
 
 if __name__ == '__main__':
   absltest.main()
