@@ -1015,7 +1015,6 @@ class CheckpointManager(AbstractCheckpointManager):
     steps.sort()  # Prefer in-place sort.
 
     if not steps:
-      logging.info('No checkpoint steps found in %s', self.directory)
       checkpoint_infos = []
     else:
 
