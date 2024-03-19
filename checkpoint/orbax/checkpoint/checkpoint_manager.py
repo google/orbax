@@ -466,6 +466,7 @@ class CheckpointManager(AbstractCheckpointManager):
         self._directory.mkdir(parents=True)
       utils.sync_global_devices('CheckpointManager:create_directory')
 
+
     # Cleanup directories from previous runs that may not have been finalized.
     if self._options.cleanup_tmp_directories:
       self._cleanup_tmp_directories()
@@ -579,6 +580,7 @@ class CheckpointManager(AbstractCheckpointManager):
         options,
         use_async,
     )
+
 
   def _validate_handler(self, handler):
     if (
