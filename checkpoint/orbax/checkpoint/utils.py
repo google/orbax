@@ -806,7 +806,7 @@ def fully_replicated_host_local_array_to_global_array(
   # pmap-produced Array has a "scrambled" device order.
   dbs = sorted(
       [shard.data for shard in arr.addressable_shards],
-      key=lambda x: x.device().id,
+      key=lambda x: list(x.devices())[0].id,
   )
   return jax.make_array_from_single_device_arrays(global_shape, sharding, dbs)
 
