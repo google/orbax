@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Tests CheckpointArg registration."""
+
 import dataclasses
 from absl.testing import absltest
 from orbax.checkpoint import checkpoint_args
@@ -136,6 +137,43 @@ class CheckpointArgsTest(absltest.TestCase):
     )
     self.assertIs(save_args, MyHandlerArgs)
     self.assertIs(restore_args, MyHandlerArgs)
+
+  def test_get_registered_args_cls_single_handler_multiple_args(self):
+    class MyCheckpointHandler(checkpoint_handler.CheckpointHandler):
+
+      def save(self, *args, **kwargs):
+        pass
+
+      def restore(self, *args, **kwargs):
+        pass
+
+    # Register first CheckpointArgs to MyCheckpointHandler.
+    @checkpoint_args.register_with_handler(
+        MyCheckpointHandler, for_save=True, for_restore=True
+    )
+    @dataclasses.dataclass
+    class Args1(checkpoint_args.CheckpointArgs):
+      pass
+
+    # Register second CheckpointArgs to MyCheckpointHandler.
+    @checkpoint_args.register_with_handler(
+        MyCheckpointHandler, for_save=True, for_restore=True
+    )
+    @dataclasses.dataclass
+    class Args2(checkpoint_args.CheckpointArgs):
+      pass
+
+    save_args, restore_args = checkpoint_args.get_registered_args_cls(
+        MyCheckpointHandler
+    )
+    self.assertIs(save_args, Args1)
+    self.assertIs(restore_args, Args1)
+
+    save_args, restore_args = checkpoint_args.get_registered_args_cls(
+        MyCheckpointHandler()
+    )
+    self.assertIsNot(save_args, Args2)
+    self.assertIsNot(restore_args, Args2)
 
 
 if __name__ == '__main__':
