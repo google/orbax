@@ -702,7 +702,11 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       return args.aggregate
 
   def _get_param_infos(
-      self, item: PyTree, directory: epath.Path, save_args: PyTree
+      self,
+      item: PyTree,
+      directory: epath.Path,
+      save_args: PyTree,
+      ocdbt_target_data_file_size: Optional[int] = None,
   ) -> Tuple[PyTree, bool]:
     """Returns parameter information for elements in `item`.
 
@@ -713,6 +717,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       item: a PyTree to extract information from.
       directory: a directory where checkpoint files are located.
       save_args: PyTree matching item containing SaveArgs.
+      ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
+        OCDBT data file.
 
     Returns:
       A PyTree matching `item` of ParamInfo, and a bool indicating whether all
@@ -736,6 +742,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           is_ocdbt_checkpoint=self._use_ocdbt,
           ocdbt_merge=self._ocdbt_merge,
           use_zarr3=self._use_zarr3,
+          ocdbt_target_data_file_size=ocdbt_target_data_file_size,
       )
 
     return (
@@ -806,6 +813,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       )
     item = args.item
     save_args = args.save_args
+    ocdbt_target_data_file_size = args.ocdbt_target_data_file_size
+
+    if ocdbt_target_data_file_size is not None and not self._use_zarr3:
+      raise ValueError('`ocdbt_target_data_file_size` only works with Zarr3')
 
     # Because of empty states, the user-provided args may not contain
     # all necessary arguments. These should be filled in with default args.
@@ -833,7 +844,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         is_leaf=utils.is_empty_or_leaf,
     )
     param_infos, all_params_aggregated = self._get_param_infos(
-        item, directory, save_args
+        item, directory, save_args, ocdbt_target_data_file_size
     )
     assert all(
         leaf.parent_dir == directory
@@ -1477,10 +1488,17 @@ class PyTreeSaveArgs(CheckpointArgs):
     save_args: a PyTree with the same structure of `item`, which consists of
       `ocp.SaveArgs` objects as values. `None` can be used for values where no
       `SaveArgs` are specified.
+    ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
+      OCDBT data file.  It only applies when OCDBT is enabled and Zarr3 must be
+      turned on.  If left unspecified, default size is 2GB.  A value of 0
+      indicates no maximum file size limit.  For best results, ensure
+      chunk_byte_size is smaller than this value.  For more details, refer to
+      https://google.github.io/tensorstore/kvstore/ocdbt/index.html#json-kvstore/ocdbt.target_data_file_size
   """
 
   item: PyTree
   save_args: Optional[PyTree] = None
+  ocdbt_target_data_file_size: Optional[int] = None
 
 
 @register_with_handler(PyTreeCheckpointHandler, for_restore=True)

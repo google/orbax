@@ -178,6 +178,8 @@ class StandardCheckpointHandler(
 class StandardSaveArgs(CheckpointArgs):
   """Parameters for saving a standard PyTree.
 
+  Also see `PyTreeSave` for additional options.
+
   Attributes:
     item (required): a PyTree to be saved.
     save_args: a PyTree with the same structure of `item`, which consists of
@@ -194,7 +196,7 @@ class StandardSaveArgs(CheckpointArgs):
 class StandardRestoreArgs(CheckpointArgs):
   """Parameters for restoring a standard PyTree.
 
-  If you require more flexibility, see `PyTreeRestore`.
+  Also see `PyTreeRestore` for additional options.
 
   Attributes (all optional):
     item: target PyTree. Currently non-optional. Values may be either real

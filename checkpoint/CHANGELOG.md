@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.7] - 2024-03-20
+
+## Added
+- Added Zarr3 support for numpy array
+- Added PyTreeSaveArgs.ocdbt_target_data_file_size to control the 
+  target_data_file_size when OCDBT is enabled
+
 ## Fixed
 - Fix TypeHandler Registry errors for `empty ([], {}, None)` values with
  `SaveArgs(aggregate=False)`.

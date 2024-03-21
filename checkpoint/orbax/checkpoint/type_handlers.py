@@ -346,6 +346,8 @@ class ParamInfo:
     or not. Only used for restoration.
   use_zarr3:
     If True, use Zarr ver3 otherwise ver2.
+  ocdbt_target_data_file_size:
+    Specifies the target size (in bytes) of each OCDBT data file.
   """
 
   name: Optional[str] = None
@@ -356,6 +358,7 @@ class ParamInfo:
   is_ocdbt_checkpoint: Optional[bool] = None
   ocdbt_merge: Optional[bool] = None
   use_zarr3: Optional[bool] = False
+  ocdbt_target_data_file_size: Optional[int] = None
 
 
 @dataclasses.dataclass
@@ -402,12 +405,7 @@ class SaveArgs:
           logging.WARNING,
           'SaveArgs.aggregate is deprecated, please use custom TypeHandler'
           ' (https://orbax.readthedocs.io/en/latest/custom_handlers.html#typehandler)'
-          ' or contact Orbax team to migrate before May 1st, 2024. If your'
-          ' Pytree has empty ([], {}, None) values then use'
-          ' PyTreeCheckpointHandler(..., write_tree_metadata=True, ...) or use'
-          ' StandardCheckpointHandler to avoid TypeHandler Registry error.'
-          ' Please note that PyTreeCheckpointHandler.write_tree_metadata'
-          ' default value is already set to True.',
+          ' or contact Orbax team to migrate before May 1st, 2024.',
           n_seconds=12 * 60 * 60,  # once every 12 hours
       )
 
@@ -454,7 +452,7 @@ def _choose_chunk_shape(
     List of length `len(write_shape)` specifying the chosen chunk shape.
   """
   assert len(global_shape) == len(write_shape)
-  if target_byte_size < 52428800:  # 50MB
+  if target_byte_size < 1048576:  # 1 MB
     logging.warning(
         'Setting the target_byte_size too small could reduce performance.'
     )
@@ -536,6 +534,15 @@ def _build_ts_zarr_shard_and_chunk_metadata(
     chunk_byte_size: Optional[int] = None,
 ) -> Dict[Any, Any]:
   """This function returns the TS metadata for write spec."""
+
+  if (
+      write_chunk_shape or read_chunk_shape or chunk_byte_size
+  ) and not use_zarr3:
+    raise ValueError(
+        'Zarr3 is not enabled when `write_chunk_shape`, `read_chunk_shape` or'
+        ' `chunk_byte_size` is specified.'
+    )
+
   metadata = {}
 
   if not use_zarr3:
@@ -816,6 +823,7 @@ def get_tensorstore_spec(
     use_ocdbt: bool = True,
     process_id: Optional[Union[int, str]] = None,
     use_zarr3: Optional[bool] = False,
+    ocdbt_target_data_file_size: Optional[int] = None,
 ) -> Dict[str, Any]:
   """Constructs a Tensorstore spec.
 
@@ -827,6 +835,8 @@ def get_tensorstore_spec(
       `ocdbt.process_<process_id>`. If a string, must conform to [A-Za-z0-9]+
       pattern.
     use_zarr3: If True, use ZARR_VER3 driver, otherwise, use ZARR_VER2 driver.
+    ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
+      OCDBT data file.
 
   Returns:
     A ts.Spec in dictionary form.
@@ -870,6 +880,8 @@ def get_tensorstore_spec(
         # References the cache specified in ts.Context.
         'cache_pool': 'cache_pool#ocdbt',
     })
+    if ocdbt_target_data_file_size:
+      spec['kvstore']['target_data_file_size'] = ocdbt_target_data_file_size
   else:
     if name is None:
       ckpt_path = directory
@@ -997,6 +1009,8 @@ class NumpyHandler(TypeHandler):
         name=info.name,
         use_ocdbt=use_ocdbt,
         process_id=process_index,
+        use_zarr3=info.use_zarr3,
+        ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
     )
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
@@ -1303,6 +1317,7 @@ class ArrayHandler(TypeHandler):
         use_ocdbt=use_ocdbt,
         process_id=process_index,
         use_zarr3=info.use_zarr3,
+        ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
     )
     if self._metadata_key is not None:
       tspec['metadata_key'] = self._metadata_key
