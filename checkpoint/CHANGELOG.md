@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Zarr3 support for numpy array
 - Added PyTreeSaveArgs.ocdbt_target_data_file_size to control the 
   target_data_file_size when OCDBT is enabled
+- Expanded skeleton of `emergency.CheckpointManager`.
 
 ## Fixed
 - Fix TypeHandler Registry errors for `empty ([], {}, None)` values with
