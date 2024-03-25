@@ -123,7 +123,8 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
       # TODO(b/330585086) Support arbitrary items beyond state. We will have
       # to evaluate whether arbitrary items can be a good fit for local
       # checkpointing, given restore+broadcast requirements.
-      state_handler: CheckpointHandler,
+      local_state_handler: CheckpointHandler,
+      persistent_state_handler: CheckpointHandler,
       *,
       options: CheckpointManagerOptions | None = None,
       metadata: dict[str, Any] | None = None,
@@ -143,13 +144,24 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
         local_directory,
         options=local_options,
         metadata=metadata,
-        item_handlers=state_handler,
+        item_handlers=local_state_handler,
         primary_host=None,
     )
     # TODO(b/330585086): Build options for persistent CheckpointManager.
+    persistent_options = checkpoint_manager.CheckpointManagerOptions(
+        save_interval_steps=options.persistent.save_interval_steps,
+        max_to_keep=options.persistent.max_to_keep,
+        step_name_format=options.step_name_format,
+        create=options.create,
+        cleanup_tmp_directories=options.cleanup_tmp_directories,
+        async_options=options.async_options,
+    )
     self._persistent_checkpoint_manager = checkpoint_manager.CheckpointManager(
         persistent_directory,
+        options=persistent_options,
         metadata=metadata,
+        item_handlers=persistent_state_handler,
+        # TODO(b/330585086): Use the appropriate primary_host.
     )
 
   @property
