@@ -405,7 +405,12 @@ class SaveArgs:
           logging.WARNING,
           'SaveArgs.aggregate is deprecated, please use custom TypeHandler'
           ' (https://orbax.readthedocs.io/en/latest/custom_handlers.html#typehandler)'
-          ' or contact Orbax team to migrate before May 1st, 2024.',
+          ' or contact Orbax team to migrate before May 1st, 2024. If your'
+          ' Pytree has empty ([], {}, None) values then use'
+          ' PyTreeCheckpointHandler(..., write_tree_metadata=True, ...) or use'
+          ' StandardCheckpointHandler to avoid TypeHandler Registry error.'
+          ' Please note that PyTreeCheckpointHandler.write_tree_metadata'
+          ' default value is already set to True.',
           n_seconds=12 * 60 * 60,  # once every 12 hours
       )
 
