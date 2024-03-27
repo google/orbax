@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A class providing emergency checkpoint management. 
+"""A class providing emergency checkpoint management.
 
 
 This class is experimental; do not use without specific approval.
@@ -120,6 +120,7 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
       self,
       local_directory: epath.PathLike,
       persistent_directory: epath.PathLike,
+      global_mesh: jax.sharding.Mesh,
       # TODO(b/330585086) Support arbitrary items beyond state. We will have
       # to evaluate whether arbitrary items can be a good fit for local
       # checkpointing, given restore+broadcast requirements.
@@ -139,6 +140,9 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
         cleanup_tmp_directories=options.cleanup_tmp_directories,
         async_options=options.async_options,
     )
+
+    dev_id = np.vectorize(lambda d: d.process_index)
+    self._global_mesh = dev_id(global_mesh.devices)
 
     self._local_checkpoint_manager = checkpoint_manager.CheckpointManager(
         local_directory,
@@ -161,12 +165,17 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
         options=persistent_options,
         metadata=metadata,
         item_handlers=persistent_state_handler,
-        # TODO(b/330585086): Use the appropriate primary_host.
+        primary_host=self._global_mesh[0].flat[0],
     )
 
   @property
   def directory(self) -> epath.Path:
     raise NotImplementedError()
+
+  def _in_primary_slice(self) -> bool:
+    """Returns true if host is in primary slice (the first slice)."""
+    primary_slice = self._global_mesh[0]
+    return jax.process_index() in primary_slice
 
   def all_steps(self, read: bool = False) -> Sequence[int]:
     """Returns all steps tracked by the manager.
@@ -180,8 +189,10 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
     Returns:
       A sequence of steps (integers)
     """
-    # TODO(b/330585086) Implement.
-    raise NotImplementedError('Implement: b/330585086.')
+    if self._in_primary_slice():
+      return self._local_checkpoint_manager.all_steps(read=read)
+    else:
+      return self._persistent_checkpoint_manager.all_steps(read=read)
 
   def _is_equal_on_all_hosts(self, value: int | float) -> bool:
     """return true if all `values` are equal on all hosts."""
