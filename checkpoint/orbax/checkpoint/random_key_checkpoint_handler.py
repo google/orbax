@@ -135,7 +135,7 @@ class BaseRandomKeyCheckpointHandler(
         f.result()  # Block on result.
 
     asyncio.run(async_save())
-    utils.sync_global_devices('RandomKeyCheckpointHandler:save')
+    utils.sync_global_processes('RandomKeyCheckpointHandler:save')
 
   def restore(
       self,
@@ -163,7 +163,7 @@ class BaseRandomKeyCheckpointHandler(
     final_result = self.post_restore(
         result[self._key_name], result[self._key_metadata]
     )
-    utils.sync_global_devices('RandomKeyCheckpointHandler:restore')
+    utils.sync_global_processes('RandomKeyCheckpointHandler:restore')
     return final_result
 
   def finalize(self, directory: epath.Path):

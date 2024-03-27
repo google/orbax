@@ -54,7 +54,7 @@ def save_fake_tmp_dir(
   if jax.process_index() == 0:
     for sub in subdirs:
       (item_tmp_dir / sub).mkdir(parents=True)
-  utils.sync_global_devices('save_fake_tmp_dir')
+  utils.sync_global_processes('save_fake_tmp_dir')
   return item_tmp_dir
 
 

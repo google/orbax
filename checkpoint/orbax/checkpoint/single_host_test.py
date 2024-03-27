@@ -36,7 +36,7 @@ class PyTreeCheckpointHandler(
     super().save(directory, *args, **kwargs)
     if jax.process_index() == 0:
       self.finalize(directory)
-    utils.sync_global_devices('PyTreeCheckpointHandler:finalize')
+    utils.sync_global_processes('PyTreeCheckpointHandler:finalize')
 
 
 class SingleHostTest(parameterized.TestCase):

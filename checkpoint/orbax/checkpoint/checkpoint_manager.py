@@ -470,7 +470,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           and not self._directory.exists()
       ):
         self._directory.mkdir(parents=True)
-      utils.sync_global_devices('CheckpointManager:create_directory')
+      utils.sync_global_processes('CheckpointManager:create_directory')
 
 
     # Cleanup directories from previous runs that may not have been finalized.
@@ -777,7 +777,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if step not in self.all_steps():
       raise ValueError(f'Requested deleting a non-existent step: {step}.')
     self._checkpoint_deleter.delete(step)
-    utils.sync_global_devices('CheckpointManager:deleted_step')
+    utils.sync_global_processes('CheckpointManager:deleted_step')
     for i, info in enumerate(self._checkpoints):
       if info.step == step:
         self._checkpoints.pop(i)
@@ -905,8 +905,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             self._step_name_format,
             False,  # no background thread
         ).delete(step)
-
-      utils.sync_global_devices('CheckpointManager:delete_unfinalized_step_gcs')
+      utils.sync_global_processes(
+          'CheckpointManager:delete_unfinalized_step_gcs'
+      )
 
     self._checkpointer.save(save_directory, args=args)
 
@@ -923,7 +924,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # Sync needed to ensure that old steps to remove are retrieved before
     # actually deleting them during finalize, since retrieval can involve
     # looking at the directory.
-    utils.sync_global_devices('CheckpointManager:old_steps_to_remove')
+    utils.sync_global_processes('CheckpointManager:old_steps_to_remove')
 
     assert self._finalize_thread is None
     if is_async_checkpointer(self._checkpointer):
@@ -936,7 +937,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     else:
       self._finalize(save_directory, steps_to_remove)
       logging.info('Finished synchronous save.')
-      utils.sync_global_devices('CheckpointManager:finalize')
+      utils.sync_global_processes('CheckpointManager:finalize')
     return True
 
   def restore(
@@ -1276,7 +1277,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # Additional work is being done on process 0 of the finalize threads.
       # When joining the threads, we must wait for all threads to complete
       # before proceeding.
-      utils.sync_global_devices('CheckpointManager:join_finalize_thread')
+      utils.sync_global_processes('CheckpointManager:join_finalize_thread')
 
   def check_for_errors(self):
     """See superclass documentation."""

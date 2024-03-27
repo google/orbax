@@ -10,20 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Added
 - Add CheckpointManagerOptions.enable_background_delete to avoid blocking 
   the manager.save() code path
+- `broadcast_one_to_some` function.
 
 ### Changed
 - CheckpointManager is defined as a ContextManager directly
 - checkpoint_manager_context is deprecated
+- Refactored to create `multihost_utils` module.
+
 
 ## [0.5.7] - 2024-03-20
 
-## Added
+### Added
 - Added Zarr3 support for numpy array
 - Added PyTreeSaveArgs.ocdbt_target_data_file_size to control the 
   target_data_file_size when OCDBT is enabled
 - Expanded skeleton of `emergency.CheckpointManager`.
 
-## Fixed
+### Fixed
 - Fix TypeHandler Registry errors for `empty ([], {}, None)` values with
  `SaveArgs(aggregate=False)`.
 

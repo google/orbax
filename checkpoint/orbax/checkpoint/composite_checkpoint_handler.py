@@ -347,7 +347,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     if utils.is_primary_host(self._primary_host):
       for path in item_directories:
         path.mkdir(parents=False, exist_ok=False)
-    utils.sync_global_devices('CompositeCheckpointHandler:create_item_subdirs')
+    utils.sync_global_processes(
+        'CompositeCheckpointHandler:create_item_subdirs'
+    )
 
     # Sort keys to maintain consistent ordering across processes, otherwise
     # we may hit timeouts if processes wait at different barriers in per-item

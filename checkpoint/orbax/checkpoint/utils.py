@@ -15,7 +15,7 @@
 """Utility functions for Orbax.
 
 TODO(b/266449081) Increase unit test coverage.
-TODO(b/306715247) Move multihost_utils functions to new dedicated module.
+TODO(b/306715247) Move multihost functions to new dedicated module.
 """
 
 import asyncio
@@ -29,9 +29,9 @@ from typing import Any, List, Optional, Tuple, Union
 from absl import logging
 from etils import epath
 import jax
-from jax.experimental import multihost_utils
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint import multihost
 from orbax.checkpoint import value_metadata
 from orbax.checkpoint.path import step as step_lib
 
@@ -58,38 +58,10 @@ _LAST_CHECKPOINT_WRITE_TIME = time.time()
 CheckpointDirs = Tuple[str, str]
 PyTree = Any
 
-
-
-
-def should_skip_device_sync() -> bool:
-  return False
-
-
-def sync_global_devices(name: str):
-  """Thin wrapper to provide additional features support."""
-  if should_skip_device_sync():
-    logging.info('Skipping global device sync, barrier name: %s', name)
-    return
-  logging.debug('sync_global_devices: %s', name)
-  sync_start_time = time.time()
-  multihost_utils.sync_global_devices(name)
-  # This may end up just being too noisy given how many barriers there are, but
-  # it does represent how long different processes waited around waiting for
-  # other processes to reach a barrier.
-  jax.monitoring.record_event_duration_secs(
-      '/jax/checkpoint/sync_global_devices_duration_sec',
-      time.time() - sync_start_time,
-  )
-
-
-def broadcast_one_to_all(pytree: PyTree) -> PyTree:
-  """Thin wrapper to provide additional features support."""
-  return multihost_utils.broadcast_one_to_all(pytree)
-
-
-def reached_preemption(step: int) -> bool:
-  """Returns True if a preemption sync point has been reached."""
-  return multihost_utils.reached_preemption_sync_point(step)
+sync_global_processes = multihost.sync_global_processes
+sync_global_devices = multihost.sync_global_processes
+broadcast_one_to_all = multihost.broadcast_one_to_all
+reached_preemption = multihost.reached_preemption
 
 
 def _wrap(func):
@@ -447,7 +419,7 @@ def cleanup_tmp_directories(
     for tmp_file in tmp_files:
       (directory / tmp_file).rmtree()
 
-  sync_global_devices('cleanup_tmp_dirs')
+  sync_global_processes('cleanup_tmp_dirs')
 
 
 def is_gcs_path(path: epath.Path):
@@ -461,7 +433,9 @@ def get_tmp_directory(path: epath.Path) -> epath.Path:
   now = time.time()
   sec = int(now)
   usec = int((now - sec) * 1000000)
-  timestamp = broadcast_one_to_all((np.int32(sec), np.int32(usec)))
+  timestamp = multihost.broadcast_one_to_all(
+      (np.int32(sec), np.int32(usec))
+  )
   return epath.Path(path.parent) / (
       path.name + TMP_DIR_SUFFIX + f'{timestamp[0]}{timestamp[1]:06}'
   )
@@ -525,7 +499,7 @@ def create_tmp_directory(
 
   # Sync before existence is checked and directory is created because there are
   # additional existence checks happening in the callers of this function.
-  sync_global_devices('create_tmp_directory:pre')
+  sync_global_processes('create_tmp_directory:pre')
 
   if is_primary_host(primary_host):
     if tmp_dir.exists():
@@ -550,7 +524,7 @@ def create_tmp_directory(
         )
     tmp_dir.mkdir(parents=True)
 
-  sync_global_devices('create_tmp_directory:post')
+  sync_global_processes('create_tmp_directory:post')
   return tmp_dir
 
 
@@ -699,7 +673,7 @@ def checkpoint_steps(
       steps = np.array(_checkpoint_steps(checkpoint_dir))
       assert len(steps) <= max_steps
       padded_step_list[0 : len(steps)] = steps
-    padded_step_list = multihost_utils.broadcast_one_to_all(padded_step_list)
+    padded_step_list = multihost.broadcast_one_to_all(padded_step_list)
     return [step for step in padded_step_list if step >= 0]
   return _checkpoint_steps(checkpoint_dir)
 

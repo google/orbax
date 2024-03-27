@@ -145,13 +145,13 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
     )
     ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)
     self._handler.save(tmpdir, args=ckpt_args)
-    utils.sync_global_devices('Checkpointer:write')
+    utils.sync_global_processes('Checkpointer:write')
 
     # Ensure save operation atomicity and record time saved by checkpoint.
     if utils.is_primary_host(self._primary_host):
       self._handler.finalize(tmpdir)
       utils.on_commit_callback(tmpdir, directory, checkpoint_start_time)
-    utils.sync_global_devices('Checkpointer:save')
+    utils.sync_global_processes('Checkpointer:save')
 
   def restore(self,
               directory: epath.PathLike,

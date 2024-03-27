@@ -5,12 +5,6 @@ General Utilities
 
 .. automodule:: orbax.checkpoint.utils
 
-Device sync
-------------------------
-.. autofunction:: should_skip_device_sync
-.. autofunction:: sync_global_devices
-.. autofunction:: broadcast_one_to_all
-
 Async wrappers
 ------------------------
 .. autofunction:: async_makedirs
