@@ -15,16 +15,15 @@
 """A class providing functionalities for managing a series of checkpoints."""
 
 import concurrent.futures
-import contextlib
 import dataclasses
 import datetime
 import threading
 import time
 import typing
-from typing import Any, Callable, Container, List, Mapping, Optional, Sequence, Tuple, Type, Union
-
+from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Tuple, Type, Union
 from absl import logging
 from etils import epath
+from etils import epy
 import jax
 from jax.experimental.array_serialization import serialization
 from orbax.checkpoint import abstract_checkpoint_manager
@@ -38,7 +37,9 @@ from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
+from orbax.checkpoint.path import deleter
 from orbax.checkpoint.path import step as step_lib
+from typing_extensions import Self  # for Python version < 3.11
 
 
 PyTree = Any
@@ -193,6 +194,10 @@ class CheckpointManagerOptions:
     deleted from the file system. Useful if checkpoint deletion is time
     consuming. By default, delete the checkpoint assets. Ignored if file system
     is Google Cloud Storage (directory is prefixed with gs://)
+  enable_background_delete: If True, old checkpoint deletions will be done in a
+    background thread, otherwise, it will be done at the end of each save.  When
+    it's enabled, make sure to call CheckpointManager.close() or use context to
+    make sure all old steps are deleted before exit.
   read_only: If True, then checkpoints save and delete are skipped. However,
     checkpoints restore works as usual.
   enable_async_checkpointing: If True, enables async checkpointing.
@@ -214,6 +219,7 @@ class CheckpointManagerOptions:
   save_on_steps: Optional[Container[int]] = None
   single_host_load_and_broadcast: bool = False
   todelete_subdir: Optional[str] = None
+  enable_background_delete: bool = False
   read_only: bool = False
   enable_async_checkpointing: bool = True
   async_options: Optional[AsyncOptions] = None
@@ -312,7 +318,7 @@ def _get_args_for_key(
   raise ValueError(f'Unknown key "{item_name}" in CompositeCheckpointHandler.')
 
 
-class CheckpointManager(AbstractCheckpointManager):
+class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   """A generic, synchronous AbstractCheckpointManager implementation."""
 
   def __init__(
@@ -470,6 +476,14 @@ class CheckpointManager(AbstractCheckpointManager):
     if self._options.cleanup_tmp_directories:
       self._cleanup_tmp_directories()
 
+    self._step_name_format = (
+        self._options.step_name_format
+        or step_lib.StandardNameFormat(
+            step_prefix=self._options.step_prefix,
+            step_format_fixed_length=self._options.step_format_fixed_length,
+        )
+    )
+
     self._checkpoints = self._create_checkpoints()
 
     if self._options.read_only and not self._metadata_path().exists():
@@ -480,6 +494,17 @@ class CheckpointManager(AbstractCheckpointManager):
       self._save_metadata(metadata)
 
     self._finalize_thread = None
+
+    self._checkpoint_deleter: deleter.CheckpointDeleter = (
+        deleter.create_checkpoint_deleter(
+            self._primary_host,
+            self._directory,
+            self._options.todelete_subdir,
+            self._step_name_format,
+            self._options.enable_background_delete,
+        )
+    )
+
     logging.info(
         'jax.process_index=%s, primary_host=%s. CheckpointManager created: %s',
         jax.process_index(),
@@ -715,14 +740,8 @@ class CheckpointManager(AbstractCheckpointManager):
       directory: epath.Path,
   ) -> epath.Path:
     """Returns the standardized path to a save directory for a single item."""
-    step_name_format = (
-        self._options.step_name_format
-        or step_lib.StandardNameFormat(
-            step_prefix=self._options.step_prefix,
-            step_format_fixed_length=self._options.step_format_fixed_length,
-        )
-    )
-    return step_lib.build_step_path(directory, step_name_format, step)
+
+    return step_lib.build_step_path(directory, self._step_name_format, step)
 
   def _get_write_step_directory(
       self, step: int, root_dir: epath.Path
@@ -742,13 +761,20 @@ class CheckpointManager(AbstractCheckpointManager):
     return utils.create_tmp_directory(directory)
 
   def delete(self, step: int):
-    """See superclass documentation."""
+    """See superclass documentation.
+
+    Delete can be run asynchronously if
+    CheckpointManagerOptions.enable_background_delete is set to True.
+
+    Args:
+      step: The step to delete.
+    """
     if self._options.read_only:
       logging.warning('%s is read only, delete will be skipped', self.directory)
       return
     if step not in self.all_steps():
       raise ValueError(f'Requested deleting a non-existent step: {step}.')
-    self._delete_directory(step)
+    self._checkpoint_deleter.delete(step)
     utils.sync_global_devices('CheckpointManager:deleted_step')
     for i, info in enumerate(self._checkpoints):
       if info.step == step:
@@ -868,7 +894,16 @@ class CheckpointManager(AbstractCheckpointManager):
             ' checkpoint before saving.',
             step,
         )
-        self._delete_directory(step)
+
+        # make sure to use a synchronous deleter here
+        deleter.create_checkpoint_deleter(
+            self._primary_host,
+            self._directory,
+            self._options.todelete_subdir,
+            self._step_name_format,
+            False,  # no background thread
+        ).delete(step)
+
       utils.sync_global_devices('CheckpointManager:delete_unfinalized_step_gcs')
 
     self._checkpointer.save(save_directory, args=args)
@@ -1111,34 +1146,6 @@ class CheckpointManager(AbstractCheckpointManager):
   def _cleanup_tmp_directories(self):
     utils.cleanup_tmp_directories(self.directory)
 
-  def _delete_directory(self, step: int):
-    """Deletes step dir or renames it if options.todelete_subdir is set.
-
-    See `CheckpointManagerOptions.todelete_subdir` for details.
-
-    Args:
-      step: checkpointing step number.
-    """
-    if not utils.is_primary_host(self._primary_host):
-      return
-
-    # Delete if storage is on gcs or todelete_subdir is not set.
-    if self._options.todelete_subdir is None or utils.is_gcs_path(
-        self.directory
-    ):
-      self._get_read_step_directory(step, self.directory).rmtree()
-      logging.info('Deleted step %d.', step)
-      return
-
-    # Rename step dir.
-    rename_dir = self.directory / self._options.todelete_subdir
-    if not rename_dir.exists():
-      rename_dir.mkdir(parents=True)
-    src = self._get_read_step_directory(step, self.directory)
-    dst = self._get_write_step_directory(step, rename_dir)
-    src.replace(dst)
-    logging.info('Renamed step %d (todelete_subdir option specified).', step)
-
   def _get_old_steps_to_remove(self) -> List[int]:
     """Returns checkpoints that should be deleted."""
     # Must have set max_to_keep in order to remove any checkpoints.
@@ -1156,17 +1163,11 @@ class CheckpointManager(AbstractCheckpointManager):
     )
 
     # Exclude the latest checkpoint, since it is not finalized.
-    step_name_format = (
-        self._options.step_name_format
-        or step_lib.StandardNameFormat(
-            step_prefix=self._options.step_prefix,
-            step_format_fixed_length=self._options.step_format_fixed_length,
-        )
-    )
+
     are_locked = utils.are_locked(
         self.directory,
         steps=tuple([info.step for info in self._checkpoints[:-1]]),
-        step_name_format=step_name_format,
+        step_name_format=self._step_name_format,
     )
     self._checkpoints[:-1] = [
         dataclasses.replace(info, is_locked=is_locked)
@@ -1324,8 +1325,7 @@ class CheckpointManager(AbstractCheckpointManager):
     # we will not proceed past this point.
     self._finalize_checkpoint(utils.step_from_checkpoint_name(directory.name))
     remove_steps_start_time = time.time()
-    for step in steps_to_remove:
-      self._delete_directory(step)
+    self._checkpoint_deleter.delete_steps(steps_to_remove)
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/remove_steps_duration_secs',
         time.time() - remove_steps_start_time,
@@ -1335,31 +1335,20 @@ class CheckpointManager(AbstractCheckpointManager):
     """See superclass documentation."""
     self.wait_until_finished()
     self._checkpointer.close()
+    self._checkpoint_deleter.close()
+
+  def __contextmanager__(
+      self,
+  ) -> Iterable[Self]:
+    try:
+      yield self
+    finally:
+      self.close()
 
 
-@contextlib.contextmanager
 def checkpoint_manager_context(*args, **kwargs):
-  """Context manager for CheckpointManager.
-
-  Initializes CheckpointManager and closes the object when the context is
-  exited.
-
-  Args:
-    *args: Arguments to initialize CheckpointManager.
-    **kwargs: Keyword arguments to initialize CheckpointManager.
-
-  Usage::
-
-    with checkpoint_manager_context(
-        directory, checkpointers, options) as mngr:
-      mngr.save(...)
-      mngr.all_steps()
-
-  Yields:
-    CheckpointManager
-  """
-  manager = CheckpointManager(*args, **kwargs)
-  try:
-    yield manager
-  finally:
-    manager.close()
+  logging.warn(
+      'This function is deprecated. Use `with CheckpointManager as manager:'
+      ' ...` directly.'
+  )
+  return CheckpointManager(*args, **kwargs)

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## Added
+- Add CheckpointManagerOptions.enable_background_delete to avoid blocking 
+  the manager.save() code path
+
+### Changed
+- CheckpointManager is defined as a ContextManager directly
+- checkpoint_manager_context is deprecated
+
 ## [0.5.7] - 2024-03-20
 
 ## Added
@@ -23,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Add new `step` module with step naming and query support.
+- Add new option `enable_background_delete` to CheckpointManager so that 
+ old checkpoints can be deleted in the background.
 
 ### Changed
 - Use step `NameFormat` and `StandardNameFormat` in Orbax `CheckpointManager`,
