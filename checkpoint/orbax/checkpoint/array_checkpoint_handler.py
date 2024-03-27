@@ -111,7 +111,6 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         f.result()  # Block on result.
 
     asyncio.run(async_save())
-    utils.sync_global_processes('ArrayCheckpointHandler:save')
 
   def restore(
       self,
@@ -168,7 +167,6 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           type_handler.deserialize([info], args=[restore_args])
       )[0]
 
-    utils.sync_global_processes('ArrayCheckpointHandler:restore')
     return result
 
   def finalize(self, directory: epath.Path):
