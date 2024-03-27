@@ -61,6 +61,7 @@ potential dangers a bit more apparent.
 replica zero along the first axis dimension reads the checkpoint then broadcasts
 to other replicas.
 - Added experimental_emergency_checkpoint
+- `ShardingMetadata` class that represents `jax.sharding.Sharding` properties but does not require accessing real devices.
 
 ## [0.5.3] - 2024-02-05
 

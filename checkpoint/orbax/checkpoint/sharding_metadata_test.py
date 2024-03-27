@@ -16,7 +16,6 @@ from absl.testing import absltest
 import jax
 import numpy as np
 from orbax.checkpoint import sharding_metadata
-import pytest
 
 
 class TestShardingMetadata(absltest.TestCase):
@@ -137,8 +136,14 @@ class TestShardingMetadata(absltest.TestCase):
 
   def test_convert_to_jax_sharding_unsupported_types(self):
     jax_sharding = jax.sharding.PositionalSharding(jax.devices())
-    with pytest.raises(NotImplementedError):
+    warning_message = (
+        "Conversion for <class 'jax._src.sharding_impls.PositionalSharding'>"
+        " has not been implemented."
+    )
+    with self.assertLogs(level="WARNING") as log_output:
       sharding_metadata.from_jax_sharding(jax_sharding)
+      self.assertEqual(log_output[0][0].message, warning_message)
+
 
 if __name__ == "__main__":
   absltest.main()
