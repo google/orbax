@@ -167,6 +167,7 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
     ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
     restored = self._handler.restore(directory, args=ckpt_args)
     logging.info('Finished restoring checkpoint from %s.', directory)
+    utils.sync_global_processes('Checkpointer:restore')
     return restored
 
   def metadata(self, directory: epath.PathLike) -> Optional[Any]:
