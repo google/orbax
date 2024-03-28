@@ -30,7 +30,6 @@ from orbax.checkpoint import test_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 
-
 PyTree = Any
 SaveArgs = type_handlers.SaveArgs
 StandardSaveArgs = standard_checkpoint_handler.StandardSaveArgs
@@ -43,6 +42,7 @@ class StandardCheckpointHandler(
 
   def save(self, directory, *args, **kwargs):
     super().save(directory, *args, **kwargs)
+    utils.sync_global_processes('StandardCheckpointHandler:save')
     if jax.process_index() == 0:
       self.finalize(directory)
     utils.sync_global_processes('StandardCheckpointHandler:finalize')
