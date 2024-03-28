@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A class providing emergency checkpoint management. 
+"""A class providing emergency checkpoint management.
 
 
 This class is experimental; do not use without specific approval.
@@ -109,10 +109,88 @@ class CheckpointManagerOptions:
   async_options: checkpoint_manager.AsyncOptions | None = None
 
 
-# TODO(b/330585086) Break out separate LocalCheckpointManager where we
-# concentrate logic specific to working with the local directory.
+class LocalCheckpointManager(checkpoint_manager.CheckpointManager):
+  """A checkpoint manager that checkpoints to local storage."""
+
+  # TODO(b/330585086) Allow configuration of global mesh describing slices.
+  # Validate against global meshes used for arrays in state.
+  def __init__(
+      self,
+      directory: epath.PathLike,
+      # TODO(b/330585086) Support arbitrary items beyond state. We will have
+      # to evaluate whether arbitrary items can be a good fit for local
+      # checkpointing, given restore+broadcast requirements.
+      state_handler: CheckpointHandler,
+      *,
+      options: CheckpointManagerOptions | None = None,
+      metadata: dict[str, Any] | None = None,
+  ):
+    # TODO(b/330585086): Fully support options.
+    options = options or CheckpointManagerOptions()
+    local_options = checkpoint_manager.CheckpointManagerOptions(
+        save_interval_steps=options.local.save_interval_steps,
+        max_to_keep=options.local.max_to_keep,
+        step_name_format=options.step_name_format,
+        create=options.create,
+        cleanup_tmp_directories=options.cleanup_tmp_directories,
+        async_options=options.async_options,
+    )
+
+    super().__init__(
+        directory,
+        options=local_options,
+        metadata=metadata,
+        item_handlers=state_handler,
+        primary_host=None,
+    )
+
+  def _is_equal_on_all_hosts(self, value: int | float) -> bool:
+    """return true if all `values` are equal on all hosts."""
+
+    global_mesh = jax.sharding.Mesh(
+        np.array(jax.devices()).reshape(
+            jax.process_count(), jax.local_device_count()
+        ),
+        ['x', 'y'],
+    )
+    pspecs = jax.sharding.PartitionSpec('x', None)
+
+    arr = multihost_utils.host_local_array_to_global_array(
+        np.array([value]),
+        global_mesh,
+        pspecs,
+    )
+
+    # calculate the global range, eg. (max - min)
+    @jax.jit
+    def global_ptp(x):
+      return jnp.ptp(x)
+
+    ptp = global_ptp(arr)
+    return ptp.addressable_data(0) == 0
+
+  def latest_step(self) -> int | None:
+    """Returns the latest step saved in the local storage.
+
+    TODO(b/330585086) Currently only returns latest step if all hosts have the
+    same step, otherwise, None.Still needs to identify the latest step if not
+    all hosts have the same step.
+
+    Returns None if no steps have been saved.
+
+    Returns:
+      A step (int) or None if no steps are present.
+    """
+    local_latest = super().latest_step() or -1
+
+    if self._is_equal_on_all_hosts(local_latest):
+      return local_latest if local_latest != -1 else None
+    else:
+      return None
+
+
 class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
-  """A checkpoint manager that stores checkpoint to local storage."""
+  """A checkpoint manager that checkpoints to local and/or persistent storage."""
 
   # TODO(b/330585086) Allow configuration of global mesh describing slices.
   # Validate against global meshes used for arrays in state.
@@ -131,21 +209,12 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
   ):
     # TODO(b/330585086): Fully support options.
     options = options or CheckpointManagerOptions()
-    local_options = checkpoint_manager.CheckpointManagerOptions(
-        save_interval_steps=options.local.save_interval_steps,
-        max_to_keep=options.local.max_to_keep,
-        step_name_format=options.step_name_format,
-        create=options.create,
-        cleanup_tmp_directories=options.cleanup_tmp_directories,
-        async_options=options.async_options,
-    )
 
-    self._local_checkpoint_manager = checkpoint_manager.CheckpointManager(
+    self._local_checkpoint_manager = LocalCheckpointManager(
         local_directory,
-        options=local_options,
+        local_state_handler,
+        options=options,
         metadata=metadata,
-        item_handlers=local_state_handler,
-        primary_host=None,
     )
     # TODO(b/330585086): Build options for persistent CheckpointManager.
     persistent_options = checkpoint_manager.CheckpointManagerOptions(
@@ -183,51 +252,19 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
     # TODO(b/330585086) Implement.
     raise NotImplementedError('Implement: b/330585086.')
 
-  def _is_equal_on_all_hosts(self, value: int | float) -> bool:
-    """return true if all `values` are equal on all hosts."""
-
-    global_mesh = jax.sharding.Mesh(
-        np.array(jax.devices()).reshape(
-            jax.process_count(), jax.local_device_count()
-        ),
-        ['x', 'y'],
-    )
-    pspecs = jax.sharding.PartitionSpec('x', None)
-
-    arr = multihost_utils.host_local_array_to_global_array(
-        np.array([value]),
-        global_mesh,
-        pspecs,
-    )
-
-    # calculate the global range, eg. (max - min)
-    @jax.jit
-    def global_ptp(x):
-      return jnp.ptp(x)
-
-    ptp = global_ptp(arr)
-    return ptp.addressable_data(0) == 0
-
   def latest_step(self) -> int | None:
     """Returns the latest step saved.
 
     Includes steps located in local as well as persistent storage.
 
-    TODO(b/330585086) Currently only returns latest step if all hosts have the
-    same step, otherwise, None. Also needs to fall back to persistent storage
-    if no checkpoints are available in local.
-
-    Returns None if no steps have been saved.
+    TODO(b/330585086) Currently only returns latest step returned by the local
+    checkpoint manager. Still needs to fall back to persistent storage if no
+    latest step can be identified in local storage.
 
     Returns:
       A step (int) or None if no steps are present.
     """
-    local_latest = self._local_checkpoint_manager.latest_step() or -1
-
-    if self._is_equal_on_all_hosts(local_latest):
-      return local_latest if local_latest != -1 else None
-    else:
-      return None
+    return self._local_checkpoint_manager.latest_step()
 
   def best_step(self) -> int | None:
     """Returns the best step saved, as defined by `options.best_fn`.
