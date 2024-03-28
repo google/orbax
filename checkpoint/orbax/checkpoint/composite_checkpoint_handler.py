@@ -381,7 +381,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
           f.result()
 
     asyncio.run(async_save())
-    utils.sync_global_devices('CompositeCheckpointHandler:save')
 
   def _items_exist(
       self, directory: epath.Path, item_names: List[str]

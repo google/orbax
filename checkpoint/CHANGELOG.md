@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CheckpointManager is defined as a ContextManager directly
 - checkpoint_manager_context is deprecated
 - Refactored to create `multihost_utils` module.
-
+- Remove unnecessary barriers in CheckpointHandlers.
 
 ## [0.5.7] - 2024-03-20
 

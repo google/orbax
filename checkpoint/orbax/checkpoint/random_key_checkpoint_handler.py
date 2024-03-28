@@ -29,7 +29,6 @@ from orbax.checkpoint import future
 from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import type_handlers
-from orbax.checkpoint import utils
 
 NumpyRandomKeyType = Union[tuple, dict]
 
@@ -135,7 +134,6 @@ class BaseRandomKeyCheckpointHandler(
         f.result()  # Block on result.
 
     asyncio.run(async_save())
-    utils.sync_global_processes('RandomKeyCheckpointHandler:save')
 
   def restore(
       self,
@@ -160,11 +158,9 @@ class BaseRandomKeyCheckpointHandler(
         }),
     )
 
-    final_result = self.post_restore(
+    return self.post_restore(
         result[self._key_name], result[self._key_metadata]
     )
-    utils.sync_global_processes('RandomKeyCheckpointHandler:restore')
-    return final_result
 
   def finalize(self, directory: epath.Path):
     self._handler.finalize(directory)

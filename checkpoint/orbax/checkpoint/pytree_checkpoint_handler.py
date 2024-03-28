@@ -928,7 +928,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           f.result()  # Block on result.
 
     asyncio.run(async_save(directory, *args, **kwargs))
-    utils.sync_global_processes('PyTreeCheckpointHandler:save')
 
   async def _maybe_deserialize(
       self, structure: PyTree, param_infos: PyTree, restore_args: PyTree
@@ -1140,7 +1139,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           transforms,
           transforms_default_to_original,
       )
-    utils.sync_global_processes('PyTreeCheckpointHandler:restore')
 
     if logging.level_debug():
       logging.debug('param_infos: %s', param_infos)
