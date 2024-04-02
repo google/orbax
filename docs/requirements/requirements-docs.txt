@@ -11,3 +11,4 @@ IPython==7.16.3
 ipykernel==5.3.4
 cached_property
 importlib_resources
+tensorflow>=2.15.0
