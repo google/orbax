@@ -32,6 +32,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import multihost
+from orbax.checkpoint import sharding_metadata
 from orbax.checkpoint import value_metadata
 from orbax.checkpoint.path import step as step_lib
 
@@ -854,9 +855,9 @@ def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
     return jax.ShapeDtypeStruct(
         shape=x.shape,
         dtype=dtype,
-        sharding=x.sharding
-        if isinstance(x.sharding, jax.sharding.Sharding)
-        else x.sharding.to_jax_sharding(),
+        sharding=x.sharding.to_jax_sharding()
+        if isinstance(x.sharding, sharding_metadata.ShardingMetadata)
+        else x.sharding,
     )
   else:
     raise ValueError(f'Unexpected type: {type(x)}.')
