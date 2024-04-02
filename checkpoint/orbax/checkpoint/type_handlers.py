@@ -1173,10 +1173,14 @@ class SingleReplicaArrayRestoreArgs(ArrayRestoreArgs):
     The index of the axis dimension of the array, along which the replicas are
     defined. Currently works only when replica is taken along the first
     dimension, i.e. replica_axis_index is 0.
+  primary_replica_id:
+    The id of the replica hosts that is used to load and broadcast the
+    checkpoint.
   """
 
   single_replica_sharding: Optional[jax.sharding.NamedSharding] = None
   replica_axis_index: Optional[int] = 0
+  primary_replica_id: Optional[int] = 0
 
 
 class ArrayHandler(TypeHandler):
@@ -1617,32 +1621,40 @@ class SingleReplicaArrayHandler(ArrayHandler):
     replica_axis_index = None
     for info, arg in zip(infos, args):
       arg = cast(SingleReplicaArrayRestoreArgs, arg)
-      if isinstance(arg, SingleReplicaArrayRestoreArgs):
-        if arg.sharding is not None:
-          sharding = arg.sharding
-          shardings.append(sharding)
-          replica_axis_index = arg.replica_axis_index
-          primary_replica_ids, primary_replica_pids = (
-              utils.get_primary_replica_ids_and_pids(
-                  replica_axis_index, sharding.mesh  # pytype: disable=attribute-error
-              )
-          )
-          if not _is_sharding_valid(primary_replica_ids, primary_replica_pids):
-            raise ValueError(
-                'The provided sharding configuration is invalid because it'
-                ' includes a host with devices assigned to the primary replica'
-                ' and devices outside of the primary replica.'
-            )
-        else:
-          raise ValueError('Must provide `sharding`.')
 
-        if arg.single_replica_sharding is not None:
-          single_replica_sharding = arg.single_replica_sharding
-          single_replica_shardings.append(single_replica_sharding)
-        else:
-          raise ValueError('Must provide `sharding`.')
-      else:
-        raise ValueError('Must provide `SingleReplicaArrayRestoreArgs`.')
+      if not isinstance(arg, SingleReplicaArrayRestoreArgs):
+        raise ValueError(
+            'Must provide `SingleReplicaArrayRestoreArgs`, but got'
+            f' {type(arg)}.'
+        )
+
+      if arg.sharding is None:
+        raise ValueError('Must provide `sharding`.')
+
+      sharding = arg.sharding
+      shardings.append(sharding)
+      replica_axis_index = arg.replica_axis_index
+      primary_replica_ids, primary_replica_pids = (
+          utils.get_primary_replica_ids_and_pids(
+              replica_axis_idx=replica_axis_index,
+              mesh=sharding.mesh,  # pytype: disable=attribute-error
+              primary_replica_id=arg.primary_replica_id,
+          )
+      )
+      if not _is_sharding_valid(primary_replica_ids, primary_replica_pids):
+        raise ValueError(
+            'The provided sharding configuration is invalid because it'
+            ' includes a host with devices assigned to the primary replica and'
+            ' devices outside of the primary replica.'
+            f' primary_replica_ids={primary_replica_ids}'
+            f', primary_replica_pids={primary_replica_pids}'
+        )
+
+      if arg.single_replica_sharding is None:
+        raise ValueError('Must provide `single_replica_sharding`.')
+      single_replica_sharding = arg.single_replica_sharding
+      single_replica_shardings.append(single_replica_sharding)
+
       if not info.is_ocdbt_checkpoint:
         await _assert_parameter_files_exist(  # pylint: disable=protected-access
             info.path, self._metadata_key
@@ -1674,7 +1686,18 @@ class SingleReplicaArrayHandler(ArrayHandler):
       )
 
     if _is_host_for_primary_replica(primary_replica_pids):
+      start_deserialization = time.time()
       deserialized = await asyncio.gather(*deserialize_ops)
+      deserialzation_elasped_s = time.time() - start_deserialization
+      jax.monitoring.record_event_duration_secs(
+          '/jax/checkpoint/read/primary_replica_deserialization_duration_secs',
+          deserialzation_elasped_s,
+      )
+      logging.info(
+          'Finished primary replica deserialization in %.2f',
+          deserialzation_elasped_s,
+      )
+
     else:
       single_replica_shardings = [arg.single_replica_sharding for arg in args]
       shape_dtype = [
@@ -1696,10 +1719,11 @@ class SingleReplicaArrayHandler(ArrayHandler):
     )
 
     jax.block_until_ready(shared_state)
-    end_broadcast = time.time()
-    logging.info(
-        'Finished broadcasting in %.2f', end_broadcast - start_broadcast
+    broadcast_elapsed_s = time.time() - start_broadcast
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/read/broadcast_duration_secs', broadcast_elapsed_s
     )
+    logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
     return shared_state
 
 

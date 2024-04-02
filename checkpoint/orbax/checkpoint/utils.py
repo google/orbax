@@ -924,12 +924,12 @@ def broadcast_one_replica_to_all(
 def get_primary_replica_ids_and_pids(
     replica_axis_idx: int,
     mesh: jax.sharding.Mesh,
-    primary_replica_idx: int = 0,
+    primary_replica_id: int,
 ):
   """Returns the primary replica ids and process ids."""
   replica_devices = np.take(
       mesh.devices,
-      primary_replica_idx,
+      primary_replica_id,
       axis=replica_axis_idx,
   ).flatten()
   pids = set([d.process_index for d in replica_devices])
