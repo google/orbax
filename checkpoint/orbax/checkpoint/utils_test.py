@@ -14,7 +14,7 @@
 
 """Test for utils.py."""
 
-from typing import Mapping, Sequence
+from typing import Any, Mapping, NamedTuple, Sequence
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -231,6 +231,17 @@ class UtilsTest(parameterized.TestCase):
         serialized, target=foo, keep_empty_nodes=False
     )
     test_utils.assert_tree_equal(self, foo, deserialized)
+
+  def test_serialize_namedtuple(self):
+    class SomeNamedTuple(NamedTuple):
+      b: Any
+      a: Any
+
+    tree = SomeNamedTuple(a=10, b=100)
+
+    serialized = SomeNamedTuple(a=10, b=100)
+    deserialized = utils.deserialize_tree(serialized, target=tree)
+    test_utils.assert_tree_equal(self, tree, deserialized)
 
   def test_serialize_nested_class(self):
     @flax.struct.dataclass
