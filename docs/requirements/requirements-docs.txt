@@ -2,6 +2,13 @@ sphinx>=6.0.0
 sphinx-autodoc-typehints
 sphinx-book-theme>=1.0.1  # Older versions fail to pin pydata-sphinx-theme
 sphinx-copybutton>=0.5.0
+sphinxcontrib-katex>=0.9.0
+sphinxcontrib-bibtex==2.4.2
+sphinxcontrib-applehelp==1.0.3
+sphinxcontrib-devhelp==1.0.2
+sphinxcontrib-htmlhelp==2.0.1
+sphinxcontrib-serializinghtml==1.1.5
+sphinxcontrib-qthelp==1.0.3
 sphinx-remove-toctrees
 sphinx-design
 myst-nb>=1.0.0
