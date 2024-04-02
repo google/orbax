@@ -21,6 +21,7 @@ from typing import Any, Callable, Optional
 import jax
 import tensorflow as tf
 
+ConfigProto = Any
 PyTree = Any
 SignatureDef = Any
 
@@ -285,7 +286,9 @@ class CallableSignatures:
     self._signatures = callable_signatures
 
   @classmethod
-  def from_saved_model(cls, model_dir: str, tags: list[str]):
+  def from_saved_model(
+      cls, model_dir: str, tags: list[str], sess_config: ConfigProto = None
+  ):
     """Loads a SavedModel and reconsruct its signatures as python callables.
 
     The signatures of the object loaded by the ``tf.saved_model.load`` API
@@ -307,12 +310,15 @@ class CallableSignatures:
       model_dir: SavedModel directory.
       tags: Tags to identify the metagraph to load. Same as the `tags` argument
         in tf.saved_model.load.
+      sess_config: (Optional.) A
+        [`ConfigProto`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/protobuf/config.proto)
+        protocol buffer with configuration options for the session.
 
     Returns:
       A mapping of signature names to the callables.
     """
     with tf.Graph().as_default():
-      sess = tf.compat.v1.Session()
+      sess = tf.compat.v1.Session(config=sess_config)
     meta_graph_def = tf.compat.v1.saved_model.loader.load(sess, tags, model_dir)
     return cls(sess, meta_graph_def.signature_def)
 
