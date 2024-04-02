@@ -19,6 +19,7 @@ TODO(b/306715247) Move multihost functions to new dedicated module.
 """
 
 import asyncio
+from collections import abc
 import concurrent.futures
 import functools
 import os
@@ -276,7 +277,11 @@ def deserialize_tree(
       # Special case to support Pax.
       if not isinstance(result, list) and key_name not in result:
         key_name = str(key_name)
-      result = result[key_name]
+      if (isinstance(key, jax.tree_util.GetAttrKey) and
+          not isinstance(result, abc.Mapping)):
+        result = getattr(result, key_name)
+      else:
+        result = result[key_name]
     return result
 
   return jax.tree_util.tree_map_with_path(
