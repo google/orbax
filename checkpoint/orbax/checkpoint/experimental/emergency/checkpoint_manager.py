@@ -134,6 +134,9 @@ class LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         create=options.create,
         cleanup_tmp_directories=options.cleanup_tmp_directories,
         async_options=options.async_options,
+        multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
+            primary_host=None
+        ),
     )
 
     super().__init__(
@@ -141,7 +144,6 @@ class LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         options=local_options,
         metadata=metadata,
         item_handlers=state_handler,
-        primary_host=None,
     )
 
   def _is_equal_on_all_hosts(self, value: int | float) -> bool:

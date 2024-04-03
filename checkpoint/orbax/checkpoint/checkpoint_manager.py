@@ -20,7 +20,7 @@ import datetime
 import threading
 import time
 import typing
-from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Tuple, Type, Union
+from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Type, Union
 from absl import logging
 from etils import epath
 from etils import epy
@@ -127,6 +127,25 @@ class AsyncOptions:
   barrier_sync_fn: Optional[async_checkpointer.BarrierSyncFn] = None
 
 
+@dataclasses.dataclass
+class MultiprocessingOptions:
+  """Options used to configure multiprocessing behavior.
+
+  primary_host: the host id of the primary host.  Default to 0.  If it's set
+    to None, then all hosts will be considered as primary.  It's useful in
+    the case that all hosts are only working with local storage.
+  active_processes: A set of process indices (corresponding to
+    `jax.process_index()`) over which `CheckpointManager` is expected to be
+    called. This makes it possible to have a `CheckpointManager` instance
+    that runs over a subset of processes, rather than all processes as it is
+    normally expected to do. If specified, `primary_host` must belong to
+    `active_processes`.
+  """
+
+  primary_host: Optional[int] = 0
+  active_processes: Optional[Set[int]] = None
+
+
 # TODO(b/309965339) Set todelete_subdir defaults if directory is on CNS.
 @dataclasses.dataclass
 class CheckpointManagerOptions:
@@ -223,6 +242,9 @@ class CheckpointManagerOptions:
   read_only: bool = False
   enable_async_checkpointing: bool = True
   async_options: Optional[AsyncOptions] = None
+  multiprocessing_options: MultiprocessingOptions = dataclasses.field(
+      default_factory=MultiprocessingOptions
+  )
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -333,7 +355,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       item_handlers: Optional[
           Union[CheckpointHandler, CheckpointHandlersDict]
       ] = None,
-      primary_host: Optional[int] = 0,
   ):
     """CheckpointManager constructor.
 
@@ -415,9 +436,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         The item name key may or may not be present in `item_names`.
         Alternatively, a single CheckpointHandler may be provided, in which case
         `save` and `restore` should always be called in a single item context.
-      primary_host: the host id of the primary host.  Default to 0.  If it's set
-        to None, then all hosts will be considered as primary.  It's useful in
-        the case that all hosts are only working with local storage.
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
 
@@ -425,7 +443,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if self._options.best_mode not in ['min', 'max']:
       raise ValueError('`best_mode` must be one of: "min", "max"')
 
-    self._primary_host = primary_host
+    self._multiprocessing_options = (
+        self._options.multiprocessing_options or MultiprocessingOptions()
+    )
 
     if checkpointers and item_names:
       raise ValueError(
@@ -466,11 +486,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       logging.warning('Given directory is read only=%s', self._directory)
     if self._options.create:
       if (
-          utils.is_primary_host(self._primary_host)
+          utils.is_primary_host(self._multiprocessing_options.primary_host)
           and not self._directory.exists()
       ):
         self._directory.mkdir(parents=True)
-      utils.sync_global_processes('CheckpointManager:create_directory')
+      utils.sync_global_processes(
+          'CheckpointManager:create_directory',
+          processes=self._multiprocessing_options.active_processes,
+      )
 
 
     # Cleanup directories from previous runs that may not have been finalized.
@@ -487,6 +510,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._checkpoints = self._create_checkpoints()
 
+    self._metadata_checkpointer = Checkpointer(
+        JsonCheckpointHandler(
+            primary_host=self._multiprocessing_options.primary_host
+        ),
+        primary_host=self._multiprocessing_options.primary_host,
+        active_processes=self._multiprocessing_options.active_processes,
+    )
     if self._options.read_only and not self._metadata_path().exists():
       self._metadata = {} if metadata is None else metadata
     else:
@@ -498,7 +528,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._checkpoint_deleter: deleter.CheckpointDeleter = (
         deleter.create_checkpoint_deleter(
-            self._primary_host,
+            self._multiprocessing_options.primary_host,
             self._directory,
             self._options.todelete_subdir,
             self._step_name_format,
@@ -509,7 +539,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     logging.info(
         'jax.process_index=%s, primary_host=%s. CheckpointManager created: %s',
         jax.process_index(),
-        self._primary_host,
+        self._multiprocessing_options.primary_host,
         self,
     )
 
@@ -524,15 +554,22 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         return async_checkpointer.AsyncCheckpointer(
             handler,
             timeout_secs=options.async_options.timeout_secs,
-            primary_host=self._primary_host,
+            primary_host=self._multiprocessing_options.primary_host,
             barrier_sync_fn=options.async_options.barrier_sync_fn,
+            active_processes=self._multiprocessing_options.active_processes,
         )
       else:
         return async_checkpointer.AsyncCheckpointer(
-            handler, primary_host=self._primary_host
+            handler,
+            primary_host=self._multiprocessing_options.primary_host,
+            active_processes=self._multiprocessing_options.active_processes,
         )
     else:
-      return Checkpointer(handler, primary_host=self._primary_host)
+      return Checkpointer(
+          handler,
+          primary_host=self._multiprocessing_options.primary_host,
+          active_processes=self._multiprocessing_options.active_processes,
+      )
 
   def _configure_checkpointer_legacy_init(
       self,
@@ -540,9 +577,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       options: CheckpointManagerOptions,
   ) -> Checkpointer:
     """Initializes _CompositeCheckpointer with legacy style checkpointers."""
-    if self._primary_host != 0:
+    if self._multiprocessing_options.primary_host != 0:
       raise ValueError(
-          f'`primary_host`={self._primary_host} is not supported in legacy API.'
+          f'`primary_host`={self._multiprocessing_options.primary_host} is not'
+          ' supported in legacy API.'
       )
 
     item_handlers = {}
@@ -599,7 +637,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
     return self._configure_checkpointer_common(
         CompositeCheckpointHandler(
-            primary_host=self._primary_host,
+            composite_options=composite_checkpoint_handler.CompositeOptions(
+                primary_host=self._multiprocessing_options.primary_host,
+            ),
             **item_handlers,
         ),
         options,
@@ -610,10 +650,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   def _validate_handler(self, handler):
     if (
         hasattr(handler, '_primary_host')
-        and handler._primary_host != self._primary_host  # pylint: disable=protected-access
+        and handler._primary_host != self._multiprocessing_options.primary_host  # pylint: disable=protected-access
     ):
       raise ValueError(
-          f'Inconsistent primary_host, CheckpointManager={self._primary_host}, '
+          'Inconsistent primary_host,'
+          f' CheckpointManager={self._multiprocessing_options.primary_host}, '
           f'handler[{type(handler)}]={handler._primary_host} '  # pylint: disable=protected-access
       )
 
@@ -625,7 +666,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       single_item: bool,
   ) -> Checkpointer:
     """Initializes _CompositeCheckpointer given `item_names`."""
-    if self._primary_host is None and item_handlers is None:
+    if (
+        self._multiprocessing_options.primary_host is None
+        and item_handlers is None
+    ):
       raise ValueError(
           'When primary_host is set to None, item_handlers must be provided to'
           ' match with the primary_host setting.'
@@ -658,13 +702,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
     if options.best_fn:
       all_item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
-          filename=METRIC_ITEM_NAME, primary_host=self._primary_host
+          filename=METRIC_ITEM_NAME,
+          primary_host=self._multiprocessing_options.primary_host,
       )
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
     return self._configure_checkpointer_common(
         CompositeCheckpointHandler(
-            primary_host=self._primary_host,
+            composite_options=composite_checkpoint_handler.CompositeOptions(
+                primary_host=self._multiprocessing_options.primary_host,
+            ),
             **all_item_handlers,
         ),
         options,
@@ -760,7 +807,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def _create_tmp_directory(self, directory: epath.Path) -> epath.Path:
     """Creates a tmp directory based on the given directory."""
-    return utils.create_tmp_directory(directory)
+    return utils.create_tmp_directory(
+        directory,
+        primary_host=self._multiprocessing_options.primary_host,
+        active_processes=self._multiprocessing_options.active_processes,
+    )
 
   def delete(self, step: int):
     """See superclass documentation.
@@ -777,7 +828,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if step not in self.all_steps():
       raise ValueError(f'Requested deleting a non-existent step: {step}.')
     self._checkpoint_deleter.delete(step)
-    utils.sync_global_processes('CheckpointManager:deleted_step')
+    utils.sync_global_processes(
+        'CheckpointManager:deleted_step',
+        processes=self._multiprocessing_options.active_processes,
+    )
     for i, info in enumerate(self._checkpoints):
       if info.step == step:
         self._checkpoints.pop(i)
@@ -886,7 +940,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # existing folder.
     if utils.is_gcs_path(self.directory):
       if (
-          utils.is_primary_host(self._primary_host)
+          utils.is_primary_host(self._multiprocessing_options.primary_host)
           and save_directory.exists()
           and utils.is_tmp_checkpoint(save_directory)
       ):
@@ -899,14 +953,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
         # make sure to use a synchronous deleter here
         deleter.create_checkpoint_deleter(
-            self._primary_host,
+            self._multiprocessing_options.primary_host,
             self._directory,
             self._options.todelete_subdir,
             self._step_name_format,
             False,  # no background thread
         ).delete(step)
       utils.sync_global_processes(
-          'CheckpointManager:delete_unfinalized_step_gcs'
+          'CheckpointManager:delete_unfinalized_step_gcs',
+          processes=self._multiprocessing_options.active_processes,
       )
 
     self._checkpointer.save(save_directory, args=args)
@@ -924,7 +979,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # Sync needed to ensure that old steps to remove are retrieved before
     # actually deleting them during finalize, since retrieval can involve
     # looking at the directory.
-    utils.sync_global_processes('CheckpointManager:old_steps_to_remove')
+    utils.sync_global_processes(
+        'CheckpointManager:old_steps_to_remove',
+        processes=self._multiprocessing_options.active_processes,
+    )
 
     assert self._finalize_thread is None
     if is_async_checkpointer(self._checkpointer):
@@ -937,7 +995,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     else:
       self._finalize(save_directory, steps_to_remove)
       logging.info('Finished synchronous save.')
-      utils.sync_global_processes('CheckpointManager:finalize')
+      utils.sync_global_processes(
+          'CheckpointManager:finalize',
+          processes=self._multiprocessing_options.active_processes,
+      )
     return True
 
   def restore(
@@ -1109,16 +1170,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """Saves CheckpointManager level metadata, skips if already present."""
     path = self._metadata_path()
     if not path.exists():  # May have been created by a previous run.
-      checkpointer = Checkpointer(JsonCheckpointHandler())
-      checkpointer.save(path, metadata)
+      self._metadata_checkpointer.save(path, metadata)
 
   def metadata(self) -> Mapping[str, Any]:
     """See superclass documentation."""
     if self._metadata is None:
       path = self._metadata_path()
       if path.exists():
-        checkpointer = Checkpointer(JsonCheckpointHandler())
-        self._metadata = checkpointer.restore(path)
+        self._metadata = self._metadata_checkpointer.restore(path)
       else:
         self._metadata = {}
     return self._metadata
@@ -1147,7 +1206,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
 
   def _cleanup_tmp_directories(self):
-    utils.cleanup_tmp_directories(self.directory)
+    utils.cleanup_tmp_directories(
+        self.directory,
+        primary_host=self._multiprocessing_options.primary_host,
+        active_processes=self._multiprocessing_options.active_processes,
+    )
 
   def _get_old_steps_to_remove(self) -> List[int]:
     """Returns checkpoints that should be deleted."""
@@ -1277,7 +1340,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # Additional work is being done on process 0 of the finalize threads.
       # When joining the threads, we must wait for all threads to complete
       # before proceeding.
-      utils.sync_global_processes('CheckpointManager:join_finalize_thread')
+      utils.sync_global_processes(
+          'CheckpointManager:join_finalize_thread',
+          processes=self._multiprocessing_options.active_processes,
+      )
 
   def check_for_errors(self):
     """See superclass documentation."""
@@ -1293,7 +1359,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Args:
       step: finalized checkpoint step.
     """
-    if utils.is_primary_host(self._primary_host):
+    if utils.is_primary_host(self._multiprocessing_options.primary_host):
       try:
         self.check_for_errors()
       except Exception as e:  # pylint: disable=broad-except

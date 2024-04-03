@@ -35,6 +35,7 @@ CompositeCheckpointHandler = (
     composite_checkpoint_handler.CompositeCheckpointHandler
 )
 ProtoCheckpointHandler = proto_checkpoint_handler.ProtoCheckpointHandler
+CompositeOptions = composite_checkpoint_handler.CompositeOptions
 
 
 class CompositeArgsTest(absltest.TestCase):

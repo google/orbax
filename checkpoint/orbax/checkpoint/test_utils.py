@@ -19,12 +19,12 @@ import contextlib
 import functools
 import string
 import time
+import typing
 from typing import List, Optional, Tuple
 
 from absl import logging
 from etils import epath
 import jax
-from jax import sharding
 from jax.experimental import pjit
 from jax.experimental.array_serialization import serialization
 import jax.numpy as jnp
@@ -61,7 +61,7 @@ def save_fake_tmp_dir(
 def replicate_sharded_array(arr: jax.Array):
   """Returns the input array, but replicated across all devices."""
   mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
-  replicated_sharding = sharding.NamedSharding(
+  replicated_sharding = jax.sharding.NamedSharding(
       mesh,
       jax.sharding.PartitionSpec(
           None,
@@ -178,32 +178,61 @@ def setup_sharded_pytree(
   return pytree, mesh_tree, axes_tree
 
 
-def setup_sharded_array_for_broadcasting(
-    array_size: int,
-    shape: Tuple[int, ...],
+def setup_replica_sharded_arrays(
+    arrays: List[jax.Array],
+    mesh_shape: Tuple[int, ...],
     is_replica_first: Optional[bool] = True,
 ):
   """Creates a tuple of sharded arrays for testing."""
-
-  array = (np.arange(array_size*8).reshape((8, array_size)) * 1,
-           np.arange(array_size*16).reshape((16, array_size)) * 2,
-           np.arange(array_size*8).reshape((8, array_size)) * 3,
-           np.arange(array_size*16).reshape((16, array_size)) * 4,)
   devices = jax.devices()
   devices = np.asarray(devices)
 
-  dim = len(shape)
+  dim = len(mesh_shape)
   axis_names = list(string.ascii_lowercase)
-  mesh = jax.sharding.Mesh(
-      devices.reshape(shape), axis_names[-dim:]
-  )
+  mesh = jax.sharding.Mesh(devices.reshape(mesh_shape), axis_names[-dim:])
   if is_replica_first:
     mesh_axes = jax.sharding.PartitionSpec(None, axis_names[-dim+1:])
   else:
     mesh_axes = jax.sharding.PartitionSpec(axis_names[-dim:-1], None)
 
-  sharded_arr = [create_sharded_array(arr, mesh, mesh_axes) for arr in array]
-  return sharded_arr, mesh, mesh_axes
+  sharded_arrs = [create_sharded_array(arr, mesh, mesh_axes) for arr in arrays]
+  return sharded_arrs, mesh, mesh_axes
+
+
+def select_single_replica(
+    arrays: List[jax.Array], global_mesh: jax.sharding.Mesh
+) -> List[jax.Array]:
+  """Returns arrays sharded over single slice."""
+  slice_devices = global_mesh.devices[0]
+  single_slice_mesh = jax.sharding.Mesh(
+      slice_devices, global_mesh.axis_names[1:]
+  )
+
+  def _get_single_slice_sharding(arr: jax.Array):
+    sharding = typing.cast(jax.sharding.NamedSharding, arr.sharding)
+    return jax.sharding.NamedSharding(
+        single_slice_mesh,
+        jax.sharding.PartitionSpec(*sharding.spec),  # exclude 'replica' axis
+    )
+
+  single_slice_shardings = jax.tree_util.tree_map(
+      _get_single_slice_sharding,
+      arrays,
+  )
+
+  def _make_single_slice_array(
+      arr: jax.Array, single_slice_sharding: jax.sharding.NamedSharding
+  ):
+    data = [
+        arr.addressable_data(idx) for idx in range(len(arr.addressable_shards))
+    ]
+    return jax.make_array_from_single_device_arrays(
+        arr.shape, single_slice_sharding, data
+    )
+
+  return jax.tree_util.tree_map(
+      _make_single_slice_array, arrays, single_slice_shardings
+  )
 
 
 def is_leaf(x):
@@ -220,7 +249,9 @@ def create_sharded_array(arr, mesh, mesh_axes):
   if isinstance(arr, (int, float)):
     arr = np.asarray(arr)
   return jax.make_array_from_callback(
-      arr.shape, sharding.NamedSharding(mesh, mesh_axes), lambda idx: arr[idx]
+      arr.shape,
+      jax.sharding.NamedSharding(mesh, mesh_axes),
+      lambda idx: arr[idx],
   )
 
 

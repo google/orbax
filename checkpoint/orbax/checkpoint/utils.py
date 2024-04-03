@@ -24,7 +24,7 @@ import functools
 import os
 import re
 import time
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union, Set
 
 from absl import logging
 from etils import epath
@@ -410,7 +410,9 @@ def pytree_structure(directory: epath.PathLike) -> PyTree:
 
 
 def cleanup_tmp_directories(
-    directory: epath.PathLike, primary_host: Optional[int] = 0
+    directory: epath.PathLike,
+    primary_host: Optional[int] = 0,
+    active_processes: Optional[Set[int]] = None,
 ):
   """Cleanup steps in `directory` with tmp files, as these are not finalized."""
   directory = epath.Path(directory)
@@ -419,23 +421,36 @@ def cleanup_tmp_directories(
     tmp_files = tmp_checkpoints(directory)
     for tmp_file in tmp_files:
       (directory / tmp_file).rmtree()
-
-  sync_global_processes('cleanup_tmp_dirs')
+  sync_global_processes('cleanup_tmp_dirs', processes=active_processes)
 
 
 def is_gcs_path(path: epath.Path):
   return os.fspath(path).startswith(_GCS_PATH_PREFIX)
 
 
-def get_tmp_directory(path: epath.Path) -> epath.Path:
+def get_tmp_directory(
+    path: epath.Path,
+    *,
+    primary_host: Optional[int] = 0,
+    active_processes: Optional[Set[int]] = None,
+) -> epath.Path:
   """Returns a tmp directory for the given path. Does not create it."""
   if is_gcs_path(path):
     return path
   now = time.time()
   sec = int(now)
   usec = int((now - sec) * 1000000)
-  timestamp = multihost.broadcast_one_to_all(
-      (np.int32(sec), np.int32(usec))
+
+  # Impossible for all hosts to be the source if primary_host is None.
+  # Allow broadcast function to pick an arbitrary host to act as source if
+  # primary_host is None.
+  is_source = (
+      is_primary_host(primary_host) if primary_host is not None else None
+  )
+  timestamp = multihost.broadcast_one_to_some(
+      (np.int32(sec), np.int32(usec)),
+      is_source=is_source,
+      processes=active_processes,
   )
   return epath.Path(path.parent) / (
       path.name + TMP_DIR_SUFFIX + f'{timestamp[0]}{timestamp[1]:06}'
@@ -486,7 +501,10 @@ def get_save_directory(
 
 
 def create_tmp_directory(
-    final_dir: epath.PathLike, primary_host: Optional[int] = 0
+    final_dir: epath.PathLike,
+    *,
+    primary_host: Optional[int] = 0,
+    active_processes: Optional[Set[int]] = None,
 ) -> epath.Path:
   """Creates a temporary directory for saving at the given path."""
   # Share a timestamp across devices.
@@ -496,11 +514,13 @@ def create_tmp_directory(
   if is_gcs_path(final_dir):
     tmp_dir = final_dir
   else:
-    tmp_dir = get_tmp_directory(final_dir)
+    tmp_dir = get_tmp_directory(
+        final_dir, primary_host=primary_host, active_processes=active_processes
+    )
 
   # Sync before existence is checked and directory is created because there are
   # additional existence checks happening in the callers of this function.
-  sync_global_processes('create_tmp_directory:pre')
+  sync_global_processes('create_tmp_directory:pre', processes=active_processes)
 
   if is_primary_host(primary_host):
     if tmp_dir.exists():
@@ -525,7 +545,7 @@ def create_tmp_directory(
         )
     tmp_dir.mkdir(parents=True)
 
-  sync_global_processes('create_tmp_directory:post')
+  sync_global_processes('create_tmp_directory:post', processes=active_processes)
   return tmp_dir
 
 

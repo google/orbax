@@ -50,7 +50,8 @@ json_dict = restored.metadata
 import asyncio
 from collections.abc import Collection, KeysView
 import concurrent.futures
-from typing import AbstractSet, Any, List, Mapping, Optional, Tuple
+import dataclasses
+from typing import AbstractSet, Any, List, Mapping, Optional, Tuple, Set
 import uuid
 
 from absl import logging
@@ -177,6 +178,12 @@ def _maybe_raise_reserved_item_error(item_name: str):
     raise ValueError(f'Cannot specify reserved item name: "{item_name}".')
 
 
+@dataclasses.dataclass
+class CompositeOptions:
+  primary_host: Optional[int] = 0
+  active_processes: Optional[Set[int]] = None
+
+
 class CompositeCheckpointHandler(AsyncCheckpointHandler):
   """CheckpointHandler for saving multiple items.
 
@@ -259,7 +266,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   def __init__(
       self,
       *item_names: str,
-      primary_host: Optional[int] = 0,
+      composite_options: CompositeOptions = CompositeOptions(),
       **items_and_handlers: CheckpointHandler,
   ):
     """Constructor.
@@ -268,9 +275,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
     Args:
       *item_names: A list of string item names that this handler will manage.
-      enable_descriptor: Whether to enable descriptor for lineage logging.
-      primary_host: Host treated as primary. If None, all hosts are considered
-        to be primary.
+      composite_options: Options.
       **items_and_handlers: A mapping of item name to `CheckpointHandler`
         instance, which will be used as the handler for objects of the
         corresponding name.
@@ -289,7 +294,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
             type(handler),
         )
         self._known_handlers[item_name] = get_legacy_handler_wrapper(handler)
-    self._primary_host = primary_host
+    self._primary_host = composite_options.primary_host
+    self._active_processes = composite_options.active_processes
 
   def _get_or_set_handler(
       self,
@@ -344,12 +350,11 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         self._get_item_directory(directory, item_name)
         for item_name in args.keys()
     ]
-    if utils.is_primary_host(self._primary_host):
-      for path in item_directories:
-        path.mkdir(parents=False, exist_ok=False)
-    utils.sync_global_processes(
-        'CompositeCheckpointHandler:create_item_subdirs'
-    )
+    # NOTE: ocp.multihost.sync_global_processes may appear to work here, but
+    # it is not async-compatible.
+    # TODO(b/328525223) Replace with async-compatible barrier function.
+    for path in item_directories:
+      path.mkdir(parents=False, exist_ok=True)
 
     # Sort keys to maintain consistent ordering across processes, otherwise
     # we may hit timeouts if processes wait at different barriers in per-item

@@ -11,9 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add CheckpointManagerOptions.enable_background_delete to avoid blocking 
   the manager.save() code path
 - `broadcast_one_to_some` function.
-- Add `SingleReplicaArrayRestoreArgs.primary_replica_index` to select which 
-  replica to load checkpoint and broadcast when `SingleReplicaArrayHandler` is 
-  used.
+- Allow running Orbax code on a subset of processes.
+Note that this currently does not work on async code.
+- Add `SingleReplicaArrayRestoreArgs.primary_replica_index` to select which
+replica to load checkpoint and broadcast when `SingleReplicaArrayHandler` is
+used.
 
 ### Changed
 - CheckpointManager is defined as a ContextManager directly

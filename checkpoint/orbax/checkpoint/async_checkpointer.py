@@ -19,7 +19,7 @@ import contextlib
 import itertools
 import threading
 import time
-from typing import Any, Callable, Optional, Protocol, Sequence
+from typing import Any, Callable, Optional, Protocol, Sequence, Set
 
 from absl import logging
 from etils import epath
@@ -246,8 +246,11 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       self,
       handler: async_checkpoint_handler.AsyncCheckpointHandler,
       timeout_secs: int = 300,
-      primary_host: Optional[int] = 0,
       *,
+      primary_host: Optional[int] = 0,
+      # TODO(b/331426277): Support this option when async-compatible barrier
+      # is provided.
+      active_processes: Optional[Set[int]] = None,
       barrier_sync_fn: Optional[BarrierSyncFn] = None,
   ):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
@@ -262,6 +265,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       )
     self._handler = handler
     self._primary_host = primary_host
+    self._active_processes = active_processes
 
     # TODO(dicentra): consider folding into AsyncCheckpointer directly.
     self._async_manager = _AsyncManager(

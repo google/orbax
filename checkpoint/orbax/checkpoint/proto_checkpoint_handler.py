@@ -26,10 +26,10 @@ from typing import List, Optional, Type
 from etils import epath
 from google.protobuf import message
 from google.protobuf import text_format
-import jax
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
+from orbax.checkpoint import utils
 
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
@@ -39,13 +39,15 @@ register_with_handler = checkpoint_args.register_with_handler
 class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Serializes/deserializes protocol buffers."""
 
-  def __init__(self, filename: str):
+  def __init__(self, filename: str, primary_host: Optional[int] = 0):
     """Initializes ProtoCheckpointHandler.
 
     Args:
       filename: file name given to the written file.
+      primary_host: primary host to write on. If None, writes on all hosts.
     """
     self._filename = filename
+    self._primary_host = primary_host
     self._executor = futures.ThreadPoolExecutor(max_workers=1)
 
   async def async_save(
@@ -68,7 +70,7 @@ class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       item = args.item
 
     def _save_fn(x):
-      if jax.process_index() == 0:
+      if utils.is_primary_host(self._primary_host):
         path = directory / self._filename
         return path.write_text(text_format.MessageToString(x))
       return 0

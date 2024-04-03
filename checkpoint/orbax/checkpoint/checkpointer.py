@@ -16,7 +16,7 @@
 
 import contextlib
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Set
 
 from absl import logging
 from etils import epath
@@ -95,6 +95,7 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
       self,
       handler: checkpoint_handler.CheckpointHandler,
       primary_host: Optional[int] = 0,
+      active_processes: Optional[Set[int]] = None,
   ):
     if not checkpoint_args.has_registered_args(handler):
       logging.warning(
@@ -104,6 +105,7 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
       handler = get_legacy_handler_wrapper(handler)
     self._handler = handler
     self._primary_host = primary_host
+    self._active_processes = active_processes
     jax.monitoring.record_event('/jax/orbax/checkpointer/init')
 
   def save(self,
@@ -141,17 +143,19 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
       else:
         raise ValueError(f'Destination {directory} already exists.')
     tmpdir = utils.create_tmp_directory(
-        directory, primary_host=self._primary_host
+        directory,
+        primary_host=self._primary_host,
+        active_processes=self._active_processes,
     )
     ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)
     self._handler.save(tmpdir, args=ckpt_args)
-    utils.sync_global_processes('Checkpointer:write')
+    utils.sync_global_processes('Checkpointer:write', self._active_processes)
 
     # Ensure save operation atomicity and record time saved by checkpoint.
     if utils.is_primary_host(self._primary_host):
       self._handler.finalize(tmpdir)
       utils.on_commit_callback(tmpdir, directory, checkpoint_start_time)
-    utils.sync_global_processes('Checkpointer:save')
+    utils.sync_global_processes('Checkpointer:save', self._active_processes)
 
   def restore(self,
               directory: epath.PathLike,
@@ -167,7 +171,7 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
     ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
     restored = self._handler.restore(directory, args=ckpt_args)
     logging.info('Finished restoring checkpoint from %s.', directory)
-    utils.sync_global_processes('Checkpointer:restore')
+    utils.sync_global_processes('Checkpointer:restore', self._active_processes)
     return restored
 
   def metadata(self, directory: epath.PathLike) -> Optional[Any]:

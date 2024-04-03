@@ -20,6 +20,11 @@ AsyncOptions
 .. autoclass:: AsyncOptions
   :members:
 
+MultiprocessingOptions
+------------------------
+.. autoclass:: MultiprocessingOptions
+  :members:
+
 Utility functions
 ------------------------
 

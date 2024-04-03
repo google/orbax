@@ -34,6 +34,7 @@ def _psum(x: Any) -> Any:
 def broadcast_one_to_some(
     in_tree: Any,
     *,
+    is_source: bool | None = None,
     processes: Optional[Set[int]] = None,
 ) -> Any:
   """Broadcast data from a source host to some or all other hosts.
@@ -46,6 +47,9 @@ def broadcast_one_to_some(
   Args:
     in_tree: pytree of arrays - each array *must* have the same shape across the
       hosts.
+    is_source: Whether the current process is the source of the broadcast. If
+      None, an arbitrary process within `processes` will be selected as the
+      source for the broadcast.
     processes: Set of participating processes. Assumed to be all processes if
       None.
 
@@ -53,20 +57,18 @@ def broadcast_one_to_some(
     A pytree matching in_tree where the leaves now all contain the data from the
     first host.
   """
-  processes = processes or list(range(jax.process_count()))
-  primary_process = processes[0]
-  is_source = jax.process_index() == primary_process
-  processes_set = set(processes)
-  if len(processes_set) != len(processes):
-    raise ValueError('Provided duplicate process IDs.')
-  if jax.process_index() not in processes_set:
+  processes = processes or set(range(jax.process_count()))
+  if is_source is None:
+    primary_process = next(iter(processes))
+    is_source = jax.process_index() == primary_process
+  if jax.process_index() not in processes:
     raise ValueError(
         'Attempted to broadcast from one host to other hosts, but the current'
         f' process: {jax.process_index()} was not present in the provided list'
         f' of processes: {processes}.'
     )
   devices: np.ndarray = np.array(
-      [d for d in jax.devices() if d.process_index in processes_set]
+      [d for d in jax.devices() if d.process_index in processes]
   ).reshape(len(processes), jax.local_device_count())
 
   global_mesh = jax.sharding.Mesh(devices, ('processes', 'local_devices'))
@@ -95,9 +97,9 @@ def broadcast_one_to_some(
   return jax.tree.map(post_jit, out_tree)
 
 
-def broadcast_one_to_all(in_tree):
+def broadcast_one_to_all(in_tree, is_source: bool | None = None):
   """Broadcast data from a source host to all other hosts."""
-  return broadcast_one_to_some(in_tree)
+  return broadcast_one_to_some(in_tree, is_source=is_source)
 
 
 def should_skip_process_sync() -> bool:
