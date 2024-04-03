@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.8] - 2024-04-02
 
 ## Added
 - Add CheckpointManagerOptions.enable_background_delete to avoid blocking 
@@ -19,7 +19,11 @@ used.
 
 ### Changed
 - CheckpointManager is defined as a ContextManager directly
-- checkpoint_manager_context is deprecated
+- `checkpoint_manager_context` is deprecated
+- Checkpointer is defined as a ContextManager directly
+- `checkpointer_context` is deprecated
+- AsyncCheckpointer is defined as a ContextManager directly
+- `async_checkpointer_context` is deprecated
 - Refactored to create `multihost_utils` module.
 - Remove unnecessary barriers in CheckpointHandlers.
 

@@ -372,39 +372,46 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     Example::
 
-      mngr = CheckpointManager(
+      with CheckpointManager(
         'path/to/dir/',
         # Multiple items.
         item_names=('train_state', 'custom_metadata'),
         metadata={'version': 1.1, 'lang': 'en'},
-      )
-      mngr.save(0, args=args.Composite(
-          train_state=args.StandardSave(train_state),
-          custom_metadata=args.JsonSave(custom_metadata),
+      ) as mngr:
+        mngr.save(0, args=args.Composite(
+            train_state=args.StandardSave(train_state),
+            custom_metadata=args.JsonSave(custom_metadata),
+          )
         )
-      )
-      restored = mngr.restore(0)
-      print(restored.train_state)
-      print(restored.custom_metadata)
-      restored = mngr.restore(0, args=args.Composite(
-          train_state=args.StandardRestore(abstract_train_state),
+        restored = mngr.restore(0)
+        print(restored.train_state)
+        print(restored.custom_metadata)
+        restored = mngr.restore(0, args=args.Composite(
+            train_state=args.StandardRestore(abstract_train_state),
+          )
         )
-      )
-      print(restored.train_state)
-      print(restored.custom_metadata)  # Error, not restored
+        print(restored.train_state)
+        print(restored.custom_metadata)  # Error, not restored
 
       # Single item, no need to specify `item_names`.
-      mngr = CheckpointManager(
-        'path/to/dir/',
-        options = CheckpointManagerOptions(max_to_keep=5, ...),
-      )
-      mngr.save(0, args=StandardSave(train_state))
-      train_state = mngr.restore(0)
-      train_state = mngr.restore(0, args=StandardRestore(abstract_train_state))
+      with CheckpointManager(
+          'path/to/dir/',
+          options = CheckpointManagerOptions(max_to_keep=5, ...),
+        ) as mngr:
+        mngr.save(0, args=StandardSave(train_state))
+        train_state = mngr.restore(0)
+        train_state = mngr.restore(0,
+        args=StandardRestore(abstract_train_state))
 
     IMPORTANT: Don't forget to use the keyword `args=...` for save and restore!
     Otherwise you will get the legacy API. This will not be necessary forever,
     but only until the legacy API is removed.
+
+    IMPORTANT: The CheckpointManager is designed to be used as a context
+    manager. Use `with CheckpointManager` schematic for automatic cleanup. If
+    you can't use a context manager, always call `close()` to release resources
+    properly.  Otherwise, background operations such as deleting old checkpoints
+    might not finish before your program exits.
 
     Args:
       directory: the top level directory in which to save all files.
@@ -1413,11 +1420,3 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       yield self
     finally:
       self.close()
-
-
-def checkpoint_manager_context(*args, **kwargs):
-  logging.warn(
-      'This function is deprecated. Use `with CheckpointManager as manager:'
-      ' ...` directly.'
-  )
-  return CheckpointManager(*args, **kwargs)

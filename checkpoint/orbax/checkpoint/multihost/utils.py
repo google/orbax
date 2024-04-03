@@ -34,7 +34,7 @@ def _psum(x: Any) -> Any:
 def broadcast_one_to_some(
     in_tree: Any,
     *,
-    is_source: bool | None = None,
+    is_source: Optional[bool] = None,
     processes: Optional[Set[int]] = None,
 ) -> Any:
   """Broadcast data from a source host to some or all other hosts.

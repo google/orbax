@@ -36,15 +36,12 @@ from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManag
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
 from orbax.checkpoint.array_checkpoint_handler import ArrayCheckpointHandler
 from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
-from orbax.checkpoint.async_checkpointer import async_checkpointer_context
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
 from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 from orbax.checkpoint.checkpoint_manager import AsyncOptions
-from orbax.checkpoint.checkpoint_manager import checkpoint_manager_context
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
 from orbax.checkpoint.checkpointer import Checkpointer
-from orbax.checkpoint.checkpointer import checkpointer_context
 from orbax.checkpoint.composite_checkpoint_handler import CompositeCheckpointHandler
 from orbax.checkpoint.future import Future
 from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
@@ -73,4 +70,4 @@ except RuntimeError:
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
 # Also modify version and date in CHANGELOG.
-__version__ = '0.5.7'
+__version__ = '0.5.8'

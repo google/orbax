@@ -1,5 +1,12 @@
 # Announcements
 
+## 2024-04-02
+The `checkpoint_manager_context(...)` function is deprecated. To ensure proper 
+resource handling, please update your code to use either 
+`with CheckpointManager(...) as manager:` or explicitly call `manager.close()` 
+before your program exits. This will prevent incomplete background operations 
+such as deleting old checkpoints.
+
 ## 2024-02-01
 `SaveArgs.aggregate` is deprecated. Please use
  [custom TypeHandler](https://orbax.readthedocs.io/en/latest/custom_handlers.html#typehandler)

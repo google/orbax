@@ -15,7 +15,6 @@
 """AsyncCheckpointer."""
 
 import asyncio
-import contextlib
 import itertools
 import threading
 import time
@@ -357,30 +356,3 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   @property
   def handler(self) -> async_checkpoint_handler.AsyncCheckpointHandler:
     return self._handler
-
-
-@contextlib.contextmanager
-def async_checkpointer_context(*args, **kwargs):
-  """Context manager for AsyncCheckpointer.
-
-  Initializes AsyncCheckpointer and closes the object when the context is
-  exited.
-
-  Usage::
-    with async_checkpointer_context(PyTreeCheckpointHandler()) as ckptr:
-      ckptr.save(...)
-      ckptr.wait_until_finished()
-      ckptr.restore(...)
-
-  Args:
-    *args: Arguments to initialize AsyncCheckpointer.
-    **kwargs: Keyword arguments to initialize AsyncCheckpointer.
-
-  Yields:
-    AsyncCheckpointer
-  """
-  ckptr = AsyncCheckpointer(*args, **kwargs)
-  try:
-    yield ckptr
-  finally:
-    ckptr.close()

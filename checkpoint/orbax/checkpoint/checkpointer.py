@@ -14,12 +14,12 @@
 
 """Synchronous Checkpointer implementation."""
 
-import contextlib
 import time
-from typing import Any, Optional, Set
+from typing import Any, Iterable, Optional, Set
 
 from absl import logging
 from etils import epath
+from etils import epy
 import jax
 from orbax.checkpoint import abstract_checkpointer
 from orbax.checkpoint import checkpoint_args
@@ -27,6 +27,7 @@ from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import utils
+from typing_extensions import Self  # for Python version < 3.11
 
 
 
@@ -59,7 +60,9 @@ def construct_checkpoint_args(
     return restore_arg_cls(*args, **kwargs)
 
 
-class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
+class Checkpointer(
+    abstract_checkpointer.AbstractCheckpointer, epy.ContextManager
+):
   """A synchronous implementation of AbstractCheckpointer.
 
   This class saves synchronously to a given directory using an underlying
@@ -108,11 +111,9 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
     self._active_processes = active_processes
     jax.monitoring.record_event('/jax/orbax/checkpointer/init')
 
-  def save(self,
-           directory: epath.PathLike,
-           *args,
-           force: bool = False,
-           **kwargs):
+  def save(
+      self, directory: epath.PathLike, *args, force: bool = False, **kwargs
+  ):
     """Saves the given item to the provided directory.
 
     Delegates to the underlying CheckpointHandler. Ensures save operation
@@ -157,10 +158,7 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
       utils.on_commit_callback(tmpdir, directory, checkpoint_start_time)
     utils.sync_global_processes('Checkpointer:save', self._active_processes)
 
-  def restore(self,
-              directory: epath.PathLike,
-              *args,
-              **kwargs) -> Any:
+  def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""
     directory = epath.Path(directory)
     if not directory.exists():
@@ -187,29 +185,10 @@ class Checkpointer(abstract_checkpointer.AbstractCheckpointer):
   def handler(self) -> checkpoint_handler.CheckpointHandler:
     return self._handler
 
-
-@contextlib.contextmanager
-def checkpointer_context(*args, **kwargs):
-  """Context manager for Checkpointer.
-
-  Initializes Checkpointer and closes the object when the context is
-  exited.
-
-  Args:
-    *args: Arguments to initialize Checkpointer.
-    **kwargs: Keyword arguments to initialize Checkpointer.
-
-  Usage::
-
-    with checkpointer_context(PyTreeCheckpointHandler()) as ckptr:
-      ckptr.save(...)
-      ckptr.restore(...)
-
-  Yields:
-    Checkpointer
-  """
-  ckptr = Checkpointer(*args, **kwargs)
-  try:
-    yield ckptr
-  finally:
-    ckptr.close()
+  def __contextmanager__(
+      self,
+  ) -> Iterable[Self]:
+    try:
+      yield self
+    finally:
+      self.close()
