@@ -97,7 +97,7 @@ def broadcast_one_to_some(
   return jax.tree.map(post_jit, out_tree)
 
 
-def broadcast_one_to_all(in_tree, is_source: bool | None = None):
+def broadcast_one_to_all(in_tree, is_source: Optional[bool] = None):
   """Broadcast data from a source host to all other hosts."""
   return broadcast_one_to_some(in_tree, is_source=is_source)
 
