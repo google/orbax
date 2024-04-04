@@ -18,12 +18,12 @@
 This class is experimental; do not use without specific approval.
 """
 
+import collections
 import dataclasses
 from typing import Any, Sequence
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
-import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
@@ -34,6 +34,7 @@ from orbax.checkpoint.path import step as step_lib
 
 PyTree = checkpoint_manager.PyTree
 CheckpointHandler = checkpoint_manager.CheckpointHandler
+P = jax.sharding.PartitionSpec
 
 
 @dataclasses.dataclass
@@ -109,23 +110,58 @@ class CheckpointManagerOptions:
   async_options: checkpoint_manager.AsyncOptions | None = None
 
 
-class LocalCheckpointManager(checkpoint_manager.CheckpointManager):
-  """A checkpoint manager that checkpoints to local storage."""
+def _in_slice(process_index: int, device_slice: np.ndarray) -> bool:
+  pid = np.vectorize(lambda d: d.process_index)
+  return process_index in pid(device_slice)
 
-  # TODO(b/330585086) Allow configuration of global mesh describing slices.
+
+def _in_primary_slice(
+    process_index: int, global_mesh: jax.sharding.Mesh
+) -> bool:
+  """Returns true if host is in primary slice (the first slice)."""
+  primary_slice = global_mesh.devices[0]
+
+  return _in_slice(process_index, primary_slice)
+
+
+def _local_slice_devices(global_mesh: jax.sharding.Mesh) -> np.ndarray:
+  for device_slice in global_mesh.devices:
+    if _in_slice(jax.process_index(), device_slice):
+      return device_slice
+  raise ValueError(
+      f'process_index {jax.process_index()} does not exist in provided'
+      ' `global_mesh`'
+  )
+
+
+def _pad_steps(steps, target):
+  return steps + [-1] * (target - len(steps))
+
+
+class LocalCheckpointManager(checkpoint_manager.CheckpointManager):
+  """A checkpoint manager that checkpoints to local storage.
+
+  Attributes:
+    global_mesh: a Mesh object representing the global mesh configuration,
+      importantly the first axis of the global_mesh is assumed to be the
+      direction of device slices across which the Data Parallelism is happening.
+  """
+
+  # TODO: b/330585086 - Allow configuration of global mesh describing slices.
   # Validate against global meshes used for arrays in state.
   def __init__(
       self,
       directory: epath.PathLike,
-      # TODO(b/330585086) Support arbitrary items beyond state. We will have
+      # TODO: b/330585086 - Support arbitrary items beyond state. We will have
       # to evaluate whether arbitrary items can be a good fit for local
       # checkpointing, given restore+broadcast requirements.
       state_handler: CheckpointHandler,
+      global_mesh: jax.sharding.Mesh,
       *,
       options: CheckpointManagerOptions | None = None,
       metadata: dict[str, Any] | None = None,
   ):
-    # TODO(b/330585086): Fully support options.
+    # TODO: b/330585086 - Fully support options.
     options = options or CheckpointManagerOptions()
     local_options = checkpoint_manager.CheckpointManagerOptions(
         save_interval_steps=options.local.save_interval_steps,
@@ -138,6 +174,8 @@ class LocalCheckpointManager(checkpoint_manager.CheckpointManager):
             primary_host=None
         ),
     )
+    self._options = local_options
+    self._global_mesh = global_mesh
 
     super().__init__(
         directory,
@@ -146,61 +184,130 @@ class LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         item_handlers=state_handler,
     )
 
-  def _is_equal_on_all_hosts(self, value: int | float) -> bool:
-    """return true if all `values` are equal on all hosts."""
-
-    global_mesh = jax.sharding.Mesh(
-        np.array(jax.devices()).reshape(
-            jax.process_count(), jax.local_device_count()
+  def _global_list_union(
+      self, steps: Sequence[int], devices: np.ndarray
+  ) -> np.ndarray:
+    slice_mesh = jax.sharding.Mesh(
+        devices.reshape(
+            devices.size // jax.local_device_count(), jax.local_device_count()
         ),
-        ['x', 'y'],
-    )
-    pspecs = jax.sharding.PartitionSpec('x', None)
-
-    arr = multihost_utils.host_local_array_to_global_array(
-        np.array([value]),
-        global_mesh,
-        pspecs,
+        ['host', 'dev'],
     )
 
-    # calculate the global range, eg. (max - min)
-    @jax.jit
-    def global_ptp(x):
-      return jnp.ptp(x)
+    g_arr = multihost_utils.host_local_array_to_global_array(
+        np.asarray(steps), slice_mesh, P('host')
+    )
 
-    ptp = global_ptp(arr)
-    return ptp.addressable_data(0) == 0
+    result_arr = jax.jit(
+        lambda x: x,
+        out_shardings=jax.sharding.NamedSharding(slice_mesh, P()),
+    )(g_arr)
+
+    return np.asarray(result_arr.addressable_data(0))
+
+  def _common_steps_global(self, steps: Sequence[int]) -> np.ndarray:
+    """Returns common steps across all slices.
+
+    A step is considered as "common step" if it is known to any slice.
+
+    The slice is assumed to be diveded along the first axis, i.e. slice0 =
+    global_mesh.devices[0]
+
+    Args:
+      steps: a list of steps known to all hosts on a slice
+    """
+    devices = self._global_mesh.devices
+    unioned_steps = self._global_list_union(steps, devices)
+
+    return np.asarray(list(set(unioned_steps)))
+
+  def _common_steps_within_slice(self, steps: Sequence[int]) -> np.ndarray:
+    """Returns common steps within one slices.
+
+    A step is considered "common step" if it is known to every host in the slice
+
+    The slice is assumed to be diveded along the first axis, i.e. slice0 =
+    global_mesh.devices[0]
+
+    This function will pad return array to len(steps) with -1's indicating no
+    step.
+
+    Args:
+      steps: a list of known steps on host
+    """
+
+    devices = _local_slice_devices(self._global_mesh)
+    slice_process_count = devices.size // jax.local_device_count()
+    unioned_steps = self._global_list_union(steps, devices)
+
+    def count_and_filter(steps, num_process):
+      count = collections.Counter(steps)
+      return np.asarray([k for k in count if count[k] == num_process])
+
+    result = count_and_filter(unioned_steps, slice_process_count)
+
+    # here len(result) will be <= len(steps) because there are at most
+    # len(steps) unique step number that appeared `slice_process_count` times in
+    # an array with size [len(steps), slice_process_count]
+    if len(result) > len(steps):
+      raise AssertionError(
+          f' len(result steps) {result} exceeded length of input steps {steps}'
+      )
+
+    return np.asarray(_pad_steps(list(result), len(steps)))
+
+  def all_steps(self, read: bool = False) -> Sequence[int]:
+    """Returns all steps tracked by the manager.
+
+    Includes steps located in local as well as persistent storage.
+
+    Args:
+      read: If True, forces a read directly from the storage location.
+        Otherwise, a cached result can be returned.
+
+    Returns:
+      A sequence of steps (integers)
+    """
+    # List of steps present in individual host storage.
+    local_steps = list(super().all_steps(read))
+
+    if len(local_steps) > self._options.max_to_keep:
+      raise AssertionError(
+          f' local_step on host {jax.process_index()} exceeded `max_to_keep`'
+          f' {self._options.max_to_keep}'
+      )
+
+    local_steps = _pad_steps(local_steps, self._options.max_to_keep)
+
+    common_steps_on_slice = self._common_steps_within_slice(local_steps)
+
+    steps = self._common_steps_global(common_steps_on_slice)
+
+    return [x for x in steps if x != -1]
 
   def latest_step(self) -> int | None:
     """Returns the latest step saved in the local storage.
-
-    TODO(b/330585086) Currently only returns latest step if all hosts have the
-    same step, otherwise, None.Still needs to identify the latest step if not
-    all hosts have the same step.
 
     Returns None if no steps have been saved.
 
     Returns:
       A step (int) or None if no steps are present.
     """
-    local_latest = super().latest_step() or -1
-
-    if self._is_equal_on_all_hosts(local_latest):
-      return local_latest if local_latest != -1 else None
-    else:
-      return None
+    local_all_steps = self.all_steps()
+    return max(local_all_steps) if local_all_steps else None
 
 
 class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
-  """A checkpoint manager that checkpoints to local and/or persistent storage."""
+  """A checkpoint manager that stores checkpoint to local storage."""
 
-  # TODO(b/330585086) Allow configuration of global mesh describing slices.
+  # TODO: b/330585086 - Allow configuration of global mesh describing slices.
   # Validate against global meshes used for arrays in state.
   def __init__(
       self,
       local_directory: epath.PathLike,
       persistent_directory: epath.PathLike,
-      # TODO(b/330585086) Support arbitrary items beyond state. We will have
+      global_mesh: jax.sharding.Mesh,
+      # TODO: b/330585086 - Support arbitrary items beyond state. We will have
       # to evaluate whether arbitrary items can be a good fit for local
       # checkpointing, given restore+broadcast requirements.
       local_state_handler: CheckpointHandler,
@@ -209,16 +316,18 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
       options: CheckpointManagerOptions | None = None,
       metadata: dict[str, Any] | None = None,
   ):
-    # TODO(b/330585086): Fully support options.
+    # TODO: b/330585086 - Fully support options.
     options = options or CheckpointManagerOptions()
+    self._global_mesh = global_mesh
 
     self._local_checkpoint_manager = LocalCheckpointManager(
         local_directory,
         local_state_handler,
+        global_mesh=global_mesh,
         options=options,
         metadata=metadata,
     )
-    # TODO(b/330585086): Build options for persistent CheckpointManager.
+    # TODO: b/330585086 - Build options for persistent CheckpointManager.
     persistent_options = checkpoint_manager.CheckpointManagerOptions(
         save_interval_steps=options.persistent.save_interval_steps,
         max_to_keep=options.persistent.max_to_keep,
@@ -232,7 +341,7 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
         options=persistent_options,
         metadata=metadata,
         item_handlers=persistent_state_handler,
-        # TODO(b/330585086): Use the appropriate primary_host.
+        # TODO: b/330585086 - Use the appropriate MultiprocessingOptions.
     )
 
   @property
@@ -251,7 +360,7 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
     Returns:
       A sequence of steps (integers)
     """
-    # TODO(b/330585086) Implement.
+    # TODO: b/330585086 - Implement.
     raise NotImplementedError('Implement: b/330585086.')
 
   def latest_step(self) -> int | None:
@@ -259,14 +368,13 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
 
     Includes steps located in local as well as persistent storage.
 
-    TODO(b/330585086) Currently only returns latest step returned by the local
-    checkpoint manager. Still needs to fall back to persistent storage if no
-    latest step can be identified in local storage.
+    Returns None if no steps have been saved.
 
     Returns:
       A step (int) or None if no steps are present.
     """
-    return self._local_checkpoint_manager.latest_step()
+    # TODO: b/330585086 - Implement.
+    raise NotImplementedError('Implement: b/330585086.')
 
   def best_step(self) -> int | None:
     """Returns the best step saved, as defined by `options.best_fn`.
