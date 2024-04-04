@@ -126,8 +126,10 @@ class ThreadedCheckpointDeleter:
         name_format=name_format,
     )
     self._delete_queue = queue.Queue()
+    # Turn on daemon=True so the thread won't block the main thread and die
+    # when the program exits.
     self._delete_thread = threading.Thread(
-        target=self._delete_thread_run, name='DeleterThread'
+        target=self._delete_thread_run, name='DeleterThread', daemon=True
     )
     self._delete_thread.start()
 
