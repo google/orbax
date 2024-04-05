@@ -46,6 +46,8 @@ repository = 'http://github.com/google/orbax'
 
 [project.optional-dependencies]
 testing = [
+    'google-cloud-logging',
+    'mock',
     'flax',
     'pytest',
     'pytest-xdist'
