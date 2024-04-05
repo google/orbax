@@ -20,7 +20,7 @@ This class is experimental; do not use without specific approval.
 
 import collections
 import dataclasses
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
@@ -54,7 +54,7 @@ class LocalCheckpointOptions:
   """
 
   save_interval_steps: int = 10
-  max_to_keep: int | None = 2
+  max_to_keep: Optional[int] = 2
 
 
 @dataclasses.dataclass
@@ -73,7 +73,7 @@ class PersistentCheckpointOptions:
   """
 
   save_interval_steps: int = 1000
-  max_to_keep: int | None = None
+  max_to_keep: Optional[int] = None
 
 
 @dataclasses.dataclass
@@ -104,10 +104,10 @@ class CheckpointManagerOptions:
       default_factory=PersistentCheckpointOptions
   )
 
-  step_name_format: step_lib.NameFormat | None = None
+  step_name_format: Optional[step_lib.NameFormat] = None
   create: bool = True
   cleanup_tmp_directories: bool = False
-  async_options: checkpoint_manager.AsyncOptions | None = None
+  async_options: Optional[checkpoint_manager.AsyncOptions] = None
 
 
 def _in_slice(process_index: int, device_slice: np.ndarray) -> bool:
@@ -158,8 +158,8 @@ class LocalCheckpointManager(checkpoint_manager.CheckpointManager):
       state_handler: CheckpointHandler,
       global_mesh: jax.sharding.Mesh,
       *,
-      options: CheckpointManagerOptions | None = None,
-      metadata: dict[str, Any] | None = None,
+      options: Optional[CheckpointManagerOptions] = None,
+      metadata: Optional[dict[str, Any]] = None,
   ):
     # TODO: b/330585086 - Fully support options.
     options = options or CheckpointManagerOptions()
@@ -285,7 +285,7 @@ class LocalCheckpointManager(checkpoint_manager.CheckpointManager):
 
     return [x for x in steps if x != -1]
 
-  def latest_step(self) -> int | None:
+  def latest_step(self) -> Optional[int]:
     """Returns the latest step saved in the local storage.
 
     Returns None if no steps have been saved.
@@ -313,8 +313,8 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
       local_state_handler: CheckpointHandler,
       persistent_state_handler: CheckpointHandler,
       *,
-      options: CheckpointManagerOptions | None = None,
-      metadata: dict[str, Any] | None = None,
+      options: Optional[CheckpointManagerOptions] = None,
+      metadata: Optional[dict[str, Any]] = None,
   ):
     # TODO: b/330585086 - Fully support options.
     options = options or CheckpointManagerOptions()
@@ -363,7 +363,7 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
     # TODO: b/330585086 - Implement.
     raise NotImplementedError('Implement: b/330585086.')
 
-  def latest_step(self) -> int | None:
+  def latest_step(self) -> Optional[int]:
     """Returns the latest step saved.
 
     Includes steps located in local as well as persistent storage.
@@ -376,7 +376,7 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
     # TODO: b/330585086 - Implement.
     raise NotImplementedError('Implement: b/330585086.')
 
-  def best_step(self) -> int | None:
+  def best_step(self) -> Optional[int]:
     """Returns the best step saved, as defined by `options.best_fn`.
 
     Includes steps located in local as well as persistent storage.
@@ -423,9 +423,9 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
   def save(
       self,
       step: int,
-      args: args_lib.CheckpointArgs | None = None,
-      metrics: PyTree | None = None,
-      force: bool | None = False,
+      args: Optional[args_lib.CheckpointArgs] = None,
+      metrics: Optional[PyTree] = None,
+      force: Optional[bool] = False,
   ) -> bool:
     return self._local_checkpoint_manager.save(
         step, args=args, metrics=metrics, force=force
@@ -434,14 +434,14 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
   def restore(
       self,
       step: int,
-      args: args_lib.CheckpointArgs | None = None,
-      directory: epath.PathLike | None = None,
-  ) -> Any | args_lib.Composite:
+      args: Optional[args_lib.CheckpointArgs] = None,
+      directory: Optional[epath.PathLike] = None,
+  ) -> Any:
     return self._local_checkpoint_manager.restore(
         step, args=args, directory=directory
     )
 
-  def item_metadata(self, step: int) -> Any | args_lib.Composite:
+  def item_metadata(self, step: int) -> Any:
     raise NotImplementedError(
         'Item metadata not yet implemented for emergency.CheckpointManager.'
     )
@@ -452,7 +452,7 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
         'Metadata not yet implemented for emergency.CheckpointManager.'
     )
 
-  def metrics(self, step: int) -> PyTree | None:
+  def metrics(self, step: int) -> Optional[PyTree]:
     """Returns metrics for step, if present."""
     raise NotImplementedError(
         'Metrics not yet implemented for emergency.CheckpointManager.'
