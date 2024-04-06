@@ -509,7 +509,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._step_name_format = (
         self._options.step_name_format
-        or step_lib.StandardNameFormat(
+        or step_lib.standard_name_format(
             step_prefix=self._options.step_prefix,
             step_format_fixed_length=self._options.step_format_fixed_length,
         )

@@ -181,7 +181,7 @@ class StandardNameFormatTest(parameterized.TestCase):
     for step_dir in self.generate_step_names():
       (self.directory / step_dir).mkdir(parents=True, exist_ok=True)
 
-    name_format = step_lib.StandardNameFormat(
+    name_format = step_lib.standard_name_format(
         step_prefix=step_prefix,
         step_format_fixed_length=step_format_fixed_length,
     )
@@ -248,7 +248,7 @@ class StandardNameFormatTest(parameterized.TestCase):
     for step_dir in self.generate_step_names():
       (self.directory / step_dir).mkdir(parents=True, exist_ok=True)
 
-    name_format = step_lib.StandardNameFormat(
+    name_format = step_lib.standard_name_format(
         step_prefix=step_prefix,
         step_format_fixed_length=step_format_fixed_length,
     )
