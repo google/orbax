@@ -50,6 +50,7 @@ ArrayRestoreArgs = type_handlers.ArrayRestoreArgs
 SaveArgs = type_handlers.SaveArgs
 ParamInfo = type_handlers.ParamInfo
 TypeHandler = type_handlers.TypeHandler
+TypeHandlerRegistry = type_handlers.TypeHandlerRegistry
 AggregateHandler = aggregate_handlers.AggregateHandler
 MsgpackHandler = aggregate_handlers.MsgpackHandler
 LegacyTransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
@@ -132,14 +133,18 @@ def _keypath_from_metadata(keypath_serialized: Tuple[Dict[str, Any]]) -> Any:  #
   return tuple(keypath)
 
 
-def _get_value_metadata(value: Any, save_arg: SaveArgs) -> Dict[str, Any]:
+def _get_value_metadata(
+    value: Any,
+    save_arg: SaveArgs,
+    registry: TypeHandlerRegistry,
+) -> Dict[str, Any]:
   """Gets JSON metadata for a given value."""
   if utils.is_supported_empty_aggregation_type(value):
     typestr = type_handlers.get_empty_value_typestr(value)
     skip_deserialize = True
   else:
     try:
-      handler = type_handlers.get_type_handler(type(value))
+      handler = registry.get(type(value))
       typestr = handler.typestr()
       skip_deserialize = save_arg.aggregate
     except ValueError:
@@ -497,7 +502,10 @@ class _BatchRequest:
 
 
 def _batched_serialization_requests(
-    tree: PyTree, param_infos: PyTree, args: PyTree
+    tree: PyTree,
+    param_infos: PyTree,
+    args: PyTree,
+    registry: TypeHandlerRegistry,
 ) -> List[_BatchRequest]:
   """Gets a list of batched serialization or deserialization requests."""
   grouped = {}
@@ -519,9 +527,9 @@ def _batched_serialization_requests(
       if arg.restore_type is not None:
         # Give user the chance to override restore_type if they want.
         restore_type = arg.restore_type
-      handler = type_handlers.get_type_handler(restore_type)
+      handler = registry.get(restore_type)
     else:
-      handler = type_handlers.get_type_handler(type(value))
+      handler = registry.get(type(value))
     if handler not in grouped:
       grouped[handler] = _BatchRequest(handler, [], [], [], [])
     request = grouped[handler]
@@ -636,6 +644,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       write_tree_metadata: bool = True,
       use_zarr3: bool = False,
       primary_host: Optional[int] = 0,
+      type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -660,6 +669,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       primary_host: the host id of the primary host.  Default to 0.  If it's set
         to None, then all hosts will be considered as primary.  It's useful in
         the case that all hosts are only working with local storage.
+      type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
+        specified, the global type handler registry will be used.
     """
     self._aggregate_handler = MsgpackHandler(primary_host=primary_host)
     if aggregate_filename is None:
@@ -672,6 +683,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._write_tree_metadata = write_tree_metadata
     self._use_zarr3 = use_zarr3
     self._primary_host = primary_host
+    self._type_handler_registry = type_handler_registry
 
 
     if self._use_ocdbt:
@@ -762,8 +774,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """Saves a PyTree to a given directory.
 
     This operation is compatible with a multi-host, multi-device setting. Tree
-    leaf values must be supported by type_handlers. Standard supported types
-    include Python scalars, `np.ndarray`, `jax.Array`, and strings.
+    leaf values must be supported by the type_handler_registry given in the
+    constructor. Standard supported types include Python scalars, `np.ndarray`,
+    `jax.Array`, and strings.
 
     After saving, all files will be located in "directory/". The exact files
     that are saved depend on the specific combination of options, including
@@ -805,6 +818,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     Returns:
       A Future that will commit the data to `directory` when awaited. Copying
       the data from its source will be awaited in this function.
+
     """
     if args is None:
       args = PyTreeSaveArgs(
@@ -834,7 +848,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         return SaveArgs(aggregate=False)
       # Empty values will still raise TypeHandler registry error if _METADATA is
       # disabled. We will prompt users to enable _METADATA to avoid this error.
-      aggregate = not type_handlers.has_type_handler(type(value))
+      aggregate = not self._type_handler_registry.has(type(value))
       return SaveArgs(aggregate=aggregate)
 
     save_args = jax.tree_util.tree_map(
@@ -871,7 +885,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     else:
       serialize_ops = []
       batch_requests = _batched_serialization_requests(
-          item, param_infos, save_args
+          item, param_infos, save_args, self._type_handler_registry,
       )
       for request in batch_requests:
         serialize_ops += [
@@ -949,7 +963,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     )
 
     batch_requests = _batched_serialization_requests(
-        structure, param_infos, restore_args
+        structure, param_infos, restore_args, self._type_handler_registry,
     )
     deserialized_batches = []
     deserialized_batches_ops = []
@@ -1227,7 +1241,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       tuple_keypath = str(tuple([str(utils.get_key_name(k)) for k in keypath]))
       flat_metadata_with_keys[tuple_keypath] = {
           _KEY_METADATA_KEY: _get_keypath_metadata(keypath),
-          _VALUE_METADATA_KEY: _get_value_metadata(value, save_arg),
+          _VALUE_METADATA_KEY: _get_value_metadata(
+              value, save_arg, self._type_handler_registry),
       }
 
     metadata = {
@@ -1407,7 +1422,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     metadata_ops = []
     for restore_type, param_infos in batched_param_infos.items():
-      handler = type_handlers.get_type_handler(restore_type)
+      handler = self._type_handler_registry.get(restore_type)
       metadata_ops.append(handler.metadata(param_infos))
 
     async def _get_metadata():

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Local type handler registries.
+
 ### Changed
 - The PyPi `orbax` package is deprecated in favor of domain-specific namespace
 packages, namely `orbax-checkpoint` and `orbax-export`. Imports are unchanged,
@@ -126,4 +129,3 @@ auto-publish functionality.
 
 - Fix mistaken usages of placeholder "AGGREGATED" where "NOT-AGGREGATED" would
 be more appropriate. Ensure backwards compatibility is maintained.
-

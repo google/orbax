@@ -20,7 +20,7 @@ import functools
 import string
 import time
 import typing
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from absl import logging
 from etils import epath
@@ -365,4 +365,22 @@ def register_type_handler(ty, handler, func):
   finally:
     type_handlers.register_type_handler(
         ty, original_handler, func=func, override=True
+    )
+
+
+@contextlib.contextmanager
+def ocdbt_checkpoint_context(use_ocdbt: bool, ts_context: Any):
+  """Use OCDBT driver within context."""
+  original_registry = list(
+      type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY._type_registry  # pylint: disable=protected-access
+  )
+  if use_ocdbt:
+    type_handlers.register_standard_handlers_with_options(
+        use_ocdbt=use_ocdbt, ts_context=ts_context
+    )
+  try:
+    yield
+  finally:
+    type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY._type_registry = (  # pylint: disable=protected-access
+        original_registry
     )

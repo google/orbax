@@ -23,7 +23,7 @@ import json
 import os
 import re
 import time
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union, cast
 import warnings
 
 from absl import logging
@@ -1820,22 +1820,161 @@ class StringHandler(TypeHandler):
     return await asyncio.gather(*read_ops)
 
 
-_TYPE_REGISTRY = [
-    (lambda ty: issubclass(ty, int), ScalarHandler()),
-    (lambda ty: issubclass(ty, float), ScalarHandler()),
-    (lambda ty: issubclass(ty, bytes), ScalarHandler()),
-    (lambda ty: issubclass(ty, np.number), ScalarHandler()),
-    (lambda ty: issubclass(ty, np.ndarray), NumpyHandler()),
-    (lambda ty: issubclass(ty, jax.Array), ArrayHandler()),
-    (lambda ty: issubclass(ty, str), StringHandler()),
-]
+class TypeHandlerRegistry(Protocol):
+  """A registry for TypeHandlers.
+
+  This internal base class is used for the global registry which serves as a
+  default for any type not found in a local registry. It is also accessed
+  through the module function get/set/has_type_handler.
+  """
+
+  def add(
+      self,
+      ty: Any,
+      handler: TypeHandler,
+      func: Optional[Callable[[Any], bool]] = None,
+      override: bool = False,
+  ):
+    """Registers a type for serialization/deserialization with a given handler.
+
+    Note that it is possible for a type to match multiple different entries in
+    the registry, each with a different handler. In this case, only the first
+    match is used.
+
+    Args:
+      ty: A type to register.
+      handler: a TypeHandler capable of reading and writing parameters of type
+        `ty`.
+      func: A function that accepts a type and returns True if the type should
+        be handled by the provided TypeHandler. If this parameter is not
+        specified, defaults to `lambda t: issubclass(t, ty)`.
+      override: if True, will override an existing mapping of type to handler.
+
+    Raises:
+      ValueError if a type is already registered and override is False.
+    """
+    ...
+
+  def get(self, ty: Any) -> TypeHandler:
+    """Returns the handler registered for a given type, if available.
+
+    Args:
+      ty: an object type (or string representation of the type.)
+
+    Returns:
+      The TypeHandler that is registered for the given type.
+
+    Raises:
+      ValueError if the given type has no registered handler.
+    """
+    ...
+
+  def has(self, ty: Any) -> bool:
+    """Checks if a type is registered.
+
+    Args:
+      ty: an object type (or string representation of the type.)
+
+    Returns:
+      A boolean indicating if ty is registered.
+    """
+    ...
 
 
-def _make_typestr_registry(type_registry: Any) -> Dict[str, TypeHandler]:
-  return {h.typestr(): h for _, h in type_registry}
+class _TypeHandlerRegistryImpl(TypeHandlerRegistry):
+  """The implementation for TypeHandlerRegistry."""
+
+  def __init__(self, *handlers: Tuple[Any, TypeHandler]):
+    """Create a type registry.
+
+    Args:
+      *handlers: an optional list of handlers to initialize with.
+    """
+    self._type_registry: List[Tuple[Callable[[Any], bool], TypeHandler]] = []
+    self._typestr_registry: Dict[str, TypeHandler] = {}
+    if handlers:
+      for ty, h in handlers:
+        self.add(ty, h, override=True)
+
+  def add(
+      self,
+      ty: Any,
+      handler: TypeHandler,
+      func: Optional[Callable[[Any], bool]] = None,
+      override: bool = False,
+  ):
+    if func is None:
+      func = lambda t: issubclass(t, ty)
+
+    existing_handler_idx = None
+    for i, (f, _) in enumerate(self._type_registry):
+      if f(ty):
+        existing_handler_idx = i
+        # Ignore the possibility for subsequent matches, as these will not be
+        # used anyway.
+        break
+
+    if existing_handler_idx is None:
+      if handler.typestr() in self._typestr_registry:
+        if override:
+          logging.warning('Type handler registry overriding type "%s" '
+                          'collision on %s', ty, handler.typestr())
+        else:
+          raise ValueError(
+              f'Type "{ty}" has a `typestr` ("{handler.typestr()}") which'
+              ' collides with that of an existing TypeHandler.'
+          )
+      self._type_registry.append((func, handler))
+      self._typestr_registry[handler.typestr()] = handler
+    elif override:
+      logging.warning('Type handler registry type "%s" overriding %s',
+                      ty, handler.typestr())
+      self._type_registry[existing_handler_idx] = (func, handler)
+      self._typestr_registry[handler.typestr()] = handler
+    else:
+      raise ValueError(f'A TypeHandler for "{ty}" is already registered.')
+
+  def get(self, ty: Any) -> TypeHandler:
+    if isinstance(ty, str):
+      if ty in self._typestr_registry:
+        return self._typestr_registry[ty]
+    else:
+      for func, handler in self._type_registry:
+        if func(ty):
+          return handler
+    raise ValueError(f'Unknown type: "{ty}". Must register a TypeHandler.')
+
+  def has(self, ty: Any) -> bool:
+    try:
+      self.get(ty)
+      return True
+    except ValueError:
+      return False
 
 
-_TYPESTR_REGISTRY = _make_typestr_registry(_TYPE_REGISTRY)
+GLOBAL_TYPE_HANDLER_REGISTRY = _TypeHandlerRegistryImpl(
+    (int, ScalarHandler()),
+    (float, ScalarHandler()),
+    (bytes, ScalarHandler()),
+    (np.number, ScalarHandler()),
+    (np.ndarray, NumpyHandler()),
+    (jax.Array, ArrayHandler()),
+    (str, StringHandler()),
+)
+
+
+def create_type_handler_registry(
+    *handlers: Tuple[Any, TypeHandler]
+) -> TypeHandlerRegistry:
+  """Create a type registry.
+
+  Args:
+    *handlers: an optional list of handlers to initialize with.
+
+  Returns:
+    A TypeHandlerRegistry instance with only the specified handlers.
+  """
+  return _TypeHandlerRegistryImpl(*handlers)
 
 
 def register_type_handler(
@@ -1854,91 +1993,50 @@ def register_type_handler(
     ty: A type to register.
     handler: a TypeHandler capable of reading and writing parameters of type
       `ty`.
-    func: A function that accepts a type and returns True if the type should be
-      handled by the provided TypeHandler. If this parameter is not specified,
-      defaults to `lambda t: issubclass(t, ty)`.
+    func: A function that accepts a type and returns True if the type should
+      be handled by the provided TypeHandler. If this parameter is not
+      specified, defaults to `lambda t: issubclass(t, ty)`.
     override: if True, will override an existing mapping of type to handler.
 
   Raises:
     ValueError if a type is already registered and override is False.
   """
-  if func is None:
-    func = lambda t: issubclass(t, ty)
-
-  existing_handler_idx = None
-  for i, (f, _) in enumerate(_TYPE_REGISTRY):
-    if f(ty):
-      existing_handler_idx = i
-      # Ignore the possibility for subsequent matches, as these will not be used
-      # anyway.
-      break
-
-  if existing_handler_idx is None:
-    if handler.typestr() in _TYPESTR_REGISTRY:
-      raise ValueError(
-          f'Type "{ty}" has a `typestr` ("{handler.typestr()}") which collides'
-          ' with that of an existing TypeHandler.'
-      )
-    _TYPE_REGISTRY.append((func, handler))
-    _TYPESTR_REGISTRY[handler.typestr()] = handler
-  elif override:
-    _TYPE_REGISTRY[existing_handler_idx] = (func, handler)
-    _TYPESTR_REGISTRY[handler.typestr()] = handler
-  else:
-    raise ValueError(f'A TypeHandler for "{ty}" is already registered.')
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(ty, handler, func, override)
 
 
 def get_type_handler(ty: Any) -> TypeHandler:
-  """Returns the handler registered for a given type, if available.
-
-  Args:
-    ty: an object type (or string representation of the type.)
-
-  Returns:
-    The TypeHandler that is registered for the given type.
-
-  Raises:
-    ValueError if the given type has no registered handler.
-  """
-  if isinstance(ty, str):
-    if ty in _TYPESTR_REGISTRY:
-      return _TYPESTR_REGISTRY[ty]
-  else:
-    for func, handler in _TYPE_REGISTRY:
-      if func(ty):
-        return handler
-  raise ValueError(f'Unknown type: "{ty}". Must register a TypeHandler.')
+  """Returns the handler registered for a given type, if available."""
+  return GLOBAL_TYPE_HANDLER_REGISTRY.get(ty)
 
 
 def has_type_handler(ty: Any) -> bool:
-  try:
-    get_type_handler(ty)
-    return True
-  except ValueError:
-    return False
+  """Returns if there is a handler registered for a given type."""
+  return GLOBAL_TYPE_HANDLER_REGISTRY.has(ty)
 
 
 def register_standard_handlers_with_options(**kwargs):
-  """Re-registers a select set of handlers with the given options."""
+  """Re-registers a select set of handlers with the given options.
+
+  This is intended to override options en masse for the standard numeric
+  TypeHandlers and their corresponding types (scalars, numpy arrays and
+  jax.Arrays).
+
+  Args:
+    **kwargs: keyword arguments to pass to each of the standard handlers.
+  """
   # TODO(b/314258967): clean those up.
   del kwargs['use_ocdbt'], kwargs['ts_context']
-  register_type_handler(int, ScalarHandler(**kwargs), override=True)
-  register_type_handler(float, ScalarHandler(**kwargs), override=True)
-  register_type_handler(
-      np.number,
-      ScalarHandler(**kwargs),
-      override=True,
-  )
-  register_type_handler(
-      np.ndarray,
-      NumpyHandler(**kwargs),
-      override=True,
-  )
-  register_type_handler(
-      jax.Array,
-      ArrayHandler(**kwargs),
-      override=True,
-  )
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(int, ScalarHandler(**kwargs), override=True)
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(float, ScalarHandler(**kwargs),
+                                   override=True)
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(bytes, ScalarHandler(**kwargs),
+                                   override=True)
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(np.number, ScalarHandler(**kwargs),
+                                   override=True)
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(np.ndarray, NumpyHandler(**kwargs),
+                                   override=True)
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(jax.Array, ArrayHandler(**kwargs),
+                                   override=True)
 
 
 # TODO(b/253238305) Deprecate when all checkpoints have saved types.

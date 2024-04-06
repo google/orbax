@@ -53,6 +53,8 @@ OCDBT functions
 
 TypeHandler registry
 ------------------------
+.. autoclass:: TypeHandlerRegistry
+.. autofunction:: create_type_handler_registry
 .. autofunction:: register_type_handler
 .. autofunction:: get_type_handler
 .. autofunction:: has_type_handler
