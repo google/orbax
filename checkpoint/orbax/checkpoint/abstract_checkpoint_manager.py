@@ -133,7 +133,7 @@ class AbstractCheckpointManager(Protocol):
     When constructing the `CheckpointManager`, if no `item_names` were provided,
     it is assumed that we are managing a single object. If `item_names` were
     provided, it is assumed that we are managing multiple objects, and `args`
-    must be ``orbax.checkpoint.args.CompositeArgs`. See below for details.
+    must be `orbax.checkpoint.args.CompositeArgs`. See below for details.
 
     Example::
 
