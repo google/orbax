@@ -490,7 +490,7 @@ def get_save_directory(
   if override_directory is not None:
     result = epath.Path(override_directory)
   else:
-    step_name_format = step_name_format or step_lib.StandardNameFormat(
+    step_name_format = step_name_format or step_lib.standard_name_format(
         step_prefix=step_prefix,
         step_format_fixed_length=step_format_fixed_length,
     )
@@ -832,7 +832,7 @@ def are_locked(
     step_name_format: Optional[step_lib.NameFormat] = None,
 ) -> List[bool]:
   """In parallel, determines whether the steps are considered `locked`."""
-  step_name_format = step_name_format or step_lib.StandardNameFormat(
+  step_name_format = step_name_format or step_lib.standard_name_format(
       step_prefix=step_prefix,
       step_format_fixed_length=step_format_fixed_length,
   )
