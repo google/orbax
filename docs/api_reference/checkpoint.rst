@@ -10,6 +10,7 @@ orbax.checkpoint API Reference
    checkpoint.checkpoint_handlers
    checkpoint.args
    checkpoint.type_handlers
+   checkpoint.path.step
    checkpoint.checkpoint_utils
    checkpoint.utils
    checkpoint.transform_utils

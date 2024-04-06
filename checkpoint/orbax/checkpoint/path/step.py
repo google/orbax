@@ -100,21 +100,9 @@ def step_prefix_with_underscore(step_prefix: Optional[str]) -> str:
   return '' if step_prefix is None else f'{step_prefix}_'
 
 
-def select_the_only_metadata(metadatas: Iterator[MetadataT]) -> MetadataT:
-  """Returns the only metadata expected in `metadatas` or raises ValueError."""
-  selected = None
-  for metadata in metadatas:
-    if selected is not None:
-      raise ValueError(f'Multiple matches found: {selected}, {metadata} ...')
-    selected = metadata
-  if selected is None:
-    raise ValueError('No matches found.')
-  return selected
-
-
 @dataclasses.dataclass(frozen=True)
-class StandardNameFormat(NameFormat):
-  """NameFormat for 'standard' steps sufficient for most of the Orbax needs.
+class _StandardNameFormat(NameFormat):
+  """NameFormat for 'standard' steps for common Orbax use cases.
 
   Naming examples:
    * step_prefix=None    step_format_fixed_length=None  ->  23
@@ -185,3 +173,26 @@ class StandardNameFormat(NameFormat):
         f'{step_prefix_with_underscore(self.step_prefix)}*'
     )
     return build_step_metadatas(step_paths, self.build_metadata)
+
+
+def standard_name_format(
+    step_prefix: Optional[str] = None,
+    step_format_fixed_length: Optional[int] = None,
+) -> NameFormat:
+  """Returns NameFormat for 'standard' steps for common Orbax use cases.
+
+  Naming examples:
+   * step_prefix=None    step_format_fixed_length=None  ->  23
+   * step_prefix=None    step_format_fixed_length=4     ->  0023
+   * step_prefix=step    step_format_fixed_length=None  ->  step_23
+   * step_prefix=step    step_format_fixed_length=4     ->  step_0023
+
+  Args:
+    step_prefix: Optional fixed string prefixed to step. Note an *underscore* is
+      appended before applying it.
+    step_format_fixed_length: Optional length of the zero padded step. e.g. 6
+      for 000123.
+  """
+  return _StandardNameFormat(
+      step_prefix=step_prefix, step_format_fixed_length=step_format_fixed_length
+  )

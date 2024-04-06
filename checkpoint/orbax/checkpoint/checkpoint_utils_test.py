@@ -277,7 +277,7 @@ class CheckpointIteratorTest(parameterized.TestCase):
     checkpoint_utils._lock_checkpoint(
         self.directory,
         step=0,
-        step_name_format=step_lib.StandardNameFormat(
+        step_name_format=step_lib.standard_name_format(
             step_prefix=None, step_format_fixed_length=None
         ),
     )
