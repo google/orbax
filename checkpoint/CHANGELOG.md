@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Added
 - Add path package to export symbols, also add Step rst docs.
+- Create composite step `NameFormat`.
 
 ## [0.5.9] - 2024-04-02
 

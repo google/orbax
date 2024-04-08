@@ -18,7 +18,7 @@ import abc
 from collections.abc import Callable
 import dataclasses
 import re
-from typing import Iterator, Optional, Protocol, TypeVar
+from typing import Iterator, Optional, Protocol, Sequence, TypeVar
 from etils import epath
 
 MetadataT = TypeVar('MetadataT', bound='Metadata')
@@ -101,8 +101,8 @@ def step_prefix_with_underscore(step_prefix: Optional[str]) -> str:
 
 
 @dataclasses.dataclass(frozen=True)
-class StandardNameFormat(NameFormat):
-  """NameFormat for 'standard' steps sufficient for most of the Orbax needs.
+class _StandardNameFormat(NameFormat):
+  """NameFormat for 'standard' steps for common Orbax use cases.
 
   Naming examples:
    * step_prefix=None    step_format_fixed_length=None  ->  23
@@ -173,3 +173,98 @@ class StandardNameFormat(NameFormat):
         f'{step_prefix_with_underscore(self.step_prefix)}*'
     )
     return build_step_metadatas(step_paths, self.build_metadata)
+
+
+def standard_name_format(
+    step_prefix: Optional[str] = None,
+    step_format_fixed_length: Optional[int] = None,
+) -> NameFormat:
+  """Returns NameFormat for 'standard' steps for common Orbax use cases.
+
+  Naming examples:
+   * step_prefix=None    step_format_fixed_length=None  ->  23
+   * step_prefix=None    step_format_fixed_length=4     ->  0023
+   * step_prefix=step    step_format_fixed_length=None  ->  step_23
+   * step_prefix=step    step_format_fixed_length=4     ->  step_0023
+
+  Args:
+    step_prefix: Optional fixed string prefixed to step. Note an *underscore* is
+      appended before applying it.
+    step_format_fixed_length: Optional length of the zero padded step. e.g. 6
+      for 000123.
+  """
+  return _StandardNameFormat(
+      step_prefix=step_prefix, step_format_fixed_length=step_format_fixed_length
+  )
+
+
+@dataclasses.dataclass(frozen=True)
+class _CompositeNameFormat(NameFormat):
+  """Supports reading multiple step namings, but just one format to write.
+
+  Attributes:
+    write_name_format: NameFormat used to build step names meant for writing
+      checkpoints. Must be present in `read_name_formats` at a preferred
+      priority position.
+    read_name_formats: Sequence (ordered) of NameFormats used to find steps for
+      reading checkpoints. It acts like an *or*, where the first one to match is
+      returned.
+  """
+
+  write_name_format: NameFormat
+  read_name_formats: Sequence[NameFormat]
+
+  def __post_init__(self):
+    if self.write_name_format not in self.read_name_formats:
+      raise ValueError(
+          f'write_name_format: {self.write_name_format} must be present in'
+          f' read_name_formats: {self.read_name_formats}.'
+      )
+
+  def build_name(self, step: int) -> str:
+    """Returns `step` name using `write_name_format`."""
+    return self.write_name_format.build_name(step)
+
+  def build_metadata(
+      self, step_path: epath.Path, step: Optional[int] = None
+  ) -> Optional[Metadata]:
+    """Returns metadata for given `step_path` if it is valid or None."""
+    for read_name_format in self.read_name_formats:
+      metadata = read_name_format.build_metadata(step_path, step)
+      if metadata is not None:
+        return metadata
+    return None
+
+  def find_metadata(
+      self, base_path: epath.PathLike, step: int
+  ) -> Optional[Metadata]:
+    """Returns metadata for given `base_path` and `step` or None."""
+    for read_name_format in self.read_name_formats:
+      metadata = read_name_format.find_metadata(base_path, step)
+      if metadata is not None:
+        return metadata
+    return None
+
+  def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
+    """Returns metadata of all steps."""
+    step_paths = epath.Path(base_path).iterdir()
+    return build_step_metadatas(step_paths, self.build_metadata)
+
+
+def composite_name_format(
+    write_name_format: NameFormat,
+    read_name_formats: Sequence[NameFormat],
+) -> NameFormat:
+  """Returns *composite* NameFormat supporting multiple read/single write formats.
+
+  Args:
+    write_name_format: NameFormat used to build step names meant for writing
+      checkpoints. Must be present in `read_name_formats` at a preferred
+      priority position.
+    read_name_formats: Sequence (ordered) of NameFormats used to find steps for
+      reading checkpoints. Please note that to resolve conflicts (and avoid
+      raising errors) in case of multiple NameFormats matching a given step, the
+      sequence should be provided in highest to lowest priority order:
+      NameFormat appearing earlier in the sequence is preferred.
+  """
+  return _CompositeNameFormat(write_name_format, read_name_formats)

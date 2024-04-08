@@ -15,10 +15,10 @@ NameFormat
 .. autoclass:: NameFormat
   :members:
 
-StandardNameFormat
+Factories for various NameFormats
 ---------------------------------
-.. autoclass:: StandardNameFormat
-  :members:
+.. autofunction:: standard_name_format
+.. autofunction:: composite_name_format
 
 Convenience functions
 -----------------------
