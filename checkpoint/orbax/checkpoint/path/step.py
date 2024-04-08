@@ -100,18 +100,6 @@ def step_prefix_with_underscore(step_prefix: Optional[str]) -> str:
   return '' if step_prefix is None else f'{step_prefix}_'
 
 
-def select_the_only_metadata(metadatas: Iterator[MetadataT]) -> MetadataT:
-  """Returns the only metadata expected in `metadatas` or raises ValueError."""
-  selected = None
-  for metadata in metadatas:
-    if selected is not None:
-      raise ValueError(f'Multiple matches found: {selected}, {metadata} ...')
-    selected = metadata
-  if selected is None:
-    raise ValueError('No matches found.')
-  return selected
-
-
 @dataclasses.dataclass(frozen=True)
 class StandardNameFormat(NameFormat):
   """NameFormat for 'standard' steps sufficient for most of the Orbax needs.
