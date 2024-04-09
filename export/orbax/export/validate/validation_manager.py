@@ -114,7 +114,9 @@ class ValidationManager:
           outputs = loaded_model_signatures[signature_key](*real_inputs)
         else:
           outputs = loaded_model_signatures[signature_key](real_inputs)
-        outputs = jax.tree_util.tree_map(lambda x: x.numpy(), outputs)
+        outputs = jax.tree_util.tree_map(
+            lambda x: x.numpy() if hasattr(x, 'numpy') else x, outputs
+        )
         return outputs
 
       return inference_fn
