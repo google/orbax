@@ -60,6 +60,11 @@ class JsonCheckpointHandler(checkpoint_handler.CheckpointHandler):
       item: Deprecated, use `args` instead.
       args: JsonSaveArgs (see below).
     """
+    if isinstance(item, CheckpointArgs):
+      raise ValueError(
+          'Make sure to specify kwarg name `args=` when providing'
+          ' `JsonSaveArgs`.'
+      )
     if args is not None:
       item = args.item
     if utils.is_primary_host(self._primary_host):

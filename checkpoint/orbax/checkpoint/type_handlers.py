@@ -1971,7 +1971,8 @@ def create_type_handler_registry(
   """Create a type registry.
 
   Args:
-    *handlers: an optional list of handlers to initialize with.
+    *handlers: optional pairs of `(<type>, <handler>)` to initialize the
+      registry with.
 
   Returns:
     A TypeHandlerRegistry instance with only the specified handlers.

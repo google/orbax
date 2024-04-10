@@ -820,6 +820,11 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       the data from its source will be awaited in this function.
 
     """
+    if isinstance(item, CheckpointArgs):
+      raise ValueError(
+          'Make sure to specify kwarg name `args=` when providing'
+          ' `PyTreeSaveArgs`.'
+      )
     if args is None:
       args = PyTreeSaveArgs(
           item=item,
@@ -1080,6 +1085,11 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       ValueError: `transforms` is provided without `item`.
       ValueError: `transforms` contains elements with `multi_value_fn`.
     """
+    if isinstance(item, CheckpointArgs):
+      raise ValueError(
+          'Make sure to specify kwarg name `args=` when providing'
+          ' `PyTreeRestoreArgs`.'
+      )
     if args is None:
       args = PyTreeRestoreArgs(
           item,

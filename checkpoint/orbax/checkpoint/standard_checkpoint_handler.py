@@ -110,6 +110,11 @@ class StandardCheckpointHandler(
       args: Optional['StandardSaveArgs'] = None,
   ) -> Optional[List[future.Future]]:  # pytype: disable=signature-mismatch
     """Saves a PyTree. See superclass documentation."""
+    if isinstance(item, CheckpointArgs):
+      raise ValueError(
+          'Make sure to specify kwarg name `args=` when providing'
+          ' `StandardSaveArgs`.'
+      )
     if args is not None:
       item = args.item
       save_args = args.save_args
@@ -157,6 +162,11 @@ class StandardCheckpointHandler(
     Returns:
       a restored PyTree.
     """
+    if isinstance(item, CheckpointArgs):
+      raise ValueError(
+          'Make sure to specify kwarg name `args=` when providing'
+          ' `StandardRestoreArgs`.'
+      )
     if not args:
       args = StandardRestoreArgs(item=item)
     if args.item is not None:
