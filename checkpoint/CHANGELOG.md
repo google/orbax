@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add path package to export symbols, also add Step rst docs.
 - Create composite step `NameFormat`.
 
+### Changed
+- Improve step lookup error message by adding expected names to it.
+
 ## [0.5.9] - 2024-04-02
 
 ### Fixed
