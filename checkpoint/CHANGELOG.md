@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Improve step lookup error message by adding expected names to it.
 - Error messages when sharding is not specified.
+- For `broadcast_one_replica_to_all`, delete input arrays as soon as possible to
+conserve memory.
 
 ## [0.5.9] - 2024-04-02
 

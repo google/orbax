@@ -1719,8 +1719,6 @@ class SingleReplicaArrayHandler(ArrayHandler):
         replica_axis_index,
         is_source=_is_host_for_primary_replica(primary_replica_pids),
     )
-
-    jax.block_until_ready(shared_state)
     broadcast_elapsed_s = time.time() - start_broadcast
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/read/broadcast_duration_secs', broadcast_elapsed_s

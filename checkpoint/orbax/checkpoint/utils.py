@@ -932,13 +932,13 @@ def broadcast_one_replica_to_all(
       in_tree,
   )
   in_tree_sharded = jax.tree_map(pre_jit, in_tree, per_replica_shardings)
+  # Delete immediately to conserve memory.
+  jax.tree_map(lambda x: x.delete(), in_tree)
   out_tree = jax.jit(
       functools.partial(_sum, replica_axis_index=replica_axis_index),
       out_shardings=out_sharding,
   )(in_tree_sharded)
-
-  jax.tree_map(lambda x: x.delete(), in_tree)
-
+  jax.block_until_ready(out_tree)
   return out_tree
 
 
