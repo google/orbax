@@ -1476,7 +1476,9 @@ class ArrayHandler(TypeHandler):
             "Couldn't find sharding info under RestoreArgs. Populating sharding"
             ' info from sharding file. Please note restoration time will be'
             ' slightly increased due to reading from file instead of directly'
-            ' from RestoreArgs.'
+            ' from RestoreArgs. Note also that this option is unsafe when'
+            ' restoring on a different topology than the checkpoint was saved'
+            ' with.'
         )
         if info.name:
           tspec_sharding = get_sharding_tensorstore_spec(

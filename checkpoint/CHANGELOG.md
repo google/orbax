@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Added
 - Add path package to export symbols, also add Step rst docs.
 - Create composite step `NameFormat`.
+- Docs on working with PyTrees/arrays.
+
+## Changed
+- Error messages when sharding is not specified.
 
 ### Changed
 - Improve step lookup error message by adding expected names to it.

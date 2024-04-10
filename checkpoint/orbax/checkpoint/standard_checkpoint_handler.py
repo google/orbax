@@ -17,6 +17,7 @@
 import dataclasses
 from typing import Any, List, Optional
 
+from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import checkpoint_args
@@ -162,6 +163,12 @@ class StandardCheckpointHandler(
       self._validate_restore_state(args.item)
       restore_args = checkpoint_utils.construct_restore_args(args.item)
     else:
+      logging.warning(
+          '`StandardCheckpointHandler` expects a target tree to be provided for'
+          ' restore. Not doing so is generally UNSAFE unless you know the'
+          ' present topology to be the same one as the checkpoint was saved'
+          ' under.'
+      )
       restore_args = checkpoint_utils.construct_restore_args(
           self.metadata(directory)
       )
