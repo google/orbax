@@ -74,6 +74,7 @@ Install from GitHub using the following.
    orbax_checkpoint_101
    orbax_checkpoint_api_overview
    api_refactor
+   checkpointing_pytrees
    optimized_checkpointing
    custom_handlers
    transformations
@@ -121,6 +122,13 @@ Checkpointing
       .. card:: API Refactor
          :class-card: sd-text-black sd-bg-light
          :link: api_refactor.html
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: Checkpointing PyTrees of Arrays
+         :class-card: sd-text-black sd-bg-light
+         :link: checkpointing_pytrees.html
 
    .. grid-item::
       :columns: 6 6 6 4
