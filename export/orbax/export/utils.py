@@ -326,3 +326,46 @@ class CallableSignatures:
   def signatures(self):
     """Returns a mapping for signature names to python callables."""
     return self._signatures
+
+
+def load_model_with_tfrt(model_path: str, target_platform: str):
+  """Loads the TF SavedModel with tfrt runtime on XLA devices.
+
+  To make it more general, redirect it to `tf.saved_model.load` for `cpu`.
+
+  Args:
+    model_path: a directory in which to read the TF SavedModel.
+    target_platform: one of 'tpu', 'cpu' or 'gpu'.
+
+  Returns:
+    The loaded TF SavedModel.
+  """
+  if target_platform == 'cpu':
+    return tf.saved_model.load(model_path, tags=['serve'])
+
+  tags_dict = {
+      'tpu': ['serve', 'tpu'],
+      'cuda': ['serve', 'gpu'],
+      'rocm': ['serve', 'gpu'],
+  }
+  if target_platform not in tags_dict.keys():
+    raise ValueError(
+        f'XlaExportManager target_platform must be one of {tags_dict.keys()}.'
+        f' Got: {target_platform}'
+    )
+  tags = tags_dict[target_platform]
+
+  # Pathways serving is only available through `TfrtSession`. `use_tfrt`
+  # causes `TfrtSession` to be used, and `enable_multi_host` causes Pathways
+  # to be used by `TfrtSession`.
+  sess_config = tf.compat.v1.ConfigProto(
+      experimental=tf.compat.v1.ConfigProto.Experimental(
+          use_tfrt=True, enable_multi_host=True
+      )
+  )
+  loaded = CallableSignatures.from_saved_model(
+      model_path,
+      tags,
+      sess_config=sess_config,
+  )
+  return loaded
