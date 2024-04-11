@@ -51,6 +51,7 @@ def _lock_checkpoint(
     step_name_format: step_lib.NameFormat,
 ) -> bool:
   """Locks a checkpoint by writing a LOCKED directory."""
+  logging.info('Locking step: %d before gaining control.', step)
   step_dir = step_name_format.find_step(checkpoint_dir, step).path
   if not step_dir.exists():
     raise ValueError(f'Step directory {step_dir} does not exist.')
@@ -105,6 +106,7 @@ def unlock_existing_checkpoints(
   for step in steps:
     step_dir = step_name_format.find_step(checkpoint_dir, step).path
     if utils.is_locked(step_dir):
+      logging.info('Unlocking existing step: %d.', step)
       _unlock_checkpoint(checkpoint_dir, step, step_name_format)
 
 
@@ -235,6 +237,7 @@ def wait_for_new_checkpoint(
   finally:
     # Release lock on the checkpoint step.
     if step != -1:
+      logging.info('Unlocking step: %d after releasing control.', step)
       _unlock_checkpoint(checkpoint_dir, step, step_name_format)
 
 
