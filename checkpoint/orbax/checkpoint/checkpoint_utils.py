@@ -76,6 +76,7 @@ def _unlock_checkpoint(
 ):
   """Removes a LOCKED directory to indicate unlocking."""
   if jax.process_index() == 0:
+    logging.info('Unlocking existing step: %d.', step)
     step_dir = step_name_format.find_step(checkpoint_dir, step).path
     utils.lockdir(step_dir).unlink(missing_ok=True)
 
@@ -106,7 +107,6 @@ def unlock_existing_checkpoints(
   for step in steps:
     step_dir = step_name_format.find_step(checkpoint_dir, step).path
     if utils.is_locked(step_dir):
-      logging.info('Unlocking existing step: %d.', step)
       _unlock_checkpoint(checkpoint_dir, step, step_name_format)
 
 

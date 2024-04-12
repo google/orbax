@@ -1244,7 +1244,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
     self._checkpoints[:-1] = [
         dataclasses.replace(info, is_locked=is_locked)
-        for info, is_locked in zip(self._checkpoints, are_locked)
+        for info, is_locked in zip(self._checkpoints[:-1], are_locked)
     ]
 
     if self._track_best:
@@ -1264,9 +1264,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           sorted_checkpoints[:-keep] if keep > 0 else sorted_checkpoints
       )
       active_checkpoints = set(
-          checkpoints_without_metrics + sorted_checkpoints[-keep:]
-          if keep > 0
-          else []
+          checkpoints_without_metrics
+          + (sorted_checkpoints[-keep:] if keep > 0 else [])
       )
     else:
       all_checkpoints = checkpoints_without_metrics + sorted_checkpoints
@@ -1296,9 +1295,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           )
           kept_checkpoints.add(info)
           continue
-        elif (
-            info.time
-            >= interval_preserved_checkpoints[-1].time
+        elif info.time >= (
+            interval_preserved_checkpoints[-1].time
             + self._options.keep_time_interval
         ):
           interval_preserved_checkpoints.append(info)

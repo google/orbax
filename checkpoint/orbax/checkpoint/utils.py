@@ -150,7 +150,7 @@ def _extend_list(ls, idx, nextvalue):
 
 
 def from_flattened_with_keypath(
-    flat_with_keys: list[tuple[tuple[Any, ...], Any]]
+    flat_with_keys: list[tuple[tuple[Any, ...], Any]],
 ) -> PyTree:
   """Reconstructs a tree given the a flat dict with keypaths."""
   if not flat_with_keys:
@@ -816,7 +816,10 @@ async def _async_is_locked(directory: epath.Path) -> bool:
   parent_dir_exists = await async_exists(directory)
   if not parent_dir_exists:
     raise ValueError(f'Parent directory {directory} does not exist.')
-  return await async_exists(lockdir(directory))
+  locked = await async_exists(lockdir(directory))
+  # TODO(b/333840560): Revert logging.
+  logging.info('step_name=%s, locked=%s', directory.name, locked)
+  return locked
 
 
 def is_locked(directory: epath.Path) -> bool:
