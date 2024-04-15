@@ -18,8 +18,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional
 
 from etils.epy.reraise_utils import maybe_reraise
+from orbax.export import dtensor_utils
 from orbax.export import utils
-from orbax.export.dtensor_utils import get_current_dtensor_mesh
 from orbax.export.export_manager_base import ExportManagerBase
 from orbax.export.jax_module import JaxModule
 from orbax.export.serving_config import ServingConfig
@@ -110,10 +110,11 @@ class ExportManager(ExportManagerBase):
         self.tf_module, model_path, serving_signatures, options=save_options
     )
 
-    if get_current_dtensor_mesh():
+    mesh = dtensor_utils.get_current_mesh()
+    if mesh:
       # TODO(b/261191533): we can remove this once tf.saved_model.save is aware
       # of SPMD saving.
-      dtensor.barrier(get_current_dtensor_mesh(), 'export done')
+      dtensor.barrier(mesh.dtensor_mesh, 'export done')
 
   def load(self, model_path: str, **kwargs: Any):
     loaded = tf.saved_model.load(model_path, **kwargs)

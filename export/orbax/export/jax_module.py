@@ -81,6 +81,7 @@ class JaxModule(tf.Module):
       jit_compile: Union[bool, Mapping[str, bool]] = True,
       name: Optional[str] = None,
       pspecs: Optional[PyTree] = None,
+      allow_multi_axis_sharding_conslidation: Optional[bool] = None,
   ):
     """JaxModule constructor.
 
@@ -112,10 +113,14 @@ class JaxModule(tf.Module):
         functions or a mapping of method key to the jit compile option for the
         method.
       name: the name of the module.
-      pspecs: an optional pytree of PartitionSpecs of the ``params`` in the
-        same structure as ``params``. If set, the leaves of ``params`` must be
+      pspecs: an optional pytree of PartitionSpecs of the ``params`` in the same
+        structure as ``params``. If set, the leaves of ``params`` must be
         jax.Array, and ``JaxModule`` must be created within a DTensor export
         context from ``with maybe_enable_dtensor_export_on(mesh)``.
+      allow_multi_axis_sharding_conslidation: When set to true, it will allow
+        conslidating sharding a dimension across multiple axis names into
+        sharding that dimension over just one of those axis names, when
+        converting from jax params to tf.Variables.
     """
     if callable(apply_fn):
       apply_fn_map: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
@@ -163,7 +168,9 @@ class JaxModule(tf.Module):
       trainable = jax.tree_util.tree_map(lambda x: trainable, params)
 
     self.with_gradient: bool = any(jax.tree_util.tree_leaves(trainable))
-    tf_vars = _jax_params_to_tf_variables(params, trainable, pspecs)
+    tf_vars = _jax_params_to_tf_variables(
+        params, trainable, pspecs, allow_multi_axis_sharding_conslidation
+    )
     # Do not attach `tf_vars` to `self` directly, otherwise its structure will
     # be mutated by `tf.Module.__setattr__`.
     self._var_leaves, var_treedef = jax.tree_util.tree_flatten(tf_vars)
@@ -299,12 +306,15 @@ def _get_param_names(params: PyTree) -> PyTree:
 
 
 def _jax_params_to_tf_variables(
-    params: PyTree, trainable: PyTree, pspecs: Optional[PyTree]
+    params: PyTree,
+    trainable: PyTree,
+    pspecs: Optional[PyTree],
+    allow_multi_axis_sharding_conslidation: Optional[bool] = None,
 ) -> PyTree:
   """Converts `params` to tf.Variables in the same pytree structure."""
-  dmesh = dtensor_utils.get_current_dtensor_mesh()
+  mesh = dtensor_utils.get_current_mesh()
   default_cpu_device = tf.config.list_logical_devices('CPU')[0]
-  if dmesh is not None:
+  if mesh is not None:
     if pspecs is None:
       raise ValueError(
           'DTensor export is enabled but `pspecs` is not specified in'
@@ -317,9 +327,9 @@ def _jax_params_to_tf_variables(
           'Some params are not jax.Array, DTensor export will not take effect.'
           'Falling back to traditional TF export.'
       )
-      dmesh = None
+      mesh = None
 
-  if dmesh is None and pspecs is not None:
+  if mesh is None and pspecs is not None:
     raise ValueError(
         '`pspecs` is not None but JaxModule is not created within a DTensor'
         ' export context. Please call `initialize_dtensor()` and use `with'
@@ -328,9 +338,15 @@ def _jax_params_to_tf_variables(
     )
 
   def _to_tf_variable(x, name, trainable, pspec):
-    if dmesh:
+    if mesh is not None:
       return dtensor.DVariable(
-          dtensor_utils.jax_array_to_dtensor(x, pspec, dmesh),
+          dtensor_utils.jax_array_to_dtensor(
+              x,
+              pspec,
+              mesh.dtensor_mesh,
+              mesh.jax_mesh,
+              allow_multi_axis_sharding_conslidation,
+          ),
           trainable=trainable,
           shape=x.shape,
           dtype=x.dtype,
