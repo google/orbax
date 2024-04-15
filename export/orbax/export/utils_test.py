@@ -97,7 +97,8 @@ class UtilsTest(tf.test.TestCase):
     self.assertAllEqual(tf_f(np.asarray([6, 7])), np.asarray([12, 16]))
 
   def test_callable_signatures_from_saved_model(self):
-    @tf.function(input_signature=[tf.TensorSpec((), tf.float32)])
+
+    @tf.function(input_signature=[tf.TensorSpec((), tf.float32, name='y')])
     def tf_f(x=tf.constant(1.0, tf.float32)):
       return {'output': x + 1}
 
@@ -105,6 +106,12 @@ class UtilsTest(tf.test.TestCase):
     tf.saved_model.save(tf.Module(), export_dir, signatures={'f': tf_f})
     loaded = utils.CallableSignatures.from_saved_model(export_dir, ['serve'])
     self.assertAllEqual(loaded.signatures['f'](), {'output': 2})
+
+    # Not like `tf.saved_model.load`, the loaded function by `from_saved_model`
+    # take kwargs while the key is the input signature tensor name.
+    self.assertAllEqual(
+        loaded.signatures['f'](y=tf.constant(2.0, tf.float32)), {'output': 3}
+    )
 
   def test_make_auto_batching_function_simple(self):
     input_signature = (
