@@ -15,6 +15,7 @@
 """Utilities for transforming distributed JAX arrays to DTensors."""
 
 import contextlib
+import dataclasses
 import threading
 from typing import Optional
 
@@ -74,7 +75,7 @@ def initialize_dtensor(reset_context: bool = False):
 
 
 def dtensor_initialized() -> bool:
-  """Checks whether DTensor is intialized and matches the JAX device set."""
+  """Checks whether DTensor is initialized and matches the JAX device set."""
   return _DTENSOR_INITIALIZED
 
 
@@ -100,7 +101,7 @@ def jax_mesh_to_dtensor_mesh(mesh: jax.sharding.Mesh) -> dtensor.Mesh:
   global_device_ids = np.arange(0, np.prod(mesh_shape)).reshape(mesh_shape)
   with mesh:
     # Shard the global device ids so that each process gets the local device ids
-    # for the correponding DTensor mesh.
+    # for the corresponding DTensor mesh.
     sharded_device_ids = pjit.pjit(
         lambda x: x,
         out_shardings=jax.sharding.PartitionSpec(*mesh.axis_names),
@@ -117,29 +118,52 @@ def jax_mesh_to_dtensor_mesh(mesh: jax.sharding.Mesh) -> dtensor.Mesh:
   )
 
 
+def reshard_jax_array(
+    array: jax.Array, mesh: jax.sharding.Mesh, pspec: jax.sharding.PartitionSpec
+) -> jax.Array:
+  """Reshards a jax.Array."""
+  with mesh:
+    return pjit.pjit(lambda x: x, out_shardings=pspec)(array)
+
+
 # TODO(b/261191533): jax.Array contains OpSharding info. Maybe we can get rid
 # of jax.sharding.PartitionSpec here.
 def jax_array_to_dtensor(
-    arr: jax.Array, pspec: jax.sharding.PartitionSpec, dmesh: dtensor.Mesh
+    arr: jax.Array,
+    pspec: jax.sharding.PartitionSpec,
+    dmesh: dtensor.Mesh,
+    jax_mesh: Optional[jax.sharding.Mesh] = None,
+    allow_multi_axis_sharding_conslidation: bool = False,
 ) -> DTensor:
   """Converts a jax.Array to a dtensor.
 
   Args:
-    arr: a jax.Array.
-    pspec: the partition spec of the input ``array``.
-    dmesh: the DTensor mesh where the output dtensor is created.
+    arr: A jax.Array.
+    pspec: The partition spec of the input ``array``.
+    dmesh: The DTensor mesh where the output dtensor is created.
+    jax_mesh: The jax mesh for the jax array and partition spec.
+    allow_multi_axis_sharding_conslidation: Whether reducing sharding a
+      dimension across multiple axis names to one is allowed or not.
 
   Returns:
-    A DTensor sharded in the same way as the input ``arr``.
+    A DTensor sharded in the same way as the input ``arr`` when the partition
+    spec does not have product-sharding (i.e., sharding a dimension across
+    multiple axis names). Or a DTensor with consolidated/reduced sharding
+    when the partition spec has product-sharding and
+    `allow_multi_axis_sharding_conslidation` is true (e.g. input array's
+    sharding is P(None, ('a','b') and output dtensor sharding gets reduced
+    to P(None, 'a')).
 
   Raises:
-    ValueError: if a dimension of ``arr`` is product-sharded, i.e., sharded
-      across more than one axes of the mesh. For example, if a mesh has two axes
-      `'x'` and `'y'`, `PartitionSpec((x, y))` is considered product-sharded if
-      the mesh size of both axes are greater than 1. If the mesh size of the
-       `'x'` or `'y'` is 1, the spec is not considered product-sharded because
-       it is efftively sharded on one axis only.
+    ValueError: When `allow_multi_axis_sharding_conslidation` is false and if a
+      dimension of ``arr`` is product-sharded, i.e., sharded across more than
+      one axes of the mesh. For example, if a mesh has two axes `'x'` and `'y'`,
+      `PartitionSpec((x, y))` is considered product-sharded if the mesh size of
+      both axes are greater than 1. If the mesh size of the `'x'` or `'y'` is 1,
+      the spec is not considered product-sharded because it is efftively
+      sharded on one axis only.
   """
+  arr_reshard_needed = False
   if pspec is None:
     dspec = [dtensor.UNSHARDED] * len(arr.shape)
   else:
@@ -155,14 +179,29 @@ def jax_array_to_dtensor(
           if len(mesh_axis_name) > 1:
             dim_sizes = tuple(dmesh.dim_size(name) for name in mesh_axis_name)
             if dim_sizes.count(1) < len(mesh_axis_name) - 1:
-              raise ValueError(
-                  f'Dimension {i} of the input array (shape={arr.shape}) is'
-                  f' sharded across more than one axis ({mesh_axis_name}, sizes'
-                  f' = {dim_sizes}) of the mesh, but jax.Array to DTensor'
-                  ' tranform does not support partitioning of an array'
-                  ' dimension across multiple mesh axes, unless there is at'
-                  ' most one axis with size >= 1.'
-              )
+              if not allow_multi_axis_sharding_conslidation:
+                raise ValueError(
+                    f'Dimension {i} of the input array (shape={arr.shape}) is'
+                    f' sharded across more than one axis ({mesh_axis_name},'
+                    f' sizes = {dim_sizes}) of the mesh, but jax.Array to'
+                    ' DTensor transform does not support partitioning of an'
+                    ' array dimension across multiple mesh axes, unless there'
+                    ' is at most one axis with size >= 1.'
+                )
+              else:
+                # Reduce/consolidate partition across multiple axis names
+                # into one of those axis name. The selected axis name will be
+                # the one with the highest dim size. E.g. P(None, ('a', 'b'))
+                # will be reduced to P(None, ('a')) for {'a':4, 'b':2}
+                # or P(None, ('b')) for {'a':2, 'b':4}.
+                max_dim_size = max(
+                    tuple(dmesh.dim_size(name) for name in mesh_axis_name)
+                )
+                max_dim_size_idx = dim_sizes.index(max_dim_size)
+                mesh_axis_name = tuple(
+                    mesh_axis_name[max_dim_size_idx],
+                )
+                arr_reshard_needed = True
             else:
               mesh_axis_name = tuple(
                   filter(lambda x: dmesh.dim_size(x) != 1, mesh_axis_name)
@@ -184,7 +223,19 @@ def jax_array_to_dtensor(
     dspec.extend([dtensor.UNSHARDED] * (len(arr.shape) - len(pspec)))
   layout = dtensor.Layout(dspec, dmesh)
 
-  local_data = [s.data for s in arr.addressable_shards]
+  if not arr_reshard_needed:
+    local_data = [s.data for s in arr.addressable_shards]
+  else:
+    resharded_arr = reshard_jax_array(
+        arr,
+        jax_mesh,
+        jax.sharding.PartitionSpec(*[
+            axis_name if axis_name != dtensor.UNSHARDED else None
+            for axis_name in dspec
+        ]),
+    )
+    local_data = [s.data for s in resharded_arr.addressable_shards]
+    del resharded_arr
   return dtensor.pack(local_data, layout)
 
 
@@ -196,6 +247,12 @@ class _ThreadLocalStack(threading.local):
 
 
 _MESH_STACK = _ThreadLocalStack()
+
+
+@dataclasses.dataclass(frozen=True)
+class Mesh:
+  jax_mesh: jax.sharding.Mesh
+  dtensor_mesh: dtensor.Mesh
 
 
 @contextlib.contextmanager
@@ -213,7 +270,9 @@ def maybe_enable_dtensor_export_on(mesh: Optional[jax.sharding.Mesh]):
   if not dtensor_initialized() or mesh is None:
     yield
   else:
-    _MESH_STACK.stack.append(jax_mesh_to_dtensor_mesh(mesh))
+    _MESH_STACK.stack.append(
+        Mesh(jax_mesh=mesh, dtensor_mesh=jax_mesh_to_dtensor_mesh(mesh))
+    )
     try:
       yield
     finally:
@@ -222,6 +281,12 @@ def maybe_enable_dtensor_export_on(mesh: Optional[jax.sharding.Mesh]):
 
 def get_current_dtensor_mesh() -> Optional[dtensor.Mesh]:
   """Returns the DTensor mesh in the current context."""
+  mesh = get_current_mesh()
+  return mesh.dtensor_mesh if mesh else None
+
+
+def get_current_mesh() -> Optional[Mesh]:
+  """Returns the Jax and DTensor mesh in the current context."""
   return _MESH_STACK.stack[-1] if _MESH_STACK.stack else None
 
 
