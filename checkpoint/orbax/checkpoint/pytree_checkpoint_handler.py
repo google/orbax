@@ -719,7 +719,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       directory: epath.Path,
       save_args: PyTree,
       ocdbt_target_data_file_size: Optional[int] = None,
-  ) -> Tuple[PyTree, bool]:
+  ) -> PyTree:
     """Returns parameter information for elements in `item`.
 
     At minimum, this method should extract the names of each parameter for
@@ -740,11 +740,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if not item:
       raise ValueError('Found empty item')
     names = self._get_param_names(item)
-    all_params_aggregated = True
 
     def _param_info(value, name, args):
-      nonlocal all_params_aggregated
-      all_params_aggregated &= args.aggregate
       skip_deserialize = self._skip_deserialize(value, args)
       return ParamInfo(
           name=name,
@@ -757,11 +754,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
       )
 
-    return (
-        jax.tree_util.tree_map(
-            _param_info, item, names, save_args, is_leaf=utils.is_empty_or_leaf
-        ),
-        all_params_aggregated,
+    return jax.tree_util.tree_map(
+        _param_info, item, names, save_args, is_leaf=utils.is_empty_or_leaf
     )
 
   async def async_save(
@@ -862,14 +856,14 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         item if save_args is None else save_args,
         is_leaf=utils.is_empty_or_leaf,
     )
-    param_infos, all_params_aggregated = self._get_param_infos(
+    param_infos = self._get_param_infos(
         item, directory, save_args, ocdbt_target_data_file_size
     )
     assert all(
         leaf.parent_dir == directory
         for leaf in jax.tree_util.tree_leaves(param_infos)
     )
-    if not self._use_ocdbt and not all_params_aggregated:
+    if not self._use_ocdbt:
       if utils.is_primary_host(self._primary_host):
         # Create directories in parallel.
         await asyncio.gather(
@@ -885,23 +879,17 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           'PyTreeCheckpointHandler:create_param_save_dirs'
       )
 
-    if all_params_aggregated:
-      commit_futures = []
-    else:
-      serialize_ops = []
-      batch_requests = _batched_serialization_requests(
-          item, param_infos, save_args, self._type_handler_registry,
-      )
-      for request in batch_requests:
-        serialize_ops += [
-            request.handler.serialize(
-                request.values, request.infos, request.args
-            )
-        ]
-      # Await copy futures. Returns list of lists.
-      commit_futures = await asyncio.gather(*serialize_ops)
-      commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
-
+    serialize_ops = []
+    batch_requests = _batched_serialization_requests(
+        item, param_infos, save_args, self._type_handler_registry,
+    )
+    for request in batch_requests:
+      serialize_ops += [
+          request.handler.serialize(request.values, request.infos, request.args)
+      ]
+    # Await copy futures. Returns list of lists.
+    commit_futures = await asyncio.gather(*serialize_ops)
+    commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
     if logging.level_debug():
       logging.debug('param_info: %s', param_infos)
       logging.debug('save_args: %s', save_args)
