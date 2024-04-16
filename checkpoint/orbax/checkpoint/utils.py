@@ -816,10 +816,7 @@ async def _async_is_locked(directory: epath.Path) -> bool:
   parent_dir_exists = await async_exists(directory)
   if not parent_dir_exists:
     raise ValueError(f'Parent directory {directory} does not exist.')
-  locked = await async_exists(lockdir(directory))
-  # TODO(b/333840560): Revert logging.
-  logging.info('step_name=%s, locked=%s', directory.name, locked)
-  return locked
+  return await async_exists(lockdir(directory))
 
 
 def is_locked(directory: epath.Path) -> bool:
