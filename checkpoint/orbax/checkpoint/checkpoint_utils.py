@@ -15,7 +15,6 @@
 """High-level checkpoint utils provided for user convenience."""
 
 import contextlib
-import os
 import time
 from typing import Any, Callable, Iterator, Optional
 
@@ -108,16 +107,6 @@ def unlock_existing_checkpoints(
     step_dir = step_name_format.find_step(checkpoint_dir, step).path
     if utils.is_locked(step_dir):
       _unlock_checkpoint(checkpoint_dir, step, step_name_format)
-
-
-def checkpoint_dir_is_world_readable(
-    directory: epath.Path,
-) -> bool:
-  if os.path.exists(directory):
-    permissions = os.stat(directory).st_mode & 0o777
-    if oct(permissions) == '0o777':
-      return True
-  return False
 
 
 def _reached_desired_step(step: int, until_step: Optional[int]) -> bool:

@@ -543,7 +543,8 @@ def create_tmp_directory(
             ' exists. This condition should never arise on non-GCS'
             ' filesystems.'
         )
-    tmp_dir.mkdir(parents=True)
+    mode = step_lib.WORLD_READABLE_MODE  # pylint: disable=unused-variable
+    tmp_dir.mkdir(parents=True, mode=mode)
 
   sync_global_processes('create_tmp_directory:post', processes=active_processes)
   return tmp_dir

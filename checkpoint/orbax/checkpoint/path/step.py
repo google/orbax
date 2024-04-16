@@ -22,6 +22,9 @@ from typing import Iterator, Optional, Protocol, Sequence, TypeVar
 from absl import logging
 from etils import epath
 
+# This file mode gives full permissions to OWNER, GROUP and OTHER.
+WORLD_READABLE_MODE = 0o777
+
 MetadataT = TypeVar('MetadataT', bound='Metadata')
 
 
