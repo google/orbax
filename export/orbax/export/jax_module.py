@@ -302,9 +302,9 @@ def _jax_params_to_tf_variables(
     params: PyTree, trainable: PyTree, pspecs: Optional[PyTree]
 ) -> PyTree:
   """Converts `params` to tf.Variables in the same pytree structure."""
-  dmesh = dtensor_utils.get_current_dtensor_mesh()
+  mesh = dtensor_utils.get_current_mesh()
   default_cpu_device = tf.config.list_logical_devices('CPU')[0]
-  if dmesh is not None:
+  if mesh is not None:
     if pspecs is None:
       raise ValueError(
           'DTensor export is enabled but `pspecs` is not specified in'
@@ -317,9 +317,9 @@ def _jax_params_to_tf_variables(
           'Some params are not jax.Array, DTensor export will not take effect.'
           'Falling back to traditional TF export.'
       )
-      dmesh = None
+      mesh = None
 
-  if dmesh is None and pspecs is not None:
+  if mesh is None and pspecs is not None:
     raise ValueError(
         '`pspecs` is not None but JaxModule is not created within a DTensor'
         ' export context. Please call `initialize_dtensor()` and use `with'
@@ -328,9 +328,9 @@ def _jax_params_to_tf_variables(
     )
 
   def _to_tf_variable(x, name, trainable, pspec):
-    if dmesh:
+    if mesh is not None:
       return dtensor.DVariable(
-          dtensor_utils.jax_array_to_dtensor(x, pspec, dmesh),
+          dtensor_utils.jax_array_to_dtensor(x, pspec, mesh.dtensor_mesh),
           trainable=trainable,
           shape=x.shape,
           dtype=x.dtype,

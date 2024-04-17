@@ -15,6 +15,7 @@
 """Utilities for transforming distributed JAX arrays to DTensors."""
 
 import contextlib
+import dataclasses
 import threading
 from typing import Optional
 
@@ -74,7 +75,7 @@ def initialize_dtensor(reset_context: bool = False):
 
 
 def dtensor_initialized() -> bool:
-  """Checks whether DTensor is intialized and matches the JAX device set."""
+  """Checks whether DTensor is initialized and matches the JAX device set."""
   return _DTENSOR_INITIALIZED
 
 
@@ -100,7 +101,7 @@ def jax_mesh_to_dtensor_mesh(mesh: jax.sharding.Mesh) -> dtensor.Mesh:
   global_device_ids = np.arange(0, np.prod(mesh_shape)).reshape(mesh_shape)
   with mesh:
     # Shard the global device ids so that each process gets the local device ids
-    # for the correponding DTensor mesh.
+    # for the corresponding DTensor mesh.
     sharded_device_ids = pjit.pjit(
         lambda x: x,
         out_shardings=jax.sharding.PartitionSpec(*mesh.axis_names),
@@ -198,6 +199,12 @@ class _ThreadLocalStack(threading.local):
 _MESH_STACK = _ThreadLocalStack()
 
 
+@dataclasses.dataclass(frozen=True)
+class Mesh:
+  jax_mesh: jax.sharding.Mesh
+  dtensor_mesh: dtensor.Mesh
+
+
 @contextlib.contextmanager
 def maybe_enable_dtensor_export_on(mesh: Optional[jax.sharding.Mesh]):
   """Creates a DTensor context from a JAX mesh for Orbax Export.
@@ -213,7 +220,9 @@ def maybe_enable_dtensor_export_on(mesh: Optional[jax.sharding.Mesh]):
   if not dtensor_initialized() or mesh is None:
     yield
   else:
-    _MESH_STACK.stack.append(jax_mesh_to_dtensor_mesh(mesh))
+    _MESH_STACK.stack.append(
+        Mesh(jax_mesh=mesh, dtensor_mesh=jax_mesh_to_dtensor_mesh(mesh))
+    )
     try:
       yield
     finally:
@@ -222,6 +231,12 @@ def maybe_enable_dtensor_export_on(mesh: Optional[jax.sharding.Mesh]):
 
 def get_current_dtensor_mesh() -> Optional[dtensor.Mesh]:
   """Returns the DTensor mesh in the current context."""
+  mesh = get_current_mesh()
+  return mesh.dtensor_mesh if mesh else None
+
+
+def get_current_mesh() -> Optional[Mesh]:
+  """Returns the Jax and DTensor mesh in the current context."""
   return _MESH_STACK.stack[-1] if _MESH_STACK.stack else None
 
 
