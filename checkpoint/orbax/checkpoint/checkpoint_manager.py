@@ -413,6 +413,21 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     properly.  Otherwise, background operations such as deleting old checkpoints
     might not finish before your program exits.
 
+    CheckpointManager:
+      - is NOT thread-safe.
+      - IS multi-process-safe.
+      - is NOT multi-job-safe.
+    This means that CheckpointManager is intended to be created and called
+    across all processes within a single job, where each process is
+    single-threaded, but is not safe to use when multiple jobs each have
+    CheckpointManager instances pointing to the same root directory. Concretely,
+    this means that if you have a trainer job and one or more evaluator jobs,
+    the CheckpointManager should be created and called across all processes
+    in the trainer, but a CheckpointManager cannot be used in the evaluators.
+    Instead, utilities used during evaluation can be found in
+    `checkpoint_utils` (see
+    https://orbax.readthedocs.io/en/latest/api_reference/checkpoint.checkpoint_utils.html).
+
     Args:
       directory: the top level directory in which to save all files.
       checkpointers: a mapping of object name to Checkpointer object. For
