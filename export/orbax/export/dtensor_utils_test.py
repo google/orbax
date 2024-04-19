@@ -113,59 +113,35 @@ class DtensorUtilsTest(parameterized.TestCase):
       dtensor_utils.jax_array_to_dtensor(jax_arr, pspec, dmesh)
 
   @parameterized.parameters(
-      ((2, 4), ('x', 'y'), P(None, ('x', 'y')), P(None, 'y')),
-      ((4, 2), ('x', 'y'), P(('x', 'y'), None), P('x', None)),
-      ((1, 8), ('x', 'y'), P(None, ('x', 'y')), P(None, 'y')),
-      ((8, 1), ('x', 'y'), P(('x', 'y'), None), P('x', None)),
-      ((1, 2, 4), ('x', 'y', 'z'), P(None, 'x', ('y', 'z')), P(None, 'x', 'z')),
-      ((1, 2, 4), ('x', 'y', 'z'), P(None, ('x', 'y'), 'z'), P(None, 'y', 'z')),
-      (
-          (1, 2, 4),
-          ('x', 'y', 'z'),
-          P(None, None, ('y', 'z')),
-          P(None, None, 'z'),
-      ),
-      (
-          (1, 2, 4),
-          ('x', 'y', 'z'),
-          P(None, ('x', 'y'), None),
-          P(None, 'y', None),
-      ),
-      (
-          (1, 1, 8),
-          ('x', 'y', 'z'),
-          P(None, None, ('x', 'y', 'z')),
-          P(None, None, 'z'),
-      ),
-      (
-          (1, 2, 4),
-          ('data', 'seq', 'model'),
-          P(None, 'data', ('seq', 'model')),
-          P(None, 'data', 'model'),
-      ),
+      ((1, 8), ('x', 'y'), P(None, ('x', 'y'))),
+      ((8, 1), ('x', 'y'), P(('x', 'y'), None)),
+      ((1, 2, 4), ('x', 'y', 'z'), P(None, 'y', ('x', 'z'))),
+      ((1, 2, 4), ('x', 'y', 'z'), P(None, 'y', ('z', 'x'))),
+      ((1, 2, 4), ('x', 'y', 'z'), P(None, None, ('y', 'x'))),
+      ((1, 1, 8), ('x', 'y', 'z'), P(None, None, ('x', 'y', 'z'))),
+      ((1, 8, 1), ('x', 'y', 'z'), P(None, ('x', 'y', 'z'), None)),
+      ((8, 1, 1), ('x', 'y', 'z'), P(('x', 'y', 'z'), None, None)),
+      ((1, 1, 8), ('x', 'y', 'z'), P(None, 'y', ('x', 'z'))),
+      ((1, 1, 8), ('x', 'y', 'z'), P('x', None, ('y', 'z'))),
+      ((1, 1, 8), ('x', 'y', 'z'), P('x', None, ('z', 'y'))),
+      ((1, 1, 8), ('x', 'y', 'z'), P(('x', 'y'), None, 'z')),
   )
   def test_sharding_across_multi_mesh_axes(
       self,
       mesh_shape: tuple[int, ...],
       axis_names: tuple[str, ...],
       pspec: P,
-      resharded_pspec: P,
   ):
     arr_shape = np.asarray(mesh_shape) * 2
     global_arr = np.arange(np.prod(arr_shape)).reshape(arr_shape)
     mesh = self._create_mesh(mesh_shape, axis_names)
     jax_arr = _create_sharded_jax_array(global_arr, pspec, mesh)
     dmesh = dtensor_utils.jax_mesh_to_dtensor_mesh(mesh)
-    dt_arr = dtensor_utils.jax_array_to_dtensor(
-        jax_arr, pspec, dmesh, mesh, allow_multi_axis_sharding_conslidation=True
-    )
+    dt_arr = dtensor_utils.jax_array_to_dtensor(jax_arr, pspec, dmesh)
 
-    resharded_jax_arr = _create_sharded_jax_array(
-        global_arr, resharded_pspec, mesh
-    )
     self.assertEqual(
         _get_dtensor_shard_shape(dt_arr),
-        resharded_jax_arr.sharding.shard_shape(resharded_jax_arr.shape),
+        jax_arr.sharding.shard_shape(jax_arr.shape),
     )
     np.testing.assert_equal(_get_dtensor_full_value(dt_arr, dmesh), global_arr)
 

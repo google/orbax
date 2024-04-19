@@ -168,9 +168,7 @@ class JaxModule(tf.Module):
       trainable = jax.tree_util.tree_map(lambda x: trainable, params)
 
     self.with_gradient: bool = any(jax.tree_util.tree_leaves(trainable))
-    tf_vars = _jax_params_to_tf_variables(
-        params, trainable, pspecs, allow_multi_axis_sharding_conslidation
-    )
+    tf_vars = _jax_params_to_tf_variables(params, trainable, pspecs)
     # Do not attach `tf_vars` to `self` directly, otherwise its structure will
     # be mutated by `tf.Module.__setattr__`.
     self._var_leaves, var_treedef = jax.tree_util.tree_flatten(tf_vars)
@@ -306,10 +304,7 @@ def _get_param_names(params: PyTree) -> PyTree:
 
 
 def _jax_params_to_tf_variables(
-    params: PyTree,
-    trainable: PyTree,
-    pspecs: Optional[PyTree],
-    allow_multi_axis_sharding_conslidation: Optional[bool] = None,
+    params: PyTree, trainable: PyTree, pspecs: Optional[PyTree]
 ) -> PyTree:
   """Converts `params` to tf.Variables in the same pytree structure."""
   mesh = dtensor_utils.get_current_mesh()
@@ -340,13 +335,7 @@ def _jax_params_to_tf_variables(
   def _to_tf_variable(x, name, trainable, pspec):
     if mesh is not None:
       return dtensor.DVariable(
-          dtensor_utils.jax_array_to_dtensor(
-              x,
-              pspec,
-              mesh.dtensor_mesh,
-              mesh.jax_mesh,
-              allow_multi_axis_sharding_conslidation,
-          ),
+          dtensor_utils.jax_array_to_dtensor(x, pspec, mesh.dtensor_mesh),
           trainable=trainable,
           shape=x.shape,
           dtype=x.dtype,
