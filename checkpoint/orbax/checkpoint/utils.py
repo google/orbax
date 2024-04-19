@@ -381,6 +381,8 @@ def pytree_structure(directory: epath.PathLike) -> PyTree:
     # it shouldn't be included here. See b/279969796 for more details.
     if k.name == '_sharding':
       continue
+    if k.name == 'descriptor':
+      continue
     tree = add_nested_key(tree, k.name.split('.'), k.name)
   return tree
 

@@ -19,6 +19,7 @@ present, they will be yielded even if `timeout_fn` already returns True.
 ### Removed
 - `ocdbt_merge` option and unused `restore_with_serialized_types` option from
 `PyTreeCheckpointHandler`.
+- `write_tree_metadata` option, as there is no real reason to disable this now.
 - OCDBT coordinator code. These functions are no longer needed.
 
 ## [0.5.10] - 2024-04-22
