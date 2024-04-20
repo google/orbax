@@ -16,7 +16,7 @@
 
 import functools
 import time
-from typing import Any, Set, Optional
+from typing import Any, Optional, Set
 import zlib
 from absl import logging
 import jax
