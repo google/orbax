@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Absl logging implementation for checkpointing."""
-
 from absl.testing import absltest
 from orbax.checkpoint.logging import standard_logger
 
@@ -25,9 +23,12 @@ class StandardLoggerTest(absltest.TestCase):
     self.logger = standard_logger.StandardLogger()
 
   def test_log_entry(self):
-    entry = {'test-step': 'test-log-entry'}
-    self.logger.log_entry(entry)
-
+    with self.assertLogs(level='INFO') as log_output:
+      entry = {'test-step': 'test-log-entry'}
+      expected_message = str(entry)
+      self.logger.log_entry(entry)
+      self.assertEqual(log_output[0][0].message, expected_message)
+      self.assertEqual(log_output[0][0].levelname, 'INFO')
 
 if __name__ == '__main__':
   absltest.main()

@@ -14,10 +14,47 @@
 
 """Cloud logging implementation for checkpointing."""
 
+import dataclasses
 from typing import Any, Optional
 
 import google.cloud.logging as google_cloud_logging
 from orbax.checkpoint.logging import abstract_logger
+
+_JOB_NAME = 'checkpoint_job'
+_LOGGER_NAME = 'checkpoint_logger'
+
+
+@dataclasses.dataclass
+class CloudLoggerOptions:
+  """Logger options for Checkpoint loggers."""
+
+  job_name: str = _JOB_NAME
+  logger_name: str = _LOGGER_NAME
+  client: Optional[google_cloud_logging.Client] = None
+  checkpoint_metadata: Optional[Any] = None
+
+
+def _get_severity(severity: str) -> str:
+  """Gets the severity of the log message.
+
+  Args:
+    severity: The severity of the log message.
+
+  Returns:
+    The severity of the log message.
+  """
+  if severity == 'DEBUG':
+    return 'DEBUG'
+  elif severity == 'INFO':
+    return 'INFO'
+  elif severity == 'WARNING':
+    return 'WARNING'
+  elif severity == 'ERROR':
+    return 'ERROR'
+  elif severity == 'CRITICAL':
+    return 'CRITICAL'
+  else:
+    return 'INFO'
 
 
 class CloudLogger(abstract_logger.AbstractLogger):
@@ -25,29 +62,33 @@ class CloudLogger(abstract_logger.AbstractLogger):
 
   def __init__(
       self,
-      job_name: str,
-      log_name: str,
-      client: Optional[google_cloud_logging.Client] = None,
+      options: CloudLoggerOptions = CloudLoggerOptions()
   ):
     """CloudLogger constructor.
 
     Args:
-      job_name: Name of the job the CheckpointLogger is for.
-      log_name: Name of the log being written.
-      client: Optional client to use for logging.
+      options: Options for the logger.
     """
-    self.job_name = job_name
-    if client is None:
+    self.job_name = options.job_name
+    self.log_name = options.logger_name
+    self.options = options
+    if options.client is None:
       self.logging_client = google_cloud_logging.Client()
     else:
-      self.logging_client = client
-    self.logger = self.logging_client.logger(log_name)
+      self.logging_client = options.client
+    self._logger = self.logging_client.logger(self.log_name)
 
-  def log_entry(self, entry: Any):
-    """Logs an informational message.
+  def log_entry(
+      self, entry: dict[str, Any], severity: Optional[str] = 'INFO'
+  ) -> None:
+    """Logs a structured message at the given severity.
 
     Args:
-        entry: Additional structured data to be included in the log record.
+      entry: Dictionary to be logged.
+      severity: The severity of the log message.
     """
-
-    pass
+    entry['job_name'] = self.job_name
+    self._logger.log_struct(
+        entry,
+        severity=_get_severity(severity),
+    )

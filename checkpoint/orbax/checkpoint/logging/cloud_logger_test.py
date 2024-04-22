@@ -18,28 +18,24 @@ import mock
 from orbax.checkpoint.logging import cloud_logger
 
 
-_PROJECT = 'test-project'
-_JOB_NAME = 'test-run'
-_LOGGER_NAME = 'test-log'
-
-
 class CloudLoggerTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    mock_gcloud_client = mock.create_autospec(
-        google_cloud_logging.Client
-    )
-    self.cloud_logger = cloud_logger.CloudLogger(
-        _JOB_NAME,
-        _LOGGER_NAME,
-        mock_gcloud_client
-    )
+    mock_gcloud_client = mock.create_autospec(google_cloud_logging.Client)
+    options = cloud_logger.CloudLoggerOptions()
+    options.client = mock_gcloud_client
+    self.cloud_logger = cloud_logger.CloudLogger(options)
 
   def test_log_entry(self):
-    entry = {'test-step': 'test-log-entry'}
-    self.cloud_logger.log_entry(entry)
-
+    with mock.patch.object(
+        self.cloud_logger,
+        'log_entry',
+        autospec=True,
+    ) as mock_log_entry:
+      entry = {'test-step': 'test-log-entry'}
+      self.cloud_logger.log_entry(entry)
+      mock_log_entry.assert_called_once_with(entry)
 
 if __name__ == '__main__':
   absltest.main()
