@@ -125,6 +125,7 @@ def _wait_for_new_checkpoint(
     until_step: Optional[int] = None,
     seconds_to_sleep: int = 1,
     timeout: Optional[int] = None,
+    timeout_fn: Optional[Callable[[], bool]] = None,
 ) -> int:
   """See documentation for wait_for_new_checkpoint."""
   start = time.time()
@@ -146,6 +147,10 @@ def _wait_for_new_checkpoint(
   result = -1
   if jax.process_index() == 0:
     while True:
+      if timeout_fn is not None:
+        if timeout_fn():
+          break
+        continue
       if not checkpoint_dir.exists():
         if _sleep_and_maybe_exit():
           break
@@ -181,6 +186,7 @@ def wait_for_new_checkpoint(
     until_step: Optional[int] = None,
     seconds_to_sleep: int = 1,
     timeout: Optional[int] = None,
+    timeout_fn: Optional[Callable[[], bool]] = None,
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
     step_name_format: Optional[step_lib.NameFormat] = None,
@@ -199,6 +205,9 @@ def wait_for_new_checkpoint(
       new checkpoint.
     timeout: The maximum number of seconds to wait. If left as `None`, then the
       process will wait indefinitely.
+    timeout_fn: Optional function to call after a timeout.  If the function
+      returns True, then it means that no new checkpoints will be generated and
+      the iterator will exit.  The function is called with no arguments.
     step_prefix: A prefix applied to step numbers (e.g. <prefix>_42).
     step_format_fixed_length: Expects to find checkpoint step directories with
       exactly this number of digits (leading zeros if necessary).
@@ -220,6 +229,7 @@ def wait_for_new_checkpoint(
       until_step=until_step,
       seconds_to_sleep=seconds_to_sleep,
       timeout=timeout,
+      timeout_fn=timeout_fn,
   )
   try:
     yield step
@@ -313,6 +323,7 @@ def checkpoints_iterator(
         checkpoint_dir,
         until_step=until_step,
         timeout=timeout,
+        timeout_fn=timeout_fn,
         step_name_format=step_name_format,
     ) as new_checkpoint_step:
       if new_checkpoint_step == -1:

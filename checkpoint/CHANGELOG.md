@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - For `broadcast_one_replica_to_all`, delete input arrays as soon as possible to
 conserve memory.
 
+### Fixed
+- Added timeout_fn arg to `wait_for_new_checkpoint` and
+`_wait_for_new_checkpoint`
+
 ## [0.5.9] - 2024-04-02
 
 ### Fixed

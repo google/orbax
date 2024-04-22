@@ -249,11 +249,11 @@ class CheckpointIteratorTest(parameterized.TestCase):
 
     results = list(
         checkpoint_utils.checkpoints_iterator(
-            self.directory, timeout=0.1, timeout_fn=timeout_fn
+            self.directory, timeout_fn=timeout_fn
         )
     )
     self.assertEqual([], results)
-    self.assertEqual(4, timeout_fn_calls[0])
+    self.assertEqual(5, timeout_fn_calls[0])
 
   def test_locking(self):
     max_step = 5
