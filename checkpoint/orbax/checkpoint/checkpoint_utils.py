@@ -150,7 +150,7 @@ def _wait_for_new_checkpoint(
       if timeout_fn is not None:
         if timeout_fn():
           break
-        continue
+
       if not checkpoint_dir.exists():
         if _sleep_and_maybe_exit():
           break
