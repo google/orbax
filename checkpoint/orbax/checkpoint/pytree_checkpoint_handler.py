@@ -521,15 +521,25 @@ def _batched_serialization_requests(
     # Exclude from serialize/deserialize with TypeHandler if aggregated.
     if info.skip_deserialize:
       return
+
     if isinstance(arg, RestoreArgs):
       assert isinstance(value, _InternalValueMetadata)
       restore_type = value.restore_type
       if arg.restore_type is not None:
         # Give user the chance to override restore_type if they want.
         restore_type = arg.restore_type
-      handler = registry.get(restore_type)
+      type_for_registry_lookup = restore_type
     else:
-      handler = registry.get(type(value))
+      type_for_registry_lookup = type(value)
+    try:
+      handler = registry.get(type_for_registry_lookup)
+    except ValueError as e:
+      raise ValueError(
+          f'TypeHandler lookup failed for: type={type_for_registry_lookup},'
+          f' keypath={keypath}, ParamInfo={info}, RestoreArgs={arg},'
+          f' value={value}'
+      ) from e
+
     if handler not in grouped:
       grouped[handler] = _BatchRequest(handler, [], [], [], [])
     request = grouped[handler]
@@ -804,7 +814,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     Returns:
       A Future that will commit the data to `directory` when awaited. Copying
       the data from its source will be awaited in this function.
-
     """
     if isinstance(item, CheckpointArgs):
       raise ValueError(
@@ -876,7 +885,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     else:
       serialize_ops = []
       batch_requests = _batched_serialization_requests(
-          item, param_infos, save_args, self._type_handler_registry,
+          item,
+          param_infos,
+          save_args,
+          self._type_handler_registry,
       )
       for request in batch_requests:
         serialize_ops += [
@@ -954,7 +966,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     )
 
     batch_requests = _batched_serialization_requests(
-        structure, param_infos, restore_args, self._type_handler_registry,
+        structure,
+        param_infos,
+        restore_args,
+        self._type_handler_registry,
     )
     deserialized_batches = []
     deserialized_batches_ops = []
@@ -1238,7 +1253,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       flat_metadata_with_keys[tuple_keypath] = {
           _KEY_METADATA_KEY: _get_keypath_metadata(keypath),
           _VALUE_METADATA_KEY: _get_value_metadata(
-              value, save_arg, self._type_handler_registry),
+              value, save_arg, self._type_handler_registry
+          ),
       }
 
     metadata = {
