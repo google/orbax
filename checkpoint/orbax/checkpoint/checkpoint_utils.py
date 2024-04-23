@@ -141,7 +141,7 @@ def _wait_for_new_checkpoint(
   log_str = f'Waiting for new checkpoint at {checkpoint_dir}. '
   if until_step is not None:
     log_str += f'Waiting until step {until_step} is reached. '
-  if until_step is not None:
+  if timeout is not None:
     log_str += f'Will time out after {timeout} seconds. '
   logging.info(log_str)
   result = -1
