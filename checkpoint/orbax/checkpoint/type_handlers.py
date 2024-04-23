@@ -254,7 +254,7 @@ class ParamInfo:
   skip_deserialize: Optional[bool] = None
   byte_limiter: Optional[serialization._LimitInFlightBytes] = None  # pylint: disable=protected-access
   is_ocdbt_checkpoint: Optional[bool] = None
-  ocdbt_merge: Optional[bool] = None
+  ocdbt_merge: Optional[bool] = True
   use_zarr3: Optional[bool] = False
   ocdbt_target_data_file_size: Optional[int] = None
 

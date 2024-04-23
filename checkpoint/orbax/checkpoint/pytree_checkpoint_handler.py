@@ -639,8 +639,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       aggregate_filename: Optional[str] = None,
       concurrent_gb: int = 96,
       use_ocdbt: bool = True,
-      ocdbt_merge: bool = True,
-      restore_with_serialized_types: bool = True,
       write_tree_metadata: bool = True,
       use_zarr3: bool = False,
       primary_host: Optional[int] = 0,
@@ -656,13 +654,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       use_ocdbt: enables Tensorstore OCDBT driver. This option allows using a
         different checkpoint format which is faster to read and write, as well
         as more space efficient.
-      ocdbt_merge: If True, forgoes the use of the coordinator server and uses a
-        merge / finalize step during OCDBT save.
-      restore_with_serialized_types: If True, the values with unspecified
-        restore types will be restored using the typing information in the
-        checkpoint. Otherwise, arrays will be restored as either np.ndarray or
-        jax.Array, and will ignore any typing information present in the
-        checkpoint. Note: this option is not applicable to most users.
       write_tree_metadata: Writes tree metadata in JSON format. The tree
         metadata is used to enable a checkpoint which is fully self-describing.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
@@ -678,8 +669,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._aggregate_filename = aggregate_filename
     self._concurrent_gb = concurrent_gb
     self._use_ocdbt = use_ocdbt
-    self._ocdbt_merge = ocdbt_merge
-    self._restore_with_serialized_types = restore_with_serialized_types
     self._write_tree_metadata = write_tree_metadata
     self._use_zarr3 = use_zarr3
     self._primary_host = primary_host
@@ -690,8 +679,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       jax.monitoring.record_event(
           '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
       )
-      if not self._ocdbt_merge:
-        type_handlers.start_coordinator_server_and_create_context()
 
   def _get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
@@ -752,7 +739,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           parent_dir=directory,
           skip_deserialize=skip_deserialize,
           is_ocdbt_checkpoint=self._use_ocdbt,
-          ocdbt_merge=self._ocdbt_merge,
           use_zarr3=self._use_zarr3,
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
       )
@@ -1487,7 +1473,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     Args:
       directory: Path where the checkpoint is located.
     """
-    if not self._use_ocdbt or not self._ocdbt_merge:
+    if not self._use_ocdbt:
       return
     merge_start_time = time.time()
     type_handlers.merge_ocdbt_per_process_files(directory)

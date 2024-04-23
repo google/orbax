@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- `ocdbt_merge` option and unused `restore_with_serialized_types` option from
+`PyTreeCheckpointHandler`.
+
 ## [0.5.10] - 2024-04-22
 
 ### Added
