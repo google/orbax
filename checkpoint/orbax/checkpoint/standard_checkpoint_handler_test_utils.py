@@ -242,6 +242,17 @@ class StandardCheckpointHandlerTestBase:
       )
       self.assertDictEqual(restored, item)
 
+    def test_none_node_in_restore_args(self):
+      """Test case."""
+
+      item = {'b': np.array([1, 2, 3])}
+      self.handler.save(self.directory, args=self.save_args_cls(item))
+
+      with self.assertRaises(ValueError):
+        self.handler.restore(
+            self.directory, args=self.restore_args_cls({'b': None})
+        )
+
     def test_masked_shape_dtype_struct(self):
       """Test case."""
 
