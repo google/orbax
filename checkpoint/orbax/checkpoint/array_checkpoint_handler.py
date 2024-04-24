@@ -50,7 +50,6 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       checkpoint_name = 'checkpoint'
     self._checkpoint_name = checkpoint_name
     self._aggregate_handler = aggregate_handlers.MsgpackHandler()
-    type_handlers.start_coordinator_server_and_create_context()
 
   def _is_supported_type(self, item: ArrayType) -> bool:
     return isinstance(item, (np.ndarray, jax.Array)) or utils.is_scalar(item)
@@ -93,8 +92,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         name=self._checkpoint_name,
         path=directory / self._checkpoint_name,
         parent_dir=directory,
-        is_ocdbt_checkpoint=True,
-        ocdbt_merge=False,
+        is_ocdbt_checkpoint=False,
     )
     type_handler = type_handlers.get_type_handler(type(item))
     futures = await type_handler.serialize([item], [info], args=[save_args])
