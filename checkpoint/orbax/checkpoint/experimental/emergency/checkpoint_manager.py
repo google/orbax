@@ -539,7 +539,6 @@ class CheckpointManager(abstract_checkpoint_manager.AbstractCheckpointManager):
   ) -> bool:
     # TODO: b/330608746 - implement save op on different slices
 
-    # this code is only for testing purpose for all_steps funcion.
     if self._in_primary_slice:
       saved = self._persistent_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
