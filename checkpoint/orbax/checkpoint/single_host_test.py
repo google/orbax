@@ -19,6 +19,7 @@ from absl.testing import parameterized
 from etils import epath
 import jax
 import jax.numpy as jnp
+import ml_dtypes
 import numpy as np
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import json_checkpoint_handler
@@ -314,6 +315,30 @@ class SingleHostTest(parameterized.TestCase):
           directory=self.ckpt_dir,
           item_handlers=pytree_checkpoint_handler.PyTreeCheckpointHandler(),
       )
+
+  @parameterized.product(
+      dtype=[
+          jax.dtypes.bfloat16,
+          ml_dtypes.bfloat16,
+          np.dtype('float32'),
+          np.dtype('float64'),
+      ],
+      use_ocdbt=[True, False],
+      use_zarr3=[True, False],
+  )
+  def test_save_and_restore_different_dtypes(self, dtype, use_ocdbt, use_zarr3):
+    handler = PyTreeCheckpointHandler(use_ocdbt=use_ocdbt, use_zarr3=use_zarr3)
+    key = jax.random.PRNGKey(0)
+    x = jax.random.normal(key, (10,), dtype=dtype)
+    pytree = {'x': x}
+    handler.save(self.ckpt_dir, pytree)
+
+    restore_handler = PyTreeCheckpointHandler()
+    restored_tree = restore_handler.restore(self.ckpt_dir)
+
+    # validate the restored_tree is identical as the written one
+    np.testing.assert_array_equal(x, restored_tree['x'])
+    self.assertIsInstance(restored_tree['x'], jax.Array)
 
 
 if __name__ == '__main__':

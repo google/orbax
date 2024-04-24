@@ -345,6 +345,67 @@ def _validate_divisible_shapes(
     return False
 
 
+# TS functions
+# TODO(b/336658919) refractor TS functions to a separate file
+def get_json_tspec(
+    info: ParamInfo,
+    use_ocdbt: bool,
+    process_index: Optional[int] = None,
+    metadata_key: Optional[str] = None,
+) -> Dict[str, Any]:
+  """Gets Tensorstore spec in JSON format."""
+  if info.path is None:
+    raise ValueError('Must construct serialization path.')
+  directory = os.fspath(info.parent_dir)
+  tspec: Dict[str, Any] = get_tensorstore_spec(
+      directory,
+      name=info.name,
+      use_ocdbt=use_ocdbt,
+      process_id=process_index,
+      use_zarr3=info.use_zarr3,
+      ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
+  )
+  if metadata_key is not None:
+    tspec['metadata_key'] = metadata_key
+  return tspec
+
+
+def get_json_tspec_write(
+    info: ParamInfo,
+    use_ocdbt: bool,
+    global_shape: tuple[int, ...],
+    local_shape: tuple[int, ...],
+    dtype: Union[jnp.dtype, np.dtype],
+    process_index: Optional[int] = None,
+    metadata_key: Optional[str] = None,
+    arg: Optional[SaveArgs] = None,
+):
+  """Gets Tensorstore spec for writing."""
+  tspec = get_json_tspec(
+      info,
+      use_ocdbt=use_ocdbt,
+      process_index=process_index,
+      metadata_key=metadata_key,
+  )
+  tspec['metadata'] = {
+      'shape': global_shape,
+  }
+  tspec['metadata'].update(
+      _build_ts_zarr_shard_and_chunk_metadata(
+          global_shape=global_shape,
+          shard_shape=local_shape,
+          dtype=dtype,
+          use_zarr3=info.use_zarr3,
+          write_chunk_shape=arg.write_chunk_shape if arg else None,
+          read_chunk_shape=arg.read_chunk_shape if arg else None,
+          chunk_byte_size=arg.chunk_byte_size if arg else None,
+      )
+  )
+  if use_ocdbt:
+    tspec = _add_write_tspec_ocdbt_options(tspec)
+  return tspec
+
+
 def _build_ts_zarr_shard_and_chunk_metadata(
     global_shape: tuple[int, ...],
     shard_shape: tuple[int, ...],
@@ -808,28 +869,6 @@ class NumpyHandler(TypeHandler):
     """
     self._metadata_key = metadata_key
 
-  def _get_json_tspec(
-      self,
-      info: ParamInfo,
-      use_ocdbt: bool,
-      process_index: Optional[int] = None,
-  ) -> Dict[str, Any]:
-    """Gets Tensorstore spec in JSON format."""
-    if info.path is None:
-      raise ValueError('Must construct serialization path.')
-    directory = os.fspath(info.parent_dir)
-    tspec: Dict[str, Any] = get_tensorstore_spec(
-        directory,
-        name=info.name,
-        use_ocdbt=use_ocdbt,
-        process_id=process_index,
-        use_zarr3=info.use_zarr3,
-        ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
-    )
-    if self._metadata_key is not None:
-      tspec['metadata_key'] = self._metadata_key
-    return tspec
-
   def _get_json_tspec_write(
       self,
       info: ParamInfo,
@@ -839,26 +878,16 @@ class NumpyHandler(TypeHandler):
       arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
-    tspec = self._get_json_tspec(
-        info, use_ocdbt=use_ocdbt, process_index=process_index
+    return get_json_tspec_write(
+        info=info,
+        global_shape=value.shape,
+        local_shape=value.shape,
+        dtype=value.dtype,
+        use_ocdbt=use_ocdbt,
+        process_index=process_index,
+        metadata_key=self._metadata_key,
+        arg=arg,
     )
-    tspec['metadata'] = {
-        'shape': value.shape,
-    }
-    tspec['metadata'].update(
-        _build_ts_zarr_shard_and_chunk_metadata(
-            global_shape=value.shape,
-            shard_shape=value.shape,
-            dtype=value.dtype,
-            use_zarr3=info.use_zarr3,
-            write_chunk_shape=arg.write_chunk_shape if arg else None,
-            read_chunk_shape=arg.read_chunk_shape if arg else None,
-            chunk_byte_size=arg.chunk_byte_size if arg else None,
-        )
-    )
-    if use_ocdbt:
-      tspec = _add_write_tspec_ocdbt_options(tspec)
-    return tspec
 
   def _get_json_tspec_read(
       self,
@@ -866,7 +895,9 @@ class NumpyHandler(TypeHandler):
       use_ocdbt: bool,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
-    return self._get_json_tspec(info, use_ocdbt=use_ocdbt)
+    return get_json_tspec(
+        info, use_ocdbt=use_ocdbt, metadata_key=self._metadata_key
+    )
 
   def typestr(self) -> str:
     return 'np.ndarray'
@@ -1119,28 +1150,6 @@ class ArrayHandler(TypeHandler):
           'Setting `primary_host` to None requires JAX version > 0.4.25.'
       )
 
-  def _get_json_tspec(
-      self,
-      info: ParamInfo,
-      use_ocdbt: bool,
-      process_index: Optional[int] = None,
-  ) -> Dict[str, Any]:
-    """Gets Tensorstore spec in JSON format."""
-    if info.path is None:
-      raise ValueError('Must construct serialization path.')
-    directory = os.fspath(info.parent_dir)
-    tspec: Dict[str, Any] = get_tensorstore_spec(
-        directory,
-        name=info.name,
-        use_ocdbt=use_ocdbt,
-        process_id=process_index,
-        use_zarr3=info.use_zarr3,
-        ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
-    )
-    if self._metadata_key is not None:
-      tspec['metadata_key'] = self._metadata_key
-    return tspec
-
   def _get_json_tspec_write(
       self,
       info: ParamInfo,
@@ -1150,20 +1159,17 @@ class ArrayHandler(TypeHandler):
       arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
-    tspec = self._get_json_tspec(
-        info, use_ocdbt=use_ocdbt, process_index=process_index
+
+    return get_json_tspec_write(
+        info=info,
+        use_ocdbt=use_ocdbt,
+        global_shape=value.shape,
+        local_shape=value.addressable_data(0).shape,
+        dtype=value.dtype,
+        process_index=process_index,
+        metadata_key=self._metadata_key,
+        arg=arg,
     )
-    tspec['metadata'] = _get_metadata(
-        value,
-        info.use_zarr3,
-        arg.write_chunk_shape if arg else None,
-        arg.read_chunk_shape if arg else None,
-        arg.chunk_byte_size if arg else None,
-    )
-    del tspec['metadata']['dtype']
-    if use_ocdbt:
-      tspec = _add_write_tspec_ocdbt_options(tspec)
-    return tspec
 
   def _get_json_tspec_read(
       self,
@@ -1171,7 +1177,9 @@ class ArrayHandler(TypeHandler):
       use_ocdbt: bool,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
-    return self._get_json_tspec(info, use_ocdbt=use_ocdbt)
+    return get_json_tspec(
+        info, use_ocdbt=use_ocdbt, metadata_key=self._metadata_key
+    )
 
   def typestr(self) -> str:
     return 'jax.Array'
