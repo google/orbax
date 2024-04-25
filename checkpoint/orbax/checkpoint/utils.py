@@ -53,7 +53,7 @@ _AGGREGATED_PREFIX = 'AGGREGATED://'
 # relevant information (see functions below).
 _PLACEHOLDER_PREFIX = 'PLACEHOLDER://'
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
-_GCS_PATH_PREFIX = 'gs://'
+_GCS_PATH_PREFIX = ('gs://',)
 _LOCK_ITEM_NAME = 'LOCKED'
 _LAST_CHECKPOINT_WRITE_TIME = time.time()
 CheckpointDirs = Tuple[str, str]
