@@ -20,7 +20,7 @@ from absl.testing import parameterized
 from etils import epath
 import jax
 import numpy as np
-import orbax.checkpoint
+import orbax.checkpoint as ocp
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
@@ -28,16 +28,16 @@ from orbax.checkpoint import value_metadata
 from orbax.checkpoint.path import step as step_lib
 
 
-class CheckpointUtilsTest(absltest.TestCase):
+class RestoreArgsTest(absltest.TestCase):
 
   def _check_restore_args(self, expected, actual):
-    self.assertIsInstance(actual, orbax.checkpoint.RestoreArgs)
+    self.assertIsInstance(actual, ocp.RestoreArgs)
     self.assertEqual(expected.restore_type, actual.restore_type)
     if hasattr(expected, 'dtype'):
       self.assertEqual(expected.dtype, actual.dtype)
 
   def _check_array_restore_args(self, expected, actual):
-    self.assertIsInstance(actual, orbax.checkpoint.ArrayRestoreArgs)
+    self.assertIsInstance(actual, ocp.ArrayRestoreArgs)
     self.assertEqual(expected.restore_type, jax.Array)
     self.assertEqual(expected.sharding.mesh, actual.sharding.mesh)
     self.assertEqual(expected.sharding.spec, actual.sharding.spec)
@@ -72,7 +72,7 @@ class CheckpointUtilsTest(absltest.TestCase):
     }
 
     expected_restore_args = {
-        'a': orbax.checkpoint.ArrayRestoreArgs(
+        'a': ocp.ArrayRestoreArgs(
             restore_type=jax.Array,
             sharding=jax.sharding.NamedSharding(
                 mesh,
@@ -83,11 +83,9 @@ class CheckpointUtilsTest(absltest.TestCase):
             global_shape=(16,),
             dtype=np.int32,
         ),
-        'x': orbax.checkpoint.RestoreArgs(
-            restore_type=np.ndarray, dtype=np.float64
-        ),
-        'y': orbax.checkpoint.RestoreArgs(restore_type=int),
-        'z': orbax.checkpoint.RestoreArgs(restore_type=str),
+        'x': ocp.RestoreArgs(restore_type=np.ndarray, dtype=np.float64),
+        'y': ocp.RestoreArgs(restore_type=int),
+        'z': ocp.RestoreArgs(restore_type=str),
     }
     restore_args = checkpoint_utils.construct_restore_args(
         pytree, sharding_tree
@@ -131,11 +129,9 @@ class CheckpointUtilsTest(absltest.TestCase):
     }
 
     expected_restore_args = {
-        'a': orbax.checkpoint.RestoreArgs(restore_type=int, dtype=np.int32),
-        'b': orbax.checkpoint.RestoreArgs(
-            restore_type=np.ndarray, dtype=np.float64
-        ),
-        'c': orbax.checkpoint.ArrayRestoreArgs(
+        'a': ocp.RestoreArgs(restore_type=int, dtype=np.int32),
+        'b': ocp.RestoreArgs(restore_type=np.ndarray, dtype=np.float64),
+        'c': ocp.ArrayRestoreArgs(
             restore_type=jax.Array,
             sharding=jax.sharding.NamedSharding(
                 mesh,
@@ -146,7 +142,7 @@ class CheckpointUtilsTest(absltest.TestCase):
             global_shape=(2, 4),
             dtype=np.float64,
         ),
-        'd': orbax.checkpoint.RestoreArgs(restore_type=str),
+        'd': ocp.RestoreArgs(restore_type=str),
     }
     restore_args = checkpoint_utils.construct_restore_args(pytree)
 
@@ -162,15 +158,15 @@ class CheckpointUtilsTest(absltest.TestCase):
       self._check_restore_args(expected_restore_args['d'], restore_args['d'])
 
 
-class CheckpointIteratorTest(parameterized.TestCase):
+class EvalUtilsTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
     self.directory = epath.Path(
         self.create_tempdir(name='checkpointing_test').full_path
     )
-    self.manager = orbax.checkpoint.CheckpointManager(
-        self.directory, {'params': orbax.checkpoint.PyTreeCheckpointer()}
+    self.manager = ocp.CheckpointManager(
+        self.directory, {'params': ocp.PyTreeCheckpointer()}
     )
     self.items = {'params': {'a': 1, 'b': 2}}
 
@@ -200,19 +196,18 @@ class CheckpointIteratorTest(parameterized.TestCase):
       ('checkpoint', None),
       ('checkpoint', 8),
   )
-  def test_checkpoints(self, step_prefix, step_format_fixed_length):
-    options = orbax.checkpoint.CheckpointManagerOptions(
+  def test_checkpoints_iterator(self, step_prefix, step_format_fixed_length):
+    options = ocp.CheckpointManagerOptions(
         step_prefix=step_prefix,
         step_format_fixed_length=step_format_fixed_length,
     )
-    manager = orbax.checkpoint.CheckpointManager(
+    with ocp.CheckpointManager(
         self.directory,
-        {'params': orbax.checkpoint.PyTreeCheckpointer()},
+        {'params': ocp.PyTreeCheckpointer()},
         options=options,
-    )
-
-    for i in range(2):
-      manager.save(i, self.items)
+    ) as manager:
+      for i in range(2):
+        manager.save(i, self.items)
 
     # Simulate incomplete checkpoint.
     test_utils.save_fake_tmp_dir(self.directory, 2, 'params')
@@ -249,11 +244,29 @@ class CheckpointIteratorTest(parameterized.TestCase):
 
     results = list(
         checkpoint_utils.checkpoints_iterator(
-            self.directory, timeout_fn=timeout_fn
+            self.directory, timeout=5, timeout_fn=timeout_fn
         )
     )
     self.assertEqual([], results)
     self.assertEqual(5, timeout_fn_calls[0])
+
+  def test_checkpoints_iterator_last_checkpoint(self):
+    with ocp.CheckpointManager(self.directory) as manager:
+      for i in range(2):
+        manager.save(i, args=ocp.args.StandardSave(self.items))
+        manager.wait_until_finished()
+        self.check_saved_steps(i)
+      manager.save(2, args=ocp.args.StandardSave(self.items))
+
+    # Even though timeout_fn always returns true, we still have the
+    # opportunity to evaluate on step 2.
+    counter = 0
+    for step in checkpoint_utils.checkpoints_iterator(
+        self.directory, timeout=0, timeout_fn=lambda: True
+    ):
+      counter += 1
+      self.assertEqual(step, 2)
+    self.assertEqual(counter, 1)
 
   def test_locking(self):
     max_step = 5
@@ -296,13 +309,13 @@ class CheckpointIteratorTest(parameterized.TestCase):
       ('checkpoint', 8),
   )
   def test_wait_for_new_checkpoint(self, step_prefix, step_format_fixed_length):
-    options = orbax.checkpoint.CheckpointManagerOptions(
+    options = ocp.CheckpointManagerOptions(
         step_prefix=step_prefix,
         step_format_fixed_length=step_format_fixed_length,
     )
-    manager = orbax.checkpoint.CheckpointManager(
+    manager = ocp.CheckpointManager(
         self.directory,
-        {'params': orbax.checkpoint.PyTreeCheckpointer()},
+        {'params': ocp.PyTreeCheckpointer()},
         options=options,
     )
 
@@ -365,8 +378,8 @@ class CheckpointIteratorTest(parameterized.TestCase):
     with checkpoint_utils.wait_for_new_checkpoint(directory, timeout=1) as step:
       self.assertEqual(step, -1)
     directory.mkdir()
-    manager = orbax.checkpoint.CheckpointManager(
-        directory, {'params': orbax.checkpoint.PyTreeCheckpointer()}
+    manager = ocp.CheckpointManager(
+        directory, {'params': ocp.PyTreeCheckpointer()}
     )
     manager.save(0, self.items)
     with checkpoint_utils.wait_for_new_checkpoint(directory, timeout=1) as step:

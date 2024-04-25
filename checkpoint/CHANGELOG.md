@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- In `checkpoints_iterator`/`wait_for_new_checkpoint`, ensure that if steps are
+present, they will be yielded even if `timeout_fn` already returns True.
+
 ### Removed
 - `ocdbt_merge` option and unused `restore_with_serialized_types` option from
 `PyTreeCheckpointHandler`.

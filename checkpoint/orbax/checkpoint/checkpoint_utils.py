@@ -121,6 +121,7 @@ def _reached_desired_step(step: int, until_step: Optional[int]) -> bool:
 
 def _wait_for_new_checkpoint(
     checkpoint_dir: epath.Path,
+    *,
     step_name_format: step_lib.NameFormat,
     until_step: Optional[int] = None,
     seconds_to_sleep: int = 1,
@@ -133,7 +134,10 @@ def _wait_for_new_checkpoint(
 
   def _sleep_and_maybe_exit():
     if stop_time is not None and time.time() + seconds_to_sleep > stop_time:
-      return True
+      if timeout_fn is None:
+        return True
+      elif timeout_fn():  # Only exit when timeout_fn indicates completion.
+        return True
     logging.info('Sleeping for %d seconds.', seconds_to_sleep)
     time.sleep(seconds_to_sleep)
     return False
@@ -144,17 +148,15 @@ def _wait_for_new_checkpoint(
   if timeout is not None:
     log_str += f'Will time out after {timeout} seconds. '
   logging.info(log_str)
+
   result = -1
   if jax.process_index() == 0:
     while True:
-      if timeout_fn is not None:
-        if timeout_fn():
-          break
-
       if not checkpoint_dir.exists():
         if _sleep_and_maybe_exit():
           break
         continue  # continue waiting until directory creation or timeout.
+
       steps = utils.checkpoint_steps(checkpoint_dir)
       checkpoint_step = max(steps) if steps else None
       if _reached_desired_step(checkpoint_step, until_step):
@@ -164,9 +166,9 @@ def _wait_for_new_checkpoint(
           continue
         result = checkpoint_step
         break
-      else:
-        if _sleep_and_maybe_exit():
-          break
+      elif _sleep_and_maybe_exit():
+        break
+
   result = multihost_utils.broadcast_one_to_all(np.int32(result)).item()
   wait_duration = time.time() - start
   jax.monitoring.record_event_duration_secs(
@@ -183,6 +185,7 @@ def _wait_for_new_checkpoint(
 @contextlib.contextmanager
 def wait_for_new_checkpoint(
     checkpoint_dir: epath.Path,
+    *,
     until_step: Optional[int] = None,
     seconds_to_sleep: int = 1,
     timeout: Optional[int] = None,
@@ -225,7 +228,7 @@ def wait_for_new_checkpoint(
   )
   step = _wait_for_new_checkpoint(
       checkpoint_dir,
-      step_name_format,
+      step_name_format=step_name_format,
       until_step=until_step,
       seconds_to_sleep=seconds_to_sleep,
       timeout=timeout,
@@ -242,7 +245,9 @@ def wait_for_new_checkpoint(
 
 def checkpoints_iterator(
     checkpoint_dir: epath.PathLike,
+    *,
     min_interval_secs: int = 0,
+    seconds_to_sleep: int = 1,
     timeout: Optional[int] = None,
     timeout_fn: Optional[Callable[[], bool]] = None,
     step_prefix: Optional[str] = None,
@@ -285,11 +290,21 @@ def checkpoints_iterator(
     checkpoint_dir: The directory in which checkpoints are saved.
     min_interval_secs: The minimum number of seconds between yielding
       checkpoints.
-    timeout: The maximum number of seconds to wait between checkpoints. If left
-      as `None`, then the process will wait indefinitely.
-    timeout_fn: Optional function to call after a timeout.  If the function
+    seconds_to_sleep: Seconds to sleep if a checkpoint is not found. Note the
+      difference with min_interval_secs, which puts a lower bound on how when
+      a new checkpoint will be looked for after yielding one checkpoint.
+      seconds_to_sleep instead specifies how we should sleep for if no new
+      checkpoints are found. Note that the timeout is only checked when not
+      sleeping, so a `seconds_to_sleep` longer than the timeout would result
+      in timing out after `seconds_to_sleep` seconds rather than `timeout`
+      seconds.
+    timeout: The maximum number of seconds to wait between checkpoints. The
+      function will time out if `timeout` seconds have passed since a new
+      checkpoint step was found. If left as `None`, then the process will
+      wait indefinitely.
+    timeout_fn: Optional function called after a timeout. If the function
       returns True, then it means that no new checkpoints will be generated and
-      the iterator will exit.  The function is called with no arguments.
+      the iterator will exit. The function is called with no arguments.
     step_prefix: A prefix applied to step numbers (e.g. <prefix>_42).
     step_format_fixed_length: Expects to find checkpoint step directories with
       exactly this number of digits (leading zeros if necessary).
@@ -322,6 +337,7 @@ def checkpoints_iterator(
     with wait_for_new_checkpoint(
         checkpoint_dir,
         until_step=until_step,
+        seconds_to_sleep=seconds_to_sleep,
         timeout=timeout,
         timeout_fn=timeout_fn,
         step_name_format=step_name_format,
