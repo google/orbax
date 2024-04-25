@@ -318,18 +318,34 @@ class SingleHostTest(parameterized.TestCase):
 
   @parameterized.product(
       dtype=[
-          jax.dtypes.bfloat16,
+          jnp.bfloat16,
           ml_dtypes.bfloat16,
           np.dtype('float32'),
           np.dtype('float64'),
+          ml_dtypes.float8_e5m2fnuz,
+          ml_dtypes.float8_e5m2,
+          ml_dtypes.float8_e4m3fnuz,
+          ml_dtypes.float8_e4m3fn,
+          ml_dtypes.float8_e4m3b11fnuz,
+          ml_dtypes.int4,
+          # ml_dtypes.uint4, # TODO(b/295577703)
+          jnp.uint8,
+          jnp.uint16,
+          jnp.uint32,
+          jnp.uint64,
+          jnp.int8,
+          jnp.int16,
+          jnp.int32,
+          jnp.int64,
       ],
       use_ocdbt=[True, False],
       use_zarr3=[True, False],
   )
   def test_save_and_restore_different_dtypes(self, dtype, use_ocdbt, use_zarr3):
     handler = PyTreeCheckpointHandler(use_ocdbt=use_ocdbt, use_zarr3=use_zarr3)
-    key = jax.random.PRNGKey(0)
-    x = jax.random.normal(key, (10,), dtype=dtype)
+
+    rand_arr = np.random.normal(scale=3, size=10)  # use int4 max
+    x = jax.numpy.asarray(rand_arr, dtype=dtype)
     pytree = {'x': x}
     handler.save(self.ckpt_dir, pytree)
 
