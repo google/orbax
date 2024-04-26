@@ -496,7 +496,9 @@ def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
 
 
 def _sum(x, replica_axis_index):
-  return jax.tree_map(functools.partial(jnp.sum, axis=replica_axis_index), x)
+  return jax.tree_util.tree_map(
+      functools.partial(jnp.sum, axis=replica_axis_index), x
+  )
 
 
 @functools.partial(jax.jit, static_argnums=0)
@@ -537,15 +539,17 @@ def broadcast_one_replica_to_all(
         global_shape, global_sharding, [s.data for s in inp.addressable_shards]
     )
 
-  out_sharding = jax.tree_map(
+  out_sharding = jax.tree_util.tree_map(
       lambda x: jax.sharding.NamedSharding(
           global_mesh, jax.sharding.PartitionSpec(*x.sharding.spec)
       ),
       in_tree,
   )
-  in_tree_sharded = jax.tree_map(pre_jit, in_tree, per_replica_shardings)
+  in_tree_sharded = jax.tree_util.tree_map(
+      pre_jit, in_tree, per_replica_shardings
+  )
   # Delete immediately to conserve memory.
-  jax.tree_map(lambda x: x.delete(), in_tree)
+  jax.tree_util.tree_map(lambda x: x.delete(), in_tree)
   out_tree = jax.jit(
       functools.partial(_sum, replica_axis_index=replica_axis_index),
       out_shardings=out_sharding,
