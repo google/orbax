@@ -14,13 +14,32 @@
 
 """Orbax step storage entities."""
 
+# TODO(b/337137764): Update RTD with functions from this module.
+
 import abc
 from collections.abc import Callable
+import concurrent
 import dataclasses
+import os
 import re
-from typing import Iterator, Optional, Protocol, Sequence, TypeVar
+import time
+from typing import Iterator, List, Optional, Protocol, Sequence, Set, TypeVar
+
 from absl import logging
 from etils import epath
+import jax
+import numpy as np
+from orbax.checkpoint import multihost
+
+
+_GCS_PATH_PREFIX = ('gs://',)
+_COMMIT_SUCCESS_FILE = 'commit_success.txt'
+TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
+# prefix_1000.orbax-checkpoint-tmp-1010101
+# OR
+# 1000.orbax-checkpoint-tmp-1010101
+TMP_DIR_STEP_PATTERN = r'.*?_*?(\d+)\.orbax-checkpoint-tmp-\d+'
+_LAST_CHECKPOINT_WRITE_TIME = time.time()
 
 # This file mode gives full permissions to OWNER, GROUP and OTHER.
 WORLD_READABLE_MODE = 0o777
@@ -346,3 +365,344 @@ def composite_name_format(
       NameFormat appearing earlier in the sequence is preferred.
   """
   return _CompositeNameFormat(write_name_format, read_name_formats)
+
+
+# TODO(b/337137764) Can't move it to path/utils due to cyclic dependency.
+# Explore other options.
+def is_gcs_path(path: epath.Path):
+  return os.fspath(path).startswith(_GCS_PATH_PREFIX)
+
+
+# TODO(b/337137764) Can't move it to path/utils due to cyclic dependency.
+# Explore other options.
+def get_save_directory(
+    step: int,
+    directory: epath.PathLike,
+    name: Optional[str] = None,
+    step_prefix: Optional[str] = None,
+    override_directory: Optional[epath.PathLike] = None,
+    step_format_fixed_length: Optional[int] = None,
+    step_name_format: Optional[NameFormat] = None,
+) -> epath.Path:
+  """Returns the standardized path to a save directory for a single item.
+
+  Args:
+    step: Step number.
+    directory: Top level checkpoint directory.
+    name: Item name ('params', 'state', 'dataset', etc.).
+    step_prefix: Prefix applied to `step` (e.g. 'checkpoint').
+    override_directory: If provided, step, directory, and step_prefix are
+      ignored.
+    step_format_fixed_length: Uses a fixed number of digits with leading zeros
+      to represent the step number. If None, there are no leading zeros.
+    step_name_format: NameFormat used to define step name for step and under
+      given root directory. If provided, `step_prefix` and
+      `step_format_fixed_length` are ignored.
+
+  Returns:
+    A directory.
+  """
+  if directory is None:
+    raise ValueError('Directory cannot be None.')
+  directory = epath.Path(directory)
+  if override_directory is not None:
+    result = epath.Path(override_directory)
+  else:
+    step_name_format = step_name_format or standard_name_format(
+        step_prefix=step_prefix,
+        step_format_fixed_length=step_format_fixed_length,
+    )
+    result = build_step_path(directory, step_name_format, step)
+  if name is not None:
+    result /= name
+  return result
+
+
+def is_tmp_checkpoint(path: epath.PathLike) -> bool:
+  """Determines whether a directory is a tmp checkpoint path."""
+  path = epath.Path(path)
+  if not path.exists():
+    raise ValueError(f'Path {path} does not exist.')
+  if not path.is_dir():
+    return False
+  if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
+    return True
+  if TMP_DIR_SUFFIX in path.name:
+    return True
+  return False
+
+
+def is_checkpoint_finalized(path: epath.PathLike) -> bool:
+  """Determines if the given path represents a finalized checkpoint.
+
+  Path takes the form::
+
+    path/to/my/dir/<name>.orbax-checkpoint-tmp-<timestamp>/  # not finalized
+    path/to/my/dir/<name>/  # finalized
+
+  Alternatively::
+
+    gs://path/to/my/dir/<name>/  # finalized
+      commit_success.txt
+      ...
+    gs://<path/to/my/dir/<name>/  # not finalized
+      ...
+
+  Args:
+    path: Directory.
+
+  Returns:
+    True if the checkpoint is finalized.
+
+  Raises:
+    ValueError if the provided path is not a directory. Valid checkpoint paths
+    must be a directory.
+  """
+  path = epath.Path(path)
+  if not path.exists():
+    raise ValueError(f'Path {path} does not exist.')
+  if not path.is_dir():
+    raise ValueError(f'Path {path} is not a directory. Not a valid checkpoint')
+  if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
+    return False
+  if TMP_DIR_SUFFIX in path.name:
+    return False
+  return True
+
+
+def create_tmp_directory(
+    final_dir: epath.PathLike,
+    *,
+    primary_host: Optional[int] = 0,
+    active_processes: Optional[Set[int]] = None,
+) -> epath.Path:
+  """Creates a temporary directory for saving at the given path."""
+  # Share a timestamp across devices.
+  final_dir = epath.Path(final_dir)
+  # Renames are not atomic in GCS. Save directly to final_dir and rely on commit
+  # completion file to indicate success.
+  if is_gcs_path(final_dir):
+    tmp_dir = final_dir
+  else:
+    tmp_dir = get_tmp_directory(
+        final_dir, primary_host=primary_host, active_processes=active_processes
+    )
+
+  # Sync before existence is checked and directory is created because there are
+  # additional existence checks happening in the callers of this function.
+  multihost.sync_global_processes(
+      'create_tmp_directory:pre', processes=active_processes
+  )
+
+  if multihost.is_primary_host(primary_host):
+    if tmp_dir.exists():
+      if is_gcs_path(tmp_dir):
+        if is_tmp_checkpoint(tmp_dir):
+          logging.warning(
+              'Attempted to create temporary directory %s which already exists.'
+              ' Removing existing directory since it is not finalized.',
+              tmp_dir,
+          )
+          tmp_dir.rmtree(missing_ok=True)
+        else:
+          raise FileExistsError(
+              f'Attempted to create temporary directory {tmp_dir} which already'
+              ' exists.'
+          )
+      else:
+        raise AssertionError(
+            f'Attempted to create temporary directory {tmp_dir} which already'
+            ' exists. This condition should never arise on non-GCS'
+            ' filesystems.'
+        )
+    mode = WORLD_READABLE_MODE  # pylint: disable=unused-variable
+    tmp_dir.mkdir(parents=True, mode=mode)
+
+  multihost.sync_global_processes(
+      'create_tmp_directory:post', processes=active_processes
+  )
+  return tmp_dir
+
+
+def tmp_checkpoints(checkpoint_dir: epath.PathLike) -> List[str]:
+  """Returns a list of tmp checkpoints in the directory."""
+  checkpoint_dir = epath.Path(checkpoint_dir)
+  return [s.name for s in checkpoint_dir.iterdir() if is_tmp_checkpoint(s)]
+
+
+def cleanup_tmp_directories(
+    directory: epath.PathLike,
+    primary_host: Optional[int] = 0,
+    active_processes: Optional[Set[int]] = None,
+):
+  """Cleanup steps in `directory` with tmp files, as these are not finalized."""
+  directory = epath.Path(directory)
+  if multihost.is_primary_host(primary_host):
+    logging.info('Cleaning up existing temporary directories at %s.', directory)
+    tmp_files = tmp_checkpoints(directory)
+    for tmp_file in tmp_files:
+      (directory / tmp_file).rmtree()
+  multihost.sync_global_processes(
+      'cleanup_tmp_dirs', processes=active_processes
+  )
+
+
+def get_tmp_directory(
+    path: epath.Path,
+    *,
+    primary_host: Optional[int] = 0,
+    active_processes: Optional[Set[int]] = None,
+) -> epath.Path:
+  """Returns a tmp directory for the given path. Does not create it."""
+  if is_gcs_path(path):
+    return path
+  now = time.time()
+  sec = int(now)
+  usec = int((now - sec) * 1000000)
+
+  # Impossible for all hosts to be the source if primary_host is None.
+  # Allow broadcast function to pick an arbitrary host to act as source if
+  # primary_host is None.
+  is_source = (
+      multihost.is_primary_host(primary_host)
+      if primary_host is not None
+      else None
+  )
+  timestamp = multihost.broadcast_one_to_some(
+      (np.int32(sec), np.int32(usec)),
+      is_source=is_source,
+      processes=active_processes,
+  )
+  return epath.Path(path.parent) / (
+      path.name + TMP_DIR_SUFFIX + f'{timestamp[0]}{timestamp[1]:06}'
+  )
+
+
+# TODO(b/337137764) Close to checkpoint finalization, but explore other options.
+def record_saved_duration(checkpoint_start_time: float):
+  """Record program duration that is accounted for by this checkpoint.
+
+  For the very first checkpoint, this is the interval between program init and
+  current checkpoint start time.
+
+  Note that we use the checkpoint start time instead of end time. The saved
+  duration should not include prallel training duration while the async
+  checkpoint is being written in the background.
+
+  Args:
+    checkpoint_start_time: Start time of current checkpoint.
+  """
+  global _LAST_CHECKPOINT_WRITE_TIME
+  # Note: for the very first checkpoint, this is the interval between program
+  # init and the current checkpoint start time.
+  duration_since_last_checkpoint = (
+      checkpoint_start_time - _LAST_CHECKPOINT_WRITE_TIME
+  )
+  # TODO(hanyangtay): Remove version guard.
+  if jax.version.__version_info__ > (0, 3, 25):
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/duration_since_last_checkpoint_secs',
+        duration_since_last_checkpoint,
+    )
+  _LAST_CHECKPOINT_WRITE_TIME = checkpoint_start_time
+
+
+def _is_step_checkpoint(path: epath.Path) -> bool:
+  """Determines if the path resembles an Orbax step directory.
+
+  Note that this is not foolproof, and users should not add extra files to the
+  checkpoint directory beyond what is done by CheckpointManager.
+
+  Args:
+    path: path to check.
+
+  Returns:
+    bool indicating whether the path resembles an Orbax step directory.
+  """
+  name = os.fspath(path.name)
+  # Path must be a directory and either a digit, or end in '_' + digit.
+  return path.is_dir() and (name.isdigit() or name.split('_')[-1].isdigit())
+
+
+def step_from_checkpoint_name(name: str) -> int:
+  """Returns the step from a checkpoint name. Also works for tmp checkpoints."""
+  if name.isdigit():
+    return int(os.fspath(name))
+  elif name.split('_')[-1].isdigit():
+    split = name.split('_')
+    if len(split) == 2 and split[0]:
+      return int(split[-1])
+  elif tmp_match := re.match(TMP_DIR_STEP_PATTERN, name):
+    return int(tmp_match.group(1))
+  raise ValueError(f'Unrecognized name format: {name}.')
+
+
+def checkpoint_steps_paths(
+    checkpoint_dir: epath.PathLike,
+) -> List[epath.Path]:
+  """Returns a list of finalized checkpoint paths in the directory."""
+  checkpoint_dir = epath.Path(checkpoint_dir)
+  if not checkpoint_dir.exists():
+    raise ValueError(f'Path {checkpoint_dir} does not exist.')
+
+  def check_step_dir(step_dir: epath.Path) -> bool:
+    # This block allows catching errors in which the checkpoint was deleted
+    # between checking _is_step_checkpoint and is_checkpoint_finalized.
+    try:
+      result = _is_step_checkpoint(step_dir) and is_checkpoint_finalized(
+          step_dir
+      )
+    except ValueError:
+      return False
+
+    return result
+
+  with concurrent.futures.ThreadPoolExecutor() as executor:
+    futures = {
+        step_dir: executor.submit(check_step_dir, step_dir)
+        for step_dir in checkpoint_dir.iterdir()
+    }
+    return [step_dir for step_dir, future in futures.items() if future.result()]
+
+
+def checkpoint_steps(
+    checkpoint_dir: epath.PathLike, single_host_load_and_broadcast: bool = False
+) -> List[int]:
+  """Returns a list of finalized checkpoint steps in the directory."""
+
+  def _checkpoint_steps(path: epath.Path) -> List[int]:
+    return [
+        step_from_checkpoint_name(s.name) for s in checkpoint_steps_paths(path)
+    ]
+
+  checkpoint_dir = epath.Path(checkpoint_dir)
+  if single_host_load_and_broadcast:
+    max_steps = len(list(checkpoint_dir.iterdir()))
+    # Read the step list only from host 0, and then broadcast the list.
+    # This minimizes queries on non-leader processes.
+    padded_step_list = np.array([-1] * max_steps)
+    if jax.process_index() == 0:
+      steps = np.array(_checkpoint_steps(checkpoint_dir))
+      assert len(steps) <= max_steps
+      padded_step_list[0 : len(steps)] = steps
+    padded_step_list = multihost.broadcast_one_to_all(padded_step_list)
+    return [step for step in padded_step_list if step >= 0]
+  return _checkpoint_steps(checkpoint_dir)
+
+
+def any_checkpoint_step(checkpoint_dir: epath.PathLike) -> Optional[int]:
+  """Returns any finalized checkpoint step in the directory or None.
+
+  This avoids iterating over the entire directory.
+
+  Args:
+    checkpoint_dir: Checkpoint directory.
+
+  Returns:
+    Any finalized checkpoint step in the directory or None.
+  """
+  checkpoint_dir = epath.Path(checkpoint_dir)
+  for s in checkpoint_dir.iterdir():
+    if _is_step_checkpoint(s) and is_checkpoint_finalized(s):
+      return step_from_checkpoint_name(s.name)
+  return None

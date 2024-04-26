@@ -86,7 +86,7 @@ class StandardCheckpointDeleter:
       )
       return
 
-    if self._todelete_subdir is None or utils.is_gcs_path(self._directory):
+    if self._todelete_subdir is None or step_lib.is_gcs_path(self._directory):
       delete_target.rmtree()
       logging.info('Deleted step %d.', step)
       return

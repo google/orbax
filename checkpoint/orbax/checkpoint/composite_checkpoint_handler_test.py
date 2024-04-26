@@ -23,8 +23,8 @@ from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import standard_checkpoint_handler
-from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
+from orbax.checkpoint.path import step
 
 CompositeArgs = composite_checkpoint_handler.CompositeArgs
 JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
@@ -82,7 +82,8 @@ class CompositeArgsTest(absltest.TestCase):
   def test_special_character_key(self):
     args = CompositeArgs(**{
         '.invalid_attribute_but_valid_key': 15,
-        'many special characters!': 16})
+        'many special characters!': 16,
+    })
     self.assertEqual(15, args['.invalid_attribute_but_valid_key'])
     self.assertEqual(16, args['many special characters!'])
     self.assertLen(args, 2)
@@ -356,10 +357,10 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
       state_handler.finalize.assert_called_once()
       metadata_handler.finalize.assert_not_called()
       self.assertFalse(
-          (self.directory / 'state' / utils._COMMIT_SUCCESS_FILE).exists()
+          (self.directory / 'state' / step._COMMIT_SUCCESS_FILE).exists()
       )
 
-  @mock.patch.object(utils, 'is_gcs_path', autospec=True, return_value=True)
+  @mock.patch.object(step, 'is_gcs_path', autospec=True, return_value=True)
   def test_finalize_gcs(self, is_gcs_path):
     del is_gcs_path
     state_handler = mock.create_autospec(StandardCheckpointHandler)
@@ -379,7 +380,7 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
       )
       state_handler.finalize.assert_called_once()
       self.assertTrue(
-          (self.directory / 'state' / utils._COMMIT_SUCCESS_FILE).exists()
+          (self.directory / 'state' / step._COMMIT_SUCCESS_FILE).exists()
       )
 
   def test_close(self):

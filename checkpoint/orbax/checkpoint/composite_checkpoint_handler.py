@@ -63,6 +63,7 @@ from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import future
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
+from orbax.checkpoint.path import step
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 Future = future.Future
@@ -491,7 +492,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     # On GCS, ensure that a COMMIT_SUCCESS.txt file gets generated, so the
     # checkpoint doesn't look incomplete.
     # TODO(b/296271331) Unify when possible.
-    if utils.is_gcs_path(directory):
+    if step.is_gcs_path(directory):
       with concurrent.futures.ThreadPoolExecutor(
           max_workers=_CONCURRENT_WORKERS
       ) as executor:

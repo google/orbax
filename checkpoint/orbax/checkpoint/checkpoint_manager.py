@@ -960,7 +960,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     save_directory = self._get_write_step_directory(step, self.directory)
     # If a folder for the step to save exists and is not finalized, remove the
     # existing folder.
-    if utils.is_gcs_path(self.directory):
+    if step_lib.is_gcs_path(self.directory):
       if (
           utils.is_primary_host(self._multiprocessing_options.primary_host)
           and save_directory.exists()

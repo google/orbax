@@ -152,3 +152,9 @@ def sync_global_processes(name: str, processes: Optional[Set[int]] = None):
 def reached_preemption(step: int) -> bool:
   """Returns True if a preemption sync point has been reached."""
   return multihost_utils.reached_preemption_sync_point(step)
+
+
+def is_primary_host(primary_host: Optional[int]):
+  if primary_host is None or primary_host == jax.process_index():
+    return True
+  return False
