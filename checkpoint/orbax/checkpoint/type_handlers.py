@@ -347,7 +347,7 @@ def _validate_divisible_shapes(
 
 # TS functions
 # TODO(b/336658919) refractor TS functions to a separate file
-def get_json_tspec(
+def _get_json_tspec(
     info: ParamInfo,
     use_ocdbt: bool,
     process_index: Optional[int] = None,
@@ -357,7 +357,7 @@ def get_json_tspec(
   if info.path is None:
     raise ValueError('Must construct serialization path.')
   directory = os.fspath(info.parent_dir)
-  tspec: Dict[str, Any] = get_tensorstore_spec(
+  tspec: Dict[str, Any] = _get_tensorstore_spec(
       directory,
       name=info.name,
       use_ocdbt=use_ocdbt,
@@ -368,6 +368,19 @@ def get_json_tspec(
   if metadata_key is not None:
     tspec['metadata_key'] = metadata_key
   return tspec
+
+
+def get_json_tspec_read(
+    info: ParamInfo,
+    use_ocdbt: bool,
+    metadata_key: Optional[str] = None,
+):
+  """Gets Tensorstore spec for reading."""
+  return _get_json_tspec(
+      info,
+      use_ocdbt=use_ocdbt,
+      metadata_key=metadata_key,
+  )
 
 
 def get_json_tspec_write(
@@ -381,7 +394,7 @@ def get_json_tspec_write(
     arg: Optional[SaveArgs] = None,
 ):
   """Gets Tensorstore spec for writing."""
-  tspec = get_json_tspec(
+  tspec = _get_json_tspec(
       info,
       use_ocdbt=use_ocdbt,
       process_index=process_index,
@@ -622,7 +635,7 @@ def merge_ocdbt_per_process_files(directory: epath.Path):
 
   open_ops = []
 
-  parent_tspec = get_tensorstore_spec(os.fspath(directory), use_ocdbt=True)
+  parent_tspec = _get_tensorstore_spec(os.fspath(directory), use_ocdbt=True)
   parent_tspec = parent_tspec['kvstore']
   open_ops.append(
       ts.KvStore.open(
@@ -633,7 +646,7 @@ def merge_ocdbt_per_process_files(directory: epath.Path):
 
   for process_dir in directory.glob(f'{_PROCESS_SUBDIR_PREFIX}*'):
     process_id = process_dir.name.split('_')[-1]
-    child_tspec = get_tensorstore_spec(
+    child_tspec = _get_tensorstore_spec(
         os.fspath(directory), use_ocdbt=True, process_id=process_id
     )
     child_tspec = child_tspec['kvstore']
@@ -699,7 +712,7 @@ def _get_metadata(
   return metadata
 
 
-def get_tensorstore_spec(
+def _get_tensorstore_spec(
     directory: str,
     name: Optional[str] = None,
     use_ocdbt: bool = True,
@@ -794,7 +807,7 @@ def get_ts_context(use_ocdbt: bool) -> ts.Context:
   return _DEFAULT_OCDBT_TS_CONTEXT
 
 
-def _get_cast_tspec_serialize(tspec, value, args):
+def get_cast_tspec_serialize(tspec, value, args):
   """Creates a Tensorstore spec for casting a param during serialize."""
   tspec = {
       'base': tspec,
@@ -810,7 +823,7 @@ def _get_cast_tspec_serialize(tspec, value, args):
   return tspec
 
 
-def _get_cast_tspec_deserialize(tspec, args):
+def get_cast_tspec_deserialize(tspec, args):
   """Creates a Tensorstore spec for casting a param during deserialize."""
   if args.dtype is not None:
     tspec = {
@@ -895,7 +908,7 @@ class NumpyHandler(TypeHandler):
       use_ocdbt: bool,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
-    return get_json_tspec(
+    return get_json_tspec_read(
         info, use_ocdbt=use_ocdbt, metadata_key=self._metadata_key
     )
 
@@ -939,7 +952,7 @@ class NumpyHandler(TypeHandler):
           process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
           arg=arg,
       )
-      tspec = _get_cast_tspec_serialize(tspec, value, arg)
+      tspec = get_cast_tspec_serialize(tspec, value, arg)
       if logging.level_debug():
         logging.debug('tspec = %s', tspec)
         logging.debug('infos = %s', info)
@@ -986,7 +999,7 @@ class NumpyHandler(TypeHandler):
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-      tspec = _get_cast_tspec_deserialize(tspec, arg)
+      tspec = get_cast_tspec_deserialize(tspec, arg)
 
       if logging.level_debug():
         logging.debug('tspec = %s', tspec)
@@ -1052,7 +1065,7 @@ class ScalarHandler(NumpyHandler):
 def get_sharding_tensorstore_spec(
     directory: str, param_name: str
 ) -> Dict[str, Any]:
-  kvstore = get_tensorstore_spec(directory, name=_SHARDING, use_ocdbt=False)[
+  kvstore = _get_tensorstore_spec(directory, name=_SHARDING, use_ocdbt=False)[
       'kvstore'
   ]
   return {
@@ -1177,7 +1190,7 @@ class ArrayHandler(TypeHandler):
       use_ocdbt: bool,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
-    return get_json_tspec(
+    return get_json_tspec_read(
         info, use_ocdbt=use_ocdbt, metadata_key=self._metadata_key
     )
 
@@ -1272,7 +1285,7 @@ class ArrayHandler(TypeHandler):
           process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
           arg=arg,
       )
-      tspec = _get_cast_tspec_serialize(tspec, value, arg)
+      tspec = get_cast_tspec_serialize(tspec, value, arg)
       ts_context = get_ts_context(info.is_ocdbt_checkpoint)
       if self._replica_id is None:
         replica_id = value.addressable_shards[0].replica_id
@@ -1423,7 +1436,7 @@ class ArrayHandler(TypeHandler):
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-      tspec = _get_cast_tspec_deserialize(tspec, arg)
+      tspec = get_cast_tspec_deserialize(tspec, arg)
       if logging.level_debug():
         logging.debug('tspec = %s', tspec)
         logging.debug('infos = %s', infos)
@@ -1577,7 +1590,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
 
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-      tspec = _get_cast_tspec_deserialize(tspec, arg)  # pylint: disable=protected-access
+      tspec = get_cast_tspec_deserialize(tspec, arg)  # pylint: disable=protected-access
 
       if _is_host_for_primary_replica(primary_replica_pids):
         deserialize_ops += [
@@ -1658,7 +1671,7 @@ class StringHandler(TypeHandler):
     if info.path is None:
       raise ValueError('Must construct serialization path.')
     directory = os.fspath(info.parent_dir / self._filename)
-    tspec: Dict[str, Any] = get_tensorstore_spec(directory, use_ocdbt=False)
+    tspec: Dict[str, Any] = _get_tensorstore_spec(directory, use_ocdbt=False)
     tspec = {
         'driver': 'json',
         'kvstore': tspec['kvstore'],

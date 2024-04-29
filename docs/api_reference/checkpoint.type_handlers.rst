@@ -46,9 +46,15 @@ StringHandler
 .. autoclass:: StringHandler
   :members:
 
-OCDBT functions
+Tensorstore functions
 ------------------------
 .. autofunction:: is_ocdbt_checkpoint
+.. autofunction:: merge_ocdbt_per_process_files
+.. autofunction:: get_json_tspec_write
+.. autofunction:: get_json_tspec_read
+.. autofunction:: get_ts_context
+.. autofunction:: get_cast_tspec_serialize
+.. autofunction:: get_cast_tspec_deserialize
 
 TypeHandler registry
 ------------------------
