@@ -184,7 +184,8 @@ class SaveArgs:
   aggregate:
     Deprecated, please use custom TypeHandler
     (https://orbax.readthedocs.io/en/latest/custom_handlers.html#typehandler) or
-    contact Orbax team to migrate before May 1st, 2024. If true, saves the given
+    contact Orbax team to migrate before August 1st, 2024. If true, saves the
+    given
     parameter in an aggregated tree format rather than individually. See
     AggregateHandler.
   dtype:
@@ -221,7 +222,7 @@ class SaveArgs:
           logging.WARNING,
           'SaveArgs.aggregate is deprecated, please use custom TypeHandler'
           ' (https://orbax.readthedocs.io/en/latest/custom_handlers.html#typehandler)'
-          ' or contact Orbax team to migrate before May 1st, 2024. If your'
+          ' or contact Orbax team to migrate before August 1st, 2024. If your'
           ' Pytree has empty ([], {}, None) values then use'
           ' PyTreeCheckpointHandler(..., write_tree_metadata=True, ...) or use'
           ' StandardCheckpointHandler to avoid TypeHandler Registry error.'

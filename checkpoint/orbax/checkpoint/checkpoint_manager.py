@@ -360,7 +360,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     IMPORTANT: `CheckpointManager` has been refactored to provide a new API.
     Please ensure you have migrated all existing use cases to the newer style by
-    May 1st, 2024. Please see
+    August 1st, 2024. Please see
     https://orbax.readthedocs.io/en/latest/api_refactor.html
     for technical details.
 
@@ -489,7 +489,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           'Configured `CheckpointManager` using deprecated legacy API. Please'
           ' follow the instructions at'
           ' https://orbax.readthedocs.io/en/latest/api_refactor.html to'
-          ' migrate by May 1st, 2024.'
+          ' migrate by August 1st, 2024.'
       )
       self._single_item = isinstance(checkpointers, AbstractCheckpointer)
       self._checkpointer = self._configure_checkpointer_legacy_init(
