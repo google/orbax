@@ -46,11 +46,8 @@ class SingleHostTest(parameterized.TestCase):
     super().setUp()
     self.ckpt_dir = epath.Path(self.create_tempdir('ckpt').full_path)
 
-  @parameterized.parameters([False, True])
-  def test_save_and_restore_a_single_device_sharded_jax_array(
-      self, write_tree_metadata
-  ):
-    handler = PyTreeCheckpointHandler(write_tree_metadata=write_tree_metadata)
+  def test_save_and_restore_a_single_device_sharded_jax_array(self):
+    handler = PyTreeCheckpointHandler()
     key = jax.random.PRNGKey(0)
     x = jax.random.normal(key, (10,))
     assert isinstance(x.sharding, jax.sharding.SingleDeviceSharding)
@@ -62,13 +59,8 @@ class SingleHostTest(parameterized.TestCase):
     restored_tree = handler.restore(self.ckpt_dir)
     np.testing.assert_array_equal(x, restored_tree['array_x'])
 
-    if write_tree_metadata:
-      self.assertIsInstance(restored_tree['array_x'], jax.Array)
-      self.assertEqual(x.sharding, restored_tree['array_x'].sharding)
-    else:
-      # previously, Orbax just return numpyarray even the saved
-      # the array is a SigmleDeviceSharded Jax Array.
-      self.assertIsInstance(restored_tree['array_x'], np.ndarray)
+    self.assertIsInstance(restored_tree['array_x'], jax.Array)
+    self.assertEqual(x.sharding, restored_tree['array_x'].sharding)
 
   @parameterized.parameters([False, True])
   def test_save_and_restore_jax_array(self, use_zarr3):
@@ -122,7 +114,7 @@ class SingleHostTest(parameterized.TestCase):
     self.assertIsInstance(restored_tree['x'], jax.Array)
 
   def test_save_and_restore_zarrv3_with_metadata(self):
-    handler = PyTreeCheckpointHandler(use_zarr3=True, write_tree_metadata=True)
+    handler = PyTreeCheckpointHandler(use_zarr3=True)
     key = jax.random.PRNGKey(0)
     x = jax.random.normal(key, (10,))
     pytree = {'x': x}

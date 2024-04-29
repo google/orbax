@@ -649,7 +649,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       aggregate_filename: Optional[str] = None,
       concurrent_gb: int = 96,
       use_ocdbt: bool = True,
-      write_tree_metadata: bool = True,
       use_zarr3: bool = False,
       primary_host: Optional[int] = 0,
       type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
@@ -664,8 +663,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       use_ocdbt: enables Tensorstore OCDBT driver. This option allows using a
         different checkpoint format which is faster to read and write, as well
         as more space efficient.
-      write_tree_metadata: Writes tree metadata in JSON format. The tree
-        metadata is used to enable a checkpoint which is fully self-describing.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
       primary_host: the host id of the primary host.  Default to 0.  If it's set
         to None, then all hosts will be considered as primary.  It's useful in
@@ -679,7 +676,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._aggregate_filename = aggregate_filename
     self._concurrent_gb = concurrent_gb
     self._use_ocdbt = use_ocdbt
-    self._write_tree_metadata = write_tree_metadata
     self._use_zarr3 = use_zarr3
     self._primary_host = primary_host
     self._type_handler_registry = type_handler_registry
@@ -696,9 +692,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
   def _skip_deserialize(self, value: Any, args: SaveArgs) -> bool:
     """Returns True if _METADATA write is enabled and value is []/{}/None."""
-    if self._write_tree_metadata and utils.is_supported_empty_aggregation_type(
-        value
-    ):
+    if utils.is_supported_empty_aggregation_type(value):
       # Skip deser if value is empty ([], {}, None) and _METADATA is enabled.
       # We don't want to write TypeHandlers for empty values, so will simply
       # identify them in metadata and skip deser.
@@ -776,8 +770,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     After saving, all files will be located in "directory/". The exact files
     that are saved depend on the specific combination of options, including
-    `use_ocdbt` and `write_tree_metadata`. If `write_tree_metadata` is
-    enabled, a JSON metadata file will be present to store the tree structure.
+    `use_ocdbt`. A JSON metadata file will be present to store the
+    tree structure.
     In addition, a msgpack file may be present, allowing users to store
     aggregated values (see below).
 
@@ -838,10 +832,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       # If already set, return.
       if isinstance(args_, SaveArgs):
         return args_
-      if (
-          self._write_tree_metadata
-          and utils.is_supported_empty_aggregation_type(value)
-      ):
+      if utils.is_supported_empty_aggregation_type(value):
         # If _METADATA is enabled and value is empty ([], {}, None) then stop
         # aggregating for a smooth SaveArgs.aggregate deprecation. Otherwise, we
         # will need to write TypeHandlers for empty values.
@@ -905,7 +896,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       logging.debug('save_args: %s', save_args)
 
     # TODO(b/285888834): Allow this to be asynchronous.
-    if self._write_tree_metadata and utils.is_primary_host(self._primary_host):
+    if utils.is_primary_host(self._primary_host):
       metadata_write_start_time = time.time()
       self._write_metadata_file(directory, item, save_args, self._use_zarr3)
       jax.monitoring.record_event_duration_secs(

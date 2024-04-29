@@ -69,7 +69,6 @@ class StandardCheckpointHandler(
     super().__init__(
         concurrent_gb=concurrent_gb,
         use_ocdbt=True,
-        write_tree_metadata=True,
         primary_host=primary_host,
     )
     self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
