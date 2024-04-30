@@ -17,13 +17,12 @@
 # TODO(b/337137764): Update RTD with functions from this module.
 
 import abc
-from collections.abc import Callable
 import concurrent
 import dataclasses
 import os
 import re
 import time
-from typing import Iterator, List, Optional, Protocol, Sequence, Set, TypeVar
+from typing import Callable, Iterator, List, Optional, Protocol, Sequence, Set, TypeVar
 
 from absl import logging
 from etils import epath
@@ -78,6 +77,8 @@ class NameFormat(Protocol):
   ) -> Optional[MetadataT]:
     """Returns metadata for given `step_path` if it is valid or None.
 
+    NOTE: Ignores uncommitted checkpoints.
+
     *Implementation hint:* Implement it to build the `MetadataT` instance using
     the given `step_path`. It should be called from `find_metadata(...)`,
     `find_step(...)` and `find_all(...)`. This method may not perform IO
@@ -96,6 +97,8 @@ class NameFormat(Protocol):
   ) -> Optional[MetadataT]:
     """Returns metadata for given `base_path` and `step` or None.
 
+    NOTE: Ignores uncommitted checkpoints.
+
     *Implementation hint:* Implement it to find the step folder under
     `base_path` performing IO operations if needed. Use `build_metadata(...)` to
     build the `MetadataT` using the found step path.
@@ -111,6 +114,8 @@ class NameFormat(Protocol):
   def find_all(self, base_path: epath.PathLike) -> Iterator[MetadataT]:
     """Returns metadata of all steps.
 
+    NOTE: Ignores uncommitted checkpoints.
+
     *Implementation hint:* Implement it to find all step folders under
     `base_path` performing IO operations if needed. Use `build_metadata(...)`
     and `build_step_metadatas(...)` to build all the `MetadataT` using the found
@@ -123,6 +128,8 @@ class NameFormat(Protocol):
 
   def find_step(self, base_path: epath.PathLike, step: int) -> MetadataT:
     """Returns the metadata for `step` or raises ValueError.
+
+    NOTE: Ignores uncommitted checkpoints.
 
     *Implementation hint:* Implement it to find the step folder under
     `base_path` performing IO operations if needed. Use `build_metadata(...)` to
@@ -178,9 +185,54 @@ def step_prefix_with_underscore(step_prefix: Optional[str]) -> str:
   return '' if step_prefix is None else f'{step_prefix}_'
 
 
+# TODO(b/337858698): Works with CompositeNameFormat.write_name_format only. Also
+# support read_name_formats.
+def find_step_path(
+    base_path: epath.PathLike,
+    name_format: NameFormat,
+    *,
+    step: int,
+    include_uncommitted: bool = False,
+) -> epath.Path:
+  """Returns `step` path under `base_path` for step `name_format`.
+
+  NOTE: Experimental function, subject to change.
+
+  Args:
+    base_path: directory path containing step subdirs.
+    name_format: NameFormat of the target `step`.
+    step: target step number.
+    include_uncommitted: if True then uncommitted steps are considered in search
+      too, otherwise only committed steps are looked up.
+
+  Raises:
+    ValueError if the target step path does not exist.
+  """
+  base_path = epath.Path(base_path)
+  if not include_uncommitted:
+    return name_format.find_step(base_path, step).path
+
+  # First try finding uncommitted step.
+  if is_gcs_path(base_path):
+    uncommitted_step_path = build_step_path(base_path, name_format, step)
+  else:
+    step_name = name_format.build_name(step)
+    uncommitted_step_path = None
+    for uncommited_name in tmp_checkpoints(base_path):
+      if uncommited_name.startswith(f'{step_name}{TMP_DIR_SUFFIX}'):
+        uncommitted_step_path = base_path / uncommited_name
+        break
+  if uncommitted_step_path and uncommitted_step_path.exists():
+    return uncommitted_step_path
+  # Uncommitted step not found, return committed one or raise error.
+  return name_format.find_step(base_path, step).path
+
+
 @dataclasses.dataclass(frozen=True)
 class _StandardNameFormat(NameFormat):
   """NameFormat for 'standard' steps for common Orbax use cases.
+
+  NOTE: Ignores uncommitted checkpoints.
 
   Naming examples:
    * step_prefix=None    step_format_fixed_length=None  ->  23
@@ -213,6 +265,9 @@ class _StandardNameFormat(NameFormat):
   ) -> Optional[Metadata]:
     """Returns metadata for given `step_path` if it is valid or None."""
     if not step_path.is_dir():
+      return None
+
+    if not is_checkpoint_finalized(step_path):
       return None
 
     if step is not None:
@@ -259,6 +314,8 @@ def standard_name_format(
 ) -> NameFormat:
   """Returns NameFormat for 'standard' steps for common Orbax use cases.
 
+  NOTE: Ignores uncommitted checkpoints.
+
   Naming examples:
    * step_prefix=None    step_format_fixed_length=None  ->  23
    * step_prefix=None    step_format_fixed_length=4     ->  0023
@@ -272,7 +329,8 @@ def standard_name_format(
       for 000123.
   """
   return _StandardNameFormat(
-      step_prefix=step_prefix, step_format_fixed_length=step_format_fixed_length
+      step_prefix=step_prefix,
+      step_format_fixed_length=step_format_fixed_length,
   )
 
 
@@ -306,12 +364,8 @@ class _CompositeNameFormat(NameFormat):
   def build_metadata(
       self, step_path: epath.Path, step: Optional[int] = None
   ) -> Optional[Metadata]:
-    """Returns metadata for given `step_path` if it is valid or None."""
-    for read_name_format in self.read_name_formats:
-      metadata = read_name_format.build_metadata(step_path, step)
-      if metadata is not None:
-        return metadata
-    return None
+    """Raises NotImplementedError."""
+    raise NotImplementedError()
 
   def find_metadata(
       self, base_path: epath.PathLike, step: int
@@ -324,8 +378,12 @@ class _CompositeNameFormat(NameFormat):
 
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps."""
-    step_paths = epath.Path(base_path).iterdir()
-    return build_step_metadatas(step_paths, self.build_metadata)
+    found_paths = set()
+    for read_name_format in self.read_name_formats:
+      for step_metadata in read_name_format.find_all(base_path):
+        if step_metadata.path not in found_paths:
+          found_paths.add(step_metadata.path)
+          yield step_metadata
 
   def find_step(self, base_path: epath.PathLike, step: int) -> Metadata:
     """Returns the metadata for `step` or raises ValueError."""
@@ -369,7 +427,7 @@ def composite_name_format(
 
 # TODO(b/337137764) Can't move it to path/utils due to cyclic dependency.
 # Explore other options.
-def is_gcs_path(path: epath.Path):
+def is_gcs_path(path: epath.Path) -> bool:
   return os.fspath(path).startswith(_GCS_PATH_PREFIX)
 
 
@@ -476,7 +534,7 @@ def create_tmp_directory(
     primary_host: Optional[int] = 0,
     active_processes: Optional[Set[int]] = None,
 ) -> epath.Path:
-  """Creates a temporary directory for saving at the given path."""
+  """Creates a non-deterministic tmp directory for saving for given `final_dir`."""
   # Share a timestamp across devices.
   final_dir = epath.Path(final_dir)
   # Renames are not atomic in GCS. Save directly to final_dir and rely on commit
@@ -525,7 +583,7 @@ def create_tmp_directory(
 
 
 def tmp_checkpoints(checkpoint_dir: epath.PathLike) -> List[str]:
-  """Returns a list of tmp checkpoints in the directory."""
+  """Returns a list of tmp checkpoint dir names in `checkpoint_dir`."""
   checkpoint_dir = epath.Path(checkpoint_dir)
   return [s.name for s in checkpoint_dir.iterdir() if is_tmp_checkpoint(s)]
 
@@ -553,7 +611,7 @@ def get_tmp_directory(
     primary_host: Optional[int] = 0,
     active_processes: Optional[Set[int]] = None,
 ) -> epath.Path:
-  """Returns a tmp directory for the given path. Does not create it."""
+  """Returns a non-deterministic tmp directory for `path` without creating it."""
   if is_gcs_path(path):
     return path
   now = time.time()

@@ -972,14 +972,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             ' checkpoint before saving.',
             step,
         )
-
         # make sure to use a synchronous deleter here
         deleter.create_checkpoint_deleter(
             self._multiprocessing_options.primary_host,
             self._directory,
             self._options.todelete_subdir,
             self._step_name_format,
-            False,  # no background thread
+            enable_background_delete=False,  # no background thread
         ).delete(step)
       utils.sync_global_processes(
           'CheckpointManager:delete_unfinalized_step_gcs',

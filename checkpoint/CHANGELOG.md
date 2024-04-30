@@ -16,6 +16,7 @@ present, they will be yielded even if `timeout_fn` already returns True.
 - Refactor and move path and step utils to new path/utils and step modules
  respectively.
 - Refactor Tensorstore-related codes in type_handlers.py
+- Update `NameFormat.find_step` logic to exclude uncommitted checkpoints.
 
 ### Removed
 - `ocdbt_merge` option and unused `restore_with_serialized_types` option from

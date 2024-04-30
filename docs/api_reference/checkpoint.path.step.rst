@@ -20,9 +20,26 @@ Factories for various NameFormats
 .. autofunction:: standard_name_format
 .. autofunction:: composite_name_format
 
-Convenience functions
+Helper functions
 -----------------------
 .. autofunction:: build_step_path
+.. autofunction:: checkpoint_steps_paths
+.. autofunction:: checkpoint_steps
+.. autofunction:: any_checkpoint_step
+
+Helper functions (experimental)
+-----------------------
+.. autofunction:: find_step_path
+.. autofunction:: is_gcs_path
+.. autofunction:: get_save_directory
+.. autofunction:: is_tmp_checkpoint
+.. autofunction:: is_checkpoint_finalized
+.. autofunction:: create_tmp_directory
+.. autofunction:: tmp_checkpoints
+.. autofunction:: cleanup_tmp_directories
+.. autofunction:: get_tmp_directory
+.. autofunction:: step_from_checkpoint_name
+.. autofunction:: step_from_checkpoint_name
 
 Helper functions to implement NameFormat classes
 ------------------------------------------------

@@ -72,14 +72,21 @@ class StandardCheckpointDeleter:
       step: checkpointing step number.
     """
     if not utils.is_primary_host(self._primary_host):
+      logging.info(
+          'Not primary host(%s), skipping deletion of step %d.',
+          self._primary_host,
+          step,
+      )
       return
 
     # Delete if storage is on gcs or todelete_subdir is not set.
     try:
-      delete_target = self._name_format.find_step(
+      delete_target = step_lib.find_step_path(
           self._directory,
-          step,
-      ).path
+          self._name_format,
+          step=step,
+          include_uncommitted=True,
+      )
     except ValueError as e:
       logging.warning(
           'Unable to find the step %d for deletion or renaming, err=%s', step, e
