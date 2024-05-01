@@ -1231,14 +1231,19 @@ class ArrayHandler(TypeHandler):
       sharding_tensorstores = await asyncio.gather(*sharding_open_ops)
       for sharding_tensorstore in sharding_tensorstores:
         if sharding_tensorstore:
-          sharding_string = await sharding_tensorstore.read()
-          if not sharding_string.item():
+          try:
+            sharding_string = await sharding_tensorstore.read()
+            if not sharding_string.item():
+              shardings.append(None)
+              continue
+            deserialized = sharding_metadata.from_serialized_string(
+                sharding_string.item()
+            )
+            shardings.append(deserialized)
+          except ValueError as e:
+            logging.info('Error reading from tensorstore: %s', e)
             shardings.append(None)
             continue
-          deserialized = sharding_metadata.from_serialized_string(
-              sharding_string.item()
-          )
-          shardings.append(deserialized)
         else:
           shardings.append(None)
     else:
@@ -1839,8 +1844,11 @@ class _TypeHandlerRegistryImpl(TypeHandlerRegistry):
     if existing_handler_idx is None:
       if handler.typestr() in self._typestr_registry:
         if override:
-          logging.warning('Type handler registry overriding type "%s" '
-                          'collision on %s', ty, handler.typestr())
+          logging.warning(
+              'Type handler registry overriding type "%s" collision on %s',
+              ty,
+              handler.typestr(),
+          )
         else:
           raise ValueError(
               f'Type "{ty}" has a `typestr` ("{handler.typestr()}") which'
@@ -1849,8 +1857,9 @@ class _TypeHandlerRegistryImpl(TypeHandlerRegistry):
       self._type_registry.append((func, handler))
       self._typestr_registry[handler.typestr()] = handler
     elif override:
-      logging.warning('Type handler registry type "%s" overriding %s',
-                      ty, handler.typestr())
+      logging.warning(
+          'Type handler registry type "%s" overriding %s', ty, handler.typestr()
+      )
       self._type_registry[existing_handler_idx] = (func, handler)
       self._typestr_registry[handler.typestr()] = handler
     else:
@@ -1916,9 +1925,9 @@ def register_type_handler(
     ty: A type to register.
     handler: a TypeHandler capable of reading and writing parameters of type
       `ty`.
-    func: A function that accepts a type and returns True if the type should
-      be handled by the provided TypeHandler. If this parameter is not
-      specified, defaults to `lambda t: issubclass(t, ty)`.
+    func: A function that accepts a type and returns True if the type should be
+      handled by the provided TypeHandler. If this parameter is not specified,
+      defaults to `lambda t: issubclass(t, ty)`.
     override: if True, will override an existing mapping of type to handler.
 
   Raises:
@@ -1950,16 +1959,21 @@ def register_standard_handlers_with_options(**kwargs):
   # TODO(b/314258967): clean those up.
   del kwargs['use_ocdbt'], kwargs['ts_context']
   GLOBAL_TYPE_HANDLER_REGISTRY.add(int, ScalarHandler(**kwargs), override=True)
-  GLOBAL_TYPE_HANDLER_REGISTRY.add(float, ScalarHandler(**kwargs),
-                                   override=True)
-  GLOBAL_TYPE_HANDLER_REGISTRY.add(bytes, ScalarHandler(**kwargs),
-                                   override=True)
-  GLOBAL_TYPE_HANDLER_REGISTRY.add(np.number, ScalarHandler(**kwargs),
-                                   override=True)
-  GLOBAL_TYPE_HANDLER_REGISTRY.add(np.ndarray, NumpyHandler(**kwargs),
-                                   override=True)
-  GLOBAL_TYPE_HANDLER_REGISTRY.add(jax.Array, ArrayHandler(**kwargs),
-                                   override=True)
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(
+      float, ScalarHandler(**kwargs), override=True
+  )
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(
+      bytes, ScalarHandler(**kwargs), override=True
+  )
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(
+      np.number, ScalarHandler(**kwargs), override=True
+  )
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(
+      np.ndarray, NumpyHandler(**kwargs), override=True
+  )
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(
+      jax.Array, ArrayHandler(**kwargs), override=True
+  )
 
 
 # TODO(b/253238305) Deprecate when all checkpoints have saved types.
