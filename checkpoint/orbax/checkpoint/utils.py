@@ -26,8 +26,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import multihost
-from orbax.checkpoint import sharding_metadata
-from orbax.checkpoint import value_metadata
+from orbax.checkpoint.metadata import sharding as sharding_metadata
+from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step as step_lib
 from orbax.checkpoint.path import utils as path_utils
 

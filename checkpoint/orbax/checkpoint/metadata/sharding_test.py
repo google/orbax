@@ -15,7 +15,7 @@
 from absl.testing import absltest
 import jax
 import numpy as np
-from orbax.checkpoint import sharding_metadata
+from orbax.checkpoint.metadata import sharding as sharding_metadata
 
 
 class TestShardingMetadata(absltest.TestCase):

@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Implement restoration in emergency.CheckpointManager
+- Implement restoration in emergency.CheckpointManager.
+- Separate `metadata` package to encapsulate metadata-related utils and
+constructs.
 
 ### Changed
 - In `checkpoints_iterator`/`wait_for_new_checkpoint`, ensure that if steps are

@@ -20,7 +20,7 @@ from typing import Optional
 from etils import epath
 import jax
 from jax import numpy as jnp
-from orbax.checkpoint import sharding_metadata
+from orbax.checkpoint.metadata import sharding as sharding_metadata
 
 
 @dataclasses.dataclass

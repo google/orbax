@@ -22,7 +22,6 @@ customized, and is delegated to the `TypeHandler` class.
 import asyncio
 import collections
 import dataclasses
-import enum
 import json
 import re
 import time
@@ -40,7 +39,8 @@ from orbax.checkpoint import future
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
-from orbax.checkpoint import value_metadata
+from orbax.checkpoint.metadata import tree as tree_metadata
+from orbax.checkpoint.metadata import value as value_metadata
 import tensorstore as ts
 
 PyTree = Any
@@ -64,103 +64,6 @@ register_with_handler = checkpoint_args.register_with_handler
 
 _METADATA_FILE = '_METADATA'
 _CHECKPOINT_FILE = 'checkpoint'
-
-
-### Metadata utils
-_KEY_NAME = 'key'
-_KEY_TYPE = 'key_type'
-_VALUE_TYPE = 'value_type'
-_SKIP_DESERIALIZE = 'skip_deserialize'
-
-_TREE_METADATA_KEY = 'tree_metadata'
-_KEY_METADATA_KEY = 'key_metadata'
-_VALUE_METADATA_KEY = 'value_metadata'
-_USE_ZARR3 = 'use_zarr3'
-
-
-class _KeyType(enum.Enum):
-  """Enum representing PyTree key type."""
-
-  SEQUENCE = 1
-  DICT = 2
-
-  def to_json(self) -> int:
-    return self.value
-
-  @classmethod
-  def from_json(cls, value: int) -> '_KeyType':
-    return cls(value)
-
-
-def _get_key_metadata_type(key: Any) -> _KeyType:
-  """Translates the JAX key class into a proto enum."""
-  if utils.is_sequence_key(key):
-    return _KeyType.SEQUENCE
-  elif utils.is_dict_key(key):
-    return _KeyType.DICT
-  else:
-    raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
-
-
-def _keypath_from_key_type(key_name: str, key_type: _KeyType) -> Any:
-  """Converts from Key in TreeMetadata to JAX keypath class."""
-  if key_type == _KeyType.SEQUENCE:
-    return jax.tree_util.SequenceKey(int(key_name))
-  elif key_type == _KeyType.DICT:
-    return jax.tree_util.DictKey(key_name)
-  else:
-    raise ValueError(f'Unsupported KeyEntry: {key_type}')
-
-
-def _get_keypath_metadata(keypath: Any) -> Tuple[Dict[str, Any]]:  # pylint: disable=g-one-element-tuple
-  """Gets JSON metadata for a JAX keypath."""
-  keypath_serialized = []
-  for k in keypath:
-    keypath_serialized.append({
-        _KEY_NAME: str(utils.get_key_name(k)),
-        _KEY_TYPE: _get_key_metadata_type(k).to_json(),
-    })
-  return tuple(keypath_serialized)
-
-
-def _keypath_from_metadata(keypath_serialized: Tuple[Dict[str, Any]]) -> Any:  # pylint: disable=g-one-element-tuple
-  """Creates a JAX keypath from JSON metadata."""
-  keypath = []
-  for k in keypath_serialized:
-    keypath.append(
-        _keypath_from_key_type(k[_KEY_NAME], _KeyType.from_json(k[_KEY_TYPE]))
-    )
-  return tuple(keypath)
-
-
-def _get_value_metadata(
-    value: Any,
-    save_arg: SaveArgs,
-    registry: TypeHandlerRegistry,
-) -> Dict[str, Any]:
-  """Gets JSON metadata for a given value."""
-  if utils.is_supported_empty_aggregation_type(value):
-    typestr = type_handlers.get_empty_value_typestr(value)
-    skip_deserialize = True
-  else:
-    try:
-      handler = registry.get(type(value))
-      typestr = handler.typestr()
-      skip_deserialize = save_arg.aggregate
-    except ValueError:
-      # Not an error because users' training states often have a bunch of
-      # random unserializable objects in them (empty states, optimizer
-      # objects, etc.). An error occurring due to a missing TypeHandler
-      # will be surfaced elsewhere.
-      typestr = type_handlers.RESTORE_TYPE_NONE
-      skip_deserialize = True
-  return {
-      _VALUE_TYPE: typestr,
-      _SKIP_DESERIALIZE: skip_deserialize,
-  }
-
-
-### End metadata utils
 
 
 def get_byte_limiter(concurrent_gb: int):
@@ -1200,68 +1103,24 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       save_args: PyTree,
       use_zarr3: bool = False,
   ):
-    """Write PyTree metadata.
-
-    Uses JSON format::
-
-    {
-        _TREE_METADATA_KEY: {
-          "(top_level_key, lower_level_key)": {
-              _KEY_METADATA_KEY: (
-                  {_KEY_NAME: "top_level_key", _KEY_TYPE: <_KeyType (int)>},
-                  {_KEY_NAME: "lower_level_key", _KEY_TYPE: <_KeyType (int)>},
-              )
-              _VALUE_METADATA_KEY: {
-                  _VALUE_TYPE: "jax.Array",
-                  _SKIP_DESERIALIZE: True/False,
-              }
-          }
-          ...
-      }
-    }
-
-    Args:
-      directory: directory
-      item: item to save
-      save_args: save_args
-      use_zarr3: save the zarr version used
-
-    Returns:
-      None
-    """
-    flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
-        item, is_leaf=utils.is_empty_or_leaf
+    (directory / _METADATA_FILE).write_text(
+        json.dumps(
+            tree_metadata.TreeMetadata.build(
+                item,
+                save_args=save_args,
+                type_handler_registry=self._type_handler_registry,
+                use_zarr3=use_zarr3,
+            ).to_json()
+        )
     )
-    flat_save_args_with_keys, _ = jax.tree_util.tree_flatten_with_path(
-        save_args, is_leaf=utils.is_empty_or_leaf
-    )
-
-    flat_metadata_with_keys = {}
-    for (keypath, value), (_, save_arg) in zip(
-        flat_with_keys, flat_save_args_with_keys
-    ):
-      tuple_keypath = str(tuple([str(utils.get_key_name(k)) for k in keypath]))
-      flat_metadata_with_keys[tuple_keypath] = {
-          _KEY_METADATA_KEY: _get_keypath_metadata(keypath),
-          _VALUE_METADATA_KEY: _get_value_metadata(
-              value, save_arg, self._type_handler_registry
-          ),
-      }
-
-    metadata = {
-        _TREE_METADATA_KEY: flat_metadata_with_keys,
-        _USE_ZARR3: use_zarr3,
-    }
-    (directory / _METADATA_FILE).write_text(json.dumps(metadata))
 
   def _read_metadata_file(
-      self, directory: epath.Path, keep_empty_nodes: bool = False
-  ) -> Tuple[PyTree, bool]:
+      self, directory: epath.Path
+  ) -> tree_metadata.TreeMetadata:
     """Reads metadata file and returns a tree of restore types.
 
     Args:
       directory: directory
-      keep_empty_nodes: If True, does not discard empty nodes in the tree.
 
     Returns:
       Tree with _InternalValueMetadata as values.
@@ -1275,41 +1134,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           f'Metadata file (named {_METADATA_FILE}) does not exist at'
           f' {directory}.'
       )
-
-    metadata_dict = json.loads(path.read_text())
-
-    if _USE_ZARR3 in metadata_dict:
-      use_zarr3_metadata = metadata_dict[_USE_ZARR3]
-    else:
-      use_zarr3_metadata = False
-
-    tree_metadata = typing.cast(
-        Dict[Any, Any],
-        metadata_dict,
-    )[_TREE_METADATA_KEY]
-    flat_tree_metadata = []
-    for metadata in tree_metadata.values():
-      keypath = _keypath_from_metadata(metadata[_KEY_METADATA_KEY])
-      value_meta = metadata[_VALUE_METADATA_KEY]
-      restore_type, skip_deserialize = (
-          value_meta[_VALUE_TYPE],
-          value_meta[_SKIP_DESERIALIZE],
-      )
-      if type_handlers.is_empty_typestr(restore_type) and not keep_empty_nodes:
-        # Return node as the empty value itself rather than as
-        # _InternalValueMetadata.
-        value_meta = type_handlers.get_empty_value_from_typestr(restore_type)
-      else:
-        value_meta = _InternalValueMetadata(
-            restore_type=restore_type,
-            skip_deserialize=skip_deserialize,
-        )
-      flat_tree_metadata.append((keypath, value_meta))
-
-    return (
-        utils.from_flattened_with_keypath(flat_tree_metadata),
-        use_zarr3_metadata,
-    )
+    return tree_metadata.TreeMetadata.from_json(json.loads(path.read_text()))
 
   def _get_internal_metadata(
       self, directory: epath.Path
@@ -1330,10 +1155,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     aggregate_tree = self._read_aggregate_file(directory)
     flat_aggregate = utils.to_flat_dict(aggregate_tree, keep_empty_nodes=True)
     try:
-      metadata_tree, use_zarr3 = self._read_metadata_file(
-          directory, keep_empty_nodes=True
-      )
+      metadata = self._read_metadata_file(directory)
+      metadata_tree = metadata.as_nested_tree(keep_empty_nodes=True)
       flat_metadata = utils.to_flat_dict(metadata_tree, keep_empty_nodes=True)
+      use_zarr3 = metadata.use_zarr3
     except FileNotFoundError:
       metadata_tree = None
       flat_metadata = None
@@ -1350,12 +1175,12 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         restore_type = None
         skip_deserialize = not utils.leaf_is_placeholder(value)
       else:
-        if type_handlers.is_empty_typestr(value_meta.restore_type):
+        if type_handlers.is_empty_typestr(value_meta.value_type):
           return type_handlers.get_empty_value_from_typestr(
-              value_meta.restore_type
+              value_meta.value_type
           )
         restore_type, skip_deserialize = (
-            value_meta.restore_type,
+            value_meta.value_type,
             value_meta.skip_deserialize,
         )
       return _InternalValueMetadata(
@@ -1390,13 +1215,12 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     flat_param_infos = {}
     flat_restore_types = {}
-    metadata, use_zarr3_metadata = self._read_metadata_file(
-        directory, keep_empty_nodes=False
-    )
-    for keypath, value_meta in utils.to_flat_dict(metadata).items():
+    metadata = self._read_metadata_file(directory)
+    metadata_tree = metadata.as_nested_tree(keep_empty_nodes=False)
+    for keypath, value_meta in utils.to_flat_dict(metadata_tree).items():
       param_name = '.'.join(keypath)
       restore_type, skip_deserialize = (
-          value_meta.restore_type,
+          value_meta.value_type,
           value_meta.skip_deserialize,
       )
       flat_param_infos[keypath] = ParamInfo(
@@ -1405,7 +1229,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           parent_dir=directory,
           skip_deserialize=skip_deserialize,
           is_ocdbt_checkpoint=is_ocdbt_checkpoint,
-          use_zarr3=use_zarr3_metadata,
+          use_zarr3=metadata.use_zarr3,
       )
       flat_restore_types[keypath] = restore_type
 
@@ -1437,7 +1261,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     ):
       for keypath, value in zip(keypath_batch, metadata_batch):
         flat_metadatas[keypath] = value
-    return utils.from_flat_dict(flat_metadatas, target=metadata)
+    return utils.from_flat_dict(flat_metadatas, target=metadata_tree)
 
   def metadata(self, directory: epath.Path) -> Optional[PyTree]:
     """Returns tree metadata.

@@ -22,6 +22,7 @@ import nest_asyncio
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import args
 from orbax.checkpoint import checkpoint_utils
+from orbax.checkpoint import metadata
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import multihost
 from orbax.checkpoint import path
@@ -29,7 +30,6 @@ from orbax.checkpoint import test_utils
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
-from orbax.checkpoint import value_metadata
 from orbax.checkpoint.path import step
 
 # pylint: disable=g-importing-member, g-bad-import-order

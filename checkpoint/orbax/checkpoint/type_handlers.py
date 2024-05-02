@@ -34,9 +34,9 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import future
 from orbax.checkpoint import multihost
-from orbax.checkpoint import sharding_metadata
 from orbax.checkpoint import utils
-from orbax.checkpoint import value_metadata
+from orbax.checkpoint.metadata import sharding as sharding_metadata
+from orbax.checkpoint.metadata import value as value_metadata
 import tensorstore as ts
 
 Scalar = Union[int, float, np.number]

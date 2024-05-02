@@ -24,7 +24,7 @@ import orbax.checkpoint as ocp
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
-from orbax.checkpoint import value_metadata
+from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step as step_lib
 
 
