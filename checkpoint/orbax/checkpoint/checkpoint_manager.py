@@ -35,6 +35,7 @@ from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import checkpointer as checkpointer_lib
 from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import json_checkpoint_handler
+from orbax.checkpoint import multihost
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
 from orbax.checkpoint.path import deleter
@@ -135,7 +136,8 @@ class MultiprocessingOptions:
     to None, then all hosts will be considered as primary.  It's useful in
     the case that all hosts are only working with local storage.
   active_processes: A set of process indices (corresponding to
-    `jax.process_index()`) over which `CheckpointManager` is expected to be
+    `multihost.process_index()`) over which `CheckpointManager` is expected to
+    be
     called. This makes it possible to have a `CheckpointManager` instance
     that runs over a subset of processes, rather than all processes as it is
     normally expected to do. If specified, `primary_host` must belong to
@@ -560,7 +562,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     logging.info(
         'jax.process_index=%s, primary_host=%s. CheckpointManager created: %s',
-        jax.process_index(),
+        multihost.process_index(),
         self._multiprocessing_options.primary_host,
         self,
     )

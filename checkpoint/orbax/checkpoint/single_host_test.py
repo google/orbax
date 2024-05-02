@@ -23,6 +23,7 @@ import ml_dtypes
 import numpy as np
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import json_checkpoint_handler
+from orbax.checkpoint import multihost
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
@@ -35,7 +36,7 @@ class PyTreeCheckpointHandler(
 
   def save(self, directory, *args, **kwargs):
     super().save(directory, *args, **kwargs)
-    if jax.process_index() == 0:
+    if multihost.process_index() == 0:
       self.finalize(directory)
     utils.sync_global_processes('PyTreeCheckpointHandler:finalize')
 

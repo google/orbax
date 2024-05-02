@@ -156,10 +156,10 @@ def _unique_processes_from_devices(device_array: np.ndarray) -> Set[int]:
 
 def _local_slice_devices(devices_array: np.ndarray) -> np.ndarray:
   for device_slice in devices_array:
-    if _in_slice(jax.process_index(), device_slice):
+    if _in_slice(multihost.process_index(), device_slice):
       return device_slice
   raise ValueError(
-      f'process_index {jax.process_index()} does not exist in provided'
+      f'process_index {multihost.process_index()} does not exist in provided'
       ' `global_mesh`'
   )
 
@@ -297,8 +297,8 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
 
     if len(local_steps) > self._options.max_to_keep:
       raise AssertionError(
-          f' local_step on host {jax.process_index()} exceeded `max_to_keep`'
-          f' {self._options.max_to_keep}'
+          f' local_step on host {multihost.process_index()} exceeded'
+          f' `max_to_keep` {self._options.max_to_keep}'
       )
 
     return _pad_steps(local_steps, self._options.max_to_keep)
@@ -371,7 +371,9 @@ class CheckpointManager(
     options = options or CheckpointManagerOptions()
     self._global_mesh = global_mesh
     self._abstract_state = abstract_state
-    self._slice_id = _process_slice_id(jax.process_index(), self._global_mesh)
+    self._slice_id = _process_slice_id(
+        multihost.process_index(), self._global_mesh
+    )
 
     self._local_directory = local_directory
     self._local_state_handler = local_state_handler
@@ -391,7 +393,9 @@ class CheckpointManager(
           ' needed.'
       )
 
-    self._in_primary_slice = _in_primary_slice(jax.process_index(), global_mesh)
+    self._in_primary_slice = _in_primary_slice(
+        multihost.process_index(), global_mesh
+    )
     self._persistent_max_to_keep = self._options.persistent.max_to_keep
     self._local_max_to_keep = self._options.local.max_to_keep
 
@@ -485,7 +489,7 @@ class CheckpointManager(
         # persistent_checkpoint_manager.all_steps returns an array with length
         # smaller than max_to_keep
         raise AssertionError(
-            f'persistent_step on host {jax.process_index()} exceeded'
+            f'persistent_step on host {multihost.process_index()} exceeded'
             f' `max_to_keep` {self._persistent_max_to_keep}'
         )
       persistent_steps = _pad_steps(
@@ -500,14 +504,15 @@ class CheckpointManager(
     local_steps = np.asarray(
         multihost.broadcast_one_to_all(
             local_steps,
-            is_source=jax.process_index() == self._local_primary_host,
+            is_source=multihost.process_index() == self._local_primary_host,
         )
     )
 
     persistent_steps = np.asarray(
         multihost.broadcast_one_to_all(
             persistent_steps,
-            is_source=jax.process_index() == self._persistent_primary_host,
+            is_source=multihost.process_index()
+            == self._persistent_primary_host,
         )
     )
 

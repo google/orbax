@@ -739,7 +739,7 @@ def checkpoint_steps(
     # Read the step list only from host 0, and then broadcast the list.
     # This minimizes queries on non-leader processes.
     padded_step_list = np.array([-1] * max_steps)
-    if jax.process_index() == 0:
+    if multihost.process_index() == 0:
       steps = np.array(_checkpoint_steps(checkpoint_dir))
       assert len(steps) <= max_steps
       padded_step_list[0 : len(steps)] = steps

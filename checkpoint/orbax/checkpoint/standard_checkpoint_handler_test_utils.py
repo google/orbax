@@ -25,6 +25,7 @@ import jax
 from jax import numpy as jnp
 import numpy as np
 import optax
+from orbax.checkpoint import multihost
 from orbax.checkpoint import standard_checkpoint_handler
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import type_handlers
@@ -43,7 +44,7 @@ class StandardCheckpointHandler(
   def save(self, directory, *args, **kwargs):
     super().save(directory, *args, **kwargs)
     utils.sync_global_processes('StandardCheckpointHandler:save')
-    if jax.process_index() == 0:
+    if multihost.process_index() == 0:
       self.finalize(directory)
     utils.sync_global_processes('StandardCheckpointHandler:finalize')
 

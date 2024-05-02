@@ -60,12 +60,12 @@ def broadcast_one_to_some(
   processes = processes or set(range(jax.process_count()))
   if is_source is None:
     primary_process = next(iter(processes))
-    is_source = jax.process_index() == primary_process
-  if jax.process_index() not in processes:
+    is_source = process_index() == primary_process
+  if process_index() not in processes:
     raise ValueError(
         'Attempted to broadcast from one host to other hosts, but the current'
-        f' process: {jax.process_index()} was not present in the provided list'
-        f' of processes: {processes}.'
+        f' process: {process_index()} was not present in the provided'
+        f' list of processes: {processes}.'
     )
   devices: np.ndarray = np.array(
       [d for d in jax.devices() if d.process_index in processes]
@@ -155,6 +155,10 @@ def reached_preemption(step: int) -> bool:
 
 
 def is_primary_host(primary_host: Optional[int]):
-  if primary_host is None or primary_host == jax.process_index():
+  if primary_host is None or primary_host == process_index():
     return True
   return False
+
+
+def process_index() -> int:
+  return jax.process_index()

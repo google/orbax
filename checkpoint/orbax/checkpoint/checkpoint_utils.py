@@ -23,6 +23,7 @@ from etils import epath
 import jax
 from jax.experimental import multihost_utils
 import numpy as np
+from orbax.checkpoint import multihost
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
@@ -74,7 +75,7 @@ def _unlock_checkpoint(
     step_name_format: step_lib.NameFormat,
 ):
   """Removes a LOCKED directory to indicate unlocking."""
-  if jax.process_index() == 0:
+  if multihost.process_index() == 0:
     logging.info('Unlocking existing step: %d.', step)
     step_dir = step_name_format.find_step(checkpoint_dir, step).path
     utils.lockdir(step_dir).unlink(missing_ok=True)
@@ -150,7 +151,7 @@ def _wait_for_new_checkpoint(
   logging.info(log_str)
 
   result = -1
-  if jax.process_index() == 0:
+  if multihost.process_index() == 0:
     while True:
       if not checkpoint_dir.exists():
         if _sleep_and_maybe_exit():

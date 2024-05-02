@@ -27,6 +27,7 @@ from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpointer
 from orbax.checkpoint import future as future_lib
+from orbax.checkpoint import multihost
 from orbax.checkpoint import utils
 
 
@@ -85,7 +86,7 @@ def _get_barrier_sync_fn() -> Optional[BarrierSyncFn]:
     )
 
   def _fn(*, key: str, timeout_ms: int) -> None:
-    current_process = jax.process_index()
+    current_process = multihost.process_index()
     logging.info(
         'Key used for barrier is %s for process %s', key, current_process
     )
@@ -150,7 +151,7 @@ class _AsyncManager:
   ):
     """Awaits on commit futures and finalizes the checkpoint."""
     try:
-      current_process = jax.process_index()
+      current_process = multihost.process_index()
       process_count = jax.process_count()
       logging.info(
           'Starting commit to storage layer by process: %s', current_process

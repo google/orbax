@@ -21,4 +21,5 @@ from orbax.checkpoint.multihost.utils import broadcast_one_to_some
 from orbax.checkpoint.multihost.utils import is_primary_host
 from orbax.checkpoint.multihost.utils import reached_preemption
 from orbax.checkpoint.multihost.utils import sync_global_processes
+from orbax.checkpoint.multihost.utils import process_index
 

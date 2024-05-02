@@ -17,6 +17,7 @@ present, they will be yielded even if `timeout_fn` already returns True.
  respectively.
 - Refactor Tensorstore-related codes in type_handlers.py
 - Update `NameFormat.find_step` logic to exclude uncommitted checkpoints.
+- Abstract `jax.process_index` into `multihost.process_index`.
 
 ### Removed
 - `ocdbt_merge` option and unused `restore_with_serialized_types` option from

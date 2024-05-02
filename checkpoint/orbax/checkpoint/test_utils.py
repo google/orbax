@@ -31,6 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
+from orbax.checkpoint import multihost
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
@@ -51,7 +52,7 @@ def save_fake_tmp_dir(
       directory / (step_prefix + str(step))
   )
   item_tmp_dir = utils.create_tmp_directory(step_tmp_dir / item)
-  if jax.process_index() == 0:
+  if multihost.process_index() == 0:
     for sub in subdirs:
       (item_tmp_dir / sub).mkdir(parents=True)
   utils.sync_global_processes('save_fake_tmp_dir')

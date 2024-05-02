@@ -33,6 +33,7 @@ from jax.experimental.array_serialization import serialization
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import future
+from orbax.checkpoint import multihost
 from orbax.checkpoint import sharding_metadata
 from orbax.checkpoint import utils
 from orbax.checkpoint import value_metadata
@@ -791,7 +792,7 @@ def get_process_index_for_subdir(
 ) -> Optional[int]:
   """If OCDBT + merge feature is in use, returns a process index."""
   if use_ocdbt:
-    return jax.process_index()
+    return multihost.process_index()
   else:
     return None
 
@@ -953,7 +954,7 @@ class NumpyHandler(TypeHandler):
         logging.debug('tspec = %s', tspec)
         logging.debug('infos = %s', info)
         logging.debug('args = %s', arg)
-      if jax.process_index() == 0:
+      if multihost.process_index() == 0:
         ts_context = get_ts_context(info.is_ocdbt_checkpoint)
         # Open once to create metadata and allow the operation to happen
         # asynchronously.
@@ -1467,7 +1468,7 @@ class ArrayHandler(TypeHandler):
 def _is_sharding_valid(
     primary_replica_ids: set[int], primary_replica_pids: set[int]
 ) -> bool:
-  if jax.process_index() in primary_replica_pids:
+  if multihost.process_index() in primary_replica_pids:
     loc_devices_in_replica = primary_replica_ids.intersection(
         set([d.id for d in jax.local_devices()])
     )
@@ -1476,7 +1477,7 @@ def _is_sharding_valid(
 
 
 def _is_host_for_primary_replica(primary_replica_ids: set[int]) -> bool:
-  return jax.process_index() in primary_replica_ids
+  return multihost.process_index() in primary_replica_ids
 
 
 class SingleReplicaArrayHandler(ArrayHandler):
@@ -1707,7 +1708,7 @@ class StringHandler(TypeHandler):
         value,
     ) in zip(infos, values):
       tspec = self._get_json_tspec(info)
-      if jax.process_index() == 0:
+      if multihost.process_index() == 0:
         t = await ts.open(
             tspec,
             open=True,
