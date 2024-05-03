@@ -1078,6 +1078,8 @@ def get_sharding_tensorstore_spec(
 class ArrayRestoreArgs(RestoreArgs):
   """Arguments used when restoring with ArrayHandler.
 
+  restore_type:
+    See parent class.
   mesh:
     The device mesh that the array should be restored as. Cannot be None.
   mesh_axes:
@@ -1098,6 +1100,7 @@ class ArrayRestoreArgs(RestoreArgs):
     be dropped from the end of the array.
   """
 
+  restore_type: Optional[Any] = jax.Array
   mesh: Optional[jax.sharding.Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
   sharding: Optional[Union[jax.sharding.Sharding, ShardingMetadata]] = None
