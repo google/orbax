@@ -26,6 +26,8 @@ Helper functions
 .. autofunction:: checkpoint_steps_paths
 .. autofunction:: checkpoint_steps
 .. autofunction:: any_checkpoint_step
+.. autofunction:: latest_step_metadata
+.. autofunction:: step_metadata_of_checkpoint_path
 
 Helper functions (experimental)
 -----------------------
@@ -38,7 +40,6 @@ Helper functions (experimental)
 .. autofunction:: tmp_checkpoints
 .. autofunction:: cleanup_tmp_directories
 .. autofunction:: get_tmp_directory
-.. autofunction:: step_from_checkpoint_name
 .. autofunction:: step_from_checkpoint_name
 
 Helper functions to implement NameFormat classes

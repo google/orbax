@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implement restoration in emergency.CheckpointManager.
 - Separate `metadata` package to encapsulate metadata-related utils and
 constructs.
+- Add step utils to get metadata of latest checkpoint and from checkpoint path.
 
 ### Changed
 - In `checkpoints_iterator`/`wait_for_new_checkpoint`, ensure that if steps are

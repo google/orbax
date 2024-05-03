@@ -481,6 +481,66 @@ class UtilsTest(parameterized.TestCase):
         step_lib.checkpoint_steps(self.directory),
     )
 
+  def test_latest_step_metadata(self):
+    name_format = step_lib.standard_name_format(step_prefix='step')
+
+    with self.subTest('empty_root'):
+      self.assertIsNone(
+          step_lib.latest_step_metadata(self.directory, name_format)
+      )
+
+    epath.Path(self.directory / '99').mkdir()
+    epath.Path(self.directory / 'step_3').mkdir()
+
+    with self.subTest('single_step'):
+      metadata = step_lib.latest_step_metadata(self.directory, name_format)
+      self.assertIsNotNone(metadata)
+      self.assertEqual(metadata.step, 3)
+
+    epath.Path(self.directory / 'step_4').mkdir()
+
+    with self.subTest('step_with_highest_value'):
+      metadata = step_lib.latest_step_metadata(self.directory, name_format)
+      self.assertIsNotNone(metadata)
+      self.assertEqual(metadata.step, 4)
+
+  def test_step_metadata_of_checkpoint_path(self):
+    name_format = step_lib.standard_name_format(step_prefix='step')
+
+    with self.subTest('empty_root'):
+      with self.assertRaisesRegex(
+          ValueError, 'Failed to resolve step metadata of checkpoint path'
+      ):
+        step_lib.step_metadata_of_checkpoint_path(
+            self.directory / '0', name_format
+        )
+
+    epath.Path(self.directory / 'step_2').mkdir()
+
+    with self.subTest('good_checkpoint_path_in_root_with_one_step'):
+      metadata = step_lib.step_metadata_of_checkpoint_path(
+          self.directory / 'step_2', name_format
+      )
+      self.assertEqual(metadata.step, 2)
+
+    epath.Path(self.directory / 'step_3').mkdir()
+
+    with self.subTest('good_checkpoint_path_in_root_with_many_steps'):
+      metadata = step_lib.step_metadata_of_checkpoint_path(
+          self.directory / 'step_2', name_format
+      )
+      self.assertEqual(metadata.step, 2)
+
+    epath.Path(self.directory / '1').mkdir()
+
+    with self.subTest('bad_checkpoint_path'):
+      with self.assertRaisesRegex(
+          ValueError, 'Failed to resolve step metadata of checkpoint path'
+      ):
+        step_lib.step_metadata_of_checkpoint_path(
+            self.directory / '1', name_format
+        )
+
 
 if __name__ == '__main__':
   absltest.main()

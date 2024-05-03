@@ -185,6 +185,36 @@ def step_prefix_with_underscore(step_prefix: Optional[str]) -> str:
   return '' if step_prefix is None else f'{step_prefix}_'
 
 
+def latest_step_metadata(
+    root_path: epath.PathLike, name_format: NameFormat
+) -> Optional[MetadataT]:
+  """Returns step.MetadataT of the latest step in `root_path`."""
+  root_path = epath.Path(root_path)
+  return max(
+      name_format.find_all(root_path),
+      default=None,
+      key=lambda metadata: metadata.step,
+  )
+
+
+def step_metadata_of_checkpoint_path(
+    checkpoint_path: epath.PathLike, name_format: NameFormat
+) -> MetadataT:
+  """Returns step.MetadataT of given `checkpoint_path`."""
+  checkpoint_path = epath.Path(checkpoint_path)
+  all_step_metadata = list(name_format.find_all(checkpoint_path.parent))
+  for step_metadata in all_step_metadata:
+    if step_metadata.path.name == checkpoint_path.name:
+      return step_metadata
+  raise ValueError(
+      'Failed to resolve step metadata of checkpoint path with'
+      f' NameFormat={name_format}, checkpoint path={checkpoint_path}, path'
+      f' name({checkpoint_path.name}) did not match with available step names:'
+      f' {[step_metadata.path.name for step_metadata in all_step_metadata]}.'
+      ' Please check if the given path is really a checkpoint path.'
+  )
+
+
 # TODO(b/337858698): Works with CompositeNameFormat.write_name_format only. Also
 # support read_name_formats.
 def find_step_path(
