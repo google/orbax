@@ -38,6 +38,8 @@ from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import multihost
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
+from orbax.checkpoint.logging import abstract_logger
+from orbax.checkpoint.logging import step_statistics
 from orbax.checkpoint.path import deleter
 from orbax.checkpoint.path import step as step_lib
 from typing_extensions import Self  # for Python version < 3.11
@@ -357,6 +359,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       item_handlers: Optional[
           Union[CheckpointHandler, CheckpointHandlersDict]
       ] = None,
+      logger: Optional[abstract_logger.AbstractLogger] = None,
   ):
     """CheckpointManager constructor.
 
@@ -460,6 +463,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         The item name key may or may not be present in `item_names`.
         Alternatively, a single CheckpointHandler may be provided, in which case
         `save` and `restore` should always be called in a single item context.
+      logger: A logger to log checkpointing events.
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
 
@@ -470,6 +474,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._multiprocessing_options = (
         self._options.multiprocessing_options or MultiprocessingOptions()
     )
+    if (logger is not None) and (
+        not isinstance(logger, abstract_logger.AbstractLogger)
+    ):
+      raise ValueError('`logger` must be an  AbstractLogger instance.')
+
+    self._logger = logger
 
     if checkpointers and item_names:
       raise ValueError(
@@ -899,6 +909,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       args: Optional[args_lib.CheckpointArgs] = None,
   ) -> bool:
     """See superclass documentation."""
+    step_stats = step_statistics.StepStatistics()
+    step_stats.step = step
+    step_stats.start_time = time.time()
+    step_stats.event_type = 'save'
 
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')
@@ -908,6 +922,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       return False
     if self.reached_preemption(step):
       logging.info('Saving checkpoint at step %d due to preemption.', step)
+      step_stats.reached_preemption = True
+      step_stats.preemption_received_at = time.time()
 
     # Wait for ongoing saves to complete. Only applicable if some of the
     # checkpointers are AsyncCheckpointers.
@@ -918,6 +934,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         '/jax/checkpoint/write/wait_for_prev_duration_secs',
         time.time() - wait_for_prev_start_time,
     )
+    step_stats.wait_for_prev_start_time = wait_for_prev_start_time
+    step_stats.wait_for_prev_end_time = time.time()
 
     if step in self.all_steps():
       raise ValueError(f'Checkpoint for step {step} already exists.')
@@ -986,8 +1004,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           'CheckpointManager:delete_unfinalized_step_gcs',
           processes=self._multiprocessing_options.active_processes,
       )
-
+    step_stats.checkpoint_start_time = time.time()
     self._checkpointer.save(save_directory, args=args)
+    step_stats.checkpoint_end_time = time.time()
 
     self._add_checkpoint_info(step, metrics)
     get_old_steps_start_time = time.time()
@@ -996,6 +1015,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         '/jax/checkpoint/write/get_old_steps_duration_secs',
         time.time() - get_old_steps_start_time,
     )
+    step_stats.get_old_steps_start_time = get_old_steps_start_time
+    step_stats.get_old_steps_end_time = time.time()
+
     self._checkpoints = [
         info for info in self._checkpoints if info.step not in steps_to_remove
     ]
@@ -1022,6 +1044,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           'CheckpointManager:finalize',
           processes=self._multiprocessing_options.active_processes,
       )
+    step_stats.synchronous = is_async_checkpointer(self._checkpointer)
+    step_stats.end_time = time.time()
+    if self._logger is not None:
+      self._logger.log_entry(dataclasses.asdict(step_stats))
     return True
 
   def restore(

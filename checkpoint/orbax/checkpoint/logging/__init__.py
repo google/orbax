@@ -19,4 +19,6 @@
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import standard_logger
 from orbax.checkpoint.logging import cloud_logger
+from orbax.checkpoint.logging import step_statistics
+
 
