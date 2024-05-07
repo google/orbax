@@ -14,10 +14,11 @@
 
 """Manages metadata of checkpoints at step level (not item level)."""
 
+from __future__ import annotations
 import dataclasses
 import json
 import threading
-from typing import Any, Optional, Protocol, Self
+from typing import Any, Optional, Protocol
 from absl import logging
 from etils import epath
 
@@ -47,7 +48,7 @@ class CheckpointMetadata:
   commit_timestamp_nsecs: Optional[int] = None
 
   @classmethod
-  def from_dict(cls, dict_data: Any) -> Self:
+  def from_dict(cls, dict_data: Any) -> CheckpointMetadata:
     validated_dict = {}
     if 'init_timestamp_nsecs' in dict_data:
       validated_dict['init_timestamp_nsecs'] = dict_data['init_timestamp_nsecs']
