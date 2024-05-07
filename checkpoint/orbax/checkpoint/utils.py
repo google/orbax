@@ -359,7 +359,7 @@ def all_leaves_are_placeholders(tree: PyTree) -> bool:
 def is_supported_empty_aggregation_type(value: Any) -> bool:
   """Determines if the *empty* value is supported for aggregation."""
   # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
-  return isinstance(value, (dict, list, type(None))) and not value
+  return isinstance(value, (dict, list, tuple, type(None))) and not value
 
 
 def is_supported_aggregation_type(value: Any) -> bool:
