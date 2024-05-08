@@ -17,3 +17,4 @@ orbax.checkpoint API Reference
    checkpoint.msgpack_utils
    checkpoint.multihost
    checkpoint.metadata
+   checkpoint.logging

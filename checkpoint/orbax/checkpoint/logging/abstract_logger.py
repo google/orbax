@@ -20,12 +20,6 @@ from typing import Any
 
 class AbstractLogger(abc.ABC):
   """Abstract base class for structured loggers.
-
-  TODO(b/332421474):
-  1). Integrate a CompositeLogger, enabling the seamless
-  incorporation of multiple components for efficient data recording across
-  different destinations.
-  2). Add API reference for orbax.checkpoint.
   """
 
   @abc.abstractmethod
