@@ -18,6 +18,7 @@ TODO(b/266449081) Increase unit test coverage.
 """
 
 import functools
+import time
 from typing import Any, Optional, Tuple, Union
 
 from absl import logging
@@ -26,6 +27,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import multihost
+from orbax.checkpoint.metadata import checkpoint
 from orbax.checkpoint.metadata import sharding as sharding_metadata
 from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step as step_lib
@@ -387,8 +389,24 @@ def pytree_structure(directory: epath.PathLike) -> PyTree:
 
 # TODO(b/337137764): Move to step.py and fix
 # learning/gemini/pax/core/checkpoint_managers_test.py
-def ensure_atomic_save(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path):
-  """Finalizes atomic save by renaming tmp_dir or writing a success file."""
+def ensure_atomic_save(
+    temp_ckpt_dir: epath.Path,
+    final_ckpt_dir: epath.Path,
+    checkpoint_metadata_store: Optional[
+        checkpoint.CheckpointMetadataStore
+    ] = None,
+):
+  """Finalizes atomic save by renaming tmp_dir or writing a success file.
+
+  Updates checkpoint metadata with commit_timestamp_nsecs.
+
+  Args:
+    temp_ckpt_dir: directory path containing uncommitted checkpoint.
+    final_ckpt_dir: directory path which will contain committed checkpoint.
+    checkpoint_metadata_store: optional `CheckpointMetadataStore` instance. If
+      present then it is used to update `CheckpointMetadata` related to
+      committed data present in `final_ckpt_dir`.
+  """
   if temp_ckpt_dir == final_ckpt_dir:
     commit_success_file = final_ckpt_dir / step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
     commit_success_file.write_text(
@@ -397,6 +415,11 @@ def ensure_atomic_save(temp_ckpt_dir: epath.Path, final_ckpt_dir: epath.Path):
   else:
     logging.info('Renaming %s to %s', temp_ckpt_dir, final_ckpt_dir)
     temp_ckpt_dir.rename(final_ckpt_dir)
+  if checkpoint_metadata_store:
+    checkpoint_metadata_store.update(
+        checkpoint_path=final_ckpt_dir,
+        commit_timestamp_nsecs=time.time_ns(),
+    )
 
 
 # TODO(b/337137764): Move to step.py and fix
@@ -420,7 +443,11 @@ def on_commit_callback(
       may exist if atomicity is ensured by writing a commit success file.
     checkpoint_start_time: The time at which checkpoint saving began.
   """
-  ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir)
+  ensure_atomic_save(
+      temp_ckpt_dir,
+      final_ckpt_dir,
+      checkpoint.checkpoint_metadata_store(enable_write=True),
+  )
   step_lib.record_saved_duration(checkpoint_start_time)
   logging.info('Finished saving checkpoint to `%s`.', final_ckpt_dir)
 

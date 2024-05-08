@@ -839,14 +839,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     else:
       return self._get_save_directory(step, root_dir)
 
-  def _create_tmp_directory(self, directory: epath.Path) -> epath.Path:
-    """Creates a tmp directory based on the given directory."""
-    return utils.create_tmp_directory(
-        directory,
-        primary_host=self._multiprocessing_options.primary_host,
-        active_processes=self._multiprocessing_options.active_processes,
-    )
-
   def delete(self, step: int):
     """See superclass documentation.
 
@@ -1164,18 +1156,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       checkpoint_infos = []
     else:
 
-      def checkpoint_info(step: int) -> CheckpointInfo:
-        timestamp = datetime.datetime.fromtimestamp(
-            self._get_read_step_directory(step, self.directory).stat().mtime,
-            tz=datetime.timezone.utc,
-        )
+      def build_checkpoint_info(step: int) -> CheckpointInfo:
+        step_metadata = self._step_name_format.find_step(self.directory, step)
         return CheckpointInfo(
-            step=step, time=timestamp, metrics=self.metrics(step)
+            step=step,
+            time=step_metadata.commit_timestamp,
+            metrics=self.metrics(step),
         )
 
       with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = {
-            step: executor.submit(checkpoint_info, step) for step in steps
+            step: executor.submit(build_checkpoint_info, step) for step in steps
         }
         checkpoint_infos = [futures[step].result() for step in steps]
 

@@ -19,6 +19,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+from orbax.checkpoint.metadata import checkpoint
 from orbax.checkpoint.path import step as step_lib
 
 
@@ -232,6 +233,13 @@ class StandardNameFormatTest(parameterized.TestCase):
                 step=step,
                 include_uncommitted=False,
             )
+      with self.subTest('checkpoint_metadata_based_fields'):
+        self.assertIsNone(
+            name_format.find_step(self.directory, step).init_timestamp_nsecs
+        )
+        self.assertIsNone(
+            name_format.find_step(self.directory, step).commit_timestamp_nsecs
+        )
 
   @parameterized.parameters(True, False)
   def test_find_step_path_with_uncommitted_checkpoint(self, gcs: bool):
@@ -354,6 +362,30 @@ class StandardNameFormatTest(parameterized.TestCase):
             metadata.path.name
             for metadata in name_format.find_all(self.directory)
         ])
+
+
+class MetadataTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.directory = epath.Path(
+        self.create_tempdir(name='metadata_test').full_path
+    )
+
+  def test_checkpoint_metadata_based_fields(self):
+    step_path = self.directory / 'step_1'
+    step_path.mkdir(parents=True, exist_ok=True)
+    checkpoint.checkpoint_metadata_store(enable_write=True).write(
+        step_path,
+        checkpoint.CheckpointMetadata(
+            init_timestamp_nsecs=1, commit_timestamp_nsecs=2
+        ),
+    )
+
+    metadata = step_lib.Metadata(step=1, path=step_path)
+
+    self.assertEqual(metadata.init_timestamp_nsecs, 1)
+    self.assertEqual(metadata.commit_timestamp_nsecs, 2)
 
 
 class UtilsTest(parameterized.TestCase):

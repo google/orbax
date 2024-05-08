@@ -14,11 +14,11 @@
 
 """Orbax step storage entities."""
 
-# TODO(b/337137764): Update RTD with functions from this module.
-
 import abc
 import concurrent
 import dataclasses
+import datetime
+import functools
 import os
 import re
 import time
@@ -29,6 +29,7 @@ from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint import multihost
+from orbax.checkpoint.metadata import checkpoint
 
 
 _GCS_PATH_PREFIX = ('gs://',)
@@ -48,10 +49,58 @@ MetadataT = TypeVar('MetadataT', bound='Metadata')
 
 @dataclasses.dataclass(frozen=True)
 class Metadata:
-  """Metadata of a step."""
+  """Metadata of a step.
+
+  Attributes:
+    step: step number of the checkpoint.
+    path: path to the checkpoint.
+  """
 
   step: int
   path: epath.Path
+
+  @functools.cached_property
+  def _checkpoint_metadata(self) -> Optional[checkpoint.CheckpointMetadata]:
+    """Returns checkpoint metadata of this step."""
+    store = checkpoint.checkpoint_metadata_store(enable_write=False)
+    return store.read(self.path)
+
+  @property
+  def init_timestamp_nsecs(self) -> Optional[int]:
+    """Returns init timestamp of uncommitted checkpoint of this step.
+
+    It is specified as nano seconds since epoch.
+    """
+    metadata = self._checkpoint_metadata
+    if metadata is None:
+      return None
+    return metadata.init_timestamp_nsecs
+
+  @property
+  def commit_timestamp_nsecs(self) -> Optional[int]:
+    """Returns commit timestamp of the checkpoint of this step.
+
+    It is specified as nano seconds since epoch.
+    """
+    metadata = self._checkpoint_metadata
+    if metadata is None:
+      return None
+    return metadata.commit_timestamp_nsecs
+
+  @property
+  def commit_timestamp(self) -> datetime.datetime:
+    """Returns commit timestamp of the checkpoint of this step.
+
+    It is specified as datetime in UTC timezone.
+    """
+    commit_timestamp_nsecs = self.commit_timestamp_nsecs
+    if commit_timestamp_nsecs is not None:
+      timestamp_sec = commit_timestamp_nsecs / 1e9
+    else:
+      timestamp_sec = self.path.stat().mtime
+    return datetime.datetime.fromtimestamp(
+        timestamp_sec, tz=datetime.timezone.utc
+    )
 
 
 class NameFormat(Protocol):
@@ -564,7 +613,21 @@ def create_tmp_directory(
     primary_host: Optional[int] = 0,
     active_processes: Optional[Set[int]] = None,
 ) -> epath.Path:
-  """Creates a non-deterministic tmp directory for saving for given `final_dir`."""
+  """Creates a non-deterministic tmp directory for saving for given `final_dir`.
+
+  Also writes checkpoint metadata in the tmp directory.
+
+  Args:
+    final_dir: The eventual directory path where checkpoint will be committed.
+    primary_host: primary host id, default=0.
+    active_processes: Ids of active processes. default=None
+
+  Returns:
+    The tmp directory.
+
+  Raises:
+    FileExistsError: if tmp directory already exists.
+  """
   # Share a timestamp across devices.
   final_dir = epath.Path(final_dir)
   # Renames are not atomic in GCS. Save directly to final_dir and rely on commit
@@ -605,6 +668,12 @@ def create_tmp_directory(
         )
     mode = WORLD_READABLE_MODE  # pylint: disable=unused-variable
     tmp_dir.mkdir(parents=True, mode=mode)
+    checkpoint.checkpoint_metadata_store(enable_write=True).write(
+        checkpoint_path=tmp_dir,
+        checkpoint_metadata=checkpoint.CheckpointMetadata(
+            init_timestamp_nsecs=time.time_ns()
+        ),
+    )
 
   multihost.sync_global_processes(
       'create_tmp_directory:post', processes=active_processes

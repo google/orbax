@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 constructs.
 - Add step utils to get metadata of latest checkpoint and from checkpoint path.
 - Support checkpoint metadata at step level.
+- Use checkpoint metadata module to store commit timestamp.
 
 ### Changed
 - In `checkpoints_iterator`/`wait_for_new_checkpoint`, ensure that if steps are
