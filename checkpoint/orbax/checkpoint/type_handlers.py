@@ -201,7 +201,7 @@ class SaveArgs:
   read_chunk_shape:
     This only applies to Zarr version 3.  This specifies the chunk sizes within
     a write chunk. Default is set to equal to the write_chunk_shape. The
-    read_chunk_shape is reqired to be a divisor of the write_chunk_shape.
+    read_chunk_shape is required to be a divisor of the write_chunk_shape.
   chunk_byte_size:
     This is an experimental feature that automatically chooses the largest chunk
     shape possible, while keeping the chunk byte size less than or equal to the
@@ -313,7 +313,7 @@ def _choose_chunk_shape(
     if dim_to_reduce_size > 1:
       dim_factors[dim_to_reduce].pop()
     else:
-      # need to start spliting on unsharded dimension
+      # need to start splitting on unsharded dimension
       sharded_dimensions = np.ones(len(write_shape))
 
   chosen_shape = [dim_factors[i][-1] for i in range(rank)]
@@ -1494,7 +1494,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
   primary replica. Then these hosts broadcast the data to other hosts. It is
   assumed that all hosts have ALL their devices either inside the primary
   replica or outside.
-  Consider, for example, the following sharding on v4-128 wich has 16 hosts and
+  Consider, for example, the following sharding on v4-128 which has 16 hosts and
   64 devices::
 
       shape = (32, 2)
@@ -1616,14 +1616,14 @@ class SingleReplicaArrayHandler(ArrayHandler):
     if _is_host_for_primary_replica(primary_replica_pids):
       start_deserialization = time.time()
       deserialized = await asyncio.gather(*deserialize_ops)
-      deserialzation_elasped_s = time.time() - start_deserialization
+      deserialization_elapsed_s = time.time() - start_deserialization
       jax.monitoring.record_event_duration_secs(
           '/jax/checkpoint/read/primary_replica_deserialization_duration_secs',
-          deserialzation_elasped_s,
+          deserialization_elapsed_s,
       )
       logging.info(
           'Finished primary replica deserialization in %.2f',
-          deserialzation_elasped_s,
+          deserialization_elapsed_s,
       )
 
     else:

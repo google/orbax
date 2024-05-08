@@ -79,6 +79,14 @@ class EmptyNode:
   pass
 
 
+def is_empty_node(x: Any) -> bool:
+  try:
+    children, _ = jax._src.tree_util.flatten_one_level(x)  # pylint: disable=protected-access
+  except ValueError:
+    return False  # non-empty leaf, otherwise flatten would return self.
+  return not children
+
+
 def is_empty_or_leaf(x: Any) -> bool:
   try:
     children, _ = jax._src.tree_util.flatten_one_level(x)  # pylint: disable=protected-access
@@ -341,6 +349,13 @@ def name_from_leaf_placeholder(placeholder: str) -> str:
     raise ValueError('Found placeholder beginning with unexpected prefix.')
 
 
+def all_leaves_are_placeholders(tree: PyTree) -> bool:
+  """Determines if all leaves in `tree` are placeholders."""
+  return all(
+      leaf_is_placeholder(leaf) for leaf in jax.tree_util.tree_leaves(tree)
+  )
+
+
 def is_supported_empty_aggregation_type(value: Any) -> bool:
   """Determines if the *empty* value is supported for aggregation."""
   # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
@@ -382,6 +397,8 @@ def pytree_structure(directory: epath.PathLike) -> PyTree:
     # Sharding file stores sharding data that is only used by orbax. Therefore,
     # it shouldn't be included here. See b/279969796 for more details.
     if k.name == '_sharding':
+      continue
+    if k.name == '_METADATA':
       continue
     tree = add_nested_key(tree, k.name.split('.'), k.name)
   return tree

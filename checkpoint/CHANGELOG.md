@@ -20,9 +20,11 @@ constructs.
 present, they will be yielded even if `timeout_fn` already returns True.
 - Refactor and move path and step utils to new path/utils and step modules
  respectively.
-- Refactor Tensorstore-related codes in type_handlers.py
+- Refactor Tensorstore-related codes in type_handlers.py.
 - Update `NameFormat.find_step` logic to exclude uncommitted checkpoints.
 - Abstract `jax.process_index` into `multihost.process_index`.
+- Factor out core PyTree checkpointing logic into a 
+`PyTreeCheckpointHandlerImpl` class.
 - Use unique count instead of timestamp in tmp directory construction.
 
 ### Removed

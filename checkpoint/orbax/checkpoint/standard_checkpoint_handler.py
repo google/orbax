@@ -14,12 +14,14 @@
 
 """StandardCheckpointHandler class."""
 
+import asyncio
 import dataclasses
 from typing import Any, List, Optional
 
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import future
@@ -33,7 +35,7 @@ register_with_handler = checkpoint_args.register_with_handler
 
 
 class StandardCheckpointHandler(
-    pytree_checkpoint_handler.PyTreeCheckpointHandler
+    async_checkpoint_handler.AsyncCheckpointHandler
 ):
   """A CheckpointHandler implementation for any PyTree structure.
 
@@ -66,12 +68,12 @@ class StandardCheckpointHandler(
         to None, then all hosts will be considered as primary.  It's useful in
         the case that all hosts are only working with local storage.
     """
-    super().__init__(
+    self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
+    self._concurrent_gb = concurrent_gb
+    self._impl = pytree_checkpoint_handler.PyTreeCheckpointHandler(
         concurrent_gb=concurrent_gb,
-        use_ocdbt=True,
         primary_host=primary_host,
     )
-    self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
 
   def _validate_save_state(
       self, item: PyTree, save_args: Optional[PyTree] = None
@@ -107,8 +109,8 @@ class StandardCheckpointHandler(
       item: Optional[PyTree] = None,
       save_args: Optional[PyTree] = None,
       args: Optional['StandardSaveArgs'] = None,
-  ) -> Optional[List[future.Future]]:  # pytype: disable=signature-mismatch
-    """Saves a PyTree. See superclass documentation."""
+  ) -> Optional[List[future.Future]]:
+    """Saves a PyTree of array-like objects. See PyTreeCheckpointHandler."""
     if isinstance(item, CheckpointArgs):
       raise ValueError(
           'Make sure to specify kwarg name `args=` when providing'
@@ -119,20 +121,33 @@ class StandardCheckpointHandler(
       save_args = args.save_args
 
     self._validate_save_state(item, save_args=save_args)
-    return await super().async_save(
+    return await self._impl.async_save(
         directory,
         args=pytree_checkpoint_handler.PyTreeSaveArgs(
             item=item, save_args=save_args
         ),
     )
 
+  def save(self, directory: epath.Path, *args, **kwargs):
+    """Saves the provided item synchronously."""
+
+    async def async_save(*args, **kwargs):
+      commit_futures = await self.async_save(*args, **kwargs)  # pytype: disable=bad-return-type
+      # Futures are already running, so sequential waiting is equivalent to
+      # concurrent waiting.
+      if commit_futures:  # May be None.
+        for f in commit_futures:
+          f.result()  # Block on result.
+
+    asyncio.run(async_save(directory, *args, **kwargs))
+
   def restore(
       self,
       directory: epath.Path,
       item: Optional[PyTree] = None,
       args: Optional['StandardRestoreArgs'] = None,
-  ) -> PyTree:  # pytype: disable=signature-mismatch
-    """Restores a PyTree.
+  ) -> PyTree:
+    """Restores a PyTree. See PyTreeCheckpointHandler.
 
     Example::
 
@@ -181,12 +196,22 @@ class StandardCheckpointHandler(
       restore_args = checkpoint_utils.construct_restore_args(
           self.metadata(directory)
       )
-    return super().restore(
+    return self._impl.restore(
         directory,
         args=pytree_checkpoint_handler.PyTreeRestoreArgs(
             item=args.item, restore_args=restore_args
         ),
     )
+
+  def metadata(self, directory: epath.Path) -> PyTree:
+    """Returns metadata about the saved item."""
+    return self._impl.metadata(directory)
+
+  def finalize(self, directory: epath.Path) -> None:
+    self._impl.finalize(directory)
+
+  def close(self):
+    self._impl.close()
 
 
 @register_with_handler(StandardCheckpointHandler, for_save=True)

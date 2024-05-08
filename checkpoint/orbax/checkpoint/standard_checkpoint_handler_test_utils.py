@@ -106,11 +106,13 @@ class StandardCheckpointHandlerTestBase:
 
     def test_basic(self):
       self.handler.save(self.directory, args=self.save_args_cls(self.pytree))
-      restored = self.handler.restore(
-          self.directory, args=self.restore_args_cls(self.zeros_pytree)
-      )
+      test_utils.print_directory(self.directory)
       self.assertTrue(
           (self.directory / type_handlers._OCDBT_MANIFEST_FILE).exists()  # pylint: disable=protected-access
+      )
+      self.assertTrue(type_handlers.is_ocdbt_checkpoint(self.directory))
+      restored = self.handler.restore(
+          self.directory, args=self.restore_args_cls(self.zeros_pytree)
       )
       test_utils.assert_tree_equal(self, self.pytree, restored)
 
