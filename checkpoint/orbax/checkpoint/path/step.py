@@ -19,6 +19,7 @@ import concurrent
 import dataclasses
 import datetime
 import functools
+import itertools
 import os
 import re
 import time
@@ -45,6 +46,8 @@ _LAST_CHECKPOINT_WRITE_TIME = time.time()
 WORLD_READABLE_MODE = 0o777
 
 MetadataT = TypeVar('MetadataT', bound='Metadata')
+
+_module_unique_count = itertools.count()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -635,9 +638,7 @@ def create_tmp_directory(
   if is_gcs_path(final_dir):
     tmp_dir = final_dir
   else:
-    tmp_dir = get_tmp_directory(
-        final_dir, primary_host=primary_host, active_processes=active_processes
-    )
+    tmp_dir = get_tmp_directory(final_dir)
 
   # Sync before existence is checked and directory is created because there are
   # additional existence checks happening in the callers of this function.
@@ -647,24 +648,17 @@ def create_tmp_directory(
 
   if multihost.is_primary_host(primary_host):
     if tmp_dir.exists():
-      if is_gcs_path(tmp_dir):
-        if is_tmp_checkpoint(tmp_dir):
-          logging.warning(
-              'Attempted to create temporary directory %s which already exists.'
-              ' Removing existing directory since it is not finalized.',
-              tmp_dir,
-          )
-          tmp_dir.rmtree(missing_ok=True)
-        else:
-          raise FileExistsError(
-              f'Attempted to create temporary directory {tmp_dir} which already'
-              ' exists.'
-          )
+      if is_tmp_checkpoint(tmp_dir):
+        logging.warning(
+            'Attempted to create temporary directory %s which already exists.'
+            ' Removing existing directory since it is not finalized.',
+            tmp_dir,
+        )
+        tmp_dir.rmtree()
       else:
-        raise AssertionError(
+        raise FileExistsError(
             f'Attempted to create temporary directory {tmp_dir} which already'
-            ' exists. This condition should never arise on non-GCS'
-            ' filesystems.'
+            ' exists.'
         )
     mode = WORLD_READABLE_MODE  # pylint: disable=unused-variable
     tmp_dir.mkdir(parents=True, mode=mode)
@@ -706,32 +700,15 @@ def cleanup_tmp_directories(
 
 def get_tmp_directory(
     path: epath.Path,
-    *,
-    primary_host: Optional[int] = 0,
-    active_processes: Optional[Set[int]] = None,
 ) -> epath.Path:
   """Returns a non-deterministic tmp directory for `path` without creating it."""
   if is_gcs_path(path):
     return path
-  now = time.time()
-  sec = int(now)
-  usec = int((now - sec) * 1000000)
-
-  # Impossible for all hosts to be the source if primary_host is None.
-  # Allow broadcast function to pick an arbitrary host to act as source if
-  # primary_host is None.
-  is_source = (
-      multihost.is_primary_host(primary_host)
-      if primary_host is not None
-      else None
-  )
-  timestamp = multihost.broadcast_one_to_some(
-      (np.int32(sec), np.int32(usec)),
-      is_source=is_source,
-      processes=active_processes,
-  )
+  # Path may not be completely unique if a preemption occurs. We rely on the
+  # existing tmp directory being deleted elsewhere.
+  unique_count = next(_module_unique_count)
   return epath.Path(path.parent) / (
-      path.name + TMP_DIR_SUFFIX + f'{timestamp[0]}{timestamp[1]:06}'
+      path.name + TMP_DIR_SUFFIX + str(unique_count)
   )
 
 
