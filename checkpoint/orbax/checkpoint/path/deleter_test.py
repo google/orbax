@@ -41,7 +41,7 @@ class CheckpointDeleterTest(parameterized.TestCase):
         directory=self.ckpt_dir,
         todelete_subdir=todelete_subdir,
         name_format=step_lib.standard_name_format(),
-        enable_background_delete=False,
+        enable_background_delete=threaded,
     )
 
     step = 1
@@ -49,8 +49,7 @@ class CheckpointDeleterTest(parameterized.TestCase):
     step_dir.mkdir()
     self.assertTrue(step_dir.exists())
     deleter.delete(step)
-    if threaded:
-      deleter.close()  # make sure the thread is done
+    deleter.close()
 
     # assert the step_dir is deleted
     self.assertFalse(step_dir.exists())

@@ -16,12 +16,21 @@
 
 import queue
 import threading
+import time
 from typing import Optional, Protocol, Sequence
 from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import utils
 from orbax.checkpoint.path import step as step_lib
+
+_THREADED_DELETE_DURATION = (
+    '/jax/orbax/checkpoint_manager/threaded_checkpoint_deleter/total_duration'
+)
+
+_STANDARD_DELETE_DURATION = (
+    '/jax/orbax/checkpoint_manager/standard_checkpoint_deleter/total_duration'
+)
 
 
 class CheckpointDeleter(Protocol):
@@ -49,6 +58,7 @@ class StandardCheckpointDeleter:
       directory: epath.Path,
       todelete_subdir: Optional[str],
       name_format: step_lib.NameFormat,
+      duration_metric: Optional[str] = _STANDARD_DELETE_DURATION,
   ):
     """StandardCheckpointDeleter constructor.
 
@@ -57,11 +67,14 @@ class StandardCheckpointDeleter:
       directory: refer to CheckpointManager.directory
       todelete_subdir: refer to CheckpointManagerOptions.todelete_subdir
       name_format: refer to CheckpointManager._name_format
+      duration_metric: the name of the total delete duration metric
     """
     self._primary_host = primary_host
     self._directory = directory
     self._todelete_subdir = todelete_subdir
     self._name_format = name_format
+    self._duration_metric = duration_metric
+    self._total_delete_duration = 0.0
 
   def delete(self, step: int) -> None:
     """Deletes step dir or renames it if _todelete_subdir is set.
@@ -71,48 +84,60 @@ class StandardCheckpointDeleter:
     Args:
       step: checkpointing step number.
     """
-    if not utils.is_primary_host(self._primary_host):
-      logging.info(
-          'Not primary host(%s), skipping deletion of step %d.',
-          self._primary_host,
-          step,
-      )
-      return
-
-    # Delete if storage is on gcs or todelete_subdir is not set.
+    start = time.time()
     try:
-      delete_target = step_lib.find_step_path(
-          self._directory,
-          self._name_format,
-          step=step,
-          include_uncommitted=True,
-      )
-    except ValueError as e:
-      logging.warning(
-          'Unable to find the step %d for deletion or renaming, err=%s', step, e
-      )
-      return
+      if not utils.is_primary_host(self._primary_host):
+        logging.info(
+            'Not primary host(%s), skipping deletion of step %d.',
+            self._primary_host,
+            step,
+        )
+        return
 
-    if self._todelete_subdir is None or step_lib.is_gcs_path(self._directory):
-      delete_target.rmtree()
-      logging.info('Deleted step %d.', step)
-      return
+      # Delete if storage is on gcs or todelete_subdir is not set.
+      try:
+        delete_target = step_lib.find_step_path(
+            self._directory,
+            self._name_format,
+            step=step,
+            include_uncommitted=True,
+        )
+      except ValueError as e:
+        logging.warning(
+            'Unable to find the step %d for deletion or renaming, err=%s',
+            step,
+            e,
+        )
+        return
 
-    # Rename step dir.
-    rename_dir = self._directory / self._todelete_subdir
-    rename_dir.mkdir(parents=True, exist_ok=True)
+      if self._todelete_subdir is None or step_lib.is_gcs_path(self._directory):
+        delete_target.rmtree()
+        logging.info('Deleted step %d.', step)
+        return
 
-    dst = step_lib.build_step_path(rename_dir, self._name_format, step)
+      # Rename step dir.
+      rename_dir = self._directory / self._todelete_subdir
+      rename_dir.mkdir(parents=True, exist_ok=True)
 
-    delete_target.replace(dst)
-    logging.info('Renamed step %d to %s', step, dst)
+      dst = step_lib.build_step_path(rename_dir, self._name_format, step)
+
+      delete_target.replace(dst)
+      logging.info('Renamed step %d to %s', step, dst)
+    finally:
+      self._total_delete_duration += time.time() - start
 
   def delete_steps(self, steps: Sequence[int]) -> None:
     for step in steps:
       self.delete(step)
 
   def close(self) -> None:
-    pass
+    if self._total_delete_duration > 0.0:
+      jax.monitoring.record_event_duration_secs(
+          self._duration_metric,
+          self._total_delete_duration,
+      )
+      logging.info('Total delete duration: %f', self._total_delete_duration)
+      self._total_delete_duration = 0.0  # avoid logging more than once
 
 
 class ThreadedCheckpointDeleter:
@@ -131,6 +156,7 @@ class ThreadedCheckpointDeleter:
         directory=directory,
         todelete_subdir=todelete_subdir,
         name_format=name_format,
+        duration_metric=_THREADED_DELETE_DURATION,
     )
     self._delete_queue = queue.Queue()
     # Turn on daemon=True so the thread won't block the main thread and die
@@ -149,9 +175,9 @@ class ThreadedCheckpointDeleter:
     while True:
       step = self._delete_queue.get(block=True)
       if step < 0:
-        logging.info('Delete thread exited.')
         break
       self._standard_deleter.delete(step)
+    logging.info('Delete thread exited.')
 
   def delete(self, step: int) -> None:
     self._delete_queue.put(step)
