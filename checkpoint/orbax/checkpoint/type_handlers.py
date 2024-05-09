@@ -1820,7 +1820,7 @@ class _TypeHandlerRegistryImpl(TypeHandlerRegistry):
     self._typestr_registry: Dict[str, TypeHandler] = {}
     if handlers:
       for ty, h in handlers:
-        self.add(ty, h, override=True)
+        self.add(ty, h, override=True, ignore_warnings=True)
 
   def add(
       self,
@@ -1828,6 +1828,7 @@ class _TypeHandlerRegistryImpl(TypeHandlerRegistry):
       handler: TypeHandler,
       func: Optional[Callable[[Any], bool]] = None,
       override: bool = False,
+      ignore_warnings: bool = False,
   ):
     if func is None:
       func = lambda t: issubclass(t, ty)
@@ -1843,8 +1844,9 @@ class _TypeHandlerRegistryImpl(TypeHandlerRegistry):
     if existing_handler_idx is None:
       if handler.typestr() in self._typestr_registry:
         if override:
-          logging.warning('Type handler registry overriding type "%s" '
-                          'collision on %s', ty, handler.typestr())
+          if not ignore_warnings:
+            logging.warning('Type handler registry overriding type "%s" '
+                            'collision on %s', ty, handler.typestr())
         else:
           raise ValueError(
               f'Type "{ty}" has a `typestr` ("{handler.typestr()}") which'
@@ -1853,8 +1855,9 @@ class _TypeHandlerRegistryImpl(TypeHandlerRegistry):
       self._type_registry.append((func, handler))
       self._typestr_registry[handler.typestr()] = handler
     elif override:
-      logging.warning('Type handler registry type "%s" overriding %s',
-                      ty, handler.typestr())
+      if not ignore_warnings:
+        logging.warning('Type handler registry type "%s" overriding %s',
+                        ty, handler.typestr())
       self._type_registry[existing_handler_idx] = (func, handler)
       self._typestr_registry[handler.typestr()] = handler
     else:
