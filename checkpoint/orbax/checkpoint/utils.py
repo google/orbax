@@ -486,22 +486,24 @@ def fully_replicated_host_local_array_to_global_array(
   Returns:
     A global array.
   """
-  if not arr.is_fully_replicated:
-    raise ValueError('Array must be fully replicated.')
+  # input `arr` is fully replicated, so it's shape is the global shape.
   global_shape = arr.addressable_data(0).shape
+
   # Create a 1D mesh to create fully replicated global jax.Array.
-  sharding = jax.sharding.NamedSharding(
-      jax.sharding.Mesh(np.array(jax.devices()), axis_names=('x',)),
+  mesh = jax.sharding.Mesh(np.array(jax.devices()), axis_names=('x',))
+  partition_spec = (
       jax.sharding.PartitionSpec(None)
       if global_shape
-      else jax.sharding.PartitionSpec(),
+      else jax.sharding.PartitionSpec()
   )
   # pmap-produced Array has a "scrambled" device order.
   dbs = sorted(
       [shard.data for shard in arr.addressable_shards],
       key=lambda x: list(x.devices())[0].id,
   )
-  return jax.make_array_from_single_device_arrays(global_shape, sharding, dbs)
+  return jax.make_array_from_single_device_arrays(
+      global_shape, jax.sharding.NamedSharding(mesh, partition_spec), dbs
+  )
 
 
 def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
