@@ -36,7 +36,13 @@ def split_tf_floating_and_discrete_groups(
       return np.issubdtype(np.asarray(x).dtype, np.floating)
 
   flattened = jax.tree_util.tree_leaves(inputs)
-  float_vals = np.array([np.asarray(x) for x in flattened if is_float(x)])
+  # Convert float_vals into 1D numpy array for easy comparison.
+  float_vals = [np.asarray(x).flatten() for x in flattened if is_float(x)]
+  if float_vals:
+    float_vals = np.concatenate(float_vals, axis=0)
+  else:
+    float_vals = np.array([])
+
   discrete_vals = [x for x in flattened if not is_float(x)]
   return float_vals, discrete_vals
 

@@ -49,12 +49,20 @@ class ValidationUtilsTest(tf.test.TestCase):
     arrays = [np.array([0.1, 0.2, 0.3], dtype=np.float64), np.array([1, 2, 3])]
     tf_arrays = jax.tree_util.tree_map(tf.convert_to_tensor, arrays)
     jax_array = jax.tree_util.tree_map(jnp.array, arrays)
-    expected_float_vals = [np.array([0.1, 0.2, 0.3], dtype=np.float64)]
+    expected_float_vals = np.array([0.1, 0.2, 0.3], dtype=np.float64)
     for arr in (arrays, tf_arrays, jax_array):
       float_vals, _ = validation_utils.split_tf_floating_and_discrete_groups(
           arr
       )
       self.assertAllClose(float_vals, expected_float_vals)
+
+  def test_split_tf_floating_and_discrete_groups_2(self):
+    """Test split_tf_floating_and_discrete_groups accept non-inhomogeneous array."""
+    arrays = [np.zeros((1,)), np.zeros((2048,)), np.zeros((1, 1, 1))]
+    float_vals, _ = validation_utils.split_tf_floating_and_discrete_groups(
+        arrays
+    )
+    self.assertLen(float_vals, 2050)
 
 
 if __name__ == "__main__":
