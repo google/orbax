@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.10] - 2024-05-10
+
 ### Added
 - Implement restoration in emergency.CheckpointManager.
 - Separate `metadata` package to encapsulate metadata-related utils and
