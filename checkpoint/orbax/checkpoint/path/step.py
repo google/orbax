@@ -109,7 +109,6 @@ class Metadata:
 class NameFormat(Protocol):
   """Protocol responsible for naming and querying steps."""
 
-  @abc.abstractmethod
   def build_name(self, step: int) -> str:
     """Returns `step` name.
 
@@ -124,86 +123,35 @@ class NameFormat(Protocol):
     ...
 
   @abc.abstractmethod
-  def build_metadata(
-      self, step_path: epath.Path, *args, **kwargs
-  ) -> Optional[MetadataT]:
-    """Returns metadata for given `step_path` if it is valid or None.
-
-    NOTE: Ignores uncommitted checkpoints.
-
-    *Implementation hint:* Implement it to build the `MetadataT` instance using
-    the given `step_path`. It should be called from `find_metadata(...)`,
-    `find_step(...)` and `find_all(...)`. This method may not perform IO
-    operations.
-
-    Args:
-      step_path: Path to folder containing step data.
-      *args: Overridable args meant to provide custom params.
-      **kwargs: Overridable kwargs meant to provide custom params.
-    """
-    ...
-
-  @abc.abstractmethod
-  def find_metadata(
-      self, base_path: epath.PathLike, step: int, *args, **kwargs
-  ) -> Optional[MetadataT]:
-    """Returns metadata for given `base_path` and `step` or None.
-
-    NOTE: Ignores uncommitted checkpoints.
-
-    *Implementation hint:* Implement it to find the step folder under
-    `base_path` performing IO operations if needed. Use `build_metadata(...)` to
-    build the `MetadataT` using the found step path.
-
-    Args:
-      base_path: *root* Path under which Step folders are placed.
-      step: Step number.
-      *args: Overridable args meant to provide custom params.
-      **kwargs: Overridable kwargs meant to provide custom params.
-    """
-    ...
-
   def find_all(self, base_path: epath.PathLike) -> Iterator[MetadataT]:
     """Returns metadata of all steps.
 
     NOTE: Ignores uncommitted checkpoints.
 
     *Implementation hint:* Implement it to find all step folders under
-    `base_path` performing IO operations if needed. Use `build_metadata(...)`
-    and `build_step_metadatas(...)` to build all the `MetadataT` using the found
-    step paths.
+    `base_path` performing IO operations if needed. Use
+    `build_step_metadatas(...)` helper function to build all the `MetadataT`
+    using the found step paths.
 
     Args:
       base_path: *root* Path under which Step folders are placed.
     """
     ...
 
+  @abc.abstractmethod
   def find_step(self, base_path: epath.PathLike, step: int) -> MetadataT:
     """Returns the metadata for `step` or raises ValueError.
 
     NOTE: Ignores uncommitted checkpoints.
 
     *Implementation hint:* Implement it to find the step folder under
-    `base_path` performing IO operations if needed. Use `build_metadata(...)` to
-    build the `MetadataT` using the found step path.
+    `base_path` performing IO operations if needed.
 
     Args:
       base_path: *root* Path under which Step folders are placed.
       step: Step number.
     """
-    metadata = self.find_metadata(base_path, step)
-    if metadata is not None:
-      return metadata
-
-    # Raise detailed error message.
-    try:
-      name = self.build_name(step)
-    except Exception:  # pylint: disable=broad-exception-caught
-      name = f'*{step}'  # build_name may raise error.
-    raise ValueError(
-        f'No step path found with name={name}, NameFormat={self} for'
-        f' step={step} under {base_path}.'
-    )
+    ...
 
 
 def build_step_path(
@@ -342,7 +290,7 @@ class _StandardNameFormat(NameFormat):
     # [prefix]step
     return f'{step_prefix_with_underscore(self.step_prefix)}{step_str}'
 
-  def build_metadata(
+  def _build_metadata(
       self, step_path: epath.Path, step: Optional[int] = None
   ) -> Optional[Metadata]:
     """Returns metadata for given `step_path` if it is valid or None."""
@@ -374,20 +322,26 @@ class _StandardNameFormat(NameFormat):
 
     return Metadata(step=step_, path=step_path)
 
-  def find_metadata(
-      self, base_path: epath.PathLike, step: int
-  ) -> Optional[MetadataT]:
-    """Returns metadata for given `base_path` and `step` or None."""
-    step_path = build_step_path(base_path, self, step)
-    return self.build_metadata(step_path, step=step)
-
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps matching with name_format attributes."""
     # <step_prefix>_?<0 padding>?*
     step_paths = epath.Path(base_path).glob(
         f'{step_prefix_with_underscore(self.step_prefix)}*'
     )
-    return build_step_metadatas(step_paths, self.build_metadata)
+    return build_step_metadatas(step_paths, self._build_metadata)
+
+  def find_step(self, base_path: epath.PathLike, step: int) -> Metadata:
+    """Returns the metadata for `step` or raises ValueError."""
+    step_path = build_step_path(base_path, self, step)
+    metadata = self._build_metadata(step_path, step=step)
+    if metadata is not None:
+      return metadata
+
+    # Raise detailed error message.
+    raise ValueError(
+        f'No step path found with name={self.build_name(step)},'
+        f' NameFormat={self} for step={step} under {base_path}.'
+    )
 
 
 def standard_name_format(
@@ -442,21 +396,6 @@ class _CompositeNameFormat(NameFormat):
   def build_name(self, step: int) -> str:
     """Returns `step` name using `write_name_format`."""
     return self.write_name_format.build_name(step)
-
-  def build_metadata(
-      self, step_path: epath.Path, step: Optional[int] = None
-  ) -> Optional[Metadata]:
-    """Raises NotImplementedError."""
-    raise NotImplementedError()
-
-  def find_metadata(
-      self, base_path: epath.PathLike, step: int
-  ) -> Optional[Metadata]:
-    """Returns metadata for given `base_path` and `step` or None."""
-    try:
-      return self.find_step(base_path, step)
-    except ValueError:
-      return None
 
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps."""

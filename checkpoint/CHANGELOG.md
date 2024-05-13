@@ -28,9 +28,11 @@ present, they will be yielded even if `timeout_fn` already returns True.
 - Refactor Tensorstore-related codes in type_handlers.py.
 - Update `NameFormat.find_step` logic to exclude uncommitted checkpoints.
 - Abstract `jax.process_index` into `multihost.process_index`.
-- Factor out core PyTree checkpointing logic into a 
+- Factor out core PyTree checkpointing logic into a
 `PyTreeCheckpointHandlerImpl` class.
 - Use unique count instead of timestamp in tmp directory construction.
+- Tidy up `NameFormat` API: remove `build_metadata` and `find_metadata` methods
+  from the public API.
 
 ### Removed
 - `ocdbt_merge` option and unused `restore_with_serialized_types` option from
@@ -63,7 +65,7 @@ conserve memory.
 ## [0.5.8] - 2024-04-02
 
 ## Added
-- Add CheckpointManagerOptions.enable_background_delete to avoid blocking 
+- Add CheckpointManagerOptions.enable_background_delete to avoid blocking
   the manager.save() code path
 - `broadcast_one_to_some` function.
 - Allow running Orbax code on a subset of processes.
@@ -86,7 +88,7 @@ used.
 
 ### Added
 - Added Zarr3 support for numpy array
-- Added PyTreeSaveArgs.ocdbt_target_data_file_size to control the 
+- Added PyTreeSaveArgs.ocdbt_target_data_file_size to control the
   target_data_file_size when OCDBT is enabled
 - Expanded skeleton of `emergency.CheckpointManager`.
 
@@ -98,7 +100,7 @@ used.
 
 ### Added
 - Add new `step` module with step naming and query support.
-- Add new option `enable_background_delete` to CheckpointManager so that 
+- Add new option `enable_background_delete` to CheckpointManager so that
  old checkpoints can be deleted in the background.
 
 ### Changed
@@ -171,9 +173,9 @@ tensorstore change. This resolves a slowdown in save speed recently observed.
 - Expose `AsyncOptions` for `CheckpointManager` users.
 - Introduce item_handlers to CheckpointManager ctor to allow configurable
  Handler setup.
-- Add JaxRandomKeyCheckpointHandler to store Jax random key generated from 
+- Add JaxRandomKeyCheckpointHandler to store Jax random key generated from
 jax.random.key() or jax.random.PRNGKey()
-- Add NumpyRandomKeyCheckpointHandler to store Numpy random state from 
+- Add NumpyRandomKeyCheckpointHandler to store Numpy random state from
 numpy.random.get_state()
 
 ## [0.5.0] - 2024-01-16
@@ -193,7 +195,7 @@ class is introduced for backwards compatibility, and will eventually be removed.
 ## [0.4.8] - 2023-12-14
 
 ### Added
-- New parameter `chunk_byte_size` in `SaveArgs`.  A convenient way to choose 
+- New parameter `chunk_byte_size` in `SaveArgs`.  A convenient way to choose
 the write and read chunk shapes using Zarr3.
 
 ### Fixed
