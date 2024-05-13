@@ -312,7 +312,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         directory, primary_host=self._primary_host
     )
 
-    logging.info('Async saving item to %s.', directory)
+    logging.info('Async saving checkpoint to %s.', directory)
     # Run copy ops.
     # Try to save using new CheckpointArgs API if supported by the handler.
     ckpt_args = checkpointer.construct_checkpoint_args(

@@ -134,7 +134,7 @@ class Checkpointer(
     """
     checkpoint_start_time = time.time()
     directory = epath.Path(directory)
-    logging.info('Saving item to %s.', directory)
+    logging.info('Saving checkpoint to %s.', directory)
     if directory.exists():
       if force:
         if utils.is_primary_host(self._primary_host):

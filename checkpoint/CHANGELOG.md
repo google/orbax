@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Introduce `should_save_fn` in `OrbaxCheckpointManagerOptions`.
+
 ## [0.5.10] - 2024-05-10
 
 ### Added

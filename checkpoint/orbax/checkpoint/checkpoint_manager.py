@@ -223,8 +223,17 @@ class CheckpointManagerOptions:
     make sure all old steps are deleted before exit.
   read_only: If True, then checkpoints save and delete are skipped. However,
     checkpoints restore works as usual.
-  enable_async_checkpointing: If True, enables async checkpointing.
-  async_options: Used to configure properties of async behavior. See above.
+  enable_async_checkpointing:
+    If True, enables async checkpointing.
+  async_options:
+    Used to configure properties of async behavior. See above.
+  multiprocessing_options: MultiprocessingOptions instance to configure
+    multiprocessing behavior.
+  should_save_fn:
+    Predicate callable to check if given step can be saved. This callable
+    accepts step number and optional latest step number as param and returns
+    bool. If present then `save_interval_steps` and `save_on_steps` options are
+    ignored.
   """
 
   save_interval_steps: int = 1
@@ -249,6 +258,7 @@ class CheckpointManagerOptions:
   multiprocessing_options: MultiprocessingOptions = dataclasses.field(
       default_factory=MultiprocessingOptions
   )
+  should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -303,6 +313,12 @@ class CheckpointManagerOptions:
           'CheckpointManagerOptions.read_only=True, setting'
           ' todelete_subdir=None.'
       )
+    if self.read_only and self.should_save_fn is not None:
+      self.should_save_fn = None
+      logging.warning(
+          'CheckpointManagerOptions.read_only=True, setting'
+          ' should_save_fn=None.'
+      )
     self.save_on_steps = frozenset(self.save_on_steps or ())
 
 
@@ -321,7 +337,10 @@ class CheckpointInfo:
       self.step = int(self.step)
 
   def __str__(self) -> str:
-    return f'Checkpoint[step={self.step} | time={self.time}]'
+    return (
+        f'Checkpoint[step={self.step} | time={self.time} |'
+        f' is_locked={self.is_locked}]'
+    )
 
   def __eq__(self, other: 'CheckpointInfo') -> bool:
     return self.step == other.step and self.time == other.time
@@ -542,7 +561,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
     )
 
-    self._checkpoints = self._create_checkpoints()
+    self._checkpoints = self._load_checkpoint_infos()
 
     self._metadata_checkpointer = Checkpointer(
         JsonCheckpointHandler(
@@ -571,9 +590,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
 
     logging.info(
-        'jax.process_index=%s, primary_host=%s. CheckpointManager created: %s',
+        'CheckpointManager created, jax.process_index=%s, primary_host=%s,'
+        ' CheckpointManagerOptions=%s: %s',
         multihost.process_index(),
         self._multiprocessing_options.primary_host,
+        self._options,
         self,
     )
 
@@ -789,7 +810,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Resets internal cache of checkpoint steps, in case the directory managed
     by this object has been updated externally.
     """
-    self._checkpoints = self._create_checkpoints()
+    self._checkpoints = self._load_checkpoint_infos()
 
   def reached_preemption(self, step: int) -> bool:
     """See superclass documentation."""
@@ -809,12 +830,21 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # save interval. This condition accounts for the possibility of saving
     # on preemption, in which case we want to maintain the same save period as
     # if preemption had not happened.
+    if last_checkpoint_step is not None and last_checkpoint_step >= step:
+      return False
+    # If present then prefer should_save_fn over other 'save_*' options.
+    if self._options.should_save_fn is not None:
+      logging.info(
+          'CheckpointManagerOptions.should_save_fn is available, following save'
+          ' options will be ignored: save_interval_steps=%s and'
+          ' save_on_steps=%s',
+          self._options.save_interval_steps,
+          self._options.save_on_steps,
+      )
+      return self._options.should_save_fn(step, last_checkpoint_step)
     return last_checkpoint_step is None or (
-        last_checkpoint_step < step
-        and (
-            step % self._options.save_interval_steps == 0
-            or step in self._options.save_on_steps
-        )
+        step % self._options.save_interval_steps == 0
+        or step in self._options.save_on_steps
     )
 
   def _get_save_directory(
@@ -996,6 +1026,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           'CheckpointManager:delete_unfinalized_step_gcs',
           processes=self._multiprocessing_options.active_processes,
       )
+    logging.info('Saving checkpoint at step %d', step)
     step_stats.checkpoint_start_time = time.time()
     self._checkpointer.save(save_directory, args=args)
     step_stats.checkpoint_end_time = time.time()
@@ -1138,8 +1169,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """Returns true if we should track the best checkpoints by given metric."""
     return self._options.best_fn is not None
 
-  def _create_checkpoints(self) -> List[CheckpointInfo]:
-    """Create a list of CheckpointInfo for existing checkpoints.
+  def _load_checkpoint_infos(self) -> List[CheckpointInfo]:
+    """Loads a list of CheckpointInfo for existing checkpoints.
 
     If none are present, returns empty list.
 
@@ -1269,7 +1300,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
 
     # Exclude the latest checkpoint, since it is not finalized.
-
     are_locked = utils.are_locked(
         self.directory,
         steps=tuple([info.step for info in self._checkpoints[:-1]]),
@@ -1339,12 +1369,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           )
           kept_checkpoints.add(info)
           continue
-
       if (
           self._options.keep_period is not None
           and info.step % self._options.keep_period == 0
       ):
-        logging.info('Preserving %s: (Reason: on keep_period).', info)
+        logging.info(
+            'Preserving %s: (Reason: on keep_period=%s).',
+            info,
+            self._options.keep_period,
+        )
         kept_checkpoints.add(info)
         continue
 
