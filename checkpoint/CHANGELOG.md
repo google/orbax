@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Introduce `should_save_fn` in `OrbaxCheckpointManagerOptions`.
 
+### Fixed
+- Fix empty metadata file error: Expecting value: line 1 column 1 (char 0)
+
+
 ## [0.5.10] - 2024-05-10
 
 ### Added

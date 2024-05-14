@@ -144,9 +144,21 @@ class _CheckpointMetadataStore(CheckpointMetadataStore):
           'CheckpointMetadata file does not exist: %s', metadata_file
       )
       return None
-    data = json.loads(metadata_file.read_text())
-    result = CheckpointMetadata.from_dict(data)
-    logging.info('Read CheckpointMetadata=%s from %s', result, checkpoint_path)
+    raw_data = metadata_file.read_text()
+    try:
+      json_data = json.loads(raw_data)
+    except json.decoder.JSONDecodeError as e:
+      # TODO(b/340287956): Found empty metadata files, how is it possible.
+      logging.error(
+          'Failed to json parse CheckpointMetadata file: %s, file content: %s,'
+          ' error: %s',
+          metadata_file,
+          raw_data,
+          e,
+      )
+      return None
+    result = CheckpointMetadata.from_dict(json_data)
+    logging.debug('Read CheckpointMetadata=%s from %s', result, checkpoint_path)
     return result
 
   def update(

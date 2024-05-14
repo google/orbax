@@ -70,6 +70,14 @@ class CheckpointMetadataStoreTest(absltest.TestCase):
         self.write_enabled_store.read(checkpoint_path=self.directory), metadata
     )
 
+  def test_read_corrupt_json_data(self):
+    metadata_file = checkpoint._metadata_file_path(self.directory)
+    metadata_file.touch()
+
+    self.assertIsNone(
+        self.write_enabled_store.read(checkpoint_path=self.directory)
+    )
+
   def test_update_without_prior_data(self):
     self.write_enabled_store.update(
         checkpoint_path=self.directory,
