@@ -82,7 +82,7 @@ class SingleHostTest(parameterized.TestCase):
     write_chunk_shape = (2,)
     read_chunk_shape = (1,)
 
-    save_args = jax.tree_map(
+    save_args = jax.tree.map(
         lambda x: type_handlers.SaveArgs(
             write_chunk_shape=write_chunk_shape,
             read_chunk_shape=read_chunk_shape,
@@ -142,7 +142,7 @@ class SingleHostTest(parameterized.TestCase):
     x = jax.random.normal(key, (10,))
     pytree = {'x': x}
 
-    save_args = jax.tree_map(
+    save_args = jax.tree.map(
         lambda x: type_handlers.SaveArgs(
             write_chunk_shape=write_chunk_shape,
             read_chunk_shape=read_chunk_shape,
@@ -220,7 +220,7 @@ class SingleHostTest(parameterized.TestCase):
     x = jax.random.normal(key, (10, 100, 200), dtype=jnp.dtype('float32'))
     pytree = {'x': x}
 
-    save_args = jax.tree_map(
+    save_args = jax.tree.map(
         lambda x: type_handlers.SaveArgs(
             chunk_byte_size=jnp.dtype('float32').itemsize * 5**3,
         ),

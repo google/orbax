@@ -318,7 +318,7 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     )
     dummy_inputs = {'a': {'b': jnp.ones(3, jnp.float32)}}
 
-    input_signature = jax.tree_map(
+    input_signature = jax.tree.map(
         lambda x: tf.TensorSpec(dtype=x.dtype, shape=x.shape), dummy_inputs
     )
     em = ExportManager(
