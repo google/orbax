@@ -90,6 +90,12 @@ def _descriptor_file_exists(descriptor_item_path: epath.Path) -> bool:
   )
 
 
+class StepAlreadyExistsError(ValueError):
+  """Raised when a step is already present for a save request."""
+
+  pass
+
+
 class _FinalizeThread(threading.Thread):
   """Thread wrapper that raises an exception if encountered."""
 
@@ -960,7 +966,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     step_stats.wait_for_prev_end_time = time.time()
 
     if step in self.all_steps():
-      raise ValueError(f'Checkpoint for step {step} already exists.')
+      raise StepAlreadyExistsError(
+          f'Checkpoint for step {step} already exists.'
+      )
 
     if items is None:
       items = {}
