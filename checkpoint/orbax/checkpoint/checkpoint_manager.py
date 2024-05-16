@@ -134,6 +134,7 @@ class AsyncOptions:
 
   timeout_secs: int = 300
   barrier_sync_fn: Optional[async_checkpointer.BarrierSyncFn] = None
+  post_finalization_callback: Optional[Callable[[], None]] = None
 
 
 @dataclasses.dataclass
@@ -618,6 +619,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             primary_host=self._multiprocessing_options.primary_host,
             barrier_sync_fn=options.async_options.barrier_sync_fn,
             active_processes=self._multiprocessing_options.active_processes,
+            post_finalization_callback=options.async_options.post_finalization_callback,
         )
       else:
         return async_checkpointer.AsyncCheckpointer(

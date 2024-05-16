@@ -252,6 +252,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       # is provided.
       active_processes: Optional[Set[int]] = None,
       barrier_sync_fn: Optional[BarrierSyncFn] = None,
+      post_finalization_callback: Optional[Callable[[], None]] = None
   ):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
     if not checkpoint_args.has_registered_args(handler):
@@ -266,6 +267,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     self._handler = handler
     self._primary_host = primary_host
     self._active_processes = active_processes
+    self._post_finalization_callback = post_finalization_callback
 
     # TODO(dicentra): consider folding into AsyncCheckpointer directly.
     self._async_manager = _AsyncManager(
@@ -325,6 +327,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     # Directory is the final directory.
     def _callback() -> None:
       self._handler.finalize(tmpdir)
+      if self._post_finalization_callback is not None:
+        self._post_finalization_callback()
       _on_commit_callback(tmpdir, directory, checkpoint_start_time)
 
     self._async_manager.start_async_commit(
