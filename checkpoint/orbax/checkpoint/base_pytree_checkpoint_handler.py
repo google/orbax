@@ -376,7 +376,7 @@ class BasePyTreeCheckpointHandler(
           '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
       )
 
-  def _get_param_names(self, item: PyTree) -> PyTree:
+  def get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
     return get_param_names(item)
 
@@ -420,7 +420,7 @@ class BasePyTreeCheckpointHandler(
     """
     if not item:
       raise ValueError('Found empty item')
-    names = self._get_param_names(item)
+    names = self.get_param_names(item)
     all_params_aggregated = True
 
     def _param_info(value, name, args):
