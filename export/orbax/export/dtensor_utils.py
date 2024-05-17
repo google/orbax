@@ -169,7 +169,7 @@ def jax_array_to_dtensor(
   else:
     dspec = list()
     for i, mesh_axis_name in enumerate(pspec):
-      if mesh_axis_name is not None:
+      if mesh_axis_name:
         if not isinstance(mesh_axis_name, str):
           if not isinstance(mesh_axis_name, tuple):
             raise TypeError(
