@@ -16,20 +16,24 @@
 
 Implementation of CheckpointHandler interface.
 """
+
+import asyncio
+from concurrent import futures
 import dataclasses
 import json
-from typing import Any, Mapping, Optional
+from typing import Any, List, Mapping, Optional
 
 from etils import epath
+from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import checkpoint_handler
+from orbax.checkpoint import future
 from orbax.checkpoint import utils
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
 
 
-class JsonCheckpointHandler(checkpoint_handler.CheckpointHandler):
+class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Saves nested dictionary using json."""
 
   def __init__(
@@ -46,19 +50,29 @@ class JsonCheckpointHandler(checkpoint_handler.CheckpointHandler):
     """
     self._filename = filename or 'metadata'
     self._primary_host = primary_host
+    self._executor = futures.ThreadPoolExecutor(max_workers=1)
 
-  def save(
+  def _save_fn(self, x, directory):
+    if utils.is_primary_host(self._primary_host):
+      path = directory / self._filename
+      path.write_text(json.dumps(x))
+    return 0
+
+  async def async_save(
       self,
       directory: epath.Path,
       item: Optional[Mapping[str, Any]] = None,
       args: Optional['JsonSaveArgs'] = None,
-  ):
+  ) -> Optional[List[future.Future]]:
     """Saves the given item.
 
     Args:
       directory: save location directory.
       item: Deprecated, use `args` instead.
       args: JsonSaveArgs (see below).
+
+    Returns:
+      A list of commit futures.
     """
     if isinstance(item, CheckpointArgs):
       raise ValueError(
@@ -67,9 +81,23 @@ class JsonCheckpointHandler(checkpoint_handler.CheckpointHandler):
       )
     if args is not None:
       item = args.item
-    if utils.is_primary_host(self._primary_host):
-      path = directory / self._filename
-      path.write_text(json.dumps(item))
+    return [
+        self._executor.submit(self._save_fn, item, directory)
+    ]
+
+  def save(
+      self,
+      directory: epath.Path,
+      item: Optional[Mapping[str, Any]] = None,
+      args: Optional['JsonSaveArgs'] = None,
+  ):
+    async def async_save(directory, item, args):
+      commit_futures = await self.async_save(directory, item, args)
+      if commit_futures:
+        for f in commit_futures:
+          f.result()
+
+    asyncio.run(async_save(directory, item, args))
 
   def restore(
       self,
@@ -93,6 +121,9 @@ class JsonCheckpointHandler(checkpoint_handler.CheckpointHandler):
     del args
     path = directory / self._filename
     return json.loads(path.read_text())
+
+  def close(self):
+    self._executor.shutdown()
 
 
 @register_with_handler(JsonCheckpointHandler, for_save=True)

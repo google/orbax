@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Introduce `should_save_fn` in `OrbaxCheckpointManagerOptions`.
 - Introduce `StepAlreadyExistsError` to be raised on save with existing step.
 
+### Changed
+- Modify `JsonCheckpointHandler` to Async.
+
 ### Fixed
 - Fix empty metadata file error: Expecting value: line 1 column 1 (char 0)
 
