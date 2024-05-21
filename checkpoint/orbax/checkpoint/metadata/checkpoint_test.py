@@ -14,6 +14,7 @@
 
 """Tests for orbax.checkpoint.metadata.checkpoint.py."""
 
+import pickle
 import time
 
 from absl.testing import absltest
@@ -132,6 +133,12 @@ class CheckpointMetadataStoreTest(absltest.TestCase):
     self.assertIsNone(
         self.write_enabled_store.read(checkpoint_path=self.directory)
     )
+
+  def test_pickle(self):
+    with self.assertRaisesRegex(TypeError, 'cannot pickle'):
+      _ = pickle.dumps(self.write_enabled_store)
+    with self.assertRaisesRegex(TypeError, 'cannot pickle'):
+      _ = pickle.dumps(self.read_only_store)
 
 
 if __name__ == '__main__':
