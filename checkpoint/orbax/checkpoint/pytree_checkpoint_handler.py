@@ -416,7 +416,7 @@ class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
       aggregate_filename = _CHECKPOINT_FILE
     self._aggregate_filename = aggregate_filename
     self._concurrent_gb = concurrent_gb
-    self._use_ocdbt = use_ocdbt
+    self._use_ocdbt = False
     self._use_zarr3 = use_zarr3
     self._primary_host = primary_host
     self._type_handler_registry = type_handler_registry

@@ -104,7 +104,7 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       directory: epath.Path,
       item: Optional[Mapping[str, Any]] = None,
       args: Optional['JsonRestoreArgs'] = None,
-  ) -> bytes:
+  ) -> Mapping[str, Any]:
     """Restores json mapping from directory.
 
     `item` is unused.
@@ -115,11 +115,16 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       args: unused
 
     Returns:
-      Binary data read from `directory`.
+      JSON dict.
+
+    Raises:
+      FileNotFoundError: if the file does not exist.
     """
     del item
     del args
     path = directory / self._filename
+    if not path.exists():
+      raise FileNotFoundError(f'File {path} not found.')
     return json.loads(path.read_text())
 
   def close(self):
