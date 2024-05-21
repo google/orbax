@@ -135,10 +135,11 @@ class CheckpointMetadataStoreTest(absltest.TestCase):
     )
 
   def test_pickle(self):
-    with self.assertRaisesRegex(TypeError, 'cannot pickle'):
-      _ = pickle.dumps(self.write_enabled_store)
-    with self.assertRaisesRegex(TypeError, 'cannot pickle'):
-      _ = pickle.dumps(self.read_only_store)
+    pickled = pickle.dumps(self.write_enabled_store)
+    pickle.loads(pickled)
+
+    pickled = pickle.dumps(self.read_only_store)
+    pickle.loads(pickled)
 
 
 if __name__ == '__main__':
