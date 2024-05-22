@@ -17,6 +17,7 @@
 from __future__ import annotations
 import dataclasses
 import json
+import threading
 from typing import Any, Optional, Protocol
 from absl import logging
 from etils import epath
@@ -97,12 +98,11 @@ class CheckpointMetadataStore(Protocol):
 class _CheckpointMetadataStore(CheckpointMetadataStore):
   """Internal impl to manage storage of `CheckpointMetadata`.
 
-  Write operations are NOT thread safe.
-
-  NOTE: Write operations are not guaranteed to be safe across processes. But it
-  should be okay as writes are expected to be called from just one jax process.
-
-  Read operations are inherently thread safe and *process safe* too.
+  Write operations are thread safe: within a process multiple threads write
+  without corrupting data. NOTE: Write operations are not guaranteed to be safe
+  across processes. But it should be okay as writes are expected to be called
+  from just one jax process. Read operations are inherently thread safe and
+  *process safe* too.
 
   Attributes:
     enable_write: if True then write operations are allowed, otherwise write
@@ -110,6 +110,8 @@ class _CheckpointMetadataStore(CheckpointMetadataStore):
   """
 
   enable_write: bool
+  # TODO(niketkb): Support locking per checkpoint path.
+  _write_lock: threading.RLock = threading.RLock()
 
   def write(
       self,
@@ -118,17 +120,18 @@ class _CheckpointMetadataStore(CheckpointMetadataStore):
   ) -> None:
     if not self.enable_write:
       return
-    checkpoint_path = epath.Path(checkpoint_path)
-    if not checkpoint_path.exists():
-      raise ValueError(f'Checkpoint path does not exist: {checkpoint_path}')
-    _metadata_file_path(checkpoint_path).write_text(
-        json.dumps(dataclasses.asdict(checkpoint_metadata))
-    )
-    logging.info(
-        'Wrote CheckpointMetadata=%s to %s',
-        checkpoint_metadata,
-        checkpoint_path,
-    )
+    with self._write_lock:
+      checkpoint_path = epath.Path(checkpoint_path)
+      if not checkpoint_path.exists():
+        raise ValueError(f'Checkpoint path does not exist: {checkpoint_path}')
+      _metadata_file_path(checkpoint_path).write_text(
+          json.dumps(dataclasses.asdict(checkpoint_metadata))
+      )
+      logging.info(
+          'Wrote CheckpointMetadata=%s to %s',
+          checkpoint_metadata,
+          checkpoint_path,
+      )
 
   def read(
       self, checkpoint_path: epath.PathLike
@@ -163,12 +166,13 @@ class _CheckpointMetadataStore(CheckpointMetadataStore):
   ) -> None:
     if not self.enable_write:
       return
-    metadata = self.read(checkpoint_path) or CheckpointMetadata()
-    updated = dataclasses.replace(metadata, **kwargs)
-    self.write(checkpoint_path, updated)
-    logging.info(
-        'Updated CheckpointMetadata=%s to %s', updated, checkpoint_path
-    )
+    with self._write_lock:
+      metadata = self.read(checkpoint_path) or CheckpointMetadata()
+      updated = dataclasses.replace(metadata, **kwargs)
+      self.write(checkpoint_path, updated)
+      logging.info(
+          'Updated CheckpointMetadata=%s to %s', updated, checkpoint_path
+      )
 
 
 _CHECKPOINT_METADATA_STORE_FOR_WRITES = _CheckpointMetadataStore(
@@ -182,12 +186,11 @@ _CHECKPOINT_METADATA_STORE_FOR_READS = _CheckpointMetadataStore(
 def checkpoint_metadata_store(*, enable_write: bool) -> CheckpointMetadataStore:
   """Returns `CheckpointMetadataStore` instance based on `enable_write` value.
 
-  Write operations are NOT thread safe.
-
-  NOTE: Write operations are not guaranteed to be safe across processes. But it
-  should be okay as writes are expected to be called from just one jax process.
-
-  Read operations are inherently thread safe and *process safe* too.
+  Write operations are thread safe: within a process multiple threads write
+  without corrupting data. NOTE: Write operations are not guaranteed to be safe
+  across processes. But it should be okay as writes are expected to be called
+  from just one jax process. Read operations are inherently thread safe and
+  *process safe* too.
 
   Args:
     enable_write: if True then write operations are allowed, otherwise write

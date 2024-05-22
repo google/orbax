@@ -16,7 +16,6 @@
 
 import pickle
 import time
-
 from absl.testing import absltest
 from etils import epath
 from orbax.checkpoint.metadata import checkpoint
@@ -53,7 +52,6 @@ class CheckpointMetadataStoreTest(absltest.TestCase):
     self.write_enabled_store.write(
         checkpoint_path=self.directory, checkpoint_metadata=metadata
     )
-
     self.assertEqual(
         self.write_enabled_store.read(checkpoint_path=self.directory), metadata
     )
@@ -66,7 +64,6 @@ class CheckpointMetadataStoreTest(absltest.TestCase):
     self.write_enabled_store.write(
         checkpoint_path=self.directory, checkpoint_metadata=metadata
     )
-
     self.assertEqual(
         self.write_enabled_store.read(checkpoint_path=self.directory), metadata
     )
@@ -74,7 +71,6 @@ class CheckpointMetadataStoreTest(absltest.TestCase):
   def test_read_corrupt_json_data(self):
     metadata_file = checkpoint._metadata_file_path(self.directory)
     metadata_file.touch()
-
     self.assertIsNone(
         self.write_enabled_store.read(checkpoint_path=self.directory)
     )
@@ -85,7 +81,6 @@ class CheckpointMetadataStoreTest(absltest.TestCase):
         init_timestamp_nsecs=1,
         commit_timestamp_nsecs=2,
     )
-
     self.assertEqual(
         self.write_enabled_store.read(checkpoint_path=self.directory),
         checkpoint.CheckpointMetadata(
@@ -99,12 +94,10 @@ class CheckpointMetadataStoreTest(absltest.TestCase):
     self.write_enabled_store.write(
         checkpoint_path=self.directory, checkpoint_metadata=metadata
     )
-
     self.write_enabled_store.update(
         checkpoint_path=self.directory,
         commit_timestamp_nsecs=2,
     )
-
     self.assertEqual(
         self.write_enabled_store.read(checkpoint_path=self.directory),
         checkpoint.CheckpointMetadata(
@@ -128,18 +121,16 @@ class CheckpointMetadataStoreTest(absltest.TestCase):
         checkpoint_path=self.directory,
         checkpoint_metadata=checkpoint.CheckpointMetadata(),
     )
-
     self.assertIsNone(self.read_only_store.read(checkpoint_path=self.directory))
     self.assertIsNone(
         self.write_enabled_store.read(checkpoint_path=self.directory)
     )
 
   def test_pickle(self):
-    pickled = pickle.dumps(self.write_enabled_store)
-    pickle.loads(pickled)
-
-    pickled = pickle.dumps(self.read_only_store)
-    pickle.loads(pickled)
+    with self.assertRaisesRegex(TypeError, 'cannot pickle'):
+      _ = pickle.dumps(self.write_enabled_store)
+    with self.assertRaisesRegex(TypeError, 'cannot pickle'):
+      _ = pickle.dumps(self.read_only_store)
 
 
 if __name__ == '__main__':
