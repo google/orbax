@@ -43,10 +43,10 @@ class StandardCheckpointHandler(
 
   def save(self, directory, *args, **kwargs):
     super().save(directory, *args, **kwargs)
-    test_utils.sync_global_processes('StandardCheckpointHandler:save')
+    utils.sync_global_processes('StandardCheckpointHandler:save')
     if multihost.process_index() == 0:
       self.finalize(directory)
-    test_utils.sync_global_processes('StandardCheckpointHandler:finalize')
+    utils.sync_global_processes('StandardCheckpointHandler:finalize')
 
 
 # Not in common util because we need to eliminate OSS dependency on flax.
@@ -93,14 +93,10 @@ class StandardCheckpointHandlerTestBase:
       )
       test_utils.set_tensorstore_driver_for_test()
 
-      test_utils.sync_global_processes(
-          'StandardCheckpointHandler:setup_complete'
-      )
+      utils.sync_global_processes('StandardCheckpointHandler:setup_complete')
 
     def tearDown(self):
-      test_utils.sync_global_processes(
-          'StandardCheckpointHandler:tests_complete'
-      )
+      utils.sync_global_processes('StandardCheckpointHandler:tests_complete')
       self.handler.close()
       super().tearDown()
 

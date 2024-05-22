@@ -21,8 +21,6 @@ This class is experimental; do not use without specific approval.
 import collections
 import dataclasses
 import functools
-import itertools
-import operator
 import time
 from typing import Any, Iterable, Optional, Sequence, Set, Union
 
@@ -47,8 +45,6 @@ PyTree = checkpoint_manager.PyTree
 CheckpointHandler = checkpoint_manager.CheckpointHandler
 P = jax.sharding.PartitionSpec
 
-_module_unique_count = itertools.count()
-
 
 @dataclasses.dataclass
 class LocalCheckpointOptions:
@@ -58,7 +54,7 @@ class LocalCheckpointOptions:
     The interval at which checkpoints should be saved to local storage.
     Ensures checkpoints will only be saved every m steps. Defaults to 10.
   max_to_keep:
-    Specifies the maximum number of local checkpoints to
+    If provided, specifies the maximum number of local checkpoints to
     keep. Older checkpoints are removed. When set, no more than `max_to_keep`
     checkpoints will be present at any one time. This option has a slightly
     different meaning than it normally does in Orbax: this should be treated
@@ -67,7 +63,7 @@ class LocalCheckpointOptions:
   """
 
   save_interval_steps: int = 10
-  max_to_keep: int = 2
+  max_to_keep: Optional[int] = 2
   read_only: bool = False
 
 
@@ -103,13 +99,12 @@ class CheckpointManagerOptions:
   step_name_format:
     NameFormat to build or find steps under input root directory. If provided,
     `step_prefix`, `step_format_fixed_length` are ignored.
+  create:
+    If True, creates the top-level directory if it does not already exist.
   cleanup_tmp_directories:
     If True, cleans up any existing temporary directories
     on CheckpointManager creation.
-  enable_async_checkpointing:
-    Enable async saving.
-  async_options:
-    Used to configure properties of async behavior. See above.
+  async_options: Used to configure properties of async behavior. See above.
   """
 
   local: LocalCheckpointOptions = dataclasses.field(
@@ -120,8 +115,8 @@ class CheckpointManagerOptions:
   )
 
   step_name_format: Optional[step_lib.NameFormat] = None
+  create: bool = True
   cleanup_tmp_directories: bool = False
-  enable_async_checkpointing: bool = True
   async_options: Optional[checkpoint_manager.AsyncOptions] = None
 
 
@@ -203,15 +198,15 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         save_interval_steps=options.local.save_interval_steps,
         max_to_keep=options.local.max_to_keep,
         step_name_format=options.step_name_format,
-        create=False,
+        create=options.create,
         cleanup_tmp_directories=options.cleanup_tmp_directories,
         async_options=options.async_options,
         multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
             primary_host=None,
             active_processes=_unique_processes_from_devices(device_array),
-            barrier_sync_key_prefix='local',
         ),
-        enable_async_checkpointing=options.enable_async_checkpointing,
+        # TODO: b/331426277 - remove async false after barrier is done.
+        enable_async_checkpointing=False,
         read_only=options.local.read_only,
     )
     self._options = local_options
@@ -223,7 +218,6 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         metadata=metadata,
         item_handlers=state_handler,
     )
-    self._max_to_keep = options.local.max_to_keep
 
   def _global_list_union(
       self, steps: Sequence[int], devices: np.ndarray
@@ -246,31 +240,6 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
 
     return np.asarray(result_arr.addressable_data(0))
 
-  def _global_list_union_interslice(self, steps: Sequence[int]) -> Set[int]:
-    barrier_processes = self._options.multiprocessing_options.active_processes
-    barrier_processes = [
-        multihost.utils._runtime_to_distributed_process_id(runtime_id)  # pylint: disable=protected-access
-        for runtime_id in barrier_processes
-    ]
-
-    client = multihost.utils._get_jax_distributed_client()  # pylint: disable=protected-access
-    dir_key = f'steps/{next(_module_unique_count)}/'
-    dir_key = multihost.utils._unique_barrier_key(dir_key) + '/'  # pylint: disable=protected-access
-    key = dir_key + str(multihost.process_index())
-    client.key_value_set(key, ','.join([str(s) for s in steps]))
-
-    barrier_key = 'steps_broadcast_' + str(next(_module_unique_count))
-    barrier_key = multihost.utils._unique_barrier_key(barrier_key)  # pylint: disable=protected-access
-    client.wait_at_barrier(
-        barrier_key, process_ids=barrier_processes, timeout_in_ms=10000
-    )
-
-    per_slice_steps = client.key_value_dir_get(dir_key)
-    per_slice_steps = [
-        set([int(s) for s in v.split(',')]) for _, v in per_slice_steps if v
-    ]
-    return functools.reduce(operator.ior, per_slice_steps, set([]))
-
   def _common_steps_global(self, steps: Sequence[int]) -> np.ndarray:
     """Returns common steps across all slices.
 
@@ -282,8 +251,9 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     Args:
       steps: a list of steps known to all hosts on a slice
     """
-    unioned_steps = self._global_list_union_interslice(steps)
-    return np.asarray(list(unioned_steps))
+    unioned_steps = self._global_list_union(steps, self._device_array)
+
+    return np.asarray(list(set(unioned_steps)))
 
   def common_steps_within_slice(self, steps: Sequence[int]) -> np.ndarray:
     """Returns common steps within one slices.
@@ -325,13 +295,13 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     # List of steps present in individual host storage.
     local_steps = list(super().all_steps(read))
 
-    if len(local_steps) > self._max_to_keep:
+    if len(local_steps) > self._options.max_to_keep:
       raise AssertionError(
           f' local_step on host {multihost.process_index()} exceeded'
-          f' `max_to_keep` {self._max_to_keep}'
+          f' `max_to_keep` {self._options.max_to_keep}'
       )
 
-    return _pad_steps(local_steps, self._max_to_keep)
+    return _pad_steps(local_steps, self._options.max_to_keep)
 
   def all_steps(self, read: bool = False) -> Sequence[int]:
     """Returns all steps tracked by the manager.
@@ -429,25 +399,22 @@ class CheckpointManager(
     self._persistent_max_to_keep = self._options.persistent.max_to_keep
     self._local_max_to_keep = self._options.local.max_to_keep
 
-    persistent_multiprocessing_options = (
-        checkpoint_manager.MultiprocessingOptions(
-            primary_host=self._persistent_primary_host,
-            active_processes=_unique_processes_from_devices(
-                self._global_mesh.devices[0]
-            ),
-            barrier_sync_key_prefix='persistent',
-        )
-    )
     if self._in_primary_slice:
       persistent_options = checkpoint_manager.CheckpointManagerOptions(
           save_interval_steps=self._options.persistent.save_interval_steps,
           max_to_keep=self._persistent_max_to_keep,
           step_name_format=self._options.step_name_format,
-          create=False,
+          create=self._options.create,
           cleanup_tmp_directories=self._options.cleanup_tmp_directories,
           async_options=self._options.async_options,
-          multiprocessing_options=persistent_multiprocessing_options,
-          enable_async_checkpointing=options.enable_async_checkpointing,
+          multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
+              primary_host=self._persistent_primary_host,
+              active_processes=_unique_processes_from_devices(
+                  self._global_mesh.devices[0]
+              ),
+          ),
+          # TODO: b/331426277 - remove async false after barrier is done.
+          enable_async_checkpointing=False,
       )
       self._persistent_checkpoint_manager = (
           checkpoint_manager.CheckpointManager(
@@ -515,7 +482,7 @@ class CheckpointManager(
     persistent_steps = [-1] * self._persistent_max_to_keep
     if self._in_primary_slice:
       persistent_steps = list(
-          self._persistent_checkpoint_manager.all_steps(read=read)
+          self._persistent_checkpoint_manager.all_steps(read)
       )
       if len(persistent_steps) > self._persistent_max_to_keep:
         # TODO: b/330585086 - for now we assume that
@@ -754,9 +721,7 @@ class CheckpointManager(
       with _LocalCheckpointManager(
           self._local_directory,
           self._local_state_handler,
-          device_array=np.asarray(
-              [self._global_mesh.devices[restoring_slice_id]]
-          ),
+          device_array=self._global_mesh.devices[restoring_slice_id],
           options=options,
           metadata=self._metadata,
       ) as lcm:
@@ -819,10 +784,9 @@ class CheckpointManager(
         create=False,
         cleanup_tmp_directories=False,
         async_options=self._options.async_options,
+        # TODO: b/331426277 - remove async false after barrier is done.
+        enable_async_checkpointing=False,
         read_only=True,
-        multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
-            barrier_sync_key_prefix='persistent_global',
-        ),
     )
     with checkpoint_manager.CheckpointManager(
         self._persistent_directory,

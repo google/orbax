@@ -554,7 +554,6 @@ def create_tmp_directory(
     *,
     primary_host: Optional[int] = 0,
     active_processes: Optional[Set[int]] = None,
-    barrier_sync_key_prefix: Optional[str] = None,
 ) -> epath.Path:
   """Creates a non-deterministic tmp directory for saving for given `final_dir`.
 
@@ -564,7 +563,6 @@ def create_tmp_directory(
     final_dir: The eventual directory path where checkpoint will be committed.
     primary_host: primary host id, default=0.
     active_processes: Ids of active processes. default=None
-    barrier_sync_key_prefix: A prefix to use for the barrier sync key.
 
   Returns:
     The tmp directory.
@@ -584,13 +582,7 @@ def create_tmp_directory(
   # Sync before existence is checked and directory is created because there are
   # additional existence checks happening in the callers of this function.
   multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'create_tmp_directory:pre',
-          prefix=barrier_sync_key_prefix,
-          suffix=final_dir.name,
-      ),
-      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
-      processes=active_processes,
+      'create_tmp_directory:pre', processes=active_processes
   )
 
   if multihost.is_primary_host(primary_host):
@@ -617,13 +609,7 @@ def create_tmp_directory(
     )
 
   multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'create_tmp_directory:post',
-          prefix=barrier_sync_key_prefix,
-          suffix=final_dir.name,
-      ),
-      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
-      processes=active_processes,
+      'create_tmp_directory:post', processes=active_processes
   )
   return tmp_dir
 
@@ -638,7 +624,6 @@ def cleanup_tmp_directories(
     directory: epath.PathLike,
     primary_host: Optional[int] = 0,
     active_processes: Optional[Set[int]] = None,
-    barrier_sync_key_prefix: Optional[str] = None,
 ):
   """Cleanup steps in `directory` with tmp files, as these are not finalized."""
   directory = epath.Path(directory)
@@ -648,13 +633,7 @@ def cleanup_tmp_directories(
     for tmp_file in tmp_files:
       (directory / tmp_file).rmtree()
   multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'cleanup_tmp_dirs',
-          prefix=barrier_sync_key_prefix,
-          suffix=directory.name,
-      ),
-      timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
-      processes=active_processes,
+      'cleanup_tmp_dirs', processes=active_processes
   )
 
 

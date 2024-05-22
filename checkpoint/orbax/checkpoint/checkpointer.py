@@ -25,7 +25,6 @@ from orbax.checkpoint import abstract_checkpointer
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import composite_checkpoint_handler
-from orbax.checkpoint import multihost
 from orbax.checkpoint import utils
 from typing_extensions import Self  # for Python version < 3.11
 
@@ -99,7 +98,6 @@ class Checkpointer(
       handler: checkpoint_handler.CheckpointHandler,
       primary_host: Optional[int] = 0,
       active_processes: Optional[Set[int]] = None,
-      barrier_sync_key_prefix: Optional[str] = None,
   ):
     if not checkpoint_args.has_registered_args(handler):
       logging.warning(
@@ -110,7 +108,6 @@ class Checkpointer(
     self._handler = handler
     self._primary_host = primary_host
     self._active_processes = active_processes
-    self._barrier_sync_key_prefix = barrier_sync_key_prefix
     jax.monitoring.record_event('/jax/orbax/checkpointer/init')
 
   def save(
@@ -149,31 +146,16 @@ class Checkpointer(
         directory,
         primary_host=self._primary_host,
         active_processes=self._active_processes,
-        barrier_sync_key_prefix=self._barrier_sync_key_prefix,
     )
     ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)
     self._handler.save(tmpdir, args=ckpt_args)
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'Checkpointer:save',
-            prefix=self._barrier_sync_key_prefix,
-            suffix=directory.name,
-        ),
-        processes=self._active_processes,
-    )
+    utils.sync_global_processes('Checkpointer:write', self._active_processes)
 
     # Ensure save operation atomicity and record time saved by checkpoint.
     if utils.is_primary_host(self._primary_host):
       self._handler.finalize(tmpdir)
       utils.on_commit_callback(tmpdir, directory, checkpoint_start_time)
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'Checkpointer:finalize',
-            prefix=self._barrier_sync_key_prefix,
-            suffix=directory.name,
-        ),
-        processes=self._active_processes,
-    )
+    utils.sync_global_processes('Checkpointer:save', self._active_processes)
 
   def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""
@@ -186,14 +168,7 @@ class Checkpointer(
     ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
     restored = self._handler.restore(directory, args=ckpt_args)
     logging.info('Finished restoring checkpoint from %s.', directory)
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'Checkpointer:restore',
-            prefix=self._barrier_sync_key_prefix,
-            suffix=directory.name,
-        ),
-        processes=self._active_processes,
-    )
+    utils.sync_global_processes('Checkpointer:restore', self._active_processes)
     return restored
 
   def metadata(self, directory: epath.PathLike) -> Optional[Any]:
