@@ -21,6 +21,7 @@ import threading
 import time
 import typing
 from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Type, Union
+
 from absl import logging
 from etils import epath
 from etils import epy
@@ -146,15 +147,18 @@ class MultiprocessingOptions:
     the case that all hosts are only working with local storage.
   active_processes: A set of process indices (corresponding to
     `multihost.process_index()`) over which `CheckpointManager` is expected to
-    be
-    called. This makes it possible to have a `CheckpointManager` instance
+    be called. This makes it possible to have a `CheckpointManager` instance
     that runs over a subset of processes, rather than all processes as it is
     normally expected to do. If specified, `primary_host` must belong to
     `active_processes`.
+  barrier_sync_key_prefix: A string to be prepended to the barrier sync key
+    used to synchronize processes. This is useful to avoid collisions with
+    other barrier syncs if another CheckpointManager is being used concurrently.
   """
 
   primary_host: Optional[int] = 0
   active_processes: Optional[Set[int]] = None
+  barrier_sync_key_prefix: Optional[str] = None
 
 
 # TODO(b/309965339) Set todelete_subdir defaults if directory is on CNS.
@@ -370,6 +374,32 @@ def _get_args_for_key(
   raise ValueError(f'Unknown key "{item_name}" in CompositeCheckpointHandler.')
 
 
+def _create_root_directory(
+    directory: epath.PathLike, multiprocessing_options: MultiprocessingOptions
+) -> None:
+  """Creates the top-level directory if it does not already exist."""
+  if multiprocessing_options.active_processes is not None:
+    raise NotImplementedError(
+        'Option `create=True` with `active_processes` set is not'
+        ' supported. Please create the root directory yourself.'
+    )
+  directory = epath.Path(directory)
+  if not directory.exists() and utils.is_primary_host(
+      multiprocessing_options.primary_host
+  ):
+    directory.mkdir(parents=True)
+    logging.info('Created directory=%s', directory)
+  multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'CheckpointManager:create_directory',
+          prefix=multiprocessing_options.barrier_sync_key_prefix,
+          suffix=None,
+      ),
+      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+      processes=multiprocessing_options.active_processes,
+  )
+
+
 class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   """A generic, synchronous AbstractCheckpointManager implementation."""
 
@@ -545,15 +575,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if self._options.read_only:
       logging.warning('Given directory is read only=%s', self._directory)
     if self._options.create:
-      if (
-          utils.is_primary_host(self._multiprocessing_options.primary_host)
-          and not self._directory.exists()
-      ):
-        self._directory.mkdir(parents=True)
-      utils.sync_global_processes(
-          'CheckpointManager:create_directory',
-          processes=self._multiprocessing_options.active_processes,
-      )
+      _create_root_directory(self._directory, self._multiprocessing_options)
 
 
     # Cleanup directories from previous runs that may not have been finalized.
@@ -576,6 +598,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         ),
         primary_host=self._multiprocessing_options.primary_host,
         active_processes=self._multiprocessing_options.active_processes,
+        barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
     )
     if self._options.read_only and not self._metadata_path().exists():
       self._metadata = {} if metadata is None else metadata
@@ -619,6 +642,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             primary_host=self._multiprocessing_options.primary_host,
             barrier_sync_fn=options.async_options.barrier_sync_fn,
             active_processes=self._multiprocessing_options.active_processes,
+            barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
             post_finalization_callback=options.async_options.post_finalization_callback,
         )
       else:
@@ -626,12 +650,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             handler,
             primary_host=self._multiprocessing_options.primary_host,
             active_processes=self._multiprocessing_options.active_processes,
+            barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
         )
     else:
       return Checkpointer(
           handler,
           primary_host=self._multiprocessing_options.primary_host,
           active_processes=self._multiprocessing_options.active_processes,
+          barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
       )
 
   def _configure_checkpointer_legacy_init(
@@ -892,8 +918,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if step not in self.all_steps():
       raise ValueError(f'Requested deleting a non-existent step: {step}.')
     self._checkpoint_deleter.delete(step)
-    utils.sync_global_processes(
-        'CheckpointManager:deleted_step',
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'CheckpointManager:deleted_step',
+            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+            suffix=str(step),
+        ),
+        timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
         processes=self._multiprocessing_options.active_processes,
     )
     for i, info in enumerate(self._checkpoints):
@@ -1032,8 +1063,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             self._step_name_format,
             enable_background_delete=False,  # no background thread
         ).delete(step)
-      utils.sync_global_processes(
-          'CheckpointManager:delete_unfinalized_step_gcs',
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'CheckpointManager:delete_unfinalized_step_gcs',
+              prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+              suffix=str(step),
+          ),
+          timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
           processes=self._multiprocessing_options.active_processes,
       )
     logging.info('Saving checkpoint at step %d', step)
@@ -1057,8 +1093,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # Sync needed to ensure that old steps to remove are retrieved before
     # actually deleting them during finalize, since retrieval can involve
     # looking at the directory.
-    utils.sync_global_processes(
-        'CheckpointManager:old_steps_to_remove',
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'CheckpointManager:old_steps_to_remove',
+            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+            suffix=str(step),
+        ),
         processes=self._multiprocessing_options.active_processes,
     )
 
@@ -1073,8 +1113,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     else:
       self._finalize(save_directory, steps_to_remove)
       logging.info('Finished synchronous save.')
-      utils.sync_global_processes(
-          'CheckpointManager:finalize',
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'CheckpointManager:finalize',
+              prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+              suffix=str(step),
+          ),
           processes=self._multiprocessing_options.active_processes,
       )
     step_stats.synchronous = is_async_checkpointer(self._checkpointer)
@@ -1161,13 +1205,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   def metrics(self, step: int) -> Optional[PyTree]:
     if self._track_best:
       try:
-        restored = self._checkpointer.restore(
-            self._get_read_step_directory(step, self.directory),
-            args=args_lib.Composite(
-                **{METRIC_ITEM_NAME: args_lib.JsonRestore()}
-            ),
+        # Use handler directly, since this happens in a background thread and
+        # barriers cannot be used. This usage pattern is generally not
+        # recommended in other contexts.
+        return JsonCheckpointHandler(filename=METRIC_ITEM_NAME).restore(
+            self._get_read_step_directory(step, self.directory)
+            / METRIC_ITEM_NAME
         )
-        return restored[METRIC_ITEM_NAME]
       except FileNotFoundError:
         logging.warning('Missing metrics for step %d', step)
         return None
@@ -1291,6 +1335,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self.directory,
         primary_host=self._multiprocessing_options.primary_host,
         active_processes=self._multiprocessing_options.active_processes,
+        barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
     )
 
   def _get_old_steps_to_remove(self) -> List[int]:
@@ -1408,6 +1453,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   def wait_until_finished(self):
     """See superclass documentation."""
     t = self._finalize_thread
+    latest_step = self.latest_step()
     if t is not None:
       self._finalize_thread = None
       try:
@@ -1421,8 +1467,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # Additional work is being done on process 0 of the finalize threads.
       # When joining the threads, we must wait for all threads to complete
       # before proceeding.
-      utils.sync_global_processes(
-          'CheckpointManager:join_finalize_thread',
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'CheckpointManager:join_finalize_thread',
+              prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+              suffix=str(latest_step),
+          ),
           processes=self._multiprocessing_options.active_processes,
       )
 

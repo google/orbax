@@ -17,9 +17,15 @@
 # pylint: disable=g-importing-member, g-bad-import-order
 
 from orbax.checkpoint.multihost.utils import broadcast_one_to_all
-from orbax.checkpoint.multihost.utils import broadcast_one_to_some
 from orbax.checkpoint.multihost.utils import is_primary_host
 from orbax.checkpoint.multihost.utils import reached_preemption
 from orbax.checkpoint.multihost.utils import sync_global_processes
 from orbax.checkpoint.multihost.utils import process_index
 
+from orbax.checkpoint.multihost.utils import BarrierSyncFn
+from orbax.checkpoint.multihost.utils import get_barrier_sync_fn
+from orbax.checkpoint.multihost.utils import unique_barrier_key
+
+
+from orbax.checkpoint.multihost.utils import DIRECTORY_CREATION_TIMEOUT
+from orbax.checkpoint.multihost.utils import DIRECTORY_DELETION_TIMEOUT

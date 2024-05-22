@@ -17,10 +17,12 @@
 from concurrent import futures
 import contextlib
 import functools
+import inspect
 import string
 import time
 import typing
 from typing import Any, List, Optional, Tuple
+from unittest import mock
 
 from absl import logging
 from etils import epath
@@ -35,6 +37,10 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+
+
+def sync_global_processes(name: str):
+  jax.experimental.multihost_utils.sync_global_devices(name)
 
 
 def save_fake_tmp_dir(
@@ -55,7 +61,7 @@ def save_fake_tmp_dir(
   if multihost.process_index() == 0:
     for sub in subdirs:
       (item_tmp_dir / sub).mkdir(parents=True)
-  utils.sync_global_processes('save_fake_tmp_dir')
+  sync_global_processes('save_fake_tmp_dir')
   return item_tmp_dir
 
 
@@ -385,3 +391,47 @@ def ocdbt_checkpoint_context(use_ocdbt: bool, ts_context: Any):
     type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY._type_registry = (  # pylint: disable=protected-access
         original_registry
     )
+
+
+def _get_wrapper_function(func):
+  """Creates a function to wrap a test method and return a unique barrier key."""
+
+  def _get_unique_barrier_key(key: str, func_id: str) -> str:
+    return f'{key}.{func_id}'
+
+  def wrapper(self, *args, **kwargs):
+    with mock.patch.object(
+        multihost.utils,
+        '_unique_barrier_key',
+        new=functools.partial(_get_unique_barrier_key, func_id=self.id()),
+    ):
+      return func(self, *args, **kwargs)
+
+  return wrapper
+
+
+def subset_barrier_compatible_test(cls):
+  """A decorator to be used with a test class.
+
+  E.g.
+
+  @subset_barrier_compatible_test
+  class MyTest(googletest.TestCase):
+    def test_foo(self):
+      ...
+
+  The point of this decorator is to modify all functions to mock the private
+  method `multihost.utils._unique_barrier_key`, to append the test case name.
+  This allows multiple test cases to reuse barrier names that would otherwise
+  conflict.
+
+  Args:
+    cls: the test class to decorate.
+
+  Returns:
+    The decorated class.
+  """
+  for name, func in inspect.getmembers(cls, predicate=inspect.isfunction):
+    if name.startswith('test'):
+      setattr(cls, name, _get_wrapper_function(func))
+  return cls
