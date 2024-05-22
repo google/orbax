@@ -309,6 +309,8 @@ def get_pspec_from_jax_arrays(
     nonlocal expected_mesh
     if not hasattr(jax_arr, 'sharding'):
       return jax.sharding.PartitionSpec()
+    if jax_arr.sharding is None:
+      return jax.sharding.PartitionSpec()
 
     if not isinstance(jax_arr.sharding, jax.sharding.NamedSharding):
       raise AssertionError(
