@@ -30,6 +30,7 @@ from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import aggregate_handlers
+from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import base_pytree_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
@@ -63,6 +64,7 @@ BasePyTreeRestoreArgs = base_pytree_checkpoint_handler.BasePyTreeRestoreArgs
 get_byte_limiter = base_pytree_checkpoint_handler.get_byte_limiter
 LimitInFlightBytes = base_pytree_checkpoint_handler.LimitInFlightBytes
 _InternalValueMetadata = base_pytree_checkpoint_handler._InternalValueMetadata  # pylint: disable=protected-access
+get_param_names = base_pytree_checkpoint_handler.get_param_names
 
 _CHECKPOINT_FILE = 'checkpoint'
 _METADATA_FILE = base_pytree_checkpoint_handler.METADATA_FILE
@@ -365,9 +367,7 @@ def _get_impl_save_args(
   )
 
 
-# TODO(b/339456651) Avoid inheriting from BasePyTreeCheckpointHandler when
-# when possible.
-class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
+class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """A CheckpointHandler implementation for any PyTree structure.
 
   See JAX documentation for more information on what consistutes a "PyTree".
@@ -383,6 +383,8 @@ class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
   Example::
 
     ckptr = Checkpointer(PyTreeCheckpointHandler())
+    
+  # TODO(cpgaffney) Cut down on the protected methods accessed by this class.
   """
 
   def __init__(
@@ -393,6 +395,7 @@ class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
       use_zarr3: bool = False,
       primary_host: Optional[int] = 0,
       type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
+      handler_impl: Optional[BasePyTreeCheckpointHandler] = None,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -410,6 +413,7 @@ class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
         the case that all hosts are only working with local storage.
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
         specified, the global type handler registry will be used.
+      handler_impl: Allows overriding the internal implementation.
     """
     self._aggregate_handler = MsgpackHandler(primary_host=primary_host)
     if aggregate_filename is None:
@@ -421,7 +425,7 @@ class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
     self._primary_host = primary_host
     self._type_handler_registry = type_handler_registry
 
-    super().__init__(
+    self._handler_impl = handler_impl or BasePyTreeCheckpointHandler(
         aggregate_filename=aggregate_filename,
         concurrent_gb=concurrent_gb,
         use_ocdbt=use_ocdbt,
@@ -486,7 +490,7 @@ class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
       the data from its source will be awaited in this function.
     """
     args = _get_impl_save_args(item, save_args, args)
-    return await super().async_save(directory, args=args)
+    return await self._handler_impl.async_save(directory, args=args)
 
   def save(
       self,
@@ -497,7 +501,7 @@ class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
   ):
     """Saves the provided item. See async_save."""
     args = _get_impl_save_args(item, save_args, args)
-    super().save(directory, args=args)
+    self._handler_impl.save(directory, args=args)
 
   def restore(
       self,
@@ -630,7 +634,7 @@ class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
           item,
           restore_args=restore_args,
       )
-      return super().restore(directory, args=args)
+      return self._handler_impl.restore(directory, args=args)
 
     logging.debug('directory=%s, restore_args=%s', directory, restore_args)
     if not directory.exists():
@@ -638,7 +642,9 @@ class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
           f'Requested directory for restore does not exist at {directory}'
       )
     byte_limiter = get_byte_limiter(self._concurrent_gb)
-    structure, use_zarr3_metadata = self._get_internal_metadata(directory)
+    structure, use_zarr3_metadata = self._handler_impl._get_internal_metadata(  # pylint: disable=protected-access
+        directory
+    )
     # `checkpoint_restore_args` has a structure relative to the checkpoint,
     # while `restore_args` remains structured relative to the output.
     param_infos, checkpoint_restore_args = _get_restore_parameters(
@@ -680,7 +686,9 @@ class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
     )
 
     restored_item = asyncio.run(
-        self._maybe_deserialize(structure, param_infos, checkpoint_restore_args)
+        self._handler_impl._maybe_deserialize(  # pylint: disable=protected-access
+            structure, param_infos, checkpoint_restore_args
+        )
     )
 
     if not legacy_transform_fn:
@@ -704,6 +712,50 @@ class PyTreeCheckpointHandler(BasePyTreeCheckpointHandler):
       )
 
     return restored_item
+
+  def metadata(self, directory: epath.Path) -> Optional[PyTree]:
+    """Returns tree metadata.
+
+    The result will be a PyTree matching the structure of the saved checkpoint.
+    Note that if the item saved was a custom class, the restored metadata will
+    be returned as a nested dictionary representation.
+
+    Example::
+
+      {
+        'layer0': {
+            'w': ArrayMetadata(dtype=jnp.float32, shape=(8, 8), shards=(1, 2)),
+            'b': ArrayMetadata(dtype=jnp.float32, shape=(8,), shards=(1,)),
+        },
+        'step': ScalarMetadata(dtype=jnp.int64),
+      }
+
+    If the required metadata file is not present, this method will raise an
+    error.
+
+    Args:
+      directory: checkpoint location.
+
+    Returns:
+      tree containing metadata.
+    """
+    return self._handler_impl.metadata(directory)
+
+  def finalize(self, directory: epath.Path) -> None:
+    """Finalization step.
+
+    Called automatically by the Checkpointer/AsyncCheckpointer just before the
+    checkpoint is considered "finalized" in the sense of ensuring atomicity. See
+    documentation for `type_handlers.merge_ocdbt_per_process_files`.
+
+    Args:
+      directory: Path where the checkpoint is located.
+    """
+    self._handler_impl.finalize(directory)
+
+  def close(self):
+    """Closes the handler. Called automatically by Checkpointer."""
+    self._handler_impl.close()
 
 
 @register_with_handler(PyTreeCheckpointHandler, for_save=True)
