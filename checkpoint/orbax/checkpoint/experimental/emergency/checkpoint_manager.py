@@ -522,6 +522,7 @@ class CheckpointManager(
     Returns:
       A sequence of steps (integers)
     """
+    logging.info('Retrieving all steps.')
     local_steps = [-1] * self._local_max_to_keep
     persistent_steps = [-1] * self._persistent_max_to_keep
     if self.in_primary_slice:
@@ -576,6 +577,7 @@ class CheckpointManager(
     Returns:
       A step (int) or None if no steps are present.
     """
+    logging.info('Retrieving latest step.')
     if self.in_primary_slice:
       latest_step = self._persistent_checkpoint_manager.latest_step()
     else:
@@ -646,6 +648,7 @@ class CheckpointManager(
     Returns:
       True if the checkpoint should be saved.
     """
+    logging.info('Checking should_save.')
     if self.in_primary_slice:
       should_save = self._persistent_checkpoint_manager.should_save(step)
     else:
@@ -665,6 +668,7 @@ class CheckpointManager(
       metrics: Optional[PyTree] = None,
       force: Optional[bool] = False,
   ) -> bool:
+    logging.info('Saving at step %d.', step)
     # TODO: b/330608746 - implement save op on different slices
     if self.in_primary_slice:
       saved = self._persistent_checkpoint_manager.save(
@@ -844,7 +848,7 @@ class CheckpointManager(
       args: Optional[args_lib.CheckpointArgs] = None,
       directory: Optional[epath.PathLike] = None,
   ) -> Any:
-
+    logging.info('Restoring at step %d.', step)
     restoring_slice_id = self._find_slice_with_complete_checkpoint(step)
     if restoring_slice_id > -1:
       # restore from LCM
@@ -886,6 +890,7 @@ class CheckpointManager(
     If some checkpointers are of type AsyncCheckpointer, however, this method
     will wait until each of these checkpointers is finished.
     """
+    logging.info('Waiting for checkpoint to complete.')
     if self.in_primary_slice:
       self._persistent_checkpoint_manager.wait_until_finished()
     else:
@@ -903,6 +908,7 @@ class CheckpointManager(
 
   def close(self):
     """Waits for outstanding operations to finish and closes Checkpointers."""
+    logging.info('Closing CheckpointManager.')
     if self.in_primary_slice:
       self._persistent_checkpoint_manager.close()
     else:
