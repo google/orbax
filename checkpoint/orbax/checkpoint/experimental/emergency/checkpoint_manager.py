@@ -16,6 +16,13 @@
 
 
 This class is experimental; do not use without specific approval.
+
+NOTE: All classes within this module should be called across all *relevant*
+processes. CheckpointManager is designed to be created and called across
+*every* process. LocalCheckpointManager is designed to be created and called
+across every process within *non-primary* slices. Similarly, a CheckpointManager
+intended to work only with the persistent checkpoint on the primary slice should
+always be called across all processes within the primary slice.
 """
 
 import collections
@@ -141,17 +148,17 @@ def _pid_in_slice(device_slice: np.ndarray) -> np.ndarray:
   return pid(device_slice)
 
 
-def _in_slice(process_index: int, device_slice: np.ndarray) -> bool:
+def in_slice(process_index: int, device_slice: np.ndarray) -> bool:
   return process_index in _pid_in_slice(device_slice)
 
 
-def _in_primary_slice(
+def in_primary_slice(
     process_index: int, global_mesh: jax.sharding.Mesh
 ) -> bool:
   """Returns true if host is in primary slice (the first slice)."""
   primary_slice = global_mesh.devices[0]
 
-  return _in_slice(process_index, primary_slice)
+  return in_slice(process_index, primary_slice)
 
 
 def _unique_processes_from_devices(device_array: np.ndarray) -> Set[int]:
@@ -161,7 +168,7 @@ def _unique_processes_from_devices(device_array: np.ndarray) -> Set[int]:
 
 def _local_slice_devices(devices_array: np.ndarray) -> np.ndarray:
   for device_slice in devices_array:
-    if _in_slice(multihost.process_index(), device_slice):
+    if in_slice(multihost.process_index(), device_slice):
       return device_slice
   raise ValueError(
       f'process_index {multihost.process_index()} does not exist in provided'
@@ -259,7 +266,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     key = dir_key + str(multihost.process_index())
     client.key_value_set(key, ','.join([str(s) for s in steps]))
 
-    barrier_key = 'steps_broadcast_' + str(next(_module_unique_count))
+    barrier_key = 'broadcast_interslice_' + str(next(_module_unique_count))
     barrier_key = multihost.utils._unique_barrier_key(barrier_key)  # pylint: disable=protected-access
     client.wait_at_barrier(
         barrier_key, process_ids=barrier_processes, timeout_in_ms=10000
@@ -423,7 +430,7 @@ class CheckpointManager(
           ' needed.'
       )
 
-    self._in_primary_slice = _in_primary_slice(
+    self.in_primary_slice = in_primary_slice(
         multihost.process_index(), global_mesh
     )
     self._persistent_max_to_keep = self._options.persistent.max_to_keep
@@ -438,7 +445,7 @@ class CheckpointManager(
             barrier_sync_key_prefix='persistent',
         )
     )
-    if self._in_primary_slice:
+    if self.in_primary_slice:
       persistent_options = checkpoint_manager.CheckpointManagerOptions(
           save_interval_steps=self._options.persistent.save_interval_steps,
           max_to_keep=self._persistent_max_to_keep,
@@ -465,6 +472,10 @@ class CheckpointManager(
           options=self._options,
           metadata=self._metadata,
       )
+
+    logging.info(
+        'Created emergency.CheckpointManager with slice_id=%s', self._slice_id
+    )
 
   @property
   def directory(self) -> epath.Path:
@@ -513,7 +524,7 @@ class CheckpointManager(
     """
     local_steps = [-1] * self._local_max_to_keep
     persistent_steps = [-1] * self._persistent_max_to_keep
-    if self._in_primary_slice:
+    if self.in_primary_slice:
       persistent_steps = list(
           self._persistent_checkpoint_manager.all_steps(read=read)
       )
@@ -565,7 +576,7 @@ class CheckpointManager(
     Returns:
       A step (int) or None if no steps are present.
     """
-    if self._in_primary_slice:
+    if self.in_primary_slice:
       latest_step = self._persistent_checkpoint_manager.latest_step()
     else:
       latest_step = self._local_checkpoint_manager.latest_step()
@@ -635,7 +646,7 @@ class CheckpointManager(
     Returns:
       True if the checkpoint should be saved.
     """
-    if self._in_primary_slice:
+    if self.in_primary_slice:
       should_save = self._persistent_checkpoint_manager.should_save(step)
     else:
       should_save = self._local_checkpoint_manager.should_save(step)
@@ -655,8 +666,7 @@ class CheckpointManager(
       force: Optional[bool] = False,
   ) -> bool:
     # TODO: b/330608746 - implement save op on different slices
-
-    if self._in_primary_slice:
+    if self.in_primary_slice:
       saved = self._persistent_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
       )
@@ -664,12 +674,11 @@ class CheckpointManager(
       saved = self._local_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
       )
-
     return self._global_max(saved)
 
   def _find_slice_with_complete_checkpoint(self, step: int) -> int:
     """Return the slice id which has the step."""
-    if self._in_primary_slice:
+    if self.in_primary_slice:
       steps_in_slice = np.asarray([], dtype=int)
     else:
       local_steps = self._local_checkpoint_manager.local_host_steps(True)
@@ -699,12 +708,13 @@ class CheckpointManager(
       directory: Optional[epath.PathLike] = None,
   ) -> Any:
     logging.info(
-        'ECM: restoring step=%s from LCM using slice_id: %s',
+        'emergency.CheckpointManager: restoring step=%s from local checkpoint'
+        ' using slice_id: %s',
         step,
         restoring_slice_id,
     )
 
-    is_primary_slice = restoring_slice_id == self._slice_id
+    is_restoring_slice = restoring_slice_id == self._slice_id
 
     shape_dtypes, tree_defs = jax.tree_util.tree_flatten(self._abstract_state)
 
@@ -728,46 +738,41 @@ class CheckpointManager(
         single_slice_shardings
     )[0]
 
-    if is_primary_slice:
-      logging.debug('ECM: primary_slice, restoring using LCM')
+    if is_restoring_slice:
+      logging.debug(
+          'emergency.CheckpointManager: restoring from local checkpoint.'
+      )
       ss_args = jax.tree_util.tree_map(
           lambda ss_shard, arr: type_handlers.ArrayRestoreArgs(
-              sharding=ss_shard, global_shape=arr.shape  # sigle-slice sharding
+              sharding=ss_shard,
+              global_shape=arr.shape,  # sigle-slice sharding
           ),
           single_slice_shardings,
           self._abstract_state,
       )
-      lcm_args = dataclasses.replace(args, restore_args=ss_args)
-
-      # make sure it's read_only
-      lcm_options = dataclasses.replace(
-          self._options.local,
-          read_only=True,
+      restore_directory = (
+          self._local_checkpoint_manager._get_read_step_directory(  # pylint: disable=protected-access
+              step, epath.Path(directory or self._local_directory)
+          )
       )
-      options = dataclasses.replace(
-          self._options,
-          local=lcm_options,
+      # Directly use CheckpointHandler to restore. This is undesirable, but
+      # allows us to avoid barrier issues that occur when calling
+      # LocalCheckpointManager a different number of times on the non-primary
+      # slices, which leads to
+      # _module_unique_count getting out of sync.
+      logging.debug(
+          'Restoring from %s',
+          restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
       )
-
-      # Create a temporarily read-only LocalCheckpointManager that will
-      # restore only a single-slice sharded pytree.
-      with _LocalCheckpointManager(
-          self._local_directory,
-          self._local_state_handler,
-          device_array=np.asarray(
-              [self._global_mesh.devices[restoring_slice_id]]
-          ),
-          options=options,
-          metadata=self._metadata,
-      ) as lcm:
-        single_slice_pytree = lcm.restore(
-            step, args=lcm_args, directory=directory
-        )
-
-        in_tree = tuple(jax.tree_util.tree_flatten(single_slice_pytree)[0])
+      single_slice_pytree = self._local_state_handler.restore(
+          restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
+          args=dataclasses.replace(args, restore_args=ss_args),
+      )
+      in_tree = tuple(jax.tree_util.tree_flatten(single_slice_pytree)[0])
     else:
       logging.debug(
-          'ECM: non-primary_slice, create zeros and listen to broacast'
+          'emergency.CheckpointManager: secondary slice, create zeros and'
+          ' wait for broacast.'
       )
 
       @functools.partial(
@@ -789,7 +794,7 @@ class CheckpointManager(
         self._global_mesh,
         tuple(single_replica_shardings_tuple),
         0,
-        is_source=is_primary_slice,
+        is_source=is_restoring_slice,
     )
     broadcast_elapsed_s = time.time() - start_broadcast
     jax.monitoring.record_event_duration_secs(
@@ -807,9 +812,10 @@ class CheckpointManager(
       directory: Optional[epath.PathLike] = None,
   ) -> Any:
     logging.info(
-        'restoring step=%s from persistent checkpoint manager in directory=%s',
+        'emergency.CheckpointManager: restoring step=%s from persistent'
+        ' checkpoint in directory=%s',
         step,
-        directory,
+        directory or self._persistent_directory,
     )
 
     # Create a temporarily read-only PersistentCheckpointManager that will
@@ -842,7 +848,6 @@ class CheckpointManager(
     restoring_slice_id = self._find_slice_with_complete_checkpoint(step)
     if restoring_slice_id > -1:
       # restore from LCM
-
       return self._restore_from_lcm(
           step=step,
           restoring_slice_id=restoring_slice_id,
@@ -881,7 +886,7 @@ class CheckpointManager(
     If some checkpointers are of type AsyncCheckpointer, however, this method
     will wait until each of these checkpointers is finished.
     """
-    if self._in_primary_slice:
+    if self.in_primary_slice:
       self._persistent_checkpoint_manager.wait_until_finished()
     else:
       self._local_checkpoint_manager.wait_until_finished()
@@ -891,14 +896,14 @@ class CheckpointManager(
 
     Delegates to underlying Checkpointer.
     """
-    if self._in_primary_slice:
+    if self.in_primary_slice:
       self._persistent_checkpoint_manager.check_for_errors()
     else:
       self._local_checkpoint_manager.check_for_errors()
 
   def close(self):
     """Waits for outstanding operations to finish and closes Checkpointers."""
-    if self._in_primary_slice:
+    if self.in_primary_slice:
       self._persistent_checkpoint_manager.close()
     else:
       self._local_checkpoint_manager.close()

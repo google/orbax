@@ -1467,6 +1467,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # Additional work is being done on process 0 of the finalize threads.
       # When joining the threads, we must wait for all threads to complete
       # before proceeding.
+      latest_step = self.latest_step()
       multihost.sync_global_processes(
           multihost.unique_barrier_key(
               'CheckpointManager:join_finalize_thread',
