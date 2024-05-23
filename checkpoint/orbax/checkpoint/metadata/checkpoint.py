@@ -94,46 +94,28 @@ class CheckpointMetadataStore(Protocol):
     ...
 
 
-@dataclasses.dataclass(frozen=True)
-class _CheckpointMetadataStore(CheckpointMetadataStore):
-  """Internal impl to manage storage of `CheckpointMetadata`.
+class _CheckpointMetadataStoreImpl(CheckpointMetadataStore):
+  """Basic internal reusable impl of `CheckpointMetadata` storage.
 
-  Write operations are thread safe: within a process multiple threads write
-  without corrupting data.
-
-  NOTE: Write operations are not guaranteed to be safe across processes. But it
-  should be okay as writes are expected to be called from just one jax process.
-
-  Read operations are inherently thread safe and *process safe* too.
-
-  Attributes:
-    enable_write: if True then write operations are allowed, otherwise write
-      operations are **no op**. Read operations are always allowed.
+  It is neither thread safe, nor does it check for read/write capabilities.
   """
-
-  enable_write: bool
-  # TODO(niketkb): Support locking per checkpoint path.
-  _write_lock: threading.RLock = threading.RLock()
 
   def write(
       self,
       checkpoint_path: epath.PathLike,
       checkpoint_metadata: CheckpointMetadata,
   ) -> None:
-    if not self.enable_write:
-      return
-    with self._write_lock:
-      checkpoint_path = epath.Path(checkpoint_path)
-      if not checkpoint_path.exists():
-        raise ValueError(f'Checkpoint path does not exist: {checkpoint_path}')
-      _metadata_file_path(checkpoint_path).write_text(
-          json.dumps(dataclasses.asdict(checkpoint_metadata))
-      )
-      logging.info(
-          'Wrote CheckpointMetadata=%s to %s',
-          checkpoint_metadata,
-          checkpoint_path,
-      )
+    checkpoint_path = epath.Path(checkpoint_path)
+    if not checkpoint_path.exists():
+      raise ValueError(f'Checkpoint path does not exist: {checkpoint_path}')
+    _metadata_file_path(checkpoint_path).write_text(
+        json.dumps(dataclasses.asdict(checkpoint_metadata))
+    )
+    logging.info(
+        'Wrote CheckpointMetadata=%s to %s',
+        checkpoint_metadata,
+        checkpoint_path,
+    )
 
   def read(
       self, checkpoint_path: epath.PathLike
@@ -166,21 +148,66 @@ class _CheckpointMetadataStore(CheckpointMetadataStore):
       checkpoint_path: epath.PathLike,
       **kwargs,
   ) -> None:
+    metadata = self.read(checkpoint_path) or CheckpointMetadata()
+    updated = dataclasses.replace(metadata, **kwargs)
+    self.write(checkpoint_path, updated)
+    logging.info(
+        'Updated CheckpointMetadata=%s to %s', updated, checkpoint_path
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class _BlockingCheckpointMetadataStore(CheckpointMetadataStore):
+  """Manages storage of `CheckpointMetadata` with blocking writes.
+
+  Write operations are thread safe: within a process multiple threads write
+  without corrupting data.
+
+  NOTE: Write operations are not guaranteed to be safe across processes. But it
+  should be okay as writes are expected to be called from just one jax process.
+
+  Read operations are inherently thread safe and *process safe* too.
+
+  Attributes:
+    enable_write: if True then write operations are allowed, otherwise write
+      operations are **no op**. Read operations are always allowed.
+  """
+
+  enable_write: bool
+  # TODO(niketkb): Support locking per checkpoint path.
+  _write_lock: threading.RLock = threading.RLock()
+  _store_impl: _CheckpointMetadataStoreImpl = _CheckpointMetadataStoreImpl()
+
+  def write(
+      self,
+      checkpoint_path: epath.PathLike,
+      checkpoint_metadata: CheckpointMetadata,
+  ) -> None:
     if not self.enable_write:
       return
     with self._write_lock:
-      metadata = self.read(checkpoint_path) or CheckpointMetadata()
-      updated = dataclasses.replace(metadata, **kwargs)
-      self.write(checkpoint_path, updated)
-      logging.info(
-          'Updated CheckpointMetadata=%s to %s', updated, checkpoint_path
-      )
+      self._store_impl.write(checkpoint_path, checkpoint_metadata)
+
+  def read(
+      self, checkpoint_path: epath.PathLike
+  ) -> Optional[CheckpointMetadata]:
+    return self._store_impl.read(checkpoint_path)
+
+  def update(
+      self,
+      checkpoint_path: epath.PathLike,
+      **kwargs,
+  ) -> None:
+    if not self.enable_write:
+      return
+    with self._write_lock:
+      self._store_impl.update(checkpoint_path, **kwargs)
 
 
-_CHECKPOINT_METADATA_STORE_FOR_WRITES = _CheckpointMetadataStore(
+_CHECKPOINT_METADATA_STORE_FOR_WRITES = _BlockingCheckpointMetadataStore(
     enable_write=True
 )
-_CHECKPOINT_METADATA_STORE_FOR_READS = _CheckpointMetadataStore(
+_CHECKPOINT_METADATA_STORE_FOR_READS = _BlockingCheckpointMetadataStore(
     enable_write=False
 )
 
