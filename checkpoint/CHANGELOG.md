@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.13] - 2024-05-23
+## [0.5.14] - 2024-05-23
 
 ### Changed
 - Delegate to BasePyTreeCheckpointHandler rather than inheriting from it.
