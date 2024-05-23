@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.12] - 2024-05-23
+
 ### Added
 - Introduce `should_save_fn` in `OrbaxCheckpointManagerOptions`.
 - Introduce `StepAlreadyExistsError` to be raised on save with existing step.
@@ -18,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix empty metadata file error: Expecting value: line 1 column 1 (char 0)
 
 
-## [0.5.10] - 2024-05-10
+## [0.5.11] - 2024-05-10
 
 ### Added
 - Implement restoration in emergency.CheckpointManager.
