@@ -161,6 +161,20 @@ class MultiprocessingOptions:
   barrier_sync_key_prefix: Optional[str] = None
 
 
+@dataclasses.dataclass(frozen=True)
+class FileOptions:
+  """Options used to configure checkpoint directories and files.
+
+  Attributes:
+    path_permission_mode: Path permission mode for step directories, user
+      metadata files. e.g. 0o750. Please check
+      https://github.com/google/etils/blob/main/etils/epath/backend.py if your
+        path is supported. default=None.
+  """
+
+  path_permission_mode: Optional[int] = None
+
+
 # TODO(b/309965339) Set todelete_subdir defaults if directory is on CNS.
 @dataclasses.dataclass
 class CheckpointManagerOptions:
@@ -245,6 +259,8 @@ class CheckpointManagerOptions:
     accepts step number and optional latest step number as param and returns
     bool. If present then `save_interval_steps` and `save_on_steps` options are
     ignored.
+  file_options: Options to configure checkpoint directories and files.
+    default=FileOptions().
   """
 
   save_interval_steps: int = 1
@@ -270,6 +286,7 @@ class CheckpointManagerOptions:
       default_factory=MultiprocessingOptions
   )
   should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
+  file_options: FileOptions = dataclasses.field(default_factory=FileOptions)
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -599,6 +616,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         primary_host=self._multiprocessing_options.primary_host,
         active_processes=self._multiprocessing_options.active_processes,
         barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+        path_permission_mode=self._options.file_options.path_permission_mode,
     )
     if self._options.read_only and not self._metadata_path().exists():
       self._metadata = {} if metadata is None else metadata
@@ -644,6 +662,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             active_processes=self._multiprocessing_options.active_processes,
             barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
             post_finalization_callback=options.async_options.post_finalization_callback,
+            path_permission_mode=options.file_options.path_permission_mode,
         )
       else:
         return async_checkpointer.AsyncCheckpointer(
@@ -651,6 +670,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             primary_host=self._multiprocessing_options.primary_host,
             active_processes=self._multiprocessing_options.active_processes,
             barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+            path_permission_mode=options.file_options.path_permission_mode,
         )
     else:
       return Checkpointer(
@@ -658,6 +678,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           primary_host=self._multiprocessing_options.primary_host,
           active_processes=self._multiprocessing_options.active_processes,
           barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+          path_permission_mode=options.file_options.path_permission_mode,
       )
 
   def _configure_checkpointer_legacy_init(

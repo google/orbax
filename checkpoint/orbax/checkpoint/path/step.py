@@ -555,6 +555,7 @@ def create_tmp_directory(
     primary_host: Optional[int] = 0,
     active_processes: Optional[Set[int]] = None,
     barrier_sync_key_prefix: Optional[str] = None,
+    path_permission_mode: Optional[int] = None,
 ) -> epath.Path:
   """Creates a non-deterministic tmp directory for saving for given `final_dir`.
 
@@ -565,6 +566,10 @@ def create_tmp_directory(
     primary_host: primary host id, default=0.
     active_processes: Ids of active processes. default=None
     barrier_sync_key_prefix: A prefix to use for the barrier sync key.
+    path_permission_mode: Path permission mode for the temp directory. e.g.
+      0o750. Please check
+      https://github.com/google/etils/blob/main/etils/epath/backend.py if your
+        path is supported. default=None.
 
   Returns:
     The tmp directory.
@@ -608,6 +613,8 @@ def create_tmp_directory(
             ' exists.'
         )
     mode = WORLD_READABLE_MODE  # pylint: disable=unused-variable
+    if path_permission_mode is not None:
+      mode = path_permission_mode
     tmp_dir.mkdir(parents=True, mode=mode)
     checkpoint.checkpoint_metadata_store(enable_write=True).write(
         checkpoint_path=tmp_dir,

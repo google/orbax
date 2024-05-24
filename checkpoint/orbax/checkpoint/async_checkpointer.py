@@ -208,6 +208,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       barrier_sync_fn: Optional[multihost.BarrierSyncFn] = None,
       barrier_sync_key_prefix: Optional[str] = None,
       post_finalization_callback: Optional[Callable[[], None]] = None,
+      path_permission_mode: Optional[int] = None,
   ):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
     if not checkpoint_args.has_registered_args(handler):
@@ -224,6 +225,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     self._active_processes = active_processes
     self._post_finalization_callback = post_finalization_callback
     self._barrier_sync_key_prefix = barrier_sync_key_prefix
+    self._path_permission_mode = path_permission_mode  # e.g. 0o750
 
     # TODO(dicentra): consider folding into AsyncCheckpointer directly.
     self._async_manager = _AsyncManager(
@@ -273,6 +275,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         primary_host=self._primary_host,
         active_processes=self._active_processes,
         barrier_sync_key_prefix=self._barrier_sync_key_prefix,
+        path_permission_mode=self._path_permission_mode,
     )
 
     logging.info('Async saving checkpoint to %s.', directory)

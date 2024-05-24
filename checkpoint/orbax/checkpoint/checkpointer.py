@@ -100,6 +100,7 @@ class Checkpointer(
       primary_host: Optional[int] = 0,
       active_processes: Optional[Set[int]] = None,
       barrier_sync_key_prefix: Optional[str] = None,
+      path_permission_mode: Optional[int] = None,
   ):
     if not checkpoint_args.has_registered_args(handler):
       logging.warning(
@@ -111,6 +112,8 @@ class Checkpointer(
     self._primary_host = primary_host
     self._active_processes = active_processes
     self._barrier_sync_key_prefix = barrier_sync_key_prefix
+    self._path_permission_mode = path_permission_mode  # e.g. 0o750
+
     jax.monitoring.record_event('/jax/orbax/checkpointer/init')
 
   def save(
@@ -150,6 +153,7 @@ class Checkpointer(
         primary_host=self._primary_host,
         active_processes=self._active_processes,
         barrier_sync_key_prefix=self._barrier_sync_key_prefix,
+        path_permission_mode=self._path_permission_mode,
     )
     ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)
     self._handler.save(tmpdir, args=ckpt_args)
