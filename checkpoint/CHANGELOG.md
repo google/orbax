@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Modify `_write_metadata_file` to Async.
+
 ## [0.5.14] - 2024-05-23
 
 ### Changed
