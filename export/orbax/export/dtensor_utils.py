@@ -307,7 +307,7 @@ def get_pspec_from_jax_arrays(
 
   def _get_partition_spec(jax_arr):
     nonlocal expected_mesh
-    if not hasattr(jax_arr, 'sharding'):
+    if not hasattr(jax_arr, 'sharding') or jax_arr.sharding is None:
       return jax.sharding.PartitionSpec()
 
     if not isinstance(jax_arr.sharding, jax.sharding.NamedSharding):
