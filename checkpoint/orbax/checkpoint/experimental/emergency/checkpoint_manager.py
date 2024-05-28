@@ -44,6 +44,7 @@ from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import multihost
+from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint.path import step as step_lib
@@ -53,6 +54,7 @@ from typing_extensions import Self  # for Python version < 3.11
 PyTree = checkpoint_manager.PyTree
 CheckpointHandler = checkpoint_manager.CheckpointHandler
 P = jax.sharding.PartitionSpec
+PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
 
 _module_unique_count = itertools.count()
 
@@ -71,11 +73,18 @@ class LocalCheckpointOptions:
     different meaning than it normally does in Orbax: this should be treated
     as a hard cap on the number of checkpoints concurrently present, rather
     than a threshold beyond which checkpoints start to be deleted.
+  read_only:
+    If True, the local checkpoint manager will not save any checkpoints.
+  interslice_coordination_timeout:
+    The timeout in seconds for interslice coordination. Essentially, this should
+    represent the maximum amount of time that different slices may be "out of
+    sync" by.
   """
 
   save_interval_steps: int = 10
   max_to_keep: int = 2
   read_only: bool = False
+  interslice_coordination_timeout: int = 60
 
 
 @dataclasses.dataclass
@@ -221,9 +230,6 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         enable_async_checkpointing=options.enable_async_checkpointing,
         read_only=options.local.read_only,
     )
-    self._options = local_options
-    self._device_array = device_array
-
     super().__init__(
         directory,
         options=local_options,
@@ -231,6 +237,8 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         item_handlers=state_handler,
     )
     self._max_to_keep = options.local.max_to_keep
+    self._local_options = options.local
+    self._device_array = device_array
 
   def _global_list_union(
       self, steps: Sequence[int], devices: np.ndarray
@@ -269,7 +277,10 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     barrier_key = 'broadcast_interslice_' + str(next(_module_unique_count))
     barrier_key = multihost.utils._unique_barrier_key(barrier_key)  # pylint: disable=protected-access
     client.wait_at_barrier(
-        barrier_key, process_ids=barrier_processes, timeout_in_ms=10000
+        barrier_key,
+        process_ids=barrier_processes,
+        timeout_in_ms=self._local_options.interslice_coordination_timeout
+        * 1000,
     )
 
     per_slice_steps = client.key_value_dir_get(dir_key)
@@ -290,6 +301,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
       steps: a list of steps known to all hosts on a slice
     """
     unioned_steps = self._global_list_union_interslice(steps)
+    logging.info('After inter-slice broadcast, found steps: %s.', unioned_steps)
     return np.asarray(list(unioned_steps))
 
   def common_steps_within_slice(self, steps: Sequence[int]) -> np.ndarray:
@@ -325,12 +337,18 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
           f' len(result steps) {result} exceeded length of input steps {steps}'
       )
 
+    logging.info('After intra-slice broadcast, found steps: %s.', result)
     return np.asarray(_pad_steps(list(result), len(steps)))
 
   def local_host_steps(self, read: bool) -> Sequence[int]:
     """Returns steps known to local host."""
     # List of steps present in individual host storage.
     local_steps = list(super().all_steps(read))
+    logging.info(
+        'Found steps: %s in local host storage: %s.',
+        local_steps,
+        self.directory,
+    )
 
     if len(local_steps) > self._max_to_keep:
       raise AssertionError(
@@ -399,7 +417,6 @@ class CheckpointManager(
       # to evaluate whether arbitrary items can be a good fit for local
       # checkpointing, given restore+broadcast requirements.
       local_state_handler: CheckpointHandler,
-      persistent_state_handler: CheckpointHandler,
       *,
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[dict[str, Any]] = None,
@@ -415,7 +432,6 @@ class CheckpointManager(
     self._local_directory = local_directory
     self._local_state_handler = local_state_handler
     self._persistent_directory = persistent_directory
-    self._persistent_state_handler = persistent_state_handler
     self._options = options
     self._metadata = metadata
     self._persistent_primary_host = global_mesh.devices[0].flat[0].process_index
@@ -461,7 +477,10 @@ class CheckpointManager(
               self._persistent_directory,
               options=persistent_options,
               metadata=self._metadata,
-              item_handlers=self._persistent_state_handler,
+              item_handlers=PyTreeCheckpointHandler(
+                  use_ocdbt=True,
+                  use_zarr3=True,
+              ),
           )
       )
     else:
@@ -605,7 +624,7 @@ class CheckpointManager(
 
   def reload(self):
     """Performs disk reads to ensure internal properties are up to date."""
-    if self._local_primary_host:
+    if self.in_primary_slice:
       self._persistent_checkpoint_manager.reload()
     else:
       self._local_checkpoint_manager.reload()
@@ -838,7 +857,10 @@ class CheckpointManager(
         self._persistent_directory,
         options=persistent_options,
         metadata=self._metadata,
-        item_handlers=self._persistent_state_handler,
+        item_handlers=PyTreeCheckpointHandler(
+            use_ocdbt=True,
+            use_zarr3=True,
+        ),
     ) as pcm:
       return pcm.restore(step, args=args, directory=directory)
 
