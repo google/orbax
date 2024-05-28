@@ -639,10 +639,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     logging.info(
         'CheckpointManager created, jax.process_index=%s, primary_host=%s,'
-        ' CheckpointManagerOptions=%s: %s',
+        ' CheckpointManagerOptions=%s, root_directory=%s: %s',
         multihost.process_index(),
         self._multiprocessing_options.primary_host,
         self._options,
+        self.directory,
         self,
     )
 
