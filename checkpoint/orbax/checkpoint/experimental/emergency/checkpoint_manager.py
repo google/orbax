@@ -828,8 +828,8 @@ class CheckpointManager(
         step_name_format=self._options.step_name_format,
         create=False,
         cleanup_tmp_directories=False,
-        async_options=self._options.async_options,
         read_only=True,
+        enable_async_checkpointing=False,
         multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
             barrier_sync_key_prefix='persistent_global',
         ),

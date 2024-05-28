@@ -92,8 +92,14 @@ class _AsyncManager:
       directory: epath.Path,
       commit_futures: Sequence[future_lib.Future],
       on_commit_callback: Callable[[], None],
+      unique_operation_id: int,
   ):
     """Awaits on commit futures and finalizes the checkpoint."""
+    # The unique_operation_id allows pre-selecting an identifier to use for the
+    # barriers in this background thread. If we have multiple background
+    # threads running concurrently, relying on _module_unique_count can result
+    # in deadlocks when threads on different processes arrive at the barriers
+    # in a certain order.
     try:
       current_process = multihost.process_index()
       process_count = jax.process_count()
@@ -128,7 +134,7 @@ class _AsyncManager:
             multihost.unique_barrier_key(
                 'async_write_complete',
                 prefix=self._barrier_sync_key_prefix,
-                suffix=f'{directory.name}.{next(_module_unique_count)}',
+                suffix=f'{directory.name}.{unique_operation_id}',
             )
         )
 
@@ -140,7 +146,7 @@ class _AsyncManager:
             multihost.unique_barrier_key(
                 'async_commit_complete',
                 prefix=self._barrier_sync_key_prefix,
-                suffix=f'{directory.name}.{next(_module_unique_count)}',
+                suffix=f'{directory.name}.{unique_operation_id}',
             )
         )
 
@@ -157,11 +163,17 @@ class _AsyncManager:
       directory: epath.Path,
       commit_futures: Sequence[future_lib.Future],
       on_commit_callback: Callable[[], None],
+      unique_operation_id: int,
   ):
     """Completes checkpoint save in a background thread."""
     self._thread = threading.Thread(
         target=self._thread_func,
-        args=(directory, commit_futures, on_commit_callback),
+        args=(
+            directory,
+            commit_futures,
+            on_commit_callback,
+            unique_operation_id,
+        ),
     )
     self._thread.start()
 
@@ -197,6 +209,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   Please see `Checkpointer` documentation for more generic usage instructions.
   """
 
+  _handler: async_checkpoint_handler.AsyncCheckpointHandler
+
   # Options mirror checkpoint_manager.AsyncOptions.
   def __init__(
       self,
@@ -224,6 +238,12 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     self._primary_host = primary_host
     self._active_processes = active_processes
     self._post_finalization_callback = post_finalization_callback
+    unique_class_id = next(_module_unique_count)
+    barrier_sync_key_prefix = (
+        f'{unique_class_id}'
+        if barrier_sync_key_prefix is None
+        else f'{barrier_sync_key_prefix}.{unique_class_id}'
+    )
     self._barrier_sync_key_prefix = barrier_sync_key_prefix
     self._path_permission_mode = path_permission_mode  # e.g. 0o750
 
@@ -235,6 +255,9 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         primary_host=primary_host,
         barrier_sync_key_prefix=barrier_sync_key_prefix,
     )
+
+  def _unique_operation_id(self) -> int:
+    return next(_module_unique_count)
 
   def save(
       self, directory: epath.PathLike, *args, force: bool = False, **kwargs
@@ -296,7 +319,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       _on_commit_callback(tmpdir, directory, checkpoint_start_time)
 
     self._async_manager.start_async_commit(
-        directory, commit_futures=commit_ops, on_commit_callback=_callback
+        directory,
+        commit_futures=commit_ops,
+        on_commit_callback=_callback,
+        unique_operation_id=self._unique_operation_id(),
     )
 
     jax.monitoring.record_event_duration_secs(

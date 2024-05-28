@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Introduce `FileOptions` as CheckpointManagerOptions attribute.
 
+### Fixed
+- Deadlock observed when using multiple AsyncCheckpointers at once.
+
 ## [0.5.14] - 2024-05-23
 
 ### Changed

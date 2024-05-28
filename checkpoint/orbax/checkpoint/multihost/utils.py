@@ -203,7 +203,7 @@ def sync_global_processes(
   sync_start_time = time.time()
   # Temporarily default to existing behavior to minimize risk of breakage.
   if processes is None:
-    multihost_utils.sync_global_devices(name)
+    multihost_utils.sync_global_devices(_unique_barrier_key(name))
   else:
     barrier_sync_fn = barrier_sync_fn or get_barrier_sync_fn(
         processes=processes
