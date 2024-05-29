@@ -375,7 +375,9 @@ class MetadataTest(parameterized.TestCase):
   def test_checkpoint_metadata_based_fields(self):
     step_path = self.directory / 'step_1'
     step_path.mkdir(parents=True, exist_ok=True)
-    checkpoint.checkpoint_metadata_store(enable_write=True).write(
+    checkpoint.checkpoint_metadata_store(
+        enable_write=True, blocking_write=True
+    ).write(
         step_path,
         checkpoint.CheckpointMetadata(
             init_timestamp_nsecs=1, commit_timestamp_nsecs=2

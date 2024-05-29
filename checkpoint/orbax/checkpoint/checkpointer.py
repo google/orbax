@@ -27,6 +27,7 @@ from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import multihost
 from orbax.checkpoint import utils
+from orbax.checkpoint.metadata import checkpoint
 from typing_extensions import Self  # for Python version < 3.11
 
 
@@ -101,6 +102,9 @@ class Checkpointer(
       active_processes: Optional[Set[int]] = None,
       barrier_sync_key_prefix: Optional[str] = None,
       path_permission_mode: Optional[int] = None,
+      checkpoint_metadata_store: Optional[
+          checkpoint.CheckpointMetadataStore
+      ] = None,
   ):
     if not checkpoint_args.has_registered_args(handler):
       logging.warning(
@@ -113,6 +117,16 @@ class Checkpointer(
     self._active_processes = active_processes
     self._barrier_sync_key_prefix = barrier_sync_key_prefix
     self._path_permission_mode = path_permission_mode  # e.g. 0o750
+
+    # If not provided then use checkpoint_metadata_store with blocking writes.
+    self._checkpoint_metadata_store = (
+        checkpoint_metadata_store
+        or checkpoint.checkpoint_metadata_store(
+            enable_write=True, blocking_write=True
+        )
+    )
+    if not self._checkpoint_metadata_store.is_blocking_writer():
+      raise ValueError('Checkpoint metadata store must be blocking writer.')
 
     jax.monitoring.record_event('/jax/orbax/checkpointer/init')
 
@@ -154,6 +168,7 @@ class Checkpointer(
         active_processes=self._active_processes,
         barrier_sync_key_prefix=self._barrier_sync_key_prefix,
         path_permission_mode=self._path_permission_mode,
+        checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
     ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)
     self._handler.save(tmpdir, args=ckpt_args)
@@ -169,7 +184,12 @@ class Checkpointer(
     # Ensure save operation atomicity and record time saved by checkpoint.
     if utils.is_primary_host(self._primary_host):
       self._handler.finalize(tmpdir)
-      utils.on_commit_callback(tmpdir, directory, checkpoint_start_time)
+      utils.on_commit_callback(
+          tmpdir,
+          directory,
+          checkpoint_start_time,
+          self._checkpoint_metadata_store,
+      )
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
             'Checkpointer:finalize',
@@ -208,6 +228,7 @@ class Checkpointer(
   def close(self):
     """Closes the underlying CheckpointHandler."""
     self._handler.close()
+    self._checkpoint_metadata_store.close()
 
   @property
   def handler(self) -> checkpoint_handler.CheckpointHandler:

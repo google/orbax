@@ -41,6 +41,7 @@ from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import step_statistics
+from orbax.checkpoint.metadata import checkpoint
 from orbax.checkpoint.path import deleter
 from orbax.checkpoint.path import step as step_lib
 from typing_extensions import Self  # for Python version < 3.11
@@ -569,6 +570,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           '`item_handlers` in single item mode and `item_names` should not be'
           ' provided together.'
       )
+    # For async_checkpointer.
+    self._non_blocking_checkpoint_metadata_store = (
+        checkpoint.checkpoint_metadata_store(enable_write=True)
+    )
+    # For metadata checkpointer and regular checkpointer.
+    self._blocking_checkpoint_metadata_store = (
+        checkpoint.checkpoint_metadata_store(
+            enable_write=True, blocking_write=True
+        )
+    )
     if checkpointers:
       logging.warning(
           'Configured `CheckpointManager` using deprecated legacy API. Please'
@@ -617,6 +628,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         active_processes=self._multiprocessing_options.active_processes,
         barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
         path_permission_mode=self._options.file_options.path_permission_mode,
+        checkpoint_metadata_store=self._blocking_checkpoint_metadata_store,
     )
     if self._options.read_only and not self._metadata_path().exists():
       self._metadata = {} if metadata is None else metadata
@@ -663,6 +675,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
             post_finalization_callback=options.async_options.post_finalization_callback,
             path_permission_mode=options.file_options.path_permission_mode,
+            checkpoint_metadata_store=self._non_blocking_checkpoint_metadata_store,
         )
       else:
         return async_checkpointer.AsyncCheckpointer(
@@ -671,6 +684,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             active_processes=self._multiprocessing_options.active_processes,
             barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
             path_permission_mode=options.file_options.path_permission_mode,
+            checkpoint_metadata_store=self._non_blocking_checkpoint_metadata_store,
         )
     else:
       return Checkpointer(
@@ -679,6 +693,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           active_processes=self._multiprocessing_options.active_processes,
           barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
           path_permission_mode=options.file_options.path_permission_mode,
+          checkpoint_metadata_store=self._blocking_checkpoint_metadata_store,
       )
 
   def _configure_checkpointer_legacy_init(
@@ -1474,7 +1489,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   def wait_until_finished(self):
     """See superclass documentation."""
     t = self._finalize_thread
-    latest_step = self.latest_step()
     if t is not None:
       self._finalize_thread = None
       try:
@@ -1542,6 +1556,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def _finalize(self, directory: epath.Path, steps_to_remove: List[int]):
     """Cleans up old checkpoints and synchronizes hosts."""
+    self._non_blocking_checkpoint_metadata_store.wait_until_finished()
     self._wait_for_checkpointers()
     # If an error is encountered while waiting for commit futures to complete,
     # we will not proceed past this point.
@@ -1557,6 +1572,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """See superclass documentation."""
     self.wait_until_finished()
     self._checkpointer.close()
+    # Call after checkpointer.close().
+    self._non_blocking_checkpoint_metadata_store.close()
+    self._blocking_checkpoint_metadata_store.close()
     self._checkpoint_deleter.close()
 
   def __contextmanager__(

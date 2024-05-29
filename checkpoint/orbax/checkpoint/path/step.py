@@ -556,6 +556,9 @@ def create_tmp_directory(
     active_processes: Optional[Set[int]] = None,
     barrier_sync_key_prefix: Optional[str] = None,
     path_permission_mode: Optional[int] = None,
+    checkpoint_metadata_store: Optional[
+        checkpoint.CheckpointMetadataStore
+    ] = None,
 ) -> epath.Path:
   """Creates a non-deterministic tmp directory for saving for given `final_dir`.
 
@@ -570,6 +573,9 @@ def create_tmp_directory(
       0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
         path is supported. default=None.
+    checkpoint_metadata_store: optional `CheckpointMetadataStore` instance. If
+      present then it is used to create `CheckpointMetadata` with current
+      timestamp.
 
   Returns:
     The tmp directory.
@@ -616,12 +622,13 @@ def create_tmp_directory(
     if path_permission_mode is not None:
       mode = path_permission_mode
     tmp_dir.mkdir(parents=True, mode=mode)
-    checkpoint.checkpoint_metadata_store(enable_write=True).write(
-        checkpoint_path=tmp_dir,
-        checkpoint_metadata=checkpoint.CheckpointMetadata(
-            init_timestamp_nsecs=time.time_ns()
-        ),
-    )
+    if checkpoint_metadata_store is not None:
+      checkpoint_metadata_store.write(
+          checkpoint_path=tmp_dir,
+          checkpoint_metadata=checkpoint.CheckpointMetadata(
+              init_timestamp_nsecs=time.time_ns()
+          ),
+      )
 
   multihost.sync_global_processes(
       multihost.unique_barrier_key(

@@ -445,6 +445,9 @@ def on_commit_callback(
     temp_ckpt_dir: epath.Path,
     final_ckpt_dir: epath.Path,
     checkpoint_start_time: float,
+    checkpoint_metadata_store: Optional[
+        checkpoint.CheckpointMetadataStore
+    ] = None,
 ):
   """To commit save operation, atomically finalizes step dir.
 
@@ -459,12 +462,17 @@ def on_commit_callback(
       checkpoint. Should not exist yet if atomicity is ensured via `rename`, but
       may exist if atomicity is ensured by writing a commit success file.
     checkpoint_start_time: The time at which checkpoint saving began.
+    checkpoint_metadata_store: `CheckpointMetadataStore` to update commit
+      timestamp in step level metadata.
   """
-  ensure_atomic_save(
-      temp_ckpt_dir,
-      final_ckpt_dir,
-      checkpoint.checkpoint_metadata_store(enable_write=True),
+  # If not provided then use checkpoint_metadata_store with blocking writes.
+  checkpoint_metadata_store = (
+      checkpoint_metadata_store
+      or checkpoint.checkpoint_metadata_store(
+          enable_write=True, blocking_write=True
+      )
   )
+  ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir, checkpoint_metadata_store)
   step_lib.record_saved_duration(checkpoint_start_time)
   logging.info('Finished saving checkpoint to `%s`.', final_ckpt_dir)
 

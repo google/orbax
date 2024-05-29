@@ -29,6 +29,7 @@ from orbax.checkpoint import checkpointer
 from orbax.checkpoint import future as future_lib
 from orbax.checkpoint import multihost
 from orbax.checkpoint import utils
+from orbax.checkpoint.metadata import checkpoint
 
 
 BarrierSyncFn = multihost.BarrierSyncFn
@@ -40,9 +41,18 @@ def _on_commit_callback(
     temp_ckpt_dir: epath.Path,
     final_ckpt_dir: epath.Path,
     checkpoint_start_time: float,
+    checkpoint_metadata_store: checkpoint.CheckpointMetadataStore,
 ):
   """Finalize atomic save and record checkpoint save metrics."""
-  utils.on_commit_callback(temp_ckpt_dir, final_ckpt_dir, checkpoint_start_time)
+  # Commit init metadata to tmp dir before it gets renamed by
+  # utils.on_commit_callback.
+  checkpoint_metadata_store.wait_until_finished()
+  utils.on_commit_callback(
+      temp_ckpt_dir,
+      final_ckpt_dir,
+      checkpoint_start_time,
+      checkpoint_metadata_store,
+  )
   jax.monitoring.record_event_duration_secs(
       '/jax/checkpoint/write/async/total_duration_secs',
       time.time() - checkpoint_start_time,
@@ -223,6 +233,9 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       barrier_sync_key_prefix: Optional[str] = None,
       post_finalization_callback: Optional[Callable[[], None]] = None,
       path_permission_mode: Optional[int] = None,
+      checkpoint_metadata_store: Optional[
+          checkpoint.CheckpointMetadataStore
+      ] = None,
   ):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
     if not checkpoint_args.has_registered_args(handler):
@@ -246,6 +259,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
     self._barrier_sync_key_prefix = barrier_sync_key_prefix
     self._path_permission_mode = path_permission_mode  # e.g. 0o750
+    self._checkpoint_metadata_store = (
+        checkpoint_metadata_store
+        or checkpoint.checkpoint_metadata_store(enable_write=True)
+    )
 
     # TODO(dicentra): consider folding into AsyncCheckpointer directly.
     self._async_manager = _AsyncManager(
@@ -299,6 +316,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         active_processes=self._active_processes,
         barrier_sync_key_prefix=self._barrier_sync_key_prefix,
         path_permission_mode=self._path_permission_mode,
+        checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
 
     logging.info('Async saving checkpoint to %s.', directory)
@@ -316,7 +334,12 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       self._handler.finalize(tmpdir)
       if self._post_finalization_callback is not None:
         self._post_finalization_callback()
-      _on_commit_callback(tmpdir, directory, checkpoint_start_time)
+      _on_commit_callback(
+          tmpdir,
+          directory,
+          checkpoint_start_time,
+          self._checkpoint_metadata_store,
+      )
 
     self._async_manager.start_async_commit(
         directory,
@@ -338,15 +361,18 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   def check_for_errors(self):
     """Surfaces any errors from the background commit operations."""
     self._async_manager.check_for_errors()
+    self._checkpoint_metadata_store.wait_until_finished()
 
   def wait_until_finished(self):
     """Waits for any outstanding operations to finish."""
     self._async_manager.wait_until_finished()
+    self._checkpoint_metadata_store.wait_until_finished()
 
   def close(self):
     """Waits to finish any outstanding operations before closing."""
     self.wait_until_finished()
     super().close()
+    self._checkpoint_metadata_store.close()
 
   @property
   def handler(self) -> async_checkpoint_handler.AsyncCheckpointHandler:

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Introduce `FileOptions` as CheckpointManagerOptions attribute.
+- Support non blocking CheckpointMetadataStore.write.
 
 ### Fixed
 - Deadlock observed when using multiple AsyncCheckpointers at once.
