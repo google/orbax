@@ -229,6 +229,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         ),
         enable_async_checkpointing=options.enable_async_checkpointing,
         read_only=options.local.read_only,
+        single_host_load_and_broadcast=False,
     )
     super().__init__(
         directory,
