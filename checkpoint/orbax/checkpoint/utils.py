@@ -315,8 +315,8 @@ def from_flat_dict(
     # Ensure that the ordering of `flat_dict` keys matches that of `target`.
     # Necessary for later unflattening.
     flat_dict = {k: flat_dict[k] for k in flat_structure.keys()}
-    return jax.tree_util.tree_unflatten(
-        jax.tree_util.tree_structure(target), flat_dict.values()
+    return jax.tree.unflatten(
+        jax.tree.structure(target), flat_dict.values()
     )
 
 
@@ -352,7 +352,7 @@ def name_from_leaf_placeholder(placeholder: str) -> str:
 def all_leaves_are_placeholders(tree: PyTree) -> bool:
   """Determines if all leaves in `tree` are placeholders."""
   return all(
-      leaf_is_placeholder(leaf) for leaf in jax.tree_util.tree_leaves(tree)
+      leaf_is_placeholder(leaf) for leaf in jax.tree.leaves(tree)
   )
 
 
@@ -550,7 +550,7 @@ def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
 
 
 def _sum(x, replica_axis_index):
-  return jax.tree_util.tree_map(
+  return jax.tree.map(
       functools.partial(jnp.sum, axis=replica_axis_index), x
   )
 
@@ -593,17 +593,17 @@ def broadcast_one_replica_to_all(
         global_shape, global_sharding, [s.data for s in inp.addressable_shards]
     )
 
-  out_sharding = jax.tree_util.tree_map(
+  out_sharding = jax.tree.map(
       lambda x: jax.sharding.NamedSharding(
           global_mesh, jax.sharding.PartitionSpec(*x.sharding.spec)
       ),
       in_tree,
   )
-  in_tree_sharded = jax.tree_util.tree_map(
+  in_tree_sharded = jax.tree.map(
       pre_jit, in_tree, per_replica_shardings
   )
   # Delete immediately to conserve memory.
-  jax.tree_util.tree_map(lambda x: x.delete(), in_tree)
+  jax.tree.map(lambda x: x.delete(), in_tree)
   out_tree = jax.jit(
       functools.partial(_sum, replica_axis_index=replica_axis_index),
       out_shardings=out_sharding,

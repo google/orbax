@@ -81,7 +81,7 @@ class StandardCheckpointHandler(
     if item is None:
       raise ValueError('Must provide item to save.')
     if save_args is None:
-      save_args = jax.tree_util.tree_map(lambda x: None, item)
+      save_args = jax.tree.map(lambda x: None, item)
 
     def _check_input(k, x, arg):
       if arg is not None:

@@ -91,7 +91,7 @@ def apply_function(tree, function):
   def f(arr):
     return pjit.pjit(function)(arr)
 
-  return jax.tree_util.tree_map(f, tree)
+  return jax.tree.map(f, tree)
 
 
 def assert_array_equal(testclass, v_expected, v_actual):
@@ -116,7 +116,7 @@ def assert_tree_equal(testclass, expected, actual):
   expected_flat = utils.to_flat_dict(expected)
   actual_flat = utils.to_flat_dict(actual)
   testclass.assertSameElements(expected_flat.keys(), actual_flat.keys())
-  jax.tree_util.tree_map(
+  jax.tree.map(
       functools.partial(assert_array_equal, testclass), expected, actual
   )
 
@@ -131,7 +131,7 @@ def setup_pytree(add: int = 0):
           'e': np.arange(16).reshape((4, 4)) * 4,
       },
   }
-  pytree = jax.tree_util.tree_map(lambda x: x + add, pytree, is_leaf=is_leaf)
+  pytree = jax.tree.map(lambda x: x + add, pytree, is_leaf=is_leaf)
   return pytree
 
 
@@ -179,7 +179,7 @@ def setup_sharded_pytree(
       },
   }
 
-  pytree = jax.tree_util.tree_map(
+  pytree = jax.tree.map(
       create_sharded_array, pytree, mesh_tree, axes_tree, is_leaf=is_leaf
   )
   return pytree, mesh_tree, axes_tree
@@ -222,7 +222,7 @@ def select_single_replica(
         jax.sharding.PartitionSpec(*sharding.spec),  # exclude 'replica' axis
     )
 
-  single_slice_shardings = jax.tree_util.tree_map(
+  single_slice_shardings = jax.tree.map(
       _get_single_slice_sharding,
       arrays,
   )
@@ -237,7 +237,7 @@ def select_single_replica(
         arr.shape, single_slice_sharding, data
     )
 
-  return jax.tree_util.tree_map(
+  return jax.tree.map(
       _make_single_slice_array, arrays, single_slice_shardings
   )
 

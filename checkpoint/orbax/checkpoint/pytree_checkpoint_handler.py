@@ -191,7 +191,7 @@ def _get_restore_parameters(
   """
   flat_structure = utils.to_flat_dict(structure, keep_empty_nodes=True)
   if restore_args is None:
-    restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), structure)
+    restore_args = jax.tree.map(lambda x: RestoreArgs(), structure)
   flat_restore_args = utils.to_flat_dict(restore_args, keep_empty_nodes=True)
   flat_param_infos = {}
   flat_input_restore_args = {}
@@ -297,7 +297,7 @@ def _multi_value_fns_with_args(
     else:
       return transform
 
-  return jax.tree_util.tree_map(_maybe_wrap_transform, transforms)
+  return jax.tree.map(_maybe_wrap_transform, transforms)
 
 
 def _transform_checkpoint(
@@ -474,7 +474,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       # allow for greater file read/write efficiency (and potentially less)
       # wasted space). With OCDBT format active, this parameter is obsolete.
       save_args =
-        jax.tree_util.tree_map(
+        jax.tree.map(
             lambda x: SaveArgs(aggregate=x.size < some_size), item)
       # Eventually calls through to `async_save`.
       ckptr.save(path, item, save_args)
@@ -579,7 +579,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
               'b': jax.Array(...),  # zeros
           },
       )
-      restore_args = jax.tree_util.tree_map(_make_restore_args, train_state)
+      restore_args = jax.tree.map(_make_restore_args, train_state)
       ckptr.restore(path, item=train_state, restore_args=restore_args)
       # restored tree is of type `TrainState`.
 
@@ -667,7 +667,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if legacy_transform_fn is not None:
       structure, param_infos = legacy_transform_fn(item, structure, param_infos)
       if restore_args is None:
-        restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), item)
+        restore_args = jax.tree.map(lambda x: RestoreArgs(), item)
       checkpoint_restore_args = restore_args
 
     def _maybe_set_default_restore_types(
@@ -681,7 +681,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     # If metadata file was missing in the checkpoint, we need to decide
     # restore_type based on RestoreArgs.
-    structure = jax.tree_util.tree_map(
+    structure = jax.tree.map(
         _maybe_set_default_restore_types, structure, checkpoint_restore_args
     )
 
@@ -704,7 +704,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       logging.debug('param_infos: %s', param_infos)
       logging.debug('checkpoint_restore_args: %s', checkpoint_restore_args)
       logging.debug(
-          'restored_item: %s', jax.tree_util.tree_structure(restored_item)
+          'restored_item: %s', jax.tree.structure(restored_item)
       )
       logging.debug(
           'ts_metrics: %s',

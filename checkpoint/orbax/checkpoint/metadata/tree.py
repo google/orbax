@@ -242,7 +242,7 @@ class TreeMetadata:
   ) -> 'TreeMetadata':
     """Builds the tree metadata."""
     if save_args is None:
-      save_args = jax.tree_util.tree_map(
+      save_args = jax.tree.map(
           lambda _: type_handlers.SaveArgs(),
           tree,
           is_leaf=utils.is_empty_or_leaf,

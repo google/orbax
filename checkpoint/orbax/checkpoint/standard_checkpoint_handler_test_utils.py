@@ -56,7 +56,7 @@ def init_flax_model(model):
   state = flax.training.train_state.TrainState.create(
       apply_fn=model.apply, params=params, tx=tx
   )
-  return jax.tree_util.tree_map(np.asarray, state)
+  return jax.tree.map(np.asarray, state)
 
 
 class StandardCheckpointHandlerTestBase:
@@ -73,7 +73,7 @@ class StandardCheckpointHandlerTestBase:
 
       self.numpy_pytree = test_utils.setup_pytree()
       pytree, _, _ = test_utils.setup_sharded_pytree(self.numpy_pytree)
-      zeros_pytree = jax.tree_util.tree_map(
+      zeros_pytree = jax.tree.map(
           np.zeros_like,
           self.numpy_pytree,
           is_leaf=test_utils.is_leaf,
@@ -136,7 +136,7 @@ class StandardCheckpointHandlerTestBase:
       restored = self.handler.restore(
           self.directory,
           args=self.restore_args_cls(
-              jax.tree_util.tree_map(
+              jax.tree.map(
                   utils.to_shape_dtype_struct, self.mixed_pytree
               )
           ),
@@ -147,7 +147,7 @@ class StandardCheckpointHandlerTestBase:
       def _save_args(arr):
         return SaveArgs(aggregate=(np.asarray(arr).ndim < 2))
 
-      save_args = jax.tree_util.tree_map(_save_args, self.numpy_pytree)
+      save_args = jax.tree.map(_save_args, self.numpy_pytree)
       with self.assertRaisesRegex(ValueError, 'Unsupported option `aggregate`'):
         self.handler.save(
             self.directory,
@@ -169,7 +169,7 @@ class StandardCheckpointHandlerTestBase:
       """Test case."""
       # TODO(dicentra): casting from int dtypes currently doesn't work
       # in the model surgery context.
-      save_args = jax.tree_util.tree_map(
+      save_args = jax.tree.map(
           lambda _: SaveArgs(dtype=jnp.float32), self.pytree
       )
       self.handler.save(
@@ -177,7 +177,7 @@ class StandardCheckpointHandlerTestBase:
           args=self.save_args_cls(self.pytree, save_args=save_args),
       )
       metadata = self.handler.metadata(self.directory)
-      jax.tree_util.tree_map(
+      jax.tree.map(
           lambda m: self.assertEqual(m.dtype, jnp.float32), metadata
       )
 
@@ -187,7 +187,7 @@ class StandardCheckpointHandlerTestBase:
         else:
           self.assertEqual(x.dtype, dtype)
 
-      pytree = jax.tree_util.tree_map(
+      pytree = jax.tree.map(
           functools.partial(
               utils.to_shape_dtype_struct,
               dtype=jnp.bfloat16,
@@ -199,7 +199,7 @@ class StandardCheckpointHandlerTestBase:
           self.directory,
           args=self.restore_args_cls(pytree),
       )
-      jax.tree_util.tree_map(lambda x: check_dtype(x, jnp.bfloat16), restored)
+      jax.tree.map(lambda x: check_dtype(x, jnp.bfloat16), restored)
 
     def test_flax_model(self):
       """Test case."""
@@ -218,11 +218,11 @@ class StandardCheckpointHandlerTestBase:
       params = make_params()
       mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
       mesh_axes = jax.sharding.PartitionSpec()
-      params = jax.tree_util.tree_map(
+      params = jax.tree.map(
           lambda arr: test_utils.create_sharded_array(arr, mesh, mesh_axes),
           params,
       )
-      target = jax.tree_util.tree_map(utils.to_shape_dtype_struct, params)
+      target = jax.tree.map(utils.to_shape_dtype_struct, params)
 
       self.handler.save(self.directory, args=self.save_args_cls(params))
       restored = self.handler.restore(
@@ -286,7 +286,7 @@ class StandardCheckpointHandlerTestBase:
       restored = self.handler.restore(
           self.directory,
           args=self.restore_args_cls(
-              jax.tree_util.tree_map(utils.to_shape_dtype_struct, self.pytree)
+              jax.tree.map(utils.to_shape_dtype_struct, self.pytree)
           ),
       )
       test_utils.assert_tree_equal(self, expected, restored)
@@ -295,7 +295,7 @@ class StandardCheckpointHandlerTestBase:
       restored = self.handler.restore(
           self.directory,
           args=self.restore_args_cls(
-              jax.tree_util.tree_map(utils.to_shape_dtype_struct, masked_tree)
+              jax.tree.map(utils.to_shape_dtype_struct, masked_tree)
           ),
       )
       test_utils.assert_tree_equal(self, expected, restored)

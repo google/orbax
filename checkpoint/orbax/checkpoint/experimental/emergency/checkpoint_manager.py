@@ -740,7 +740,7 @@ class CheckpointManager(
 
     is_restoring_slice = restoring_slice_id == self._slice_id
 
-    shape_dtypes, tree_defs = jax.tree_util.tree_flatten(self._abstract_state)
+    shape_dtypes, tree_defs = jax.tree.flatten(self._abstract_state)
 
     def _get_single_slice_sharding(
         mesh: jax.sharding.Mesh,
@@ -751,14 +751,14 @@ class CheckpointManager(
       ss_sharding = jax.sharding.NamedSharding(slice_mesh, pspec)
       return ss_sharding
 
-    single_slice_shardings = jax.tree_util.tree_map(
+    single_slice_shardings = jax.tree.map(
         lambda arr: _get_single_slice_sharding(
             mesh=arr.sharding.mesh,
             pspec=arr.sharding.spec,
         ),
         self._abstract_state,
     )
-    single_replica_shardings_tuple = jax.tree_util.tree_flatten(
+    single_replica_shardings_tuple = jax.tree.flatten(
         single_slice_shardings
     )[0]
 
@@ -766,7 +766,7 @@ class CheckpointManager(
       logging.debug(
           'emergency.CheckpointManager: restoring from local checkpoint.'
       )
-      ss_args = jax.tree_util.tree_map(
+      ss_args = jax.tree.map(
           lambda ss_shard, arr: type_handlers.ArrayRestoreArgs(
               sharding=ss_shard,
               global_shape=arr.shape,  # sigle-slice sharding
@@ -792,7 +792,7 @@ class CheckpointManager(
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
           args=dataclasses.replace(args, restore_args=ss_args),
       )
-      in_tree = tuple(jax.tree_util.tree_flatten(single_slice_pytree)[0])
+      in_tree = tuple(jax.tree.flatten(single_slice_pytree)[0])
     else:
       logging.debug(
           'emergency.CheckpointManager: secondary slice, create zeros and'
@@ -805,7 +805,7 @@ class CheckpointManager(
           out_shardings=tuple(single_replica_shardings_tuple),
       )
       def create_zeros(shape_dtype_tup):
-        return jax.tree_util.tree_map(
+        return jax.tree.map(
             lambda sd: jnp.zeros(sd.shape, dtype=sd.dtype), shape_dtype_tup
         )
 
@@ -827,7 +827,7 @@ class CheckpointManager(
     )
     logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
 
-    return jax.tree_util.tree_unflatten(tree_defs, shared_states)
+    return jax.tree.unflatten(tree_defs, shared_states)
 
   def _restore_from_persistent_cm(
       self,

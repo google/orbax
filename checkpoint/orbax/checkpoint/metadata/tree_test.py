@@ -92,7 +92,7 @@ class TreeMetadataTest(absltest.TestCase):
     )
 
   def test_aggregate_option(self):
-    save_args = jax.tree_util.tree_map(
+    save_args = jax.tree.map(
         lambda x: type_handlers.SaveArgs(), self.tree
     )
     save_args['a'] = type_handlers.SaveArgs(aggregate=True)

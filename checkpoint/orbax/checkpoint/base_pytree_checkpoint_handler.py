@@ -168,7 +168,7 @@ def _get_restore_parameters(
   """
   flat_structure = utils.to_flat_dict(structure, keep_empty_nodes=True)
   if restore_args is None:
-    restore_args = jax.tree_util.tree_map(lambda x: RestoreArgs(), structure)
+    restore_args = jax.tree.map(lambda x: RestoreArgs(), structure)
   flat_param_infos = {}
   is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
 
@@ -221,7 +221,7 @@ def _get_tree_for_aggregation(param_infos, save_args, item):
     else:  # Placeholder string for non-aggregated value.
       return utils.leaf_placeholder(param_info.name)
 
-  return jax.tree_util.tree_map(
+  return jax.tree.map(
       _get_leaf_for_aggregation, param_infos, save_args, item
   )
 
@@ -438,7 +438,7 @@ class BasePyTreeCheckpointHandler(
       )
 
     return (
-        jax.tree_util.tree_map(
+        jax.tree.map(
             _param_info, item, names, save_args, is_leaf=utils.is_empty_or_leaf
         ),
         all_params_aggregated,
@@ -482,7 +482,7 @@ class BasePyTreeCheckpointHandler(
       # allow for greater file read/write efficiency (and potentially less)
       # wasted space). With OCDBT format active, this parameter is obsolete.
       save_args =
-        jax.tree_util.tree_map(
+        jax.tree.map(
             lambda x: SaveArgs(aggregate=x.size < some_size), item)
       # Eventually calls through to `async_save`.
       ckptr.save(path, item, save_args)
@@ -519,7 +519,7 @@ class BasePyTreeCheckpointHandler(
       aggregate = not self._type_handler_registry.has(type(value))
       return SaveArgs(aggregate=aggregate)
 
-    save_args = jax.tree_util.tree_map(
+    save_args = jax.tree.map(
         _maybe_set_default_save_args,  # pylint: disable=protected-access
         item,
         item if save_args is None else save_args,
@@ -530,14 +530,14 @@ class BasePyTreeCheckpointHandler(
     )
     assert all(
         leaf.parent_dir == directory
-        for leaf in jax.tree_util.tree_leaves(param_infos)
+        for leaf in jax.tree.leaves(param_infos)
     )
     if not self._use_ocdbt and not all_params_aggregated:
       if utils.is_primary_host(self._primary_host):
         # Create directories in parallel.
         await asyncio.gather(
-            *jax.tree_util.tree_flatten(
-                jax.tree_util.tree_map(
+            *jax.tree.flatten(
+                jax.tree.map(
                     _create_param_save_dir,
                     param_infos,
                     save_args,
@@ -566,7 +566,7 @@ class BasePyTreeCheckpointHandler(
         ]
       # Await copy futures. Returns list of lists.
       commit_futures = await asyncio.gather(*serialize_ops)
-      commit_futures, _ = jax.tree_util.tree_flatten(commit_futures)
+      commit_futures, _ = jax.tree.flatten(commit_futures)
 
     if logging.level_debug():
       logging.debug('param_info: %s', param_infos)
@@ -628,7 +628,7 @@ class BasePyTreeCheckpointHandler(
       return value
 
     flat_aggregate = utils.to_flat_dict(
-        jax.tree_util.tree_map(
+        jax.tree.map(
             _process_aggregated_value, param_infos, structure, restore_args
         ),
     )
@@ -728,7 +728,7 @@ class BasePyTreeCheckpointHandler(
               'b': jax.Array(...),  # zeros
           },
       )
-      restore_args = jax.tree_util.tree_map(_make_restore_args, train_state)
+      restore_args = jax.tree.map(_make_restore_args, train_state)
       ckptr.restore(path, item=train_state, restore_args=restore_args)
       # restored tree is of type `TrainState`.
 
@@ -777,7 +777,7 @@ class BasePyTreeCheckpointHandler(
 
     # If metadata file was missing in the checkpoint, we need to decide
     # restore_type based on RestoreArgs.
-    structure = jax.tree_util.tree_map(
+    structure = jax.tree.map(
         _maybe_set_default_restore_types, structure, checkpoint_restore_args
     )
 
@@ -789,7 +789,7 @@ class BasePyTreeCheckpointHandler(
       logging.debug('param_infos: %s', param_infos)
       logging.debug('checkpoint_restore_args: %s', checkpoint_restore_args)
       logging.debug(
-          'restored_item: %s', jax.tree_util.tree_structure(restored_item)
+          'restored_item: %s', jax.tree.structure(restored_item)
       )
       logging.debug(
           'ts_metrics: %s',
@@ -892,7 +892,7 @@ class BasePyTreeCheckpointHandler(
       flat_metadata = None
       use_zarr3 = None
     if flat_metadata is None:
-      flat_metadata = jax.tree_util.tree_map(
+      flat_metadata = jax.tree.map(
           lambda _: None, flat_aggregate, is_leaf=utils.is_empty_or_leaf
       )
 

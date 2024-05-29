@@ -33,7 +33,7 @@ apply_transformations = transform_utils.apply_transformations
 
 
 def empty_pytree(tree):
-  return jax.tree_util.tree_map(lambda x: object(), tree)
+  return jax.tree.map(lambda x: object(), tree)
 
 
 # Not in common util because we need to eliminate OSS dependency on flax.
@@ -41,7 +41,7 @@ def init_flax_model(model):
   params = model.init(jax.random.PRNGKey(0), jnp.ones([8, 8]))
   tx = optax.adamw(learning_rate=0.001)
   state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-  return jax.tree_util.tree_map(np.asarray, state)
+  return jax.tree.map(np.asarray, state)
 
 
 class TransformUtilsTest(absltest.TestCase):
@@ -63,7 +63,7 @@ class TransformUtilsTest(absltest.TestCase):
     self.assertDictEqual({'a': 1}, apply_transformations({}, {}, {'a': 1}))
 
   def test_no_transform(self):
-    transforms = jax.tree_util.tree_map(lambda _: Transform(), self.original)
+    transforms = jax.tree.map(lambda _: Transform(), self.original)
     self.assertDictEqual(
         self.original,
         apply_transformations(self.original, transforms,
@@ -332,7 +332,7 @@ class TransformUtilsTest(absltest.TestCase):
     transforms = NewTree(
         a1=Transform(original_key='a'),
         b=Transform(multi_value_fn=lambda _, t: t.b * 2),
-        c=jax.tree_util.tree_map(lambda _: Transform(), tree.c),
+        c=jax.tree.map(lambda _: Transform(), tree.c),
         d=Transform(use_fallback=True),
         e=Transform(multi_value_fn=lambda _, t: t.c.y[0]),
         f=[
@@ -372,7 +372,7 @@ class TransformUtilsTest(absltest.TestCase):
       else:
         self.assertEqual(a, b)
 
-    jax.tree_util.tree_map(
+    jax.tree.map(
         assert_equal, expected_tree,
         apply_transformations(tree, transforms, fallback_tree))
 
@@ -566,7 +566,7 @@ class TransformUtilsTest(absltest.TestCase):
             two,
             three,
             four,
-            target=jax.tree_util.tree_map(lambda x: 0, expected),
+            target=jax.tree.map(lambda x: 0, expected),
         ),
     )
 

@@ -326,7 +326,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         self._handler, True, *args, **kwargs
     )
     commit_ops = asyncio.run(self._handler.async_save(tmpdir, args=ckpt_args))
-    commit_ops, _ = jax.tree_util.tree_flatten(commit_ops)
+    commit_ops, _ = jax.tree.flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
 
     # Directory is the final directory.

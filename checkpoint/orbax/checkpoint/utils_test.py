@@ -48,7 +48,7 @@ class UtilsTest(parameterized.TestCase):
       ({'a': 1, 'b': 2}, {('b',): 2, ('a',): 1}),
   )
   def test_from_flat_dict(self, expected, flat_dict):
-    empty = jax.tree_util.tree_map(lambda _: 0, expected)
+    empty = jax.tree.map(lambda _: 0, expected)
     self.assertDictEqual(
         expected, utils.from_flat_dict(flat_dict, target=empty)
     )

@@ -465,7 +465,7 @@ def construct_restore_args(
       raise ValueError(f'Unsupported type: {type(value)}')
 
   if sharding_tree is None:
-    sharding_tree = jax.tree_util.tree_map(
+    sharding_tree = jax.tree.map(
         lambda x: x.sharding if hasattr(x, 'sharding') else None, target
     )
-  return jax.tree_util.tree_map(_restore_args, target, sharding_tree)
+  return jax.tree.map(_restore_args, target, sharding_tree)

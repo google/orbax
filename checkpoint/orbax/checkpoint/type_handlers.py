@@ -1609,7 +1609,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
         jax.jit, static_argnums=0, out_shardings=tuple(single_replica_shardings)
     )
     def create_zeros(shape_dtype_tup):
-      return jax.tree_util.tree_map(
+      return jax.tree.map(
           lambda sd: jnp.zeros(sd.shape, dtype=sd.dtype), shape_dtype_tup
       )
 
