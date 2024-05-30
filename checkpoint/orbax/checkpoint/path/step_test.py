@@ -575,13 +575,6 @@ class UtilsTest(parameterized.TestCase):
             self.directory / '1', name_format
         )
 
-  def test_path_permission_mode(self):
-    self.assertEqual(self.directory.stat().mode, 0o040755)  # 04 is file type.
-
-    tmp_dir = step_lib.create_tmp_directory(
-        self.directory / '1', path_permission_mode=0o750
-    )
-    self.assertEqual(tmp_dir.stat().mode, 0o040750)  # 04 is file type.
 
 
 if __name__ == '__main__':

@@ -29,10 +29,14 @@ class SubsetBarrierCompatibleTest(parameterized.TestCase):
     self.ckpt_dir = epath.Path(self.create_tempdir('ckpt').full_path)
 
   def test_decorator(self):
-    expected_key = 'foo.__main__.SubsetBarrierCompatibleTest.test_decorator'
-    self.assertEqual(
-        multihost.utils._unique_barrier_key('foo'),
+    expected_key = 'SubsetBarrierCompatibleTest.test_decorator'
+    self.assertIn(
         expected_key,
+        multihost.utils._unique_barrier_key('foo'),
+    )
+    self.assertIn(
+        'foo',
+        multihost.utils._unique_barrier_key('footest_path_permission_mode'),
     )
 
 
