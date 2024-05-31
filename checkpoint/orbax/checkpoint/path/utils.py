@@ -85,7 +85,7 @@ def are_locked(
     steps: Tuple[int, ...],
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
-    step_name_format: Optional[step_lib.NameFormat] = None,
+    step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None,
 ) -> List[bool]:
   """In parallel, determines whether the steps are considered `locked`."""
   step_name_format = step_name_format or step_lib.standard_name_format(

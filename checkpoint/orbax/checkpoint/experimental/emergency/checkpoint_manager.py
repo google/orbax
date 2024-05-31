@@ -135,7 +135,7 @@ class CheckpointManagerOptions:
       default_factory=PersistentCheckpointOptions
   )
 
-  step_name_format: Optional[step_lib.NameFormat] = None
+  step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None
   cleanup_tmp_directories: bool = False
   enable_async_checkpointing: bool = True
   async_options: Optional[checkpoint_manager.AsyncOptions] = None
@@ -758,9 +758,7 @@ class CheckpointManager(
         ),
         self._abstract_state,
     )
-    single_replica_shardings_tuple = jax.tree.flatten(
-        single_slice_shardings
-    )[0]
+    single_replica_shardings_tuple = jax.tree.flatten(single_slice_shardings)[0]
 
     if is_restoring_slice:
       logging.debug(

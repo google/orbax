@@ -273,7 +273,7 @@ class CheckpointManagerOptions:
   keep_checkpoints_without_metrics: bool = True
   step_prefix: Optional[str] = None
   step_format_fixed_length: Optional[int] = None
-  step_name_format: Optional[step_lib.NameFormat] = None
+  step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None
   create: bool = True
   cleanup_tmp_directories: bool = False
   save_on_steps: Optional[Container[int]] = None

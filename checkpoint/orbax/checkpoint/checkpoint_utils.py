@@ -35,7 +35,7 @@ STANDARD_ARRAY_TYPES = (int, float, np.ndarray, jax.Array)
 
 
 def _init_step_name_format(
-    step_name_format: Optional[step_lib.NameFormat] = None,
+    step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None,
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
 ):
@@ -48,7 +48,7 @@ def _init_step_name_format(
 def _lock_checkpoint(
     checkpoint_dir: epath.Path,
     step: int,
-    step_name_format: step_lib.NameFormat,
+    step_name_format: step_lib.NameFormat[step_lib.Metadata],
 ) -> bool:
   """Locks a checkpoint by writing a LOCKED directory."""
   logging.info('Locking step: %d before gaining control.', step)
@@ -72,7 +72,7 @@ def _lock_checkpoint(
 def _unlock_checkpoint(
     checkpoint_dir: epath.Path,
     step: int,
-    step_name_format: step_lib.NameFormat,
+    step_name_format: step_lib.NameFormat[step_lib.Metadata],
 ):
   """Removes a LOCKED directory to indicate unlocking."""
   if multihost.process_index() == 0:
@@ -85,7 +85,7 @@ def unlock_existing_checkpoints(
     checkpoint_dir: epath.Path,
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
-    step_name_format: Optional[step_lib.NameFormat] = None,
+    step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None,
 ):
   """Removes LOCKED file for all existing steps, if present.
 
@@ -123,7 +123,7 @@ def _reached_desired_step(step: int, until_step: Optional[int]) -> bool:
 def _wait_for_new_checkpoint(
     checkpoint_dir: epath.Path,
     *,
-    step_name_format: step_lib.NameFormat,
+    step_name_format: step_lib.NameFormat[step_lib.Metadata],
     until_step: Optional[int] = None,
     seconds_to_sleep: int = 1,
     timeout: Optional[int] = None,
@@ -193,7 +193,7 @@ def wait_for_new_checkpoint(
     timeout_fn: Optional[Callable[[], bool]] = None,
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
-    step_name_format: Optional[step_lib.NameFormat] = None,
+    step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None,
 ):
   """Waits until a new checkpoint file is found.
 
@@ -253,7 +253,7 @@ def checkpoints_iterator(
     timeout_fn: Optional[Callable[[], bool]] = None,
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
-    step_name_format: Optional[step_lib.NameFormat] = None,
+    step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None,
 ) -> Iterator[int]:
   """Continuously yield new checkpoint files as they appear.
 
@@ -292,17 +292,16 @@ def checkpoints_iterator(
     min_interval_secs: The minimum number of seconds between yielding
       checkpoints.
     seconds_to_sleep: Seconds to sleep if a checkpoint is not found. Note the
-      difference with min_interval_secs, which puts a lower bound on how when
-      a new checkpoint will be looked for after yielding one checkpoint.
+      difference with min_interval_secs, which puts a lower bound on how when a
+      new checkpoint will be looked for after yielding one checkpoint.
       seconds_to_sleep instead specifies how we should sleep for if no new
       checkpoints are found. Note that the timeout is only checked when not
-      sleeping, so a `seconds_to_sleep` longer than the timeout would result
-      in timing out after `seconds_to_sleep` seconds rather than `timeout`
-      seconds.
+      sleeping, so a `seconds_to_sleep` longer than the timeout would result in
+      timing out after `seconds_to_sleep` seconds rather than `timeout` seconds.
     timeout: The maximum number of seconds to wait between checkpoints. The
       function will time out if `timeout` seconds have passed since a new
-      checkpoint step was found. If left as `None`, then the process will
-      wait indefinitely.
+      checkpoint step was found. If left as `None`, then the process will wait
+      indefinitely.
     timeout_fn: Optional function called after a timeout. If the function
       returns True, then it means that no new checkpoints will be generated and
       the iterator will exit. The function is called with no arguments.
