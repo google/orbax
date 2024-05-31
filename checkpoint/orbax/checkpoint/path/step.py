@@ -23,7 +23,7 @@ import itertools
 import os
 import re
 import time
-from typing import Callable, Iterator, List, Optional, Protocol, Sequence, Set, TypeVar
+from typing import Callable, Generic, Iterator, List, Optional, Protocol, Sequence, Set, TypeVar
 
 from absl import logging
 from etils import epath
@@ -106,7 +106,7 @@ class Metadata:
     )
 
 
-class NameFormat(Protocol):
+class NameFormat(Protocol, Generic[MetadataT]):
   """Protocol responsible for naming and querying steps."""
 
   def build_name(self, step: int) -> str:
@@ -155,7 +155,7 @@ class NameFormat(Protocol):
 
 
 def build_step_path(
-    base_path: epath.PathLike, name_format: NameFormat, step: int
+    base_path: epath.PathLike, name_format: NameFormat[Metadata], step: int
 ) -> epath.Path:
   """Returns `step` path under `base_path` for step `name_format`."""
   return epath.Path(base_path) / name_format.build_name(step)
@@ -186,7 +186,7 @@ def step_prefix_with_underscore(step_prefix: Optional[str]) -> str:
 
 
 def latest_step_metadata(
-    root_path: epath.PathLike, name_format: NameFormat
+    root_path: epath.PathLike, name_format: NameFormat[MetadataT]
 ) -> Optional[MetadataT]:
   """Returns step.MetadataT of the latest step in `root_path`."""
   root_path = epath.Path(root_path)
@@ -198,7 +198,7 @@ def latest_step_metadata(
 
 
 def step_metadata_of_checkpoint_path(
-    checkpoint_path: epath.PathLike, name_format: NameFormat
+    checkpoint_path: epath.PathLike, name_format: NameFormat[MetadataT]
 ) -> MetadataT:
   """Returns step.MetadataT of given `checkpoint_path`."""
   checkpoint_path = epath.Path(checkpoint_path)
@@ -219,7 +219,7 @@ def step_metadata_of_checkpoint_path(
 # support read_name_formats.
 def find_step_path(
     base_path: epath.PathLike,
-    name_format: NameFormat,
+    name_format: NameFormat[Metadata],
     *,
     step: int,
     include_uncommitted: bool = False,
@@ -259,7 +259,7 @@ def find_step_path(
 
 
 @dataclasses.dataclass(frozen=True)
-class _StandardNameFormat(NameFormat):
+class _StandardNameFormat(NameFormat[Metadata]):
   """NameFormat for 'standard' steps for common Orbax use cases.
 
   NOTE: Ignores uncommitted checkpoints.
@@ -347,7 +347,7 @@ class _StandardNameFormat(NameFormat):
 def standard_name_format(
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
-) -> NameFormat:
+) -> NameFormat[Metadata]:
   """Returns NameFormat for 'standard' steps for common Orbax use cases.
 
   NOTE: Ignores uncommitted checkpoints.
@@ -371,7 +371,7 @@ def standard_name_format(
 
 
 @dataclasses.dataclass(frozen=True)
-class _CompositeNameFormat(NameFormat):
+class _CompositeNameFormat(NameFormat[Metadata]):
   """Supports reading multiple step namings, but just one format to write.
 
   Attributes:
@@ -383,8 +383,8 @@ class _CompositeNameFormat(NameFormat):
       returned.
   """
 
-  write_name_format: NameFormat
-  read_name_formats: Sequence[NameFormat]
+  write_name_format: NameFormat[Metadata]
+  read_name_formats: Sequence[NameFormat[Metadata]]
 
   def __post_init__(self):
     if self.write_name_format not in self.read_name_formats:
@@ -428,9 +428,9 @@ class _CompositeNameFormat(NameFormat):
 
 
 def composite_name_format(
-    write_name_format: NameFormat,
-    read_name_formats: Sequence[NameFormat],
-) -> NameFormat:
+    write_name_format: NameFormat[Metadata],
+    read_name_formats: Sequence[NameFormat[Metadata]],
+) -> NameFormat[Metadata]:
   """Returns *composite* NameFormat supporting multiple read/single write formats.
 
   Args:
@@ -461,7 +461,7 @@ def get_save_directory(
     step_prefix: Optional[str] = None,
     override_directory: Optional[epath.PathLike] = None,
     step_format_fixed_length: Optional[int] = None,
-    step_name_format: Optional[NameFormat] = None,
+    step_name_format: Optional[NameFormat[Metadata]] = None,
 ) -> epath.Path:
   """Returns the standardized path to a save directory for a single item.
 

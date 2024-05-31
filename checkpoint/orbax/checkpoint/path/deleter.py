@@ -57,7 +57,7 @@ class StandardCheckpointDeleter:
       primary_host: Optional[int],
       directory: epath.Path,
       todelete_subdir: Optional[str],
-      name_format: step_lib.NameFormat,
+      name_format: step_lib.NameFormat[step_lib.Metadata],
       duration_metric: Optional[str] = _STANDARD_DELETE_DURATION,
   ):
     """StandardCheckpointDeleter constructor.
@@ -148,7 +148,7 @@ class ThreadedCheckpointDeleter:
       primary_host: Optional[int],
       directory: epath.Path,
       todelete_subdir: Optional[str],
-      name_format: step_lib.NameFormat,
+      name_format: step_lib.NameFormat[step_lib.Metadata],
   ):
     """ThreadedCheckpointDeleter deletes checkpoints in a background thread."""
     self._standard_deleter = StandardCheckpointDeleter(
@@ -199,7 +199,7 @@ def create_checkpoint_deleter(
     primary_host: Optional[int],
     directory: epath.Path,
     todelete_subdir: Optional[str],
-    name_format: step_lib.NameFormat,
+    name_format: step_lib.NameFormat[step_lib.Metadata],
     enable_background_delete: bool,
 ) -> CheckpointDeleter:
   """Creates a CheckpointDeleter."""
