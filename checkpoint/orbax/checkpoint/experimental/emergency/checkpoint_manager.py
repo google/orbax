@@ -189,6 +189,42 @@ def _pad_steps(steps, target):
   return steps + [-1] * (target - len(steps))
 
 
+def _global_list_union(
+    values: Sequence[int], devices: np.ndarray
+) -> np.ndarray:
+  """Unions the provided values across the given devices."""
+  num_hosts = devices.size // jax.local_device_count()
+  num_devices_per_host = jax.local_device_count()
+  slice_mesh = jax.sharding.Mesh(
+      devices.reshape(num_hosts, num_devices_per_host),
+      ['host', 'dev'],
+  )
+
+  sdas = []
+  for d in jax.local_devices():
+    sdas.append(
+        jax.device_put(np.asarray(values).reshape((1, 1, len(values))), d)
+    )
+  sharding = jax.sharding.NamedSharding(slice_mesh, P('host', 'dev'))
+  # TODO(cpgaffney): Use jax.make_array_from_process_local_data.
+  g_arr = jax.make_array_from_single_device_arrays(
+      (num_hosts, num_devices_per_host, len(values)), sharding, sdas
+  )
+
+  result_arr = jax.jit(
+      lambda x: x,
+      out_shardings=jax.sharding.NamedSharding(slice_mesh, P()),
+  )(g_arr)
+
+  return np.asarray(result_arr.addressable_data(0)).flatten()
+
+
+def _global_max(value: int, devices: np.ndarray) -> int:
+  """Returns the global max of a local value across given devices as a scalar."""
+  unioned_values = _global_list_union([value], devices)
+  return np.max(unioned_values)
+
+
 class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
   """A checkpoint manager that checkpoints to local storage.
 
@@ -240,27 +276,6 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     self._max_to_keep = options.local.max_to_keep
     self._local_options = options.local
     self._device_array = device_array
-
-  def _global_list_union(
-      self, steps: Sequence[int], devices: np.ndarray
-  ) -> np.ndarray:
-    slice_mesh = jax.sharding.Mesh(
-        devices.reshape(
-            devices.size // jax.local_device_count(), jax.local_device_count()
-        ),
-        ['host', 'dev'],
-    )
-
-    g_arr = multihost_utils.host_local_array_to_global_array(
-        np.asarray(steps), slice_mesh, P('host')
-    )
-
-    result_arr = jax.jit(
-        lambda x: x,
-        out_shardings=jax.sharding.NamedSharding(slice_mesh, P()),
-    )(g_arr)
-
-    return np.asarray(result_arr.addressable_data(0))
 
   def _global_list_union_interslice(self, steps: Sequence[int]) -> Set[int]:
     barrier_processes = self._options.multiprocessing_options.active_processes
@@ -321,14 +336,14 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     """
 
     devices = _local_slice_devices(self._device_array)
-    slice_process_count = devices.size // jax.local_device_count()
-    unioned_steps = self._global_list_union(steps, devices)
+    slice_device_count = devices.size
+    unioned_steps = _global_list_union(steps, devices)
 
-    def count_and_filter(steps, num_process):
+    def count_and_filter(steps, num_devices):
       count = collections.Counter(steps)
-      return np.asarray([k for k in count if count[k] == num_process])
+      return np.asarray([k for k in count if count[k] == num_devices])
 
-    result = count_and_filter(unioned_steps, slice_process_count)
+    result = count_and_filter(unioned_steps, slice_device_count)
 
     # here len(result) will be <= len(steps) because there are at most
     # len(steps) unique step number that appeared `slice_process_count` times in
@@ -634,28 +649,9 @@ class CheckpointManager(
     """Returns True if a preemption sync point has been reached."""
     return utils.reached_preemption(step)
 
-  def _global_max(self, value: Any) -> Any:
+  def _global_max(self, value: int) -> int:
     """Returns the global max of a local value across all devices as a scalar."""
-
-    device_array = self._global_mesh.devices
-    slice_mesh = jax.sharding.Mesh(
-        device_array.reshape(
-            device_array.size // jax.local_device_count(),
-            jax.local_device_count(),
-        ),
-        ['host', 'dev'],
-    )
-
-    g_arr = multihost_utils.host_local_array_to_global_array(
-        np.asarray([value]), slice_mesh, P('host')
-    )
-
-    result_arr = jax.jit(
-        jnp.max,
-        out_shardings=jax.sharding.NamedSharding(slice_mesh, P()),
-    )(g_arr)
-
-    return result_arr.addressable_data(0)
+    return _global_max(value, np.asarray(jax.devices()))
 
   def should_save(self, step: int) -> bool:
     """Returns True if a checkpoint should be saved for the current step.
@@ -673,7 +669,7 @@ class CheckpointManager(
       should_save = self._persistent_checkpoint_manager.should_save(step)
     else:
       should_save = self._local_checkpoint_manager.should_save(step)
-    return self._global_max(should_save)
+    return bool(self._global_max(int(should_save)))
 
   def delete(self, step: int):
     """Deletes a step checkpoint."""
@@ -698,7 +694,7 @@ class CheckpointManager(
       saved = self._local_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
       )
-    return self._global_max(saved)
+    return bool(self._global_max(int(saved)))
 
   def _find_slice_with_complete_checkpoint(self, step: int) -> int:
     """Return the slice id which has the step."""
