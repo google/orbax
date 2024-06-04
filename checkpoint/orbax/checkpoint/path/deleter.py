@@ -25,11 +25,11 @@ from orbax.checkpoint import utils
 from orbax.checkpoint.path import step as step_lib
 
 _THREADED_DELETE_DURATION = (
-    '/jax/orbax/checkpoint_manager/threaded_checkpoint_deleter/total_duration'
+    '/jax/orbax/checkpoint_manager/threaded_checkpoint_deleter/duration'
 )
 
 _STANDARD_DELETE_DURATION = (
-    '/jax/orbax/checkpoint_manager/standard_checkpoint_deleter/total_duration'
+    '/jax/orbax/checkpoint_manager/standard_checkpoint_deleter/duration'
 )
 
 
@@ -74,7 +74,6 @@ class StandardCheckpointDeleter:
     self._todelete_subdir = todelete_subdir
     self._name_format = name_format
     self._duration_metric = duration_metric
-    self._total_delete_duration = 0.0
 
   def delete(self, step: int) -> None:
     """Deletes step dir or renames it if _todelete_subdir is set.
@@ -124,20 +123,17 @@ class StandardCheckpointDeleter:
       delete_target.replace(dst)
       logging.info('Renamed step %d to %s', step, dst)
     finally:
-      self._total_delete_duration += time.time() - start
+      jax.monitoring.record_event_duration_secs(
+          self._duration_metric,
+          time.time() - start,
+      )
 
   def delete_steps(self, steps: Sequence[int]) -> None:
     for step in steps:
       self.delete(step)
 
   def close(self) -> None:
-    if self._total_delete_duration > 0.0:
-      jax.monitoring.record_event_duration_secs(
-          self._duration_metric,
-          self._total_delete_duration,
-      )
-      logging.info('Total delete duration: %f', self._total_delete_duration)
-      self._total_delete_duration = 0.0  # avoid logging more than once
+    pass
 
 
 class ThreadedCheckpointDeleter:
