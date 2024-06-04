@@ -23,6 +23,7 @@ import asyncio
 import collections
 import dataclasses
 import json
+import os
 import time
 from typing import Any, Callable, List, Optional, Tuple, Union
 
@@ -572,10 +573,12 @@ class BasePyTreeCheckpointHandler(
       logging.debug('param_info: %s', param_infos)
       logging.debug('save_args: %s', save_args)
 
-    # TODO(b/285888834): Allow this to be asynchronous.
+    metadata_future = None
     if utils.is_primary_host(self._primary_host):
       metadata_write_start_time = time.time()
-      self._write_metadata_file(directory, item, save_args, self._use_zarr3)
+      metadata_future = await self._write_metadata_file(
+          directory, item, save_args, self._use_zarr3
+      )
       jax.monitoring.record_event_duration_secs(
           '/jax/checkpoint/write/async/metadata_write_duration_secs',
           time.time() - metadata_write_start_time,
@@ -589,7 +592,11 @@ class BasePyTreeCheckpointHandler(
         '/jax/checkpoint/write/async/aggregate_write_duration_secs',
         time.time() - aggregate_file_write_start_time,
     )
-    return commit_futures + [aggregate_commit_future]
+    return (
+        commit_futures + [aggregate_commit_future] + [metadata_future]
+        if metadata_future is not None
+        else commit_futures + [aggregate_commit_future]
+    )
 
   def save(self, directory: epath.Path, *args, **kwargs):
     """Saves the provided item.
@@ -824,23 +831,33 @@ class BasePyTreeCheckpointHandler(
     else:
       return utils.pytree_structure(directory)
 
-  def _write_metadata_file(
+  async def _write_metadata_file(
       self,
       directory: epath.Path,
       item: PyTree,
       save_args: PyTree,
       use_zarr3: bool = False,
-  ):
-    (directory / METADATA_FILE).write_text(
-        json.dumps(
-            tree_metadata.TreeMetadata.build(
-                item,
-                save_args=save_args,
-                type_handler_registry=self._type_handler_registry,
-                use_zarr3=use_zarr3,
-            ).to_json()
-        )
+  ) -> future.Future:
+    tspec = type_handlers._get_tensorstore_spec(  # pylint: disable=protected-access
+        os.fspath(directory), name=METADATA_FILE, use_ocdbt=False
+    )['kvstore']
+    txn = ts.Transaction()
+    metadata_ts_context = type_handlers.get_ts_context(use_ocdbt=False)
+    t = await ts.KvStore.open(
+        tspec, context=metadata_ts_context
     )
+    metadata_content = tree_metadata.TreeMetadata.build(
+        item,
+        save_args=save_args,
+        type_handler_registry=self._type_handler_registry,
+        use_zarr3=use_zarr3,
+    )
+    write_future = t.with_transaction(txn).write(
+        '', json.dumps(metadata_content.to_json())
+    )
+    await write_future
+    commit_future = txn.commit_async()
+    return commit_future
 
   def _read_metadata_file(
       self, directory: epath.Path
