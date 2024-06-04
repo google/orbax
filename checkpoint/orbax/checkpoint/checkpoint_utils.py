@@ -333,7 +333,7 @@ def checkpoints_iterator(
     )
   checkpoint_step = None
   while True:
-    until_step = checkpoint_step + 1 if checkpoint_step is not None else None
+    until_step = checkpoint_step if checkpoint_step is not None else None
     with wait_for_new_checkpoint(
         checkpoint_dir,
         until_step=until_step,
