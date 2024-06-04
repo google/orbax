@@ -206,7 +206,7 @@ class JaxModule(tf.Module):
       raise ValueError(
           'The PyTree structure of the updated parameters must be the same as'
           f' that of the original parameters. Got new treedef: {treedef},'
-          f' orignal treedef: {self._nontrackable_metadata.var_treedef}'
+          f' original treedef: {self._nontrackable_metadata.var_treedef}'
       )
     new_vars = _jax_params_to_tf_variables(
         params,
