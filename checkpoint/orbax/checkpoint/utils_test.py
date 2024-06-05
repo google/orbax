@@ -182,7 +182,7 @@ class UtilsTest(parameterized.TestCase):
       (None, True),
       ((1, 2), False),
   )
-  def test_is_supported_empty_aggregation_type(self, value, expected):
+  def test_iis_supported_empty_aggregation_type(self, value, expected):
     self.assertEqual(expected, utils.is_supported_empty_aggregation_type(value))
 
 
