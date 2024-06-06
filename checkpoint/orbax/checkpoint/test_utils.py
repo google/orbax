@@ -35,6 +35,7 @@ from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import multihost
 from orbax.checkpoint import pytree_checkpoint_handler
+from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 
@@ -113,8 +114,8 @@ def assert_array_equal(testclass, v_expected, v_actual):
 
 def assert_tree_equal(testclass, expected, actual):
   """Asserts that two PyTrees are equal."""
-  expected_flat = utils.to_flat_dict(expected)
-  actual_flat = utils.to_flat_dict(actual)
+  expected_flat = tree_utils.to_flat_dict(expected)
+  actual_flat = tree_utils.to_flat_dict(actual)
   testclass.assertSameElements(expected_flat.keys(), actual_flat.keys())
   jax.tree.map(
       functools.partial(assert_array_equal, testclass), expected, actual

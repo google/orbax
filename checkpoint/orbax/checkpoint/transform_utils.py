@@ -21,8 +21,8 @@ import re
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 from absl import logging
+from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
-from orbax.checkpoint import utils
 
 PyTree = Any
 ValueFn = Callable[[Any], Any]
@@ -234,9 +234,9 @@ def apply_transformations(original_tree: PyTree,
   if not new_tree:
     return {}
 
-  original = utils.to_flat_dict(original_tree, sep='/')
-  new = utils.to_flat_dict(new_tree, sep='/')
-  transforms = utils.to_flat_dict(transformations, sep='/')
+  original = tree_utils.to_flat_dict(original_tree, sep='/')
+  new = tree_utils.to_flat_dict(new_tree, sep='/')
+  transforms = tree_utils.to_flat_dict(transformations, sep='/')
 
   unmatched_new_keys = []
 
@@ -287,7 +287,7 @@ def apply_transformations(original_tree: PyTree,
                  'after applying specified transforms: %s',
                  ', '.join(unmatched_new_keys))
 
-  return utils.from_flat_dict(new, target=new_tree, sep='/')
+  return tree_utils.from_flat_dict(new, target=new_tree, sep='/')
 
 
 def merge_trees(
@@ -306,9 +306,9 @@ def merge_trees(
   Returns:
     A single merged PyTree.
   """
-  trees = [utils.to_flat_dict(t) for t in trees]
+  trees = [tree_utils.to_flat_dict(t) for t in trees]
   merged = functools.reduce(operator.ior, trees, {})
-  return utils.from_flat_dict(merged, target=target)
+  return tree_utils.from_flat_dict(merged, target=target)
 
 
 def intersect_trees(
@@ -327,8 +327,8 @@ def intersect_trees(
   Returns:
     A single intersected PyTree.
   """
-  trees = [utils.to_flat_dict(t) for t in trees]
+  trees = [tree_utils.to_flat_dict(t) for t in trees]
   tree_keys = set.intersection(*[set(t.keys()) for t in trees])
-  return utils.from_flat_dict(
+  return tree_utils.from_flat_dict(
       {k: trees[-1][k] for k in tree_keys}, target=target
   )

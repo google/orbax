@@ -35,6 +35,7 @@ from orbax.checkpoint import base_pytree_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import transform_utils
+from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 import tensorstore as ts
@@ -189,10 +190,12 @@ def _get_restore_parameters(
   Returns:
     Tuple of param_infos, and restore_args.
   """
-  flat_structure = utils.to_flat_dict(structure, keep_empty_nodes=True)
+  flat_structure = tree_utils.to_flat_dict(structure, keep_empty_nodes=True)
   if restore_args is None:
     restore_args = jax.tree.map(lambda x: RestoreArgs(), structure)
-  flat_restore_args = utils.to_flat_dict(restore_args, keep_empty_nodes=True)
+  flat_restore_args = tree_utils.to_flat_dict(
+      restore_args, keep_empty_nodes=True
+  )
   flat_param_infos = {}
   flat_input_restore_args = {}
   is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
@@ -218,15 +221,17 @@ def _get_restore_parameters(
   if transforms is None:
     for key, meta in flat_structure.items():
       flat_param_infos[key] = _get_param_info(key, meta)
-    restore_args = utils.serialize_tree(restore_args, keep_empty_nodes=True)
+    restore_args = tree_utils.serialize_tree(
+        restore_args, keep_empty_nodes=True
+    )
   else:
     if item is None:
       raise ValueError(
           'If providing `transforms`, must provide `item` matching structure'
           ' of expected result.'
       )
-    flat_item = utils.to_flat_dict(item, keep_empty_nodes=True)
-    flat_transforms = utils.to_flat_dict(transforms)
+    flat_item = tree_utils.to_flat_dict(item, keep_empty_nodes=True)
+    flat_transforms = tree_utils.to_flat_dict(transforms)
 
     for input_key, meta in flat_structure.items():
       maybe_input_args = _find_matching_input_args(
@@ -268,12 +273,12 @@ def _get_restore_parameters(
         flat_param_infos[input_key] = ParamInfo(skip_deserialize=True)
         flat_input_restore_args[input_key] = RestoreArgs()
 
-    restore_args = utils.from_flat_dict(
+    restore_args = tree_utils.from_flat_dict(
         flat_input_restore_args, target=structure
     )
 
   return (
-      utils.from_flat_dict(flat_param_infos, target=structure),
+      tree_utils.from_flat_dict(flat_param_infos, target=structure),
       restore_args,
   )
 
@@ -282,7 +287,7 @@ def _multi_value_fns_with_args(
     transforms: PyTree, restore_args: PyTree
 ) -> PyTree:
   """Constructs a wrapper for multi_value_fn including RestoreArgs."""
-  flat_restore_args = utils.to_flat_dict(restore_args, sep='/')
+  flat_restore_args = tree_utils.to_flat_dict(restore_args, sep='/')
 
   def _maybe_wrap_transform(transform: Transform):
     def _multi_value_fn_with_args(transform_key: str, tree: PyTree) -> Any:
@@ -330,7 +335,7 @@ def _transform_checkpoint(
     item = restored
   else:
     if transforms is None:
-      item = utils.deserialize_tree(restored, item)
+      item = tree_utils.deserialize_tree(restored, item)
     else:
       if restore_args is None:
         raise ValueError(

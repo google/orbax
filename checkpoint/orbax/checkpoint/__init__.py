@@ -29,6 +29,7 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import path
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import transform_utils
+from orbax.checkpoint import tree
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint.path import step

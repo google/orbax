@@ -11,16 +11,6 @@ Async wrappers
 .. autofunction:: async_write_bytes
 .. autofunction:: async_exists
 
-Tree utils
-------------------------
-.. autofunction:: is_empty_or_leaf
-.. autofunction:: get_key_name
-.. autofunction:: to_flat_dict
-.. autofunction:: serialize_tree
-.. autofunction:: deserialize_tree
-.. autofunction:: from_flat_dict
-.. autofunction:: pytree_structure
-
 Aggregate file
 ------------------------
 .. autofunction:: leaf_is_placeholder

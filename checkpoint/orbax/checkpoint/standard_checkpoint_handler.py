@@ -26,7 +26,7 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import future
 from orbax.checkpoint import pytree_checkpoint_handler
-from orbax.checkpoint import utils
+from orbax.checkpoint import tree as tree_utils
 
 
 PyTree = Any
@@ -88,7 +88,7 @@ class StandardCheckpointHandler(
         if arg.aggregate:
           raise ValueError(f'Unsupported option `aggregate` for key: {k}.')
       if not isinstance(x, self._supported_types):
-        k = utils.tuple_path_from_keypath(k)
+        k = tree_utils.tuple_path_from_keypath(k)
         raise ValueError(f'Unsupported type: {type(x)} for key: {k}.')
 
     jax.tree_util.tree_map_with_path(_check_input, item, save_args)
@@ -98,7 +98,7 @@ class StandardCheckpointHandler(
       if not isinstance(x, self._supported_types) and not isinstance(
           x, jax.ShapeDtypeStruct
       ):
-        k = utils.tuple_path_from_keypath(k)
+        k = tree_utils.tuple_path_from_keypath(k)
         raise ValueError(f'Unsupported type: {type(x)} for key: {k}.')
 
     jax.tree_util.tree_map_with_path(_check_input, item)

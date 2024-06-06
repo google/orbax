@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Tests for transform_utils."""
+
 from typing import List, Mapping
 
 from absl.testing import absltest
@@ -26,7 +27,8 @@ import numpy as np
 import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import transform_utils
-from orbax.checkpoint import utils
+from orbax.checkpoint import tree as tree_utils
+
 
 Transform = transform_utils.Transform
 apply_transformations = transform_utils.apply_transformations
@@ -34,6 +36,10 @@ apply_transformations = transform_utils.apply_transformations
 
 def empty_pytree(tree):
   return jax.tree.map(lambda x: object(), tree)
+
+
+class EmptyNode:
+  pass
 
 
 # Not in common util because we need to eliminate OSS dependency on flax.
@@ -341,15 +347,15 @@ class TransformUtilsTest(absltest.TestCase):
         ],
     )
     fallback_tree = NewTree(
-        a1=utils.EmptyNode(),
-        b=utils.EmptyNode(),
+        a1=EmptyNode(),
+        b=EmptyNode(),
         c=SubTree(
-            x={'i': utils.EmptyNode(), 'j': utils.EmptyNode()},
-            y=[utils.EmptyNode(), utils.EmptyNode(), utils.EmptyNode()],
+            x={'i': EmptyNode(), 'j': EmptyNode()},
+            y=[EmptyNode(), EmptyNode(), EmptyNode()],
         ),
         d=7,
-        e=utils.EmptyNode(),
-        f=[utils.EmptyNode(), utils.EmptyNode()],
+        e=EmptyNode(),
+        f=[EmptyNode(), EmptyNode()],
     )
     expected_tree = NewTree(
         a1=10,
@@ -418,8 +424,8 @@ class TransformUtilsTest(absltest.TestCase):
                                            new_state)
 
     # Construct expected tree
-    old_flat_dict = utils.to_flat_dict(old_state, sep='/')
-    new_flat_dict = utils.to_flat_dict(new_state, sep='/')
+    old_flat_dict = tree_utils.to_flat_dict(old_state, sep='/')
+    new_flat_dict = tree_utils.to_flat_dict(new_state, sep='/')
     expected_flat_dict = {}
     for k, v in new_flat_dict.items():
       if 'Dense_1' in k:
@@ -431,7 +437,7 @@ class TransformUtilsTest(absltest.TestCase):
       else:  # extra keys in both, expected is the old value
         expected_flat_dict[k] = old_flat_dict[k]
 
-    expected_state = utils.from_flat_dict(
+    expected_state = tree_utils.from_flat_dict(
         expected_flat_dict, target=new_state, sep='/'
     )
     test_utils.assert_tree_equal(self, expected_state, restored_state)
@@ -464,8 +470,8 @@ class TransformUtilsTest(absltest.TestCase):
         old_state, transformations, new_state, default_to_original=False)
 
     # Construct expected tree
-    old_flat_dict = utils.to_flat_dict(old_state, sep='/')
-    new_flat_dict = utils.to_flat_dict(new_state, sep='/')
+    old_flat_dict = tree_utils.to_flat_dict(old_state, sep='/')
+    new_flat_dict = tree_utils.to_flat_dict(new_state, sep='/')
     expected_flat_dict = {}
     for k, v in new_flat_dict.items():
       if 'Dense_1' in k:
@@ -473,7 +479,7 @@ class TransformUtilsTest(absltest.TestCase):
       else:
         expected_flat_dict[k] = v
 
-    expected_state = utils.from_flat_dict(
+    expected_state = tree_utils.from_flat_dict(
         expected_flat_dict, target=new_state, sep='/'
     )
     test_utils.assert_tree_equal(self, expected_state, restored_state)

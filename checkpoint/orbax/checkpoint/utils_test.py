@@ -19,11 +19,11 @@ from typing import Mapping, Sequence
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
-# TODO(b/275613424): Eliminate flax dependency in Orbax test suite.
 import flax
 import jax
 import optax
 from orbax.checkpoint import test_utils
+from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import utils
 
 
@@ -40,7 +40,7 @@ class UtilsTest(parameterized.TestCase):
       ({'x': ['foo', 'bar']}, {('x', '0'): 'foo', ('x', '1'): 'bar'}),
   )
   def test_to_flat_dict(self, tree, expected):
-    self.assertDictEqual(expected, utils.to_flat_dict(tree))
+    self.assertDictEqual(expected, tree_utils.to_flat_dict(tree))
 
   @parameterized.parameters(
       ({'a': 1, 'b': {'d': 2}}, {('a',): 1, ('b', 'd'): 2}),
@@ -50,7 +50,7 @@ class UtilsTest(parameterized.TestCase):
   def test_from_flat_dict(self, expected, flat_dict):
     empty = jax.tree.map(lambda _: 0, expected)
     self.assertDictEqual(
-        expected, utils.from_flat_dict(flat_dict, target=empty)
+        expected, tree_utils.from_flat_dict(flat_dict, target=empty)
     )
 
   @parameterized.parameters(
@@ -58,7 +58,7 @@ class UtilsTest(parameterized.TestCase):
       ({'a': 1, 'b': 2}, {('b',): 2, ('a',): 1}),
   )
   def test_from_flat_dict_without_target(self, expected, flat_dict):
-    self.assertDictEqual(expected, utils.from_flat_dict(flat_dict))
+    self.assertDictEqual(expected, tree_utils.from_flat_dict(flat_dict))
 
   @parameterized.parameters(
       ({'a': 1, 'b': {'d': 2}}, {'a': 1, 'b/d': 2}),
@@ -66,52 +66,54 @@ class UtilsTest(parameterized.TestCase):
       ({'a': {'b': {'c': 1}}}, {'a/b/c': 1}),
   )
   def test_from_flat_dict_with_sep(self, expected, flat_dict):
-    self.assertDictEqual(expected, utils.from_flat_dict(flat_dict, sep='/'))
+    self.assertDictEqual(
+        expected, tree_utils.from_flat_dict(flat_dict, sep='/')
+    )
 
   def test_serialize(self):
     tree = {'a': 1, 'b': {'c': {'d': 2}}, 'e': [1, {'x': 5, 'y': 7}, [9, 10]]}
-    serialized = utils.serialize_tree(tree, keep_empty_nodes=True)
+    serialized = tree_utils.serialize_tree(tree, keep_empty_nodes=True)
     self.assertDictEqual(tree, serialized)
-    deserialized = utils.deserialize_tree(
+    deserialized = tree_utils.deserialize_tree(
         serialized, target=tree, keep_empty_nodes=True
     )
     test_utils.assert_tree_equal(self, tree, deserialized)
 
   def test_serialize_empty(self):
-    serialized = utils.serialize_tree({}, keep_empty_nodes=True)
+    serialized = tree_utils.serialize_tree({}, keep_empty_nodes=True)
     test_utils.assert_tree_equal(self, {}, serialized)
-    deserialized = utils.deserialize_tree(
+    deserialized = tree_utils.deserialize_tree(
         serialized, target={}, keep_empty_nodes=True
     )
     test_utils.assert_tree_equal(self, {}, deserialized)
 
   def test_serialize_empty_no_keep_empty(self):
     with self.assertRaises(ValueError):
-      utils.serialize_tree({}, keep_empty_nodes=False)
+      tree_utils.serialize_tree({}, keep_empty_nodes=False)
 
   def test_serialize_single_element(self):
     tree = {}
-    serialized = utils.serialize_tree(12345, keep_empty_nodes=True)
+    serialized = tree_utils.serialize_tree(12345, keep_empty_nodes=True)
     test_utils.assert_tree_equal(self, 12345, serialized)
-    deserialized = utils.deserialize_tree(
+    deserialized = tree_utils.deserialize_tree(
         serialized, target=tree, keep_empty_nodes=True
     )
     test_utils.assert_tree_equal(self, 12345, deserialized)
 
   def test_serialize_list(self):
     tree = [1, {'a': 2}, [3, 4]]
-    serialized = utils.serialize_tree(tree, keep_empty_nodes=True)
+    serialized = tree_utils.serialize_tree(tree, keep_empty_nodes=True)
     self.assertListEqual(tree, serialized)
-    deserialized = utils.deserialize_tree(
+    deserialized = tree_utils.deserialize_tree(
         serialized, target=tree, keep_empty_nodes=True
     )
     test_utils.assert_tree_equal(self, tree, deserialized)
 
   def test_serialize_filters_empty(self):
     tree = {'a': 1, 'b': None, 'c': {}, 'd': [], 'e': optax.EmptyState()}
-    serialized = utils.serialize_tree(tree, keep_empty_nodes=False)
+    serialized = tree_utils.serialize_tree(tree, keep_empty_nodes=False)
     self.assertDictEqual({'a': 1}, serialized)
-    deserialized = utils.deserialize_tree(
+    deserialized = tree_utils.deserialize_tree(
         serialized, target=tree, keep_empty_nodes=False
     )
     test_utils.assert_tree_equal(self, tree, deserialized)
@@ -130,7 +132,7 @@ class UtilsTest(parameterized.TestCase):
         [optax.EmptyState(), optax.EmptyState()],
         [{}, {'x': 'y'}, None],
     )
-    serialized = utils.serialize_tree(foo, keep_empty_nodes=True)
+    serialized = tree_utils.serialize_tree(foo, keep_empty_nodes=True)
     expected = {
         'a': 1,
         'b': {'a': 'b', 'c': 'd'},
@@ -138,7 +140,7 @@ class UtilsTest(parameterized.TestCase):
         'd': [{}, {'x': 'y'}, None],
     }
     self.assertDictEqual(expected, serialized)
-    deserialized = utils.deserialize_tree(
+    deserialized = tree_utils.deserialize_tree(
         serialized, target=foo, keep_empty_nodes=False
     )
     test_utils.assert_tree_equal(self, foo, deserialized)
@@ -152,7 +154,7 @@ class UtilsTest(parameterized.TestCase):
         'x': Foo(a=1),
         'y': {'z': Foo(a=2)},
     }
-    serialized = utils.serialize_tree(nested, keep_empty_nodes=True)
+    serialized = tree_utils.serialize_tree(nested, keep_empty_nodes=True)
     expected = {
         'x': dict(a=1),
         'y': {'z': dict(a=2)},
@@ -170,7 +172,7 @@ class UtilsTest(parameterized.TestCase):
       ((1, 2), False),
   )
   def test_is_empty_or_leaf(self, value, expected):
-    self.assertEqual(expected, utils.is_empty_or_leaf(value))
+    self.assertEqual(expected, tree_utils.is_empty_or_leaf(value))
 
   @parameterized.parameters(
       (1, False),

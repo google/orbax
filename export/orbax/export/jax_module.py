@@ -19,7 +19,7 @@ from typing import Any, Callable, Mapping, Optional, Tuple, Union
 from absl import logging
 import jax
 from jax.experimental import jax2tf
-from orbax.checkpoint import utils as ckpt_utils
+import orbax.checkpoint as ocp
 from orbax.export import dtensor_utils
 from orbax.export import utils as orbax_export_utils
 import tensorflow as tf
@@ -277,7 +277,11 @@ def _get_param_names(params: PyTree) -> PyTree:
   """Gets parameter names for PyTree elements."""
 
   def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
-    name = '.'.join([str(ckpt_utils.get_key_name(k)) for k in keypath])
+    if hasattr(ocp, 'tree'):
+      get_key_name = ocp.tree.get_key_name
+    else:
+      get_key_name = ocp.utils.get_key_name
+    name = '.'.join([str(get_key_name(k)) for k in keypath])
     # '~' is not allowed in variable names but are used by dm-haiku. See
     # https://github.com/google/orbax/issues/420
     return name.replace('~', '_')

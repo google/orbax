@@ -20,6 +20,7 @@ import functools
 import operator
 from typing import Any, Dict, Hashable, List, Optional, Tuple, TypeVar, Union
 import jax
+from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 
@@ -56,9 +57,9 @@ class _KeyType(enum.Enum):
 
 def _get_key_metadata_type(key: Any) -> _KeyType:
   """Translates the JAX key class into a proto enum."""
-  if utils.is_sequence_key(key):
+  if tree_utils.is_sequence_key(key):
     return _KeyType.SEQUENCE
-  elif utils.is_dict_key(key):
+  elif tree_utils.is_dict_key(key):
     return _KeyType.DICT
   else:
     raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
@@ -118,7 +119,7 @@ class KeyMetadataEntry:
   def build(cls, keypath: KeyPath) -> 'KeyMetadataEntry':
     return KeyMetadataEntry([
         NestedKeyMetadataEntry(
-            str(utils.get_key_name(k)), _get_key_metadata_type(k)
+            str(tree_utils.get_key_name(k)), _get_key_metadata_type(k)
         )
         for k in keypath
     ])
@@ -210,7 +211,7 @@ class TreeMetadataEntry:
         value, save_arg, type_handler_registry
     )
     return TreeMetadataEntry(
-        str(tuple([str(utils.get_key_name(k)) for k in keypath])),
+        str(tuple([str(tree_utils.get_key_name(k)) for k in keypath])),
         key_metadata,
         value_metadata,
     )
@@ -245,13 +246,13 @@ class TreeMetadata:
       save_args = jax.tree.map(
           lambda _: type_handlers.SaveArgs(),
           tree,
-          is_leaf=utils.is_empty_or_leaf,
+          is_leaf=tree_utils.is_empty_or_leaf,
       )
     flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
-        tree, is_leaf=utils.is_empty_or_leaf
+        tree, is_leaf=tree_utils.is_empty_or_leaf
     )
     flat_save_args_with_keys, _ = jax.tree_util.tree_flatten_with_path(
-        save_args, is_leaf=utils.is_empty_or_leaf
+        save_args, is_leaf=tree_utils.is_empty_or_leaf
     )
     tree_metadata_entries = []
     for (keypath, value), (_, save_arg) in zip(
@@ -326,7 +327,7 @@ class TreeMetadata:
         )
       return value_metadata
 
-    return utils.from_flattened_with_keypath([
+    return tree_utils.from_flattened_with_keypath([
         (entry.jax_keypath(), _maybe_as_empty_value(entry.value_metadata))
         for entry in self.tree_metadata_entries
     ])

@@ -36,6 +36,7 @@ from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import transform_utils
+from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint.metadata import tree as tree_metadata
@@ -122,12 +123,12 @@ def get_param_names(item: PyTree) -> PyTree:
   """Gets parameter names for PyTree elements."""
 
   def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
-    return '.'.join([str(utils.get_key_name(k)) for k in keypath])
+    return '.'.join([str(tree_utils.get_key_name(k)) for k in keypath])
 
   return jax.tree_util.tree_map_with_path(
       lambda kp, _: _param_name_from_keypath(kp),
       item,
-      is_leaf=utils.is_empty_or_leaf,
+      is_leaf=tree_utils.is_empty_or_leaf,
   )
 
 
@@ -167,7 +168,7 @@ def _get_restore_parameters(
   Returns:
     Tuple of param_infos, and restore_args.
   """
-  flat_structure = utils.to_flat_dict(structure, keep_empty_nodes=True)
+  flat_structure = tree_utils.to_flat_dict(structure, keep_empty_nodes=True)
   if restore_args is None:
     restore_args = jax.tree.map(lambda x: RestoreArgs(), structure)
   flat_param_infos = {}
@@ -193,9 +194,9 @@ def _get_restore_parameters(
 
   for key, meta in flat_structure.items():
     flat_param_infos[key] = _get_param_info(key, meta)
-  restore_args = utils.serialize_tree(restore_args, keep_empty_nodes=True)
+  restore_args = tree_utils.serialize_tree(restore_args, keep_empty_nodes=True)
   return (
-      utils.from_flat_dict(flat_param_infos, target=structure),
+      tree_utils.from_flat_dict(flat_param_infos, target=structure),
       restore_args,
   )
 
@@ -272,7 +273,7 @@ def _batched_serialization_requests(
       arg: RestoreArgs,
   ):
     nonlocal grouped
-    tuple_key = utils.tuple_path_from_keypath(keypath)
+    tuple_key = tree_utils.tuple_path_from_keypath(keypath)
     # Exclude from serialize/deserialize with TypeHandler if aggregated.
     if info.skip_deserialize:
       return
@@ -440,7 +441,11 @@ class BasePyTreeCheckpointHandler(
 
     return (
         jax.tree.map(
-            _param_info, item, names, save_args, is_leaf=utils.is_empty_or_leaf
+            _param_info,
+            item,
+            names,
+            save_args,
+            is_leaf=tree_utils.is_empty_or_leaf,
         ),
         all_params_aggregated,
     )
@@ -524,7 +529,7 @@ class BasePyTreeCheckpointHandler(
         _maybe_set_default_save_args,  # pylint: disable=protected-access
         item,
         item if save_args is None else save_args,
-        is_leaf=utils.is_empty_or_leaf,
+        is_leaf=tree_utils.is_empty_or_leaf,
     )
     param_infos, all_params_aggregated = self._get_param_infos(
         item, directory, save_args, ocdbt_target_data_file_size
@@ -634,7 +639,7 @@ class BasePyTreeCheckpointHandler(
         value = _maybe_shard_array(value, args)
       return value
 
-    flat_aggregate = utils.to_flat_dict(
+    flat_aggregate = tree_utils.to_flat_dict(
         jax.tree.map(
             _process_aggregated_value, param_infos, structure, restore_args
         ),
@@ -662,7 +667,7 @@ class BasePyTreeCheckpointHandler(
     for key in flat_aggregate.keys():
       if key not in flat_restored:
         flat_restored[key] = flat_aggregate[key]
-    return utils.from_flat_dict(flat_restored, target=structure)
+    return tree_utils.from_flat_dict(flat_restored, target=structure)
 
   def restore(
       self,
@@ -804,7 +809,7 @@ class BasePyTreeCheckpointHandler(
       )
 
     if item is not None:
-      return utils.deserialize_tree(restored_item, item)
+      return tree_utils.deserialize_tree(restored_item, item)
     return restored_item
 
   async def _write_aggregate_file(
@@ -898,11 +903,15 @@ class BasePyTreeCheckpointHandler(
       checkpoint.
     """
     aggregate_tree = self._read_aggregate_file(directory)
-    flat_aggregate = utils.to_flat_dict(aggregate_tree, keep_empty_nodes=True)
+    flat_aggregate = tree_utils.to_flat_dict(
+        aggregate_tree, keep_empty_nodes=True
+    )
     try:
       metadata = self._read_metadata_file(directory)
       metadata_tree = metadata.as_nested_tree(keep_empty_nodes=True)
-      flat_metadata = utils.to_flat_dict(metadata_tree, keep_empty_nodes=True)
+      flat_metadata = tree_utils.to_flat_dict(
+          metadata_tree, keep_empty_nodes=True
+      )
       use_zarr3 = metadata.use_zarr3
     except FileNotFoundError:
       metadata_tree = None
@@ -910,7 +919,7 @@ class BasePyTreeCheckpointHandler(
       use_zarr3 = None
     if flat_metadata is None:
       flat_metadata = jax.tree.map(
-          lambda _: None, flat_aggregate, is_leaf=utils.is_empty_or_leaf
+          lambda _: None, flat_aggregate, is_leaf=tree_utils.is_empty_or_leaf
       )
 
     def _get_internal_value_metadata(value_meta, value):
@@ -940,7 +949,7 @@ class BasePyTreeCheckpointHandler(
           flat_metadata[tuple_key], flat_aggregate[tuple_key]
       )
     target = metadata_tree if metadata_tree is not None else aggregate_tree
-    return utils.from_flat_dict(result, target=target), use_zarr3
+    return tree_utils.from_flat_dict(result, target=target), use_zarr3
 
   def _get_user_metadata(self, directory: epath.Path) -> PyTree:
     """Reads metadata file and constructs user-friendly metadata.
@@ -962,7 +971,7 @@ class BasePyTreeCheckpointHandler(
     flat_restore_types = {}
     metadata = self._read_metadata_file(directory)
     metadata_tree = metadata.as_nested_tree(keep_empty_nodes=False)
-    for keypath, value_meta in utils.to_flat_dict(metadata_tree).items():
+    for keypath, value_meta in tree_utils.to_flat_dict(metadata_tree).items():
       param_name = '.'.join(keypath)
       restore_type, skip_deserialize = (
           value_meta.value_type,
@@ -1006,7 +1015,7 @@ class BasePyTreeCheckpointHandler(
     ):
       for keypath, value in zip(keypath_batch, metadata_batch):
         flat_metadatas[keypath] = value
-    return utils.from_flat_dict(flat_metadatas, target=metadata_tree)
+    return tree_utils.from_flat_dict(flat_metadatas, target=metadata_tree)
 
   def metadata(self, directory: epath.Path) -> Optional[PyTree]:
     """Returns tree metadata.

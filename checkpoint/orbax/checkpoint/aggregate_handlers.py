@@ -22,6 +22,7 @@ from typing import Any, Optional
 from etils import epath
 from orbax.checkpoint import future as orbax_future
 from orbax.checkpoint import msgpack_utils
+from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import utils
 
 PyTree = Any
@@ -71,7 +72,7 @@ class MsgpackHandler(AggregateHandler):
 
     def _serialize_fn(x):
       if utils.is_primary_host(self._primary_host):
-        serializable_dict = utils.serialize_tree(x, keep_empty_nodes=True)
+        serializable_dict = tree_utils.serialize_tree(x, keep_empty_nodes=True)
         msgpack = msgpack_utils.msgpack_serialize(serializable_dict)
         # Explicit "copy" phase is not needed because msgpack only contains
         # basic types and numpy arrays.
