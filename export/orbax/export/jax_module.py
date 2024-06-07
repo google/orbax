@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Wraps JAX functions and parameters into a tf.Module."""
+
 import dataclasses
 from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
@@ -26,7 +27,7 @@ import tensorflow as tf
 from tensorflow.experimental import dtensor
 
 PyTree = orbax_export_utils.PyTree
-ApplyFn = Callable[[PyTree, PyTree], PyTree]
+ApplyFn = orbax_export_utils.ApplyFn
 
 
 def _same_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
@@ -44,7 +45,7 @@ def _make_closures(
   return jax.tree_util.tree_map(bind_params, apply_fn_map)
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass
 class _NonTrackableMetadata:
   """A container that holds the metadata required for variable update.
 
@@ -57,9 +58,14 @@ class _NonTrackableMetadata:
   """
 
   apply_fn_map: Mapping[str, ApplyFn]
-  var_treedef: Any
+  var_treedef: Optional[jax.tree_util.PyTreeDef]
   var_trainable: Mapping[str, bool]
   var_pspecs: Optional[Mapping[str, PyTree]]
+  input_polymorphic_shape: Optional[Mapping[str, PyTree]]
+  jax2tf_kwargs: Optional[Mapping[str, Any]]
+  jit_compile: Mapping[str, bool]
+  model_params: PyTree
+  allow_multi_axis_sharding_conslidation: bool
 
 
 class JaxModule(tf.Module):
@@ -82,6 +88,7 @@ class JaxModule(tf.Module):
       name: Optional[str] = None,
       pspecs: Optional[PyTree] = None,
       allow_multi_axis_sharding_conslidation: Optional[bool] = None,
+      lazy_init: bool = False,
   ):
     """JaxModule constructor.
 
@@ -117,10 +124,12 @@ class JaxModule(tf.Module):
         structure as ``params``. If set, the leaves of ``params`` must be
         jax.Array, and ``JaxModule`` must be created within a DTensor export
         context from ``with maybe_enable_dtensor_export_on(mesh)``.
-      allow_multi_axis_sharding_conslidation: Disallowed by default. When set
-        to true, it will allow conslidating JAX array multiple axis sharding
-        into DTensor single axis sharding during checkpoint conversion. This
-        would enable sharding across multiple axis names support for JAX model.
+      allow_multi_axis_sharding_conslidation: Disallowed by default. When set to
+        true, it will allow conslidating JAX array multiple axis sharding into
+        DTensor single axis sharding during checkpoint conversion. This would
+        enable sharding across multiple axis names support for JAX model.
+      lazy_init: whether to initialize the module lazily. If set to True, the
+        module will be initialized when the first method is called.
     """
     if callable(apply_fn):
       apply_fn_map: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
@@ -168,29 +177,27 @@ class JaxModule(tf.Module):
       trainable = jax.tree_util.tree_map(lambda x: trainable, params)
 
     self.with_gradient: bool = any(jax.tree_util.tree_leaves(trainable))
-    tf_vars = _jax_params_to_tf_variables(
-        params, trainable, pspecs, allow_multi_axis_sharding_conslidation
-    )
-    # Do not attach `tf_vars` to `self` directly, otherwise its structure will
-    # be mutated by `tf.Module.__setattr__`.
-    self._var_leaves, var_treedef = jax.tree_util.tree_flatten(tf_vars)
-    self._methods = jax.tree_util.tree_map(
-        self._make_tf_closure,
-        apply_fn_map,
-        input_polymorphic_shape,
-        jax2tf_kwargs,
-        jit_compile,
-    )
-    self._jax2tf_kwargs_map = jax2tf_kwargs
-    self._jax_methods = _make_closures(params, apply_fn_map)
+    self._var_leaves = None
+    self._methods = None
 
     # Keep the following Metadata for variable update.
     self._nontrackable_metadata = _NonTrackableMetadata(
         apply_fn_map=apply_fn_map,
-        var_treedef=var_treedef,
+        var_treedef=None,
         var_trainable=trainable,
         var_pspecs=pspecs,
+        input_polymorphic_shape=input_polymorphic_shape,
+        jax2tf_kwargs=jax2tf_kwargs,
+        jit_compile=jit_compile,
+        model_params=params,
+        allow_multi_axis_sharding_conslidation=allow_multi_axis_sharding_conslidation,
     )
+
+    self._var_leaves = None
+    self._methods = None
+    if not lazy_init:
+      _ = self.get_tf_variables()
+      _ = self.methods
 
   def update_variables(self, params: PyTree):
     """Updates the variables associated with self.
@@ -202,42 +209,55 @@ class JaxModule(tf.Module):
         parameter.
     """
     _, treedef = jax.tree_util.tree_flatten(params)
+    tf_vars = self.get_tf_variables()
     if treedef != self._nontrackable_metadata.var_treedef:
       raise ValueError(
           'The PyTree structure of the updated parameters must be the same as'
           f' that of the original parameters. Got new treedef: {treedef},'
           f' original treedef: {self._nontrackable_metadata.var_treedef}'
       )
-    new_vars = _jax_params_to_tf_variables(
-        params,
+    # Update both JAX and TF model parameters.
+    self._nontrackable_metadata.model_params = params
+    new_tf_vars = _jax_params_to_tf_variables(
+        self._nontrackable_metadata.model_params,
         self._nontrackable_metadata.var_trainable,
         self._nontrackable_metadata.var_pspecs,
     )
-
     jax.tree_util.tree_map(
-        lambda v, new_v: v.assign(new_v), self._get_variable_tree(), new_vars
+        lambda v, new_v: v.assign(new_v), tf_vars, new_tf_vars
     )
 
-    self._jax_methods = _make_closures(
-        params, self._nontrackable_metadata.apply_fn_map
-    )
-
-  def _get_variable_tree(self) -> PyTree:
+  def get_tf_variables(self) -> PyTree:
     """Returns the PyTree of the tf.Variables associated with self."""
+    if self._var_leaves is None:
+      # Do not attach `tf_vars` to `self` directly, otherwise its structure will
+      # be mutated by `tf.Module.__setattr__`.
+      tf_vars = _jax_params_to_tf_variables(
+          self._nontrackable_metadata.model_params,
+          self._nontrackable_metadata.var_trainable,
+          self._nontrackable_metadata.var_pspecs,
+          self._nontrackable_metadata.allow_multi_axis_sharding_conslidation,
+      )
+      self._var_leaves, var_treedef = jax.tree_util.tree_flatten(tf_vars)
+      self._nontrackable_metadata.var_treedef = var_treedef
     return jax.tree_util.tree_unflatten(
         self._nontrackable_metadata.var_treedef, self._var_leaves
     )
 
-  def _make_tf_closure(self, apply_fn: ApplyFn,
-                       input_polymorphic_shape: Optional[PyTree],
-                       jax2tf_kwargs: Optional[Mapping[str, Any]],
-                       jit_compile: bool) -> Callable[..., Any]:
+  def _make_tf_closure(
+      self,
+      apply_fn: ApplyFn,
+      input_polymorphic_shape: Optional[PyTree],
+      jax2tf_kwargs: Optional[Mapping[str, Any]],
+      jit_compile: bool,
+  ) -> Callable[..., Any]:
     """Creates a closure for `apply_fn` in TF context."""
     jax2tf_kwargs = dict(jax2tf_kwargs or {})
     if 'polymorphic_shapes' in jax2tf_kwargs:
       raise ValueError(
           'Do not use `polymorphic_shapes` in `jax2tf_kwargs`, use '
-          '`input_polymorphic_shape=...` instead.')
+          '`input_polymorphic_shape=...` instead.'
+      )
 
     # All params have static shapes, so the first dimension of
     # polymorphic_shapes is None.
@@ -246,31 +266,48 @@ class JaxModule(tf.Module):
     if 'with_gradient' not in jax2tf_kwargs:
       jax2tf_kwargs['with_gradient'] = self.with_gradient
     elif jax2tf_kwargs['with_gradient'] and not self.with_gradient:
-      raise ValueError('`with_gradient=True` is specified in jax2tf_kwargs but '
-                       'the JaxModule does not contain trainable variables.')
+      raise ValueError(
+          '`with_gradient=True` is specified in jax2tf_kwargs but '
+          'the JaxModule does not contain trainable variables.'
+      )
     elif not jax2tf_kwargs['with_gradient'] and self.with_gradient:
       raise ValueError(
           '`with_gradient=False` is specified in jax2tf_kwargs but the '
-          'JaxModule contains trainable variables.')
+          'JaxModule contains trainable variables.'
+      )
 
     if logging.vlog_is_on(3):
       logging.vlog(3, 'jax2tf_kwargs=%s', jax2tf_kwargs)
 
     apply_fn_tf = jax2tf.convert(apply_fn, **jax2tf_kwargs)
     return tf.function(
-        lambda x: apply_fn_tf(self._get_variable_tree(), x),
+        lambda x: apply_fn_tf(self.get_tf_variables(), x),
         jit_compile=jit_compile,
-        autograph=False)
+        autograph=False,
+    )
 
   @property
   def methods(self) -> Mapping[str, Callable[..., Any]]:
     """Named methods in TF context."""
+    # Run jax params to tf variables once to make sure the variables are
+    # initialized.
+    if self._methods is None:
+      self._methods = jax.tree_util.tree_map(
+          self._make_tf_closure,
+          self._nontrackable_metadata.apply_fn_map,
+          self._nontrackable_metadata.input_polymorphic_shape,
+          self._nontrackable_metadata.jax2tf_kwargs,
+          self._nontrackable_metadata.jit_compile,
+      )
     return self._methods
 
   @property
   def jax_methods(self) -> Mapping[str, Callable[..., Any]]:
     """Named methods in JAX context for validation."""
-    return self._jax_methods
+    return _make_closures(
+        self._nontrackable_metadata.model_params,
+        self._nontrackable_metadata.apply_fn_map,
+    )
 
 
 def _get_param_names(params: PyTree) -> PyTree:
@@ -361,6 +398,7 @@ def _jax_params_to_tf_variables(
       return tf.Variable(
           x, trainable=trainable, shape=x.shape, dtype=x.dtype, name=name
       )
+
   names = _get_param_names(params)
   if pspecs is None:
     pspecs = jax.tree_util.tree_map(lambda x: None, params)

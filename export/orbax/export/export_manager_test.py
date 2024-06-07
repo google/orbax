@@ -16,6 +16,7 @@ import functools
 import os
 
 from absl.testing import parameterized
+import chex
 import jax
 import jax.numpy as jnp
 from orbax.export.export_manager import ExportManager
@@ -407,6 +408,50 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     loaded = tf.saved_model.load(self._output_dir, ['serve'])
     res = loaded.signatures['serving_default'](x=1)['y']
     self.assertAllEqual(res, 3)
+
+  def test_return_preprocess_only_fn(self):
+    os.environ['OBX_EXPORT_RETURN_PREPROCESS_ONLY'] = 'True'
+
+    def tf_preprocessor(*inputs):
+      x = inputs[0]
+      return tf.math.sin(x) + 1
+
+    serving_configs = [
+        ServingConfig(
+            'serving_1',
+            input_signature=[tf.TensorSpec((), tf.dtypes.float32)],
+            tf_preprocessor=tf_preprocessor,
+        ),
+    ]
+    inputs = [tf.random.uniform([10], dtype=tf.float32)]
+    dict_inputs = {f'inputs_{i}': v for i, v in enumerate(inputs)}
+    with self.subTest('with_preprocessor'):
+      em = ExportManager(
+          JaxModule({'bias': jnp.array(1)}, lambda p, x: x + p['bias']),
+          serving_configs,
+      )
+      em.save(self._output_dir)
+      loaded = tf.saved_model.load(self._output_dir, ['serve'])
+      chex.assert_trees_all_close(
+          loaded.signatures['serving_1'](**dict_inputs),
+          {'output_0': tf_preprocessor(*inputs)},
+      )
+    with self.subTest('without_preprocessor'):
+      serving_configs = [
+          ServingConfig(
+              'serving_2',
+              input_signature=[tf.TensorSpec((), tf.dtypes.float32)],
+          ),
+      ]
+      with self.assertRaisesRegex(
+          ValueError, 'serving_config.tf_preprocessor must be provided'
+      ):
+        em = ExportManager(
+            JaxModule({'bias': jnp.array(1)}, lambda p, x: x + p['bias']),
+            serving_configs,
+        )
+        em.save(self._output_dir)
+    os.environ.pop('OBX_EXPORT_RETURN_PREPROCESS_ONLY')
 
 
 if __name__ == '__main__':

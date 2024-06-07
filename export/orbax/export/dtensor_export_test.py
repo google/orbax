@@ -104,12 +104,14 @@ class DtensorExportTest(absltest.TestCase):
     )
     with self.assertRaisesRegex(ValueError, '`pspecs` is not specified'):
       with dtensor_utils.maybe_enable_dtensor_export_on(self._mesh):
-        JaxModule({'w': sharded_w}, lambda x: x)
+        jm = JaxModule({'w': sharded_w}, lambda x: x)
+        _ = jm.methods
 
     with self.assertRaisesRegex(
         ValueError, 'JaxModule is not created within a DTensor export context'
     ):
-      JaxModule({'w': w}, lambda x: x, pspecs={'w': pspec})
+      jm = JaxModule({'w': w}, lambda x: x, pspecs={'w': pspec})
+      _ = jm.methods
 
 
 if __name__ == '__main__':

@@ -13,17 +13,24 @@
 # limitations under the License.
 
 """Utilities for Orbax export."""
+
 from collections.abc import Mapping, Sequence
 import dataclasses
 import functools
 import inspect
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional
 import jax
 import tensorflow as tf
 
 ConfigProto = Any
 PyTree = Any
 SignatureDef = Any
+# preprocess function accept a variable number of positional arguments and
+# return a list as the return type, with a single PyTree element `model_inputs`.
+PreProcessFunction = Callable[..., List[PyTree]]
+# Model apply function accept two PyTreearguments `model_params` and
+# `model_inputs`, return a single PyTree `model_outputs`.
+ApplyFn = Callable[[PyTree, PyTree], PyTree]
 
 
 @dataclasses.dataclass
@@ -265,6 +272,7 @@ class CallableSignatures:
   ):
     callable_signatures = {}
     for name, signature_def in signature_defs.items():
+
       def call(signature_def, **inputs):
         output_tensor_keys = list(signature_def.outputs.keys())
         feed_dict = {

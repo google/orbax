@@ -15,6 +15,7 @@
 """Manage the exporting of a JAXModule."""
 
 from collections.abc import Mapping, Sequence
+import os
 from typing import Any, Callable, Optional
 
 from etils.epy.reraise_utils import maybe_reraise
@@ -30,8 +31,9 @@ from tensorflow.experimental import dtensor
 class ExportManager(ExportManagerBase):
   """Exports a JAXModule with pre- and post-processors."""
 
-  def __init__(self, module: JaxModule,
-               serving_configs: Sequence[ServingConfig]):
+  def __init__(
+      self, module: JaxModule, serving_configs: Sequence[ServingConfig]
+  ):
     """ExportManager constructor.
 
     Args:
@@ -41,15 +43,31 @@ class ExportManager(ExportManagerBase):
     """
     # Creates a new tf.Module wrapping the JaxModule and extra trackable
     # resources.
-    self._module = tf.Module()
-    self._module.computation_module = module
+    self._tf_module = tf.Module()
+    self._tf_module.computation_module = module
     self._serving_signatures = {}
     tf_trackable_resources = []
 
+    obx_return_preprocess_only = (
+        os.getenv('OBX_EXPORT_RETURN_PREPROCESS_ONLY', 'False') == 'True'
+    )
+
     for sc in serving_configs:
       with maybe_reraise(f'Failed exporting signature_key={sc.signature_key} '):
-        method = sc.get_infer_step(module.methods)
-        inference_fn = make_e2e_inference_fn(method, sc)
+
+        if obx_return_preprocess_only:
+          if not sc.tf_preprocessor:
+            raise ValueError(
+                'serving_config.tf_preprocessor must be provided when'
+                ' return_preprocess_only_fn is True.'
+            )
+          preprocessor = utils.with_default_args(
+              sc.tf_preprocessor, sc.get_input_signature()
+          )
+          inference_fn = preprocessor
+        else:
+          method = sc.get_infer_step(module.methods)
+          inference_fn = make_e2e_inference_fn(method, sc)
         if isinstance(sc.signature_key, str):
           keys = [sc.signature_key]
         else:
@@ -70,12 +88,12 @@ class ExportManager(ExportManagerBase):
         # contrast, signatures will flatten the TensorSpecs of the to kwargs.
         self.tf_module.__call__ = inference_fn
 
-    self._module.tf_trackable_resources = tf_trackable_resources
+    self._tf_module.tf_trackable_resources = tf_trackable_resources
 
   @property
   def tf_module(self) -> tf.Module:
     """Returns the tf.module maintained by the export manager."""
-    return self._module
+    return self._tf_module
 
   @property
   def serving_signatures(self) -> Mapping[str, Callable[..., Any]]:
@@ -99,7 +117,7 @@ class ExportManager(ExportManagerBase):
     """
     save_options = save_options or tf.saved_model.SaveOptions()
     save_options.experimental_custom_gradients = (
-        self._module.computation_module.with_gradient
+        self._tf_module.computation_module.with_gradient
     )
 
     serving_signatures = dict(self.serving_signatures)

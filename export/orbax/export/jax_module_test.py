@@ -19,11 +19,11 @@ import collections
 from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
-from jax.sharding import Mesh
-from jax.sharding import PartitionSpec
 import numpy as np
-from orbax.export.jax_module import JaxModule
+from orbax.export import jax_module
 import tensorflow as tf
+
+DEFAULT_METHOD_KEY = jax_module.JaxModule.DEFAULT_METHOD_KEY
 
 
 def _register_custom_dict_to_jax(dict_cls):
@@ -66,9 +66,9 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
         ),
         empty_nodes=[dict(), tuple(), list(), MyDict(), YetAnotherDict()],
     )
-    variable_names_to_vals = {
-        v.name: v for v in JaxModule(params, lambda params, x: x).variables
-    }
+    jm = jax_module.JaxModule(params, lambda params, x: x)
+    _ = jm.methods[DEFAULT_METHOD_KEY]
+    variable_names_to_vals = {v.name: v for v in jm.variables}
     self.assertEqual(
         {
             'a:0': np.array(1),
@@ -93,9 +93,9 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
             'b': jnp.array(2),
         }
     }
-    variable_names_to_vals = {
-        v.name: v for v in JaxModule(params, lambda params, x: x).variables
-    }
+    jm = jax_module.JaxModule(params, lambda params, x: x)
+    _ = jm.methods[DEFAULT_METHOD_KEY]
+    variable_names_to_vals = {v.name: v for v in jm.variables}
     self.assertEqual(
         {
             'model/_/linear.w:0': np.array(1),
@@ -113,43 +113,54 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
         a=jnp.array(1),
         b=[jnp.array([5, 6]), jnp.array([7, 8])],
     )
-    variables = JaxModule(params, lambda params, x: x).variables
+    variables = jax_module.JaxModule(params, lambda params, x: x).variables
     names = {v.name for v in variables}
     self.assertLen(names, len(variables))
 
   def test_trainable(self):
     params = {'x': jnp.array(1), 'y': jnp.array(2)}
     trainable = {'x': True, 'y': False}
-    jm = JaxModule(params, lambda params, x: x, trainable=trainable)
+    jm = jax_module.JaxModule(params, lambda params, x: x, trainable=trainable)
+    _ = jm.methods[DEFAULT_METHOD_KEY]
     self.assertLen(jm.trainable_variables, 1)
     self.assertEqual(jm.trainable_variables[0].name, 'x:0')
     self.assertEqual(jm.trainable_variables[0], jnp.array(1))
     self.assertTrue(jm.with_gradient)
 
-    jm = JaxModule(params, lambda params, x: x)
+    jm = jax_module.JaxModule(params, lambda params, x: x)
+    _ = jm.methods[DEFAULT_METHOD_KEY]
     self.assertEmpty(jm.trainable_variables)
     self.assertFalse(jm.with_gradient)
 
-    jm = JaxModule(params, lambda params, x: x, trainable=True)
+    jm = jax_module.JaxModule(params, lambda params, x: x, trainable=True)
+    _ = jm.methods[DEFAULT_METHOD_KEY]
     self.assertLen(jm.trainable_variables, 2)
     self.assertTrue(jm.with_gradient)
 
-    jm = JaxModule(params, lambda params, x: x, trainable=False)
+    jm = jax_module.JaxModule(params, lambda params, x: x, trainable=False)
+    _ = jm.methods[DEFAULT_METHOD_KEY]
     self.assertEmpty(jm.trainable_variables)
     self.assertFalse(jm.with_gradient)
 
   def test_jax_array(self):
-    global_mesh = Mesh(np.array(jax.local_devices(backend='cpu')), 'x')
-    mesh_axes = PartitionSpec('x')
+    global_mesh = jax.sharding.Mesh(
+        np.array(jax.local_devices(backend='cpu')), 'x'
+    )
+    mesh_axes = jax.sharding.PartitionSpec('x')
     global_input_shape = (jax.device_count('cpu'), 2)
-    global_input_data = np.arange(
-        np.prod(global_input_shape)).reshape(global_input_shape)
+    global_input_data = np.arange(np.prod(global_input_shape)).reshape(
+        global_input_shape
+    )
 
     arr = jax.make_array_from_callback(
-        global_input_shape, jax.sharding.NamedSharding(global_mesh, mesh_axes),
-        lambda idx: global_input_data[idx])
+        global_input_shape,
+        jax.sharding.NamedSharding(global_mesh, mesh_axes),
+        lambda idx: global_input_data[idx],
+    )
     self.assertIsInstance(arr, jax.Array)
-    variables = JaxModule({'arr': arr}, lambda params, x: x).variables
+    jm = jax_module.JaxModule({'arr': arr}, lambda params, x: x)
+    _ = jm.methods[DEFAULT_METHOD_KEY]
+    variables = jm.variables
     self.assertLen(variables, 1)
     self.assertEqual(variables[0].name, 'arr:0')
     self.assertAllEqual(variables[0], global_input_data)
@@ -167,9 +178,11 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
     }
     x = jax.random.normal(key_x, shape=(8, 1))
 
-    jax_module = JaxModule(params, linear, jit_compile=jit_compile)
-    self.assertAllClose(jax_module.methods[JaxModule.DEFAULT_METHOD_KEY](x),
-                        jax_module.jax_methods[JaxModule.DEFAULT_METHOD_KEY](x))
+    jm = jax_module.JaxModule(params, linear, jit_compile=jit_compile)
+    self.assertAllClose(
+        jm.methods[DEFAULT_METHOD_KEY](x),
+        jm.jax_methods[DEFAULT_METHOD_KEY](x),
+    )
 
   @parameterized.parameters(True, False)
   def test_polymorphic_shapes(self, jit_compile):
@@ -183,35 +196,37 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
         'b': jax.random.normal(key_b, shape=(8, 1)),
     }
 
-    with self.assertRaisesRegex(ValueError,
-                                'Do not use `polymorphic_shapes`'):
-      JaxModule(
-          params,
-          linear,
-          jax2tf_kwargs={'polymorphic_shapes': [None, 'b, ...']})
+    with self.assertRaisesRegex(ValueError, 'Do not use `polymorphic_shapes`'):
+      jm = jax_module.JaxModule(
+          params, linear, jax2tf_kwargs={'polymorphic_shapes': [None, 'b, ...']}
+      )
+      _ = jm.methods[DEFAULT_METHOD_KEY]
 
-    jax_module = JaxModule(
+    jm = jax_module.JaxModule(
         params,
         linear,
         jit_compile=jit_compile,
-        input_polymorphic_shape='b, ...')
+        input_polymorphic_shape='b, ...',
+    )
 
     @tf.function(
         autograph=False,
         jit_compile=False,
-        input_signature=[tf.TensorSpec([None, 8, 1], tf.float32)])
+        input_signature=[tf.TensorSpec([None, 8, 1], tf.float32)],
+    )
     def traced(x):
-      return jax_module.methods[JaxModule.DEFAULT_METHOD_KEY](x)
+      return jm.methods[DEFAULT_METHOD_KEY](x)
 
     key_x1, key_x2 = jax.random.split(key_x, 2)
     x1 = jax.random.normal(key_x1, shape=(8, 8, 1))  # batch size is 8
+    _ = jm.methods[DEFAULT_METHOD_KEY]
     self.assertAllClose(traced(x1), linear(params, x1))
 
     x2 = jax.random.normal(key_x2, shape=(16, 8, 1))  # batch size is 16
     self.assertAllClose(traced(x2), linear(params, x2))
 
   def test_multi_functions(self):
-    jax_module = JaxModule(
+    jm = jax_module.JaxModule(
         params={'delta': jnp.ones((), jnp.int32)},
         apply_fn={
             'add': lambda params, x: x + params['delta'],
@@ -220,67 +235,74 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
         input_polymorphic_shape={
             'add': None,
             'sub': 'b, ...',  # Make `sub` batch polymorphic.
-        })
+        },
+    )
 
     # `add` cannot accept polymorphic shapes.
     with self.assertRaisesRegex(ValueError, 'syntax error'):
-      jax_module.methods['add'].get_concrete_function(
-          tf.TensorSpec([None], tf.int32))
+      jm.methods['add'].get_concrete_function(tf.TensorSpec([None], tf.int32))
 
     # `add` can accept fixed shapes.
-    jax_module.methods['add'].get_concrete_function(
-        tf.TensorSpec([1], tf.int32))
+    jm.methods['add'].get_concrete_function(tf.TensorSpec([1], tf.int32))
     # `sub` can accept polymorphic shapes.
-    jax_module.methods['sub'].get_concrete_function(
-        tf.TensorSpec([None], tf.int32))
+    jm.methods['sub'].get_concrete_function(tf.TensorSpec([None], tf.int32))
 
   def test_init_invalid_argument(self):
-    params = {'delta': jnp.ones((), jnp.int32)},
+    params = ({'delta': jnp.ones((), jnp.int32)},)
     apply_fns = {
         'add': lambda params, x: x + params['delta'],
         'sub': lambda params, x: x - params['delta'],
     }
 
     with self.assertRaisesRegex(ValueError, '`input_polymorphic_shape` must'):
-      JaxModule(params, apply_fns)
+      jax_module.JaxModule(params, apply_fns)
 
     with self.assertRaisesRegex(ValueError, '`input_polymorphic_shape` must'):
-      JaxModule(
-          params, apply_fns, input_polymorphic_shape={
+      jax_module.JaxModule(
+          params,
+          apply_fns,
+          input_polymorphic_shape={
               'add': None,
-          })
+          },
+      )
 
     with self.assertRaisesRegex(ValueError, '`jax2tf_kwargs` must'):
-      JaxModule(
+      jax_module.JaxModule(
           params,
           apply_fns,
           input_polymorphic_shape=jax.tree_util.tree_map(
-              lambda x: None, apply_fns),
-          jax2tf_kwargs={'enable_xla': False})
+              lambda x: None, apply_fns
+          ),
+          jax2tf_kwargs={'enable_xla': False},
+      )
 
     with self.assertRaisesRegex(ValueError, '`jit_compile` must'):
-      JaxModule(
+      jax_module.JaxModule(
           params,
           apply_fns,
           input_polymorphic_shape=jax.tree_util.tree_map(
-              lambda x: None, apply_fns),
-          jit_compile={'add': False})
+              lambda x: None, apply_fns
+          ),
+          jit_compile={'add': False},
+      )
 
     with self.assertRaisesRegex(ValueError, 'contains trainable'):
-      JaxModule(
+      jm = jax_module.JaxModule(
           params,
           lambda p, x: x,
           trainable=True,
           jax2tf_kwargs={'with_gradient': False},
       )
+      _ = jm.methods[DEFAULT_METHOD_KEY]
 
     with self.assertRaisesRegex(ValueError, 'does not contain trainable'):
-      JaxModule(
+      jm = jax_module.JaxModule(
           params,
           lambda p, x: x,
           trainable=False,
           jax2tf_kwargs={'with_gradient': True},
       )
+      _ = jm.methods[DEFAULT_METHOD_KEY]
 
   def test_variable_update(self):
     def linear(params, batch):
@@ -292,36 +314,38 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
         'b': jax.random.normal(key_b, shape=(8, 1)),
     }
 
-    jax_module = JaxModule(params, linear, input_polymorphic_shape='b, ...')
+    jm = jax_module.JaxModule(params, linear, input_polymorphic_shape='b, ...')
 
     new_params = jax.tree_util.tree_map(lambda x: x + 1.0, params)
-    jax_module.update_variables(new_params)
+    jm.update_variables(new_params)
     x = jax.random.normal(key_x, shape=(4, 8, 1))
     expected_res = linear(new_params, x)
 
     self.assertAllClose(
-        jax_module.jax_methods[JaxModule.DEFAULT_METHOD_KEY](x), expected_res
+        jm.jax_methods[DEFAULT_METHOD_KEY](x),
+        expected_res,
     )
     self.assertAllClose(
-        jax_module.methods[JaxModule.DEFAULT_METHOD_KEY](x), expected_res
+        jm.methods[DEFAULT_METHOD_KEY](x),
+        expected_res,
     )
 
   def test_variable_update_error(self):
     params = {'w': np.zeros((4, 8), dtype=np.float32)}
-    jax_module = JaxModule(params, lambda params, x: params['w'] @ x)
+    jm = jax_module.JaxModule(params, lambda params, x: params['w'] @ x)
 
     with self.assertRaisesRegex(
         ValueError,
         'The PyTree structure of the updated parameters must be the same as'
         ' that of the original parameters',
     ):
-      jax_module.update_variables({'v': np.zeros((4, 8), dtype=np.float32)})
+      jm.update_variables({'v': np.zeros((4, 8), dtype=np.float32)})
 
     with self.assertRaisesRegex(ValueError, 'Shape mismatch'):
-      jax_module.update_variables({'w': np.zeros((1, 8), dtype=np.float32)})
+      jm.update_variables({'w': np.zeros((1, 8), dtype=np.float32)})
 
     with self.assertRaisesRegex(ValueError, 'Incompatible type conversion'):
-      jax_module.update_variables({'w': np.zeros((4, 8), dtype=np.int32)})
+      jm.update_variables({'w': np.zeros((4, 8), dtype=np.int32)})
 
 
 if __name__ == '__main__':
