@@ -19,6 +19,7 @@ from typing import Optional, Protocol, Set
 from absl import logging
 import jax
 from jax.experimental import multihost_utils
+import numpy as np
 
 # Default timeout in seconds.
 _DEFAULT_BARRIER_TIMEOUT = 1200
@@ -62,7 +63,7 @@ def initialize_runtime_to_distributed_ids():
   logging.info('runtime_to_distributed_id: %s', _RUNTIME_TO_DISTRIBUTED_ID)
 
 
-def _runtime_to_distributed_process_id(pid: int) -> int:
+def runtime_to_distributed_process_id(pid: int) -> int:
   """Converts a distributed process index to a runtime process index."""
   if _RUNTIME_TO_DISTRIBUTED_ID is None:
     raise ValueError('Please call initialize_runtime_to_distributed_ids()')
@@ -137,10 +138,8 @@ def get_barrier_sync_fn(
   if processes is None:
     barrier_processes = None
   else:
-    barrier_processes = [
-        _runtime_to_distributed_process_id(runtime_id)
-        for runtime_id in barrier_processes
-    ]
+    # Don't map ids anymore if we are using distributed ids.
+    barrier_processes = list(barrier_processes)
 
   def _fn(*, key: str, timeout_ms: int) -> None:
     key = _unique_barrier_key(key)
@@ -230,4 +229,11 @@ def is_primary_host(primary_host: Optional[int]):
 
 
 def process_index() -> int:
-  return jax.process_index()
+  return jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
+
+
+def unique_processes_from_devices(device_array: np.ndarray) -> Set[int]:
+  pid = np.vectorize(
+      lambda d: runtime_to_distributed_process_id(d.process_index)
+  )
+  return set(pid(device_array).flat)

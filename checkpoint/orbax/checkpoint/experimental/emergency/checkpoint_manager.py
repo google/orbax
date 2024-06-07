@@ -47,6 +47,7 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint.multihost import multislice
 from orbax.checkpoint.path import step as step_lib
 from typing_extensions import Self  # for Python version < 3.11
 
@@ -141,50 +142,6 @@ class CheckpointManagerOptions:
   async_options: Optional[checkpoint_manager.AsyncOptions] = None
 
 
-def _process_slice_id(
-    process_index: int, global_mesh: jax.sharding.Mesh
-) -> int:
-  """Returns the slice id that the process_index belongs to."""
-  for slice_id, device_slice in enumerate(global_mesh.devices):
-    if process_index in _pid_in_slice(device_slice):
-      return slice_id
-
-  return -1
-
-
-def _pid_in_slice(device_slice: np.ndarray) -> np.ndarray:
-  pid = np.vectorize(lambda d: d.process_index)
-  return pid(device_slice)
-
-
-def in_slice(process_index: int, device_slice: np.ndarray) -> bool:
-  return process_index in _pid_in_slice(device_slice)
-
-
-def in_primary_slice(
-    process_index: int, global_mesh: jax.sharding.Mesh
-) -> bool:
-  """Returns true if host is in primary slice (the first slice)."""
-  primary_slice = global_mesh.devices[0]
-
-  return in_slice(process_index, primary_slice)
-
-
-def _unique_processes_from_devices(device_array: np.ndarray) -> Set[int]:
-  pid = np.vectorize(lambda d: d.process_index)
-  return set(pid(device_array).flat)
-
-
-def _local_slice_devices(devices_array: np.ndarray) -> np.ndarray:
-  for device_slice in devices_array:
-    if in_slice(multihost.process_index(), device_slice):
-      return device_slice
-  raise ValueError(
-      f'process_index {multihost.process_index()} does not exist in provided'
-      ' `global_mesh`'
-  )
-
-
 def _pad_steps(steps, target):
   return steps + [-1] * (target - len(steps))
 
@@ -260,7 +217,9 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         async_options=options.async_options,
         multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
             primary_host=None,
-            active_processes=_unique_processes_from_devices(device_array),
+            active_processes=multihost.unique_processes_from_devices(
+                device_array
+            ),
             barrier_sync_key_prefix='local',
         ),
         enable_async_checkpointing=options.enable_async_checkpointing,
@@ -279,10 +238,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
 
   def _global_list_union_interslice(self, steps: Sequence[int]) -> Set[int]:
     barrier_processes = self._options.multiprocessing_options.active_processes
-    barrier_processes = [
-        multihost.utils._runtime_to_distributed_process_id(runtime_id)  # pylint: disable=protected-access
-        for runtime_id in barrier_processes
-    ]
+    barrier_processes = list(barrier_processes)
 
     client = multihost.utils._get_jax_distributed_client()  # pylint: disable=protected-access
     dir_key = f'steps/{next(_module_unique_count)}/'
@@ -317,7 +273,6 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
       steps: a list of steps known to all hosts on a slice
     """
     unioned_steps = self._global_list_union_interslice(steps)
-    logging.info('After inter-slice broadcast, found steps: %s.', unioned_steps)
     return np.asarray(list(unioned_steps))
 
   def common_steps_within_slice(self, steps: Sequence[int]) -> np.ndarray:
@@ -335,7 +290,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
       steps: a list of known steps on host
     """
 
-    devices = _local_slice_devices(self._device_array)
+    devices = multislice.local_slice_devices(self._device_array)
     slice_device_count = devices.size
     unioned_steps = _global_list_union(steps, devices)
 
@@ -387,11 +342,8 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
       A sequence of steps (integers)
     """
     local_steps = self.local_host_steps(read)
-
     common_steps_on_slice = self.common_steps_within_slice(local_steps)
-
     steps = self._common_steps_global(common_steps_on_slice)
-
     return [x for x in steps if x != -1]
 
   def latest_step(self) -> Optional[int]:
@@ -441,7 +393,7 @@ class CheckpointManager(
     options = options or CheckpointManagerOptions()
     self._global_mesh = global_mesh
     self._abstract_state = abstract_state
-    self._slice_id = _process_slice_id(
+    self._slice_id = multislice.process_slice_id(
         multihost.process_index(), self._global_mesh
     )
 
@@ -450,19 +402,21 @@ class CheckpointManager(
     self._persistent_directory = persistent_directory
     self._options = options
     self._metadata = metadata
-    self._persistent_primary_host = global_mesh.devices[0].flat[0].process_index
-    self._local_primary_host = (
-        global_mesh.devices[1].flat[0].process_index
-        if global_mesh.devices.shape[0] > 1
-        else None
+    self._persistent_primary_host = multihost.runtime_to_distributed_process_id(
+        global_mesh.devices[0].flat[0].process_index
     )
+    self._local_primary_host = None
+    if global_mesh.devices.shape[0] > 1:
+      self._local_primary_host = multihost.runtime_to_distributed_process_id(
+          global_mesh.devices[1].flat[0].process_index
+      )
     if self._local_primary_host is None:
       raise AssertionError(
-          'to use this CheckpointManager, at least 3 data-parallel slices are'
+          'To use this CheckpointManager, at least 2 data-parallel slices are'
           ' needed.'
       )
 
-    self.in_primary_slice = in_primary_slice(
+    self.in_primary_slice = multislice.in_primary_slice(
         multihost.process_index(), global_mesh
     )
     self._persistent_max_to_keep = self._options.persistent.max_to_keep
@@ -471,7 +425,7 @@ class CheckpointManager(
     persistent_multiprocessing_options = (
         checkpoint_manager.MultiprocessingOptions(
             primary_host=self._persistent_primary_host,
-            active_processes=_unique_processes_from_devices(
+            active_processes=multihost.unique_processes_from_devices(
                 self._global_mesh.devices[0]
             ),
             barrier_sync_key_prefix='persistent',
@@ -496,6 +450,7 @@ class CheckpointManager(
               item_handlers=PyTreeCheckpointHandler(
                   use_ocdbt=True,
                   use_zarr3=True,
+                  primary_host=self._persistent_primary_host,
               ),
           )
       )
@@ -664,7 +619,7 @@ class CheckpointManager(
     Returns:
       True if the checkpoint should be saved.
     """
-    logging.info('Checking should_save.')
+    logging.info('Checking should_save at step: %d.', step)
     if self.in_primary_slice:
       should_save = self._persistent_checkpoint_manager.should_save(step)
     else:
