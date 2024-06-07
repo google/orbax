@@ -40,6 +40,7 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
 from orbax.checkpoint.logging import abstract_logger
+from orbax.checkpoint.logging import standard_logger
 from orbax.checkpoint.logging import step_statistics
 from orbax.checkpoint.metadata import checkpoint
 from orbax.checkpoint.path import deleter
@@ -548,12 +549,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._multiprocessing_options = (
         self._options.multiprocessing_options or MultiprocessingOptions()
     )
-    if (logger is not None) and (
-        not isinstance(logger, abstract_logger.AbstractLogger)
-    ):
-      raise ValueError('`logger` must be an  AbstractLogger instance.')
-
-    self._logger = logger
+    self._logger = logger or standard_logger.StandardLogger()
 
     if checkpointers and item_names:
       raise ValueError(
@@ -1158,7 +1154,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           ),
           processes=self._multiprocessing_options.active_processes,
       )
-    step_stats.synchronous = is_async_checkpointer(self._checkpointer)
+    step_stats.synchronous = not is_async_checkpointer(self._checkpointer)
     step_stats.end_time = time.time()
     if self._logger is not None:
       self._logger.log_entry(dataclasses.asdict(step_stats))
