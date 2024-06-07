@@ -149,7 +149,15 @@ class _CheckpointMetadataStoreImpl(CheckpointMetadataStore):
           'CheckpointMetadata file does not exist: %s', metadata_file
       )
       return None
-    raw_data = metadata_file.read_text()
+    try:
+      raw_data = metadata_file.read_text()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.error(
+          'Failed to read CheckpointMetadata file: %s, error: %s',
+          metadata_file,
+          e,
+      )
+      return None
     try:
       json_data = json.loads(raw_data)
     except json.decoder.JSONDecodeError as e:
