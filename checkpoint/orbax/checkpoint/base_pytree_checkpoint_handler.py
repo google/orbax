@@ -843,9 +843,9 @@ class BasePyTreeCheckpointHandler(
       save_args: PyTree,
       use_zarr3: bool = False,
   ) -> future.Future:
-    tspec = type_handlers._get_tensorstore_spec(  # pylint: disable=protected-access
-        os.fspath(directory), name=METADATA_FILE, use_ocdbt=False
-    )['kvstore']
+    tspec = type_handlers._get_tensorstore_base_kvstore_spec(  # pylint: disable=protected-access
+        os.fspath(directory / METADATA_FILE)
+    )
     txn = ts.Transaction()
     metadata_ts_context = type_handlers.get_ts_context(use_ocdbt=False)
     t = await ts.KvStore.open(
