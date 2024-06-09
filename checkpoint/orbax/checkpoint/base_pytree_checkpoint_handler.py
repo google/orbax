@@ -268,14 +268,14 @@ def _batched_serialization_requests(
 
   def _group_value(
       keypath: Tuple[Any, ...],
-      info: ParamInfo,
+      info: Optional[ParamInfo],
       value: Union[Any, _InternalValueMetadata],
       arg: RestoreArgs,
   ):
     nonlocal grouped
     tuple_key = tree_utils.tuple_path_from_keypath(keypath)
     # Exclude from serialize/deserialize with TypeHandler if aggregated.
-    if info.skip_deserialize:
+    if info is None or info.skip_deserialize:
       return
 
     if isinstance(arg, RestoreArgs):
@@ -312,6 +312,7 @@ def _batched_serialization_requests(
       param_infos,
       tree,
       args,
+      is_leaf=lambda x: x is None
   )
   return list(grouped.values())
 
@@ -633,6 +634,8 @@ class BasePyTreeCheckpointHandler(
 
     # Handle parameters from aggregate file.
     def _process_aggregated_value(info, meta, args):
+      if meta is None:
+        return None
       value = meta.aggregate_value
       if info.skip_deserialize:
         value = _try_array_cast(value, args.dtype)
@@ -641,7 +644,8 @@ class BasePyTreeCheckpointHandler(
 
     flat_aggregate = tree_utils.to_flat_dict(
         jax.tree.map(
-            _process_aggregated_value, param_infos, structure, restore_args
+            _process_aggregated_value, param_infos, structure, restore_args,
+            is_leaf=lambda x: x is None
         ),
     )
 
@@ -779,9 +783,10 @@ class BasePyTreeCheckpointHandler(
     )
 
     def _maybe_set_default_restore_types(
-        meta: _InternalValueMetadata, arg: RestoreArgs
+        meta: _InternalValueMetadata | None, arg: RestoreArgs
     ):
-      if not meta.skip_deserialize and meta.restore_type is None:
+      if (meta is not None and not meta.skip_deserialize and
+          meta.restore_type is None):
         return dataclasses.replace(
             meta, restore_type=type_handlers.default_restore_type(arg)
         )
@@ -790,7 +795,8 @@ class BasePyTreeCheckpointHandler(
     # If metadata file was missing in the checkpoint, we need to decide
     # restore_type based on RestoreArgs.
     structure = jax.tree.map(
-        _maybe_set_default_restore_types, structure, checkpoint_restore_args
+        _maybe_set_default_restore_types, structure, checkpoint_restore_args,
+        is_leaf=lambda x: x is None
     )
 
     restored_item = asyncio.run(
