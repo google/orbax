@@ -21,7 +21,7 @@ import inspect
 import string
 import time
 import typing
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Set, Tuple
 from unittest import mock
 
 from absl import logging
@@ -38,6 +38,7 @@ from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint.multihost import multislice
 
 
 def sync_global_processes(name: str):
@@ -207,11 +208,46 @@ def setup_replica_sharded_arrays(
   return sharded_arrs, mesh, mesh_axes
 
 
+def get_fake_global_mesh_for_slices(
+    slice_processes: List[Set[int]],
+) -> jax.sharding.Mesh:
+  """Creates a "multi-slice" global mesh for testing.
+
+  Args:
+    slice_processes: List of sets of process indices, where each element in the
+      list is a set of processes that are active in a single slice.
+
+  Returns:
+    A global mesh.
+  """
+  devices = jax.devices()
+  slice_devices = []
+  devices_per_slices = None
+  all_processes = set()
+  for processes in slice_processes:
+    all_processes |= processes
+    slice_devices.append([
+        d
+        for d in devices
+        if multihost.utils.runtime_to_distributed_process_id(d.process_index)
+        in processes
+    ])
+    devices_per_slices = devices_per_slices or len(slice_devices[-1])
+    if len(slice_devices[-1]) != devices_per_slices:
+      raise ValueError('All slices must have the same number of devices.')
+  if len(all_processes) != jax.process_count():
+    raise ValueError('All processes must be accounted for.')
+
+  slice_devices = np.asarray(slice_devices)
+  return jax.sharding.Mesh(slice_devices, ('replica', 'data'))
+
+
 def select_single_replica(
     arrays: List[jax.Array], global_mesh: jax.sharding.Mesh
 ) -> List[jax.Array]:
   """Returns arrays sharded over single slice."""
-  slice_devices = global_mesh.devices[0]
+  slice_devices = multislice.local_slice_devices(global_mesh.devices)
+  # slice_devices = global_mesh.devices[0]
   single_slice_mesh = jax.sharding.Mesh(
       slice_devices, global_mesh.axis_names[1:]
   )
