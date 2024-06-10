@@ -19,9 +19,9 @@ from typing import Any, Callable, Optional
 
 from etils.epy.reraise_utils import maybe_reraise
 from orbax.export import dtensor_utils
+from orbax.export import jax_module
 from orbax.export import utils
 from orbax.export.export_manager_base import ExportManagerBase
-from orbax.export.jax_module import JaxModule
 from orbax.export.serving_config import ServingConfig
 import tensorflow as tf
 from tensorflow.experimental import dtensor
@@ -30,8 +30,11 @@ from tensorflow.experimental import dtensor
 class ExportManager(ExportManagerBase):
   """Exports a JAXModule with pre- and post-processors."""
 
-  def __init__(self, module: JaxModule,
-               serving_configs: Sequence[ServingConfig]):
+  def __init__(
+      self,
+      module: jax_module.JaxModule,
+      serving_configs: Sequence[ServingConfig],
+  ):
     """ExportManager constructor.
 
     Args:
@@ -46,10 +49,29 @@ class ExportManager(ExportManagerBase):
     self._serving_signatures = {}
     tf_trackable_resources = []
 
+    obx_export_tf_preprocess_only = (
+        jax_module.get_obx_export_tf_preprocess_only()
+    )
+
     for sc in serving_configs:
       with maybe_reraise(f'Failed exporting signature_key={sc.signature_key} '):
-        method = sc.get_infer_step(module.methods)
-        inference_fn = make_e2e_inference_fn(method, sc)
+        if obx_export_tf_preprocess_only:
+          if not sc.tf_preprocessor:
+            raise ValueError(
+                'serving_config.tf_preprocessor must be provided when'
+                ' in `obx_export_tf_preprocess_only` mode.'
+            )
+
+          def tf_preprocessor(*inputs):
+            return tf.nest.flatten(sc.tf_preprocessor(*inputs))  # pylint: disable=cell-var-from-loop
+
+          preprocessor = utils.with_default_args(
+              tf_preprocessor, sc.get_input_signature()
+          )
+          inference_fn = preprocessor
+        else:
+          method = sc.get_infer_step(module.methods)
+          inference_fn = make_e2e_inference_fn(method, sc)
         if isinstance(sc.signature_key, str):
           keys = [sc.signature_key]
         else:
@@ -122,8 +144,8 @@ class ExportManager(ExportManagerBase):
 
 
 def make_e2e_inference_fn(
-    model_fn: Callable[..., Any],
-    serving_config: ServingConfig) -> Callable[..., Any]:
+    model_fn: Callable[..., Any], serving_config: ServingConfig
+) -> Callable[..., Any]:
   """Creates an concrete end-to-end inference tf.function.
 
   Args:

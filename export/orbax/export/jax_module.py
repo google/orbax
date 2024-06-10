@@ -14,6 +14,7 @@
 
 """Wraps JAX functions and parameters into a tf.Module."""
 import dataclasses
+import os
 from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
 from absl import logging
@@ -27,6 +28,17 @@ from tensorflow.experimental import dtensor
 
 PyTree = orbax_export_utils.PyTree
 ApplyFn = Callable[[PyTree, PyTree], PyTree]
+
+
+def get_obx_export_tf_preprocess_only() -> bool:
+  """Returns whether the export is in TF preprocess only mode."""
+  # If it is True, the export will only export the
+  # servering_config.tf_preprocess instead of the whole model. This mode is
+  # majorly used for debugging.
+  obx_export_tf_preprocess_only = (
+      os.getenv('OBX_EXPORT_TF_PREPROCESS_ONLY') == 'True'
+  )
+  return obx_export_tf_preprocess_only
 
 
 def _same_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
@@ -168,19 +180,28 @@ class JaxModule(tf.Module):
       trainable = jax.tree_util.tree_map(lambda x: trainable, params)
 
     self.with_gradient: bool = any(jax.tree_util.tree_leaves(trainable))
-    tf_vars = _jax_params_to_tf_variables(
-        params, trainable, pspecs, allow_multi_axis_sharding_conslidation
-    )
-    # Do not attach `tf_vars` to `self` directly, otherwise its structure will
-    # be mutated by `tf.Module.__setattr__`.
-    self._var_leaves, var_treedef = jax.tree_util.tree_flatten(tf_vars)
-    self._methods = jax.tree_util.tree_map(
-        self._make_tf_closure,
-        apply_fn_map,
-        input_polymorphic_shape,
-        jax2tf_kwargs,
-        jit_compile,
-    )
+
+    if get_obx_export_tf_preprocess_only():
+      # Skip the heavy jax_params_to_tf_variables() call in TF preprocess only
+      # mode.
+      var_treedef = None
+      self._var_leaves = None
+      self._methods = dict()
+    else:
+      tf_vars = _jax_params_to_tf_variables(
+          params, trainable, pspecs, allow_multi_axis_sharding_conslidation
+      )
+      # Do not attach `tf_vars` to `self` directly, otherwise its structure will
+      # be mutated by `tf.Module.__setattr__`.
+      self._var_leaves, var_treedef = jax.tree_util.tree_flatten(tf_vars)
+      self._methods = jax.tree_util.tree_map(
+          self._make_tf_closure,
+          apply_fn_map,
+          input_polymorphic_shape,
+          jax2tf_kwargs,
+          jit_compile,
+      )
+
     self._jax2tf_kwargs_map = jax2tf_kwargs
     self._jax_methods = _make_closures(params, apply_fn_map)
 

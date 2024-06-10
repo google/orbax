@@ -50,4 +50,5 @@ testing = [
     'pytest-xdist',
     'tf-nightly',
     'requests',
+    'chex',
 ]

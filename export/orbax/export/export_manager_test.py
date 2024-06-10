@@ -14,8 +14,8 @@
 
 import functools
 import os
-
 from absl.testing import parameterized
+import chex
 import jax
 import jax.numpy as jnp
 from orbax.export.export_manager import ExportManager
@@ -117,9 +117,7 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
       postprocessor=None,
   ):
     method = JaxModule(
-        {
-            'bias': jnp.array(1)
-        },
+        {'bias': jnp.array(1)},
         lambda p, x: x + p['bias'],
     ).methods[JaxModule.DEFAULT_METHOD_KEY]
     inference_fn = make_e2e_inference_fn(
@@ -134,9 +132,9 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
           serving_configs=[
               ServingConfig(
                   'with_processors',
-                  input_signature=[{
-                      'feat': tf.TensorSpec((), tf.dtypes.int32, 'feat')
-                  }],
+                  input_signature=[
+                      {'feat': tf.TensorSpec((), tf.dtypes.int32, 'feat')}
+                  ],
                   tf_preprocessor=_from_feature_dict,
                   tf_postprocessor=_add_output_name,
               ),
@@ -145,7 +143,8 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
                   input_signature=[tf.TensorSpec((), tf.dtypes.int32)],
               ),
           ],
-          expected_keys=['with_processors', 'without_processors']),
+          expected_keys=['with_processors', 'without_processors'],
+      ),
       dict(
           testcase_name='multiple keys same signature',
           serving_configs=[
@@ -154,7 +153,8 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
                   input_signature=[tf.TensorSpec((), tf.dtypes.int32)],
               ),
           ],
-          expected_keys=['serving_default', 'without_processors']),
+          expected_keys=['serving_default', 'without_processors'],
+      ),
       dict(
           testcase_name='trackables in preprocessor',
           serving_configs=[
@@ -165,7 +165,8 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
                   extra_trackable_resources=_ZERO_VAR,
               ),
           ],
-          expected_keys=['serving_default']),
+          expected_keys=['serving_default'],
+      ),
   )
   def test_save(self, serving_configs, expected_keys):
     em = ExportManager(
@@ -275,10 +276,8 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
             'with_bias': functools.partial(_linear, with_bias=True),
             'without_bias': functools.partial(_linear, with_bias=False),
         },
-        input_polymorphic_shape={
-            'with_bias': None,
-            'without_bias': None
-        })
+        input_polymorphic_shape={'with_bias': None, 'without_bias': None},
+    )
 
     em = ExportManager(
         linear_mdl,
@@ -289,15 +288,18 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
                 input_signature=[
                     tf.TensorSpec(shape=(1, 4), dtype=tf.int32, name='x')
                 ],
-                tf_postprocessor=lambda out: {'y': out}),
+                tf_postprocessor=lambda out: {'y': out},
+            ),
             ServingConfig(
                 'no_bias',
                 method_key='without_bias',
                 input_signature=[
                     tf.TensorSpec(shape=(1, 4), dtype=tf.int32, name='x')
                 ],
-                tf_postprocessor=lambda out: {'y': out})
-        ])
+                tf_postprocessor=lambda out: {'y': out},
+            ),
+        ],
+    )
     em.save(self._output_dir)
     loaded = tf.saved_model.load(self._output_dir, ['serve'])
 
@@ -306,10 +308,12 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     self.assertCountEqual(expected_keys, loaded.signatures.keys())
 
     x = jnp.zeros((1, 4), jnp.int32)
-    self.assertAllEqual(loaded.signatures['serving_default'](x=x)['y'],
-                        jnp.ones((1, 2)))
-    self.assertAllEqual(loaded.signatures['no_bias'](x=x)['y'], jnp.zeros(
-        (1, 2)))
+    self.assertAllEqual(
+        loaded.signatures['serving_default'](x=x)['y'], jnp.ones((1, 2))
+    )
+    self.assertAllEqual(
+        loaded.signatures['no_bias'](x=x)['y'], jnp.zeros((1, 2))
+    )
 
   def test_callable_module(self):
     jax_module = JaxModule(
@@ -342,7 +346,8 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
       _, x = jax.lax.while_loop(
           cond_fun=lambda state: state[0],
           body_fun=lambda state: (False, state[1] + 1),
-          init_val=(False, x))
+          init_val=(False, x),
+      )
       return x
 
     serving_config = ServingConfig('serving', [tf.TensorSpec((), tf.float32)])
@@ -350,40 +355,58 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     # https://github.com/google/jax/blob/main/jax/experimental/jax2tf/README.md#saved-model-for-non-differentiable-jax-functions
     with self.assertRaises(ValueError):
       ExportManager(
-          JaxModule({'dummy': jnp.array(1.0)},
-                    non_differetiable_fn,
-                    trainable=True),
-          [serving_config]).save(os.path.join(self._output_dir, '0'))
+          JaxModule(
+              {'dummy': jnp.array(1.0)}, non_differetiable_fn, trainable=True
+          ),
+          [serving_config],
+      ).save(os.path.join(self._output_dir, '0'))
 
     # Okay with with_gradients=False (default).
     ExportManager(
         JaxModule({'dummy': jnp.array(1.0)}, non_differetiable_fn),
-        [serving_config]).save(os.path.join(self._output_dir, '1'))
+        [serving_config],
+    ).save(os.path.join(self._output_dir, '1'))
 
   def test_init_invalid_arguments(self):
     single_fn_module = JaxModule({}, lambda p, x: x)
-    multi_fn_module = JaxModule({}, {
-        'foo': lambda p, x: x,
-        'bar': lambda p, x: x
-    }, input_polymorphic_shape={'foo': None, 'bar': None})
+    multi_fn_module = JaxModule(
+        {},
+        {'foo': lambda p, x: x, 'bar': lambda p, x: x},
+        input_polymorphic_shape={'foo': None, 'bar': None},
+    )
     with self.assertRaisesRegex(ValueError, 'Duplicated key'):
-      ExportManager(single_fn_module, [
-          ServingConfig('serving', [tf.TensorSpec((), tf.float32)]),
-          ServingConfig('serving', [tf.TensorSpec((), tf.int32)]),
-      ])
+      ExportManager(
+          single_fn_module,
+          [
+              ServingConfig('serving', [tf.TensorSpec((), tf.float32)]),
+              ServingConfig('serving', [tf.TensorSpec((), tf.int32)]),
+          ],
+      )
     with self.assertRaisesRegex(ValueError, 'Duplicated key'):
-      ExportManager(single_fn_module, [
-          ServingConfig(['serve', 'serve'], [tf.TensorSpec((), tf.float32)]),
-      ])
+      ExportManager(
+          single_fn_module,
+          [
+              ServingConfig(
+                  ['serve', 'serve'], [tf.TensorSpec((), tf.float32)]
+              ),
+          ],
+      )
     with self.assertRaisesRegex(ValueError, '`method_key` is not specified'):
-      ExportManager(multi_fn_module, [
-          ServingConfig('serving', [tf.TensorSpec((), tf.float32)]),
-      ])
+      ExportManager(
+          multi_fn_module,
+          [
+              ServingConfig('serving', [tf.TensorSpec((), tf.float32)]),
+          ],
+      )
     with self.assertRaisesRegex(ValueError, 'Method key "baz" is not found'):
-      ExportManager(multi_fn_module, [
-          ServingConfig(
-              'serving', [tf.TensorSpec((), tf.float32)], method_key='baz'),
-      ])
+      ExportManager(
+          multi_fn_module,
+          [
+              ServingConfig(
+                  'serving', [tf.TensorSpec((), tf.float32)], method_key='baz'
+              ),
+          ],
+      )
 
   def test_variable_update(self):
     jax_module = JaxModule({'bias': jnp.array(1)}, lambda p, x: x + p['bias'])
@@ -407,6 +430,50 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     loaded = tf.saved_model.load(self._output_dir, ['serve'])
     res = loaded.signatures['serving_default'](x=1)['y']
     self.assertAllEqual(res, 3)
+
+  def test_return_preprocess_only_fn(self):
+    os.environ['OBX_EXPORT_TF_PREPROCESS_ONLY'] = 'True'
+
+    def tf_preprocessor(*inputs):
+      x = inputs[0]
+      return tf.math.sin(x) + 1
+
+    serving_configs = [
+        ServingConfig(
+            'serving_1',
+            input_signature=[tf.TensorSpec((), tf.dtypes.float32)],
+            tf_preprocessor=tf_preprocessor,
+        ),
+    ]
+    inputs = [tf.random.uniform([10], dtype=tf.float32)]
+    dict_inputs = {f'inputs_{i}': v for i, v in enumerate(inputs)}
+    with self.subTest('with_preprocessor'):
+      em = ExportManager(
+          JaxModule({'bias': jnp.array(1)}, lambda p, x: x + p['bias']),
+          serving_configs,
+      )
+      em.save(self._output_dir)
+      loaded = tf.saved_model.load(self._output_dir, ['serve'])
+      chex.assert_trees_all_close(
+          loaded.signatures['serving_1'](**dict_inputs),
+          {'output_0': tf_preprocessor(*inputs)},
+      )
+    with self.subTest('without_preprocessor'):
+      serving_configs = [
+          ServingConfig(
+              'serving_2',
+              input_signature=[tf.TensorSpec((), tf.dtypes.float32)],
+          ),
+      ]
+      with self.assertRaisesRegex(
+          ValueError, 'serving_config.tf_preprocessor must be provided'
+      ):
+        em = ExportManager(
+            JaxModule({'bias': jnp.array(1)}, lambda p, x: x + p['bias']),
+            serving_configs,
+        )
+        em.save(self._output_dir)
+    os.environ.pop('OBX_EXPORT_TF_PREPROCESS_ONLY')
 
 
 if __name__ == '__main__':
