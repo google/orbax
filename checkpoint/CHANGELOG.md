@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Checkpoint format guide for RTD page.
+
 ### Changed
 - Modify `_write_metadata_file` to Async.
 - Added `tree` package to contain tree-related utilities.
