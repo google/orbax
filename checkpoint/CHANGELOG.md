@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Modify `_write_metadata_file` to Async.
 - Added `tree` package to contain tree-related utilities.
+- Improve TensorStore I/O efficiency through use of TensorStore
+  transactions for the OCDBT storage format, and specify the new
+  `can_reference_source_data_indefinitely=True` option to avoid a redundant copy
+  when writing into the TensorStore chunk cache.
 
 ## [0.5.15] - 2024-05-31
 
