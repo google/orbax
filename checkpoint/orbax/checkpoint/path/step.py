@@ -448,7 +448,7 @@ def composite_name_format(
 
 # TODO(b/337137764) Can't move it to path/utils due to cyclic dependency.
 # Explore other options.
-def is_gcs_path(path: epath.Path) -> bool:
+def is_gcs_path(path: epath.PathLike) -> bool:
   return os.fspath(path).startswith(_GCS_PATH_PREFIX)
 
 

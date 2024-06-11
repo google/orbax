@@ -343,14 +343,15 @@ def _validate_divisible_shapes(
 
 
 # TS functions
-# TODO(b/336658919) refractor TS functions to a separate file
-def _get_json_tspec(
+# TODO(b/336658919) refactor TS functions to a separate file
+def _get_json_tspec_from_param_info(
     info: ParamInfo,
     use_ocdbt: bool,
+    writing: bool,
     process_index: Optional[int] = None,
     metadata_key: Optional[str] = None,
 ) -> Dict[str, Any]:
-  """Gets Tensorstore spec in JSON format."""
+  """Convenience interface for `_get_tensorstore_spec` used by `_get_json_tspec_{read,write}`."""
   if info.path is None:
     raise ValueError('Must construct serialization path.')
   directory = os.fspath(info.parent_dir)
@@ -361,9 +362,9 @@ def _get_json_tspec(
       process_id=process_index,
       use_zarr3=info.use_zarr3,
       ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
+      metadata_key=metadata_key,
+      writing=writing,
   )
-  if metadata_key is not None:
-    tspec['metadata_key'] = metadata_key
   return tspec
 
 
@@ -373,10 +374,11 @@ def get_json_tspec_read(
     metadata_key: Optional[str] = None,
 ):
   """Gets Tensorstore spec for reading."""
-  return _get_json_tspec(
+  return _get_json_tspec_from_param_info(
       info,
       use_ocdbt=use_ocdbt,
       metadata_key=metadata_key,
+      writing=False,
   )
 
 
@@ -391,11 +393,12 @@ def get_json_tspec_write(
     arg: Optional[SaveArgs] = None,
 ):
   """Gets Tensorstore spec for writing."""
-  tspec = _get_json_tspec(
+  tspec = _get_json_tspec_from_param_info(
       info,
       use_ocdbt=use_ocdbt,
       process_index=process_index,
       metadata_key=metadata_key,
+      writing=True,
   )
   tspec['metadata'] = {
       'shape': global_shape,
@@ -411,8 +414,6 @@ def get_json_tspec_write(
           chunk_byte_size=arg.chunk_byte_size if arg else None,
       )
   )
-  if use_ocdbt:
-    tspec = _add_write_tspec_ocdbt_options(tspec)
   return tspec
 
 
@@ -615,7 +616,9 @@ def is_ocdbt_checkpoint(path: epath.Path) -> bool:
   return (path / _OCDBT_MANIFEST_FILE).exists()
 
 
-def merge_ocdbt_per_process_files(directory: epath.Path):
+def merge_ocdbt_per_process_files(
+    directory: epath.Path, local_temporary_index_path: Optional[str] = None
+):
   """Merges OCDBT files written to per-process subdirectories.
 
   With Tensorstore's OCDBT format, arrays are initially written to per-process
@@ -627,30 +630,39 @@ def merge_ocdbt_per_process_files(directory: epath.Path):
 
   Args:
     directory: checkpoint location.
+    local_temporary_index_path: Local temporary directory containing in-memory
+      index.
   """
   ts_context = _DEFAULT_OCDBT_TS_CONTEXT
 
   open_ops = []
 
-  parent_tspec = _get_tensorstore_spec(os.fspath(directory), use_ocdbt=True)
-  _add_write_tspec_ocdbt_options(parent_tspec)
-  parent_tspec = parent_tspec['kvstore']
+  parent_tspec = _get_tensorstore_ocdbt_kvstore_spec(
+      os.fspath(directory),
+      local_temporary_index_path=local_temporary_index_path,
+      writing=True,
+  )
   open_ops.append(
       ts.KvStore.open(
-          ts.KvStore.Spec(parent_tspec),
+          parent_tspec,
           context=ts_context,
       )
   )
 
-  for process_dir in directory.glob(f'{_PROCESS_SUBDIR_PREFIX}*'):
+  for process_dir in (
+      epath.Path(local_temporary_index_path)
+      if local_temporary_index_path
+      else directory
+  ).glob(f'{_PROCESS_SUBDIR_PREFIX}*'):
     process_id = process_dir.name.split('_')[-1]
-    child_tspec = _get_tensorstore_spec(
-        os.fspath(directory), use_ocdbt=True, process_id=process_id
+    child_tspec = _get_tensorstore_ocdbt_kvstore_spec(
+        os.fspath(directory),
+        process_id=process_id,
+        local_temporary_index_path=local_temporary_index_path,
     )
-    child_tspec = child_tspec['kvstore']
     open_ops.append(
         ts.KvStore.open(
-            ts.KvStore.Spec(child_tspec),
+            child_tspec,
             context=ts_context,
         )
     )
@@ -659,13 +671,12 @@ def merge_ocdbt_per_process_files(directory: epath.Path):
     opened = await asyncio.gather(*open_ops)
     parent, children = opened[0], opened[1:]
     copy_ops = []
-    txn = ts.Transaction(atomic=True)
-    for child in children:
-      copy_ops.append(
-          child.experimental_copy_range_to(parent.with_transaction(txn))
-      )
-    await asyncio.gather(*copy_ops)
-    await txn.commit_async()
+    async with ts.Transaction(atomic=True) as txn:
+      for child in children:
+        copy_ops.append(
+            child.experimental_copy_range_to(parent.with_transaction(txn))
+        )
+      await asyncio.gather(*copy_ops)
 
   asyncio.run(open_and_copy())
 
@@ -714,6 +725,276 @@ def _get_metadata(
   return metadata
 
 
+def _get_tensorstore_base_kvstore_spec(path: str):
+  """Constructs a base (non-OCDBT) Tensorstore KvStore spec.
+
+  Args:
+    path: GCS or file path.
+
+  Returns:
+    A ts.KvStore.Spec in JSON form.
+  """
+
+  default_driver = serialization._DEFAULT_DRIVER  # pylint: disable=protected-access
+  # Normalize path to exclude trailing '/'. In GCS path case, we will need to
+  # fix the path prefix to add back the stripped '/'.
+  path = os.path.normpath(path).replace('gs:/', 'gs://')
+  is_gcs_path = utils.is_gcs_path(path)
+  if not is_gcs_path and not os.path.isabs(path):
+    raise ValueError(f'Checkpoint path should be absolute. Got {path}')
+  return path if is_gcs_path else f'{default_driver}://{path}'
+
+
+def _get_tensorstore_ocdbt_kvstore_spec(
+    directory: str,
+    name: Optional[str] = None,
+    process_id: Optional[Union[int, str]] = None,
+    target_data_file_size: Optional[int] = None,
+    local_temporary_index_path: Optional[str] = None,
+    writing: bool = False,
+) -> Union[Dict[str, Any], str]:
+  """Constructs a Tensorstore OCDBT KvStore spec.
+
+  Args:
+    directory: Directory of the global OCDBT database.
+    name: Name of the parameter, or `None` to create a KvStore spec for the
+      parent directory.
+    process_id: If provided, will write to a sub-directory named
+      `ocdbt.process_<process_id>`. If a string, must conform to [A-Za-z0-9]+
+      pattern.
+    target_data_file_size: Specifies the target size (in bytes) of each OCDBT
+      data file.
+    local_temporary_index_path: Local temporary directory containing per-process
+      OCDBT metadata (manifest and B+tree node data).
+    writing: Indicates whether this spec will be used for writing.
+
+  When `local_temporary_index_path=None`:
+    When `process_id` is not `None`:
+      (Used to write the per-host data, and subsequently to re-open the
+      per-host OCDBT database in order to merge it into the global database.)
+
+      Returns a spec corresponding to a regular OCDBT database stored at
+      `{directory}/ocdbt.process_{process_id}/`, with an inner path (inside
+      the OCDBT database) of `name`.
+
+      The manifest file is stored at
+      `{directory}/ocdbt.process_{process_id}/manifest.ocdbt` and the data
+      files are stored at `{directory}/ocdbt.process_{process_id}/d/xxxxxxxx`.
+    When `process_id=None`:
+      (Used to read completed checkpoints, and to write the merged global
+      OCDBT database.)
+
+      Returns a spec corresponding to a regular OCDBT database stored at
+      `{directory}/`, with an inner path (inside the OCDBT database) of
+        `name`.
+
+      The manifest file is stored at `{directory}/manifest.ocdbt` and the data
+      files are stored at `{directory}/d/xxxxxxxx`.
+
+  When `local_temporary_index_path` is not `None`:
+    When `process_id` is not `None`:
+      (Used to write the per-host data, where the data itself is written to
+      persistent storage at `directory` and the metadata is written to the
+      local temporary directory at `local_temporary_index_path`.  The
+      contents of `local_temporary_index_path` on every host will later
+      be merged together into a single temporary directory on the host
+      responsible for writing the merged global OCDBT database.)
+
+      Returns a spec corresponding to a non-standard OCDBT database stored at
+      `{directory}/`, with an inner path (inside the OCDBT database) of
+      `name`.
+
+      The manifest file is stored at
+      `{local_temporary_index_path}/ocdbt.process_{process_id}/manifest.ocdbt`.
+      Data files are written to `{directory}/d/xxxx` (shared directory used
+      by all hosts).  Metadata files (i.e. B+tree nodes) are written to
+      `{local_temporary_index_path}/ocdbt.process_{process_id}/xxxx`.
+      Note that it is not strictly necessary to include the
+      `ocdbt.process_{process_id}` component in the metadata file paths, since
+      they will all have a unique randomly generated `xxxx` suffix; it is
+      just done to make it easier to understand the temporary data when
+      manually examined.
+
+      This split of files between persistent and temporary storage is
+      accomplished using the TensorStore kvstack driver:
+
+      Paths accessed by the OCDBT driver are mapped to `{directory}/` by
+      default, but paths starting with `ocdbt.process_` are mapped to
+      `{local_temporary_directory}/ocdbt.process_`.
+
+      The location of the manifest is overridden separately, to ensure that
+      there is a unique path for each per-host manifest even after the
+      temporary directories are merged together.
+
+    When `process_id=None`:
+      (Used to write the merged global OCDBT database from all of the per-host
+      metadata that has been transferred to a local temporary directory.)
+
+      Returns a spec corresponding to an OCDBT database stored at
+      `{directory}/`, with an inner path (inside the OCDBT database) of
+      `name` (in practice `name` will always be `None` in this case).
+
+      The manifest file is stored at `{directory}/manifest.ocdbt`
+
+      Any new metadata files (should be exactly 1) are written to
+      `{directory}/index_xxxx`.  No non-metadata data files should be written
+      using this spec.
+
+      TensorStore currently requires when using `experimental_copy_range_to`,
+      which is used to write the merged global OCDBT database, that the base
+      KvStore of the source OCDBT database is identical to the base KvStore
+      of the target OCDBT database (except that the source path may be a
+      prefix of the target path).  Consequently, even though this database
+      doesn't actually store anything in `local_temporary_index_path`
+      (since the global database must be persistent), we must use exactly the
+      same kvstack spec as when `process_id` is not `None`.  Therefore, the
+      following kvstack mapping is also used in this case:
+
+      Paths accessed by the OCDBT driver are mapped to `{directory}/` by
+      default, but paths starting with `ocdbt.process_` are mapped to
+      `{local_temporary_directory}/ocdbt.process_`.  The latter mapping
+      is never actually used for this OCDBT database, though.
+
+  Returns:
+    A ts.KvStore.Spec in JSON form.
+  """
+  spec = {'driver': 'ocdbt'}
+
+  global_base_path = _get_tensorstore_base_kvstore_spec(directory)
+  process_path_suffix = ''
+  if process_id is not None:
+    process_id = str(process_id)
+    assert re.fullmatch(_OCDBT_PROCESS_ID_RE, process_id) is not None, (
+        f'process_id must conform to {_OCDBT_PROCESS_ID_RE} pattern'
+        f', got {process_id}'
+    )
+    process_path_suffix = f'{_PROCESS_SUBDIR_PREFIX}{process_id}/'
+  if local_temporary_index_path is not None:
+    spec['base'] = {
+        'driver': 'kvstack',
+        'layers': [
+            # Write to the real persistent checkpoint directory by default.
+            {'base': global_base_path + '/'},
+            # Per-process metadata is stored in the separate local temporary
+            # directory.
+            {
+                'prefix': _PROCESS_SUBDIR_PREFIX,
+                'base': f'file://{local_temporary_index_path}/',
+                'strip_prefix': 0,
+            },
+        ],
+    }
+    if process_id is not None:
+      # Per-process OCDBT databases store their manifest as
+      # 'file://{in_memory_index_path}/{process_path_suffix}manifest.ocdbt', but
+      # within these manifests, the per-process B+tree node data files are
+      # referenced using the relative path `process_path_suffix`, since they are
+      # always accessed via a kvstack driver, even though the per-process B+tree
+      # node data files are physically stored in the same (local temporary)
+      # directory as the per-process manifest.
+      spec['manifest'] = (
+          f'file://{local_temporary_index_path}/{process_path_suffix}'
+      )
+      spec['btree_node_data_prefix'] = process_path_suffix
+      spec['version_tree_node_data_prefix'] = process_path_suffix
+    else:
+      spec['btree_node_data_prefix'] = 'index_'
+      spec['version_tree_node_data_prefix'] = 'index_'
+  else:
+    spec['base'] = (
+        f'{global_base_path}/{process_path_suffix}'
+        if process_id is not None
+        else global_base_path
+    )
+
+  if name is not None:
+    spec['path'] = name
+  spec.update({
+      # Enable read coalescing.  This feature merges adjacent read_ops into
+      # one, which could reduce I/O ops by a factor of 10. This is especially
+      # beneficial for unstacked models.
+      'experimental_read_coalescing_threshold_bytes': 1000000,
+      'experimental_read_coalescing_merged_bytes': 500000000000,
+      'experimental_read_coalescing_interval': '1ms',
+      # References the cache specified in ts.Context.
+      'cache_pool': 'cache_pool#ocdbt',
+  })
+  if target_data_file_size:
+    spec['target_data_file_size'] = target_data_file_size
+
+  if writing:
+    spec['config'] = {
+        # Store .zarray metadata inline but not large chunks.
+        'max_inline_value_bytes': 1024,
+        # Large value allows a single root node to support faster traversal.
+        'max_decoded_node_bytes': 100000000,
+        # There won't be any concurrent writes by multiple machines to the same
+        # OCDBT database.  Therefore, we can use the simpler and more efficient
+        # single-file manifest format in all cases.
+        'manifest_kind': 'single',
+    }
+    # assume_config avoids writing an initial empty manifest to ensure a
+    # consistent configuration, since Orbax never writes to the same OCDBT
+    # database concurrently from multiple processes.
+    spec.update(assume_config=True)
+
+  return spec
+
+
+def _get_tensorstore_kvstore_spec(
+    directory: str,
+    name: Optional[str] = None,
+    use_ocdbt: bool = True,
+    process_id: Optional[Union[int, str]] = None,
+    ocdbt_target_data_file_size: Optional[int] = None,
+    ocdbt_local_temporary_index_path: Optional[str] = None,
+    writing: bool = False,
+) -> Union[Dict[str, Any], str]:
+  """Constructs an OCDBT or non-OCDBT Tensorstore KvStore spec.
+
+  Args:
+    directory: Parent directory where the parameter will be written.
+    name: Name of the parameter, or `None` to create a KvStore spec for the
+      parent directory.
+    use_ocdbt: Whether to use OCDBT to write the array.
+    process_id: If provided, will write to a sub-directory named
+      `ocdbt.process_<process_id>`. If a string, must conform to [A-Za-z0-9]+
+      pattern.
+    ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
+      OCDBT data file.
+    ocdbt_local_temporary_index_path: Local temporary directory containing
+      per-process OCDBT metadata (manifest and B+tree node data).
+    writing: Indicates whether this spec will be used for writing.
+
+  When `use_ocdbt=False`:
+
+    Returns a spec corresponding directly to
+    `directory` (if `name` is `None`) or `directory / name`.
+
+  When `use_ocdbt=True`:
+
+    Returns a spec corresponding to an OCDBT database at `directory` or a
+    per-process subdirectory, with an inner path (within the OCDBT database)
+    of `name`.
+
+  Returns:
+    A ts.KvStore.Spec in JSON form.
+  """
+  if not use_ocdbt:
+    if name is not None:
+      directory = os.path.join(directory, name)
+    return _get_tensorstore_base_kvstore_spec(directory)
+
+  return _get_tensorstore_ocdbt_kvstore_spec(
+      directory=directory,
+      name=name,
+      process_id=process_id,
+      target_data_file_size=ocdbt_target_data_file_size,
+      local_temporary_index_path=ocdbt_local_temporary_index_path,
+      writing=writing,
+  )
+
+
 def _get_tensorstore_spec(
     directory: str,
     name: Optional[str] = None,
@@ -721,6 +1002,9 @@ def _get_tensorstore_spec(
     process_id: Optional[Union[int, str]] = None,
     use_zarr3: Optional[bool] = False,
     ocdbt_target_data_file_size: Optional[int] = None,
+    ocdbt_local_temporary_index_path: Optional[str] = None,
+    metadata_key: Optional[str] = None,
+    writing: bool = False,
 ) -> Dict[str, Any]:
   """Constructs a Tensorstore spec.
 
@@ -734,61 +1018,36 @@ def _get_tensorstore_spec(
     use_zarr3: If True, use ZARR_VER3 driver, otherwise, use ZARR_VER2 driver.
     ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
       OCDBT data file.
+    ocdbt_local_temporary_index_path: Local temporary directory containing
+      per-process OCDBT metadata (manifest and B+tree node data).
+    metadata_key: zarr v2 metadata filename (defaults to ".zarray")
+    writing: Indicates whether this spec will be used for writing.
 
   Returns:
     A ts.Spec in dictionary form.
   """
-  default_driver = serialization._DEFAULT_DRIVER  # pylint: disable=protected-access
-  # Normalize path to exclude trailing '/'. In GCS path case, we will need to
-  # fix the path prefix to add back the stripped '/'.
-  directory = os.path.normpath(directory).replace('gs:/', 'gs://')
-  is_gcs_path = directory.startswith('gs://')
-  spec = {'driver': ZARR_VER3 if use_zarr3 else ZARR_VER2, 'kvstore': {}}
+
+  spec = {
+      'driver': ZARR_VER3 if use_zarr3 else ZARR_VER2,
+      'kvstore': _get_tensorstore_kvstore_spec(
+          directory,
+          name=name,
+          use_ocdbt=use_ocdbt,
+          process_id=process_id,
+          ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+          ocdbt_local_temporary_index_path=ocdbt_local_temporary_index_path,
+          writing=writing,
+      ),
+  }
+
+  if metadata_key is not None:
+    assert not use_zarr3, 'metadata_key only supported for zarr v2'
+    spec.update(metadata_key=metadata_key)
 
   if use_ocdbt:
-    if not is_gcs_path and not os.path.isabs(directory):
-      raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
-    base_path = directory if is_gcs_path else f'{default_driver}://{directory}'
-    if process_id is not None:
-      process_id = str(process_id)
-      assert re.fullmatch(_OCDBT_PROCESS_ID_RE, process_id) is not None, (
-          f'process_id must conform to {_OCDBT_PROCESS_ID_RE} pattern'
-          f', got {process_id}'
-      )
-      base_path = os.path.join(
-          base_path, f'{_PROCESS_SUBDIR_PREFIX}{process_id}'
-      )
-    spec['kvstore'] = {
-        'driver': 'ocdbt',
-        'base': base_path,
-    }
-    if name is not None:
-      spec['kvstore']['path'] = name
     spec.update(
         {'recheck_cached_data': False, 'recheck_cached_metadata': False}
     )
-    spec['kvstore'].update({
-        # Enable read coalescing.  This feature merges adjacent read_ops into
-        # one, which could reduce I/O ops by a factor of 10. This is especially
-        # beneficial for unstacked models.
-        'experimental_read_coalescing_threshold_bytes': 1000000,
-        'experimental_read_coalescing_merged_bytes': 500000000000,
-        'experimental_read_coalescing_interval': '1ms',
-        # References the cache specified in ts.Context.
-        'cache_pool': 'cache_pool#ocdbt',
-    })
-    if ocdbt_target_data_file_size:
-      spec['kvstore']['target_data_file_size'] = ocdbt_target_data_file_size
-  else:
-    if name is None:
-      ckpt_path = directory
-    else:
-      ckpt_path = os.path.join(directory, name)
-    if is_gcs_path:
-      spec['kvstore'] = _get_kvstore_for_gcs(ckpt_path)
-    else:
-      spec['kvstore'] = {'driver': default_driver, 'path': ckpt_path}
-
   return spec
 
 
@@ -833,25 +1092,6 @@ def get_cast_tspec_deserialize(tspec, args):
         'driver': 'cast',
         'dtype': jnp.dtype(args.dtype).name,
     }
-  return tspec
-
-
-def _add_write_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
-  """Adds additional OCDBT options used when writing."""
-  tspec['kvstore']['config'] = {
-      # Store .zarray metadata inline but not large chunks.
-      'max_inline_value_bytes': 1024,
-      # Large value allows a single root node to support faster traversal.
-      'max_decoded_node_bytes': 100000000,
-      # There won't be any concurrent writes by multiple machines to the same
-      # OCDBT database.  Therefore, we can use the simpler and more efficient
-      # single-file manifest format in all cases.
-      'manifest_kind': 'single',
-  }
-  # assume_config avoids writing an initial empty manifest to ensure a
-  # consistent configuration, since Orbax never writes to the same OCDBT
-  # database concurrently from multiple processes.
-  tspec['kvstore'].update(assume_config=True)
   return tspec
 
 
@@ -1076,12 +1316,11 @@ class ScalarHandler(NumpyHandler):
 def get_sharding_tensorstore_spec(
     directory: str, param_name: str
 ) -> Dict[str, Any]:
-  kvstore = _get_tensorstore_spec(directory, name=_SHARDING, use_ocdbt=False)[
-      'kvstore'
-  ]
   return {
       'driver': 'json',
-      'kvstore': kvstore,
+      'kvstore': _get_tensorstore_base_kvstore_spec(
+          os.path.join(directory, _SHARDING)
+      ),
       'json_pointer': '/' + base64.urlsafe_b64encode(
           param_name.encode()
       ).decode('utf-8'),
@@ -1690,14 +1929,13 @@ class StringHandler(TypeHandler):
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
       raise ValueError('Must construct serialization path.')
-    directory = os.fspath(info.parent_dir / self._filename)
-    tspec: Dict[str, Any] = _get_tensorstore_spec(directory, use_ocdbt=False)
-    tspec = {
+    return {
         'driver': 'json',
-        'kvstore': tspec['kvstore'],
+        'kvstore': _get_tensorstore_base_kvstore_spec(
+            str(info.parent_dir / self._filename)
+        ),
         'json_pointer': '/' + info.name,
     }
-    return tspec
 
   def typestr(self) -> str:
     return 'string'
