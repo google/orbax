@@ -29,7 +29,6 @@ import collections
 import dataclasses
 import functools
 import itertools
-import json
 import operator
 import time
 from typing import Any, Iterable, Optional, Sequence, Set, Union
@@ -48,7 +47,6 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
-from orbax.checkpoint.experimental.emergency import multihost as emergency_multihost
 from orbax.checkpoint.multihost import multislice
 from orbax.checkpoint.path import step as step_lib
 from typing_extensions import Self  # for Python version < 3.11
@@ -60,72 +58,6 @@ P = jax.sharding.PartitionSpec
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
 
 _module_unique_count = itertools.count()
-
-_PROCESS_METADATA_FOLDER = 'process_metadata'
-_PROCESS_METADATA_FILE_NAME = 'process_metadata.json'
-_GLOBAL_PROCESS_METADATA_FILE_NAME = 'global_process_metadata.json'
-_MESH_METADATA_FILE_NAME = 'mesh_metadata.json'
-
-
-def _write_process_metadata(path: epath.Path, mesh: jax.sharding.Mesh):
-  """Write process metadata to the given path."""
-  logging.info('Saving process index metadata at %s', path)
-
-  if multihost.process_index() == 0:
-    runtime_to_distributed_ids = multihost.utils.runtime_to_distributed_ids()
-    (path / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
-        json.dumps(runtime_to_distributed_ids)
-    )
-    (path / _MESH_METADATA_FILE_NAME).write_text(
-        json.dumps([int(id) for id in mesh.device_ids.flatten()])
-    )
-
-
-def _read_process_metadata(path: epath.Path):
-  """Read process metadata from the given path."""
-  logging.info('Loading process index metadata from %s', path)
-
-  runtime_to_distributed_ids = json.loads(
-      (path / _GLOBAL_PROCESS_METADATA_FILE_NAME).read_text()
-  )
-  device_ids = json.loads((path / _MESH_METADATA_FILE_NAME).read_text())
-  return runtime_to_distributed_ids, device_ids
-
-
-def _maybe_save_process_metadata(
-    path: epath.Path, global_mesh: jax.sharding.Mesh
-) -> bool:
-  """Saves process metadata if it does not already exist."""
-  metadata_folder = path / _PROCESS_METADATA_FOLDER
-  if metadata_folder.exists():
-    return False
-  # All processes must check the folder before proceeding. Otherwise the
-  # primary process may create the folder from scratch before another
-  # process has a chance to check it.
-  multihost.sync_global_processes('check_process_metadata_folder')
-
-  if multihost.process_index() == 0:
-    metadata_folder.mkdir(parents=False, exist_ok=False)
-  multihost.sync_global_processes('create_process_metadata_folder')
-
-  _write_process_metadata(metadata_folder, global_mesh)
-  return True
-
-
-def should_restore_mesh_from_metadata(path: epath.Path) -> bool:
-  metadata_path = path / _PROCESS_METADATA_FOLDER
-  return metadata_path.exists()
-
-
-def consistent_restore_mesh_from_metadata(
-    path: epath.Path, global_mesh: jax.sharding.Mesh
-) -> jax.sharding.Mesh:
-  metadata_path = path / _PROCESS_METADATA_FOLDER
-  runtime_to_distributed_ids, device_ids = _read_process_metadata(metadata_path)
-  assert isinstance(device_ids, list)
-  return emergency_multihost.consistent_restore_mesh(
-      global_mesh, device_ids, runtime_to_distributed_ids
-  )
 
 
 @dataclasses.dataclass
@@ -457,19 +389,17 @@ class CheckpointManager(
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[dict[str, Any]] = None,
   ):
-    self._local_directory = epath.Path(local_directory)
-    self._persistent_directory = epath.Path(persistent_directory)
     # TODO: b/330585086 - Fully support options.
     options = options or CheckpointManagerOptions()
     self._global_mesh = global_mesh
-    _maybe_save_process_metadata(self._persistent_directory, self._global_mesh)
-
     self._abstract_state = abstract_state
     self._slice_id = multislice.process_slice_id(
         multihost.process_index(), self._global_mesh
     )
 
+    self._local_directory = local_directory
     self._local_state_handler = local_state_handler
+    self._persistent_directory = persistent_directory
     self._options = options
     self._metadata = metadata
     self._persistent_primary_host = multihost.runtime_to_distributed_process_id(
@@ -540,10 +470,6 @@ class CheckpointManager(
   @property
   def directory(self) -> epath.Path:
     raise NotImplementedError()
-
-  @property
-  def global_mesh(self) -> jax.sharding.Mesh:
-    return self._global_mesh
 
   def _data_per_individual_slice(
       self, data: Sequence[Union[bool, int, float]]
@@ -723,7 +649,6 @@ class CheckpointManager(
       saved = self._local_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
       )
-
     return bool(self._global_max(int(saved)))
 
   def _find_slice_with_complete_checkpoint(self, step: int) -> int:
@@ -849,8 +774,8 @@ class CheckpointManager(
         '/orbax/emergency/checkpoint/read/broadcast_duration_secs',
         broadcast_elapsed_s,
     )
-
     logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
+
     return jax.tree.unflatten(tree_defs, shared_states)
 
   def _restore_from_persistent_cm(

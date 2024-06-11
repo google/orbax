@@ -21,17 +21,12 @@ from orbax.checkpoint.multihost.utils import is_primary_host
 from orbax.checkpoint.multihost.utils import reached_preemption
 from orbax.checkpoint.multihost.utils import sync_global_processes
 from orbax.checkpoint.multihost.utils import process_index
+from orbax.checkpoint.multihost.utils import unique_processes_from_devices
+from orbax.checkpoint.multihost.utils import runtime_to_distributed_process_id
 
 from orbax.checkpoint.multihost.utils import BarrierSyncFn
 from orbax.checkpoint.multihost.utils import get_barrier_sync_fn
 from orbax.checkpoint.multihost.utils import unique_barrier_key
-
-# EXPERIMENTAL
-from orbax.checkpoint.multihost.utils import unique_processes_from_devices
-from orbax.checkpoint.multihost.utils import is_runtime_to_distributed_ids_initialized
-from orbax.checkpoint.multihost.utils import runtime_to_distributed_process_id
-from orbax.checkpoint.multihost.utils import initialize_runtime_to_distributed_ids
-# END EXPERIMENTAL
 
 
 from orbax.checkpoint.multihost.utils import DIRECTORY_CREATION_TIMEOUT
