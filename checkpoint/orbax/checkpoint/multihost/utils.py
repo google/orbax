@@ -15,7 +15,7 @@
 """Orbax utils related to multihost functionality."""
 
 import time
-from typing import Optional, Protocol, Set
+from typing import List, Optional, Protocol, Set
 from absl import logging
 import jax
 from jax.experimental import multihost_utils
@@ -31,9 +31,13 @@ DIRECTORY_DELETION_TIMEOUT = 360
 _TEST_CASE_INDEX = None
 
 # Map from runtime process index to distributed process index.
-_RUNTIME_TO_DISTRIBUTED_ID = None
+_RUNTIME_TO_DISTRIBUTED_ID: List[int] = None
 
 
+
+
+def is_runtime_to_distributed_ids_initialized() -> bool:
+  return _RUNTIME_TO_DISTRIBUTED_ID is not None
 
 
 def initialize_runtime_to_distributed_ids():
@@ -63,10 +67,16 @@ def initialize_runtime_to_distributed_ids():
   logging.info('runtime_to_distributed_id: %s', _RUNTIME_TO_DISTRIBUTED_ID)
 
 
+def runtime_to_distributed_ids() -> List[int]:
+  if _RUNTIME_TO_DISTRIBUTED_ID is None:
+    raise ValueError('Please call initialize_runtime_to_distributed_ids().')
+  return _RUNTIME_TO_DISTRIBUTED_ID
+
+
 def runtime_to_distributed_process_id(pid: int) -> int:
   """Converts a distributed process index to a runtime process index."""
   if _RUNTIME_TO_DISTRIBUTED_ID is None:
-    raise ValueError('Please call initialize_runtime_to_distributed_ids()')
+    raise ValueError('Please call initialize_runtime_to_distributed_ids().')
   return _RUNTIME_TO_DISTRIBUTED_ID[pid]
 
 
