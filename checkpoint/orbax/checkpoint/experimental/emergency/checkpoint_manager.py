@@ -32,13 +32,12 @@ import itertools
 import json
 import operator
 import time
-from typing import Any, Iterable, Optional, Sequence, Set, Union
+from typing import Any, Iterable, Optional, Sequence, Set
 
 from absl import logging
 from etils import epath
 from etils import epy
 import jax
-from jax.experimental import multihost_utils
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import abstract_checkpoint_manager
@@ -546,7 +545,7 @@ class CheckpointManager(
     return self._global_mesh
 
   def _data_per_individual_slice(
-      self, data: Sequence[Union[bool, int, float]]
+      self, data: int
   ) -> np.ndarray:
     """Broadcasts its own data and collect data from all other slices.
 
@@ -561,18 +560,14 @@ class CheckpointManager(
     Returns:
       a np.ndarray and its index corresponding to the slice id.
     """
-    g_arr = multihost_utils.host_local_array_to_global_array(
-        np.asarray(data),
-        self._global_mesh,
-        P(self._global_mesh.axis_names[0]),  # assume first axis is the slice
-    )
-
-    result_arr = jax.jit(
-        lambda x: x,
-        out_shardings=jax.sharding.NamedSharding(self._global_mesh, P()),
-    )(g_arr)
-
-    return np.asarray(result_arr.addressable_data(0))
+    local_values = _global_list_union([data], self._global_mesh.devices)
+    assert len(local_values) == len(jax.devices())
+    num_slices = self._global_mesh.devices.shape[0]
+    num_devices_per_slice = jax.device_count() // num_slices
+    values_per_slice = local_values.reshape((num_slices, num_devices_per_slice))
+    # Check that all rows have the same values.
+    assert (values_per_slice[:, 1:] == values_per_slice[:, :-1]).all()
+    return values_per_slice[:, 0].flatten()
 
   def all_steps(self, read: bool = False) -> Sequence[int]:
     """Returns all steps tracked by the manager.
@@ -738,9 +733,7 @@ class CheckpointManager(
 
     has_step_in_this_slice = step in steps_in_slice
 
-    has_steps = self._data_per_individual_slice(
-        [has_step_in_this_slice]
-    ).tolist()
+    has_steps = self._data_per_individual_slice(has_step_in_this_slice).tolist()
 
     logging.debug('has_steps=%s', has_steps)
 
