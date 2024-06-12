@@ -846,7 +846,8 @@ def _add_write_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
       # There won't be any concurrent writes by multiple machines to the same
       # OCDBT database.  Therefore, we can use the simpler and more efficient
       # single-file manifest format in all cases.
-      'manifest_kind': 'single',
+      # TODO(jbms): disable this until race condition is fixed
+      # 'manifest_kind': 'single',
   }
   # assume_config avoids writing an initial empty manifest to ensure a
   # consistent configuration, since Orbax never writes to the same OCDBT
