@@ -21,7 +21,6 @@ from typing import Any, Callable, Iterator, Optional
 from absl import logging
 from etils import epath
 import jax
-from jax.experimental import multihost_utils
 import numpy as np
 from orbax.checkpoint import multihost
 from orbax.checkpoint import type_handlers
@@ -170,7 +169,7 @@ def _wait_for_new_checkpoint(
       elif _sleep_and_maybe_exit():
         break
 
-  result = multihost_utils.broadcast_one_to_all(np.int32(result)).item()
+  result = multihost.broadcast_one_to_all(np.int32(result)).item()
   wait_duration = time.time() - start
   jax.monitoring.record_event_duration_secs(
       '/jax/orbax/checkpoint_utils/wait_duration', wait_duration

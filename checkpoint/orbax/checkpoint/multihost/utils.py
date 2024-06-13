@@ -82,6 +82,8 @@ def runtime_to_distributed_process_id(pid: int) -> int:
 
 def broadcast_one_to_all(in_tree, is_source: Optional[bool] = None):
   """Broadcast data from a source host to all other hosts."""
+  if is_source is None:
+    is_source = process_index() == 0
   return multihost_utils.broadcast_one_to_all(in_tree, is_source=is_source)
 
 
