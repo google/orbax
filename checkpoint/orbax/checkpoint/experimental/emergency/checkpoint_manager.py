@@ -119,12 +119,23 @@ def should_restore_mesh_from_metadata(path: epath.Path) -> bool:
 def consistent_restore_mesh_from_metadata(
     path: epath.Path, global_mesh: jax.sharding.Mesh
 ) -> jax.sharding.Mesh:
+  """Create a mesh consistent with the saved metadata."""
   metadata_path = path / _PROCESS_METADATA_FOLDER
   runtime_to_distributed_ids, device_ids = _read_process_metadata(metadata_path)
   assert isinstance(device_ids, list)
-  return emergency_multihost.consistent_restore_mesh(
+  logging.info(
+      'From process metadata, runtime_to_distributed_ids=%s',
+      runtime_to_distributed_ids,
+  )
+  logging.info('From process metadata, device_ids=%s', device_ids)
+  consistent_mesh = emergency_multihost.consistent_restore_mesh(
       global_mesh, device_ids, runtime_to_distributed_ids
   )
+  logging.info(
+      'Created consistent mesh with device_ids=%s',
+      consistent_mesh.device_ids.flatten(),
+  )
+  return consistent_mesh
 
 
 @dataclasses.dataclass
@@ -533,7 +544,11 @@ class CheckpointManager(
       )
 
     logging.info(
-        'Created emergency.CheckpointManager with slice_id=%s', self._slice_id
+        'Created emergency.CheckpointManager with slice_id=%d,'
+        ' process_index=%d, jax.process_index=%d',
+        self._slice_id,
+        multihost.process_index(),
+        jax.process_index(),
     )
 
   @property
@@ -708,13 +723,14 @@ class CheckpointManager(
       metrics: Optional[PyTree] = None,
       force: Optional[bool] = False,
   ) -> bool:
-    logging.info('Saving at step %d.', step)
     # TODO: b/330608746 - implement save op on different slices
     if self.in_primary_slice:
+      logging.info('Maybe saving at step %d (persistent).', step)
       saved = self._persistent_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
       )
     else:
+      logging.info('Maybe saving at step %d (local).', step)
       saved = self._local_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
       )
