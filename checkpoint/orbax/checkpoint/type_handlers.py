@@ -1303,26 +1303,17 @@ class ArrayHandler(TypeHandler):
         logging.debug('args = %s', arg)
         logging.debug('replica_id = %s', replica_id)
 
-      if jax.__version_info__ > (0, 4, 25):
-        synchronous_ops += [
-            serialization.async_serialize(
-                value,
-                tspec,
-                commit_future=futures,
-                context=ts_context,
-                primary_host=self._primary_host,
-                replica_id=replica_id,
-            )
-        ]
-      else:
-        synchronous_ops += [
-            serialization.async_serialize(
-                value,
-                tspec,
-                commit_future=futures,
-                context=ts_context,
-            )
-        ]
+      synchronous_ops += [
+          serialization.async_serialize(
+              value,
+              tspec,
+              commit_future=futures,
+              context=ts_context,
+              primary_host=self._primary_host,
+              replica_id=replica_id,
+              byte_limiter=info.byte_limiter,
+          )
+      ]
 
       if value.sharding is not None:
         if info.parent_dir is None:

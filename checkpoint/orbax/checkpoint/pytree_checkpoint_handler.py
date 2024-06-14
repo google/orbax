@@ -424,7 +424,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if aggregate_filename is None:
       aggregate_filename = _CHECKPOINT_FILE
     self._aggregate_filename = aggregate_filename
-    self._concurrent_gb = concurrent_gb
+    self._concurrent_bytes = concurrent_gb * 10**9
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
     self._primary_host = primary_host
@@ -646,7 +646,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
       )
-    byte_limiter = get_byte_limiter(self._concurrent_gb)
+    byte_limiter = get_byte_limiter(self._concurrent_bytes)
     structure, use_zarr3_metadata = self._handler_impl._get_internal_metadata(  # pylint: disable=protected-access
         directory
     )

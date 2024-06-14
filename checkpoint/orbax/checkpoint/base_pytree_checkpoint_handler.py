@@ -66,10 +66,9 @@ METADATA_FILE = '_METADATA'
 _CHECKPOINT_FILE = 'checkpoint'
 
 
-def get_byte_limiter(concurrent_gb: int):
+def get_byte_limiter(concurrent_bytes: int):
   async def _create_byte_limiter():
     # Wrap creation in async function to avoid issues on python<=3.9.
-    concurrent_bytes = concurrent_gb * 10**9
     # Construction must take place here so that it is within the same async
     # method, to prevent errors resulting from different event loops, and
     # cannot be created below this level because there must be a single object
@@ -366,7 +365,7 @@ class BasePyTreeCheckpointHandler(
     if aggregate_filename is None:
       aggregate_filename = _CHECKPOINT_FILE
     self._aggregate_filename = aggregate_filename
-    self._concurrent_gb = concurrent_gb
+    self._concurrent_bytes = concurrent_gb * 10**9
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
     self._primary_host = primary_host
@@ -531,6 +530,7 @@ class BasePyTreeCheckpointHandler(
         item if save_args is None else save_args,
         is_leaf=tree_utils.is_empty_or_leaf,
     )
+    # byte_limiter = get_byte_limiter(self._concurrent_gb)
     param_infos, all_params_aggregated = self._get_param_infos(
         item, directory, save_args, ocdbt_target_data_file_size
     )
@@ -764,7 +764,7 @@ class BasePyTreeCheckpointHandler(
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
       )
-    byte_limiter = get_byte_limiter(self._concurrent_gb)
+    byte_limiter = get_byte_limiter(self._concurrent_bytes)
     structure, use_zarr3_metadata = self._get_internal_metadata(directory)
     # `checkpoint_restore_args` has a structure relative to the checkpoint,
     # while `restore_args` remains structured relative to the output.
