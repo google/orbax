@@ -71,6 +71,7 @@ def _write_process_metadata(path: epath.Path, mesh: jax.sharding.Mesh):
   logging.info('Saving process index metadata at %s', path)
 
   if multihost.process_index() == 0:
+    path.mkdir(parents=False, exist_ok=False)
     runtime_to_distributed_ids = multihost.utils.runtime_to_distributed_ids()
     (path / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
         json.dumps(runtime_to_distributed_ids)
@@ -78,6 +79,7 @@ def _write_process_metadata(path: epath.Path, mesh: jax.sharding.Mesh):
     (path / _MESH_METADATA_FILE_NAME).write_text(
         json.dumps([int(id) for id in mesh.device_ids.flatten()])
     )
+  multihost.sync_global_processes('create_process_metadata')
 
 
 def _read_process_metadata(path: epath.Path):
@@ -102,11 +104,6 @@ def _maybe_save_process_metadata(
   # primary process may create the folder from scratch before another
   # process has a chance to check it.
   multihost.sync_global_processes('check_process_metadata_folder')
-
-  if multihost.process_index() == 0:
-    metadata_folder.mkdir(parents=False, exist_ok=False)
-  multihost.sync_global_processes('create_process_metadata_folder')
-
   _write_process_metadata(metadata_folder, global_mesh)
   return True
 

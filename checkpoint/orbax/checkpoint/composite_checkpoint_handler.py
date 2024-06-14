@@ -51,6 +51,7 @@ import asyncio
 from collections.abc import Collection, KeysView
 import concurrent.futures
 import dataclasses
+import itertools
 from typing import AbstractSet, Any, List, Mapping, Optional, Tuple, Set
 import uuid
 
@@ -61,6 +62,7 @@ from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import future
+from orbax.checkpoint import multihost
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
 from orbax.checkpoint.path import step
@@ -77,6 +79,8 @@ ProtoSaveArgs = proto_checkpoint_handler.ProtoSaveArgs
 _CONCURRENT_WORKERS = 3
 RESERVED_ITEM_NAMES = []
 
+
+_module_unique_count = itertools.count()
 
 
 # TODO(b/295899152) Clean up when users are all registering `CheckpointArgs`.
@@ -183,6 +187,7 @@ def _maybe_raise_reserved_item_error(item_name: str):
 class CompositeOptions:
   primary_host: Optional[int] = 0
   active_processes: Optional[Set[int]] = None
+  barrier_sync_key_prefix: Optional[str] = None
 
 
 class CompositeCheckpointHandler(AsyncCheckpointHandler):
@@ -297,6 +302,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         self._known_handlers[item_name] = get_legacy_handler_wrapper(handler)
     self._primary_host = composite_options.primary_host
     self._active_processes = composite_options.active_processes
+    self._barrier_sync_key_prefix = composite_options.barrier_sync_key_prefix
 
   def _get_or_set_handler(
       self,
@@ -351,17 +357,30 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         self._get_item_directory(directory, item_name)
         for item_name in args.keys()
     ]
-    # NOTE: ocp.multihost.sync_global_processes may appear to work here, but
-    # it is not async-compatible.
-    # TODO(b/328525223) Replace with async-compatible barrier function.
-    for path in item_directories:
-      path.mkdir(parents=False, exist_ok=True)
+    if multihost.is_primary_host(self._primary_host):
+      for path in item_directories:
+        path.mkdir(parents=False, exist_ok=False)
+    barrier_sync_fn = multihost.get_barrier_sync_fn(
+        processes=self._active_processes
+    )
+    barrier_key = multihost.unique_barrier_key(
+        'CompositeCheckpointHandler:create_item_directories',
+        prefix=self._barrier_sync_key_prefix,
+        suffix=f'{directory.name}.{next(_module_unique_count)}',
+    )
+    barrier_sync_fn(
+        key=barrier_key,
+        timeout_ms=multihost.DIRECTORY_CREATION_TIMEOUT * 1000,
+    )
 
     # Sort keys to maintain consistent ordering across processes, otherwise
     # we may hit timeouts if processes wait at different barriers in per-item
     # handlers.
     # TODO(b/295899152): Find a less brittle solution or support
-    # async-compatible barrier function.
+    # async-compatible barrier function within handlers.
+    # The main blocker here is that many users with custom CheckpointHandlers
+    # use barriers in their implementations, which are usually not actually
+    # needed.
     for item_name in sorted(args.keys()):
       arg = args[item_name]
       _maybe_raise_reserved_item_error(item_name)
