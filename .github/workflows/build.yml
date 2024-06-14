@@ -11,6 +11,7 @@ on:
 
 jobs:
   build-checkpoint:
+    name: "Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }}"
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -18,6 +19,10 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.9", "3.10", "3.11"]
+        jax-version: ["newest"]
+        include:
+          - python-version: "3.9"
+            jax-version: "0.4.25"  # keep in sync with minimum version in checkpoint/pyproject.toml
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.8.0
@@ -35,6 +40,11 @@ jobs:
         pip install -e .
         pip install -e .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         pip uninstall -y orbax
+        if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
+          pip install -U jax jaxlib
+        else
+          pip install "jax==${{ matrix.jax-version }}" "jaxlib==${{ matrix.jax-version }}"
+        fi
     - name: Test with pytest
       run: |
         python -m pytest
@@ -58,13 +68,15 @@ jobs:
             }'
 
   build-export:
+    name: "Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }}"
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: export
     strategy:
       matrix:
-        python-version: [3.9]
+        python-version: ["3.9"]
+        jax-version: ["newest", "0.4.25"]  # keep in sync with minimum version in export/pyproject.toml
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.8.0
@@ -83,6 +95,11 @@ jobs:
       run: |
         pip install .
         pip install .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
+          pip install -U jax jaxlib
+        else
+          pip install "jax==${{ matrix.jax-version }}" "jaxlib==${{ matrix.jax-version }}"
+        fi
     - name: Test with pytest
       run: |
         test_dir=$(mktemp -d)
