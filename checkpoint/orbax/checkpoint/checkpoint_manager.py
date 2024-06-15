@@ -761,8 +761,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         CompositeCheckpointHandler(
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 primary_host=self._multiprocessing_options.primary_host,
-                active_processes=self._multiprocessing_options.active_processes,
-                barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
             ),
             **item_handlers,
         ),
@@ -835,8 +833,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         CompositeCheckpointHandler(
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 primary_host=self._multiprocessing_options.primary_host,
-                active_processes=self._multiprocessing_options.active_processes,
-                barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
             ),
             **all_item_handlers,
         ),

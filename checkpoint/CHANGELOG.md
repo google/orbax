@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Allow one directory creation request per item rather than 1 per item per host.
 - Rolled back change in previous release to improve TensorStore I/O efficiency.
   This change caused some unexpected failures on certain storage systems.
 
