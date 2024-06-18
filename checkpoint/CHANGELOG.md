@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.17] - 2024-06-18
+
 - Rolled back change in previous release to improve TensorStore I/O efficiency.
   This change caused some unexpected failures on certain storage systems.
 
