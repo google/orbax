@@ -249,8 +249,23 @@ def is_primary_host(primary_host: Optional[int]):
 
 
 def process_index() -> int:
-  if EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID.value:
-    logging.info('Using distributed process id.')
+  """Customized logic for obtaining JAX process index."""
+  try:
+    experimental_orbax_use_distributed_process_id = (
+        EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID.value
+    )
+  except Exception:  # pylint: disable=broad-exception-caught
+    logging.log_every_n_seconds(
+        logging.level_info(),
+        'Failed to get flag value for'
+        ' EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID.',
+        120,
+    )
+    experimental_orbax_use_distributed_process_id = False
+  if experimental_orbax_use_distributed_process_id:
+    logging.log_every_n_seconds(
+        logging.level_info(), 'Using distributed process id.', 120
+    )
     return jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
   else:
     return jax.process_index()
