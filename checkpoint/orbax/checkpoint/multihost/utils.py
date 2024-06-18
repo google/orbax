@@ -16,6 +16,7 @@
 
 import time
 from typing import List, Optional, Protocol, Set
+from absl import flags
 from absl import logging
 import jax
 from jax.experimental import multihost_utils
@@ -32,6 +33,13 @@ _TEST_CASE_INDEX = None
 
 # Map from runtime process index to distributed process index.
 _RUNTIME_TO_DISTRIBUTED_ID: List[int] = None
+
+EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID = flags.DEFINE_bool(
+    'experimental_orbax_use_distributed_process_id',
+    False,
+    'If True, uses jax._src.distributed.global_state.process_id instead of'
+    ' jax.process_index().',
+)
 
 
 
@@ -241,7 +249,11 @@ def is_primary_host(primary_host: Optional[int]):
 
 
 def process_index() -> int:
-  return jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
+  if EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID.value:
+    logging.info('Using distributed process id.')
+    return jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
+  else:
+    return jax.process_index()
 
 
 def unique_processes_from_devices(device_array: np.ndarray) -> Set[int]:
