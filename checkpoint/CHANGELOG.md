@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.19] - 2024-06-20
+
+### Fixed
+- updated required Jax version to fix PY3.9 build
+
+
 ## [0.5.18] - 2024-06-20
 
 ### Fixed

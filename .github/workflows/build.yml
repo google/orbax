@@ -22,7 +22,7 @@ jobs:
         jax-version: ["newest"]
         include:
           - python-version: "3.9"
-            jax-version: "0.4.25"  # keep in sync with minimum version in checkpoint/pyproject.toml
+            jax-version: "0.4.26"  # keep in sync with minimum version in checkpoint/pyproject.toml
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.8.0
@@ -76,7 +76,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.9"]
-        jax-version: ["newest", "0.4.25"]  # keep in sync with minimum version in export/pyproject.toml
+        jax-version: ["newest", "0.4.26"]  # keep in sync with minimum version in export/pyproject.toml
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.8.0
