@@ -26,7 +26,7 @@ from absl import logging
 from etils import epath
 from etils import epy
 import jax
-from jax.experimental.array_serialization import serialization
+from jax.experimental.array_serialization import serialization as jax_serialization
 from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import abstract_checkpointer
 from orbax.checkpoint import args as args_lib
@@ -124,7 +124,7 @@ def is_async_checkpointer(checkpointer: AbstractCheckpointer):
       checkpointer, async_checkpointer.AsyncCheckpointer
   ) or isinstance(
       checkpointer,
-      serialization.GlobalAsyncCheckpointManagerBase,
+      jax_serialization.GlobalAsyncCheckpointManagerBase,
   )
 
 

@@ -28,13 +28,13 @@ from absl import logging
 from etils import epath
 import jax
 from jax.experimental import pjit
-from jax.experimental.array_serialization import serialization
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import multihost
 from orbax.checkpoint import pytree_checkpoint_handler
+from orbax.checkpoint import serialization
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
@@ -200,7 +200,7 @@ def setup_replica_sharded_arrays(
   axis_names = list(string.ascii_lowercase)
   mesh = jax.sharding.Mesh(devices.reshape(mesh_shape), axis_names[-dim:])
   if is_replica_first:
-    mesh_axes = jax.sharding.PartitionSpec(None, axis_names[-dim+1:])
+    mesh_axes = jax.sharding.PartitionSpec(None, axis_names[-dim + 1 :])
   else:
     mesh_axes = jax.sharding.PartitionSpec(axis_names[-dim:-1], None)
 
@@ -274,9 +274,7 @@ def select_single_replica(
         arr.shape, single_slice_sharding, data
     )
 
-  return jax.tree.map(
-      _make_single_slice_array, arrays, single_slice_shardings
-  )
+  return jax.tree.map(_make_single_slice_array, arrays, single_slice_shardings)
 
 
 def is_leaf(x):
