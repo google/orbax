@@ -69,6 +69,7 @@ get_param_names = base_pytree_checkpoint_handler.get_param_names
 
 _CHECKPOINT_FILE = 'checkpoint'
 _METADATA_FILE = base_pytree_checkpoint_handler.METADATA_FILE
+_DEFAULT_CONCURRENT_GB = 96
 
 
 def _keystr(key: Tuple[Any, ...]) -> str:
@@ -395,7 +396,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   def __init__(
       self,
       aggregate_filename: Optional[str] = None,
-      concurrent_gb: int = 96,
+      concurrent_gb: Optional[int] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
       primary_host: Optional[int] = 0,
@@ -424,6 +425,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if aggregate_filename is None:
       aggregate_filename = _CHECKPOINT_FILE
     self._aggregate_filename = aggregate_filename
+    if concurrent_gb is None:
+      concurrent_gb = _DEFAULT_CONCURRENT_GB
     self._concurrent_gb = concurrent_gb
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
