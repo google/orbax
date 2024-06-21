@@ -61,6 +61,7 @@ _DEFAULT_OCDBT_TS_CONTEXT = ts.Context(
 RESTORE_TYPE_NONE = 'None'
 RESTORE_TYPE_DICT = 'Dict'
 RESTORE_TYPE_LIST = 'List'
+RESTORE_TYPE_TUPLE = 'Tuple'
 
 _DEFAULT_DRIVER = 'file'
 _PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
@@ -92,10 +93,13 @@ async def _assert_parameter_files_exist(
 
 
 def get_empty_value_typestr(value: Any) -> str:
+  """Get a typestr for an empty value."""
   if not utils.is_supported_empty_aggregation_type(value):
     raise ValueError(f'{value} is not a supported empty aggregation type.')
   if isinstance(value, list):
     return RESTORE_TYPE_LIST
+  elif isinstance(value, tuple):
+    return RESTORE_TYPE_TUPLE
   elif isinstance(value, dict):
     return RESTORE_TYPE_DICT
   elif isinstance(value, type(None)):
@@ -107,6 +111,7 @@ def get_empty_value_typestr(value: Any) -> str:
 def is_empty_typestr(typestr: str) -> bool:
   return (
       typestr == RESTORE_TYPE_LIST
+      or typestr == RESTORE_TYPE_TUPLE
       or typestr == RESTORE_TYPE_DICT
       or typestr == RESTORE_TYPE_NONE
   )
@@ -115,6 +120,8 @@ def is_empty_typestr(typestr: str) -> bool:
 def get_empty_value_from_typestr(typestr: str) -> Any:
   if typestr == RESTORE_TYPE_LIST:
     return []
+  elif typestr == RESTORE_TYPE_TUPLE:
+    return ()
   elif typestr == RESTORE_TYPE_DICT:
     return {}
   elif typestr == RESTORE_TYPE_NONE:
