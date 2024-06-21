@@ -14,15 +14,24 @@
 
 """Multislice utils."""
 
+from typing import Optional
 import jax
 import numpy as np
 from orbax.checkpoint.multihost import utils
 
 
-def process_slice_id(process_index: int, global_mesh: jax.sharding.Mesh) -> int:
+def process_slice_id(
+    process_index: int,
+    global_mesh: jax.sharding.Mesh,
+    replica_axis_index: Optional[int] = 0,
+) -> int:
   """Returns the slice id that the process_index belongs to."""
-  for slice_id, device_slice in enumerate(global_mesh.devices):
-    if process_index in _pid_in_slice(device_slice):
+  num_slices = global_mesh.devices.shape[replica_axis_index]
+  for slice_id in range(num_slices):
+    device_slice = np.take(
+        global_mesh.devices, slice_id, axis=replica_axis_index
+    )
+    if in_slice(process_index, device_slice):
       return slice_id
 
   return -1
@@ -40,10 +49,12 @@ def in_slice(process_index: int, device_slice: np.ndarray) -> bool:
 
 
 def in_primary_slice(
-    process_index: int, global_mesh: jax.sharding.Mesh
+    process_index: int,
+    global_mesh: jax.sharding.Mesh,
+    replica_axis_index: Optional[int] = 0,
 ) -> bool:
   """Returns true if host is in primary slice (the first slice)."""
-  primary_slice = global_mesh.devices[0]
+  primary_slice = np.take(global_mesh.devices, 0, axis=replica_axis_index)
 
   return in_slice(process_index, primary_slice)
 
