@@ -464,6 +464,7 @@ class CheckpointManager(
       # checkpointing, given restore+broadcast requirements.
       local_state_handler: CheckpointHandler,
       *,
+      replica_axis_index: Optional[int] = 0,
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[dict[str, Any]] = None,
   ):
@@ -472,23 +473,31 @@ class CheckpointManager(
     # TODO: b/330585086 - Fully support options.
     options = options or CheckpointManagerOptions()
     self._global_mesh = global_mesh
+    self._replica_axis_index = replica_axis_index
+    primary_slice_devices = np.take(
+        global_mesh.devices, 0, axis=replica_axis_index
+    )
     _maybe_save_process_metadata(self._persistent_directory, self._global_mesh)
 
     self._abstract_state = abstract_state
     self._slice_id = multislice.process_slice_id(
-        multihost.process_index(), self._global_mesh
+        multihost.process_index(), self._global_mesh, replica_axis_index
     )
 
     self._local_state_handler = local_state_handler
     self._options = options
     self._metadata = metadata
     self._persistent_primary_host = multihost.runtime_to_distributed_process_id(
-        global_mesh.devices[0].flat[0].process_index
+        primary_slice_devices.flat[0].process_index
     )
     self._local_primary_host = None
-    if global_mesh.devices.shape[0] > 1:
+    self._num_slices = global_mesh.devices.shape[replica_axis_index]
+    if self._num_slices > 1:
+      local_primary_slice_devices = np.take(
+          global_mesh.devices, 1, axis=replica_axis_index
+      )
       self._local_primary_host = multihost.runtime_to_distributed_process_id(
-          global_mesh.devices[1].flat[0].process_index
+          local_primary_slice_devices.flat[0].process_index
       )
     if self._local_primary_host is None:
       raise AssertionError(
@@ -497,7 +506,7 @@ class CheckpointManager(
       )
 
     self.in_primary_slice = multislice.in_primary_slice(
-        multihost.process_index(), global_mesh
+        multihost.process_index(), global_mesh, replica_axis_index
     )
     self._persistent_max_to_keep = self._options.persistent.max_to_keep
     self._local_max_to_keep = self._options.local.max_to_keep
@@ -506,7 +515,7 @@ class CheckpointManager(
         checkpoint_manager.MultiprocessingOptions(
             primary_host=self._persistent_primary_host,
             active_processes=multihost.unique_processes_from_devices(
-                self._global_mesh.devices[0]
+                primary_slice_devices
             ),
             barrier_sync_key_prefix='persistent',
         )
@@ -538,7 +547,11 @@ class CheckpointManager(
       self._local_checkpoint_manager = _LocalCheckpointManager(
           self._local_directory,
           self._local_state_handler,
-          device_array=global_mesh.devices[1:],
+          device_array=np.take(
+              global_mesh.devices,
+              range(1, self._num_slices),
+              axis=replica_axis_index,
+          ),
           options=self._options,
           metadata=self._metadata,
       )
@@ -564,8 +577,7 @@ class CheckpointManager(
   ) -> np.ndarray:
     """Broadcasts its own data and collect data from all other slices.
 
-    This function assumes the slice is divided along the first axis (i.e. slice0
-    = global_mesh.devices[0]). `Data` from hosts within a slice must be
+    `Data` from hosts within a slice must be
     identical, as well as the data dimensions between slices. If these
     assumptions are not met, the function may return indeterministic results.
 
@@ -577,9 +589,10 @@ class CheckpointManager(
     """
     local_values = _global_list_union([data], self._global_mesh.devices)
     assert len(local_values) == len(jax.devices())
-    num_slices = self._global_mesh.devices.shape[0]
-    num_devices_per_slice = jax.device_count() // num_slices
-    values_per_slice = local_values.reshape((num_slices, num_devices_per_slice))
+    num_devices_per_slice = jax.device_count() // self._num_slices
+    values_per_slice = local_values.reshape(
+        (self._num_slices, num_devices_per_slice)
+    )
     # Check that all rows have the same values.
     assert (values_per_slice[:, 1:] == values_per_slice[:, :-1]).all()
     return values_per_slice[:, 0].flatten()
@@ -781,7 +794,13 @@ class CheckpointManager(
         mesh: jax.sharding.Mesh,
         pspec: jax.sharding.PartitionSpec,
     ):
-      slice_devices = np.asarray([self._global_mesh.devices[self._slice_id]])
+      slice_devices = np.asarray([
+          np.take(
+              self._global_mesh.devices,
+              self._slice_id,
+              axis=self._replica_axis_index,
+          )
+      ])
       slice_mesh = jax.sharding.Mesh(slice_devices, mesh.axis_names)
       ss_sharding = jax.sharding.NamedSharding(slice_mesh, pspec)
       return ss_sharding
@@ -850,7 +869,7 @@ class CheckpointManager(
         in_tree,
         self._global_mesh,
         tuple(single_replica_shardings_tuple),
-        0,
+        self._replica_axis_index,
         is_source=is_restoring_slice,
     )
     broadcast_elapsed_s = time.time() - start_broadcast
