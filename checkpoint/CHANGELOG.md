@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Memory efficient broadcasting from one model replica to others.
+
 ## [0.5.20] - 2024-06-20
 
 ### Added
