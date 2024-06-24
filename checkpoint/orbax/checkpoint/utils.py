@@ -23,7 +23,7 @@ TODO(b/266449081) Increase unit test coverage.
 
 import functools
 import time
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Optional, Tuple
 
 from absl import logging
 from etils import epath
@@ -49,9 +49,6 @@ _AGGREGATED_PREFIX = 'AGGREGATED://'
 # relevant information (see functions below).
 _PLACEHOLDER_PREFIX = 'PLACEHOLDER://'
 PyTree = Any
-# When using broadcasting from single replica to others, 3 copies of the data
-# are stored in memory.
-MEMORY_FACTOR = 3
 
 sync_global_processes = multihost.sync_global_processes
 sync_global_devices = multihost.sync_global_processes
@@ -336,92 +333,17 @@ def fake_zero_data(sharding, x):
   return jax.lax.with_sharding_constraint(x, sharding)
 
 
-def get_device_memory() -> int:
-  """Returns HBM capacity of the device on which the code is running(in bytes)."""
-  device = jax.devices()[0]
-  if device.platform != 'tpu':
-    raise ValueError('Only TPU devices are supported.')
-  hbm_memory = {
-      'TPU v3': int(16e9),  # two cores pre chip each with 16 GB HBM
-      'TPU v4': int(32e9),  # one megacore per chip with 32 GB HBM
-      'TPU v5e': int(16e9),  # one core per chip with 16 GB HBM
-      'TPU v5p': int(96e9),  # one megacore per chip with 96 GB HBM
-      'TPU trillium': int(32e9),  # one core per chip with 32 GB HBM
-    }
-  memory = hbm_memory.get(device.device_kind, None)
-  if memory is None:
-    raise ValueError('get_device_memory is not supported for '
-                     f'{device.device_kind}.')
-  return  memory
-
-
-def get_leaf_memory_per_device(arr: jax.Array) -> int:
-  """Returns the memory usage of a sharded array per device (in bytes)."""
-  shard = arr.addressable_shards[0]
-  return shard.data.size * shard.data.itemsize
-
-
-def tree_memory_per_device(tree: Tuple[PyTree, ...]) -> int:
-  """Returns the memory usage of a PyTree on each device (in bytes)."""
-  leaf_memory_per_device = jax.tree_util.tree_map(
-      get_leaf_memory_per_device,
-      tree
-      )
-  return jax.tree.reduce(lambda x, y: x + y, leaf_memory_per_device)
-
-
-def get_available_memory(in_tree: Tuple[PyTree, ...],
-                         scaling_factor: float) -> int:
-  """Returns estimated available memory for broadcasting (in bytes).
-
-  After computing the available memory, we scale it by a factor of 0.75 to
-  account for the fact that the actual memory usage could be differnet than the 
-  estimated memory usage. This will help us to avoid OOM errors for edge cases.
-
-  Args:
-    in_tree: pytree that occupies the memory.
-    scaling_factor: indicates the frunction of the estimated available memory
-    to be used when broadcustind data.
-  """
-  if scaling_factor > 1:
-    raise ValueError('scaling_factorshould be less than 1.')
-  total_device_memory = get_device_memory()
-  used_device_memory = tree_memory_per_device(in_tree)
-  available_memory = total_device_memory - used_device_memory
-  return int(available_memory * scaling_factor / MEMORY_FACTOR)
-
-
 def broadcast_one_replica_to_all(
     in_tree: Tuple[PyTree, ...],
     global_mesh: jax.sharding.Mesh,
     per_replica_shardings: Tuple[Optional[jax.sharding.NamedSharding], ...],
     replica_axis_index: int,
     is_source: bool,
-    memory_limit_bytes: Optional[Union[int, None]] = None,
-    memory_scaling_factor: Optional[float] = 0.75,
-) -> Tuple[Tuple[PyTree, ...], int]:
-  """One replica reads the data and broadcasts to others.
-
-  Args:
-    in_tree: pytree to be broadcasted.
-    global_mesh: global mesh.
-    per_replica_shardings: shardings for each replica.
-    replica_axis_index: axis index along which the data is replicated.
-    is_source: indicates if the current host is in primary replica.
-    memory_limit_bytes: memory limit for broadcasting. in bytes.
-    memory_scaling_factor: indicates the frunction of the estimated available
-      memory to be used when broadcustind data.
-  Returns:
-     Tuple containing:
-      - pytree with broadcasted data
-      - number of broadcasts performed.
-  """
+) -> Tuple[PyTree, ...]:
+  """One replica reads the data and broadcasts to others."""
   num_replicas = global_mesh.devices.shape[replica_axis_index]
   replica_axis_name = global_mesh.axis_names[replica_axis_index]
 
-  if memory_limit_bytes is None:
-    memory_limit_bytes = get_available_memory(in_tree, memory_scaling_factor)
-    logging.info('Using available memory of %d bytes.', memory_limit_bytes)
   def pre_jit(x, per_replica_sharding):
     if is_source:
       inp = x
@@ -443,52 +365,23 @@ def broadcast_one_replica_to_all(
         global_shape, global_sharding, [s.data for s in inp.addressable_shards]
     )
 
-  tree_len = len(in_tree)
-  start = 0
-  out_tree = []
-  num_broadcasts = 0
-  while start < tree_len:
-    subtree = []
-    current_memory = 0
-    end = start
-    if tree_memory_per_device(in_tree[start]) > memory_limit_bytes:
-      logging.warning(
-          'in_tree leaf size exceeds memory limit for broadcasting. '
-          'Leaf size: %d bytes. Allowed memory limit: %d bytes. Proceeding.',
-          tree_memory_per_device(in_tree[start]),
-          memory_limit_bytes)
-      subtree.append(in_tree[end])
-      end += 1
-    else:
-      while end < tree_len and (
-          current_memory + tree_memory_per_device(in_tree[end]) <=
-          memory_limit_bytes
-          ):
-        subtree.append(in_tree[end])
-        current_memory += tree_memory_per_device(in_tree[end])
-        end += 1
-    subtree = tuple(subtree)
-    num_broadcasts += 1
-    out_sharding = jax.tree.map(
-        lambda x: jax.sharding.NamedSharding(
-            global_mesh, jax.sharding.PartitionSpec(*x.sharding.spec)
-        ),
-        subtree,
-    )
-    in_tree_sharded = jax.tree.map(
-        pre_jit, subtree, per_replica_shardings[start:end]
-    )
-    # Delete immediately to conserve memory.
-    jax.tree.map(lambda x: x.delete(), subtree)
-    out_subtree = jax.jit(
-        functools.partial(_sum, replica_axis_index=replica_axis_index),
-        out_shardings=out_sharding,
-    )(in_tree_sharded)
-    out_tree.extend(out_subtree)
-    jax.block_until_ready(out_tree)
-    start = end
-  logging.info('Number of broadcasts: %d', num_broadcasts)
-  return tuple(out_tree), num_broadcasts
+  out_sharding = jax.tree.map(
+      lambda x: jax.sharding.NamedSharding(
+          global_mesh, jax.sharding.PartitionSpec(*x.sharding.spec)
+      ),
+      in_tree,
+  )
+  in_tree_sharded = jax.tree.map(
+      pre_jit, in_tree, per_replica_shardings
+  )
+  # Delete immediately to conserve memory.
+  jax.tree.map(lambda x: x.delete(), in_tree)
+  out_tree = jax.jit(
+      functools.partial(_sum, replica_axis_index=replica_axis_index),
+      out_shardings=out_sharding,
+  )(in_tree_sharded)
+  jax.block_until_ready(out_tree)
+  return out_tree
 
 
 def get_primary_replica_ids_and_pids(

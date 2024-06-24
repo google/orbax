@@ -762,7 +762,7 @@ def _get_tensorstore_spec(
     spec.update(
         {'recheck_cached_data': False, 'recheck_cached_metadata': False}
     )
-    spec['kvstore'].update({  # pytype: disable=attribute-error
+    spec['kvstore'].update({
         # Enable read coalescing.  This feature merges adjacent read_ops into
         # one, which could reduce I/O ops by a factor of 10. This is especially
         # beneficial for unstacked models.
@@ -1120,9 +1120,18 @@ class SingleReplicaArrayRestoreArgs(ArrayRestoreArgs):
   single_replica_sharding:
     jax.sharding.NamedSharding object which describes the single replica
     sharding to which current host belongs to.
+  replica_axis_index:
+    The index of the axis dimension of the array, along which the replicas are
+    defined. Currently works only when replica is taken along the first
+    dimension, i.e. replica_axis_index is 0.
+  primary_replica_id:
+    The id of the replica hosts that is used to load and broadcast the
+    checkpoint.
   """
 
   single_replica_sharding: Optional[jax.sharding.NamedSharding] = None
+  replica_axis_index: Optional[int] = 0
+  primary_replica_id: Optional[int] = 0
 
 
 class ArrayHandler(TypeHandler):
@@ -1515,39 +1524,11 @@ class SingleReplicaArrayHandler(ArrayHandler):
   https://github.com/google/maxtext/blob/main/MaxText/checkpointing.py
   """
 
-  def __init__(self,
-               replica_axis_index: Optional[int] = 0,
-               primary_replica_id: Optional[int] = 0,
-               broadcast_memory_limit_bytes: Optional[int] = None,
-               broadcast_memory_scaling_factor: Optional[float] = 0.75):
-    """Constructor.
-
-    Args:
-      replica_axis_index:
-        The index of the axis dimension of the array, along which the replicas
-        are defined.
-        # TODO(b/347273809): Currently works only when replica is taken along
-        # the first dimension, i.e. replica_axis_index is 0.
-      primary_replica_id:
-        The id of the replica hosts that is used to load and broadcast the
-        checkpoint.
-      broadcast_memory_limit_bytes:
-        Specifies the memory size (in bytes) used for broadcasting data.
-      broadcast_memory_scaling_factor:
-        Specifies the fraction of available memory to use for broadcasting data.
-    """
-
-    super(SingleReplicaArrayHandler, self).__init__()
-    self.replica_axis_index = replica_axis_index
-    self.primary_replica_id = primary_replica_id
-    self.broadcast_memory_limit_bytes = broadcast_memory_limit_bytes
-    self.broadcast_memory_scaling_factor = broadcast_memory_scaling_factor
-
   async def deserialize(
       self,
       infos: Sequence[ParamInfo],
       args: Optional[Sequence[SingleReplicaArrayRestoreArgs]] = None,  # pytype: disable=signature-mismatch
-  ) -> Tuple[Sequence[jax.Array], int]:
+  ) -> Sequence[jax.Array]:
     """Deserializing in case of single replica broadcasting.
 
     Args:
@@ -1555,7 +1536,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
       args: must be of type `SingleReplicaArrayRestoreArgs`.
 
     Returns:
-      Tuple of deserialized parameter and number of broadcasts.
+      The deserialized parameter.
     Raises:
       ValueError if `args` is not provided.
       ValueError if `args.sharding` is not provided or `args.mesh` and
@@ -1571,6 +1552,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
     shardings = []
     primary_replica_pids = set()
     single_replica_shardings = []
+    replica_axis_index = None
     for info, arg in zip(infos, args):
       arg = cast(SingleReplicaArrayRestoreArgs, arg)
 
@@ -1585,11 +1567,12 @@ class SingleReplicaArrayHandler(ArrayHandler):
 
       sharding = arg.sharding
       shardings.append(sharding)
+      replica_axis_index = arg.replica_axis_index
       primary_replica_ids, primary_replica_pids = (
           utils.get_primary_replica_ids_and_pids(
-              replica_axis_idx=self.replica_axis_index,
+              replica_axis_idx=replica_axis_index,
               mesh=sharding.mesh,  # pytype: disable=attribute-error
-              primary_replica_id=self.primary_replica_id,
+              primary_replica_id=arg.primary_replica_id,
           )
       )
       if not _is_sharding_valid(primary_replica_ids, primary_replica_pids):
@@ -1661,21 +1644,19 @@ class SingleReplicaArrayHandler(ArrayHandler):
 
     start_broadcast = time.time()
     global_mesh = cast(jax.sharding.NamedSharding, shardings[0])
-    shared_state, num_broadcasts = utils.broadcast_one_replica_to_all(
+    shared_state = utils.broadcast_one_replica_to_all(
         deserialized,
         global_mesh.mesh,
         single_replica_shardings,
-        self.replica_axis_index,
-        _is_host_for_primary_replica(primary_replica_pids),
-        memory_limit_bytes=self.broadcast_memory_limit_bytes,
-        memory_scaling_factor=self.broadcast_memory_scaling_factor,
+        replica_axis_index,
+        is_source=_is_host_for_primary_replica(primary_replica_pids),
     )
     broadcast_elapsed_s = time.time() - start_broadcast
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/read/broadcast_duration_secs', broadcast_elapsed_s
     )
     logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
-    return shared_state, num_broadcasts
+    return shared_state
 
 
 class StringHandler(TypeHandler):

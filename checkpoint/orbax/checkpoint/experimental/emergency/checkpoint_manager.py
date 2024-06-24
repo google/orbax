@@ -846,12 +846,12 @@ class CheckpointManager(
       in_tree = tuple(zeros_pytree)
 
     start_broadcast = time.time()
-    shared_states, _ = utils.broadcast_one_replica_to_all(
+    shared_states = utils.broadcast_one_replica_to_all(
         in_tree,
         self._global_mesh,
         tuple(single_replica_shardings_tuple),
         0,
-        is_restoring_slice,
+        is_source=is_restoring_slice,
     )
     broadcast_elapsed_s = time.time() - start_broadcast
     jax.monitoring.record_event_duration_secs(
