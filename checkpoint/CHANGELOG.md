@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Allow one directory creation request per item rather than 1 per item per host.
+- Make atomicity logic configurable, and encapsulate it within a class.
 
 ### Fixed
 - Refactor ts.Context usage to be per-operation (save/restore) rather than a

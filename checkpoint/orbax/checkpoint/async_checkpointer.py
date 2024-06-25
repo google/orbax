@@ -17,7 +17,7 @@
 import asyncio
 import threading
 import time
-from typing import Any, Callable, Optional, Sequence, Set
+from typing import Any, Callable, Optional, Sequence, Set, Type
 
 from absl import logging
 from etils import epath
@@ -29,26 +29,19 @@ from orbax.checkpoint import future as future_lib
 from orbax.checkpoint import multihost
 from orbax.checkpoint import utils
 from orbax.checkpoint.metadata import checkpoint
+from orbax.checkpoint.path import atomicity
 
 
 BarrierSyncFn = multihost.BarrierSyncFn
 
 
 def _on_commit_callback(
-    temp_ckpt_dir: epath.Path,
-    final_ckpt_dir: epath.Path,
+    tmpdir: atomicity.TemporaryPath,
     checkpoint_start_time: float,
-    checkpoint_metadata_store: checkpoint.CheckpointMetadataStore,
 ):
   """Finalize atomic save and record checkpoint save metrics."""
-  # Commit init metadata to tmp dir before it gets renamed by
-  # utils.on_commit_callback.
-  checkpoint_metadata_store.wait_until_finished()
-  utils.on_commit_callback(
-      temp_ckpt_dir,
-      final_ckpt_dir,
-      checkpoint_start_time,
-      checkpoint_metadata_store,
+  atomicity.on_commit_callback(
+      tmpdir, checkpoint_start_time=checkpoint_start_time
   )
   jax.monitoring.record_event_duration_secs(
       '/jax/checkpoint/write/async/total_duration_secs',
@@ -233,6 +226,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       checkpoint_metadata_store: Optional[
           checkpoint.CheckpointMetadataStore
       ] = None,
+      temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None,
   ):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
     if not checkpoint_args.has_registered_args(handler):
@@ -260,6 +254,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         checkpoint_metadata_store
         or checkpoint.checkpoint_metadata_store(enable_write=True)
     )
+    self._temporary_path_class = temporary_path_class
 
     # TODO(dicentra): consider folding into AsyncCheckpointer directly.
     self._async_manager = _AsyncManager(
@@ -307,14 +302,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           directory.rmtree()  # Post-sync handled by create_tmp_directory.
       else:
         raise ValueError(f'Destination {directory} already exists.')
-    tmpdir = utils.create_tmp_directory(
-        directory,
-        primary_host=self._primary_host,
-        active_processes=self._active_processes,
-        barrier_sync_key_prefix=self._barrier_sync_key_prefix,
-        path_permission_mode=self._path_permission_mode,
-        checkpoint_metadata_store=self._checkpoint_metadata_store,
-    )
+    tmpdir = self.create_temporary_path(directory)
 
     logging.info('Async saving checkpoint to %s.', directory)
     # Run copy ops.
@@ -322,21 +310,18 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     ckpt_args = checkpointer.construct_checkpoint_args(
         self._handler, True, *args, **kwargs
     )
-    commit_ops = asyncio.run(self._handler.async_save(tmpdir, args=ckpt_args))
+    commit_ops = asyncio.run(
+        self._handler.async_save(tmpdir.get(), args=ckpt_args)
+    )
     commit_ops, _ = jax.tree.flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
 
     # Directory is the final directory.
     def _callback() -> None:
-      self._handler.finalize(tmpdir)
+      self._handler.finalize(tmpdir.get())
       if self._post_finalization_callback is not None:
         self._post_finalization_callback()
-      _on_commit_callback(
-          tmpdir,
-          directory,
-          checkpoint_start_time,
-          self._checkpoint_metadata_store,
-      )
+      _on_commit_callback(tmpdir, checkpoint_start_time)
 
     self._async_manager.start_async_commit(
         directory,

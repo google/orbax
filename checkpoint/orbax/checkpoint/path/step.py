@@ -546,99 +546,6 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
   return True
 
 
-def create_tmp_directory(
-    final_dir: epath.PathLike,
-    *,
-    primary_host: Optional[int] = 0,
-    active_processes: Optional[Set[int]] = None,
-    barrier_sync_key_prefix: Optional[str] = None,
-    path_permission_mode: Optional[int] = None,
-    checkpoint_metadata_store: Optional[
-        checkpoint.CheckpointMetadataStore
-    ] = None,
-) -> epath.Path:
-  """Creates a non-deterministic tmp directory for saving for given `final_dir`.
-
-  Also writes checkpoint metadata in the tmp directory.
-
-  Args:
-    final_dir: The eventual directory path where checkpoint will be committed.
-    primary_host: primary host id, default=0.
-    active_processes: Ids of active processes. default=None
-    barrier_sync_key_prefix: A prefix to use for the barrier sync key.
-    path_permission_mode: Path permission mode for the temp directory. e.g.
-      0o750. Please check
-      https://github.com/google/etils/blob/main/etils/epath/backend.py if your
-        path is supported. default=None.
-    checkpoint_metadata_store: optional `CheckpointMetadataStore` instance. If
-      present then it is used to create `CheckpointMetadata` with current
-      timestamp.
-
-  Returns:
-    The tmp directory.
-
-  Raises:
-    FileExistsError: if tmp directory already exists.
-  """
-  # Share a timestamp across devices.
-  final_dir = epath.Path(final_dir)
-  # Renames are not atomic in GCS. Save directly to final_dir and rely on commit
-  # completion file to indicate success.
-  if is_gcs_path(final_dir):
-    tmp_dir = final_dir
-  else:
-    tmp_dir = get_tmp_directory(final_dir)
-
-  # Sync before existence is checked and directory is created because there are
-  # additional existence checks happening in the callers of this function.
-  multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'create_tmp_directory:pre',
-          prefix=barrier_sync_key_prefix,
-          suffix=final_dir.name,
-      ),
-      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
-      processes=active_processes,
-  )
-
-  if multihost.is_primary_host(primary_host):
-    if tmp_dir.exists():
-      if is_tmp_checkpoint(tmp_dir):
-        logging.warning(
-            'Attempted to create temporary directory %s which already exists.'
-            ' Removing existing directory since it is not finalized.',
-            tmp_dir,
-        )
-        tmp_dir.rmtree()
-      else:
-        raise FileExistsError(
-            f'Attempted to create temporary directory {tmp_dir} which already'
-            ' exists.'
-        )
-    mode = WORLD_READABLE_MODE  # pylint: disable=unused-variable
-    if path_permission_mode is not None:
-      mode = path_permission_mode
-    tmp_dir.mkdir(parents=True, mode=mode)
-    if checkpoint_metadata_store is not None:
-      checkpoint_metadata_store.write(
-          checkpoint_path=tmp_dir,
-          checkpoint_metadata=checkpoint.CheckpointMetadata(
-              init_timestamp_nsecs=time.time_ns()
-          ),
-      )
-
-  multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'create_tmp_directory:post',
-          prefix=barrier_sync_key_prefix,
-          suffix=final_dir.name,
-      ),
-      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
-      processes=active_processes,
-  )
-  return tmp_dir
-
-
 def tmp_checkpoints(checkpoint_dir: epath.PathLike) -> List[str]:
   """Returns a list of tmp checkpoint dir names in `checkpoint_dir`."""
   checkpoint_dir = epath.Path(checkpoint_dir)
@@ -666,21 +573,6 @@ def cleanup_tmp_directories(
       ),
       timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
       processes=active_processes,
-  )
-
-
-def get_tmp_directory(
-    path: epath.Path,
-) -> epath.Path:
-  """Returns a non-deterministic tmp directory for `path` without creating it."""
-  if is_gcs_path(path):
-    return path
-  # Path may not be completely unique if a preemption occurs. We rely on the
-  # existing tmp directory being deleted elsewhere.
-  return epath.Path(path.parent) / (
-      path.name
-      + TMP_DIR_SUFFIX
-      + str(multihost.counters.tmp_directory_counter())
   )
 
 
