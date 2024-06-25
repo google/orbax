@@ -470,3 +470,50 @@ def subset_barrier_compatible_test(cls):
     if name.startswith('test'):
       setattr(cls, name, _get_wrapper_function(func))
   return cls
+
+
+def create_restore_args(
+    data: jax.Array,
+    mesh: jax.sharding.Mesh,
+    pspec: jax.sharding.PartitionSpec,
+    replica_axis_index: int,
+):
+  replica_devices = _replica_devices(mesh.devices, replica_axis_index)
+  replica_mesh = jax.sharding.Mesh(replica_devices, mesh.axis_names)
+  ss_sharding = jax.sharding.NamedSharding(replica_mesh, pspec)
+
+  return type_handlers.SingleReplicaArrayRestoreArgs(
+      sharding=jax.sharding.NamedSharding(mesh, pspec),
+      single_replica_sharding=ss_sharding,
+      global_shape=data.shape,
+      dtype=data.dtype,
+      )
+
+
+def _find_idx(array: np.ndarray, replica_axis_idx: int):
+  """Returns the index along given dimension that the current host belongs to."""
+  idx = None
+  for idx, val in np.ndenumerate(array):
+    if val.process_index == multihost.process_index():
+      break
+  return idx[replica_axis_idx]
+
+
+def _replica_devices(device_array: np.ndarray, replica_axis_idx: int):
+  """Returns the devices from the replica that current host belongs to.
+
+  Replicas are assumed to be restricted to the first axis.
+
+  Args:
+    device_array: devices of the mesh that can be obtained by mesh.devices()
+    replica_axis_idx: axis dimension along which replica is taken
+
+  Returns:
+    devices inside the replica that current host is in
+  """
+  idx = _find_idx(device_array, replica_axis_idx)
+  replica_result = np.take(device_array,
+                           idx,
+                           axis=replica_axis_idx)
+  return np.expand_dims(replica_result, axis=replica_axis_idx)
+

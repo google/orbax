@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Memory efficient broadcasting from one model replica to others.
+
 ### Changed
 - Allow one directory creation request per item rather than 1 per item per host.
 
