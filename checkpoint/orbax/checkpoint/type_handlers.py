@@ -47,20 +47,20 @@ ArrayMetadata = value_metadata.ArrayMetadata
 StringMetadata = value_metadata.StringMetadata
 ShardingMetadata = sharding_metadata.ShardingMetadata
 _OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
-_OCDBT_TS_CONTEXT = None
-_DEFAULT_OCDBT_TS_CONTEXT = ts.Context(
-    {
-        # Provide cache pool for B-tree nodes to avoid repeated reads.
-        # 100MB limit.
-        'cache_pool#ocdbt': {'total_bytes_limit': 100000000},
-    },
-    parent=serialization.TS_CONTEXT,
-)
-
+_BASE_TS_CONTEXT = {
+    'file_io_concurrency': {'limit': 128},
+}
+_DEFAULT_OCDBT_TS_CONTEXT = {
+    **_BASE_TS_CONTEXT,
+    # Provide cache pool for B-tree nodes to avoid repeated reads.
+    # 100MB limit.
+    **{'cache_pool#ocdbt': {'total_bytes_limit': 100000000}},
+}
 
 RESTORE_TYPE_NONE = 'None'
 RESTORE_TYPE_DICT = 'Dict'
 RESTORE_TYPE_LIST = 'List'
+RESTORE_TYPE_UNKNOWN = 'Unknown'
 
 _DEFAULT_DRIVER = 'file'
 _PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
@@ -166,6 +166,8 @@ class ParamInfo:
     If True, use Zarr ver3 otherwise ver2.
   ocdbt_target_data_file_size:
     Specifies the target size (in bytes) of each OCDBT data file.
+  ts_context:
+    Tensorstore context to use for reading/writing.
   """
 
   name: Optional[str] = None
@@ -176,6 +178,7 @@ class ParamInfo:
   is_ocdbt_checkpoint: Optional[bool] = None
   use_zarr3: Optional[bool] = False
   ocdbt_target_data_file_size: Optional[int] = None
+  ts_context: Optional[ts.Context] = None
 
 
 @dataclasses.dataclass
@@ -615,7 +618,9 @@ def is_ocdbt_checkpoint(path: epath.Path) -> bool:
   return (path / _OCDBT_MANIFEST_FILE).exists()
 
 
-def merge_ocdbt_per_process_files(directory: epath.Path):
+def merge_ocdbt_per_process_files(
+    directory: epath.Path, ts_context: ts.Context
+):
   """Merges OCDBT files written to per-process subdirectories.
 
   With Tensorstore's OCDBT format, arrays are initially written to per-process
@@ -627,11 +632,9 @@ def merge_ocdbt_per_process_files(directory: epath.Path):
 
   Args:
     directory: checkpoint location.
+    ts_context: Tensorstore context.
   """
-  ts_context = _DEFAULT_OCDBT_TS_CONTEXT
-
   open_ops = []
-
   parent_tspec = _get_tensorstore_spec(os.fspath(directory), use_ocdbt=True)
   parent_tspec = parent_tspec['kvstore']
   open_ops.append(
@@ -797,11 +800,9 @@ def get_process_index_for_subdir(
     return None
 
 
-def get_ts_context(use_ocdbt: bool) -> ts.Context:
-  """Returns a shared global TensorStore Context instance to use."""
-  if not use_ocdbt:
-    return serialization.TS_CONTEXT
-  return _DEFAULT_OCDBT_TS_CONTEXT
+def get_ts_context(use_ocdbt: bool = True) -> ts.Context:
+  del use_ocdbt
+  return ts.Context(_DEFAULT_OCDBT_TS_CONTEXT)
 
 
 def get_cast_tspec_serialize(tspec, value, args):
@@ -921,7 +922,7 @@ class NumpyHandler(TypeHandler):
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       open_ops.append(
-          ts.open(ts.Spec(tspec), open=True, context=get_ts_context(use_ocdbt))
+          ts.open(ts.Spec(tspec), open=True, context=info.ts_context)
       )
 
     tensorstores = await asyncio.gather(*open_ops)
@@ -955,7 +956,7 @@ class NumpyHandler(TypeHandler):
         logging.debug('infos = %s', info)
         logging.debug('args = %s', arg)
       if multihost.process_index() == 0:
-        ts_context = get_ts_context(info.is_ocdbt_checkpoint)
+        ts_context = info.ts_context
         # Open once to create metadata and allow the operation to happen
         # asynchronously.
         open_future = ts.open(
@@ -1003,7 +1004,7 @@ class NumpyHandler(TypeHandler):
         logging.debug('infos = %s', infos)
         logging.debug('args = %s', args)
       open_futures += [
-          ts.open(ts.Spec(tspec), open=True, context=get_ts_context(use_ocdbt))
+          ts.open(ts.Spec(tspec), open=True, context=info.ts_context)
       ]
     tensorstores = await asyncio.gather(*open_futures)
     read_ops = [t.read() for t in tensorstores]
@@ -1208,8 +1209,9 @@ class ArrayHandler(TypeHandler):
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-      ts_context = get_ts_context(use_ocdbt)
-      open_ops.append(ts.open(ts.Spec(tspec), open=True, context=ts_context))
+      open_ops.append(
+          ts.open(ts.Spec(tspec), open=True, context=info.ts_context)
+      )
 
       sharding_op = None
       if info.name:
@@ -1222,7 +1224,7 @@ class ArrayHandler(TypeHandler):
               open=True,
               read=True,
               # OCDBT is not used for sharding metadata.
-              context=get_ts_context(use_ocdbt=False),
+              context=info.ts_context,
           )
       sharding_open_ops.append(sharding_op)
 
@@ -1283,7 +1285,7 @@ class ArrayHandler(TypeHandler):
           arg=arg,
       )
       tspec = get_cast_tspec_serialize(tspec, value, arg)
-      ts_context = get_ts_context(info.is_ocdbt_checkpoint)
+      ts_context = info.ts_context
       if self._replica_id is None:
         replica_id = value.addressable_shards[0].replica_id
       else:
@@ -1329,7 +1331,7 @@ class ArrayHandler(TypeHandler):
         )
         if utils.is_primary_host(self._primary_host):
           # OCDBT is not used for sharding metadata.
-          sharding_ts_context = get_ts_context(use_ocdbt=False)
+          sharding_ts_context = info.ts_context
           t = await ts.open(
               tspec_sharding,
               open=True,
@@ -1410,7 +1412,7 @@ class ArrayHandler(TypeHandler):
           t = await ts.open(
               tspec_sharding,
               # OCDBT is not used for sharding metadata.
-              context=get_ts_context(use_ocdbt=False),
+              context=info.ts_context,
               open=True,
               read=True,
           )
@@ -1446,7 +1448,7 @@ class ArrayHandler(TypeHandler):
               if hasattr(arg, 'global_shape')
               else None,
               byte_limiter=info.byte_limiter,
-              context=get_ts_context(use_ocdbt),
+              context=info.ts_context,
           )
       ]
     ret = await asyncio.gather(*deserialize_ops)
@@ -1624,7 +1626,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
                 if hasattr(arg, 'global_shape')
                 else None,
                 byte_limiter=info.byte_limiter,
-                context=get_ts_context(use_ocdbt),
+                context=info.ts_context,
             )
         ]
 

@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Allow one directory creation request per item rather than 1 per item per host.
 
+### Fixed
+- Refactor ts.Context usage to be per-operation (save/restore) rather than a
+global object. This helps fix edge cases where a user repeatedly overwrites
+a single checkpoint.
+
 ## [0.5.20] - 2024-06-20
 
 ### Added

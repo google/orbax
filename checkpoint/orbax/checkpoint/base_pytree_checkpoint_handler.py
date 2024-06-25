@@ -173,6 +173,7 @@ def _get_restore_parameters(
     restore_args = jax.tree.map(lambda x: RestoreArgs(), structure)
   flat_param_infos = {}
   is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
+  ts_context = type_handlers.get_ts_context()
 
   def _get_param_info(
       nested_name: Tuple[str, ...],
@@ -190,6 +191,7 @@ def _get_restore_parameters(
         is_ocdbt_checkpoint=is_ocdbt_checkpoint,
         byte_limiter=byte_limiter,
         use_zarr3=use_zarr3,
+        ts_context=ts_context,
     )
 
   for key, meta in flat_structure.items():
@@ -424,6 +426,7 @@ class BasePyTreeCheckpointHandler(
       raise ValueError('Found empty item')
     names = self.get_param_names(item)
     all_params_aggregated = True
+    ts_context = type_handlers.get_ts_context()
 
     def _param_info(value, name, args):
       nonlocal all_params_aggregated
@@ -437,6 +440,7 @@ class BasePyTreeCheckpointHandler(
           is_ocdbt_checkpoint=self._use_ocdbt,
           use_zarr3=self._use_zarr3,
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+          ts_context=ts_context,
       )
 
     return (
@@ -847,7 +851,7 @@ class BasePyTreeCheckpointHandler(
         os.fspath(directory), name=METADATA_FILE, use_ocdbt=False
     )['kvstore']
     txn = ts.Transaction()
-    metadata_ts_context = type_handlers.get_ts_context(use_ocdbt=False)
+    metadata_ts_context = type_handlers.get_ts_context()
     t = await ts.KvStore.open(
         tspec, context=metadata_ts_context
     )
@@ -966,6 +970,7 @@ class BasePyTreeCheckpointHandler(
       structure.
     """
     is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
+    ts_context = type_handlers.get_ts_context()
 
     flat_param_infos = {}
     flat_restore_types = {}
@@ -984,6 +989,7 @@ class BasePyTreeCheckpointHandler(
           skip_deserialize=skip_deserialize,
           is_ocdbt_checkpoint=is_ocdbt_checkpoint,
           use_zarr3=metadata.use_zarr3,
+          ts_context=ts_context,
       )
       flat_restore_types[keypath] = restore_type
 
@@ -1061,7 +1067,10 @@ class BasePyTreeCheckpointHandler(
     if not self._use_ocdbt:
       return
     merge_start_time = time.time()
-    type_handlers.merge_ocdbt_per_process_files(directory)
+    ts_context = type_handlers.get_ts_context()
+    type_handlers.merge_ocdbt_per_process_files(
+        directory, ts_context=ts_context
+    )
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/async/ocdbt_merge_duration_secs',
         time.time() - merge_start_time,

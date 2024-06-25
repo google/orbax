@@ -168,7 +168,10 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     return result
 
   def finalize(self, directory: epath.Path):
-    type_handlers.merge_ocdbt_per_process_files(directory)
+    ts_context = type_handlers.get_ts_context()
+    type_handlers.merge_ocdbt_per_process_files(
+        directory, ts_context=ts_context
+    )
 
   def close(self):
     """See superclass documentation."""

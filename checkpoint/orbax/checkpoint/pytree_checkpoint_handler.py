@@ -200,6 +200,7 @@ def _get_restore_parameters(
   flat_param_infos = {}
   flat_input_restore_args = {}
   is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
+  ts_context = type_handlers.get_ts_context()
 
   def _get_param_info(
       nested_name: Tuple[str, ...],
@@ -217,6 +218,7 @@ def _get_restore_parameters(
         is_ocdbt_checkpoint=is_ocdbt_checkpoint,
         byte_limiter=byte_limiter,
         use_zarr3=use_zarr3,
+        ts_context=ts_context,
     )
 
   if transforms is None:
