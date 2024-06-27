@@ -256,7 +256,7 @@ def process_index() -> int:
     )
   except Exception:  # pylint: disable=broad-exception-caught
     logging.log_every_n_seconds(
-        logging.level_info(),
+        logging.INFO,
         'Failed to get flag value for'
         ' EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID.',
         120,
@@ -264,7 +264,7 @@ def process_index() -> int:
     experimental_orbax_use_distributed_process_id = False
   if experimental_orbax_use_distributed_process_id:
     logging.log_every_n_seconds(
-        logging.level_info(), 'Using distributed process id.', 120
+        logging.INFO, 'Using distributed process id.', 120
     )
     return jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
   else:
