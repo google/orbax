@@ -21,15 +21,15 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import test_utils
 
 
-@test_utils.subset_barrier_compatible_test
-class SubsetBarrierCompatibleTest(parameterized.TestCase):
+@test_utils.barrier_compatible_test
+class BarrierCompatibleTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
     self.ckpt_dir = epath.Path(self.create_tempdir('ckpt').full_path)
 
-  def test_decorator(self):
-    expected_key = 'SubsetBarrierCompatibleTest.test_decorator'
+  def test_unique_barrier_key(self):
+    expected_key = 'BarrierCompatibleTest.test_unique_barrier_key'
     self.assertIn(
         expected_key,
         multihost.utils._unique_barrier_key('foo'),
@@ -38,6 +38,16 @@ class SubsetBarrierCompatibleTest(parameterized.TestCase):
         'foo',
         multihost.utils._unique_barrier_key('footest_path_permission_mode'),
     )
+
+  def test_unique_counter_primary(self):
+    expected_key = 'BarrierCompatibleTest.test_unique_counter_primary'
+    self.assertIn(f'{expected_key}_0', multihost.counters.async_save_counter())
+    self.assertIn(f'{expected_key}_1', multihost.counters.async_save_counter())
+
+  def test_unique_counter_secondary(self):
+    expected_key = 'BarrierCompatibleTest.test_unique_counter_secondary'
+    self.assertIn(f'{expected_key}_0', multihost.counters.async_save_counter())
+    self.assertIn(f'{expected_key}_1', multihost.counters.async_save_counter())
 
 
 if __name__ == '__main__':

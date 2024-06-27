@@ -19,7 +19,6 @@ import concurrent
 import dataclasses
 import datetime
 import functools
-import itertools
 import os
 import re
 import time
@@ -46,8 +45,6 @@ _LAST_CHECKPOINT_WRITE_TIME = time.time()
 WORLD_READABLE_MODE = 0o777
 
 MetadataT = TypeVar('MetadataT', bound='Metadata')
-
-_module_unique_count = itertools.count()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -680,9 +677,10 @@ def get_tmp_directory(
     return path
   # Path may not be completely unique if a preemption occurs. We rely on the
   # existing tmp directory being deleted elsewhere.
-  unique_count = next(_module_unique_count)
   return epath.Path(path.parent) / (
-      path.name + TMP_DIR_SUFFIX + str(unique_count)
+      path.name
+      + TMP_DIR_SUFFIX
+      + str(multihost.counters.tmp_directory_counter())
   )
 
 

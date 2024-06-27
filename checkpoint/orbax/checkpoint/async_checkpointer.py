@@ -15,7 +15,6 @@
 """AsyncCheckpointer."""
 
 import asyncio
-import itertools
 import threading
 import time
 from typing import Any, Callable, Optional, Sequence, Set
@@ -33,8 +32,6 @@ from orbax.checkpoint.metadata import checkpoint
 
 
 BarrierSyncFn = multihost.BarrierSyncFn
-
-_module_unique_count = itertools.count()
 
 
 def _on_commit_callback(
@@ -102,7 +99,7 @@ class _AsyncManager:
       directory: epath.Path,
       commit_futures: Sequence[future_lib.Future],
       on_commit_callback: Callable[[], None],
-      unique_operation_id: int,
+      unique_operation_id: str,
   ):
     """Awaits on commit futures and finalizes the checkpoint."""
     # The unique_operation_id allows pre-selecting an identifier to use for the
@@ -173,7 +170,7 @@ class _AsyncManager:
       directory: epath.Path,
       commit_futures: Sequence[future_lib.Future],
       on_commit_callback: Callable[[], None],
-      unique_operation_id: int,
+      unique_operation_id: str,
   ):
     """Completes checkpoint save in a background thread."""
     self._thread = threading.Thread(
@@ -251,7 +248,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     self._primary_host = primary_host
     self._active_processes = active_processes
     self._post_finalization_callback = post_finalization_callback
-    unique_class_id = next(_module_unique_count)
+    unique_class_id = self._unique_operation_id()
     barrier_sync_key_prefix = (
         f'{unique_class_id}'
         if barrier_sync_key_prefix is None
@@ -273,8 +270,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         barrier_sync_key_prefix=barrier_sync_key_prefix,
     )
 
-  def _unique_operation_id(self) -> int:
-    return next(_module_unique_count)
+  def _unique_operation_id(self) -> str:
+    return multihost.counters.async_save_counter()
 
   def save(
       self, directory: epath.PathLike, *args, force: bool = False, **kwargs

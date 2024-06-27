@@ -51,7 +51,6 @@ import asyncio
 from collections.abc import Collection, KeysView
 import concurrent.futures
 import dataclasses
-import itertools
 from typing import AbstractSet, Any, List, Mapping, Optional, Tuple, Set
 import uuid
 
@@ -79,8 +78,6 @@ ProtoSaveArgs = proto_checkpoint_handler.ProtoSaveArgs
 _CONCURRENT_WORKERS = 3
 RESERVED_ITEM_NAMES = []
 
-
-_module_unique_count = itertools.count()
 
 
 # TODO(b/295899152) Clean up when users are all registering `CheckpointArgs`.
@@ -366,7 +363,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     barrier_key = multihost.unique_barrier_key(
         'CompositeCheckpointHandler:create_item_directories',
         prefix=self._barrier_sync_key_prefix,
-        suffix=f'{directory.name}.{next(_module_unique_count)}',
+        suffix=(
+            f'{directory.name}.{multihost.counters.composite_save_counter()}'
+        ),
     )
     barrier_sync_fn(
         key=barrier_key,

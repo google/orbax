@@ -38,3 +38,4 @@ from orbax.checkpoint.multihost.utils import DIRECTORY_CREATION_TIMEOUT
 from orbax.checkpoint.multihost.utils import DIRECTORY_DELETION_TIMEOUT
 
 from orbax.checkpoint.multihost import multislice_utils as multislice
+from orbax.checkpoint.multihost import counters

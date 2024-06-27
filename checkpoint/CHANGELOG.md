@@ -15,8 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Refactor ts.Context usage to be per-operation (save/restore) rather than a
-global object. This helps fix edge cases where a user repeatedly overwrites
-a single checkpoint.
+  global object. This helps fix edge cases where a user repeatedly overwrites
+  a single checkpoint.
+- Move module-level counters to one place for greater compartmentalization.
+  Add logic to the barrier-compatible test fixture that allows each test case to
+  have its own module-level counter, to avoid problems that arise when
+  multiprocess tests run in inconsistent orders.
 
 ## [0.5.20] - 2024-06-20
 

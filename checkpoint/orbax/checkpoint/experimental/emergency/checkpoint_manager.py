@@ -28,7 +28,6 @@ always be called across all processes within the primary slice.
 import collections
 import dataclasses
 import functools
-import itertools
 import json
 import operator
 import time
@@ -57,8 +56,6 @@ PyTree = checkpoint_manager.PyTree
 CheckpointHandler = checkpoint_manager.CheckpointHandler
 P = jax.sharding.PartitionSpec
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
-
-_module_unique_count = itertools.count()
 
 _PROCESS_METADATA_FOLDER = 'process_metadata'
 _PROCESS_METADATA_FILE_NAME = 'process_metadata.json'
@@ -312,16 +309,28 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     self._device_array = device_array
 
   def _global_list_union_interslice(self, steps: Sequence[int]) -> Set[int]:
+    """Shares a list of steps across slices.
+
+    Args:
+      steps: Sequence of slice-local steps.
+
+    Returns:
+      A set of steps that are known to all slices.
+    """
     barrier_processes = self._options.multiprocessing_options.active_processes
     barrier_processes = list(barrier_processes)
 
     client = multihost.utils._get_jax_distributed_client()  # pylint: disable=protected-access
-    dir_key = f'steps/{next(_module_unique_count)}/'
+    dir_key = (
+        f'steps/{multihost.counters.interslice_steps_broadcast_counter()}/'
+    )
     dir_key = multihost.utils._unique_barrier_key(dir_key) + '/'  # pylint: disable=protected-access
     key = dir_key + str(multihost.process_index())
     client.key_value_set(key, ','.join([str(s) for s in steps]))
 
-    barrier_key = 'broadcast_interslice_' + str(next(_module_unique_count))
+    barrier_key = 'broadcast_interslice_' + str(
+        multihost.counters.interslice_steps_broadcast_counter()
+    )
     barrier_key = multihost.utils._unique_barrier_key(barrier_key)  # pylint: disable=protected-access
     client.wait_at_barrier(
         barrier_key,

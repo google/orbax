@@ -18,6 +18,7 @@ from concurrent import futures
 import contextlib
 import functools
 import inspect
+import itertools
 import string
 import time
 import typing
@@ -428,29 +429,54 @@ def ocdbt_checkpoint_context(use_ocdbt: bool, ts_context: Any):
     )
 
 
-def _get_wrapper_function(func):
-  """Creates a function to wrap a test method and return a unique barrier key."""
+def _get_test_wrapper_function(test_func):
+  """Creates a function to wrap a test method with custom patches."""
 
-  def _get_unique_barrier_key(key: str, func_id: str) -> str:
-    return f'{key}.{func_id}'
+  def test_wrapper(self, *args, **kwargs):
 
-  def wrapper(self, *args, **kwargs):
+    def _get_unique_barrier_key(key: str) -> str:
+      return f'{key}.{self.id()}'
+
+    def _patched_save_counter(test_counter) -> str:
+      value = f'{self.id()}_{next(test_counter)}'
+      logging.info('unique_counter: %s', value)
+      return value
+
+    test_counters = {}
+    patched_counters = {}
+    for name, _ in inspect.getmembers(
+        multihost.counters, predicate=inspect.isfunction
+    ):
+      test_counters[name] = itertools.count()
+      patched_counters[name] = functools.partial(
+          _patched_save_counter, test_counters[name]
+      )
+
     with mock.patch.object(
         multihost.utils,
         '_unique_barrier_key',
-        new=functools.partial(_get_unique_barrier_key, func_id=self.id()),
+        new=_get_unique_barrier_key,
     ):
-      return func(self, *args, **kwargs)
+      with contextlib.ExitStack() as stack:
+        for name, patched_counter in patched_counters.items():
+          stack.enter_context(
+              mock.patch.object(
+                  multihost.counters,
+                  name,
+                  new=patched_counter,
+              )
+          )
+        return test_func(self, *args, **kwargs)
 
-  return wrapper
+  return test_wrapper
 
 
-def subset_barrier_compatible_test(cls):
+def barrier_compatible_test(cls):
   """A decorator to be used with a test class.
 
   E.g.
 
-  @subset_barrier_compatible_test
+  @barrier_compatible_test
   class MyTest(googletest.TestCase):
     def test_foo(self):
       ...
@@ -468,7 +494,7 @@ def subset_barrier_compatible_test(cls):
   """
   for name, func in inspect.getmembers(cls, predicate=inspect.isfunction):
     if name.startswith('test'):
-      setattr(cls, name, _get_wrapper_function(func))
+      setattr(cls, name, _get_test_wrapper_function(func))
   return cls
 
 
@@ -516,4 +542,3 @@ def _replica_devices(device_array: np.ndarray, replica_axis_idx: int):
                            idx,
                            axis=replica_axis_idx)
   return np.expand_dims(replica_result, axis=replica_axis_idx)
-

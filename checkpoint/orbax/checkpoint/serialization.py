@@ -19,7 +19,6 @@ TODO(b/348434669): De-fork when possible.
 
 import asyncio
 from collections.abc import Awaitable
-import itertools
 import os
 import re
 from typing import Any, Callable, Dict, Optional, Sequence, Union
@@ -34,7 +33,6 @@ import tensorstore as ts
 TS_CONTEXT = ts.Context({'file_io_concurrency': {'limit': 128}})
 _REMOVED_VALUE = 'Value removed'
 _CHECKPOINT_SUCCESS = 'checkpoint_write_success'
-_module_unique_count = itertools.count()
 _DEFAULT_DRIVER = 'file'
 _REMOTE_URL_PREFIXES = ['gs://', 's3://']
 _REMOTE_DRIVER_VALIDATIONS = [
