@@ -179,7 +179,7 @@ def _get_restore_parameters(
       nested_name: Tuple[str, ...],
       meta: _InternalValueMetadata,
   ) -> Union[ParamInfo, Any]:
-    if utils.is_supported_empty_aggregation_type(meta):
+    if type_handlers.is_supported_empty_aggregation_type(meta):
       # Empty node, ParamInfo should not be returned.
       return meta
     name = '.'.join(nested_name)
@@ -216,7 +216,7 @@ def _get_tree_for_aggregation(param_infos, save_args, item):
         raise ValueError(
             'jax.Array must be fully replicated to be saved in aggregate file.'
         )
-      if not utils.is_supported_aggregation_type(value):
+      if not type_handlers.is_supported_aggregation_type(value):
         # Not an error because users' training states often have a bunch of
         # random unserializable objects in them (empty states, optimizer
         # objects, etc.).
@@ -386,7 +386,7 @@ class BasePyTreeCheckpointHandler(
 
   def _skip_deserialize(self, value: Any, args: SaveArgs) -> bool:
     """Returns True if _METADATA write is enabled and value is []/{}/None."""
-    if utils.is_supported_empty_aggregation_type(value):
+    if type_handlers.is_supported_empty_aggregation_type(value):
       # Skip deser if value is empty ([], {}, None) and _METADATA is enabled.
       # We don't want to write TypeHandlers for empty values, so will simply
       # identify them in metadata and skip deser.
@@ -519,7 +519,7 @@ class BasePyTreeCheckpointHandler(
       # If already set, return.
       if isinstance(args_, SaveArgs):
         return args_
-      if utils.is_supported_empty_aggregation_type(value):
+      if type_handlers.is_supported_empty_aggregation_type(value):
         # If _METADATA is enabled and value is empty ([], {}, None) then stop
         # aggregating for a smooth SaveArgs.aggregate deprecation. Otherwise, we
         # will need to write TypeHandlers for empty values.
@@ -928,7 +928,7 @@ class BasePyTreeCheckpointHandler(
 
     def _get_internal_value_metadata(value_meta, value):
       if value_meta is None:
-        if utils.is_supported_empty_aggregation_type(value):
+        if type_handlers.is_supported_empty_aggregation_type(value):
           return value
         restore_type = None
         skip_deserialize = not utils.leaf_is_placeholder(value)

@@ -34,9 +34,9 @@ import numpy as np
 from orbax.checkpoint import future
 from orbax.checkpoint import multihost
 from orbax.checkpoint import serialization
-from orbax.checkpoint import utils
 from orbax.checkpoint.metadata import sharding as sharding_metadata
 from orbax.checkpoint.metadata import value as value_metadata
+from orbax.checkpoint.path import utils as path_utils
 import tensorstore as ts
 
 Scalar = Union[int, float, np.number]
@@ -75,7 +75,7 @@ async def _assert_parameter_files_exist(
     param_dir: epath.Path, metadata_key: Optional[str], use_zarr3: bool = False
 ):
   """Checks for existence of parameter subdir and .zarray file."""
-  exists = await utils.async_exists(param_dir)
+  exists = await path_utils.async_exists(param_dir)
   if not exists:
     raise FileNotFoundError(
         f'Individual parameter subdirectory not found at path: {param_dir}.'
@@ -83,7 +83,7 @@ async def _assert_parameter_files_exist(
   if metadata_key is None:
     metadata_key = 'zarr.json' if use_zarr3 else '.zarray'
   metadata_path = param_dir / metadata_key
-  exists = await utils.async_exists(metadata_path)
+  exists = await path_utils.async_exists(metadata_path)
   if not exists:
     raise FileNotFoundError(
         f'File not found: {metadata_path}. In many cases, this results from'
@@ -91,8 +91,22 @@ async def _assert_parameter_files_exist(
     )
 
 
+def is_supported_empty_aggregation_type(value: Any) -> bool:
+  """Determines if the *empty* value is supported for aggregation."""
+  # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
+  return isinstance(value, (dict, list, type(None))) and not value
+
+
+def is_supported_aggregation_type(value: Any) -> bool:
+  """Determines if the value is supported for aggregation."""
+  return isinstance(
+      value,
+      (str, int, float, np.number, np.ndarray, bytes, jax.Array),
+  ) or is_supported_empty_aggregation_type(value)
+
+
 def get_empty_value_typestr(value: Any) -> str:
-  if not utils.is_supported_empty_aggregation_type(value):
+  if not is_supported_empty_aggregation_type(value):
     raise ValueError(f'{value} is not a supported empty aggregation type.')
   if isinstance(value, list):
     return RESTORE_TYPE_LIST
@@ -1204,7 +1218,7 @@ class ArrayHandler(TypeHandler):
     if infos[0].parent_dir is None:
       raise ValueError('parent_dir cannot be None')
     sharding_file_path = infos[0].parent_dir / _SHARDING
-    sharding_file_exists = await utils.async_exists(sharding_file_path)
+    sharding_file_exists = await path_utils.async_exists(sharding_file_path)
     for info in infos:
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
@@ -1329,7 +1343,7 @@ class ArrayHandler(TypeHandler):
         tspec_sharding = get_sharding_tensorstore_spec(
             os.fspath(info.parent_dir), info.name
         )
-        if utils.is_primary_host(self._primary_host):
+        if multihost.is_primary_host(self._primary_host):
           # OCDBT is not used for sharding metadata.
           sharding_ts_context = info.ts_context
           t = await ts.open(
@@ -1381,7 +1395,7 @@ class ArrayHandler(TypeHandler):
     if infos[0].parent_dir is None:
       raise ValueError('parent_dir cannot be None')
     sharding_file_path = infos[0].parent_dir / _SHARDING
-    sharding_file_exists = await utils.async_exists(sharding_file_path)
+    sharding_file_exists = await path_utils.async_exists(sharding_file_path)
     for info, arg in zip(infos, args):
       sharding = None
       arg = cast(ArrayRestoreArgs, arg)
@@ -1588,7 +1602,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
       sharding = arg.sharding
       shardings.append(sharding)
       primary_replica_ids, primary_replica_pids = (
-          utils.get_primary_replica_ids_and_pids(
+          multihost.multislice.get_primary_replica_ids_and_pids(
               replica_axis_idx=self.replica_axis_index,
               mesh=sharding.mesh,  # pytype: disable=attribute-error
               primary_replica_id=self.primary_replica_id,
@@ -1663,7 +1677,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
 
     start_broadcast = time.time()
     global_mesh = cast(jax.sharding.NamedSharding, shardings[0])
-    shared_state, _ = utils.broadcast_one_replica_to_all(
+    shared_state, _ = multihost.multislice.broadcast_one_replica_to_all(
         deserialized,
         global_mesh.mesh,
         single_replica_shardings,

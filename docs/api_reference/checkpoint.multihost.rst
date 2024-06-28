@@ -9,7 +9,7 @@ Multi-host Utilities
 .. autofunction:: sync_global_processes
 .. autofunction:: broadcast_one_to_all
 
-  .. autoclass:: BarrierSyncFn
+.. autoclass:: BarrierSyncFn
   :members:
 
 .. autofunction:: get_barrier_sync_fn

@@ -16,3 +16,4 @@ Tree Utilities
 .. autofunction:: get_key_name
 .. autofunction:: is_empty_node
 .. autofunction:: is_empty_or_leaf
+.. autofunction:: to_shape_dtype_struct

@@ -24,7 +24,6 @@ import jax
 import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import tree as tree_utils
-from orbax.checkpoint import utils
 
 
 class UtilsTest(parameterized.TestCase):
@@ -173,19 +172,6 @@ class UtilsTest(parameterized.TestCase):
   )
   def test_is_empty_or_leaf(self, value, expected):
     self.assertEqual(expected, tree_utils.is_empty_or_leaf(value))
-
-  @parameterized.parameters(
-      (1, False),
-      (dict(), True),
-      ({}, True),
-      ({'a': {}}, False),
-      ([], True),
-      ([[]], False),
-      (None, True),
-      ((1, 2), False),
-  )
-  def test_is_supported_empty_aggregation_type(self, value, expected):
-    self.assertEqual(expected, utils.is_supported_empty_aggregation_type(value))
 
 
 if __name__ == '__main__':

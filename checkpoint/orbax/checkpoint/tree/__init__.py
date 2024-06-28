@@ -27,5 +27,6 @@ from orbax.checkpoint.tree.utils import (
     is_sequence_key,
     serialize_tree,
     to_flat_dict,
+    to_shape_dtype_struct,
     tuple_path_from_keypath,
 )

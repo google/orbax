@@ -16,8 +16,6 @@ Aggregate file
 .. autofunction:: leaf_is_placeholder
 .. autofunction:: leaf_placeholder
 .. autofunction:: name_from_leaf_placeholder
-.. autofunction:: is_supported_empty_aggregation_type
-.. autofunction:: is_supported_aggregation_type
 
 Directories
 ------------------------

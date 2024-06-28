@@ -21,20 +21,16 @@ functions here.
 TODO(b/266449081) Increase unit test coverage.
 """
 
-import functools
 import time
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Optional
 
 from absl import logging
 from etils import epath
 import jax
-import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import multihost
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint.metadata import checkpoint
-from orbax.checkpoint.metadata import sharding as sharding_metadata
-from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step as step_lib
 from orbax.checkpoint.path import utils as path_utils
 
@@ -49,9 +45,6 @@ _AGGREGATED_PREFIX = 'AGGREGATED://'
 # relevant information (see functions below).
 _PLACEHOLDER_PREFIX = 'PLACEHOLDER://'
 PyTree = Any
-# When using broadcasting from single replica to others, 3 copies of the data
-# are stored in memory.
-MEMORY_FACTOR = 3
 
 sync_global_processes = multihost.sync_global_processes
 sync_global_devices = multihost.sync_global_processes
@@ -93,6 +86,7 @@ tuple_path_from_keypath = tree_utils.tuple_path_from_keypath
 get_key_name = tree_utils.get_key_name
 is_empty_node = tree_utils.is_empty_node
 is_empty_or_leaf = tree_utils.is_empty_or_leaf
+to_shape_dtype_struct = tree_utils.to_shape_dtype_struct
 
 
 def leaf_is_placeholder(leaf: Any) -> bool:
@@ -129,20 +123,6 @@ def all_leaves_are_placeholders(tree: PyTree) -> bool:
   return all(
       leaf_is_placeholder(leaf) for leaf in jax.tree.leaves(tree)
   )
-
-
-def is_supported_empty_aggregation_type(value: Any) -> bool:
-  """Determines if the *empty* value is supported for aggregation."""
-  # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
-  return isinstance(value, (dict, list, type(None))) and not value
-
-
-def is_supported_aggregation_type(value: Any) -> bool:
-  """Determines if the value is supported for aggregation."""
-  return isinstance(
-      value,
-      (str, int, float, np.number, np.ndarray, bytes, jax.Array),
-  ) or is_supported_empty_aggregation_type(value)
 
 
 def pytree_structure(directory: epath.PathLike) -> PyTree:
@@ -287,221 +267,3 @@ def fully_replicated_host_local_array_to_global_array(
   return jax.make_array_from_single_device_arrays(
       global_shape, jax.sharding.NamedSharding(mesh, partition_spec), dbs
   )
-
-
-def to_shape_dtype_struct(x, dtype=None, scalar_dtype=None):
-  """Get ShapeDtypeStruct from array."""
-  if isinstance(x, jax.ShapeDtypeStruct):
-    return jax.ShapeDtypeStruct(
-        shape=x.shape,
-        dtype=dtype if dtype is not None else x.dtype,
-        sharding=x.sharding
-        if isinstance(x.sharding, jax.sharding.Sharding)
-        else x.sharding.to_jax_sharding(),
-    )
-  elif isinstance(x, jax.Array):
-    dtype = dtype or x.dtype
-    return jax.ShapeDtypeStruct(x.shape, dtype, sharding=x.sharding)
-  elif isinstance(x, np.ndarray):
-    dtype = dtype or x.dtype
-    return jax.ShapeDtypeStruct(x.shape, dtype)
-  elif is_scalar(x):
-    if scalar_dtype is not None:
-      return scalar_dtype(x)
-    return x
-  elif isinstance(x, value_metadata.Metadata):
-    if not isinstance(x, value_metadata.ArrayMetadata):
-      raise ValueError(f'Unexpected Metadata type: {type(x)}.')
-    dtype = dtype or x.dtype
-    return jax.ShapeDtypeStruct(
-        shape=x.shape,
-        dtype=dtype,
-        sharding=x.sharding.to_jax_sharding()
-        if isinstance(x.sharding, sharding_metadata.ShardingMetadata)
-        else x.sharding,
-    )
-  else:
-    raise ValueError(f'Unexpected type: {type(x)}.')
-
-
-def _sum(x, replica_axis_index):
-  return jax.tree.map(
-      functools.partial(jnp.sum, axis=replica_axis_index), x
-  )
-
-
-@functools.partial(jax.jit, static_argnums=0)
-def fake_zero_data(sharding, x):
-  x = jnp.zeros_like(x)
-  return jax.lax.with_sharding_constraint(x, sharding)
-
-
-def get_device_memory() -> int:
-  """Returns HBM capacity of the device on which the code is running(in bytes)."""
-  device = jax.devices()[0]
-  if device.platform != 'tpu':
-    raise ValueError('Only TPU devices are supported.')
-  hbm_memory = {
-      'TPU v3': int(16e9),  # two cores pre chip each with 16 GB HBM
-      'TPU v4': int(32e9),  # one megacore per chip with 32 GB HBM
-      'TPU v5 lite': int(16e9),  # one core per chip with 16 GB HBM
-      'TPU v5p': int(96e9),  # one megacore per chip with 96 GB HBM
-      'TPU trillium': int(32e9),  # one core per chip with 32 GB HBM
-    }
-  memory = hbm_memory.get(device.device_kind, None)
-  if memory is None:
-    raise ValueError('get_device_memory is not supported for '
-                     f'{device.device_kind}.')
-  return  memory
-
-
-def get_leaf_memory_per_device(arr: jax.Array) -> int:
-  """Returns the memory usage of a sharded array per device (in bytes)."""
-  shard = arr.addressable_shards[0]
-  return shard.data.size * shard.data.itemsize
-
-
-def tree_memory_per_device(tree: Tuple[PyTree, ...]) -> int:
-  """Returns the memory usage of a PyTree on each device (in bytes)."""
-  leaf_memory_per_device = jax.tree_util.tree_map(
-      get_leaf_memory_per_device,
-      tree
-      )
-  return jax.tree.reduce(lambda x, y: x + y, leaf_memory_per_device)
-
-
-def get_available_memory(in_tree: Tuple[PyTree, ...],
-                         scaling_factor: float) -> int:
-  """Returns estimated available memory for broadcasting (in bytes).
-
-  After computing the available memory, we scale it by a factor of 0.75 to
-  account for the fact that the actual memory usage could be differnet than the 
-  estimated memory usage. This will help us to avoid OOM errors for edge cases.
-
-  Args:
-    in_tree: pytree that occupies the memory.
-    scaling_factor: indicates the frunction of the estimated available memory
-    to be used when broadcustind data.
-  """
-  if scaling_factor > 1:
-    raise ValueError('scaling_factorshould be less than 1.')
-  total_device_memory = get_device_memory()
-  used_device_memory = tree_memory_per_device(in_tree)
-  available_memory = total_device_memory - used_device_memory
-  return int(available_memory * scaling_factor / MEMORY_FACTOR)
-
-
-def broadcast_one_replica_to_all(
-    in_tree: Tuple[PyTree, ...],
-    global_mesh: jax.sharding.Mesh,
-    per_replica_shardings: Tuple[Optional[jax.sharding.NamedSharding], ...],
-    replica_axis_index: int,
-    is_source: bool,
-    memory_limit_bytes: Optional[Union[int, None]] = None,
-    memory_scaling_factor: Optional[float] = 0.75,
-) -> Tuple[Tuple[PyTree, ...], int]:
-  """One replica reads the data and broadcasts to others.
-
-  Args:
-    in_tree: pytree to be broadcasted.
-    global_mesh: global mesh.
-    per_replica_shardings: shardings for each replica.
-    replica_axis_index: axis index along which the data is replicated.
-    is_source: indicates if the current host is in primary replica.
-    memory_limit_bytes: memory limit for broadcasting. in bytes.
-    memory_scaling_factor: indicates the frunction of the estimated available
-      memory to be used when broadcustind data.
-  Returns:
-     Tuple containing:
-      - pytree with broadcasted data
-      - number of broadcasts performed.
-  """
-  num_replicas = global_mesh.devices.shape[replica_axis_index]
-  replica_axis_name = global_mesh.axis_names[replica_axis_index]
-
-  if memory_limit_bytes is None:
-    memory_limit_bytes = get_available_memory(in_tree, memory_scaling_factor)
-    logging.info('Using available memory of %d bytes.', memory_limit_bytes)
-  def pre_jit(x, per_replica_sharding):
-    if is_source:
-      inp = x
-    else:
-      inp = fake_zero_data(per_replica_sharding, x)
-    inp = jnp.expand_dims(inp, axis=replica_axis_index)
-    in_spec = jax.sharding.PartitionSpec(
-        *x.sharding.spec[:replica_axis_index],
-        replica_axis_name,
-        *x.sharding.spec[replica_axis_index:],
-    )
-    global_shape = (
-        x.shape[:replica_axis_index]
-        + (num_replicas,)
-        + x.shape[replica_axis_index:]
-    )
-    global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
-    return jax.make_array_from_single_device_arrays(
-        global_shape, global_sharding, [s.data for s in inp.addressable_shards]
-    )
-
-  tree_len = len(in_tree)
-  start = 0
-  out_tree = []
-  num_broadcasts = 0
-  while start < tree_len:
-    subtree = []
-    current_memory = 0
-    end = start
-    if tree_memory_per_device(in_tree[start]) > memory_limit_bytes:
-      logging.warning(
-          'in_tree leaf size exceeds memory limit for broadcasting. '
-          'Leaf size: %d bytes. Allowed memory limit: %d bytes. Proceeding.',
-          tree_memory_per_device(in_tree[start]),
-          memory_limit_bytes)
-      subtree.append(in_tree[end])
-      end += 1
-    else:
-      while end < tree_len and (
-          current_memory + tree_memory_per_device(in_tree[end]) <=
-          memory_limit_bytes
-          ):
-        subtree.append(in_tree[end])
-        current_memory += tree_memory_per_device(in_tree[end])
-        end += 1
-    subtree = tuple(subtree)
-    num_broadcasts += 1
-    out_sharding = jax.tree.map(
-        lambda x: jax.sharding.NamedSharding(
-            global_mesh, jax.sharding.PartitionSpec(*x.sharding.spec)
-        ),
-        subtree,
-    )
-    in_tree_sharded = jax.tree.map(
-        pre_jit, subtree, per_replica_shardings[start:end]
-    )
-    # Delete immediately to conserve memory.
-    jax.tree.map(lambda x: x.delete(), subtree)
-    out_subtree = jax.jit(
-        functools.partial(_sum, replica_axis_index=replica_axis_index),
-        out_shardings=out_sharding,
-    )(in_tree_sharded)
-    out_tree.extend(out_subtree)
-    jax.block_until_ready(out_tree)
-    start = end
-  logging.info('Number of broadcasts: %d', num_broadcasts)
-  return tuple(out_tree), num_broadcasts
-
-
-def get_primary_replica_ids_and_pids(
-    replica_axis_idx: int,
-    mesh: jax.sharding.Mesh,
-    primary_replica_id: int,
-):
-  """Returns the primary replica ids and process ids."""
-  replica_devices = np.take(
-      mesh.devices,
-      primary_replica_id,
-      axis=replica_axis_idx,
-  ).flatten()
-  pids = set([d.process_index for d in replica_devices])
-  ids = set([d.id for d in replica_devices])
-  return ids, pids

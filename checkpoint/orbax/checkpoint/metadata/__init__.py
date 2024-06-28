@@ -34,5 +34,3 @@ from orbax.checkpoint.metadata.value import Metadata
 from orbax.checkpoint.metadata.value import ArrayMetadata
 from orbax.checkpoint.metadata.value import StringMetadata
 from orbax.checkpoint.metadata.value import ScalarMetadata
-
-from orbax.checkpoint.metadata.tree import TreeMetadata

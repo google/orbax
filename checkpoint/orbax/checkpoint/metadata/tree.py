@@ -22,7 +22,6 @@ from typing import Any, Dict, Hashable, List, Optional, Tuple, TypeVar, Union
 import jax
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
-from orbax.checkpoint import utils
 
 
 _KEY_NAME = 'key'
@@ -152,7 +151,7 @@ class ValueMetadataEntry:
       registry: type_handlers.TypeHandlerRegistry,
   ) -> 'ValueMetadataEntry':
     """Builds a ValueMetadataEntry."""
-    if utils.is_supported_empty_aggregation_type(value):
+    if type_handlers.is_supported_empty_aggregation_type(value):
       typestr = type_handlers.get_empty_value_typestr(value)
       skip_deserialize = True
     else:

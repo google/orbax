@@ -37,7 +37,6 @@ from orbax.checkpoint import future
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
-from orbax.checkpoint import utils
 import tensorstore as ts
 
 
@@ -206,7 +205,7 @@ def _get_restore_parameters(
       nested_name: Tuple[str, ...],
       meta: _InternalValueMetadata,
   ) -> Union[ParamInfo, Any]:
-    if utils.is_supported_empty_aggregation_type(meta):
+    if type_handlers.is_supported_empty_aggregation_type(meta):
       # Empty node, ParamInfo should not be returned.
       return meta
     name = '.'.join(nested_name)

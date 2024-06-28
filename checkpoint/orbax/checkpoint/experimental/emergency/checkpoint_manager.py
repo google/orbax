@@ -852,7 +852,7 @@ class CheckpointManager(
       in_tree = tuple(zeros_pytree)
 
     start_broadcast = time.time()
-    shared_states, _ = utils.broadcast_one_replica_to_all(
+    shared_states, _ = multislice.broadcast_one_replica_to_all(
         in_tree,
         self._global_mesh,
         tuple(single_replica_shardings_tuple),
