@@ -13,16 +13,18 @@
 # limitations under the License.
 
 """Utilities for Orbax export."""
+
 from collections.abc import Mapping, Sequence
 import dataclasses
 import functools
 import inspect
 from typing import Any, Callable, Optional
 import jax
+import jaxtyping
 import tensorflow as tf
 
 ConfigProto = Any
-PyTree = Any
+PyTree = jaxtyping.PyTree
 SignatureDef = Any
 
 
@@ -265,6 +267,7 @@ class CallableSignatures:
   ):
     callable_signatures = {}
     for name, signature_def in signature_defs.items():
+
       def call(signature_def, **inputs):
         output_tensor_keys = list(signature_def.outputs.keys())
         feed_dict = {

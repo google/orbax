@@ -14,6 +14,7 @@
 
 """Defines exported symbols for Orbax Export."""
 
+from orbax.export import typing
 from orbax.export import utils
 from orbax.export.dtensor_utils import dtensor_initialized
 from orbax.export.dtensor_utils import get_current_dtensor_mesh
@@ -33,4 +34,4 @@ from orbax.export.utils import TensorSpecWithDefault
 
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
-__version__ = '0.0.4'
+__version__ = '0.0.5'

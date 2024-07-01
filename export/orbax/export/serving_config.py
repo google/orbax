@@ -18,11 +18,11 @@ import dataclasses
 from typing import Any, Callable, Mapping, Optional, Sequence, Text, Union
 from absl import logging
 import jax
-from orbax.export import utils as orbax_export_utils
+import jaxtyping
 import tensorflow as tf
 
 
-PyTree = orbax_export_utils.PyTree
+PyTree = jaxtyping.PyTree
 
 
 @dataclasses.dataclass

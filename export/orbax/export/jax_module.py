@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Wraps JAX functions and parameters into a tf.Module."""
+
 import dataclasses
 import os
 from typing import Any, Callable, Mapping, Optional, Tuple, Union
@@ -20,13 +21,13 @@ from typing import Any, Callable, Mapping, Optional, Tuple, Union
 from absl import logging
 import jax
 from jax.experimental import jax2tf
+import jaxtyping
 import orbax.checkpoint as ocp
 from orbax.export import dtensor_utils
-from orbax.export import utils as orbax_export_utils
 import tensorflow as tf
 from tensorflow.experimental import dtensor
 
-PyTree = orbax_export_utils.PyTree
+PyTree = jaxtyping.PyTree
 ApplyFn = Callable[[PyTree, PyTree], PyTree]
 
 
@@ -129,10 +130,10 @@ class JaxModule(tf.Module):
         structure as ``params``. If set, the leaves of ``params`` must be
         jax.Array, and ``JaxModule`` must be created within a DTensor export
         context from ``with maybe_enable_dtensor_export_on(mesh)``.
-      allow_multi_axis_sharding_conslidation: Disallowed by default. When set
-        to true, it will allow conslidating JAX array multiple axis sharding
-        into DTensor single axis sharding during checkpoint conversion. This
-        would enable sharding across multiple axis names support for JAX model.
+      allow_multi_axis_sharding_conslidation: Disallowed by default. When set to
+        true, it will allow conslidating JAX array multiple axis sharding into
+        DTensor single axis sharding during checkpoint conversion. This would
+        enable sharding across multiple axis names support for JAX model.
     """
     if callable(apply_fn):
       apply_fn_map: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
@@ -249,16 +250,20 @@ class JaxModule(tf.Module):
         self._nontrackable_metadata.var_treedef, self._var_leaves
     )
 
-  def _make_tf_closure(self, apply_fn: ApplyFn,
-                       input_polymorphic_shape: Optional[PyTree],
-                       jax2tf_kwargs: Optional[Mapping[str, Any]],
-                       jit_compile: bool) -> Callable[..., Any]:
+  def _make_tf_closure(
+      self,
+      apply_fn: ApplyFn,
+      input_polymorphic_shape: Optional[PyTree],
+      jax2tf_kwargs: Optional[Mapping[str, Any]],
+      jit_compile: bool,
+  ) -> Callable[..., Any]:
     """Creates a closure for `apply_fn` in TF context."""
     jax2tf_kwargs = dict(jax2tf_kwargs or {})
     if 'polymorphic_shapes' in jax2tf_kwargs:
       raise ValueError(
           'Do not use `polymorphic_shapes` in `jax2tf_kwargs`, use '
-          '`input_polymorphic_shape=...` instead.')
+          '`input_polymorphic_shape=...` instead.'
+      )
 
     # All params have static shapes, so the first dimension of
     # polymorphic_shapes is None.
@@ -267,12 +272,15 @@ class JaxModule(tf.Module):
     if 'with_gradient' not in jax2tf_kwargs:
       jax2tf_kwargs['with_gradient'] = self.with_gradient
     elif jax2tf_kwargs['with_gradient'] and not self.with_gradient:
-      raise ValueError('`with_gradient=True` is specified in jax2tf_kwargs but '
-                       'the JaxModule does not contain trainable variables.')
+      raise ValueError(
+          '`with_gradient=True` is specified in jax2tf_kwargs but '
+          'the JaxModule does not contain trainable variables.'
+      )
     elif not jax2tf_kwargs['with_gradient'] and self.with_gradient:
       raise ValueError(
           '`with_gradient=False` is specified in jax2tf_kwargs but the '
-          'JaxModule contains trainable variables.')
+          'JaxModule contains trainable variables.'
+      )
 
     if logging.vlog_is_on(3):
       logging.vlog(3, 'jax2tf_kwargs=%s', jax2tf_kwargs)
@@ -281,7 +289,8 @@ class JaxModule(tf.Module):
     return tf.function(
         lambda x: apply_fn_tf(self._get_variable_tree(), x),
         jit_compile=jit_compile,
-        autograph=False)
+        autograph=False,
+    )
 
   @property
   def methods(self) -> Mapping[str, Callable[..., Any]]:
@@ -382,6 +391,7 @@ def _jax_params_to_tf_variables(
       return tf.Variable(
           x, trainable=trainable, shape=x.shape, dtype=x.dtype, name=name
       )
+
   names = _get_param_names(params)
   if pspecs is None:
     pspecs = jax.tree_util.tree_map(lambda x: None, params)
