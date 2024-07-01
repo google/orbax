@@ -14,6 +14,7 @@
 
 """Wraps JAX functions and parameters into a tf.Module."""
 
+from collections.abc import Sequence
 import dataclasses
 import os
 from typing import Any, Callable, Mapping, Optional, Tuple, Union
@@ -90,6 +91,9 @@ class JaxModule(tf.Module):
       apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
       trainable: Optional[Union[bool, PyTree]] = None,
       input_polymorphic_shape: Union[PyTree, Mapping[str, PyTree]] = None,
+      input_polymorphic_constraints: Optional[
+          Union[Sequence[str], Mapping[str, Sequence[str]]]
+      ] = None,
       jax2tf_kwargs: Optional[Mapping[str, Any]] = None,
       jit_compile: Union[bool, Mapping[str, bool]] = True,
       name: Optional[str] = None,
@@ -114,6 +118,10 @@ class JaxModule(tf.Module):
         ``apply_fn``. If ``apply_fn`` is a mapping, ``input_polymorphic_shape``
         must be a mapping of method key to the input polymorphic shape for the
         method.
+      input_polymorphic_constraints: a sequence of constraints for the
+        polymorphic shape of the inputs of ``apply_fn``. If ``apply_fn`` is a
+        mapping, ``input_polymorphic_constraints`` must be a mapping of method
+        key to the input polymorphic constraints for the method.
       jax2tf_kwargs: options passed to jax2tf. ``polymorphic_shape`` is inferred
         from ``input_polymorphic_shape`` and should not be set.
         ``with_gradient``, if set, should be consistent with the ``trainable``
@@ -140,11 +148,15 @@ class JaxModule(tf.Module):
       input_polymorphic_shape = {
           self.DEFAULT_METHOD_KEY: input_polymorphic_shape
       }
+      input_polymorphic_constraints = {
+          self.DEFAULT_METHOD_KEY: input_polymorphic_constraints
+      }
       jax2tf_kwargs = {self.DEFAULT_METHOD_KEY: jax2tf_kwargs}
       jit_compile = {self.DEFAULT_METHOD_KEY: jit_compile}
     else:
-      # Check if `apply_fn`, `input_polymorphic_shape` and `jax2tf_kwargs` have
-      # the same structure.
+      # Check if `apply_fn`, `input_polymorphic_shape`,
+      # `input_polymorphic_constraints` and `jax2tf_kwargs` all have the same
+      # structure and the same mapping/dictionary keys (which are method keys)
       apply_fn_map = apply_fn
       if not isinstance(input_polymorphic_shape, Mapping) or not _same_keys(
           input_polymorphic_shape, apply_fn_map
@@ -153,6 +165,20 @@ class JaxModule(tf.Module):
             '`input_polymorphic_shape` must have the same structure as that of'
             f' `apply_fn`. Got apply_fn={apply_fn_map},'
             f' input_polymorphic_shape={input_polymorphic_shape}.'
+        )
+      if input_polymorphic_constraints is None:
+        # Create a mapping from method key to None to have a matching structure
+        # as `apply_fn_map`.
+        input_polymorphic_constraints = jax.tree_util.tree_map(
+            lambda x: None, apply_fn_map
+        )
+      elif not isinstance(
+          input_polymorphic_constraints, Mapping
+      ) or not _same_keys(input_polymorphic_constraints, apply_fn_map):
+        raise ValueError(
+            '`input_polymorphic_constraints` must have the same structure as'
+            f' that of `apply_fn`. Got apply_fn={apply_fn_map},'
+            f' input_polymorphic_constraints={input_polymorphic_constraints}.'
         )
       if jax2tf_kwargs is None:
         # OK if it is unspecified, which means `jax2tf_kwargs` is unspecified
@@ -199,6 +225,7 @@ class JaxModule(tf.Module):
           self._make_tf_closure,
           apply_fn_map,
           input_polymorphic_shape,
+          input_polymorphic_constraints,
           jax2tf_kwargs,
           jit_compile,
       )
@@ -254,6 +281,7 @@ class JaxModule(tf.Module):
       self,
       apply_fn: ApplyFn,
       input_polymorphic_shape: Optional[PyTree],
+      input_polymorphic_constraints: Optional[Sequence[str]],
       jax2tf_kwargs: Optional[Mapping[str, Any]],
       jit_compile: bool,
   ) -> Callable[..., Any]:
@@ -268,6 +296,8 @@ class JaxModule(tf.Module):
     # All params have static shapes, so the first dimension of
     # polymorphic_shapes is None.
     jax2tf_kwargs['polymorphic_shapes'] = [None, input_polymorphic_shape]
+    if input_polymorphic_constraints is not None:
+      jax2tf_kwargs['polymorphic_constraints'] = input_polymorphic_constraints
 
     if 'with_gradient' not in jax2tf_kwargs:
       jax2tf_kwargs['with_gradient'] = self.with_gradient
