@@ -289,6 +289,7 @@ class CheckpointManagerOptions:
   )
   should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
   file_options: FileOptions = dataclasses.field(default_factory=FileOptions)
+  persistent_storage: bool = True
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -1159,6 +1160,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           processes=self._multiprocessing_options.active_processes,
       )
     step_stats.synchronous = not is_async_checkpointer(self._checkpointer)
+    step_stats.persistent_storage = self._options.persistent_storage
     step_stats.end_time = time.time()
     if self._logger is not None:
       self._logger.log_entry(dataclasses.asdict(step_stats))
@@ -1175,6 +1177,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       args: Optional[args_lib.CheckpointArgs] = None,
   ) -> Union[Any, Mapping[str, Any]]:
     """See superclass documentation."""
+    step_stats = step_statistics.StepStatistics()
+    step_stats.step = step
+    step_stats.event_type = 'restore'
+    step_stats.start_time = time.time()
+
     directory = directory or self.directory
     directory = epath.Path(directory)
     self._validate_args(items, args)
@@ -1208,7 +1215,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         args = typing.cast(args_lib.Composite, args)
 
     restore_directory = self._get_read_step_directory(step, directory)
+
+    step_stats.restore_start_time = time.time()
     restored = self._checkpointer.restore(restore_directory, args=args)
+    step_stats.restore_end_time = time.time()
+    step_stats.end_time = step_stats.restore_end_time
+    step_stats.persistent_storage = self._options.persistent_storage
+    self._logger.log_entry(dataclasses.asdict(step_stats))
+
     if self._single_item:
       return restored[DEFAULT_ITEM_NAME]
     return restored

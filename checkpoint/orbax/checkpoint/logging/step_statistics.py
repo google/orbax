@@ -36,6 +36,12 @@ class StepStatistics:
     get_old_steps_start_time: The start time of getting old steps.
     get_old_steps_end_time: The end time of getting old steps.
     synchronous: Whether the event is synchronous.
+    persistent_storage: Whether the event is for persistent storage.
+    broadcast_start_time: The start time of broadcasting(Restore).
+    broadcast_end_time: The end time of broadcasting(Restore).
+    is_restoring_slice: Whether the event is for restoring a slice.
+    restore_start_time: The start time of restoring.
+    restore_end_time: The end time of restoring.
   """
 
   step: Optional[int] = None
@@ -51,3 +57,9 @@ class StepStatistics:
   get_old_steps_start_time: Optional[float] = None
   get_old_steps_end_time: Optional[float] = None
   synchronous: Optional[bool] = False
+  persistent_storage: Optional[bool] = True
+  broadcast_start_time: Optional[float] = None
+  broadcast_end_time: Optional[float] = None
+  is_restoring_slice: Optional[bool] = False
+  restore_start_time: Optional[float] = None
+  restore_end_time: Optional[float] = None
