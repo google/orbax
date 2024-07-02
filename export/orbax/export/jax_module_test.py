@@ -18,6 +18,7 @@ import collections
 
 from absl.testing import parameterized
 import jax
+from jax.core import InconclusiveDimensionOperation
 import jax.numpy as jnp
 from jax.sharding import Mesh
 from jax.sharding import PartitionSpec
@@ -209,6 +210,48 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
 
     x2 = jax.random.normal(key_x2, shape=(16, 8, 1))  # batch size is 16
     self.assertAllClose(traced(x2), linear(params, x2))
+
+  def test_polymorphic_shapes_with_user_provided_constraints(self):
+    def linear(params, x):
+      batch_size = x.shape[0]
+      if batch_size > 1:
+        return jnp.dot(x, params['w']) + params['b'] * 2
+      else:
+        return jnp.dot(x, params['w']) + params['b']
+
+    key_w, key_b, key_x = jax.random.split(jax.random.PRNGKey(1234), 3)
+    params = {
+        'w': jax.random.normal(key_w, shape=(1, 1)),
+        'b': jax.random.normal(key_b, shape=(1,)),
+    }
+
+    @tf.function(
+        autograph=False,
+        jit_compile=False,
+        input_signature=[tf.TensorSpec([None, 1], tf.float32)],
+    )
+    def traced(x):
+      return jax_module.methods[JaxModule.DEFAULT_METHOD_KEY](x)
+
+    x = jax.random.normal(key_x, shape=(2, 1))  # batch size is 2
+
+    # The following trace-compiling fails due to symbolic dimension comparison
+    # being inconclusive without user provided constraints.
+    with self.assertRaisesRegex(
+        InconclusiveDimensionOperation,
+        "Symbolic dimension comparison 'b' > '1' is inconclusive.",
+    ):
+      jax_module = JaxModule(params, linear, input_polymorphic_shape='b, _')
+      _ = traced(x)
+
+    # With user provided constraints, the trace compiling should succeed.
+    jax_module = JaxModule(
+        params,
+        linear,
+        input_polymorphic_shape='b, _',
+        jax2tf_kwargs={'polymorphic_constraints': ('b >= 2',)},
+    )
+    self.assertAllClose(traced(x), linear(params, x))
 
   def test_multi_functions(self):
     jax_module = JaxModule(
