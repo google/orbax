@@ -51,7 +51,7 @@ import asyncio
 from collections.abc import Collection, KeysView
 import concurrent.futures
 import dataclasses
-from typing import AbstractSet, Any, List, Mapping, Optional, Tuple, Set
+from typing import AbstractSet, Any, Dict, List, Mapping, Optional, Tuple, Type, Set
 import uuid
 
 from absl import logging
@@ -61,10 +61,9 @@ from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import future
-from orbax.checkpoint import multihost
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import proto_checkpoint_handler
-from orbax.checkpoint import utils
-from orbax.checkpoint.path import step
+from orbax.checkpoint.path import atomicity
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 Future = future.Future
@@ -185,6 +184,7 @@ class CompositeOptions:
   primary_host: Optional[int] = 0
   active_processes: Optional[Set[int]] = None
   barrier_sync_key_prefix: Optional[str] = None
+  temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None
 
 
 class CompositeCheckpointHandler(AsyncCheckpointHandler):
@@ -264,7 +264,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     )
   """
 
-  _known_handlers: dict[str, Optional[CheckpointHandler]] = {}
+  _known_handlers: Dict[str, Optional[CheckpointHandler]] = {}
+  _current_temporary_paths: Dict[str, atomicity.TemporaryPath] = {}
 
   def __init__(
       self,
@@ -283,7 +284,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         instance, which will be used as the handler for objects of the
         corresponding name.
     """
-    self._known_handlers: dict[str, Optional[CheckpointHandler]] = (
+    self._known_handlers: Dict[str, Optional[CheckpointHandler]] = (
         items_and_handlers
     )
     for item in item_names:
@@ -300,6 +301,12 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     self._primary_host = composite_options.primary_host
     self._active_processes = composite_options.active_processes
     self._barrier_sync_key_prefix = composite_options.barrier_sync_key_prefix
+    self._temporary_path_class = composite_options.temporary_path_class
+    logging.info(
+        'Initialized item_names=%s, _known_handlers=%s',
+        item_names,
+        self._known_handlers,
+    )
 
   def _get_or_set_handler(
       self,
@@ -345,33 +352,28 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   ) -> epath.Path:
     return directory / item_name
 
+  def _get_item_temporary_directory(
+      self, directory: epath.Path, item_name: str
+  ) -> atomicity.TemporaryPath:
+    temporary_path_class = (
+        self._temporary_path_class
+        or atomicity.get_default_temporary_path_class(directory)
+    )
+    tmp_item_dir = temporary_path_class.from_final(
+        self._get_item_directory(directory, item_name),
+        multiprocessing_options=options_lib.MultiprocessingOptions(
+            primary_host=self._primary_host,
+            active_processes=self._active_processes,
+            barrier_sync_key_prefix=self._barrier_sync_key_prefix,
+        ),
+    )
+    return tmp_item_dir
+
   async def async_save(
       self, directory: epath.Path, args: 'CompositeArgs'
   ) -> Optional[List[Future]]:
     """Saves multiple items to individual subdirectories."""
     futures = []
-    item_directories = [
-        self._get_item_directory(directory, item_name)
-        for item_name in args.keys()
-    ]
-    if multihost.is_primary_host(self._primary_host):
-      for path in item_directories:
-        path.mkdir(parents=False, exist_ok=False)
-    barrier_sync_fn = multihost.get_barrier_sync_fn(
-        processes=self._active_processes
-    )
-    barrier_key = multihost.unique_barrier_key(
-        'CompositeCheckpointHandler:create_item_directories',
-        prefix=self._barrier_sync_key_prefix,
-        suffix=(
-            f'{directory.name}.{multihost.counters.composite_save_counter()}'
-        ),
-    )
-    barrier_sync_fn(
-        key=barrier_key,
-        timeout_ms=multihost.DIRECTORY_CREATION_TIMEOUT * 1000,
-    )
-
     # Sort keys to maintain consistent ordering across processes, otherwise
     # we may hit timeouts if processes wait at different barriers in per-item
     # handlers.
@@ -380,16 +382,28 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     # The main blocker here is that many users with custom CheckpointHandlers
     # use barriers in their implementations, which are usually not actually
     # needed.
-    for item_name in sorted(args.keys()):
+    item_names = sorted(args.keys())
+    item_temporary_paths = [
+        self._get_item_temporary_directory(directory, item_name)
+        for item_name in item_names
+    ]
+    self._current_temporary_paths = {
+        item_name: item_directory
+        for item_name, item_directory in zip(item_names, item_temporary_paths)
+    }
+
+
+    for path in self._current_temporary_paths.values():
+      path.create()
+
+    for item_name, item_directory in self._current_temporary_paths.items():
       arg = args[item_name]
       _maybe_raise_reserved_item_error(item_name)
-      item_directory = self._get_item_directory(directory, item_name)
       handler = self._get_or_set_handler(item_name, arg)
       if isinstance(handler, AsyncCheckpointHandler):
-        futures.extend(await handler.async_save(item_directory, args=arg))
+        futures.extend(await handler.async_save(item_directory.get(), args=arg))
       else:
-        handler.save(item_directory, args=arg)
-
+        handler.save(item_directory.get(), args=arg)
     return futures
 
   def save(self, *args, **kwargs):
@@ -407,7 +421,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     asyncio.run(async_save())
 
   def _items_exist(
-      self, directory: epath.Path, item_names: List[str]
+      self,
+      directory: epath.Path,
+      item_names: List[str],
   ) -> Mapping[str, bool]:
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=_CONCURRENT_WORKERS
@@ -506,31 +522,16 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         )
     return CompositeResults(**metadata)
 
-  def _finalize_individual_items_on_gcs(self, directory: epath.Path):
-    # On GCS, ensure that a COMMIT_SUCCESS.txt file gets generated, so the
-    # checkpoint doesn't look incomplete.
-    # TODO(b/296271331) Unify when possible.
-    if step.is_gcs_path(directory):
-      with concurrent.futures.ThreadPoolExecutor(
-          max_workers=_CONCURRENT_WORKERS
-      ) as executor:
-        executor.map(
-            lambda item_name: utils.ensure_atomic_save(
-                self._get_item_directory(directory, item_name),
-                self._get_item_directory(directory, item_name),
-            ),
-            self._known_handlers.keys(),
-        )
-
   def finalize(self, directory: epath.Path):
-    items_exist = self._items_exist(
-        directory, list(self._known_handlers.keys())
-    )
+    if not self._current_temporary_paths:
+      raise ValueError('finalize() called before any items were saved.')
     for item_name, handler in self._known_handlers.items():
-      if not items_exist[item_name] or handler is None:
+      tmp_dir = self._current_temporary_paths.get(item_name, None)
+      if tmp_dir is None or handler is None:
+        # Not an error, as some items may not have been saved.
         continue
-      handler.finalize(self._get_item_directory(directory, item_name))
-    self._finalize_individual_items_on_gcs(directory)
+      handler.finalize(tmp_dir.get())
+      tmp_dir.finalize()
 
   def close(self):
     for item_name, handler in self._known_handlers.items():

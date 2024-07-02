@@ -14,6 +14,8 @@
 
 """Utils for orbax tests."""
 
+# pylint: disable=protected-access
+
 from concurrent import futures
 import contextlib
 import functools
@@ -33,13 +35,15 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
+from orbax.checkpoint import metadata as metadata_lib
 from orbax.checkpoint import multihost
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import serialization
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
-from orbax.checkpoint import utils
 from orbax.checkpoint.multihost import multislice
+from orbax.checkpoint.path import atomicity
+from orbax.checkpoint.path import step as step_lib
 
 
 def sync_global_processes(name: str):
@@ -57,15 +61,27 @@ def save_fake_tmp_dir(
   subdirs = subdirs or []
   if not step_prefix:
     step_prefix = ''
-  step_tmp_dir = utils.create_tmp_directory(
-      directory / (step_prefix + str(step))
+  step_final_directory = directory / (step_prefix + str(step))
+  step_tmp_directory = (
+      step_final_directory
+      if step_lib.is_gcs_path(step_final_directory)
+      else atomicity._get_tmp_directory(step_final_directory)
   )
-  item_tmp_dir = utils.create_tmp_directory(step_tmp_dir / item)
+  atomicity._create_tmp_directory(step_tmp_directory, step_final_directory)
+
+  item_final_directory = step_tmp_directory / item
+  item_tmp_directory = (
+      item_final_directory
+      if step_lib.is_gcs_path(item_final_directory)
+      else atomicity._get_tmp_directory(item_final_directory)
+  )
+  atomicity._create_tmp_directory(item_tmp_directory, item_final_directory)
+
   if multihost.process_index() == 0:
     for sub in subdirs:
-      (item_tmp_dir / sub).mkdir(parents=True)
+      (item_tmp_directory / sub).mkdir(parents=True)
   sync_global_processes('save_fake_tmp_dir')
-  return item_tmp_dir
+  return item_tmp_directory
 
 
 def replicate_sharded_array(arr: jax.Array):
@@ -351,7 +367,7 @@ def set_tensorstore_driver_for_test():
   # Sets TS driver for testing. Within Google, this defaults to `gfile`, which
   # results in issues writing to the OCDBT manifest. When using `gfile` on the
   # local filesystem, write operations are not atomic.
-  serialization._DEFAULT_DRIVER = 'file'  # pylint: disable=protected-access
+  serialization._DEFAULT_DRIVER = 'file'
 
 
 class ErrorCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
@@ -415,7 +431,7 @@ def register_type_handler(ty, handler, func):
 def ocdbt_checkpoint_context(use_ocdbt: bool, ts_context: Any):
   """Use OCDBT driver within context."""
   original_registry = list(
-      type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY._type_registry  # pylint: disable=protected-access
+      type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY._type_registry
   )
   if use_ocdbt:
     type_handlers.register_standard_handlers_with_options(
@@ -424,7 +440,7 @@ def ocdbt_checkpoint_context(use_ocdbt: bool, ts_context: Any):
   try:
     yield
   finally:
-    type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY._type_registry = (  # pylint: disable=protected-access
+    type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY._type_registry = (
         original_registry
     )
 
@@ -438,9 +454,7 @@ def _get_test_wrapper_function(test_func):
       return f'{key}.{self.id()}'
 
     def _patched_save_counter(test_counter) -> str:
-      value = f'{self.id()}_{next(test_counter)}'
-      logging.info('unique_counter: %s', value)
-      return value
+      return f'{self.id()}_{next(test_counter)}'
 
     test_counters = {}
     patched_counters = {}
@@ -496,6 +510,28 @@ def barrier_compatible_test(cls):
     if name.startswith('test'):
       setattr(cls, name, _get_test_wrapper_function(func))
   return cls
+
+
+def ensure_atomic_save(
+    temp_ckpt_dir: epath.Path,
+    final_ckpt_dir: epath.Path,
+    checkpoint_metadata_store: Optional[
+        metadata_lib.CheckpointMetadataStore
+    ] = None,
+):
+  """Wrapper around TemporaryPath.finalize for testing."""
+  if temp_ckpt_dir == final_ckpt_dir:
+    atomicity.CommitFileTemporaryPath(
+        temp_ckpt_dir,
+        final_ckpt_dir,
+        checkpoint_metadata_store=checkpoint_metadata_store,
+    ).finalize()
+  else:
+    atomicity.AtomicRenameTemporaryPath(
+        temp_ckpt_dir,
+        final_ckpt_dir,
+        checkpoint_metadata_store=checkpoint_metadata_store,
+    ).finalize()
 
 
 def create_restore_args(

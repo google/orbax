@@ -45,10 +45,3 @@ Sharding Metadata
 .. autofunction:: from_jax_sharding
 .. autofunction:: from_serialized_string
 .. autofunction:: get_sharding_or_none
-
-
-Internal Metadata
-------------------------
-
-.. autoclass:: TreeMetadata
-  :members:

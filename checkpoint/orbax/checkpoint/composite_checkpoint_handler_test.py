@@ -21,8 +21,10 @@ from jax import numpy as jnp
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import json_checkpoint_handler
+from orbax.checkpoint import multihost
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import standard_checkpoint_handler
+from orbax.checkpoint import test_utils
 from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step
 
@@ -97,7 +99,9 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
 
   def save(self, handler, directory, *args, **kwargs):
     handler.save(directory, *args, **kwargs)
-    handler.finalize(directory)
+    if multihost.process_index() == 0:
+      handler.finalize(directory)
+    test_utils.sync_global_processes('CCHTest:finalize_after_save')
 
   def test_init(self):
     handler = CompositeCheckpointHandler('state', 'dataset')
@@ -393,6 +397,60 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     state_handler.close.assert_called_once()
     metadata_handler.close.assert_called_once()
 
+
+  def test_items_exist_final(self):
+    handler = CompositeCheckpointHandler('state', 'metadata')
+    state = {'a': 1, 'b': 2}
+    metadata = {'lang': 'en', 'version': 1.0}
+    self.save(
+        handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+            metadata=args_lib.JsonSave(metadata),
+        ),
+    )
+    self.assertTrue((self.directory / 'state').exists())
+    self.assertTrue((self.directory / 'metadata').exists())
+    self.assertDictEqual(
+        {'state': True, 'metadata': True, 'blob': False},
+        handler._items_exist(
+            self.directory,
+            ['state', 'metadata', 'blob'],
+        ),
+    )
+
+  def test_items_exist_temp(self):
+    handler = CompositeCheckpointHandler('state', 'metadata')
+    state = {'a': 1, 'b': 2}
+    metadata = {'lang': 'en', 'version': 1.0}
+    handler.save(
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+            metadata=args_lib.JsonSave(metadata),
+        ),
+    )
+    self.assertFalse((self.directory / 'state').exists())
+    self.assertFalse((self.directory / 'metadata').exists())
+    self.assertDictEqual(
+        {'state': False, 'metadata': False, 'blob': False},
+        handler._items_exist(
+            self.directory,
+            ['state', 'metadata', 'blob'],
+        ),
+    )
+    tmp_dirs = handler._current_temporary_paths
+    self.assertIn('state', tmp_dirs.keys())
+    self.assertIn('metadata', tmp_dirs.keys())
+    self.assertIn(
+        (self.directory / 'state.orbax-checkpoint-tmp-').as_posix(),
+        tmp_dirs['state'].get().as_posix(),
+    )
+    self.assertIn(
+        (self.directory / 'metadata.orbax-checkpoint-tmp-').as_posix(),
+        tmp_dirs['metadata'].get().as_posix(),
+    )
 
 
 if __name__ == '__main__':

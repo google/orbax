@@ -21,16 +21,13 @@ functions here.
 TODO(b/266449081) Increase unit test coverage.
 """
 
-import time
-from typing import Any, Optional
+from typing import Any
 
-from absl import logging
 from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint import multihost
 from orbax.checkpoint import tree as tree_utils
-from orbax.checkpoint.metadata import checkpoint
 from orbax.checkpoint.path import step as step_lib
 from orbax.checkpoint.path import utils as path_utils
 
@@ -68,9 +65,7 @@ is_checkpoint_finalized = step_lib.is_checkpoint_finalized
 is_tmp_checkpoint = step_lib.is_tmp_checkpoint
 tmp_checkpoints = step_lib.tmp_checkpoints
 cleanup_tmp_directories = step_lib.cleanup_tmp_directories
-get_tmp_directory = step_lib.get_tmp_directory
 get_save_directory = step_lib.get_save_directory
-create_tmp_directory = step_lib.create_tmp_directory
 record_saved_duration = step_lib.record_saved_duration
 step_from_checkpoint_name = step_lib.step_from_checkpoint_name
 checkpoint_steps_paths = step_lib.checkpoint_steps_paths
@@ -157,79 +152,6 @@ def pytree_structure(directory: epath.PathLike) -> PyTree:
       continue
     tree = add_nested_key(tree, k.name.split('.'), k.name)
   return tree
-
-
-# TODO(b/337137764): Move to step.py and fix
-# learning/gemini/pax/core/checkpoint_managers_test.py
-def ensure_atomic_save(
-    temp_ckpt_dir: epath.Path,
-    final_ckpt_dir: epath.Path,
-    checkpoint_metadata_store: Optional[
-        checkpoint.CheckpointMetadataStore
-    ] = None,
-):
-  """Finalizes atomic save by renaming tmp_dir or writing a success file.
-
-  Updates checkpoint metadata with commit_timestamp_nsecs.
-
-  Args:
-    temp_ckpt_dir: directory path containing uncommitted checkpoint.
-    final_ckpt_dir: directory path which will contain committed checkpoint.
-    checkpoint_metadata_store: optional `CheckpointMetadataStore` instance. If
-      present then it is used to update `CheckpointMetadata` related to
-      committed data present in `final_ckpt_dir`.
-  """
-  if temp_ckpt_dir == final_ckpt_dir:
-    commit_success_file = final_ckpt_dir / step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
-    commit_success_file.write_text(
-        f'Checkpoint commit was successful to {final_ckpt_dir}'
-    )
-  else:
-    logging.info('Renaming %s to %s', temp_ckpt_dir, final_ckpt_dir)
-    temp_ckpt_dir.rename(final_ckpt_dir)
-  if checkpoint_metadata_store:
-    checkpoint_metadata_store.update(
-        checkpoint_path=final_ckpt_dir,
-        commit_timestamp_nsecs=time.time_ns(),
-    )
-
-
-# TODO(b/337137764): Move to step.py and fix
-# learning/gemini/pax/core/checkpoint_managers_test.py
-def on_commit_callback(
-    temp_ckpt_dir: epath.Path,
-    final_ckpt_dir: epath.Path,
-    checkpoint_start_time: float,
-    checkpoint_metadata_store: Optional[
-        checkpoint.CheckpointMetadataStore
-    ] = None,
-):
-  """To commit save operation, atomically finalizes step dir.
-
-  Delegates to `ensure_atomic_save(...)`.
-
-  Records save duration and lineage-logs step dir.
-
-  Args:
-    temp_ckpt_dir: A temporary checkpoint directory, where the checkpoint data
-      is currently saved.
-    final_ckpt_dir: A directory that represents the finalized name of the
-      checkpoint. Should not exist yet if atomicity is ensured via `rename`, but
-      may exist if atomicity is ensured by writing a commit success file.
-    checkpoint_start_time: The time at which checkpoint saving began.
-    checkpoint_metadata_store: `CheckpointMetadataStore` to update commit
-      timestamp in step level metadata.
-  """
-  # If not provided then use checkpoint_metadata_store with blocking writes.
-  checkpoint_metadata_store = (
-      checkpoint_metadata_store
-      or checkpoint.checkpoint_metadata_store(
-          enable_write=True, blocking_write=True
-      )
-  )
-  ensure_atomic_save(temp_ckpt_dir, final_ckpt_dir, checkpoint_metadata_store)
-  step_lib.record_saved_duration(checkpoint_start_time)
-  logging.info('Finished saving checkpoint to `%s`.', final_ckpt_dir)
 
 
 def is_scalar(x):

@@ -36,10 +36,8 @@ Helper functions (experimental)
 .. autofunction:: get_save_directory
 .. autofunction:: is_tmp_checkpoint
 .. autofunction:: is_checkpoint_finalized
-.. autofunction:: create_tmp_directory
 .. autofunction:: tmp_checkpoints
 .. autofunction:: cleanup_tmp_directories
-.. autofunction:: get_tmp_directory
 .. autofunction:: step_from_checkpoint_name
 
 Helper functions to implement NameFormat classes

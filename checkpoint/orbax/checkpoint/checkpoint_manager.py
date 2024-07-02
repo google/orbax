@@ -20,7 +20,7 @@ import datetime
 import threading
 import time
 import typing
-from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Type, Union
+from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Tuple, Type, Union
 
 from absl import logging
 from etils import epath
@@ -37,12 +37,14 @@ from orbax.checkpoint import checkpointer as checkpointer_lib
 from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import multihost
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import standard_logger
 from orbax.checkpoint.logging import step_statistics
 from orbax.checkpoint.metadata import checkpoint
+from orbax.checkpoint.path import atomicity
 from orbax.checkpoint.path import deleter
 from orbax.checkpoint.path import step as step_lib
 from typing_extensions import Self  # for Python version < 3.11
@@ -67,6 +69,10 @@ CompositeCheckpointHandler = (
 CheckpointHandler = checkpoint_handler.CheckpointHandler
 CheckpointArgs = checkpoint_args.CheckpointArgs
 CheckpointHandlersDict = Mapping[str, CheckpointHandler]
+
+AsyncOptions = options_lib.AsyncOptions
+MultiprocessingOptions = options_lib.MultiprocessingOptions
+FileOptions = options_lib.FileOptions
 
 DEFAULT_ITEM_NAME = 'default'
 DESCRIPTOR_ITEM_NAME = 'descriptor'
@@ -126,55 +132,6 @@ def is_async_checkpointer(checkpointer: AbstractCheckpointer):
       checkpointer,
       jax_serialization.GlobalAsyncCheckpointManagerBase,
   )
-
-
-@dataclasses.dataclass
-class AsyncOptions:
-  """Options used to configure async behavior.
-
-  See `AsyncCheckpointer` for details.
-  """
-
-  timeout_secs: int = 300
-  barrier_sync_fn: Optional[async_checkpointer.BarrierSyncFn] = None
-  post_finalization_callback: Optional[Callable[[], None]] = None
-
-
-@dataclasses.dataclass
-class MultiprocessingOptions:
-  """Options used to configure multiprocessing behavior.
-
-  primary_host: the host id of the primary host.  Default to 0.  If it's set
-    to None, then all hosts will be considered as primary.  It's useful in
-    the case that all hosts are only working with local storage.
-  active_processes: A set of process indices (corresponding to
-    `multihost.process_index()`) over which `CheckpointManager` is expected to
-    be called. This makes it possible to have a `CheckpointManager` instance
-    that runs over a subset of processes, rather than all processes as it is
-    normally expected to do. If specified, `primary_host` must belong to
-    `active_processes`.
-  barrier_sync_key_prefix: A string to be prepended to the barrier sync key
-    used to synchronize processes. This is useful to avoid collisions with
-    other barrier syncs if another CheckpointManager is being used concurrently.
-  """
-
-  primary_host: Optional[int] = 0
-  active_processes: Optional[Set[int]] = None
-  barrier_sync_key_prefix: Optional[str] = None
-
-
-@dataclasses.dataclass(frozen=True)
-class FileOptions:
-  """Options used to configure checkpoint directories and files.
-
-  Attributes:
-    path_permission_mode: Path permission mode for step directories, user
-      metadata files. e.g. 0o750. Please check
-      https://github.com/google/etils/blob/main/etils/epath/backend.py if your
-        path is supported. default=None.
-  """
-
-  path_permission_mode: Optional[int] = None
 
 
 # TODO(b/309965339) Set todelete_subdir defaults if directory is on CNS.
@@ -289,6 +246,7 @@ class CheckpointManagerOptions:
   )
   should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
   file_options: FileOptions = dataclasses.field(default_factory=FileOptions)
+  temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -625,6 +583,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
         path_permission_mode=self._options.file_options.path_permission_mode,
         checkpoint_metadata_store=self._blocking_checkpoint_metadata_store,
+        temporary_path_class=self._options.temporary_path_class,
     )
     if self._options.read_only and not self._metadata_path().exists():
       self._metadata = {} if metadata is None else metadata
@@ -673,6 +632,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             post_finalization_callback=options.async_options.post_finalization_callback,
             path_permission_mode=options.file_options.path_permission_mode,
             checkpoint_metadata_store=self._non_blocking_checkpoint_metadata_store,
+            temporary_path_class=options.temporary_path_class,
         )
       else:
         return async_checkpointer.AsyncCheckpointer(
@@ -682,6 +642,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
             path_permission_mode=options.file_options.path_permission_mode,
             checkpoint_metadata_store=self._non_blocking_checkpoint_metadata_store,
+            temporary_path_class=options.temporary_path_class,
         )
     else:
       return Checkpointer(
@@ -691,6 +652,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
           path_permission_mode=options.file_options.path_permission_mode,
           checkpoint_metadata_store=self._blocking_checkpoint_metadata_store,
+          temporary_path_class=options.temporary_path_class,
       )
 
   def _configure_checkpointer_legacy_init(
@@ -1331,7 +1293,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   def _save_metadata(self, metadata: Mapping[str, Any]):
     """Saves CheckpointManager level metadata, skips if already present."""
     path = self._metadata_path()
-    if not path.exists():  # May have been created by a previous run.
+    path_exists = path.exists()
+    # Ensure that we check across all processes before potentially saving.
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'CheckpointManager:check_metadata_existence',
+            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+            suffix=self.directory.name,
+        ),
+        processes=self._multiprocessing_options.active_processes,
+    )
+    if not path_exists:  # May have been created by a previous run.
       self._metadata_checkpointer.save(path, metadata)
 
   def metadata(self) -> Mapping[str, Any]:
