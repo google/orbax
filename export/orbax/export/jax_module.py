@@ -24,11 +24,12 @@ from jax.experimental import jax2tf
 import jaxtyping
 import orbax.checkpoint as ocp
 from orbax.export import dtensor_utils
+from orbax.export import typing
 import tensorflow as tf
 from tensorflow.experimental import dtensor
 
 PyTree = jaxtyping.PyTree
-ApplyFn = Callable[[PyTree, PyTree], PyTree]
+ApplyFn = typing.ApplyFn
 
 
 def get_obx_export_tf_preprocess_only() -> bool:
@@ -73,6 +74,7 @@ class _NonTrackableMetadata:
   var_treedef: Any
   var_trainable: Mapping[str, bool]
   var_pspecs: Optional[Mapping[str, PyTree]]
+  model_params: PyTree
 
 
 class JaxModule(tf.Module):
@@ -212,7 +214,18 @@ class JaxModule(tf.Module):
         var_treedef=var_treedef,
         var_trainable=trainable,
         var_pspecs=pspecs,
+        model_params=params,
     )
+
+  @property
+  def apply_fn_map(self) -> Mapping[str, ApplyFn]:
+    """Returns the apply_fn_map."""
+    return self._nontrackable_metadata.apply_fn_map
+
+  @property
+  def model_params(self) -> PyTree:
+    """Returns the model parameters."""
+    return self._nontrackable_metadata.model_params
 
   def update_variables(self, params: PyTree):
     """Updates the variables associated with self.
