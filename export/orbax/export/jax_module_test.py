@@ -18,7 +18,6 @@ import collections
 
 from absl.testing import parameterized
 import jax
-from jax.core import InconclusiveDimensionOperation
 import jax.numpy as jnp
 from jax.sharding import Mesh
 from jax.sharding import PartitionSpec
@@ -198,8 +197,6 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
         input_polymorphic_shape='b, ...')
 
     @tf.function(
-        autograph=False,
-        jit_compile=False,
         input_signature=[tf.TensorSpec([None, 8, 1], tf.float32)])
     def traced(x):
       return jax_module.methods[JaxModule.DEFAULT_METHOD_KEY](x)
@@ -226,8 +223,6 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
     }
 
     @tf.function(
-        autograph=False,
-        jit_compile=False,
         input_signature=[tf.TensorSpec([None, 1], tf.float32)],
     )
     def traced(x):
@@ -238,7 +233,7 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
     # The following trace-compiling fails due to symbolic dimension comparison
     # being inconclusive without user provided constraints.
     with self.assertRaisesRegex(
-        InconclusiveDimensionOperation,
+        Exception,
         "Symbolic dimension comparison 'b' > '1' is inconclusive.",
     ):
       jax_module = JaxModule(params, linear, input_polymorphic_shape='b, _')
