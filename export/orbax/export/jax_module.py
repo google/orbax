@@ -92,7 +92,6 @@ class JaxModule(tf.Module):
       input_polymorphic_shape: Union[PyTree, Mapping[str, PyTree]] = None,
       jax2tf_kwargs: Optional[Mapping[str, Any]] = None,
       jit_compile: Union[bool, Mapping[str, bool]] = True,
-      name: Optional[str] = None,
       pspecs: Optional[PyTree] = None,
       allow_multi_axis_sharding_conslidation: Optional[bool] = None,
   ):
@@ -125,7 +124,6 @@ class JaxModule(tf.Module):
         ``apply_fn`` is a mapping, this can either be a boolean applied to all
         functions or a mapping of method key to the jit compile option for the
         method.
-      name: the name of the module.
       pspecs: an optional pytree of PartitionSpecs of the ``params`` in the same
         structure as ``params``. If set, the leaves of ``params`` must be
         jax.Array, and ``JaxModule`` must be created within a DTensor export
