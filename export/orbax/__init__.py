@@ -14,6 +14,7 @@
 
 """Defines exported symbols for Orbax Export."""
 
+# pylint: disable=g-importing-member
 from orbax.export import typing
 from orbax.export import utils
 from orbax.export.dtensor_utils import dtensor_initialized
@@ -24,14 +25,10 @@ from orbax.export.dtensor_utils import initialize_dtensor
 from orbax.export.dtensor_utils import maybe_enable_dtensor_export_on
 from orbax.export.dtensor_utils import shutdown_dtensor
 from orbax.export.export_manager import ExportManager
-from orbax.export.export_manager_base import ExportManagerBase
 from orbax.export.jax_module import JaxModule
 from orbax.export.serving_config import ServingConfig
-# TODO(dinghua): remove them after we change all references to
-# utils.remove_signature_defaults.
-from orbax.export.utils import remove_signature_defaults
 from orbax.export.utils import TensorSpecWithDefault
-
+# pylint: enable=g-importing-member
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
 __version__ = '0.0.5'

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Add `orbax.export.typing` API
+- Migrate jax dependency to >=4.30 for jax.export API.
 
 
 ## [0.0.4] - 2024-1-19
