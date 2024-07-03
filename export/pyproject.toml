@@ -24,7 +24,7 @@ dependencies = [
     'absl-py',
     'etils',
     'orbax-checkpoint',
-    'jax >= 0.4.26',
+    'jax >= 0.4.30', # with jax.export support
     'jaxlib',
     'numpy',
     'dataclasses-json',
