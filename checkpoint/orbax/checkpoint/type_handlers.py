@@ -760,19 +760,23 @@ def _get_tensorstore_spec(
   if use_ocdbt:
     if not is_gcs_path and not os.path.isabs(directory):
       raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
-    base_path = directory if is_gcs_path else f'{default_driver}://{directory}'
     if process_id is not None:
       process_id = str(process_id)
       assert re.fullmatch(_OCDBT_PROCESS_ID_RE, process_id) is not None, (
           f'process_id must conform to {_OCDBT_PROCESS_ID_RE} pattern'
           f', got {process_id}'
       )
-      base_path = os.path.join(
-          base_path, f'{_PROCESS_SUBDIR_PREFIX}{process_id}'
+      directory = os.path.join(
+          directory, f'{_PROCESS_SUBDIR_PREFIX}{process_id}'
       )
+    base_driver_spec = (
+        directory
+        if is_gcs_path
+        else {'driver': default_driver, 'path': str(directory)}
+    )
     spec['kvstore'] = {
         'driver': 'ocdbt',
-        'base': base_path,
+        'base': base_driver_spec,
     }
     if name is not None:
       spec['kvstore']['path'] = name

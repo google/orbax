@@ -100,11 +100,14 @@ def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
     if not is_gcs_path and not os.path.isabs(ckpt_path):
       raise ValueError(f'Checkpoint path should be absolute. Got {ckpt_path}')
     base_path = os.path.dirname(ckpt_path)
+    base_driver_spec = (
+        base_path
+        if is_gcs_path
+        else {'driver': _DEFAULT_DRIVER, 'path': base_path}
+    )
     spec['kvstore'] = {
         'driver': 'ocdbt',
-        'base': (
-            base_path if is_gcs_path else f'{_DEFAULT_DRIVER}://{base_path}'
-        ),
+        'base': base_driver_spec,
         'path': os.path.basename(ckpt_path),
     }
   else:
