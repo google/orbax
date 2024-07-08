@@ -14,7 +14,8 @@
 
 """Common typing for export."""
 
-from typing import Any, Mapping, Sequence, TypeVar, Union
+from typing import Any, Callable, Mapping, Sequence, TypeVar, Union
+import jaxtyping
 from orbax.export import utils as orbax_export_utils
 import tensorflow as tf
 
@@ -26,3 +27,9 @@ NestedTfTrackable = Nested[tf.saved_model.experimental.TrackableResource]
 NestedTfTensorSpec = Nested[
     Union[tf.TensorSpec, orbax_export_utils.TensorSpecWithDefault]
 ]
+
+PyTree = jaxtyping.PyTree
+
+# ApplyFn take two arguments, the first one is the model_params, the second one
+# is the model_inputs.
+ApplyFn = Callable[[PyTree, PyTree], PyTree]
