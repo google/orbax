@@ -14,14 +14,11 @@
 
 """Utilities for working with Orbax metadata."""
 
-import asyncio
-import collections
 import dataclasses
 import enum
 import functools
 import operator
 from typing import Any, Dict, Hashable, List, Optional, Tuple, TypeVar, Union
-from etils import epath
 import jax
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
@@ -43,7 +40,7 @@ KeyEntry = TypeVar('KeyEntry', bound=Hashable)
 KeyPath = tuple[KeyEntry, ...]
 
 
-class KeyType(enum.Enum):
+class _KeyType(enum.Enum):
   """Enum representing PyTree key type."""
 
   SEQUENCE = 1
@@ -53,25 +50,25 @@ class KeyType(enum.Enum):
     return self.value
 
   @classmethod
-  def from_json(cls, value: int) -> 'KeyType':
+  def from_json(cls, value: int) -> '_KeyType':
     return cls(value)
 
 
-def _get_key_metadata_type(key: Any) -> KeyType:
+def _get_key_metadata_type(key: Any) -> _KeyType:
   """Translates the JAX key class into a proto enum."""
   if tree_utils.is_sequence_key(key):
-    return KeyType.SEQUENCE
+    return _KeyType.SEQUENCE
   elif tree_utils.is_dict_key(key):
-    return KeyType.DICT
+    return _KeyType.DICT
   else:
     raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
 
 
-def _keypath_from_key_type(key_name: str, key_type: KeyType) -> Any:
+def _keypath_from_key_type(key_name: str, key_type: _KeyType) -> Any:
   """Converts from Key in TreeMetadata to JAX keypath class."""
-  if key_type == KeyType.SEQUENCE:
+  if key_type == _KeyType.SEQUENCE:
     return jax.tree_util.SequenceKey(int(key_name))
-  elif key_type == KeyType.DICT:
+  elif key_type == _KeyType.DICT:
     return jax.tree_util.DictKey(key_name)
   else:
     raise ValueError(f'Unsupported KeyEntry: {key_type}')
@@ -81,7 +78,7 @@ def _keypath_from_key_type(key_name: str, key_type: KeyType) -> Any:
 class NestedKeyMetadataEntry:
   """Represents a key at a single level of nesting."""
   nested_key_name: str
-  key_type: KeyType
+  key_type: _KeyType
 
   def to_json(self) -> Dict[str, Union[str, int]]:
     return {
@@ -95,7 +92,7 @@ class NestedKeyMetadataEntry:
   ) -> 'NestedKeyMetadataEntry':
     return NestedKeyMetadataEntry(
         nested_key_name=json_dict[_KEY_NAME],
-        key_type=KeyType.from_json(json_dict[_KEY_TYPE]),
+        key_type=_KeyType.from_json(json_dict[_KEY_TYPE]),
     )
 
 
@@ -151,16 +148,12 @@ class ValueMetadataEntry:
       cls,
       value: Any,
       save_arg: type_handlers.SaveArgs,
-      registry: Optional[type_handlers.TypeHandlerRegistry],
+      registry: type_handlers.TypeHandlerRegistry,
   ) -> 'ValueMetadataEntry':
     """Builds a ValueMetadataEntry."""
     if type_handlers.is_supported_empty_aggregation_type(value):
       typestr = type_handlers.get_empty_value_typestr(value)
       skip_deserialize = True
-    elif registry is None:
-      return ValueMetadataEntry(
-          value_type=type_handlers.RESTORE_TYPE_UNKNOWN, skip_deserialize=False
-      )
     else:
       try:
         handler = registry.get(type(value))
@@ -209,7 +202,7 @@ class TreeMetadataEntry:
       keypath: KeyPath,
       value: Any,
       save_arg: type_handlers.SaveArgs,
-      type_handler_registry: Optional[type_handlers.TypeHandlerRegistry],
+      type_handler_registry: type_handlers.TypeHandlerRegistry,
   ) -> 'TreeMetadataEntry':
     """Builds a TreeMetadataEntry."""
     key_metadata = KeyMetadataEntry.build(keypath)
@@ -243,7 +236,7 @@ class TreeMetadata:
       cls,
       tree: PyTree,
       *,
-      type_handler_registry: Optional[type_handlers.TypeHandlerRegistry] = None,
+      type_handler_registry: type_handlers.TypeHandlerRegistry,
       save_args: Optional[PyTree] = None,
       use_zarr3: bool = False,
   ) -> 'TreeMetadata':
@@ -279,8 +272,8 @@ class TreeMetadata:
           _TREE_METADATA_KEY: {
             "(top_level_key, lower_level_key)": {
                 _KEY_METADATA_KEY: (
-                    {_KEY_NAME: "top_level_key", _KEY_TYPE: <KeyType (int)>},
-                    {_KEY_NAME: "lower_level_key", _KEY_TYPE: <KeyType (int)>},
+                    {_KEY_NAME: "top_level_key", _KEY_TYPE: <_KeyType (int)>},
+                    {_KEY_NAME: "lower_level_key", _KEY_TYPE: <_KeyType (int)>},
                 )
                 _VALUE_METADATA_KEY: {
                     _VALUE_TYPE: "jax.Array",
@@ -337,60 +330,3 @@ class TreeMetadata:
         (entry.jax_keypath(), _maybe_as_empty_value(entry.value_metadata))
         for entry in self.tree_metadata_entries
     ])
-
-  def as_user_metadata(
-      self,
-      directory: epath.Path,
-      type_handler_registry: type_handlers.TypeHandlerRegistry,
-      *,
-      use_ocdbt: bool = True,
-  ) -> PyTree:
-    """Delegates to TypeHandlers to create user-facing metadata."""
-    flat_param_infos = {}
-    flat_restore_types = {}
-    metadata_tree = self.as_nested_tree(keep_empty_nodes=True)
-    ts_context = type_handlers.get_ts_context()
-    for keypath, value_meta in tree_utils.to_flat_dict(metadata_tree).items():
-      param_name = '.'.join(keypath)
-      if value_meta.skip_deserialize:
-        assert type_handlers.is_empty_typestr(value_meta.value_type)
-      flat_param_infos[keypath] = type_handlers.ParamInfo(
-          name=param_name,
-          path=directory / param_name,
-          parent_dir=directory,
-          skip_deserialize=value_meta.skip_deserialize,
-          is_ocdbt_checkpoint=use_ocdbt,
-          use_zarr3=self.use_zarr3,
-          ts_context=ts_context,
-      )
-      flat_restore_types[keypath] = value_meta.value_type
-
-    flat_metadatas = {}
-    batched_param_infos = collections.defaultdict(list)
-    batched_keypaths = collections.defaultdict(list)
-    for keypath in flat_param_infos:
-      param_info = flat_param_infos[keypath]
-      restore_type = flat_restore_types[keypath]
-      if type_handlers.is_empty_typestr(restore_type):
-        flat_metadatas[keypath] = type_handlers.get_empty_value_from_typestr(
-            restore_type
-        )
-      else:
-        batched_keypaths[restore_type].append(keypath)
-        batched_param_infos[restore_type].append(param_info)
-
-    metadata_ops = []
-    for restore_type, param_infos in batched_param_infos.items():
-      handler = type_handler_registry.get(restore_type)
-      metadata_ops.append(handler.metadata(param_infos))
-
-    async def _get_metadata():
-      return await asyncio.gather(*metadata_ops)
-
-    batched_metadatas = asyncio.run(_get_metadata())
-    for keypath_batch, metadata_batch in zip(
-        batched_keypaths.values(), batched_metadatas
-    ):
-      for keypath, value in zip(keypath_batch, metadata_batch):
-        flat_metadatas[keypath] = value
-    return tree_utils.from_flat_dict(flat_metadatas, target=metadata_tree)

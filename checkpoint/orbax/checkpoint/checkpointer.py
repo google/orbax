@@ -224,7 +224,7 @@ class Checkpointer(
       raise FileNotFoundError(f'Checkpoint at {directory} not found.')
     if not utils.is_checkpoint_finalized(directory):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
-    logging.info('Restoring checkpoint from %s.', directory)
+    logging.info('Restoring item from %s.', directory)
     ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
     restored = self._handler.restore(directory, args=ckpt_args)
     logging.info('Finished restoring checkpoint from %s.', directory)

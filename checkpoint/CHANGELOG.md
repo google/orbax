@@ -57,8 +57,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transactions for the OCDBT storage format, and specify the new
   `can_reference_source_data_indefinitely=True` option to avoid a redundant copy
   when writing into the TensorStore chunk cache.
-- Stop writing msgpack file for new checkpoints and update empty nodes handling
-so that it no longer depends on this file.
 
 ## [0.5.15] - 2024-05-31
 
