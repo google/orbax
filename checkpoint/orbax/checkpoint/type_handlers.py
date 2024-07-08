@@ -650,6 +650,7 @@ def merge_ocdbt_per_process_files(
   """
   open_ops = []
   parent_tspec = _get_tensorstore_spec(os.fspath(directory), use_ocdbt=True)
+  _add_write_tspec_ocdbt_options(parent_tspec)
   parent_tspec = parent_tspec['kvstore']
   open_ops.append(
       ts.KvStore.open(
@@ -675,9 +676,13 @@ def merge_ocdbt_per_process_files(
     opened = await asyncio.gather(*open_ops)
     parent, children = opened[0], opened[1:]
     copy_ops = []
+    txn = ts.Transaction(atomic=True)
     for child in children:
-      copy_ops.append(child.experimental_copy_range_to(parent))
+      copy_ops.append(
+          child.experimental_copy_range_to(parent.with_transaction(txn))
+      )
     await asyncio.gather(*copy_ops)
+    await txn.commit_async()
 
   asyncio.run(open_and_copy())
 
@@ -851,12 +856,21 @@ def get_cast_tspec_deserialize(tspec, args):
 
 
 def _add_write_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
+  """Adds additional OCDBT options used when writing."""
   tspec['kvstore']['config'] = {
       # Store .zarray metadata inline but not large chunks.
       'max_inline_value_bytes': 1024,
       # Large value allows a single root node to support faster traversal.
       'max_decoded_node_bytes': 100000000,
+      # There won't be any concurrent writes by multiple machines to the same
+      # OCDBT database.  Therefore, we can use the simpler and more efficient
+      # single-file manifest format in all cases.
+      'manifest_kind': 'single',
   }
+  # assume_config avoids writing an initial empty manifest to ensure a
+  # consistent configuration, since Orbax never writes to the same OCDBT
+  # database concurrently from multiple processes.
+  tspec['kvstore'].update(assume_config=True)
   return tspec
 
 
@@ -1293,8 +1307,12 @@ class ArrayHandler(TypeHandler):
     check_input_arguments(values, infos, args)
     synchronous_ops = []
     futures = []
-    txn = ts.Transaction()
+    sharding_metadata_txn = ts.Transaction()
+    ocdbt_transaction: ts.Transaction | None = None
     for value, info, arg in zip(values, infos, args):
+      if info.is_ocdbt_checkpoint:
+        if ocdbt_transaction is None:
+          ocdbt_transaction = ts.Transaction(atomic=True)
       tspec = self._get_json_tspec_write(
           info,
           value,
@@ -1320,26 +1338,24 @@ class ArrayHandler(TypeHandler):
         logging.debug('args = %s', arg)
         logging.debug('replica_id = %s', replica_id)
 
+      serialize_args = dict()
+
       if jax.__version_info__ > (0, 4, 25):
-        synchronous_ops += [
-            serialization.async_serialize(
-                value,
-                tspec,
-                commit_future=futures,
-                context=ts_context,
-                primary_host=self._primary_host,
-                replica_id=replica_id,
-            )
-        ]
-      else:
-        synchronous_ops += [
-            serialization.async_serialize(
-                value,
-                tspec,
-                commit_future=futures,
-                context=ts_context,
-            )
-        ]
+        serialize_args['primary_host'] = self._primary_host
+        serialize_args['replica_id'] = replica_id
+
+      if jax.__version_info__ > (0, 4, 29):
+        serialize_args['transaction'] = ocdbt_transaction
+
+      synchronous_ops += [
+          serialization.async_serialize(
+              value,
+              tspec,
+              commit_future=futures,
+              context=ts_context,
+              **serialize_args,
+          )
+      ]
 
       if value.sharding is not None:
         if info.parent_dir is None:
@@ -1362,7 +1378,9 @@ class ArrayHandler(TypeHandler):
           if sharding_metadata_value is not None:
             serialized_sharding = sharding_metadata_value.to_serialized_string()
           if serialized_sharding is not None:
-            write_future = t.with_transaction(txn).write(serialized_sharding)
+            write_future = t.with_transaction(sharding_metadata_txn).write(
+                serialized_sharding
+            )
             synchronous_ops += [write_future.copy]
     await asyncio.gather(*synchronous_ops)
 
@@ -1370,7 +1388,9 @@ class ArrayHandler(TypeHandler):
       logging.debug(
           'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
       )
-    futures.append(txn.commit_async())
+    futures.append(sharding_metadata_txn.commit_async())
+    if ocdbt_transaction is not None:
+      futures.append(ocdbt_transaction.commit_async())
     return futures
 
   async def deserialize(

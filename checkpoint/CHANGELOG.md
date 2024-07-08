@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Rolled forward change to improve TensorStore I/O efficiency.
 - Memory efficient broadcasting from one model replica to others.
 
 ### Changed
