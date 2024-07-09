@@ -627,8 +627,9 @@ def check_input_arguments(*args):
       raise ValueError('Found input args with mismatched lengths.')
 
 
-def is_ocdbt_checkpoint(path: epath.Path) -> bool:
+def is_ocdbt_checkpoint(path: epath.PathLike) -> bool:
   """Determines whether a checkpoint uses OCDBT format."""
+  path = epath.Path(path)
   return (path / _OCDBT_MANIFEST_FILE).exists()
 
 
