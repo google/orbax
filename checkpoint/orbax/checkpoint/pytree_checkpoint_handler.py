@@ -722,6 +722,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     return restored_item
 
+  def _read_aggregate_file(self, directory: epath.Path) -> PyTree:
+    """Reads the aggregate file."""
+    return self._handler_impl._read_aggregate_file(directory)  # pylint: disable=protected-access
+
   def metadata(self, directory: epath.Path) -> Optional[PyTree]:
     """Returns tree metadata.
 
