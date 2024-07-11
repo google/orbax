@@ -1463,7 +1463,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """See superclass documentation."""
     t = self._finalize_thread
     if t is not None:
-      self._finalize_thread = None
       try:
         t.join()
       except BaseException as e:  # pylint:disable=broad-exception-caught
@@ -1472,6 +1471,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         assert self._checkpoints
         self._checkpoints = self._checkpoints[:-1]
         raise e
+      finally:
+        self._finalize_thread = None
       # Additional work is being done on process 0 of the finalize threads.
       # When joining the threads, we must wait for all threads to complete
       # before proceeding.
@@ -1484,6 +1485,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           ),
           processes=self._multiprocessing_options.active_processes,
       )
+
+  def is_saving_in_progress(self) -> bool:
+    """Returns whether a checkpoint save is in progress."""
+    return self._finalize_thread is not None
 
   def check_for_errors(self):
     """See superclass documentation."""
@@ -1528,7 +1533,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
 
   def _finalize(self, directory: epath.Path, steps_to_remove: List[int]):
-    """Cleans up old checkpoints and synchronizes hosts."""
+    """Finalizes individual items and starts garbage collection."""
     self._non_blocking_checkpoint_metadata_store.wait_until_finished()
     self._wait_for_checkpointers()
     # If an error is encountered while waiting for commit futures to complete,

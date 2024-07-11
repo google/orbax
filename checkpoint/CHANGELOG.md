@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Rolled forward change to improve TensorStore I/O efficiency.
 - Memory efficient broadcasting from one model replica to others.
+- Ability to check if a checkpoint save is in progress.
 
 ### Changed
 - Allow one directory creation request per item rather than 1 per item per host.
