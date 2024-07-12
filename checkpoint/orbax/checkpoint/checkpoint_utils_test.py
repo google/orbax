@@ -302,6 +302,12 @@ class EvalUtilsTest(parameterized.TestCase):
     self.assertFalse(utils.is_locked(self.directory / str(0)))
     self.assertFalse(utils.is_locked(self.directory / str(1)))
 
+  def test_unlock_deleted(self):
+    # Checkpoint does not exist; `_unlock_checkpoint` returns without raising.
+    checkpoint_utils._unlock_checkpoint(
+        self.directory, step=0, step_name_format=step_lib.standard_name_format()
+    )
+
   @parameterized.parameters(
       (None, None),
       (None, 8),

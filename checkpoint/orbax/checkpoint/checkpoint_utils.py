@@ -76,7 +76,12 @@ def _unlock_checkpoint(
   """Removes a LOCKED directory to indicate unlocking."""
   if multihost.process_index() == 0:
     logging.info('Unlocking existing step: %d.', step)
-    step_dir = step_name_format.find_step(checkpoint_dir, step).path
+    try:
+      step_dir = step_name_format.find_step(checkpoint_dir, step).path
+    except ValueError as e:
+      # Checkpoint no longer exists, so there is nothing to unlock.
+      logging.warning('Did not find checkpoint: %s', e)
+      return
     utils.lockdir(step_dir).unlink(missing_ok=True)
 
 
