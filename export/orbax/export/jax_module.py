@@ -21,7 +21,6 @@ from typing import Any, Callable, Mapping, Optional, Tuple, Union
 from absl import logging
 import jax
 from jax.experimental import jax2tf
-import orbax.checkpoint as ocp
 from orbax.export import dtensor_utils
 from orbax.export import typing as orbax_export_typing
 import tensorflow as tf
@@ -334,15 +333,25 @@ class JaxModule(tf.Module):
     return _make_closures(params, apply_fn_map)
 
 
+def _get_key_name(key: Any) -> Union[int, str]:
+  """Returns the name of a JAX Key."""
+  if isinstance(key, jax.tree_util.SequenceKey):
+    return key.idx
+  elif isinstance(key, jax.tree_util.DictKey):
+    return str(key.key)
+  elif isinstance(key, jax.tree_util.GetAttrKey):
+    return key.name
+  elif isinstance(key, jax.tree_util.FlattenedIndexKey):
+    return key.key
+  else:
+    raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
+
+
 def _get_param_names(params: PyTree) -> PyTree:
   """Gets parameter names for PyTree elements."""
 
   def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
-    if hasattr(ocp, 'tree'):
-      get_key_name = ocp.tree.get_key_name
-    else:
-      get_key_name = ocp.utils.get_key_name
-    name = '.'.join([str(get_key_name(k)) for k in keypath])
+    name = '.'.join([str(_get_key_name(k)) for k in keypath])
     # '~' is not allowed in variable names but are used by dm-haiku. See
     # https://github.com/google/orbax/issues/420
     return name.replace('~', '_')

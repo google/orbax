@@ -23,7 +23,6 @@ keywords = ["JAX machine learning", "serialization", "export"]
 dependencies = [
     'absl-py',
     'etils',
-    'orbax-checkpoint',
     'jax >= 0.4.26',
     'jaxlib',
     'numpy',
