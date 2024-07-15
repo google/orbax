@@ -971,7 +971,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """See superclass documentation."""
     step_stats = step_statistics.StepStatistics()
     step_stats.step = step
-    step_stats.start_time = time.time()
+    step_stats.checkpoint_manager_blocking_start_time = time.time()
     step_stats.event_type = 'save'
 
     if items is None and args is None:
@@ -988,14 +988,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # Wait for ongoing saves to complete. Only applicable if some of the
     # checkpointers are AsyncCheckpointers.
     # Must happen after `should_save` to avoid blocking callers.
-    wait_for_prev_start_time = time.time()
+    step_stats.wait_for_prev_start_time = time.time()
     self.wait_until_finished()
+    step_stats.wait_for_prev_end_time = time.time()
+
+    step_stats.wait_for_prev_duration_secs = (
+        step_stats.wait_for_prev_end_time - step_stats.wait_for_prev_start_time
+    )
+
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/wait_for_prev_duration_secs',
-        time.time() - wait_for_prev_start_time,
+        step_stats.wait_for_prev_duration_secs,
     )
-    step_stats.wait_for_prev_start_time = wait_for_prev_start_time
-    step_stats.wait_for_prev_end_time = time.time()
 
     if step in self.all_steps():
       raise StepAlreadyExistsError(
@@ -1072,19 +1076,26 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           processes=self._multiprocessing_options.active_processes,
       )
     logging.info('Saving checkpoint at step %d', step)
-    step_stats.checkpoint_start_time = time.time()
+    step_stats.checkpoint_blocking_start_time = time.time()
     self._checkpointer.save(save_directory, args=args)
-    step_stats.checkpoint_end_time = time.time()
+    step_stats.checkpoint_blocking_end_time = time.time()
+    step_stats.checkpoint_blocking_duration_secs = (
+        step_stats.checkpoint_blocking_end_time
+        - step_stats.checkpoint_blocking_start_time
+    )
 
     self._add_checkpoint_info(step, metrics)
-    get_old_steps_start_time = time.time()
+    step_stats.get_old_steps_start_time = time.time()
     steps_to_remove = self._get_old_steps_to_remove()
+    step_stats.get_old_steps_end_time = time.time()
+    step_stats.get_old_steps_duration_secs = (
+        step_stats.get_old_steps_end_time - step_stats.get_old_steps_start_time
+    )
+
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/get_old_steps_duration_secs',
-        time.time() - get_old_steps_start_time,
+        step_stats.get_old_steps_duration_secs,
     )
-    step_stats.get_old_steps_start_time = get_old_steps_start_time
-    step_stats.get_old_steps_end_time = time.time()
 
     self._checkpoints = [
         info for info in self._checkpoints if info.step not in steps_to_remove
@@ -1121,9 +1132,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           processes=self._multiprocessing_options.active_processes,
       )
     step_stats.synchronous = not is_async_checkpointer(self._checkpointer)
-    step_stats.end_time = time.time()
-    if self._logger is not None:
-      self._logger.log_entry(dataclasses.asdict(step_stats))
+    step_stats.checkpoint_manager_blocking_end_time = time.time()
+    step_stats.checkpoint_manager_blocking_duration_secs = (
+        step_stats.checkpoint_manager_blocking_end_time
+        - step_stats.checkpoint_manager_blocking_start_time
+    )
+    self._logger.log_entry(dataclasses.asdict(step_stats))
     return True
 
   def restore(
