@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.21] - 2024-07-12
+
 ### Added
 - Rolled forward change to improve TensorStore I/O efficiency.
 - Memory efficient broadcasting from one model replica to others.
@@ -24,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Add logic to the barrier-compatible test fixture that allows each test case to
   have its own module-level counter, to avoid problems that arise when
   multiprocess tests run in inconsistent orders.
+- Ensure D2H transfers are parallelized.
 
 ## [0.5.20] - 2024-06-20
 
