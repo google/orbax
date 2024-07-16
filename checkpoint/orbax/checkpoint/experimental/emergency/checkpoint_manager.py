@@ -47,6 +47,8 @@ from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint.experimental.emergency import multihost as emergency_multihost
+from orbax.checkpoint.logging import abstract_logger
+from orbax.checkpoint.logging import standard_logger
 from orbax.checkpoint.multihost import multislice
 from orbax.checkpoint.path import step as step_lib
 from typing_extensions import Self  # for Python version < 3.11
@@ -277,6 +279,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
       *,
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[dict[str, Any]] = None,
+      logger: Optional[abstract_logger.AbstractLogger] = None,
   ):
     # TODO: b/330585086 - Fully support options.
     options = options or CheckpointManagerOptions()
@@ -298,11 +301,13 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         read_only=options.local.read_only,
         single_host_load_and_broadcast=False,
     )
+    self._logger = logger or standard_logger.StandardLogger()
     super().__init__(
         directory,
         options=local_options,
         metadata=metadata,
         item_handlers=state_handler,
+        logger=self._logger,
     )
     self._max_to_keep = options.local.max_to_keep
     self._local_options = options.local
@@ -472,9 +477,11 @@ class CheckpointManager(
       *,
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[dict[str, Any]] = None,
+      logger: Optional[abstract_logger.AbstractLogger] = None,
   ):
     self._local_directory = epath.Path(local_directory)
     self._persistent_directory = epath.Path(persistent_directory)
+    self._logger = logger or standard_logger.StandardLogger()
     # TODO: b/330585086 - Fully support options.
     options = options or CheckpointManagerOptions()
     self._global_mesh = global_mesh
@@ -538,6 +545,7 @@ class CheckpointManager(
                   use_zarr3=True,
                   primary_host=self._persistent_primary_host,
               ),
+              logger=self._logger,
           )
       )
     else:
@@ -547,6 +555,7 @@ class CheckpointManager(
           device_array=global_mesh.devices[1:],
           options=self._options,
           metadata=self._metadata,
+          logger=self._logger,
       )
 
     logging.info(

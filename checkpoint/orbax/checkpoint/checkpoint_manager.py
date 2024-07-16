@@ -973,6 +973,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     step_stats.step = step
     step_stats.checkpoint_manager_blocking_start_time = time.time()
     step_stats.event_type = 'save'
+    step_stats.directory = str(self.directory)
 
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')

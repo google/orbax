@@ -29,6 +29,7 @@ class StepStatistics:
       manager blocking section.
     checkpoint_manager_blocking_end_time: The end time of checkpoint manager
       blocking section.
+    directory: The directory of the checkpoint.
     reached_preemption: Whether the event reached preemption.
     preemption_received_at: The time when preemption was received.
     wait_for_prev_start_time: The start time of waiting for previous checkpoint.
@@ -49,6 +50,7 @@ class StepStatistics:
 
   step: Optional[int] = None
   event_type: Optional[str] = None
+  directory: Optional[str] = None
   checkpoint_manager_blocking_start_time: Optional[float] = None
   checkpoint_manager_blocking_end_time: Optional[float] = None
   reached_preemption: Optional[bool] = False
