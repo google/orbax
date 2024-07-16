@@ -23,7 +23,7 @@ keywords = ["JAX machine learning", "serialization", "export"]
 dependencies = [
     'absl-py',
     'etils',
-    'jax >= 0.4.26',
+    'jax >= 0.4.30',
     'jaxlib',
     'numpy',
     'dataclasses-json',

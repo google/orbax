@@ -76,7 +76,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.9"]
-        jax-version: ["newest", "0.4.26"]  # keep in sync with minimum version in export/pyproject.toml
+        jax-version: ["newest", "0.4.30"]  # keep in sync with minimum version in export/pyproject.toml
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.8.0
