@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Adjust user metadata construction so that older checkpoints with some values
+in the msgpack file can still return metadata (though the metadata for these
+entries will not return information about array properties).
+
 ## [0.5.21] - 2024-07-12
 
 ### Added

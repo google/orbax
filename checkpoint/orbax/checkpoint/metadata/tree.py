@@ -25,6 +25,7 @@ from etils import epath
 import jax
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
+from orbax.checkpoint.metadata import value as value_metadata
 
 
 _KEY_NAME = 'key'
@@ -212,14 +213,14 @@ class TreeMetadataEntry:
       type_handler_registry: Optional[type_handlers.TypeHandlerRegistry],
   ) -> 'TreeMetadataEntry':
     """Builds a TreeMetadataEntry."""
-    key_metadata = KeyMetadataEntry.build(keypath)
-    value_metadata = ValueMetadataEntry.build(
+    key_metadata_entry = KeyMetadataEntry.build(keypath)
+    value_metadata_entry = ValueMetadataEntry.build(
         value, save_arg, type_handler_registry
     )
     return TreeMetadataEntry(
         str(tuple([str(tree_utils.get_key_name(k)) for k in keypath])),
-        key_metadata,
-        value_metadata,
+        key_metadata_entry,
+        value_metadata_entry,
     )
 
   def jax_keypath(self) -> KeyPath:
@@ -322,16 +323,16 @@ class TreeMetadata:
   def as_nested_tree(self, *, keep_empty_nodes: bool) -> Dict[str, Any]:
     """Converts to a nested tree, with values of ValueMetadataEntry."""
 
-    def _maybe_as_empty_value(value_metadata: ValueMetadataEntry) -> Any:
+    def _maybe_as_empty_value(value_metadata_entry: ValueMetadataEntry) -> Any:
       if not keep_empty_nodes and type_handlers.is_empty_typestr(
-          value_metadata.value_type
+          value_metadata_entry.value_type
       ):
         # Return node as the empty value itself rather than as
         # a dataclass representation.
         return type_handlers.get_empty_value_from_typestr(
-            value_metadata.value_type
+            value_metadata_entry.value_type
         )
-      return value_metadata
+      return value_metadata_entry
 
     return tree_utils.from_flattened_with_keypath([
         (entry.jax_keypath(), _maybe_as_empty_value(entry.value_metadata))
@@ -352,8 +353,6 @@ class TreeMetadata:
     ts_context = type_handlers.get_ts_context()
     for keypath, value_meta in tree_utils.to_flat_dict(metadata_tree).items():
       param_name = '.'.join(keypath)
-      if value_meta.skip_deserialize:
-        assert type_handlers.is_empty_typestr(value_meta.value_type)
       flat_param_infos[keypath] = type_handlers.ParamInfo(
           name=param_name,
           path=directory / param_name,
@@ -371,10 +370,15 @@ class TreeMetadata:
     for keypath in flat_param_infos:
       param_info = flat_param_infos[keypath]
       restore_type = flat_restore_types[keypath]
-      if type_handlers.is_empty_typestr(restore_type):
-        flat_metadatas[keypath] = type_handlers.get_empty_value_from_typestr(
-            restore_type
-        )
+      if param_info.skip_deserialize:
+        if type_handlers.is_empty_typestr(restore_type):
+          flat_metadatas[keypath] = type_handlers.get_empty_value_from_typestr(
+              restore_type
+          )
+        else:
+          flat_metadatas[keypath] = value_metadata.Metadata(
+              name=param_info.name, directory=param_info.parent_dir
+          )
       else:
         batched_keypaths[restore_type].append(keypath)
         batched_param_infos[restore_type].append(param_info)
