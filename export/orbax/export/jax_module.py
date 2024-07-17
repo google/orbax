@@ -14,15 +14,17 @@
 
 """Wraps JAX functions and parameters into a tf.Module."""
 
+from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import os
-from typing import Any, Callable, Mapping, Optional, Tuple, Union
-
+from typing import Any, Optional, Tuple, Union
 from absl import logging
 import jax
+from jax import export as jax_export
 from jax.experimental import jax2tf
 from orbax.export import dtensor_utils
 from orbax.export import typing as orbax_export_typing
+from orbax.export import utils as orbax_export_utils
 import tensorflow as tf
 from tensorflow.experimental import dtensor
 
@@ -332,6 +334,23 @@ class JaxModule(tf.Module):
     apply_fn_map = self._nontrackable_metadata.apply_fn_map
     return _make_closures(params, apply_fn_map)
 
+  def to_jax_exported_map(
+      self, model_inputs: PyTree, output_dir: Union[str, None] = None
+  ) -> Mapping[str, jax_export.Exported]:
+    """Converts the orbax.export JaxModule to jax_export.Exported.
+
+    Args:
+      model_inputs: The model inputs.
+      output_dir: The output directory to save the jax_exported_map.
+
+    Returns:
+      A mapping from method key to jax_export.Exported.
+    """
+    jax_exported_map = _jax_module_to_jax_exported_map(self, model_inputs)
+    if output_dir is not None:
+      orbax_export_utils.save_jax_exported_map(output_dir, jax_exported_map)
+    return jax_exported_map
+
 
 def _get_key_name(key: Any) -> Union[int, str]:
   """Returns the name of a JAX Key."""
@@ -438,3 +457,74 @@ def _jax_params_to_tf_variables(
   return jax.tree_util.tree_map(
       _to_tf_variable, params, names, trainable, pspecs
   )
+
+
+def _jax_module_to_jax_exported_map(
+    j_module: JaxModule,
+    model_inputs: PyTree,
+) -> Mapping[str, jax_export.Exported]:
+  """Convert the orbax.export JaxModule to jax_export.Exported.
+
+  Args:
+    j_module: The orbax.export JaxModule.
+    model_inputs: The model inputs.
+
+  Returns:
+    A mapping from method key to jax_export.Exported.
+  """
+  apply_fn_map = j_module.apply_fn_map
+  model_params = j_module.model_params
+  input_polymorphic_shape_map = j_module.input_polymorphic_shape_map
+  jax2tf_kwargs_map = j_module.jax2tf_kwargs_map
+
+  jax_exported_map = {}
+
+  def _symbolic_args_specs(model_inputs, method_key):
+    input_polymorphic_shape = input_polymorphic_shape_map[method_key]
+    polymorphic_constraints: Sequence[str] = ()
+    if 'polymorphic_constraints' in jax2tf_kwargs_map[method_key]:
+      polymorphic_constraints = jax2tf_kwargs_map[method_key][
+          'polymorphic_constraints'
+      ]
+    if input_polymorphic_shape is None:
+      return model_inputs
+    else:
+      return jax_export.symbolic_args_specs(
+          model_inputs,
+          input_polymorphic_shape,
+          constraints=polymorphic_constraints,
+      )
+
+  symbolic_model_inputs_map = {
+      k: _symbolic_args_specs(model_inputs, k)
+      for k in input_polymorphic_shape_map.keys()
+  }
+
+  def _lowering_platforms(
+      jax2tf_kwargs: Any,
+  ) -> Optional[Sequence[str]]:
+    if jax2tf_kwargs and 'native_serialization_platforms' in jax2tf_kwargs:
+      return tuple(jax2tf_kwargs['native_serialization_platforms'])
+    else:
+      return None
+
+  lowering_platforms_map = {
+      k: _lowering_platforms(v) for k, v in jax2tf_kwargs_map.items()
+  }
+
+  for method_key, apply_fn in apply_fn_map.items():
+    if not hasattr(apply_fn, 'trace'):
+      apply_fn = jax.jit(apply_fn)
+    if method_key not in input_polymorphic_shape_map:
+      raise ValueError(
+          f'Method key {method_key} not found in input_polymorphic_shape_map.'
+      )
+    if method_key not in lowering_platforms_map:
+      raise ValueError(
+          f'Method key {method_key} not found in lowering_platforms_map.'
+      )
+    jax_exported = jax_export.export(
+        apply_fn, platforms=lowering_platforms_map[method_key]
+    )(model_params, symbolic_model_inputs_map[method_key])
+    jax_exported_map[method_key] = jax_exported
+  return jax_exported_map

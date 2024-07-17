@@ -16,7 +16,6 @@
 
 from typing import Any, Callable, Mapping, Sequence, TypeVar, Union
 import jaxtyping
-from orbax.export import utils as orbax_export_utils
 import tensorflow as tf
 
 
@@ -24,9 +23,7 @@ T = TypeVar('T')
 Nested = Union[T, tuple[Any, ...], Sequence[Any], Mapping[str, Any]]
 WarmupExample = Union[list[Mapping[str, Any]], Mapping[str, Any]]
 NestedTfTrackable = Nested[tf.saved_model.experimental.TrackableResource]
-NestedTfTensorSpec = Nested[
-    Union[tf.TensorSpec, orbax_export_utils.TensorSpecWithDefault]
-]
+
 
 PyTree = jaxtyping.PyTree
 

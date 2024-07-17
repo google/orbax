@@ -15,6 +15,7 @@
 """Tests for jax_module."""
 
 import collections
+import os
 
 from absl.testing import parameterized
 import chex
@@ -22,9 +23,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax import export as obx_export
+from orbax.export import utils as orbax_export_utils
 import tensorflow as tf
 
 DEFAULT_METHOD_KEY = obx_export.JaxModule.DEFAULT_METHOD_KEY
+JaxModule = obx_export.JaxModule
 
 
 def _register_custom_dict_to_jax(dict_cls):
@@ -418,6 +421,66 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
 
     with self.assertRaisesRegex(ValueError, 'Incompatible type conversion'):
       jax_module.update_variables({'w': np.zeros((4, 8), dtype=np.int32)})
+
+  def test_save_load_as_jax_exported_map(self):
+
+    def linear(params, x):
+      return params['w'] @ x + params['b']
+
+    key_w, key_b, key_x = jax.random.split(jax.random.PRNGKey(1234), 3)
+    model_params = {
+        'w': jax.random.normal(key_w, shape=(8, 8)),
+        'b': jax.random.normal(key_b, shape=(8, 1)),
+    }
+    model_inputs = jax.random.normal(key_x, shape=(8, 1))
+    lowering_platforms = ['cpu', 'tpu']
+
+    j_module = JaxModule(
+        model_params,
+        linear,
+        jax2tf_kwargs={'native_serialization_platforms': lowering_platforms},
+    )
+    root_dir = self.create_tempdir().full_path
+    saved_dir = os.path.join(root_dir, 'jax_exported_map')
+    jax_exported_map = j_module.to_jax_exported_map(model_inputs, saved_dir)
+    restored_jax_exported_map = orbax_export_utils.load_jax_exported_map(
+        saved_dir
+    )
+    self.assertEqual(
+        set(restored_jax_exported_map.keys()),
+        set(jax_exported_map.keys()),
+        f'{restored_jax_exported_map.keys()} vs {jax_exported_map.keys()}',
+    )
+    self.assertEqual(
+        set(restored_jax_exported_map.keys()),
+        set(j_module.apply_fn_map.keys()),
+        f'{restored_jax_exported_map.keys()} vs {j_module.apply_fn_map.keys()}',
+    )
+    chex.assert_trees_all_close(
+        restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].call(
+            model_params, model_inputs
+        ),
+        linear(model_params, model_inputs),
+    )
+    chex.assert_equal(
+        set(restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].platforms),
+        set(lowering_platforms),
+    )
+    args_kwargs = ((model_params, model_inputs), {})
+    in_tree = jax.tree.structure(args_kwargs)
+    in_avals = tuple(jax.tree.leaves(args_kwargs))
+    chex.assert_equal(
+        in_tree,
+        restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].in_tree,
+    )
+    chex.assert_trees_all_equal_shapes(
+        in_avals,
+        restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].in_avals,
+    )
+    chex.assert_trees_all_equal_dtypes(
+        in_avals,
+        restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].in_avals,
+    )
 
 
 if __name__ == '__main__':

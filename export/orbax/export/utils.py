@@ -18,14 +18,19 @@ from collections.abc import Mapping, Sequence
 import dataclasses
 import functools
 import inspect
-from typing import Any, Callable, Optional
+import os
+from typing import Any, Callable, Optional, Union
+from absl import logging
 import jax
+from jax import export as jax_export
 import jaxtyping
 import tensorflow as tf
 
 ConfigProto = Any
 PyTree = jaxtyping.PyTree
 SignatureDef = Any
+
+_FILE_TYPE = 'jax_exported'
 
 
 @dataclasses.dataclass
@@ -60,6 +65,11 @@ class TensorSpecWithDefault:
           f'TensorSpec {self.tensor_spec} is not compatible with'
           f' the default value {self.default_val}'
       )
+
+
+NestedTfTensorSpec = jaxtyping.PyTree[
+    Union[tf.TensorSpec, TensorSpecWithDefault]
+]
 
 
 def remove_signature_defaults(input_signature: PyTree) -> PyTree:
@@ -329,3 +339,64 @@ class CallableSignatures:
   def signatures(self):
     """Returns a mapping for signature names to python callables."""
     return self._signatures
+
+
+def _save_jax_exported_to_disk(
+    exp: jax_export.Exported,
+    bin_file_path: str,
+    vjp_order: int = 0,
+) -> None:
+  if tf.io.gfile.exists(bin_file_path):
+    raise ValueError(f'File {bin_file_path} already exists.')
+  with tf.io.gfile.GFile(bin_file_path, 'wb') as f:
+    f.write(exp.serialize(vjp_order=vjp_order))
+
+
+def _load_jax_exported_from_disk(bin_file_path: str) -> jax_export.Exported:
+  if not tf.io.gfile.exists(bin_file_path):
+    raise ValueError(f'File {bin_file_path} does not exist.')
+  with tf.io.gfile.GFile(bin_file_path, 'rb') as f:
+    exp = jax_export.deserialize(bytearray(f.read()))
+    return exp
+
+
+def save_jax_exported_map(
+    dir_path: str,
+    jax_exported_map: Mapping[str, jax_export.Exported],
+):
+  """Saves the orbax.export JaxExported Map to disk."""
+  if tf.io.gfile.exists(dir_path):
+    raise ValueError(f'Directory {dir_path} already exists.')
+
+  tf.io.gfile.makedirs(dir_path)
+  for method_key, jax_exported in jax_exported_map.items():
+    file_path = os.path.join(dir_path, f'{method_key}.{_FILE_TYPE}')
+    _save_jax_exported_to_disk(jax_exported, os.path.join(dir_path, file_path))
+  logging.info('Saved JaxExported Map to %s successfully.', dir_path)
+
+
+def load_jax_exported_map(dir_path: str) -> Mapping[str, jax_export.Exported]:
+  """Loads the orbax.export ApplyFn JaxExported Map from disk.
+
+  Args:
+    dir_path: The directory path to load the ApplyFn Map.
+
+  Returns:
+    A map of method_key to JaxExported object.
+  """
+  jax_exported_map = {}
+
+  if not tf.io.gfile.exists(dir_path):
+    raise ValueError(f'Directory {dir_path} does not exist.')
+
+  for method_key in tf.io.gfile.listdir(dir_path):
+    if not method_key.endswith(f'.{_FILE_TYPE}'):
+      continue
+    jax_exported = _load_jax_exported_from_disk(
+        os.path.join(dir_path, method_key)
+    )
+    jax_exported_map[method_key[: -len(f'.{_FILE_TYPE}')]] = jax_exported
+  if not jax_exported_map:
+    raise ValueError(f'No .{_FILE_TYPE} files found in {dir_path}.')
+  logging.info('Loaded ApplyFn JaxExported Map from %s successfully.', dir_path)
+  return jax_exported_map
