@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Move `get_param_names` to tree utils.
+
 ### Fixed
 - Adjust user metadata construction so that older checkpoints with some values
 in the msgpack file can still return metadata (though the metadata for these

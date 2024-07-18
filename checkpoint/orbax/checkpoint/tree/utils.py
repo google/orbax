@@ -305,3 +305,16 @@ def to_shape_dtype_struct(
     )
   else:
     raise ValueError(f'Unexpected type: {type(x)}.')
+
+
+def get_param_names(item: PyTree) -> PyTree:
+  """Gets parameter names for PyTree elements."""
+
+  def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
+    return '.'.join([str(get_key_name(k)) for k in keypath])
+
+  return jax.tree_util.tree_map_with_path(
+      lambda kp, _: _param_name_from_keypath(kp),
+      item,
+      is_leaf=is_empty_or_leaf,
+  )

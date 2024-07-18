@@ -17,3 +17,4 @@ Tree Utilities
 .. autofunction:: is_empty_node
 .. autofunction:: is_empty_or_leaf
 .. autofunction:: to_shape_dtype_struct
+.. autofunction:: get_param_names

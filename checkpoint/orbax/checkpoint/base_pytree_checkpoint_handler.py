@@ -53,6 +53,7 @@ TypeHandlerRegistry = type_handlers.TypeHandlerRegistry
 LimitInFlightBytes = type_handlers.LimitInFlightBytes
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
+get_param_names = tree_utils.get_param_names
 
 METADATA_FILE = '_METADATA'
 
@@ -81,19 +82,6 @@ async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
   # discrepancy, while potentially problematic, will not be addressed since we
   # anticipate moving fully to OCDBT within a quarter or two.
   await utils.async_makedirs(path, parents=True)
-
-
-def get_param_names(item: PyTree) -> PyTree:
-  """Gets parameter names for PyTree elements."""
-
-  def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
-    return '.'.join([str(tree_utils.get_key_name(k)) for k in keypath])
-
-  return jax.tree_util.tree_map_with_path(
-      lambda kp, _: _param_name_from_keypath(kp),
-      item,
-      is_leaf=tree_utils.is_empty_or_leaf,
-  )
 
 
 @dataclasses.dataclass
