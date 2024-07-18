@@ -17,52 +17,76 @@
 import dataclasses
 from typing import Optional
 
+# Note:`*_end_time` fields are not required here as it can be calculated by
+# *_start_time + *_duration_secs
+
 
 @dataclasses.dataclass
-class StepStatistics:
-  """Attributes.
+class SaveStepStatistics:
+  """Attributes for save step statistics.
 
   Attributes:
     step: The step number.
     event_type: The event type.
-    checkpoint_manager_blocking_start_time: The start time of checkpoint
-      manager blocking section.
-    checkpoint_manager_blocking_end_time: The end time of checkpoint manager
+    checkpoint_manager_blocking_start_time: The start time of checkpoint manager
       blocking section.
     directory: The directory of the checkpoint.
     reached_preemption: Whether the event reached preemption.
     preemption_received_at: The time when preemption was received.
     wait_for_prev_start_time: The start time of waiting for previous checkpoint.
-    wait_for_prev_end_time: The end time of waiting for previous checkpoint.
-    checkpoint_blocking_start_time: The start time of checkpointing.
-    checkpoint_blocking_end_time: The end time of checkpointing.
+    checkpointer_blocking_start_time: The start time of blocking time introduced
+      by checkpointer.
     get_old_steps_start_time: The start time of getting old steps.
-    get_old_steps_end_time: The end time of getting old steps.
     synchronous: Whether the event is synchronous.
     wait_for_prev_duration_secs: The duration of waiting for previous
       checkpoint.
-    checkpoint_blocking_duration_secs: The duration of checkpoint which is
-      blocking.
+    checkpointer_blocking_duration_secs: The duration of blocking time
+      introduced by checkpointer.
     get_old_steps_duration_secs: The duration of getting old steps.
     checkpoint_manager_blocking_duration_secs: The duration of checkpoint
       manager blocking section.
   """
 
   step: Optional[int] = None
-  event_type: Optional[str] = None
+  event_type: Optional[str] = "save"
   directory: Optional[str] = None
-  checkpoint_manager_blocking_start_time: Optional[float] = None
-  checkpoint_manager_blocking_end_time: Optional[float] = None
   reached_preemption: Optional[bool] = False
   preemption_received_at: Optional[float] = None
-  wait_for_prev_start_time: Optional[float] = None
-  wait_for_prev_end_time: Optional[float] = None
-  checkpoint_blocking_start_time: Optional[float] = None
-  checkpoint_blocking_end_time: Optional[float] = None
-  get_old_steps_start_time: Optional[float] = None
-  get_old_steps_end_time: Optional[float] = None
   synchronous: Optional[bool] = False
+  wait_for_prev_start_time: Optional[float] = None
   wait_for_prev_duration_secs: Optional[float] = None
-  checkpoint_blocking_duration_secs: Optional[float] = None
+  checkpointer_blocking_start_time: Optional[float] = None
+  checkpointer_blocking_duration_secs: Optional[float] = None
+  get_old_steps_start_time: Optional[float] = None
   get_old_steps_duration_secs: Optional[float] = None
+  checkpoint_manager_blocking_start_time: Optional[float] = None
   checkpoint_manager_blocking_duration_secs: Optional[float] = None
+
+
+@dataclasses.dataclass
+class RestoreStepStatistics:
+  """Attributes for restore step statistics.
+
+  Attributes:
+    step: The step number.
+    event_type: The event type.
+    directory: The directory of the checkpoint.
+    checkpointer_start_time: The start time of restoring the checkpoint, while
+      using the checkpointer.
+    checkpointer_duration_secs: The total duration for restoring the checkpoint,
+      while using the checkpointer.
+    checkpoint_manager_start_time: The start time for restoring the checkpoint,
+      while using the checkpoint manager.
+    checkpoint_manager_duration_secs: The total duration for restoring the
+      checkpoint, while using the checkpoint manager.
+  """
+
+  step: Optional[int] = None
+  event_type: Optional[str] = "restore"
+  directory: Optional[str] = None
+  event_type: Optional[str] = "restore"
+  directory: Optional[str] = None
+  checkpointer_start_time: Optional[float] = None
+  checkpointer_duration_secs: Optional[float] = None
+  checkpoint_manager_start_time: Optional[float] = None
+  checkpoint_manager_duration_secs: Optional[float] = None

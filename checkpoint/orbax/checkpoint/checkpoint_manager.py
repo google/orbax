@@ -969,10 +969,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       args: Optional[args_lib.CheckpointArgs] = None,
   ) -> bool:
     """See superclass documentation."""
-    step_stats = step_statistics.StepStatistics()
+    step_stats = step_statistics.SaveStepStatistics()
     step_stats.step = step
     step_stats.checkpoint_manager_blocking_start_time = time.time()
-    step_stats.event_type = 'save'
     step_stats.directory = str(self.directory)
 
     if items is None and args is None:
@@ -991,10 +990,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # Must happen after `should_save` to avoid blocking callers.
     step_stats.wait_for_prev_start_time = time.time()
     self.wait_until_finished()
-    step_stats.wait_for_prev_end_time = time.time()
-
     step_stats.wait_for_prev_duration_secs = (
-        step_stats.wait_for_prev_end_time - step_stats.wait_for_prev_start_time
+        time.time() - step_stats.wait_for_prev_start_time
     )
 
     jax.monitoring.record_event_duration_secs(
@@ -1077,20 +1074,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           processes=self._multiprocessing_options.active_processes,
       )
     logging.info('Saving checkpoint at step %d', step)
-    step_stats.checkpoint_blocking_start_time = time.time()
+    step_stats.checkpointer_blocking_start_time = time.time()
     self._checkpointer.save(save_directory, args=args)
-    step_stats.checkpoint_blocking_end_time = time.time()
-    step_stats.checkpoint_blocking_duration_secs = (
-        step_stats.checkpoint_blocking_end_time
-        - step_stats.checkpoint_blocking_start_time
+    step_stats.checkpointer_blocking_duration_secs = (
+        time.time() - step_stats.checkpointer_blocking_start_time
     )
 
     self._add_checkpoint_info(step, metrics)
     step_stats.get_old_steps_start_time = time.time()
     steps_to_remove = self._get_old_steps_to_remove()
-    step_stats.get_old_steps_end_time = time.time()
     step_stats.get_old_steps_duration_secs = (
-        step_stats.get_old_steps_end_time - step_stats.get_old_steps_start_time
+        time.time() - step_stats.get_old_steps_start_time
     )
 
     jax.monitoring.record_event_duration_secs(
@@ -1133,10 +1127,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           processes=self._multiprocessing_options.active_processes,
       )
     step_stats.synchronous = not is_async_checkpointer(self._checkpointer)
-    step_stats.checkpoint_manager_blocking_end_time = time.time()
     step_stats.checkpoint_manager_blocking_duration_secs = (
-        step_stats.checkpoint_manager_blocking_end_time
-        - step_stats.checkpoint_manager_blocking_start_time
+        time.time() - step_stats.checkpoint_manager_blocking_start_time
     )
     self._logger.log_entry(dataclasses.asdict(step_stats))
     return True
@@ -1154,6 +1146,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """See superclass documentation."""
     directory = directory or self.directory
     directory = epath.Path(directory)
+    step_stats = step_statistics.RestoreStepStatistics()
+    step_stats.step = step
+    step_stats.checkpoint_manager_start_time = time.time()
+    step_stats.directory = str(directory)
     self._validate_args(items, args)
 
     if items is None:
@@ -1185,7 +1181,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         args = typing.cast(args_lib.Composite, args)
 
     restore_directory = self._get_read_step_directory(step, directory)
+    step_stats.checkpointer_start_time = time.time()
     restored = self._checkpointer.restore(restore_directory, args=args)
+    step_stats.checkpointer_duration_secs = (
+        time.time() - step_stats.checkpointer_start_time
+    )
+
+    step_stats.checkpoint_manager_duration_secs = (
+        time.time()
+        - step_stats.checkpoint_manager_start_time
+    )
+    self._logger.log_entry(dataclasses.asdict(step_stats))
+
     if self._single_item:
       return restored[DEFAULT_ITEM_NAME]
     return restored
