@@ -22,6 +22,8 @@ entries will not return information about array properties).
 ### Changed
 - Allow one directory creation request per item rather than 1 per item per host.
 - Make atomicity logic configurable, and encapsulate it within a class.
+- Move all work for `_write_metadata_file` into a background thread to avoid
+O(n) computation in building metadata.
 
 ### Fixed
 - Refactor ts.Context usage to be per-operation (save/restore) rather than a

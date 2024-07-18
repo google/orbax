@@ -20,9 +20,9 @@ customized, and is delegated to the `TypeHandler` class.
 """
 
 import asyncio
+from concurrent import futures
 import dataclasses
 import json
-import os
 import time
 from typing import Any, List, Optional, Tuple, Union
 
@@ -273,6 +273,8 @@ class BasePyTreeCheckpointHandler(
         '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
     )
 
+    self._thread_pool = futures.ThreadPoolExecutor(max_workers=1)
+
   def get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
     return get_param_names(item)
@@ -304,8 +306,6 @@ class BasePyTreeCheckpointHandler(
     Returns:
       A PyTree matching `item` of ParamInfo.
     """
-    if not item:
-      raise ValueError('Found empty item')
     if use_zarr3 is None:
       use_zarr3 = self._use_zarr3
     names = self.get_param_names(item)
@@ -325,6 +325,9 @@ class BasePyTreeCheckpointHandler(
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
           byte_limiter=byte_limiter,
           ts_context=ts_context,
+          value_typestr=type_handlers.get_param_typestr(
+              value, self._type_handler_registry
+          ),
       )
 
     return jax.tree.map(
@@ -373,6 +376,8 @@ class BasePyTreeCheckpointHandler(
       the data from its source will be awaited in this function.
     """
     item = args.item
+    if not item:
+      raise ValueError('Found empty item.')
     save_args = args.save_args
     ocdbt_target_data_file_size = args.ocdbt_target_data_file_size
     if ocdbt_target_data_file_size is not None and not self._use_zarr3:
@@ -425,8 +430,8 @@ class BasePyTreeCheckpointHandler(
 
     if multihost.is_primary_host(self._primary_host):
       metadata_write_start_time = time.time()
-      metadata_future = await self._write_metadata_file(
-          directory, item, save_args, self._use_zarr3
+      metadata_future = self._write_metadata_file(
+          directory, param_infos, save_args, self._use_zarr3
       )
       commit_futures += [metadata_future]
       jax.monitoring.record_event_duration_secs(
@@ -609,6 +614,8 @@ class BasePyTreeCheckpointHandler(
         if use_zarr3_metadata is not None
         else self._use_zarr3
     )
+    if not metadata:
+      raise ValueError('Found empty metadata.')
     param_infos = self._get_param_infos(
         metadata,
         directory,
@@ -633,33 +640,25 @@ class BasePyTreeCheckpointHandler(
 
     return restored_item
 
-  async def _write_metadata_file(
+  def _write_metadata_file(
       self,
       directory: epath.Path,
-      item: PyTree,
+      param_infos: PyTree,
       save_args: PyTree,
       use_zarr3: bool = False,
   ) -> future.Future:
-    tspec = type_handlers._get_tensorstore_spec(  # pylint: disable=protected-access
-        os.fspath(directory), name=METADATA_FILE, use_ocdbt=False
-    )['kvstore']
-    txn = ts.Transaction()
-    metadata_ts_context = type_handlers.get_ts_context()
-    t = await ts.KvStore.open(
-        tspec, context=metadata_ts_context
-    )
-    metadata_content = tree_metadata.TreeMetadata.build(
-        item,
-        save_args=save_args,
-        type_handler_registry=self._type_handler_registry,
-        use_zarr3=use_zarr3,
-    )
-    write_future = t.with_transaction(txn).write(
-        '', json.dumps(metadata_content.to_json())
-    )
-    await write_future
-    commit_future = txn.commit_async()
-    return commit_future
+    def _save_fn():
+      if utils.is_primary_host(self._primary_host):
+        path = directory / METADATA_FILE
+        metadata_content = tree_metadata.TreeMetadata.build(
+            param_infos,
+            save_args=save_args,
+            use_zarr3=use_zarr3,
+        )
+        path.write_text(json.dumps(metadata_content.to_json()))
+      return 0
+
+    return self._thread_pool.submit(_save_fn)
 
   def _read_metadata_file(
       self, directory: epath.Path

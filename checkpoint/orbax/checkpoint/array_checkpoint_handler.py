@@ -88,13 +88,14 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           )
       ]
 
+    type_handler = type_handlers.get_type_handler(type(item))
     info = type_handlers.ParamInfo(
         name=self._checkpoint_name,
         path=directory / self._checkpoint_name,
         parent_dir=directory,
         is_ocdbt_checkpoint=False,
+        value_typestr=type_handler.typestr(),
     )
-    type_handler = type_handlers.get_type_handler(type(item))
     futures = await type_handler.serialize([item], [info], args=[save_args])
     return list(futures)
 

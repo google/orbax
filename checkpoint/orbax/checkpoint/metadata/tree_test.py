@@ -16,6 +16,7 @@ from absl.testing import absltest
 import jax
 from jax import numpy as jnp
 import numpy as np
+from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint.metadata import tree as tree_metadata
 
@@ -26,7 +27,15 @@ class TreeMetadataTest(absltest.TestCase):
     super().setUp()
     arr = jnp.arange(8)
     assert isinstance(arr, jax.Array)
-    self.tree = {'a': 1, 'b': {'c': 'hi', 'd': 3.4}, 'e': [np.arange(8), arr]}
+    self.tree = {
+        'a': 1,
+        'b': {'c': 'hi', 'd': 3.4},
+        'e': [np.arange(8), arr],
+        'f': None,
+        'g': {},
+        'h': [],
+        'i': tuple([]),
+    }
     self.tree_json = {
         'tree_metadata': {
             "('a',)": {
@@ -76,36 +85,53 @@ class TreeMetadataTest(absltest.TestCase):
                     'skip_deserialize': False,
                 },
             },
+            "('f',)": {
+                'key_metadata': ({'key': 'f', 'key_type': 2},),
+                'value_metadata': {
+                    'value_type': 'None',
+                    'skip_deserialize': True,
+                },
+            },
+            "('g',)": {
+                'key_metadata': ({'key': 'g', 'key_type': 2},),
+                'value_metadata': {
+                    'value_type': 'Dict',
+                    'skip_deserialize': True,
+                },
+            },
+            "('h',)": {
+                'key_metadata': ({'key': 'h', 'key_type': 2},),
+                'value_metadata': {
+                    'value_type': 'List',
+                    'skip_deserialize': True,
+                },
+            },
+            "('i',)": {
+                'key_metadata': ({'key': 'i', 'key_type': 2},),
+                'value_metadata': {
+                    'value_type': 'None',
+                    'skip_deserialize': True,
+                },
+            },
         },
         'use_zarr3': True,
     }
+    self.param_infos = jax.tree.map(
+        # Other properties are not relevant.
+        lambda x: type_handlers.ParamInfo(
+            value_typestr=type_handlers.get_param_typestr(
+                x, type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY
+            )
+        ),
+        self.tree,
+        is_leaf=tree_utils.is_empty_or_leaf,
+    )
 
   def test_json_conversion(self):
     metadata = tree_metadata.TreeMetadata.build(
-        self.tree,
-        type_handler_registry=type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
+        self.param_infos,
         use_zarr3=True,
     )
-    self.assertDictEqual(self.tree_json, metadata.to_json())
-    self.assertEqual(
-        metadata, tree_metadata.TreeMetadata.from_json(self.tree_json)
-    )
-
-  def test_aggregate_option(self):
-    save_args = jax.tree.map(
-        lambda x: type_handlers.SaveArgs(), self.tree
-    )
-    save_args['a'] = type_handlers.SaveArgs(aggregate=True)
-    metadata = tree_metadata.TreeMetadata.build(
-        self.tree,
-        type_handler_registry=type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
-        save_args=save_args,
-        use_zarr3=True,
-    )
-    tree_json = dict(**self.tree_json)
-    tree_json['tree_metadata']["('a',)"]['value_metadata'][
-        'skip_deserialize'
-    ] = True
     self.assertDictEqual(self.tree_json, metadata.to_json())
     self.assertEqual(
         metadata, tree_metadata.TreeMetadata.from_json(self.tree_json)

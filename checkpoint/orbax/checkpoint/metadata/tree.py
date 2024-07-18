@@ -150,32 +150,18 @@ class ValueMetadataEntry:
   @classmethod
   def build(
       cls,
-      value: Any,
+      info: type_handlers.ParamInfo,
       save_arg: type_handlers.SaveArgs,
-      registry: Optional[type_handlers.TypeHandlerRegistry],
   ) -> 'ValueMetadataEntry':
     """Builds a ValueMetadataEntry."""
-    if type_handlers.is_supported_empty_aggregation_type(value):
-      typestr = type_handlers.get_empty_value_typestr(value)
-      skip_deserialize = True
-    elif registry is None:
-      return ValueMetadataEntry(
-          value_type=type_handlers.RESTORE_TYPE_UNKNOWN, skip_deserialize=False
+    del save_arg
+    if info.value_typestr is None:
+      raise AssertionError(
+          'Must set `value_typestr` in `ParamInfo` when saving.'
       )
-    else:
-      try:
-        handler = registry.get(type(value))
-        typestr = handler.typestr()
-        skip_deserialize = save_arg.aggregate
-      except ValueError:
-        # Not an error because users' training states often have a bunch of
-        # random unserializable objects in them (empty states, optimizer
-        # objects, etc.). An error occurring due to a missing TypeHandler
-        # will be surfaced elsewhere.
-        typestr = type_handlers.RESTORE_TYPE_NONE
-        skip_deserialize = True
+    skip_deserialize = type_handlers.is_empty_typestr(info.value_typestr)
     return ValueMetadataEntry(
-        value_type=typestr, skip_deserialize=skip_deserialize
+        value_type=info.value_typestr, skip_deserialize=skip_deserialize
     )
 
 
@@ -208,15 +194,12 @@ class TreeMetadataEntry:
   def build(
       cls,
       keypath: KeyPath,
-      value: Any,
+      info: type_handlers.ParamInfo,
       save_arg: type_handlers.SaveArgs,
-      type_handler_registry: Optional[type_handlers.TypeHandlerRegistry],
   ) -> 'TreeMetadataEntry':
     """Builds a TreeMetadataEntry."""
     key_metadata_entry = KeyMetadataEntry.build(keypath)
-    value_metadata_entry = ValueMetadataEntry.build(
-        value, save_arg, type_handler_registry
-    )
+    value_metadata_entry = ValueMetadataEntry.build(info, save_arg)
     return TreeMetadataEntry(
         str(tuple([str(tree_utils.get_key_name(k)) for k in keypath])),
         key_metadata_entry,
@@ -242,9 +225,8 @@ class TreeMetadata:
   @classmethod
   def build(
       cls,
-      tree: PyTree,
+      param_infos: PyTree,
       *,
-      type_handler_registry: Optional[type_handlers.TypeHandlerRegistry] = None,
       save_args: Optional[PyTree] = None,
       use_zarr3: bool = False,
   ) -> 'TreeMetadata':
@@ -252,23 +234,21 @@ class TreeMetadata:
     if save_args is None:
       save_args = jax.tree.map(
           lambda _: type_handlers.SaveArgs(),
-          tree,
+          param_infos,
           is_leaf=tree_utils.is_empty_or_leaf,
       )
     flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
-        tree, is_leaf=tree_utils.is_empty_or_leaf
+        param_infos, is_leaf=tree_utils.is_empty_or_leaf
     )
     flat_save_args_with_keys, _ = jax.tree_util.tree_flatten_with_path(
         save_args, is_leaf=tree_utils.is_empty_or_leaf
     )
     tree_metadata_entries = []
-    for (keypath, value), (_, save_arg) in zip(
+    for (keypath, info), (_, save_arg) in zip(
         flat_with_keys, flat_save_args_with_keys
     ):
       tree_metadata_entries.append(
-          TreeMetadataEntry.build(
-              keypath, value, save_arg, type_handler_registry
-          )
+          TreeMetadataEntry.build(keypath, info, save_arg)
       )
     return TreeMetadata(tree_metadata_entries, use_zarr3)
 

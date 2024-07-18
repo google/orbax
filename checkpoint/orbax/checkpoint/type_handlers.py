@@ -182,6 +182,8 @@ class ParamInfo:
     Specifies the target size (in bytes) of each OCDBT data file.
   ts_context:
     Tensorstore context to use for reading/writing.
+  value_typestr: stores the original value's typestr (from TypeHandler).
+    Only required when saving.
   """
 
   name: Optional[str] = None
@@ -193,6 +195,7 @@ class ParamInfo:
   use_zarr3: Optional[bool] = False
   ocdbt_target_data_file_size: Optional[int] = None
   ts_context: Optional[ts.Context] = None
+  value_typestr: Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -2056,3 +2059,20 @@ def default_restore_type(args: RestoreArgs) -> Any:
     return np.ndarray
   else:
     raise ValueError(f'Unsupported restore_args type: {type(args)}')
+
+
+def get_param_typestr(value: Any, registry: TypeHandlerRegistry) -> str:
+  """Retrieves the typestr for a given value."""
+  if is_supported_empty_aggregation_type(value):
+    typestr = get_empty_value_typestr(value)
+  else:
+    try:
+      handler = registry.get(type(value))
+      typestr = handler.typestr()
+    except ValueError:
+      # Not an error because users' training states often have a bunch of
+      # random unserializable objects in them (empty states, optimizer
+      # objects, etc.). An error occurring due to a missing TypeHandler
+      # will be surfaced elsewhere.
+      typestr = RESTORE_TYPE_NONE
+  return typestr
