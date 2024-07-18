@@ -1579,6 +1579,8 @@ class SingleReplicaArrayHandler(ArrayHandler):
     """
 
     super(SingleReplicaArrayHandler, self).__init__()
+    if replica_axis_index != 0:
+      raise ValueError('replica_axis_index must be 0.')
     self.replica_axis_index = replica_axis_index
     self.primary_replica_id = primary_replica_id
     self.broadcast_memory_limit_bytes = broadcast_memory_limit_bytes
