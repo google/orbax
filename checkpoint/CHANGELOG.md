@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.22] - 2024-07-19
+
 ### Changed
 - Move `get_param_names` to tree utils.
+- Move all work for `_write_metadata_file` into a background thread to avoid
+O(n) computation in building metadata.
 
 ### Fixed
 - Adjust user metadata construction so that older checkpoints with some values
@@ -25,8 +29,6 @@ entries will not return information about array properties).
 ### Changed
 - Allow one directory creation request per item rather than 1 per item per host.
 - Make atomicity logic configurable, and encapsulate it within a class.
-- Move all work for `_write_metadata_file` into a background thread to avoid
-O(n) computation in building metadata.
 
 ### Fixed
 - Refactor ts.Context usage to be per-operation (save/restore) rather than a
