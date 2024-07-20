@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- In `CheckpointManager.restore`, allow specifying `step=None`, which
+automatically restores from latest.
+
 ## [0.5.22] - 2024-07-19
 
 ### Changed

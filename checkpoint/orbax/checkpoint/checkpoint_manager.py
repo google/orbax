@@ -1135,7 +1135,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def restore(
       self,
-      step: int,
+      step: Optional[int],
       items: Optional[Union[Any, Mapping[str, Any]]] = None,
       restore_kwargs: Optional[
           Union[RestoreParams, Mapping[str, RestoreParams]]
@@ -1144,6 +1144,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       args: Optional[args_lib.CheckpointArgs] = None,
   ) -> Union[Any, Mapping[str, Any]]:
     """See superclass documentation."""
+    if step is None:
+      step = self.latest_step()
     directory = directory or self.directory
     directory = epath.Path(directory)
     step_stats = step_statistics.RestoreStepStatistics()
