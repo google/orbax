@@ -47,11 +47,13 @@ json_dict = restored.metadata
 ```
 """
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import Collection, KeysView
 import concurrent.futures
 import dataclasses
-from typing import AbstractSet, Any, Dict, List, Mapping, Optional, Tuple, Type, Set
+from typing import AbstractSet, Any, Mapping, Type
 import uuid
 
 from absl import logging
@@ -86,16 +88,16 @@ class _LegacyCheckpointHandlerWrapper(checkpoint_handler.CheckpointHandler):
   def __init__(self, handler: checkpoint_handler.CheckpointHandler):
     self._handler = handler
 
-  def save(self, directory: epath.Path, args: '_WrapperArgs'):
+  def save(self, directory: epath.Path, args: _WrapperArgs):
     return self._handler.save(directory, *args.args, **args.kwargs)
 
-  def restore(self, directory: epath.Path, args: '_WrapperArgs'):
+  def restore(self, directory: epath.Path, args: _WrapperArgs):
     return self._handler.restore(directory, *args.args, **args.kwargs)
 
-  def metadata(self, directory: epath.Path) -> Optional[Any]:
+  def metadata(self, directory: epath.Path) -> Any | None:
     return self._handler.metadata(directory)
 
-  def structure(self, directory: epath.Path) -> Optional[Any]:
+  def structure(self, directory: epath.Path) -> Any | None:
     if hasattr(self._handler, 'structure'):
       return self._handler.structure(directory)
     raise AttributeError(
@@ -129,19 +131,19 @@ class _AsyncLegacyCheckpointHandlerWrapper(
   def __init__(self, handler: async_checkpoint_handler.AsyncCheckpointHandler):
     self._handler = handler
 
-  def save(self, directory: epath.Path, args: '_AsyncWrapperArgs'):
+  def save(self, directory: epath.Path, args: _AsyncWrapperArgs):
     return self._handler.save(directory, *args.args, **args.kwargs)
 
-  async def async_save(self, directory: epath.Path, args: '_AsyncWrapperArgs'):
+  async def async_save(self, directory: epath.Path, args: _AsyncWrapperArgs):
     return await self._handler.async_save(directory, *args.args, **args.kwargs)
 
-  def restore(self, directory: epath.Path, args: '_AsyncWrapperArgs'):
+  def restore(self, directory: epath.Path, args: _AsyncWrapperArgs):
     return self._handler.restore(directory, *args.args, **args.kwargs)
 
-  def metadata(self, directory: epath.Path) -> Optional[Any]:
+  def metadata(self, directory: epath.Path) -> Any | None:
     return self._handler.metadata(directory)
 
-  def structure(self, directory: epath.Path) -> Optional[Any]:
+  def structure(self, directory: epath.Path) -> Any | None:
     if hasattr(self._handler, 'structure'):
       return self._handler.structure(directory)
     raise AttributeError(
@@ -181,10 +183,10 @@ def _maybe_raise_reserved_item_error(item_name: str):
 
 @dataclasses.dataclass
 class CompositeOptions:
-  primary_host: Optional[int] = 0
-  active_processes: Optional[Set[int]] = None
-  barrier_sync_key_prefix: Optional[str] = None
-  temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None
+  primary_host: int | None = 0
+  active_processes: set[int] | None = None
+  barrier_sync_key_prefix: str | None = None
+  temporary_path_class: Type[atomicity.TemporaryPath] | None = None
 
 
 class CompositeCheckpointHandler(AsyncCheckpointHandler):
@@ -264,8 +266,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     )
   """
 
-  _known_handlers: Dict[str, Optional[CheckpointHandler]] = {}
-  _current_temporary_paths: Dict[str, atomicity.TemporaryPath] = {}
+  _known_handlers: dict[str, CheckpointHandler | None] = {}
+  _current_temporary_paths: dict[str, atomicity.TemporaryPath] = {}
 
   def __init__(
       self,
@@ -284,7 +286,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         instance, which will be used as the handler for objects of the
         corresponding name.
     """
-    self._known_handlers: Dict[str, Optional[CheckpointHandler]] = (
+    self._known_handlers: dict[str, CheckpointHandler | None] = (
         items_and_handlers
     )
     for item in item_names:
@@ -311,7 +313,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   def _get_or_set_handler(
       self,
       item_name: str,
-      args: Optional[CheckpointArgs],
+      args: CheckpointArgs | None,
   ) -> CheckpointHandler:
     if item_name not in self._known_handlers:
       raise ValueError(
@@ -370,10 +372,13 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     return tmp_item_dir
 
   async def async_save(
-      self, directory: epath.Path, args: 'CompositeArgs'
-  ) -> Optional[List[Future]]:
+      self,
+      directory: epath.Path,
+      args: CompositeArgs,
+  ) -> list[Future] | None:
     """Saves multiple items to individual subdirectories."""
     futures = []
+
     # Sort keys to maintain consistent ordering across processes, otherwise
     # we may hit timeouts if processes wait at different barriers in per-item
     # handlers.
@@ -423,8 +428,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   def _items_exist(
       self,
       directory: epath.Path,
-      item_names: List[str],
-  ) -> Mapping[str, bool]:
+      item_names: list[str],
+  ) -> dict[str, bool]:
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=_CONCURRENT_WORKERS
     ) as executor:
@@ -441,8 +446,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   def restore(
       self,
       directory: epath.Path,
-      args: Optional['CompositeArgs'] = None,
-  ) -> 'CompositeResults':
+      args: CompositeArgs | None = None,
+  ) -> CompositeResults:
     """Restores the provided item synchronously.
 
     Args:
@@ -618,21 +623,21 @@ class CompositeArgs(CheckpointArgs):
   def values(self) -> Collection[CheckpointArgs]:
     return self.__items__.values()
 
-  def items(self) -> AbstractSet[Tuple[str, CheckpointArgs]]:
+  def items(self) -> AbstractSet[tuple[str, CheckpointArgs]]:
     return self.__items__.items()
 
-  def get(self, key: str, default=None) -> Optional[CheckpointArgs]:
+  def get(self, key: str, default=None) -> CheckpointArgs | None:
     try:
       return self.__getitem__(key)
     except KeyError:
       return default
 
-  def __and__(self, other: 'CompositeArgs') -> 'CompositeArgs':
+  def __and__(self, other: CompositeArgs) -> CompositeArgs:
     if isinstance(other, dict):
       other = CompositeArgs(**other)
     return CompositeArgs(**(self.__items__ & other.__items__))
 
-  def __or__(self, other: 'CompositeArgs') -> 'CompositeArgs':
+  def __or__(self, other: CompositeArgs) -> CompositeArgs:
     if isinstance(other, dict):
       other = CompositeArgs(**other)
     return CompositeArgs(**(self.__items__ | other.__items__))
