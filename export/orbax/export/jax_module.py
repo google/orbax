@@ -78,7 +78,7 @@ class _NonTrackableMetadata:
   model_params: PyTree
   jax2tf_kwargs_map: Mapping[str, Any]
   input_polymorphic_shape_map: Mapping[str, Any]
-  allow_multi_axis_sharding_conslidation: Optional[bool]
+  allow_multi_axis_sharding_consolidation: Optional[bool]
 
 
 class JaxModule(tf.Module):
@@ -99,7 +99,7 @@ class JaxModule(tf.Module):
       jax2tf_kwargs: Optional[Mapping[str, Any]] = None,
       jit_compile: Union[bool, Mapping[str, bool]] = True,
       pspecs: Optional[PyTree] = None,
-      allow_multi_axis_sharding_conslidation: Optional[bool] = None,
+      allow_multi_axis_sharding_consolidation: Optional[bool] = None,
   ):
     """JaxModule constructor.
 
@@ -134,10 +134,10 @@ class JaxModule(tf.Module):
         structure as ``params``. If set, the leaves of ``params`` must be
         jax.Array, and ``JaxModule`` must be created within a DTensor export
         context from ``with maybe_enable_dtensor_export_on(mesh)``.
-      allow_multi_axis_sharding_conslidation: Disallowed by default. When set to
-        true, it will allow conslidating JAX array multiple axis sharding into
-        DTensor single axis sharding during checkpoint conversion. This would
-        enable sharding across multiple axis names support for JAX model.
+      allow_multi_axis_sharding_consolidation: Disallowed by default. When set
+        to true, it will allow consolidating JAX array multiple axis sharding
+        into DTensor single axis sharding during checkpoint conversion. This
+        would enable sharding across multiple axis names support for JAX model.
     """
     if callable(apply_fn):
       apply_fn_map: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
@@ -198,7 +198,7 @@ class JaxModule(tf.Module):
       self._methods = dict()
     else:
       tf_vars = _jax_params_to_tf_variables(
-          params, trainable, pspecs, allow_multi_axis_sharding_conslidation
+          params, trainable, pspecs, allow_multi_axis_sharding_consolidation
       )
       # Do not attach `tf_vars` to `self` directly, otherwise its structure will
       # be mutated by `tf.Module.__setattr__`.
@@ -221,7 +221,7 @@ class JaxModule(tf.Module):
         model_params=params,
         jax2tf_kwargs_map=jax2tf_kwargs,
         input_polymorphic_shape_map=input_polymorphic_shape,
-        allow_multi_axis_sharding_conslidation=allow_multi_axis_sharding_conslidation,
+        allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
     )
 
   @property
@@ -268,7 +268,7 @@ class JaxModule(tf.Module):
         self._nontrackable_metadata.model_params,
         self._nontrackable_metadata.var_trainable,
         self._nontrackable_metadata.var_pspecs,
-        self._nontrackable_metadata.allow_multi_axis_sharding_conslidation,
+        self._nontrackable_metadata.allow_multi_axis_sharding_consolidation,
     )
     jax.tree_util.tree_map(
         lambda v, new_v: v.assign(new_v), self._get_variable_tree(), new_vars
@@ -402,7 +402,7 @@ def _jax_params_to_tf_variables(
     params: PyTree,
     trainable: PyTree,
     pspecs: Optional[PyTree],
-    allow_multi_axis_sharding_conslidation: Optional[bool] = None,
+    allow_multi_axis_sharding_consolidation: Optional[bool] = None,
 ) -> PyTree:
   """Converts `params` to tf.Variables in the same pytree structure."""
   mesh = dtensor_utils.get_current_mesh()
@@ -438,7 +438,7 @@ def _jax_params_to_tf_variables(
               pspec,
               mesh.dtensor_mesh,
               mesh.jax_mesh,
-              allow_multi_axis_sharding_conslidation,
+              allow_multi_axis_sharding_consolidation,
           ),
           trainable=trainable,
           shape=x.shape,

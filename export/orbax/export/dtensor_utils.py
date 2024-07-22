@@ -133,7 +133,7 @@ def jax_array_to_dtensor(
     pspec: jax.sharding.PartitionSpec,
     dmesh: dtensor.Mesh,
     jax_mesh: Optional[jax.sharding.Mesh] = None,
-    allow_multi_axis_sharding_conslidation: bool = False,
+    allow_multi_axis_sharding_consolidation: bool = False,
 ) -> DTensor:
   """Converts a jax.Array to a dtensor.
 
@@ -142,7 +142,7 @@ def jax_array_to_dtensor(
     pspec: The partition spec of the input ``array``.
     dmesh: The DTensor mesh where the output dtensor is created.
     jax_mesh: The jax mesh for the jax array and partition spec.
-    allow_multi_axis_sharding_conslidation: Whether reducing sharding a
+    allow_multi_axis_sharding_consolidation: Whether reducing sharding a
       dimension across multiple axis names to one is allowed or not.
 
   Returns:
@@ -150,12 +150,12 @@ def jax_array_to_dtensor(
     spec does not have product-sharding (i.e., sharding a dimension across
     multiple axis names). Or a DTensor with consolidated/reduced sharding
     when the partition spec has product-sharding and
-    `allow_multi_axis_sharding_conslidation` is true (e.g. input array's
+    `allow_multi_axis_sharding_consolidation` is true (e.g. input array's
     sharding is P(None, ('a','b') and output dtensor sharding gets reduced
     to P(None, 'a')).
 
   Raises:
-    ValueError: When `allow_multi_axis_sharding_conslidation` is false and if a
+    ValueError: When `allow_multi_axis_sharding_consolidation` is false and if a
       dimension of ``arr`` is product-sharded, i.e., sharded across more than
       one axes of the mesh. For example, if a mesh has two axes `'x'` and `'y'`,
       `PartitionSpec((x, y))` is considered product-sharded if the mesh size of
@@ -179,7 +179,7 @@ def jax_array_to_dtensor(
           if len(mesh_axis_name) > 1:
             dim_sizes = tuple(dmesh.dim_size(name) for name in mesh_axis_name)
             if dim_sizes.count(1) < len(mesh_axis_name) - 1:
-              if not allow_multi_axis_sharding_conslidation:
+              if not allow_multi_axis_sharding_consolidation:
                 raise ValueError(
                     f'Dimension {i} of the input array (shape={arr.shape}) is'
                     f' sharded across more than one axis ({mesh_axis_name},'

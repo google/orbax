@@ -157,7 +157,11 @@ class DtensorUtilsTest(parameterized.TestCase):
     jax_arr = _create_sharded_jax_array(global_arr, pspec, mesh)
     dmesh = dtensor_utils.jax_mesh_to_dtensor_mesh(mesh)
     dt_arr = dtensor_utils.jax_array_to_dtensor(
-        jax_arr, pspec, dmesh, mesh, allow_multi_axis_sharding_conslidation=True
+        jax_arr,
+        pspec,
+        dmesh,
+        mesh,
+        allow_multi_axis_sharding_consolidation=True,
     )
 
     resharded_jax_arr = _create_sharded_jax_array(
