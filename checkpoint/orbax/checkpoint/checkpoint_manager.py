@@ -725,6 +725,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
                 primary_host=self._multiprocessing_options.primary_host,
                 active_processes=self._multiprocessing_options.active_processes,
                 barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+                file_options=options.file_options,
             ),
             **item_handlers,
         ),
@@ -799,6 +800,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
                 primary_host=self._multiprocessing_options.primary_host,
                 active_processes=self._multiprocessing_options.active_processes,
                 barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+                file_options=options.file_options,
             ),
             **all_item_handlers,
         ),
@@ -1190,8 +1192,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
 
     step_stats.checkpoint_manager_duration_secs = (
-        time.time()
-        - step_stats.checkpoint_manager_start_time
+        time.time() - step_stats.checkpoint_manager_start_time
     )
     self._logger.log_entry(dataclasses.asdict(step_stats))
 

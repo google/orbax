@@ -185,6 +185,7 @@ class CompositeOptions:
   active_processes: Optional[Set[int]] = None
   barrier_sync_key_prefix: Optional[str] = None
   temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None
+  file_options: Optional[options_lib.FileOptions] = None
 
 
 class CompositeCheckpointHandler(AsyncCheckpointHandler):
@@ -302,6 +303,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     self._active_processes = composite_options.active_processes
     self._barrier_sync_key_prefix = composite_options.barrier_sync_key_prefix
     self._temporary_path_class = composite_options.temporary_path_class
+    self._file_options = composite_options.file_options
     logging.info(
         'Initialized item_names=%s, _known_handlers=%s',
         item_names,
@@ -366,6 +368,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
             active_processes=self._active_processes,
             barrier_sync_key_prefix=self._barrier_sync_key_prefix,
         ),
+        file_options=self._file_options,
     )
     return tmp_item_dir
 
