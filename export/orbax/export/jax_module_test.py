@@ -281,17 +281,6 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
 
     x = jax.random.normal(key_x, shape=(2, 1))  # batch size is 2
 
-    # The following trace-compiling fails due to symbolic dimension comparison
-    # being inconclusive without user provided constraints.
-    with self.assertRaisesRegex(
-        Exception,
-        "Symbolic dimension comparison 'b' > '1' is inconclusive.",
-    ):
-      jax_module = obx_export.JaxModule(
-          params, linear, input_polymorphic_shape='b, _'
-      )
-      _ = traced(x)
-
     # With user provided constraints, the trace compiling should succeed.
     jax_module = obx_export.JaxModule(
         params,
