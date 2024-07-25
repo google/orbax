@@ -49,6 +49,7 @@ from orbax.checkpoint import utils
 from orbax.checkpoint.experimental.emergency import multihost as emergency_multihost
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import standard_logger
+from orbax.checkpoint.logging import step_statistics
 from orbax.checkpoint.multihost import multislice
 from orbax.checkpoint.path import step as step_lib
 from typing_extensions import Self  # for Python version < 3.11
@@ -787,8 +788,13 @@ class CheckpointManager(
         step,
         restoring_slice_id,
     )
+    step_stats = step_statistics.EmergencyRestoreStepStatistics()
+    step_stats.checkpoint_manager_start_time = time.time()
+    step_stats.step = step
 
     is_restoring_slice = restoring_slice_id == self._slice_id
+    step_stats.is_restoring_slice = is_restoring_slice
+    step_stats.in_primary_slice = self.in_primary_slice
 
     shape_dtypes, tree_defs = jax.tree.flatten(self._abstract_state)
 
@@ -827,6 +833,8 @@ class CheckpointManager(
               step, epath.Path(directory or self._local_directory)
           )
       )
+      step_stats.directory = str(restore_directory)
+
       # Directly use CheckpointHandler to restore. This is undesirable, but
       # allows us to avoid barrier issues that occur when calling
       # LocalCheckpointManager a different number of times on the non-primary
@@ -836,9 +844,13 @@ class CheckpointManager(
           'Restoring from %s',
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
       )
+      step_stats.checkpointer_start_time = time.time()
       single_slice_pytree = self._local_state_handler.restore(
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
           args=dataclasses.replace(args, restore_args=ss_args),
+      )
+      step_stats.checkpointer_duration_secs = (
+          time.time() - step_stats.checkpointer_start_time
       )
       in_tree = tuple(jax.tree.flatten(single_slice_pytree)[0])
     else:
@@ -873,6 +885,12 @@ class CheckpointManager(
         '/orbax/emergency/checkpoint/read/broadcast_duration_secs',
         broadcast_elapsed_s,
     )
+    step_stats.broadcast_start_time = start_broadcast
+    step_stats.broadcast_duration_secs = broadcast_elapsed_s
+    step_stats.checkpoint_manager_duration_secs = (
+        time.time() - step_stats.checkpoint_manager_start_time
+    )
+    self._logger.log_entry(dataclasses.asdict(step_stats))
 
     logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
     return jax.tree.unflatten(tree_defs, shared_states)

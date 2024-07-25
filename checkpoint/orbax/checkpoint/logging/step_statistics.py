@@ -90,3 +90,43 @@ class RestoreStepStatistics:
   checkpointer_duration_secs: Optional[float] = None
   checkpoint_manager_start_time: Optional[float] = None
   checkpoint_manager_duration_secs: Optional[float] = None
+
+
+@dataclasses.dataclass
+class EmergencyRestoreStepStatistics:
+  """Attributes for emergency restore step statistics.
+
+  Attributes:
+    step: The step number.
+    event_type: The event type.
+    checkpoint_manager_start_time: The start time of checkpoint manager
+      restore event.
+    directory: The directory of the checkpoint.
+    is_restoring_slice: Whether the event takes place on the slice responsible
+      for reading from the storage location. (Note that in_primary_slice=True
+      necessarily implies is_restoring_slice=True.)
+    in_primary_slice: Whether the event takes place on the slice designated as
+      primary (responsible for restoring from persistent storage).
+    checkpointer_start_time: The start time of restoring the checkpoint, while
+      using the checkpointer.
+    checkpointer_duration_secs: The total duration for restoring the checkpoint,
+      while using the checkpointer.
+    broadcast_start_time: The start time of broadcasting(Restore).The broadcast
+      operation performed by SingleReplicaArrayHandler won't be captured in this
+      context.
+    broadcast_duration_secs: The duration of broadcasting(Restore).
+    checkpoint_manager_duration_secs: The total duration of checkpoint
+      manager restore event.
+  """
+
+  step: Optional[int] = None
+  event_type: Optional[str] = "emergency_restore"
+  checkpoint_manager_start_time: Optional[float] = None
+  directory: Optional[str] = None
+  is_restoring_slice: Optional[bool] = False
+  in_primary_slice: Optional[bool] = False
+  checkpointer_start_time: Optional[float] = None
+  checkpointer_duration_secs: Optional[float] = None
+  broadcast_start_time: Optional[float] = None
+  broadcast_duration_secs: Optional[float] = None
+  checkpoint_manager_duration_secs: Optional[float] = None
