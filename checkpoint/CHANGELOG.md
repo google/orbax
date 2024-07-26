@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.23] - 2024-07-26
+
 ### Changed
 - In `CheckpointManager.restore`, allow specifying `step=None`, which
 automatically restores from latest.
+- Emergency checkpointing bug-fixes for CPU backend.
 
 ## [0.5.22] - 2024-07-19
 
