@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fix callsites of handler.async_save to handle returned None.
 
+### Changed
+- Improve logging by adding jax_process, error logs in threads and more...
+
 
 ## [0.5.23] - 2024-07-26
 

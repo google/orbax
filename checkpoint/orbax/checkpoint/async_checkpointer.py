@@ -95,13 +95,13 @@ class _AsyncManager:
       unique_operation_id: str,
   ):
     """Awaits on commit futures and finalizes the checkpoint."""
+    current_process = multihost.process_index()
     # The unique_operation_id allows pre-selecting an identifier to use for the
     # barriers in this background thread. If we have multiple background
     # threads running concurrently, relying on _module_unique_count can result
     # in deadlocks when threads on different processes arrive at the barriers
     # in a certain order.
     try:
-      current_process = multihost.process_index()
       process_count = jax.process_count()
       logging.info(
           'Starting commit to storage layer by process: %s', current_process
@@ -156,6 +156,12 @@ class _AsyncManager:
       )
 
     except Exception as e:  # pylint: disable=broad-exception-caught
+      msg = (
+          f'[process={current_process}] Failed to run'
+          f' {len(commit_futures)} commit threads or the commit callback,'
+          f' directory: {directory}'
+      )
+      logging.error(msg, exc_info=True)
       self._exception = e
 
   def start_async_commit(
@@ -304,7 +310,11 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         raise ValueError(f'Destination {directory} already exists.')
     tmpdir = self.create_temporary_path(directory)
 
-    logging.info('Async saving checkpoint to %s.', directory)
+    logging.info(
+        'Async saving checkpoint to tmp dir=%s, eventually to final dir=%s.',
+        tmpdir.get(),
+        tmpdir.get_final(),
+    )
     # Run copy ops.
     # Try to save using new CheckpointArgs API if supported by the handler.
     ckpt_args = checkpointer.construct_checkpoint_args(
@@ -318,9 +328,24 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
 
     # Directory is the final directory.
     def _callback() -> None:
+      logging.info(
+          'Async Save Callback [1/3]: Finalizing Handler: %s on %s',
+          self._handler,
+          tmpdir.get(),
+      )
       self._handler.finalize(tmpdir.get())
+      logging.info(
+          'Async Save Callback [2/3]: Running'
+          ' post_finalization_callback: %s on %s',
+          self._post_finalization_callback,
+          tmpdir.get_final(),
+      )
       if self._post_finalization_callback is not None:
         self._post_finalization_callback()
+      logging.info(
+          'Async Save Callback [3/3]: Finalizing checkpoint directory: %s',
+          tmpdir.get(),
+      )
       _on_commit_callback(tmpdir, checkpoint_start_time)
 
     self._async_manager.start_async_commit(

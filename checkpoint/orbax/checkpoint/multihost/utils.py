@@ -163,14 +163,19 @@ def get_barrier_sync_fn(
 
   def _fn(*, key: str, timeout_ms: int) -> None:
     key = _unique_barrier_key(key)
-    logging.info('Waiting at barrier: %s', key)
+    logging.info('[process=%s] Waiting at barrier: %s', process_index(), key)
     if processes is None:
       client.wait_at_barrier(key, timeout_ms)
     else:
-      logging.debug('Current process: %d', process_index())
-      logging.debug('Barrier processes: %s', barrier_processes)
+      logging.debug(
+          '[process=%s] Barrier processes: %s',
+          process_index(),
+          barrier_processes,
+      )
       client.wait_at_barrier(key, timeout_ms, process_ids=barrier_processes)
-    logging.info('Done waiting at barrier: %s', key)
+    logging.info(
+        '[process=%s] Done waiting at barrier: %s', process_index(), key
+    )
 
   return _fn
 
@@ -239,7 +244,16 @@ def sync_global_processes(
 
 def reached_preemption(step: int) -> bool:
   """Returns True if a preemption sync point has been reached."""
-  return multihost_utils.reached_preemption_sync_point(step)
+  preemption_sync_point_reached = multihost_utils.reached_preemption_sync_point(
+      step
+  )
+  if preemption_sync_point_reached:
+    logging.warning(
+        '[process=%s] Reached preemption sync point, step=%s',
+        process_index(),
+        step,
+    )
+  return preemption_sync_point_reached
 
 
 def is_primary_host(primary_host: Optional[int]):

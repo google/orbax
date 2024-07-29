@@ -185,8 +185,9 @@ def _create_tmp_directory(
       else:
         raise FileExistsError(
             f'Attempted to create temporary directory {tmp_dir} which already'
-            ' exists.'
+            ' exists but could not be resolved as a checkpoint tmp directory.'
         )
+    logging.info('Creating tmp directory %s', tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=False, mode=path_permission_mode)
     if checkpoint_metadata_store is not None:
       checkpoint_metadata_store.write(
@@ -313,7 +314,6 @@ class AtomicRenameTemporaryPath(TemporaryPath):
     Raises:
       FileExistsError: if tmp directory already exists.
     """
-    logging.info('Creating tmp directory %s', self._tmp_path)
     mode = step_lib.WORLD_READABLE_MODE  # pylint: disable=unused-variable
     mode = (
         file_options.path_permission_mode or self._path_permission_mode or mode
@@ -492,4 +492,4 @@ def on_commit_callback(
   """
   tmp_dir.finalize()
   step_lib.record_saved_duration(checkpoint_start_time)
-  logging.info('Finished saving checkpoint to `%s`.', tmp_dir.get_final())
+  logging.info('Committed checkpoint save to `%s`.', tmp_dir.get_final())
