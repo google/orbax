@@ -25,6 +25,7 @@ import dataclasses
 import json
 import time
 from typing import Any, List, Optional, Tuple, Union
+import uuid
 
 from absl import logging
 from etils import epath
@@ -38,6 +39,7 @@ from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint.metadata import tree as tree_metadata
 import tensorstore as ts
+
 
 
 PyTree = Any
@@ -56,6 +58,7 @@ register_with_handler = checkpoint_args.register_with_handler
 get_param_names = tree_utils.get_param_names
 
 METADATA_FILE = '_METADATA'
+
 
 
 def get_byte_limiter(concurrent_gb: int):
@@ -248,7 +251,8 @@ class BasePyTreeCheckpointHandler(
         to None, then all hosts will be considered as primary. It's useful in
         the case that all hosts are only working with local storage.
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
-        specified, the global type handler registry will be used.
+        specified, the global type handler registry will be used. # BEGIN
+      enable_descriptor: If True, logs a Descriptor proto that contains lineage
     """
     self._concurrent_gb = concurrent_gb
     self._use_ocdbt = use_ocdbt
@@ -261,7 +265,7 @@ class BasePyTreeCheckpointHandler(
         '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
     )
 
-    self._thread_pool = futures.ThreadPoolExecutor(max_workers=1)
+    self._thread_pool = futures.ThreadPoolExecutor(max_workers=2)
 
   def get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
@@ -418,10 +422,11 @@ class BasePyTreeCheckpointHandler(
 
     if multihost.is_primary_host(self._primary_host):
       metadata_write_start_time = time.time()
-      metadata_future = self._write_metadata_file(
-          directory, param_infos, save_args, self._use_zarr3
+      commit_futures.append(
+          self._write_metadata_file(
+              directory, param_infos, save_args, self._use_zarr3
+          )
       )
-      commit_futures += [metadata_future]
       jax.monitoring.record_event_duration_secs(
           '/jax/checkpoint/write/async/metadata_write_duration_secs',
           time.time() - metadata_write_start_time,
@@ -723,7 +728,7 @@ class BasePyTreeCheckpointHandler(
 
   def close(self):
     """Closes the handler. Called automatically by Checkpointer."""
-    pass
+    self._thread_pool.shutdown()
 
 
 @register_with_handler(BasePyTreeCheckpointHandler, for_save=True)

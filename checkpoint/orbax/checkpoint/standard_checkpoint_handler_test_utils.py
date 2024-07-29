@@ -230,11 +230,13 @@ class StandardCheckpointHandlerTestBase:
       )
       test_utils.assert_tree_equal(self, params, restored)
 
-    def test_empty_pytrees(self):
+    def test_empty_error(self):
       """Test case."""
       with self.assertRaises(ValueError):
         self.handler.save(self.directory, args=self.save_args_cls({}))
 
+    def test_empty_dict_node(self):
+      """Test case."""
       item = {'a': {}, 'b': 3}
       self.handler.save(self.directory, args=self.save_args_cls(item))
       restored = self.handler.restore(
@@ -242,6 +244,8 @@ class StandardCheckpointHandlerTestBase:
       )
       self.assertDictEqual(restored, item)
 
+    def test_empty_none_node(self):
+      """Test case."""
       item = {'c': None, 'd': 2}
       self.handler.save(self.directory, args=self.save_args_cls(item))
       restored = self.handler.restore(
