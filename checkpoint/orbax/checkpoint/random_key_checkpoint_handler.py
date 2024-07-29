@@ -130,8 +130,9 @@ class BaseRandomKeyCheckpointHandler(
       commit_futures = await self.async_save(directory, *args, **kwargs)  # pytype: disable=bad-return-type
       # Futures are already running, so sequential waiting is equivalent to
       # concurrent waiting.
-      for f in commit_futures:
-        f.result()  # Block on result.
+      if commit_futures:  # May be None.
+        for f in commit_futures:
+          f.result()  # Block on result.
 
     asyncio.run(async_save())
 
@@ -158,9 +159,7 @@ class BaseRandomKeyCheckpointHandler(
         }),
     )
 
-    return self.post_restore(
-        result[self._key_name], result[self._key_metadata]
-    )
+    return self.post_restore(result[self._key_name], result[self._key_metadata])
 
   def finalize(self, directory: epath.Path):
     self._handler.finalize(directory)
@@ -284,6 +283,7 @@ class NumpyRandomKeySaveArgs(CheckpointArgs):
   Attributes:
     item (required): a Numpy random key in legacy or nonlegacy format
   """
+
   item: NumpyRandomKeyType
 
 
@@ -291,4 +291,5 @@ class NumpyRandomKeySaveArgs(CheckpointArgs):
 @dataclasses.dataclass
 class NumpyRandomKeyRestoreArgs(CheckpointArgs):
   """Numpy random key restore args."""
+
   pass

@@ -106,8 +106,9 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       commit_futures = await self.async_save(directory, *args, **kwargs)  # pytype: disable=bad-return-type
       # Futures are already running, so sequential waiting is equivalent to
       # concurrent waiting.
-      for f in commit_futures:
-        f.result()  # Block on result.
+      if commit_futures:  # May be None.
+        for f in commit_futures:
+          f.result()  # Block on result.
 
     asyncio.run(async_save())
 
@@ -154,9 +155,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           path=checkpoint_path,
           parent_dir=directory,
           skip_deserialize=False,
-          is_ocdbt_checkpoint=type_handlers.is_ocdbt_checkpoint(
-              directory
-          ),
+          is_ocdbt_checkpoint=type_handlers.is_ocdbt_checkpoint(directory),
       )
       restore_type = restore_args.restore_type
       if restore_type is None:

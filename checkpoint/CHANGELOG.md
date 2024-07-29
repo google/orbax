@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fix callsites of handler.async_save to handle returned None.
+
+
 ## [0.5.23] - 2024-07-26
 
 ### Changed

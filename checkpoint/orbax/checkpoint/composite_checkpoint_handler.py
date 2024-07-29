@@ -404,7 +404,11 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       _maybe_raise_reserved_item_error(item_name)
       handler = self._get_or_set_handler(item_name, arg)
       if isinstance(handler, AsyncCheckpointHandler):
-        futures.extend(await handler.async_save(item_directory.get(), args=arg))
+        commit_futures = await handler.async_save(
+            item_directory.get(), args=arg
+        )
+        if commit_futures is not None:
+          futures.extend(commit_futures)
       else:
         handler.save(item_directory.get(), args=arg)
     return futures
