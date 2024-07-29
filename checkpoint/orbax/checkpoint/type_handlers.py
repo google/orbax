@@ -1170,6 +1170,7 @@ class ArrayHandler(TypeHandler):
       metadata_key: Optional[str] = None,
       primary_host: Optional[int] = 0,
       replica_id: Optional[int] = 0,
+      enable_write_sharding_file: bool = True,
   ):
     """Constructor.
 
@@ -1181,10 +1182,13 @@ class ArrayHandler(TypeHandler):
       replica_id: the replica id to be used for saving.  Default to 0.  If it's
         set to None, each shards will pick first replica_id to be used.  It's
         useful in the case that all hosts are only working with local storage.
+      enable_write_sharding_file: whether to write sharding file, defaults to
+        True.
     """
     self._metadata_key = metadata_key
     self._primary_host = primary_host
     self._replica_id = replica_id
+    self._enable_write_sharding_file = enable_write_sharding_file
 
     logging.info(
         'Created `ArrayHandler` with primary_host=%s, replica_id=%s',
@@ -1361,7 +1365,7 @@ class ArrayHandler(TypeHandler):
           )
       ]
 
-      if value.sharding is not None:
+      if self._enable_write_sharding_file and value.sharding is not None:
         if info.parent_dir is None:
           raise ValueError('parent_dir cannot be None')
         tspec_sharding = get_sharding_tensorstore_spec(
