@@ -23,6 +23,7 @@ import os
 import re
 import time
 from typing import Callable, Generic, Iterator, List, Optional, Protocol, Sequence, Set, TypeVar
+import warnings
 
 from absl import logging
 from etils import epath
@@ -540,6 +541,9 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
   if not path.is_dir():
     raise ValueError(f'Path {path} is not a directory. Not a valid checkpoint')
   if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
+    warnings.warn(f'This GCS path {path} does not contain the'
+                  f' {_COMMIT_SUCCESS_FILE} file indicating successfully'
+                  ' written GCS checkpoint.')
     return False
   if TMP_DIR_SUFFIX in path.name:
     return False
