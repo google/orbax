@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Improve logging by adding jax_process, error logs in threads and more...
+- Improvements to blocking save time, as a result of moving file open operations into the background.
 
 
 ## [0.5.23] - 2024-07-26

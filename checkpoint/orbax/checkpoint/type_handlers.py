@@ -23,7 +23,7 @@ import json
 import os
 import re
 import time
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union, cast
+from typing import Any, Callable, cast, Dict, List, Optional, Protocol, Sequence, Tuple, Union
 import warnings
 
 from absl import logging
@@ -38,6 +38,7 @@ from orbax.checkpoint.metadata import sharding as sharding_metadata
 from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import utils as path_utils
 import tensorstore as ts
+
 
 Scalar = Union[int, float, np.number]
 Metadata = value_metadata.Metadata
@@ -446,7 +447,6 @@ def _build_ts_zarr_shard_and_chunk_metadata(
     chunk_byte_size: Optional[int] = None,
 ) -> Dict[Any, Any]:
   """This function returns the TS metadata for write spec."""
-
   if (
       write_chunk_shape or read_chunk_shape or chunk_byte_size
   ) and not use_zarr3:
@@ -720,11 +720,10 @@ def _get_metadata(
       'shape': arr.shape,
       'dtype': dtype,
   }
-  local_shape = arr.addressable_data(0).shape
   metadata.update(
       _build_ts_zarr_shard_and_chunk_metadata(
           global_shape=arr.shape,
-          shard_shape=local_shape,
+          shard_shape=arr.sharding.shard_shape(arr.shape),
           dtype=arr.dtype,
           use_zarr3=use_zarr3,
           write_chunk_shape=write_chunk_shape,
@@ -1201,10 +1200,25 @@ class ArrayHandler(TypeHandler):
           'Setting `primary_host` to None requires JAX version > 0.4.25.'
       )
 
+  def _get_replica_id(
+      self, value: Union[jax.Array, serialization.Shards]
+  ) -> int:
+    """Return shard replica ID to be used for serialization."""
+    if isinstance(value, jax.Array):
+      shards = value.addressable_shards
+    elif isinstance(value, serialization.Shards):
+      shards = value.shards
+    else:
+      raise ValueError(f'Unsupported value type: {type(value)}')
+    if self._replica_id is None:
+      return shards[0].replica_id
+    else:
+      return self._replica_id
+
   def _get_json_tspec_write(
       self,
       info: ParamInfo,
-      value: jax.Array,
+      value: serialization.Shards,
       use_ocdbt: bool,
       process_index: Optional[int] = None,
       arg: Optional[SaveArgs] = None,
@@ -1215,7 +1229,7 @@ class ArrayHandler(TypeHandler):
         info=info,
         use_ocdbt=use_ocdbt,
         global_shape=value.shape,
-        local_shape=value.addressable_data(0).shape,
+        local_shape=value.sharding.shard_shape(value.shape),
         dtype=value.dtype,
         process_index=process_index,
         metadata_key=self._metadata_key,
@@ -1291,6 +1305,81 @@ class ArrayHandler(TypeHandler):
         for (t, info, sharding) in zip(tensorstores, infos, shardings)
     ]
 
+  async def _serialize_sharding(
+      self,
+      value: jax.Array,
+      info: ParamInfo,
+      sharding_metadata_txn: ts.Transaction,
+  ):
+    """Serializes sharding metadata."""
+    if info.parent_dir is None:
+      raise ValueError('parent_dir cannot be None')
+    tspec_sharding = get_sharding_tensorstore_spec(
+        os.fspath(info.parent_dir), info.name
+    )
+    if multihost.is_primary_host(self._primary_host):
+      # OCDBT is not used for sharding metadata.
+      sharding_ts_context = info.ts_context
+      t = await ts.open(
+          tspec_sharding,
+          open=True,
+          context=sharding_ts_context,
+      )
+      serialized_sharding = None
+      sharding_metadata_value = sharding_metadata.from_jax_sharding(
+          value.sharding
+      )
+      if sharding_metadata_value is not None:
+        serialized_sharding = sharding_metadata_value.to_serialized_string()
+      if serialized_sharding is not None:
+        await t.with_transaction(sharding_metadata_txn).write(
+            serialized_sharding
+        )
+
+  async def _background_serialize(
+      self,
+      values: Sequence[serialization.Shards],
+      infos: Sequence[ParamInfo],
+      args: Sequence[SaveArgs],
+  ):
+    """Runs serialization in a background thread."""
+    write_coros = []
+    sharding_metadata_txn = ts.Transaction()
+    ocdbt_transaction: ts.Transaction | None = None
+    for value, info, arg in zip(values, infos, args):
+      if info.is_ocdbt_checkpoint:
+        if ocdbt_transaction is None:
+          ocdbt_transaction = ts.Transaction(atomic=True)
+      tspec = self._get_json_tspec_write(
+          info,
+          value,
+          use_ocdbt=info.is_ocdbt_checkpoint,
+          process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
+          arg=arg,
+      )
+      tspec = get_cast_tspec_serialize(tspec, value, arg)
+      ts_context = info.ts_context
+      replica_id = self._get_replica_id(value)
+      write_coros.append(
+          serialization.async_serialize_shards(
+              value,
+              tspec,
+              primary_host=self._primary_host,
+              replica_id=replica_id,
+              context=ts_context,
+              transaction=ocdbt_transaction,
+          )
+      )
+      if self._enable_write_sharding_file and value.sharding is not None:
+        write_coros.append(
+            self._serialize_sharding(value, info, sharding_metadata_txn)
+        )
+
+    await asyncio.gather(*write_coros)
+    await sharding_metadata_txn.commit_async()
+    if ocdbt_transaction is not None:
+      await ocdbt_transaction.commit_async()
+
   async def serialize(
       self,
       values: Sequence[jax.Array],
@@ -1313,93 +1402,27 @@ class ArrayHandler(TypeHandler):
         )
     args = args or [SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
-    synchronous_ops = []
-    futures = []
-    sharding_metadata_txn = ts.Transaction()
-    ocdbt_transaction: ts.Transaction | None = None
-    for value, info, arg in zip(values, infos, args):
-      if info.is_ocdbt_checkpoint:
-        if ocdbt_transaction is None:
-          ocdbt_transaction = ts.Transaction(atomic=True)
-      tspec = self._get_json_tspec_write(
-          info,
-          value,
-          use_ocdbt=info.is_ocdbt_checkpoint,
-          process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
-          arg=arg,
-      )
-      tspec = get_cast_tspec_serialize(tspec, value, arg)
-      ts_context = info.ts_context
-      if self._replica_id is None:
-        replica_id = value.addressable_shards[0].replica_id
-      else:
-        replica_id = self._replica_id
-      if logging.level_debug():
-        logging.debug(
-            'sharding=%s, addressable_shards=%s, global_shards=%s',
-            value.sharding,
-            value.addressable_shards,
-            value.global_shards,
+
+    # Start D2H transfer in parallel for each array.
+    host_shards = [
+        serialization.transfer_array_to_host(value, self._get_replica_id(value))
+        for value in values
+    ]
+    jax.tree.map(lambda x: x.block_until_ready(), host_shards)
+
+    class _CommitFuture(future.Future):
+      """Represents the result of a background commit."""
+
+      def __init__(self, coro):
+        self._t = future.ThreadRaisingException(
+            target=lambda: asyncio.run(coro)
         )
-        logging.debug('tspec = %s', tspec)
-        logging.debug('infos = %s', info)
-        logging.debug('args = %s', arg)
-        logging.debug('replica_id = %s', replica_id)
+        self._t.start()
 
-      serialize_args = dict()
+      def result(self, timeout: Optional[int] = None) -> Any:
+        return self._t.join(timeout=timeout)
 
-      if jax.__version_info__ > (0, 4, 25):
-        serialize_args['primary_host'] = self._primary_host
-        serialize_args['replica_id'] = replica_id
-
-      if jax.__version_info__ > (0, 4, 29):
-        serialize_args['transaction'] = ocdbt_transaction
-
-      synchronous_ops += [
-          serialization.async_serialize(
-              value,
-              tspec,
-              commit_future=futures,
-              context=ts_context,
-              **serialize_args,
-          )
-      ]
-
-      if self._enable_write_sharding_file and value.sharding is not None:
-        if info.parent_dir is None:
-          raise ValueError('parent_dir cannot be None')
-        tspec_sharding = get_sharding_tensorstore_spec(
-            os.fspath(info.parent_dir), info.name
-        )
-        if multihost.is_primary_host(self._primary_host):
-          # OCDBT is not used for sharding metadata.
-          sharding_ts_context = info.ts_context
-          t = await ts.open(
-              tspec_sharding,
-              open=True,
-              context=sharding_ts_context,
-          )
-          serialized_sharding = None
-          sharding_metadata_value = sharding_metadata.from_jax_sharding(
-              value.sharding
-          )
-          if sharding_metadata_value is not None:
-            serialized_sharding = sharding_metadata_value.to_serialized_string()
-          if serialized_sharding is not None:
-            write_future = t.with_transaction(sharding_metadata_txn).write(
-                serialized_sharding
-            )
-            synchronous_ops += [write_future.copy]
-    await asyncio.gather(*synchronous_ops)
-
-    if logging.level_debug():
-      logging.debug(
-          'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
-      )
-    futures.append(sharding_metadata_txn.commit_async())
-    if ocdbt_transaction is not None:
-      futures.append(ocdbt_transaction.commit_async())
-    return futures
+    return [_CommitFuture(self._background_serialize(host_shards, infos, args))]
 
   async def deserialize(
       self,

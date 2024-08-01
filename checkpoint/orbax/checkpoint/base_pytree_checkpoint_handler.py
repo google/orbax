@@ -322,6 +322,25 @@ class BasePyTreeCheckpointHandler(
         _param_info, names, item, is_leaf=utils.is_empty_or_leaf
     )
 
+  async def _maybe_create_param_directories(
+      self, param_infos: PyTree, save_args: PyTree
+  ):
+    if not self._use_ocdbt:
+      if multihost.is_primary_host(self._primary_host):
+        # Create directories in parallel.
+        await asyncio.gather(
+            *jax.tree.flatten(
+                jax.tree.map(
+                    _create_param_save_dir,
+                    param_infos,
+                    save_args,
+                )
+            )[0]
+        )
+      multihost.sync_global_processes(
+          'PyTreeCheckpointHandler:create_param_save_dirs'
+      )
+
   async def async_save(
       self,
       directory: epath.Path,
@@ -382,21 +401,8 @@ class BasePyTreeCheckpointHandler(
         leaf.parent_dir == directory
         for leaf in jax.tree.leaves(param_infos)
     )
-    if not self._use_ocdbt:
-      if multihost.is_primary_host(self._primary_host):
-        # Create directories in parallel.
-        await asyncio.gather(
-            *jax.tree.flatten(
-                jax.tree.map(
-                    _create_param_save_dir,
-                    param_infos,
-                    save_args,
-                )
-            )[0]
-        )
-      multihost.sync_global_processes(
-          'PyTreeCheckpointHandler:create_param_save_dirs'
-      )
+    await self._maybe_create_param_directories(param_infos, save_args)
+
     serialize_ops = []
     batch_requests = batched_serialization_requests(
         item,

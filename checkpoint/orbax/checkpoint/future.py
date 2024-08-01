@@ -14,6 +14,7 @@
 
 """Orbax Future class used for duck typing."""
 
+import threading
 from typing import Any, Optional
 from typing_extensions import Protocol
 
@@ -41,3 +42,19 @@ class NoopFuture:
   def result(self, timeout: Optional[int] = None) -> Any:
     del timeout
     return None
+
+
+class ThreadRaisingException(threading.Thread):
+  """Thread that raises an exception if it encounters an error."""
+  _exception: Optional[Exception] = None
+
+  def run(self):
+    try:
+      super().run()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      self._exception = e
+
+  def join(self, timeout=None):
+    super().join(timeout=timeout)
+    if self._exception is not None:
+      raise self._exception

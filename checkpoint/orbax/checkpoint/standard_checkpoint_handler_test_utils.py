@@ -110,7 +110,6 @@ class StandardCheckpointHandlerTestBase:
 
     def test_basic(self):
       self.handler.save(self.directory, args=self.save_args_cls(self.pytree))
-      test_utils.print_directory(self.directory)
       self.assertTrue(
           (self.directory / type_handlers._OCDBT_MANIFEST_FILE).exists()  # pylint: disable=protected-access
       )
@@ -142,17 +141,6 @@ class StandardCheckpointHandlerTestBase:
           ),
       )
       test_utils.assert_tree_equal(self, self.mixed_pytree, restored)
-
-    def test_save_aggregate(self):
-      def _save_args(arr):
-        return SaveArgs(aggregate=(np.asarray(arr).ndim < 2))
-
-      save_args = jax.tree.map(_save_args, self.numpy_pytree)
-      with self.assertRaisesRegex(ValueError, 'Unsupported option `aggregate`'):
-        self.handler.save(
-            self.directory,
-            args=self.save_args_cls(self.numpy_pytree, save_args=save_args),
-        )
 
     def test_save_unsupported_type(self):
       pytree = {'str_key': 'str_value', **self.pytree}
