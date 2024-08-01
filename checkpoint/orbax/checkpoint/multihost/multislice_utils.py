@@ -232,9 +232,11 @@ def broadcast_one_replica_to_all(
         out_shardings=out_sharding,
     )(in_tree_sharded)
     out_tree.extend(out_subtree)
-    jax.block_until_ready(out_tree)
+    jax.block_until_ready(out_subtree)
     start = end
-  logging.info('Number of broadcasts: %d', num_broadcasts)
+
+  if is_source:
+    logging.info('Total number of broadcasts: %d', num_broadcasts)
   return tuple(out_tree), num_broadcasts
 
 
