@@ -869,10 +869,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       return False
     # If present then prefer should_save_fn over other 'save_*' options.
     if self._options.should_save_fn is not None:
-      logging.info(
+      logging.log_every_n(
+          logging.INFO,
           'CheckpointManagerOptions.should_save_fn is available, following save'
           ' options will be ignored: save_interval_steps=%s and'
           ' save_on_steps=%s',
+          500,
           self._options.save_interval_steps,
           self._options.save_on_steps,
       )
