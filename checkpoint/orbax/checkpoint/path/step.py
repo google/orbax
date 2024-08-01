@@ -540,6 +540,15 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
   if not path.is_dir():
     raise ValueError(f'Path {path} is not a directory. Not a valid checkpoint')
   if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
+    logging.warning(
+        'This GCS path %s does not contain the %s file used to indicate a'
+        ' successfully written GCS checkpoint. If the checkpoint was'
+        ' originally saved with GCS, the checkpoint was not successfully'
+        ' written. If the the checkpoint was saved differently and copied, you'
+        ' need to add %s to the checkpoint directory.', path,
+        _COMMIT_SUCCESS_FILE, _COMMIT_SUCCESS_FILE
+    )
+
     return False
   if TMP_DIR_SUFFIX in path.name:
     return False
