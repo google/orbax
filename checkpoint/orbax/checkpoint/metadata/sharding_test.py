@@ -46,6 +46,39 @@ class TestShardingMetadata(absltest.TestCase):
     self.assertIsInstance(converted_jax_sharding, jax.sharding.NamedSharding)
     self.assertEqual(converted_jax_sharding, jax_sharding)
 
+  def test_convert_between_jax_positional_sharding_and_sharding_metadata(
+      self,
+  ):
+    # Convert from `jax.sharding.PositionalSharding` to
+    # `PositionalShardingMetadata`
+    jax_sharding = jax.sharding.PositionalSharding(jax.devices()).reshape(
+        [1, -1]
+    )
+    expected_positional_sharding_metadata = (
+        sharding_metadata.PositionalShardingMetadata(jax_sharding.shape)
+    )
+    converted_positional_sharding_metadata = (
+        sharding_metadata.from_jax_sharding(jax_sharding)
+    )
+    self.assertIsInstance(
+        converted_positional_sharding_metadata,
+        sharding_metadata.PositionalShardingMetadata,
+    )
+    self.assertEqual(
+        converted_positional_sharding_metadata,
+        expected_positional_sharding_metadata,
+    )
+
+    # Convert from `PositionalShardingMetadata` to
+    # `jax.sharding.PositionalSharding`
+    converted_jax_sharding = (
+        converted_positional_sharding_metadata.to_jax_sharding()
+    )
+    self.assertIsInstance(
+        converted_jax_sharding, jax.sharding.PositionalSharding
+    )
+    self.assertEqual(converted_jax_sharding, jax_sharding)
+
   def test_convert_between_jax_single_device_sharding_and_sharding_metadata(
       self,
   ):
@@ -104,6 +137,67 @@ class TestShardingMetadata(absltest.TestCase):
     )
     self.assertEqual(converted_named_sharding_metadata, named_sharding_metadata)
 
+  def test_positional_sharding_string_to_metadata(
+      self,
+  ):
+    # Convert from `PositionalShardingMetadata` to `str`
+    positional_sharding_metadata = sharding_metadata.PositionalShardingMetadata(
+        shape=np.array([1, 2])
+    )
+    expected_positional_sharding_string = (
+        '{"sharding_type": "PositionalSharding", "shape": [1, 2]}'
+    )
+    positional_sharding_string = (
+        positional_sharding_metadata.to_serialized_string()
+    )
+    self.assertEqual(
+        positional_sharding_string, expected_positional_sharding_string
+    )
+
+    # Convert from `str` to `PositionalShardingMetadata`
+    converted_positional_sharding_metadata = (
+        sharding_metadata.from_serialized_string(positional_sharding_string)
+    )
+    self.assertIsInstance(
+        converted_positional_sharding_metadata,
+        sharding_metadata.PositionalShardingMetadata,
+    )
+    self.assertEqual(
+        converted_positional_sharding_metadata,
+        positional_sharding_metadata,
+    )
+
+  def test_positional_sharding_string_to_metadata_with_memory_kind(
+      self,
+  ):
+    # Convert from `PositionalShardingMetadata` to `str`
+    positional_sharding_metadata = sharding_metadata.PositionalShardingMetadata(
+        shape=np.array([1, 2]), memory_kind="foo"
+    )
+    expected_positional_sharding_string = (
+        '{"sharding_type": "PositionalSharding", "shape": [1, 2],'
+        ' "memory_kind": "foo"}'
+    )
+    positional_sharding_string = (
+        positional_sharding_metadata.to_serialized_string()
+    )
+    self.assertEqual(
+        positional_sharding_string, expected_positional_sharding_string
+    )
+
+    # Convert from `str` to `PositionalShardingMetadata`
+    converted_positional_sharding_metadata = (
+        sharding_metadata.from_serialized_string(positional_sharding_string)
+    )
+    self.assertIsInstance(
+        converted_positional_sharding_metadata,
+        sharding_metadata.PositionalShardingMetadata,
+    )
+    self.assertEqual(
+        converted_positional_sharding_metadata,
+        positional_sharding_metadata,
+    )
+
   def test_single_device_sharding_string_to_metadata(
       self,
   ):
@@ -135,14 +229,15 @@ class TestShardingMetadata(absltest.TestCase):
     )
 
   def test_convert_to_jax_sharding_unsupported_types(self):
-    jax_sharding = jax.sharding.PositionalSharding(jax.devices())
+    jax_sharding = jax.sharding.GSPMDSharding.get_replicated(jax.devices())
     warning_message = (
-        "Conversion for <class 'jax._src.sharding_impls.PositionalSharding'>"
+        r"Conversion for <class '.*\.GSPMDSharding'>"
         " has not been implemented."
     )
     with self.assertLogs(level="WARNING") as log_output:
       sharding_metadata.from_jax_sharding(jax_sharding)
-      self.assertEqual(log_output[0][0].message, warning_message)
+      self.assertNotEmpty(log_output[0])
+      self.assertRegex(log_output[0][0].message, warning_message)
 
 
 if __name__ == "__main__":
