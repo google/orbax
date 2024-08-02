@@ -72,7 +72,9 @@ def _write_process_metadata(path: epath.Path, mesh: jax.sharding.Mesh):
 
   if multihost.process_index() == 0:
     path.mkdir(parents=False, exist_ok=False)
-    runtime_to_distributed_ids = multihost.utils.runtime_to_distributed_ids()
+    runtime_to_distributed_ids = (
+        emergency_multihost.runtime_to_distributed_ids()
+    )
     (path / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
         json.dumps(runtime_to_distributed_ids)
     )
