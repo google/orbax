@@ -368,7 +368,7 @@ def _create_root_directory(
     logging.info('Created directory=%s', directory)
   multihost.sync_global_processes(
       multihost.unique_barrier_key(
-          'CheckpointManager:create_directory',
+          'CheckpointManager:create_directory:' + str(directory),
           prefix=multiprocessing_options.barrier_sync_key_prefix,
           suffix=None,
       ),
