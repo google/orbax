@@ -58,20 +58,30 @@ class StandardCheckpointHandler(
   of `CheckpointHandler`.
   """
 
-  def __init__(self, concurrent_gb: int = 96, primary_host: Optional[int] = 0):
+  def __init__(
+      self,
+      *,
+      save_concurrent_gb: int = 96,
+      restore_concurrent_gb: int = 96,
+      primary_host: Optional[int] = 0,
+  ):
     """Creates StandardCheckpointHandler.
 
     Args:
-      concurrent_gb: max concurrent GB that are allowed to be read. Can help to
-        reduce the possibility of OOM's when large checkpoints are restored.
+      save_concurrent_gb: max concurrent GB that are allowed to be saved. Can
+        help to reduce the possibility of OOM's when large checkpoints are
+        saved.
+      restore_concurrent_gb: max concurrent GB that are allowed to be restored.
+        Can help to reduce the possibility of OOM's when large checkpoints are
+        restored.
       primary_host: the host id of the primary host.  Default to 0.  If it's set
         to None, then all hosts will be considered as primary.  It's useful in
         the case that all hosts are only working with local storage.
     """
     self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
-    self._concurrent_gb = concurrent_gb
     self._impl = pytree_checkpoint_handler.PyTreeCheckpointHandler(
-        concurrent_gb=concurrent_gb,
+        save_concurrent_gb=save_concurrent_gb,
+        restore_concurrent_gb=restore_concurrent_gb,
         primary_host=primary_host,
     )
 

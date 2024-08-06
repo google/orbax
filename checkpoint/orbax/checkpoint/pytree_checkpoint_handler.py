@@ -35,6 +35,7 @@ from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import base_pytree_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
+from orbax.checkpoint import serialization
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
@@ -63,13 +64,12 @@ BasePyTreeCheckpointHandler = (
 )
 BasePyTreeSaveArgs = base_pytree_checkpoint_handler.BasePyTreeSaveArgs
 BasePyTreeRestoreArgs = base_pytree_checkpoint_handler.BasePyTreeRestoreArgs
-get_byte_limiter = base_pytree_checkpoint_handler.get_byte_limiter
 LimitInFlightBytes = base_pytree_checkpoint_handler.LimitInFlightBytes
 get_param_names = base_pytree_checkpoint_handler.get_param_names
 
 _CHECKPOINT_FILE = 'checkpoint'
 _METADATA_FILE = base_pytree_checkpoint_handler.METADATA_FILE
-_DEFAULT_CONCURRENT_GB = 96
+DEFAULT_CONCURRENT_GB = base_pytree_checkpoint_handler.DEFAULT_CONCURRENT_GB
 
 
 def _maybe_set_default_restore_args(args):
@@ -434,6 +434,13 @@ def _get_impl_save_args(
   )
 
 
+def _concurrent_bytes(concurrent_gb: Optional[int]) -> int:
+  if concurrent_gb is None:
+    return DEFAULT_CONCURRENT_GB * 10**9
+  else:
+    return concurrent_gb * 10**9
+
+
 class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """A CheckpointHandler implementation for any PyTree structure.
 
@@ -450,14 +457,16 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   Example::
 
     ckptr = Checkpointer(PyTreeCheckpointHandler())
-    
+
   # TODO(cpgaffney) Cut down on the protected methods accessed by this class.
   """
 
   def __init__(
       self,
       aggregate_filename: Optional[str] = None,
-      concurrent_gb: Optional[int] = None,
+      *,
+      save_concurrent_gb: Optional[int] = None,
+      restore_concurrent_gb: Optional[int] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
       primary_host: Optional[int] = 0,
@@ -469,8 +478,12 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     Args:
       aggregate_filename: name that the aggregated checkpoint should be saved
         as.
-      concurrent_gb: max concurrent GB that are allowed to be read. Can help to
-        reduce the possibility of OOM's when large checkpoints are restored.
+      save_concurrent_gb: max concurrent GB that are allowed for writing. Can
+        help to reduce the possibility of OOM's when large checkpoints are
+        saved.
+      restore_concurrent_gb: max concurrent GB that are allowed for writing. Can
+        help to reduce the possibility of OOM's when large checkpoints are
+        restored.
       use_ocdbt: enables Tensorstore OCDBT driver. This option allows using a
         different checkpoint format which is faster to read and write, as well
         as more space efficient.
@@ -486,16 +499,15 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if aggregate_filename is None:
       aggregate_filename = _CHECKPOINT_FILE
     self._aggregate_filename = aggregate_filename
-    if concurrent_gb is None:
-      concurrent_gb = _DEFAULT_CONCURRENT_GB
-    self._concurrent_gb = concurrent_gb
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
     self._primary_host = primary_host
     self._type_handler_registry = type_handler_registry
-
+    self._save_concurrent_bytes = _concurrent_bytes(save_concurrent_gb)
+    self._restore_concurrent_bytes = _concurrent_bytes(restore_concurrent_gb)
     self._handler_impl = handler_impl or BasePyTreeCheckpointHandler(
-        concurrent_gb=concurrent_gb,
+        save_concurrent_bytes=self._save_concurrent_bytes,
+        restore_concurrent_bytes=self._restore_concurrent_bytes,
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
         primary_host=primary_host,
@@ -579,6 +591,13 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       restore_args: PyTree,
   ) -> PyTree:
     """Deserializes values or gets them from the aggregate file."""
+    byte_limiter = serialization.get_byte_limiter(
+        self._restore_concurrent_bytes
+    )
+    param_infos = jax.tree.map(
+        lambda info: dataclasses.replace(info, byte_limiter=byte_limiter),
+        param_infos,
+    )
 
     # Handle parameters from aggregate file.
     def _process_aggregated_value(meta_or_value, args):
@@ -766,7 +785,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
       )
-    byte_limiter = get_byte_limiter(self._concurrent_gb)
     structure, use_zarr3_metadata = self._get_internal_metadata(directory)
     # `checkpoint_restore_args` has a structure relative to the checkpoint,
     # while `restore_args` remains structured relative to the output.
@@ -778,7 +796,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         self._handler_impl.get_param_names(structure),
         transforms,
         restore_args,
-        byte_limiter=byte_limiter,
         transforms_default_to_original=transforms_default_to_original,
         use_zarr3=use_zarr3_metadata
         if use_zarr3_metadata is not None

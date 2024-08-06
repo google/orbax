@@ -32,7 +32,8 @@ dependencies = [
     'pyyaml',
     'tensorstore >= 0.1.60',
     'nest_asyncio',
-    'protobuf'
+    'protobuf',
+    'humanize',
 ]
 
 dynamic = ['version']

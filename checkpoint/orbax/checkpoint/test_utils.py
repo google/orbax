@@ -16,6 +16,7 @@
 
 # pylint: disable=protected-access
 
+import asyncio
 from concurrent import futures
 import contextlib
 import functools
@@ -310,7 +311,7 @@ def create_sharded_array(arr, mesh, mesh_axes):
   return jax.make_array_from_callback(
       arr.shape,
       jax.sharding.NamedSharding(mesh, mesh_axes),
-      lambda idx: arr[idx],
+      lambda idx: np.asarray(arr[idx], dtype=arr.dtype),
   )
 
 
@@ -368,6 +369,18 @@ def set_tensorstore_driver_for_test():
   # results in issues writing to the OCDBT manifest. When using `gfile` on the
   # local filesystem, write operations are not atomic.
   serialization._DEFAULT_DRIVER = 'file'
+
+
+class PyTreeCheckpointHandler(
+    pytree_checkpoint_handler.PyTreeCheckpointHandler
+):
+
+  def save(self, directory, *args, **kwargs):
+    super().save(directory, *args, **kwargs)
+    sync_global_processes('PyTreeCheckpointHandler:save')
+    if multihost.process_index() == 0:
+      self.finalize(directory)
+    sync_global_processes('PyTreeCheckpointHandler:finalize')
 
 
 class ErrorCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
@@ -578,3 +591,74 @@ def _replica_devices(device_array: np.ndarray, replica_axis_idx: int):
                            idx,
                            axis=replica_axis_idx)
   return np.expand_dims(replica_result, axis=replica_axis_idx)
+
+
+class TestLimitInFlightBytes(serialization.LimitInFlightBytes):
+  """Limits in-flight bytes when reading/writing checkpoints per process."""
+
+  def __init__(self, limit_bytes: int, sleep_time: float):
+    super().__init__(limit_bytes)
+    self.sleep_time = sleep_time
+    self.completion_times = []
+
+  async def wait_for_bytes(self, requested_bytes: int):
+    await super().wait_for_bytes(requested_bytes)
+    await asyncio.sleep(self.sleep_time / 2)
+
+  async def release_bytes(self, requested_bytes: int):
+    await asyncio.sleep(self.sleep_time / 2)
+    await super().release_bytes(requested_bytes)
+    self.completion_times.append(time.time())
+
+
+def get_byte_limiter(
+    concurrent_bytes: int, sleep_time: float
+) -> TestLimitInFlightBytes:
+  return TestLimitInFlightBytes(concurrent_bytes, sleep_time)
+
+
+def concurrent_gb_test_setup():
+  """Setup for tests exercising concurrent_gb setting."""
+  # Need to override later so we can use a small number of bytes.
+  handler = PyTreeCheckpointHandler(
+      save_concurrent_gb=1, restore_concurrent_gb=1, use_ocdbt=False
+  )
+
+  mesh = jax.sharding.Mesh(
+      jax.devices(),
+      ('x',),
+  )
+  pspec = jax.sharding.PartitionSpec(
+      None,
+  )
+
+  def _create_sharded_array(arr):
+    return create_sharded_array(arr, mesh, pspec)
+
+  # 4 arrays, each has a single chunk, with 4 bytes each.
+  tree = jax.tree.map(
+      _create_sharded_array,
+      {
+          'a': np.arange(1, dtype=np.int32),
+          'b': np.arange(1, dtype=np.int32),
+          'c': np.arange(1, dtype=np.int32),
+          'd': np.arange(1, dtype=np.int32),
+      },
+  )
+  restore_args = jax.tree.map(
+      lambda _: type_handlers.ArrayRestoreArgs(
+          sharding=jax.sharding.NamedSharding(mesh, pspec)
+      ),
+      tree,
+  )
+  return handler, tree, restore_args
+
+
+def assert_every_n_is_x_apart(testclass, values, n, x):
+  # For an array of values which is divided into sub-arrays of size n,
+  # asserts that the first element of every group is at least x greater
+  # than the last element of the previous group.
+  values = sorted(values)
+  assert len(values) % n == 0
+  for i in range(n, len(values), n):
+    testclass.assertGreaterEqual(values[i], values[i - 1] + x)

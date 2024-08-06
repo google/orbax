@@ -34,6 +34,7 @@ from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import multihost
+from orbax.checkpoint import serialization
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
@@ -58,20 +59,8 @@ register_with_handler = checkpoint_args.register_with_handler
 get_param_names = tree_utils.get_param_names
 
 METADATA_FILE = '_METADATA'
+DEFAULT_CONCURRENT_GB = 96
 
-
-
-def get_byte_limiter(concurrent_gb: int):
-  async def _create_byte_limiter():
-    # Wrap creation in async function to avoid issues on python<=3.9.
-    concurrent_bytes = concurrent_gb * 10**9
-    # Construction must take place here so that it is within the same async
-    # method, to prevent errors resulting from different event loops, and
-    # cannot be created below this level because there must be a single object
-    # for the entire restore call.
-    return LimitInFlightBytes(concurrent_bytes)  # pylint: disable=protected-access
-
-  return asyncio.run(_create_byte_limiter())
 
 
 async def _create_param_save_dir(param_info: ParamInfo, args: SaveArgs):
@@ -234,7 +223,9 @@ class BasePyTreeCheckpointHandler(
 
   def __init__(
       self,
-      concurrent_gb: int = 96,
+      *,
+      save_concurrent_bytes: Optional[int] = None,
+      restore_concurrent_bytes: Optional[int] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
       primary_host: Optional[int] = 0,
@@ -243,8 +234,12 @@ class BasePyTreeCheckpointHandler(
     """Creates BasePyTreeCheckpointHandler.
 
     Args:
-      concurrent_gb: max concurrent GB that are allowed to be read. Can help to
-        reduce the possibility of OOM's when large checkpoints are restored.
+      save_concurrent_bytes: max concurrent bytes that are allowed to be
+        written. Can help to reduce the possibility of OOM's when large
+        checkpoints are saved.
+      restore_concurrent_bytes: max concurrent bytes that are allowed to be
+        restored. Can help to reduce the possibility of OOM's when large
+        checkpoints are restored.
       use_ocdbt: Whether to use OCDBT format for saving.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2.
       primary_host: the host id of the primary host.  Default to 0. If it's set
@@ -254,7 +249,8 @@ class BasePyTreeCheckpointHandler(
         specified, the global type handler registry will be used. # BEGIN
       enable_descriptor: If True, logs a Descriptor proto that contains lineage
     """
-    self._concurrent_gb = concurrent_gb
+    self._save_concurrent_bytes = save_concurrent_bytes
+    self._restore_concurrent_bytes = restore_concurrent_bytes
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
     self._primary_host = primary_host
@@ -279,7 +275,7 @@ class BasePyTreeCheckpointHandler(
       use_ocdbt: bool = True,
       use_zarr3: Optional[bool] = None,
       ocdbt_target_data_file_size: Optional[int] = None,
-      byte_limiter: Optional[LimitInFlightBytes] = None,
+      byte_limiter: Optional[serialization.ByteLimiter] = None,
   ) -> PyTree:
     """Returns parameter information for elements in `item`.
 
@@ -293,7 +289,7 @@ class BasePyTreeCheckpointHandler(
       use_zarr3: Whether to use zarr3.
       ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
         OCDBT data file.
-      byte_limiter: LimitInFlightBytes object.
+      byte_limiter: ByteLimiter object.
 
     Returns:
       A PyTree matching `item` of ParamInfo.
@@ -395,11 +391,13 @@ class BasePyTreeCheckpointHandler(
       raise ValueError('`ocdbt_target_data_file_size` only works with Zarr3')
 
     save_args = _fill_missing_save_or_restore_args(item, save_args, mode='save')
+    byte_limiter = serialization.get_byte_limiter(self._save_concurrent_bytes)
     param_infos = self._get_param_infos(
         item,
         directory,
         use_ocdbt=self._use_ocdbt,
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+        byte_limiter=byte_limiter,
     )
     assert all(
         leaf.parent_dir == directory
@@ -471,6 +469,13 @@ class BasePyTreeCheckpointHandler(
   ) -> PyTree:
     """Deserializes values or skips."""
     flat_metadata = tree_utils.to_flat_dict(metadata)
+    byte_limiter = serialization.get_byte_limiter(
+        self._restore_concurrent_bytes
+    )
+    param_infos = jax.tree.map(
+        lambda info: dataclasses.replace(info, byte_limiter=byte_limiter),
+        param_infos,
+    )
     batch_requests = batched_serialization_requests(
         metadata,
         param_infos,
@@ -596,7 +601,6 @@ class BasePyTreeCheckpointHandler(
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
       )
-    byte_limiter = get_byte_limiter(self._concurrent_gb)
     metadata = self._read_metadata_file(directory)
     use_zarr3_metadata = metadata.use_zarr3
     metadata = metadata.as_nested_tree(keep_empty_nodes=True)
@@ -620,7 +624,6 @@ class BasePyTreeCheckpointHandler(
         directory,
         use_ocdbt=type_handlers.is_ocdbt_checkpoint(directory),
         use_zarr3=use_zarr3,
-        byte_limiter=byte_limiter,
     )
     restored_item = asyncio.run(
         self._maybe_deserialize(item, metadata, param_infos, restore_args)

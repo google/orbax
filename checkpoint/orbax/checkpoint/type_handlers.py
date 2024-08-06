@@ -47,6 +47,7 @@ ScalarMetadata = value_metadata.ScalarMetadata
 ArrayMetadata = value_metadata.ArrayMetadata
 StringMetadata = value_metadata.StringMetadata
 ShardingMetadata = sharding_metadata.ShardingMetadata
+LimitInFlightBytes = serialization.LimitInFlightBytes
 _OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
 _BASE_TS_CONTEXT = {
     'file_io_concurrency': {'limit': 128},
@@ -138,16 +139,6 @@ def get_empty_value_from_typestr(typestr: str) -> Any:
     raise ValueError(f'Unrecognized typestr: {typestr}.')
 
 
-class LimitInFlightBytes(serialization._LimitInFlightBytes):  # pylint: disable=protected-access
-  """Limits in-flight bytes when reading/writing checkpoints per process."""
-
-  def wait_for_bytes_sync(self, requested_bytes):
-    asyncio.run(self.wait_for_bytes(requested_bytes))
-
-  def release_bytes_sync(self, requested_bytes):
-    asyncio.run(self.release_bytes(requested_bytes))
-
-
 @dataclasses.dataclass
 class ParamInfo:
   """Information describing a parameter in a PyTree.
@@ -191,7 +182,7 @@ class ParamInfo:
   path: Optional[epath.Path] = None
   parent_dir: Optional[epath.Path] = None
   skip_deserialize: Optional[bool] = None
-  byte_limiter: Optional[serialization._LimitInFlightBytes] = None  # pylint: disable=protected-access
+  byte_limiter: Optional[serialization.LimitInFlightBytes] = None
   is_ocdbt_checkpoint: Optional[bool] = None
   use_zarr3: Optional[bool] = False
   ocdbt_target_data_file_size: Optional[int] = None
@@ -1347,7 +1338,11 @@ class ArrayHandler(TypeHandler):
     sharding_metadata_txn = ts.Transaction()
     ocdbt_transaction: ts.Transaction | None = None
     for value, info, arg in zip(values, infos, args):
-      if info.is_ocdbt_checkpoint:
+      # The byte_limiter can't be used with a transaction, because awaiting the
+      # `write` only waits until the in-memory transaction state reflects the
+      # write, but the memory will remain in use until the transaction is
+      # committed.
+      if info.is_ocdbt_checkpoint and info.byte_limiter is None:
         if ocdbt_transaction is None:
           ocdbt_transaction = ts.Transaction(atomic=True)
       tspec = self._get_json_tspec_write(
@@ -1368,6 +1363,7 @@ class ArrayHandler(TypeHandler):
               replica_id=replica_id,
               context=ts_context,
               transaction=ocdbt_transaction,
+              byte_limiter=info.byte_limiter,
           )
       )
       if self._enable_write_sharding_file and value.sharding is not None:

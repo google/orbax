@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improve logging by adding jax_process, error logs in threads and more...
 - Improvements to blocking save time, as a result of moving file open operations into the background.
 
+### Added
+- Add memory-based rate limiting support during save.
+
 
 ## [0.5.23] - 2024-07-26
 
@@ -39,7 +42,6 @@ entries will not return information about array properties).
 ### Added
 - Rolled forward change to improve TensorStore I/O efficiency.
 - Memory efficient broadcasting from one model replica to others.
-- Ability to check if a checkpoint save is in progress.
 
 ### Changed
 - Allow one directory creation request per item rather than 1 per item per host.
@@ -76,6 +78,7 @@ entries will not return information about array properties).
 ### Fixed
 - Rolled back change in previous release to improve TensorStore I/O efficiency.
   This change caused some unexpected failures on certain storage systems.
+- Add memory-based rate limiting support during save.
 
 ## [0.5.16] - 2024-06-11
 
