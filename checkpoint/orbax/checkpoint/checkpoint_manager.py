@@ -40,6 +40,7 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import utils
+from orbax.checkpoint.handlers import handler_registration
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import standard_logger
 from orbax.checkpoint.logging import step_statistics
@@ -69,6 +70,7 @@ CompositeCheckpointHandler = (
 CheckpointHandler = checkpoint_handler.CheckpointHandler
 CheckpointArgs = checkpoint_args.CheckpointArgs
 CheckpointHandlersDict = Mapping[str, CheckpointHandler]
+CheckpointHandlerRegistry = handler_registration.CheckpointHandlerRegistry
 
 AsyncOptions = options_lib.AsyncOptions
 MultiprocessingOptions = options_lib.MultiprocessingOptions
@@ -393,6 +395,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           Union[CheckpointHandler, CheckpointHandlersDict]
       ] = None,
       logger: Optional[abstract_logger.AbstractLogger] = None,
+      handler_registry: Optional[CheckpointHandlerRegistry] = None,
   ):
     """CheckpointManager constructor.
 
@@ -488,7 +491,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         metadata.
       item_names: Names of distinct items that may be saved/restored with this
         `CheckpointManager`. `item_names` and `checkpointers` are mutually
-        exclusive - do not use together. Also see `item_handlers` below.
+        exclusive - do not use together. Also see `item_handlers` below. Prefer
+        using the `handler_registry`.
       item_handlers: A mapping of item name to `CheckpointHandler`. The mapped
         CheckpointHandler must be registered against the `CheckpointArgs` input
         in save/restore operations. Please don't use `checkpointers` and
@@ -496,7 +500,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         The item name key may or may not be present in `item_names`.
         Alternatively, a single CheckpointHandler may be provided, in which case
         `save` and `restore` should always be called in a single item context.
+        Prefer using the `handler_registry`.
       logger: A logger to log checkpointing events.
+      handler_registry: A registry of handlers to use for checkpointing.
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
 
@@ -508,6 +514,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self._options.multiprocessing_options or MultiprocessingOptions()
     )
     self._logger = logger or standard_logger.StandardLogger()
+    self._handler_registry = handler_registry
 
     if checkpointers and item_names:
       raise ValueError(
@@ -524,6 +531,20 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           '`item_handlers` in single item mode and `item_names` should not be'
           ' provided together.'
       )
+    if checkpointers is not None and handler_registry is not None:
+      raise ValueError(
+          'Deprecated `checkpointers` can not be used with `handler_registry`.'
+          ' Please follow the instructions at'
+          ' https://orbax.readthedocs.io/en/latest/api_refactor.html to'
+          ' migrate by August 1st, 2024.'
+      )
+
+    if item_handlers is not None and handler_registry is not None:
+      raise ValueError(
+          '`item_handlers` and `handler_registry` are mutually exclusive -'
+          ' prefer configuring the handler registry.'
+      )
+
     # For async_checkpointer.
     self._non_blocking_checkpoint_metadata_store = (
         checkpoint.checkpoint_metadata_store(enable_write=True)
@@ -534,7 +555,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             enable_write=True, blocking_write=True
         )
     )
-    if checkpointers:
+
+    if checkpointers is not None:
       logging.warning(
           'Configured `CheckpointManager` using deprecated legacy API. Please'
           ' follow the instructions at'
@@ -545,12 +567,28 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       self._checkpointer = self._configure_checkpointer_legacy_init(
           checkpointers, self._options
       )
+    elif self._handler_registry is not None:
+      self._single_item = item_names is None
+      self._checkpointer = self._configure_checkpointer_from_handler_registry(
+          item_names,
+          handler_registry,
+          self._options,
+      )
     else:
+      logging.warning(
+          'Prefer using the `handler_registry` instead of `item_names` and'
+          ' `item_handlers`.'
+      )
       self._single_item = isinstance(item_handlers, CheckpointHandler) or (
           item_names is None and item_handlers is None
       )
-      self._checkpointer = self._configure_checkpointer(
-          item_names, item_handlers, self._options, self._single_item
+      self._checkpointer = (
+          self._configure_checkpointer_from_item_names_and_handlers(
+              item_names,
+              item_handlers,
+              self._options,
+              self._single_item,
+          )
       )
 
     self._directory = epath.Path(directory)
@@ -745,7 +783,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           f'handler[{type(handler)}]={handler._primary_host} '  # pylint: disable=protected-access
       )
 
-  def _configure_checkpointer(
+  def _configure_checkpointer_from_item_names_and_handlers(
       self,
       item_names: Optional[Sequence[str]],
       item_handlers: Optional[Union[CheckpointHandler, CheckpointHandlersDict]],
@@ -767,8 +805,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           if isinstance(item_handlers, CheckpointHandler)
           else None
       )
-      if item_handler:
-        self._validate_handler(item_handler)
       all_item_handlers = {DEFAULT_ITEM_NAME: item_handler}
     else:
       # Initialize all_item_handlers with None or empty.
@@ -779,10 +815,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # Update all_item_handlers with provided CheckpointHandlers.
       if item_handlers and isinstance(item_handlers, Mapping):
         for item_name, handler in item_handlers.items():
-          self._validate_handler(handler)
           all_item_handlers[item_name] = handler
 
-    for item_name in all_item_handlers:
+    for item_name, handler in all_item_handlers.items():
+      if handler is not None:
+        self._validate_handler(handler)
       if item_name in RESERVED_ITEM_NAMES:
         raise ValueError(
             f'Found {item_name} in `checkpointers`; this is a reserved key.'
@@ -803,6 +840,32 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
                 file_options=options.file_options,
             ),
             **all_item_handlers,
+        ),
+        options,
+        options.enable_async_checkpointing,
+    )
+
+  def _configure_checkpointer_from_handler_registry(
+      self,
+      item_names: Optional[Sequence[str]],
+      handler_registry: CheckpointHandlerRegistry,
+      options: CheckpointManagerOptions,
+  ) -> Checkpointer:
+    """Initializes _CompositeCheckpointer given a `handler_registry`."""
+
+    # If `item_names`` is None, we will default to a single item.
+    items = [DEFAULT_ITEM_NAME] if item_names is None else item_names
+    # CompositeCheckpointHandler defers per-item handler creation until
+    # save/restore time.
+    return self._configure_checkpointer_common(
+        CompositeCheckpointHandler(
+            *items,
+            composite_options=composite_checkpoint_handler.CompositeOptions(
+                primary_host=self._multiprocessing_options.primary_host,
+                active_processes=self._multiprocessing_options.active_processes,
+                barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+            ),
+            handler_registry=handler_registry,
         ),
         options,
         options.enable_async_checkpointing,

@@ -25,6 +25,7 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import proto_checkpoint_handler
 from orbax.checkpoint import standard_checkpoint_handler
 from orbax.checkpoint import test_utils
+from orbax.checkpoint.handlers import handler_registration
 from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step
 
@@ -38,6 +39,14 @@ CompositeCheckpointHandler = (
 )
 ProtoCheckpointHandler = proto_checkpoint_handler.ProtoCheckpointHandler
 CompositeOptions = composite_checkpoint_handler.CompositeOptions
+
+
+class _TestSaveArgs(standard_checkpoint_handler.StandardSaveArgs):
+  ...
+
+
+class _TestRestoreArgs(standard_checkpoint_handler.StandardRestoreArgs):
+  ...
 
 
 class CompositeArgsTest(absltest.TestCase):
@@ -147,6 +156,58 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
         self.directory,
         CompositeArgs(
             state=args_lib.StandardRestore(dummy_state),
+            metadata=args_lib.JsonRestore(),
+        ),
+    )
+    self.assertDictEqual(restored.state, state)
+    self.assertDictEqual(restored.metadata, metadata)
+
+  def test_save_restore_handler_registry(self):
+    handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    handler_registry.add(
+        'state',
+        _TestSaveArgs,
+        StandardCheckpointHandler(),
+    )
+    handler_registry.add(
+        'state',
+        _TestRestoreArgs,
+        StandardCheckpointHandler(),
+    )
+    handler_registry.add(
+        'metadata',
+        json_checkpoint_handler.JsonSaveArgs,
+        JsonCheckpointHandler(),
+    )
+    handler_registry.add(
+        'metadata',
+        json_checkpoint_handler.JsonRestoreArgs,
+        JsonCheckpointHandler(),
+    )
+
+    handler = CompositeCheckpointHandler(
+        'state',
+        'metadata',
+        handler_registry=handler_registry,
+    )
+
+    state = {'a': 1, 'b': 2}
+    dummy_state = {'a': 0, 'b': 0}
+    metadata = {'lang': 'en', 'version': 1.0}
+    self.save(
+        handler,
+        self.directory,
+        CompositeArgs(
+            state=_TestSaveArgs(state),
+            metadata=args_lib.JsonSave(metadata),
+        ),
+    )
+    self.assertTrue((self.directory / 'state').exists())
+    self.assertTrue((self.directory / 'metadata').exists())
+    restored = handler.restore(
+        self.directory,
+        CompositeArgs(
+            state=_TestRestoreArgs(dummy_state),
             metadata=args_lib.JsonRestore(),
         ),
     )
@@ -279,8 +340,72 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     self.assertDictEqual(restored.state, state)
     self.assertIsNone(restored.metadata)
 
+  def test_no_restore_args_partial_save_handler_registry(self):
+    handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    handler_registry.add(
+        'metadata',
+        standard_checkpoint_handler.StandardSaveArgs,
+        JsonCheckpointHandler(),
+    )
+    handler = CompositeCheckpointHandler(
+        'state', handler_registry=handler_registry
+    )
+
+    state = {'a': 1, 'b': 2}
+    dummy_state = {'a': 0, 'b': 0}
+    self.save(
+        handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+        ),
+    )
+    self.assertTrue((self.directory / 'state').exists())
+    self.assertFalse((self.directory / 'metadata').exists())
+
+    restored = handler.restore(self.directory)
+    self.assertDictEqual(restored.state, state)
+    self.assertIsNone(restored.metadata)
+
+    restored = handler.restore(
+        self.directory,
+        CompositeArgs(),
+    )
+    self.assertDictEqual(restored.state, state)
+    self.assertIsNone(restored.metadata)
+
   def test_no_restore_args_handler_unspecified(self):
     handler = CompositeCheckpointHandler('state', 'metadata')
+    state = {'a': 1, 'b': 2}
+    dummy_state = {'a': 0, 'b': 0}
+    metadata = {'lang': 'en', 'version': 1.0}
+    self.save(
+        handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+            metadata=args_lib.JsonSave(metadata),
+        ),
+    )
+    self.assertTrue((self.directory / 'state').exists())
+    self.assertTrue((self.directory / 'metadata').exists())
+
+    handler = CompositeCheckpointHandler('state', 'metadata')
+    with self.assertRaises(ValueError):
+      handler.restore(self.directory)
+    with self.assertRaises(ValueError):
+      handler.restore(
+          self.directory,
+          CompositeArgs(),
+      )
+
+  def test_no_restore_args_handler_unspecified_handler_registry(self):
+    handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    handler = CompositeCheckpointHandler(
+        'state',
+        'metadata',
+        handler_registry=handler_registry,
+    )
     state = {'a': 1, 'b': 2}
     dummy_state = {'a': 0, 'b': 0}
     metadata = {'lang': 'en', 'version': 1.0}
@@ -310,6 +435,51 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
         state=StandardCheckpointHandler(),
         metadata=JsonCheckpointHandler(),
     )
+    metadata = handler.metadata(self.directory)
+    self.assertIsNone(metadata.state)
+    self.assertIsNone(metadata.metadata)
+    self.assertNotIn('extra', metadata.items())
+
+    state = {'a': 1, 'b': 2}
+    self.save(
+        handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+        ),
+    )
+    metadata = handler.metadata(self.directory)
+    self.assertDictEqual(
+        metadata.state,
+        {
+            'a': value_metadata.ScalarMetadata(
+                name='a', directory=self.directory / 'state', dtype=jnp.int64
+            ),
+            'b': value_metadata.ScalarMetadata(
+                name='b', directory=self.directory / 'state', dtype=jnp.int64
+            ),
+        },
+    )
+    self.assertIsNone(metadata.metadata)
+    self.assertNotIn('extra', metadata.items())
+
+  def test_metadata_handler_registry(self):
+    handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    handler_registry.add(
+        'state',
+        standard_checkpoint_handler.StandardSaveArgs,
+        StandardCheckpointHandler(),
+    )
+    handler_registry.add(
+        'metadata',
+        standard_checkpoint_handler.StandardSaveArgs,
+        JsonCheckpointHandler(),
+    )
+    handler = CompositeCheckpointHandler(
+        'extra',
+        handler_registry=handler_registry,
+    )
+
     metadata = handler.metadata(self.directory)
     self.assertIsNone(metadata.state)
     self.assertIsNone(metadata.metadata)
@@ -451,6 +621,20 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
         (self.directory / 'metadata.orbax-checkpoint-tmp-').as_posix(),
         tmp_dirs['metadata'].get().as_posix(),
     )
+
+  def test_handler_registry_and_items_and_handlers_raises_error(self):
+
+    with self.assertRaisesRegex(ValueError, 'Both'):
+      handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+      CompositeCheckpointHandler(
+          'state',
+          'metadata',
+          handler_registry=handler_registry,
+          items_and_handlers={
+              'state': StandardCheckpointHandler(),
+              'metadata': JsonCheckpointHandler(),
+          },
+      )
 
 
 if __name__ == '__main__':
