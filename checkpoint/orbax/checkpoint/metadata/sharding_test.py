@@ -55,7 +55,9 @@ class TestShardingMetadata(absltest.TestCase):
         [1, -1]
     )
     expected_positional_sharding_metadata = (
-        sharding_metadata.PositionalShardingMetadata(jax_sharding.shape)
+        sharding_metadata.PositionalShardingMetadata(
+            jax_sharding.shape, jax_sharding.memory_kind
+        )
     )
     converted_positional_sharding_metadata = (
         sharding_metadata.from_jax_sharding(jax_sharding)
