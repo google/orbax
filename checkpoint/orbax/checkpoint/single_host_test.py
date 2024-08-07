@@ -274,18 +274,24 @@ class SingleHostTest(parameterized.TestCase):
 
     # single handler with non-zero primary_host
     with self.assertRaises(ValueError):
-      options.multiprocessing_options = None
+      options.multiprocessing_options = (
+          checkpoint_manager.MultiprocessingOptions(primary_host=0)
+      )
       checkpoint_manager.CheckpointManager(
           options=options,
           directory=self.ckpt_dir,
           item_handlers=pytree_checkpoint_handler.PyTreeCheckpointHandler(
-              primary_host=None,
+              multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
+                  primary_host=None
+              )
           ),
       )
 
     # multple handlers with non-zero primary_host
     with self.assertRaises(ValueError):
-      options.multiprocessing_options = None
+      options.multiprocessing_options = (
+          checkpoint_manager.MultiprocessingOptions(primary_host=0)
+      )
       checkpoint_manager.CheckpointManager(
           options=options,
           directory=self.ckpt_dir,
@@ -293,7 +299,9 @@ class SingleHostTest(parameterized.TestCase):
           item_handlers={
               'x': pytree_checkpoint_handler.PyTreeCheckpointHandler(),
               'y': json_checkpoint_handler.JsonCheckpointHandler(
-                  primary_host=None
+                  multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
+                      primary_host=None
+                  )
               ),
           },
       )

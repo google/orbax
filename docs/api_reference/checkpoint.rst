@@ -21,3 +21,4 @@ orbax.checkpoint API Reference
    checkpoint.tree
    checkpoint.metadata
    checkpoint.logging
+   checkpoint.options

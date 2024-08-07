@@ -14,25 +14,122 @@
 
 """Shorthand for `Checkpointer(StandardCheckpointHandler())`."""
 
-from typing import Optional
-from orbax.checkpoint import checkpointer
+from typing import Any, Optional, Type
+from etils import epath
+from orbax.checkpoint import async_checkpointer
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import standard_checkpoint_handler
+from orbax.checkpoint.metadata import checkpoint
+from orbax.checkpoint.path import atomicity
 
 
-class StandardCheckpointer(checkpointer.Checkpointer):
+StandardCheckpointHandler = (
+    standard_checkpoint_handler.StandardCheckpointHandler
+)
+StandardSave = standard_checkpoint_handler.StandardSaveArgs
+StandardRestore = standard_checkpoint_handler.StandardRestoreArgs
+PyTree = Any
+
+
+class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
   """Shorthand class.
 
+  Note that this `Checkpointer` saves asynchronously.
+
   Instead of::
-    ckptr = Checkpointer(StandardCheckpointHandler())
+    with AsyncCheckpointer(StandardCheckpointHandler()) as ckptr:
+      ...
 
   we can use::
-    ckptr = StandardCheckpointer()
+    with StandardCheckpointer() as ckptr:
+      ...
+
+  This class is convenient because `ocp.args` does not need to specified when
+  saving and restoring. For example, instead of::
+    with AsyncCheckpointer(StandardCheckpointHandler()) as ckptr:
+      ckptr.save(directory, args=StandardSave(state, save_args))
+      ckptr.restore(directory, args=StandardRestore(abstract_target))
+
+  we can use::
+    with StandardCheckpointer() as ckptr:
+      ckptr.save(directory, state, save_args=save_args)
+      ckptr.restore(directory, abstract_target)
   """
 
-  def __init__(self, primary_host: Optional[int] = 0):
+  def __init__(
+      self,
+      *,
+      async_options: options_lib.AsyncOptions = options_lib.AsyncOptions(),
+      multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
+      path_permission_mode: Optional[int] = None,
+      checkpoint_metadata_store: Optional[
+          checkpoint.CheckpointMetadataStore
+      ] = None,
+      temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None,
+      **kwargs,
+  ):
+    """Constructor.
+
+    Args:
+      async_options: See superclass documentation.
+      multiprocessing_options: See superclass documentation.
+      path_permission_mode: See superclass documentation.
+      checkpoint_metadata_store: See superclass documentation.
+      temporary_path_class: See superclass documentation.
+      **kwargs: Additional init args passed to StandardCHeckpointHandler. See
+        orbax.checkpoint.standard_checkpoint_handler.StandardCheckpointHandler.
+    """
     super().__init__(
         standard_checkpoint_handler.StandardCheckpointHandler(
-            primary_host=primary_host
+            multiprocessing_options=multiprocessing_options,
+            **kwargs,
         ),
-        primary_host=primary_host,
+        async_options=async_options,
+        multiprocessing_options=multiprocessing_options,
+        path_permission_mode=path_permission_mode,
+        checkpoint_metadata_store=checkpoint_metadata_store,
+        temporary_path_class=temporary_path_class,
     )
+
+  def save(
+      self,
+      directory: epath.PathLike,
+      state: PyTree,
+      *,
+      save_args: Optional[PyTree] = None,
+      force: bool = False,
+  ):
+    """Saves a checkpoint asynchronously (does not block).
+
+    Args:
+      directory: Path where the checkpoint will be saved.
+      state: a PyTree of arrays to be saved.
+      save_args: a PyTree with the same structure of `item`, which consists of
+        `ocp.SaveArgs` objects as values. `None` can be used for values where no
+        `SaveArgs` are specified. Only necessary for fine-grained customization
+        of saving behavior for individual parameters.
+      force: See superclass documentation.
+    """
+    super().save(directory, args=StandardSave(state, save_args), force=force)
+
+  def restore(
+      self, directory: epath.PathLike, target: Optional[PyTree] = None
+  ) -> Any:
+    """Restores a checkpoint.
+
+    Args:
+      directory: Path where the checkpoint will be saved.
+      target: a PyTree representing the expected structure of the checkpoint.
+        Values may be either real array or scalar values, or they may be
+        jax.ShapeDtypeStruct. If real values are provided, that value will be
+        restored as the given type, with the given properties. If
+        jax.ShapeDtypeStruct is provided, the value will be restored as
+        np.ndarray, unless `sharding` is specified. If `item` is a custom PyTree
+        class, the tree will be restored with the same structure as provided. If
+        not provided, restores as a serialized nested dict representation of the
+        custom class.
+
+    Returns:
+      The restored checkpoint.
+    """
+    return super().restore(directory, args=StandardRestore(target))

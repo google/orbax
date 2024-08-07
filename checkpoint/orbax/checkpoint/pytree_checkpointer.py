@@ -16,6 +16,7 @@
 
 from typing import Optional
 from orbax.checkpoint import checkpointer
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import pytree_checkpoint_handler
 
 
@@ -39,5 +40,7 @@ class PyTreeCheckpointer(checkpointer.Checkpointer):
         pytree_checkpoint_handler.PyTreeCheckpointHandler(
             use_ocdbt=use_ocdbt, use_zarr3=use_zarr3
         ),
-        primary_host=primary_host,
+        multiprocessing_options=options_lib.MultiprocessingOptions(
+            primary_host=primary_host
+        ),
     )

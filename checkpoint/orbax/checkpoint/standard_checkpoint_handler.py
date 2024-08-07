@@ -25,6 +25,7 @@ from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import future
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import tree as tree_utils
 
@@ -63,7 +64,7 @@ class StandardCheckpointHandler(
       *,
       save_concurrent_gb: int = 96,
       restore_concurrent_gb: int = 96,
-      primary_host: Optional[int] = 0,
+      multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
   ):
     """Creates StandardCheckpointHandler.
 
@@ -74,15 +75,13 @@ class StandardCheckpointHandler(
       restore_concurrent_gb: max concurrent GB that are allowed to be restored.
         Can help to reduce the possibility of OOM's when large checkpoints are
         restored.
-      primary_host: the host id of the primary host.  Default to 0.  If it's set
-        to None, then all hosts will be considered as primary.  It's useful in
-        the case that all hosts are only working with local storage.
+      multiprocessing_options: See orbax.checkpoint.options.
     """
     self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
     self._impl = pytree_checkpoint_handler.PyTreeCheckpointHandler(
         save_concurrent_gb=save_concurrent_gb,
         restore_concurrent_gb=restore_concurrent_gb,
-        primary_host=primary_host,
+        multiprocessing_options=multiprocessing_options,
     )
 
   def _validate_save_state(

@@ -14,44 +14,42 @@
 
 """Handler that combines other handlers.
 
-Usage example:
+Usage example::
 
-```
-import orbax.checkpoint as ocp
+  import orbax.checkpoint as ocp
 
-# A PyTree of jax.Arrays
-my_state = ...
-# A dictionary to be serialized as JSON
-json_dict = ...
+  # A PyTree of jax.Arrays
+  my_state = ...
+  # A dictionary to be serialized as JSON
+  json_dict = ...
 
-ckptr = ocp.Checkpointer(
-    ocp.CompositeCheckpointHandler('state', 'metadata')
-)
-ckptr.save(
-    path,
-    args=ocp.args.Composite(
-        state=ocp.args.StandardSave(my_state),
-        metadata=ocp.args.JsonSave(json_dict)
-    )
-)
+  ckptr = ocp.Checkpointer(
+      ocp.CompositeCheckpointHandler('state', 'metadata')
+  )
+  ckptr.save(
+      path,
+      args=ocp.args.Composite(
+          state=ocp.args.StandardSave(my_state),
+          metadata=ocp.args.JsonSave(json_dict)
+      )
+  )
 
-restored = ckptr.restore(
-    path,
-    args=ocp.args.Composite(
-        state=ocp.args.StandardRestore(),
-        metadata=ocp.args.JsonRestore()
-    )
-)
-my_state = restored.state
-json_dict = restored.metadata
-```
+  restored = ckptr.restore(
+      path,
+      args=ocp.args.Composite(
+          state=ocp.args.StandardRestore(),
+          metadata=ocp.args.JsonRestore()
+      )
+  )
+  my_state = restored.state
+  json_dict = restored.metadata
 """
 
 import asyncio
 from collections.abc import Collection, KeysView
 import concurrent.futures
 import dataclasses
-from typing import AbstractSet, Any, Dict, List, Mapping, Optional, Tuple, Type, Set
+from typing import AbstractSet, Any, Dict, List, Mapping, Optional, Tuple, Type
 import uuid
 
 from absl import logging
@@ -182,9 +180,9 @@ def _maybe_raise_reserved_item_error(item_name: str):
 
 @dataclasses.dataclass
 class CompositeOptions:
-  primary_host: Optional[int] = 0
-  active_processes: Optional[Set[int]] = None
-  barrier_sync_key_prefix: Optional[str] = None
+  multiprocessing_options: options_lib.MultiprocessingOptions = (
+      dataclasses.field(default_factory=options_lib.MultiprocessingOptions)
+  )
   temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None
   file_options: Optional[options_lib.FileOptions] = None
 
@@ -300,9 +298,13 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
             type(handler),
         )
         self._known_handlers[item_name] = get_legacy_handler_wrapper(handler)
-    self._primary_host = composite_options.primary_host
-    self._active_processes = composite_options.active_processes
-    self._barrier_sync_key_prefix = composite_options.barrier_sync_key_prefix
+    self._primary_host = composite_options.multiprocessing_options.primary_host
+    self._active_processes = (
+        composite_options.multiprocessing_options.active_processes
+    )
+    self._barrier_sync_key_prefix = (
+        composite_options.multiprocessing_options.barrier_sync_key_prefix
+    )
     self._temporary_path_class = composite_options.temporary_path_class
     self._file_options = composite_options.file_options
     logging.info(

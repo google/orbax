@@ -501,12 +501,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
 
     self._options = options or CheckpointManagerOptions()
+    self._multiprocessing_options = self._options.multiprocessing_options
+
     if self._options.best_mode not in ['min', 'max']:
       raise ValueError('`best_mode` must be one of: "min", "max"')
 
-    self._multiprocessing_options = (
-        self._options.multiprocessing_options or MultiprocessingOptions()
-    )
     self._logger = logger or standard_logger.StandardLogger()
 
     if checkpointers and item_names:
@@ -576,11 +575,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._metadata_checkpointer = Checkpointer(
         JsonCheckpointHandler(
-            primary_host=self._multiprocessing_options.primary_host
+            multiprocessing_options=self._multiprocessing_options
         ),
-        primary_host=self._multiprocessing_options.primary_host,
-        active_processes=self._multiprocessing_options.active_processes,
-        barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+        multiprocessing_options=self._options.multiprocessing_options,
         path_permission_mode=self._options.file_options.path_permission_mode,
         checkpoint_metadata_store=self._blocking_checkpoint_metadata_store,
         temporary_path_class=self._options.temporary_path_class,
@@ -621,35 +618,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       use_async: bool,
   ) -> Checkpointer:
     if use_async:
-      if options.async_options is not None:
-        return async_checkpointer.AsyncCheckpointer(
-            handler,
-            timeout_secs=options.async_options.timeout_secs,
-            primary_host=self._multiprocessing_options.primary_host,
-            barrier_sync_fn=options.async_options.barrier_sync_fn,
-            active_processes=self._multiprocessing_options.active_processes,
-            barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-            post_finalization_callback=options.async_options.post_finalization_callback,
-            path_permission_mode=options.file_options.path_permission_mode,
-            checkpoint_metadata_store=self._non_blocking_checkpoint_metadata_store,
-            temporary_path_class=options.temporary_path_class,
-        )
-      else:
-        return async_checkpointer.AsyncCheckpointer(
-            handler,
-            primary_host=self._multiprocessing_options.primary_host,
-            active_processes=self._multiprocessing_options.active_processes,
-            barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-            path_permission_mode=options.file_options.path_permission_mode,
-            checkpoint_metadata_store=self._non_blocking_checkpoint_metadata_store,
-            temporary_path_class=options.temporary_path_class,
-        )
+      return async_checkpointer.AsyncCheckpointer(
+          handler,
+          multiprocessing_options=options.multiprocessing_options,
+          async_options=options.async_options or AsyncOptions(),
+          path_permission_mode=options.file_options.path_permission_mode,
+          checkpoint_metadata_store=self._non_blocking_checkpoint_metadata_store,
+          temporary_path_class=options.temporary_path_class,
+      )
     else:
       return Checkpointer(
           handler,
-          primary_host=self._multiprocessing_options.primary_host,
-          active_processes=self._multiprocessing_options.active_processes,
-          barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+          multiprocessing_options=options.multiprocessing_options,
           path_permission_mode=options.file_options.path_permission_mode,
           checkpoint_metadata_store=self._blocking_checkpoint_metadata_store,
           temporary_path_class=options.temporary_path_class,
@@ -722,9 +702,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     return self._configure_checkpointer_common(
         CompositeCheckpointHandler(
             composite_options=composite_checkpoint_handler.CompositeOptions(
-                primary_host=self._multiprocessing_options.primary_host,
-                active_processes=self._multiprocessing_options.active_processes,
-                barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+                multiprocessing_options=options.multiprocessing_options,
                 file_options=options.file_options,
             ),
             **item_handlers,
@@ -790,16 +768,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if options.best_fn:
       all_item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
           filename=METRIC_ITEM_NAME,
-          primary_host=self._multiprocessing_options.primary_host,
+          multiprocessing_options=self._multiprocessing_options,
       )
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
     return self._configure_checkpointer_common(
         CompositeCheckpointHandler(
             composite_options=composite_checkpoint_handler.CompositeOptions(
-                primary_host=self._multiprocessing_options.primary_host,
-                active_processes=self._multiprocessing_options.active_processes,
-                barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+                multiprocessing_options=options.multiprocessing_options,
                 file_options=options.file_options,
             ),
             **all_item_handlers,

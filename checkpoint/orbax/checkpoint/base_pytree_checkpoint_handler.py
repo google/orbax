@@ -34,6 +34,7 @@ from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import multihost
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import serialization
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
@@ -113,6 +114,7 @@ def batched_serialization_requests(
 ) -> List[_BatchRequest]:
   """Gets a list of batched serialization or deserialization requests."""
   grouped = {}
+
   def _group_value(
       keypath: Tuple[Any, ...],
       info: ParamInfo,
@@ -228,7 +230,7 @@ class BasePyTreeCheckpointHandler(
       restore_concurrent_bytes: Optional[int] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
-      primary_host: Optional[int] = 0,
+      multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
   ):
     """Creates BasePyTreeCheckpointHandler.
@@ -242,9 +244,7 @@ class BasePyTreeCheckpointHandler(
         checkpoints are restored.
       use_ocdbt: Whether to use OCDBT format for saving.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2.
-      primary_host: the host id of the primary host.  Default to 0. If it's set
-        to None, then all hosts will be considered as primary. It's useful in
-        the case that all hosts are only working with local storage.
+      multiprocessing_options: See orbax.checkpoint.options.
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
         specified, the global type handler registry will be used. # BEGIN
       enable_descriptor: If True, logs a Descriptor proto that contains lineage
@@ -253,7 +253,7 @@ class BasePyTreeCheckpointHandler(
     self._restore_concurrent_bytes = restore_concurrent_bytes
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
-    self._primary_host = primary_host
+    self._primary_host = multiprocessing_options.primary_host
     self._type_handler_registry = type_handler_registry
 
 
@@ -400,8 +400,7 @@ class BasePyTreeCheckpointHandler(
         byte_limiter=byte_limiter,
     )
     assert all(
-        leaf.parent_dir == directory
-        for leaf in jax.tree.leaves(param_infos)
+        leaf.parent_dir == directory for leaf in jax.tree.leaves(param_infos)
     )
     await self._maybe_create_param_directories(param_infos, save_args)
 
@@ -632,9 +631,7 @@ class BasePyTreeCheckpointHandler(
     if logging.level_debug():
       logging.debug('param_infos: %s', param_infos)
       logging.debug('checkpoint_restore_args: %s', restore_args)
-      logging.debug(
-          'restored_item: %s', jax.tree.structure(restored_item)
-      )
+      logging.debug('restored_item: %s', jax.tree.structure(restored_item))
       logging.debug(
           'ts_metrics: %s',
           json.dumps(ts.experimental_collect_matching_metrics('/tensorstore/')),

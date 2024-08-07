@@ -27,6 +27,7 @@ from etils import epath
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
@@ -37,19 +38,20 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Saves nested dictionary using json."""
 
   def __init__(
-      self, filename: Optional[str] = None, primary_host: Optional[int] = 0
+      self,
+      filename: Optional[str] = None,
+      *,
+      multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
   ):
     """Initializes JsonCheckpointHandler.
 
     Args:
       filename: optional file name given to the written file; defaults to
         'metadata'
-      primary_host: the host id of the primary host.  Default to 0.  If it's set
-        to None, then all hosts will be considered as primary.  It's useful in
-        the case that all hosts are only working with local storage.
+      multiprocessing_options: See orbax.checkpoint.options.
     """
     self._filename = filename or 'metadata'
-    self._primary_host = primary_host
+    self._primary_host = multiprocessing_options.primary_host
     self._executor = futures.ThreadPoolExecutor(max_workers=1)
 
   def _save_fn(self, x, directory):

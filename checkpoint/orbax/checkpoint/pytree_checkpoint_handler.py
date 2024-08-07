@@ -35,6 +35,7 @@ from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import base_pytree_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import serialization
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import tree as tree_utils
@@ -469,7 +470,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       restore_concurrent_gb: Optional[int] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
-      primary_host: Optional[int] = 0,
+      multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
       handler_impl: Optional[BasePyTreeCheckpointHandler] = None,
   ):
@@ -488,20 +489,20 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         different checkpoint format which is faster to read and write, as well
         as more space efficient.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
-      primary_host: the host id of the primary host.  Default to 0.  If it's set
-        to None, then all hosts will be considered as primary.  It's useful in
-        the case that all hosts are only working with local storage.
+      multiprocessing_options: See orbax.checkpoint.options
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
         specified, the global type handler registry will be used.
       handler_impl: Allows overriding the internal implementation.
     """
-    self._aggregate_handler = MsgpackHandler(primary_host=primary_host)
+    self._aggregate_handler = MsgpackHandler(
+        primary_host=multiprocessing_options.primary_host
+    )
     if aggregate_filename is None:
       aggregate_filename = _CHECKPOINT_FILE
     self._aggregate_filename = aggregate_filename
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
-    self._primary_host = primary_host
+    self._primary_host = multiprocessing_options.primary_host
     self._type_handler_registry = type_handler_registry
     self._save_concurrent_bytes = _concurrent_bytes(save_concurrent_gb)
     self._restore_concurrent_bytes = _concurrent_bytes(restore_concurrent_gb)
@@ -510,7 +511,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         restore_concurrent_bytes=self._restore_concurrent_bytes,
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
-        primary_host=primary_host,
+        multiprocessing_options=multiprocessing_options,
         type_handler_registry=type_handler_registry,
     )
 
@@ -847,9 +848,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if logging.level_debug():
       logging.debug('param_infos: %s', param_infos)
       logging.debug('checkpoint_restore_args: %s', checkpoint_restore_args)
-      logging.debug(
-          'restored_item: %s', jax.tree.structure(restored_item)
-      )
+      logging.debug('restored_item: %s', jax.tree.structure(restored_item))
       logging.debug(
           'ts_metrics: %s',
           json.dumps(ts.experimental_collect_matching_metrics('/tensorstore/')),

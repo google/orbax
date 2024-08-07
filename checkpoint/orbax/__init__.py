@@ -26,6 +26,7 @@ from orbax.checkpoint import logging
 from orbax.checkpoint import metadata
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import multihost
+from orbax.checkpoint import options
 from orbax.checkpoint import path
 from orbax.checkpoint import serialization
 from orbax.checkpoint import test_utils

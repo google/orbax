@@ -29,6 +29,7 @@ from google.protobuf import text_format
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 
 
@@ -39,15 +40,20 @@ register_with_handler = checkpoint_args.register_with_handler
 class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Serializes/deserializes protocol buffers."""
 
-  def __init__(self, filename: str, primary_host: Optional[int] = 0):
+  def __init__(
+      self,
+      filename: str,
+      *,
+      multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions()
+  ):
     """Initializes ProtoCheckpointHandler.
 
     Args:
       filename: file name given to the written file.
-      primary_host: primary host to write on. If None, writes on all hosts.
+      multiprocessing_options: See orbax.checkpoint.options.
     """
     self._filename = filename
-    self._primary_host = primary_host
+    self._primary_host = multiprocessing_options.primary_host
     self._executor = futures.ThreadPoolExecutor(max_workers=1)
 
   async def async_save(

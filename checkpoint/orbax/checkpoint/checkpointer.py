@@ -15,7 +15,7 @@
 """Synchronous Checkpointer implementation."""
 
 import time
-from typing import Any, Iterable, Optional, Set, Type
+from typing import Any, Iterable, Optional, Type
 
 from absl import logging
 from etils import epath
@@ -101,9 +101,7 @@ class Checkpointer(
       self,
       handler: checkpoint_handler.CheckpointHandler,
       *,
-      primary_host: Optional[int] = 0,
-      active_processes: Optional[Set[int]] = None,
-      barrier_sync_key_prefix: Optional[str] = None,
+      multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       path_permission_mode: Optional[int] = None,
       checkpoint_metadata_store: Optional[
           checkpoint.CheckpointMetadataStore
@@ -117,9 +115,11 @@ class Checkpointer(
       )
       handler = get_legacy_handler_wrapper(handler)
     self._handler = handler
-    self._primary_host = primary_host
-    self._active_processes = active_processes
-    self._barrier_sync_key_prefix = barrier_sync_key_prefix
+    self._primary_host = multiprocessing_options.primary_host
+    self._active_processes = multiprocessing_options.active_processes
+    self._barrier_sync_key_prefix = (
+        multiprocessing_options.barrier_sync_key_prefix
+    )
     self._path_permission_mode = path_permission_mode  # e.g. 0o750
     self._temporary_path_class = temporary_path_class
 

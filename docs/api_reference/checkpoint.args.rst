@@ -10,9 +10,6 @@ CheckpointArgs
 .. autoclass:: CheckpointArgs
   :members:
 
-.. autoclass:: CheckpointArgs
-  :members:
-
 Array
 ------------------------------
 .. autoclass:: ArraySave

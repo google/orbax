@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Improve logging by adding jax_process, error logs in threads and more...
 - Improvements to blocking save time, as a result of moving file open operations into the background.
+- Consolidate usages of `MultiprocessingOptions` and `AsyncOptions`.
+- Formalize `StandardCheckpointer` as an `AsyncCheckpointer` that doesn't require a `CheckpointArgs` object, and instead allows directly passing the state and extra args.
 
 ### Added
 - Add memory-based rate limiting support during save.

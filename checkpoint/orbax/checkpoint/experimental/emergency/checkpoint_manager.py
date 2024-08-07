@@ -137,6 +137,24 @@ def consistent_restore_mesh_from_metadata(
   return consistent_mesh
 
 
+def local_checkpoint_handler() -> PyTreeCheckpointHandler:
+  """Create a PyTreeCheckpointHandler for local checkpoints."""
+  local_registry = type_handlers.create_type_handler_registry(
+      (
+          jax.Array,
+          type_handlers.ArrayHandler(primary_host=None, replica_id=None),
+      ),
+  )
+  return PyTreeCheckpointHandler(
+      use_ocdbt=True,
+      use_zarr3=True,
+      multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
+          primary_host=None,
+      ),
+      type_handler_registry=local_registry,
+  )
+
+
 @dataclasses.dataclass
 class LocalCheckpointOptions:
   """Optional CheckpointManager arguments for saving local checkpoints.
@@ -463,6 +481,23 @@ class CheckpointManager(
   GCS),
   providing a fail-safe if local checkpoints become unavailable due to issues
   like hardware failure or preemption.
+
+  Usage::
+    options = CheckpointManagerOptions(
+        local=LocalCheckpointOptions(save_interval_steps=2, max_to_keep=2),
+        persistent=PersistentCheckpointOptions(
+            save_interval_steps=5, max_to_keep=3
+        ),
+        enable_async_checkpointing=use_async,
+    )
+    return CheckpointManager(
+        local_directory=local_directory,
+        persistent_directory=persistent_directory,
+        global_mesh=global_mesh,
+        abstract_state=abstract_state,
+        options=options,
+        local_state_handler=local_checkpoint_handler(),
+    )
   """
 
   # TODO: b/330585086 - Allow configuration of global mesh describing slices.
@@ -546,7 +581,7 @@ class CheckpointManager(
               item_handlers=PyTreeCheckpointHandler(
                   use_ocdbt=True,
                   use_zarr3=True,
-                  primary_host=self._persistent_primary_host,
+                  multiprocessing_options=persistent_multiprocessing_options,
               ),
               logger=self._logger,
           )

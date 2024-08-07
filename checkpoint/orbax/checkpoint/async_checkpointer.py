@@ -17,7 +17,7 @@
 import asyncio
 import threading
 import time
-from typing import Any, Callable, Optional, Sequence, Set, Type
+from typing import Any, Callable, Optional, Sequence, Type
 
 from absl import logging
 from etils import epath
@@ -27,6 +27,7 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpointer
 from orbax.checkpoint import future as future_lib
 from orbax.checkpoint import multihost
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint.metadata import checkpoint
 from orbax.checkpoint.path import atomicity
@@ -221,13 +222,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   def __init__(
       self,
       handler: async_checkpoint_handler.AsyncCheckpointHandler,
-      timeout_secs: int = 300,
+      timeout_secs: Optional[int] = None,
       *,
-      primary_host: Optional[int] = 0,
-      active_processes: Optional[Set[int]] = None,
-      barrier_sync_fn: Optional[multihost.BarrierSyncFn] = None,
-      barrier_sync_key_prefix: Optional[str] = None,
-      post_finalization_callback: Optional[Callable[[], None]] = None,
+      async_options: options_lib.AsyncOptions = options_lib.AsyncOptions(),
+      multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       path_permission_mode: Optional[int] = None,
       checkpoint_metadata_store: Optional[
           checkpoint.CheckpointMetadataStore
@@ -245,14 +243,14 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           handler, async_checkpoint_handler.AsyncCheckpointHandler
       )
     self._handler = handler
-    self._primary_host = primary_host
-    self._active_processes = active_processes
-    self._post_finalization_callback = post_finalization_callback
+    self._primary_host = multiprocessing_options.primary_host
+    self._active_processes = multiprocessing_options.active_processes
+    self._post_finalization_callback = async_options.post_finalization_callback
     unique_class_id = self._unique_operation_id()
     barrier_sync_key_prefix = (
         f'{unique_class_id}'
-        if barrier_sync_key_prefix is None
-        else f'{barrier_sync_key_prefix}.{unique_class_id}'
+        if multiprocessing_options.barrier_sync_key_prefix is None
+        else f'{multiprocessing_options.barrier_sync_key_prefix}.{unique_class_id}'
     )
     self._barrier_sync_key_prefix = barrier_sync_key_prefix
     self._path_permission_mode = path_permission_mode  # e.g. 0o750
@@ -261,13 +259,16 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         or checkpoint.checkpoint_metadata_store(enable_write=True)
     )
     self._temporary_path_class = temporary_path_class
+    timeout_secs = timeout_secs or async_options.timeout_secs
 
     # TODO(dicentra): consider folding into AsyncCheckpointer directly.
     self._async_manager = _AsyncManager(
-        barrier_sync_fn=barrier_sync_fn
-        or multihost.get_barrier_sync_fn(processes=active_processes),
+        barrier_sync_fn=async_options.barrier_sync_fn
+        or multihost.get_barrier_sync_fn(
+            processes=multiprocessing_options.active_processes
+        ),
         timeout_secs=timeout_secs,
-        primary_host=primary_host,
+        primary_host=multiprocessing_options.primary_host,
         barrier_sync_key_prefix=barrier_sync_key_prefix,
     )
 
