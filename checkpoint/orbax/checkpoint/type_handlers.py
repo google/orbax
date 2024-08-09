@@ -17,13 +17,14 @@
 import abc
 import asyncio
 import base64
+import copy
 import dataclasses
 import functools
 import json
 import os
 import re
 import time
-from typing import Any, Callable, cast, Dict, List, Optional, Protocol, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union, cast
 import warnings
 
 from absl import logging
@@ -610,6 +611,17 @@ class TypeHandler(abc.ABC):
     pass
 
 
+class _CommitFuture(future.Future):
+  """Represents the result of a background commit."""
+
+  def __init__(self, coro):
+    self._t = future.ThreadRaisingException(target=lambda: asyncio.run(coro))
+    self._t.start()
+
+  def result(self, timeout: Optional[int] = None) -> Any:
+    return self._t.join(timeout=timeout)
+
+
 def check_input_arguments(*args):
   l = None
   for arg in args:
@@ -957,17 +969,23 @@ class NumpyHandler(TypeHandler):
         for t, info in zip(tensorstores, infos)
     ]
 
-  async def serialize(
+  async def _open_and_write(
+      self, value: np.ndarray, tspec: Dict[str, Any], ts_context: ts.Context
+  ):
+    """Opens and writes using Tensorstore."""
+    t = await ts.open(
+        ts.Spec(tspec), create=True, open=True, context=ts_context
+    )
+    await t.write(value, can_reference_source_data_indefinitely=True)
+
+  async def _background_serialize(
       self,
       values: Sequence[np.ndarray],
       infos: Sequence[ParamInfo],
       args: Optional[Sequence[SaveArgs]] = None,
-  ) -> Sequence[future.Future]:
-    """Uses Tensorstore to serialize a numpy array."""
-    args = args or [SaveArgs()] * len(values)
-    check_input_arguments(values, infos, args)
-    copy_ops = []
-    futures = []
+  ):
+    """Serializes numpy arrays in a background thread."""
+    write_coros = []
     for value, info, arg in zip(values, infos, args):
       tspec = self._get_json_tspec_write(
           info,
@@ -983,28 +1001,26 @@ class NumpyHandler(TypeHandler):
         logging.debug('args = %s', arg)
       if multihost.process_index() == 0:
         ts_context = info.ts_context
-        # Open once to create metadata and allow the operation to happen
-        # asynchronously.
-        open_future = ts.open(
-            ts.Spec(tspec), create=True, open=True, context=ts_context
-        )
-        # Open again (no disk I/O) to get the write location.
-        t = await ts.open(
-            ts.Spec(tspec),
-            open=True,
-            assume_metadata=True,
-            context=ts_context,
-        )
-        write_future = t.write(value)
-        copy_ops += [write_future.copy]
-        futures += [open_future, write_future.commit]
-    await asyncio.gather(*copy_ops)
+        write_coros.append(self._open_and_write(value, tspec, ts_context))
+    await asyncio.gather(*write_coros)
 
+  async def serialize(
+      self,
+      values: Sequence[np.ndarray],
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[SaveArgs]] = None,
+  ) -> Sequence[future.Future]:
+    """Uses Tensorstore to serialize a numpy array."""
+    args = args or [SaveArgs()] * len(values)
+    check_input_arguments(values, infos, args)
     if logging.level_debug():
       logging.debug(
           'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
       )
-    return futures
+    copied_values = [copy.deepcopy(v) for v in values]
+    return [
+        _CommitFuture(self._background_serialize(copied_values, infos, args))
+    ]
 
   async def deserialize(
       self,
@@ -1405,18 +1421,6 @@ class ArrayHandler(TypeHandler):
         for value in values
     ]
     jax.tree.map(lambda x: x.block_until_ready(), host_shards)
-
-    class _CommitFuture(future.Future):
-      """Represents the result of a background commit."""
-
-      def __init__(self, coro):
-        self._t = future.ThreadRaisingException(
-            target=lambda: asyncio.run(coro)
-        )
-        self._t.start()
-
-      def result(self, timeout: Optional[int] = None) -> Any:
-        return self._t.join(timeout=timeout)
 
     return [_CommitFuture(self._background_serialize(host_shards, infos, args))]
 
