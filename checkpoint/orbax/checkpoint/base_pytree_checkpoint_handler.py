@@ -261,7 +261,9 @@ class BasePyTreeCheckpointHandler(
         '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
     )
 
-    self._thread_pool = futures.ThreadPoolExecutor(max_workers=2)
+    self._thread_pool = futures.ThreadPoolExecutor(
+        max_workers=2, thread_name_prefix='base_pytree_ch'
+    )
 
   def get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""

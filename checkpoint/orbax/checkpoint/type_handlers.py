@@ -613,8 +613,11 @@ class TypeHandler(abc.ABC):
 class _CommitFuture(future.Future):
   """Represents the result of a background commit."""
 
-  def __init__(self, coro):
-    self._t = future.ThreadRaisingException(target=lambda: asyncio.run(coro))
+  def __init__(self, coro, name: Optional[str] = None):
+    self._t = future.ThreadRaisingException(
+        name=name,
+        target=lambda: asyncio.run(coro),
+    )
     self._t.start()
 
   def result(self, timeout: Optional[int] = None) -> Any:
@@ -1018,7 +1021,10 @@ class NumpyHandler(TypeHandler):
       )
     copied_values = [copy.deepcopy(v) for v in values]
     return [
-        _CommitFuture(self._background_serialize(copied_values, infos, args))
+        _CommitFuture(
+            self._background_serialize(copied_values, infos, args),
+            name='np_type_handler',
+        )
     ]
 
   async def deserialize(
@@ -1421,7 +1427,12 @@ class ArrayHandler(TypeHandler):
     ]
     jax.tree.map(lambda x: x.block_until_ready(), host_shards)
 
-    return [_CommitFuture(self._background_serialize(host_shards, infos, args))]
+    return [
+        _CommitFuture(
+            self._background_serialize(host_shards, infos, args),
+            name='array_type_handler',
+        )
+    ]
 
   async def deserialize(
       self,
@@ -1585,26 +1596,26 @@ class SingleReplicaArrayHandler(ArrayHandler):
   https://github.com/google/maxtext/blob/main/MaxText/checkpointing.py
   """
 
-  def __init__(self,
-               replica_axis_index: Optional[int] = 0,
-               primary_replica_id: Optional[int] = 0,
-               broadcast_memory_limit_bytes: Optional[int] = None,
-               broadcast_memory_scaling_factor: Optional[float] = 0.75):
+  def __init__(
+      self,
+      replica_axis_index: Optional[int] = 0,
+      primary_replica_id: Optional[int] = 0,
+      broadcast_memory_limit_bytes: Optional[int] = None,
+      broadcast_memory_scaling_factor: Optional[float] = 0.75,
+  ):
     """Constructor.
 
     Args:
-      replica_axis_index:
-        The index of the axis dimension of the array, along which the replicas
-        are defined.
-        # TODO(b/347273809): Currently works only when replica is taken along
-        # the first dimension, i.e. replica_axis_index is 0.
-      primary_replica_id:
-        The id of the replica hosts that is used to load and broadcast the
-        checkpoint.
-      broadcast_memory_limit_bytes:
-        Specifies the memory size (in bytes) used for broadcasting data.
-      broadcast_memory_scaling_factor:
-        Specifies the fraction of available memory to use for broadcasting data.
+      replica_axis_index: The index of the axis dimension of the array, along
+        which the replicas are defined. # TODO(b/347273809): Currently works
+        only when replica is taken along # the first dimension, i.e.
+        replica_axis_index is 0.
+      primary_replica_id: The id of the replica hosts that is used to load and
+        broadcast the checkpoint.
+      broadcast_memory_limit_bytes: Specifies the memory size (in bytes) used
+        for broadcasting data.
+      broadcast_memory_scaling_factor: Specifies the fraction of available
+        memory to use for broadcasting data.
     """
 
     super(SingleReplicaArrayHandler, self).__init__()

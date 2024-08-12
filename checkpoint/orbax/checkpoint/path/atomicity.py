@@ -50,6 +50,7 @@ Configuration can be done in the following way::
 """
 
 import re
+import threading
 import time
 from typing import Optional, Protocol, Set, Type
 
@@ -147,9 +148,8 @@ def _create_tmp_directory(
     active_processes: Ids of active processes. default=None
     barrier_sync_key_prefix: A prefix to use for the barrier sync key.
     path_permission_mode: Path permission mode for the temp directory. e.g.
-      0o750. Please check
-      https://github.com/google/etils/blob/main/etils/epath/backend.py if your
-      path is supported.
+      0o750. To check if your path is supported, please see:
+      https://github.com/google/etils/blob/main/etils/epath/backend.py
     checkpoint_metadata_store: optional `CheckpointMetadataStore` instance. If
       present then it is used to create `CheckpointMetadata` with current
       timestamp.
@@ -492,4 +492,9 @@ def on_commit_callback(
   """
   tmp_dir.finalize()
   step_lib.record_saved_duration(checkpoint_start_time)
-  logging.info('Committed checkpoint save to `%s`.', tmp_dir.get_final())
+  logging.info(
+      '[host=%s][thread=%s] Finalized tmp dir to `%s`.',
+      multihost.process_index(),
+      threading.current_thread().name,
+      tmp_dir.get_final(),
+  )

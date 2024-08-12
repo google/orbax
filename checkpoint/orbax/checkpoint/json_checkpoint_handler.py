@@ -52,7 +52,9 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """
     self._filename = filename or 'metadata'
     self._primary_host = multiprocessing_options.primary_host
-    self._executor = futures.ThreadPoolExecutor(max_workers=1)
+    self._executor = futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix='json_ch'
+    )
 
   def _save_fn(self, x, directory):
     if utils.is_primary_host(self._primary_host):
@@ -83,9 +85,7 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       )
     if args is not None:
       item = args.item
-    return [
-        self._executor.submit(self._save_fn, item, directory)
-    ]
+    return [self._executor.submit(self._save_fn, item, directory)]
 
   def save(
       self,

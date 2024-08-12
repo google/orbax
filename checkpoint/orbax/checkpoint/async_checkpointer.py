@@ -62,8 +62,9 @@ class _AsyncManager:
       barrier_sync_key_prefix: Optional[str] = None,
   ):
     logging.info(
-        'Using timeout: %d secs and primary_host=%s for async checkpoint'
-        ' writes',
+        '[process=%s] Using timeout: %d secs and primary_host=%s for async'
+        ' checkpoint writes',
+        multihost.process_index(),
         timeout_secs,
         primary_host,
     )
@@ -97,6 +98,7 @@ class _AsyncManager:
   ):
     """Awaits on commit futures and finalizes the checkpoint."""
     current_process = multihost.process_index()
+    current_thread_id = threading.current_thread().name
     # The unique_operation_id allows pre-selecting an identifier to use for the
     # barriers in this background thread. If we have multiple background
     # threads running concurrently, relying on _module_unique_count can result
@@ -105,7 +107,9 @@ class _AsyncManager:
     try:
       process_count = jax.process_count()
       logging.info(
-          'Starting commit to storage layer by process: %s', current_process
+          '[process=%s][thread=%s] Background save thread started.',
+          current_process,
+          current_thread_id,
       )
       thread_start_time = time.time()
 
@@ -113,7 +117,10 @@ class _AsyncManager:
       for future in commit_futures:
         future.result()
       logging.info(
-          'Finished committing to storage layer by process: %s', current_process
+          '[process=%s][thread=%s] %d Handler Commit operations completed.',
+          current_process,
+          current_thread_id,
+          len(commit_futures),
       )
       # Log the number of async writes that are in flight. Abuses a duration
       # metric as a counter since jax.monitoring only has events and durations.
@@ -155,12 +162,17 @@ class _AsyncManager:
           '/jax/checkpoint/write/async/thread_duration_sec',
           time.time() - thread_start_time,
       )
+      logging.info(
+          '[process=%s][thread=%s] Background save thread done.',
+          current_process,
+          current_thread_id,
+      )
 
     except Exception as e:  # pylint: disable=broad-exception-caught
       msg = (
           f'[process={current_process}] Failed to run'
-          f' {len(commit_futures)} commit threads or the commit callback,'
-          f' directory: {directory}'
+          f' {len(commit_futures)} Handler Commit operations or the Commit'
+          f' callback in background save thread, directory: {directory}'
       )
       logging.error(msg, exc_info=True)
       self._exception = e
@@ -174,6 +186,7 @@ class _AsyncManager:
   ):
     """Completes checkpoint save in a background thread."""
     self._thread = threading.Thread(
+        name=f'async_save_{unique_operation_id}',
         target=self._thread_func,
         args=(
             directory,
@@ -194,13 +207,36 @@ class _AsyncManager:
 
   def wait_until_finished(self):
     """Waits for any outstanding operations to complete."""
+    current_thread_name = threading.current_thread().name
+    background_thread_name = (
+        self._thread.name if self._thread is not None else None
+    )
     if self._thread is not None:
+      logging.info(
+          '[process=%s][thread=%s] Waiting for background save thread=%s.',
+          multihost.process_index(),
+          current_thread_name,
+          background_thread_name,
+      )
       self._thread.join()
       self._thread = None
-      logging.info('Commit thread joined successfully')
+      logging.info(
+          '[process=%s][thread=%s] Done with waiting for background save'
+          ' thread=%s.',
+          multihost.process_index(),
+          current_thread_name,
+          background_thread_name,
+      )
 
     self.check_for_errors()
-    logging.info('Commit thread error check finished successfully')
+    if background_thread_name is not None:
+      logging.info(
+          '[process=%s][thread=%s] No errors found in background save'
+          ' thread=%s.',
+          multihost.process_index(),
+          current_thread_name,
+          background_thread_name,
+      )
 
 
 class AsyncCheckpointer(checkpointer.Checkpointer):
@@ -235,7 +271,9 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
     if not checkpoint_args.has_registered_args(handler):
       logging.warning(
-          'No registered CheckpointArgs found for handler type: %s',
+          '[process=%s] No registered CheckpointArgs found for handler'
+          ' type: %s',
+          multihost.process_index(),
           type(handler),
       )
       handler = checkpointer.get_legacy_handler_wrapper(handler)
@@ -305,14 +343,19 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     if directory.exists():
       if force:
         if utils.is_primary_host(self._primary_host):
-          logging.info('Specified `force`: removing existing directory.')
+          logging.info(
+              '[process=%s] Specified `force`: removing existing directory.',
+              multihost.process_index(),
+          )
           directory.rmtree()  # Post-sync handled by create_tmp_directory.
       else:
         raise ValueError(f'Destination {directory} already exists.')
     tmpdir = self.create_temporary_path(directory)
 
     logging.info(
-        'Async saving checkpoint to tmp dir=%s, eventually to final dir=%s.',
+        '[process=%s] Async saving checkpoint to tmp dir=%s, eventually to'
+        ' final dir=%s.',
+        multihost.process_index(),
         tmpdir.get(),
         tmpdir.get_final(),
     )
@@ -330,21 +373,29 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     # Directory is the final directory.
     def _callback() -> None:
       logging.info(
-          'Async Save Callback [1/3]: Finalizing Handler: %s on %s',
+          '[process=%s][thread=%s] Async Save Callback [1/3]: Finalizing'
+          ' Handler: %s on %s',
+          multihost.process_index(),
+          threading.current_thread().name,
           self._handler,
           tmpdir.get(),
       )
       self._handler.finalize(tmpdir.get())
       logging.info(
-          'Async Save Callback [2/3]: Running'
+          '[process=%s][thread=%s] Async Save Callback [2/3]: Running'
           ' post_finalization_callback: %s on %s',
+          multihost.process_index(),
+          threading.current_thread().name,
           self._post_finalization_callback,
           tmpdir.get_final(),
       )
       if self._post_finalization_callback is not None:
         self._post_finalization_callback()
       logging.info(
-          'Async Save Callback [3/3]: Finalizing checkpoint directory: %s',
+          '[process=%s][thread=%s] Async Save Callback [3/3]: Finalizing'
+          ' checkpoint directory: %s',
+          multihost.process_index(),
+          threading.current_thread().name,
           tmpdir.get(),
       )
       _on_commit_callback(tmpdir, checkpoint_start_time)

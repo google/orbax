@@ -285,7 +285,7 @@ class _NonBlockingCheckpointMetadataStore(CheckpointMetadataStore):
     if self.enable_write:
       self._write_lock = threading.RLock()
       self._single_thread_executor = concurrent.futures.ThreadPoolExecutor(
-          max_workers=1
+          max_workers=1, thread_name_prefix='metadata_store'
       )
       self._write_futures = []
 
