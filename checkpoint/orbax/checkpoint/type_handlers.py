@@ -23,6 +23,7 @@ import functools
 import json
 import os
 import re
+import sys
 import time
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union, cast
 import warnings
@@ -609,6 +610,24 @@ class TypeHandler(abc.ABC):
     """
     pass
 
+  def memory_size(self, values: Sequence[Any]) -> Sequence[int]:
+    """For a batch of values, returns the size of each value in bytes.
+
+    Note that the default implementation uses `sys.getsizeof`, which is not
+    likely to be accurate for many types.
+
+    Args:
+      values: A batch of values.
+
+    Returns:
+      The size of each value in bytes.
+
+    Raises:
+      NotImplementedError: Raises error by default since we will rely on a
+        backup implementation.
+    """
+    raise NotImplementedError()
+
 
 class _CommitFuture(future.Future):
   """Represents the result of a background commit."""
@@ -1068,6 +1087,9 @@ class NumpyHandler(TypeHandler):
 
     return ret
 
+  def memory_size(self, values: Sequence[np.ndarray]) -> Sequence[int]:
+    return [v.size * v.dtype.itemsize for v in values]
+
 
 class ScalarHandler(NumpyHandler):
   """A wrapper around NumpyHandler to deal with scalar types (int, float, etc.)."""
@@ -1105,6 +1127,9 @@ class ScalarHandler(NumpyHandler):
       if r.ndim != 0:
         raise ValueError('Restored result is not a scalar.')
     return [r.item() for r in results]
+
+  def memory_size(self, values: Sequence[Scalar]) -> Sequence[int]:  # pytype: disable=signature-mismatch
+    return [sys.getsizeof(v) for v in values]
 
 
 def get_sharding_tensorstore_spec(
@@ -1545,6 +1570,9 @@ class ArrayHandler(TypeHandler):
 
     return ret
 
+  def memory_size(self, values: Sequence[jax.Array]) -> Sequence[int]:
+    return [v.size * v.dtype.itemsize for v in values]
+
 
 def _is_sharding_valid(
     primary_replica_ids: set[int], primary_replica_pids: set[int]
@@ -1852,6 +1880,9 @@ class StringHandler(TypeHandler):
     tensorstores = await asyncio.gather(*open_futures)
     read_ops = [self._convert_to_string(t) for t in tensorstores]
     return await asyncio.gather(*read_ops)
+
+  def memory_size(self, values: Sequence[str]) -> Sequence[int]:
+    return [sys.getsizeof(v) for v in values]
 
 
 class TypeHandlerRegistry(Protocol):

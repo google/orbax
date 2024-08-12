@@ -22,13 +22,16 @@ customized, and is delegated to the `TypeHandler` class.
 import asyncio
 from concurrent import futures
 import dataclasses
+import functools
 import json
+import sys
 import time
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Sequence, Tuple, Union
 import uuid
 
 from absl import logging
 from etils import epath
+import humanize
 import jax
 from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
@@ -75,6 +78,36 @@ async def _create_param_save_dir(param_info: ParamInfo):
   # discrepancy, while potentially problematic, will not be addressed since we
   # anticipate moving fully to OCDBT within a quarter or two.
   await utils.async_makedirs(path, parents=True)
+
+
+def _default_sizeof_values(values: Sequence[Any]) -> Sequence[int]:
+  return [sys.getsizeof(v) for v in values]
+
+
+def _get_batch_memory_size(handler: TypeHandler, values: Sequence[Any]) -> int:
+  try:
+    sizes = handler.memory_size(values)
+  except NotImplementedError:
+    logging.warning(
+        '`memory_size` is not implemented for `TypeHandler` of type: %s. Using'
+        ' the a default implementation to measure value memory consumption that'
+        ' may result in inaccurate estimation.',
+        type(handler),
+    )
+    sizes = _default_sizeof_values(values)
+  return sum(sizes)
+
+
+def _log_io_per_sec_metric(name: str, size: int, start_time: float):
+  time_elapsed = time.time() - start_time
+  bytes_per_sec = float(size) / time_elapsed
+  logging.info(
+      '%s: %s/s (time elapsed: %s)',
+      name,
+      humanize.naturalsize(bytes_per_sec, binary=True),
+      humanize.naturaldelta(time_elapsed, minimum_unit='microseconds'),
+  )
+  jax.monitoring.record_event_duration_secs(name, bytes_per_sec)
 
 
 @dataclasses.dataclass
@@ -383,6 +416,7 @@ class BasePyTreeCheckpointHandler(
       A Future that will commit the data to `directory` when awaited. Copying
       the data from its source will be awaited in this function.
     """
+    start_time = time.time()
     item = args.item
     if not item:
       raise ValueError('Found empty item.')
@@ -412,10 +446,14 @@ class BasePyTreeCheckpointHandler(
         save_args,
         self._type_handler_registry,
     )
+    tree_memory_size = 0
     for request in batch_requests:
       serialize_ops += [
           request.handler.serialize(request.values, request.infos, request.args)
       ]
+      tree_memory_size += _get_batch_memory_size(
+          request.handler, request.values
+      )
     # Await copy futures. Returns list of lists.
     commit_futures = await asyncio.gather(*serialize_ops)
     commit_futures, _ = jax.tree.flatten(commit_futures)
@@ -425,17 +463,28 @@ class BasePyTreeCheckpointHandler(
       logging.debug('save_args: %s', save_args)
 
     if multihost.is_primary_host(self._primary_host):
-      metadata_write_start_time = time.time()
       commit_futures.append(
           self._write_metadata_file(
               directory, param_infos, save_args, self._use_zarr3
           )
       )
-      jax.monitoring.record_event_duration_secs(
-          '/jax/checkpoint/write/async/metadata_write_duration_secs',
-          time.time() - metadata_write_start_time,
-      )
-    return commit_futures
+
+    _log_io_per_sec_metric(
+        '/jax/checkpoint/write/blocking_bytes_per_sec',
+        tree_memory_size,
+        start_time,
+    )
+    return [
+        future.ChainedFuture(
+            commit_futures,
+            functools.partial(
+                _log_io_per_sec_metric,
+                '/jax/checkpoint/write/bytes_per_sec',
+                tree_memory_size,
+                start_time,
+            ),
+        )
+    ]
 
   def save(self, directory: epath.Path, *args, **kwargs):
     """Saves the provided item.
@@ -466,7 +515,7 @@ class BasePyTreeCheckpointHandler(
       metadata: PyTree,
       param_infos: PyTree,
       restore_args: PyTree,
-  ) -> PyTree:
+  ) -> Tuple[int, PyTree]:
     """Deserializes values or skips."""
     flat_metadata = tree_utils.to_flat_dict(metadata)
     byte_limiter = serialization.get_byte_limiter(
@@ -490,8 +539,10 @@ class BasePyTreeCheckpointHandler(
       )
     deserialized_batches += await asyncio.gather(*deserialized_batches_ops)
 
+    tree_memory_size = 0
     flat_restored = {}
     for request, deserialized in zip(batch_requests, deserialized_batches):
+      tree_memory_size += _get_batch_memory_size(request.handler, deserialized)
       for key, value in zip(request.keys, deserialized):
         flat_restored[key] = value
     # Add in empty nodes from the metadata tree.
@@ -503,7 +554,9 @@ class BasePyTreeCheckpointHandler(
     # Restore using `item` as the target structure. If there are any custom
     # nodes (e.g. optax.EmptyState), these will replace None values in
     # flat_restored.
-    return tree_utils.from_flat_dict(flat_restored, target=item)
+    return tree_memory_size, tree_utils.from_flat_dict(
+        flat_restored, target=item
+    )
 
   def restore(
       self,
@@ -592,6 +645,7 @@ class BasePyTreeCheckpointHandler(
       ValueError: `transforms` is provided without `item`.
       ValueError: `transforms` contains elements with `multi_value_fn`.
     """
+    start_time = time.time()
     args = args or BasePyTreeRestoreArgs()
     item = args.item
     restore_args = args.restore_args
@@ -625,7 +679,7 @@ class BasePyTreeCheckpointHandler(
         use_ocdbt=type_handlers.is_ocdbt_checkpoint(directory),
         use_zarr3=use_zarr3,
     )
-    restored_item = asyncio.run(
+    tree_memory_size, restored_item = asyncio.run(
         self._maybe_deserialize(item, metadata, param_infos, restore_args)
     )
 
@@ -638,6 +692,9 @@ class BasePyTreeCheckpointHandler(
           json.dumps(ts.experimental_collect_matching_metrics('/tensorstore/')),
       )
 
+    _log_io_per_sec_metric(
+        '/jax/checkpoint/read/bytes_per_sec', tree_memory_size, start_time
+    )
     return restored_item
 
   def _write_metadata_file(
@@ -649,6 +706,7 @@ class BasePyTreeCheckpointHandler(
   ) -> future.Future:
     def _save_fn():
       if utils.is_primary_host(self._primary_host):
+        metadata_write_start_time = time.time()
         path = directory / METADATA_FILE
         metadata_content = tree_metadata.TreeMetadata.build(
             param_infos,
@@ -656,6 +714,10 @@ class BasePyTreeCheckpointHandler(
             use_zarr3=use_zarr3,
         )
         path.write_text(json.dumps(metadata_content.to_json()))
+        jax.monitoring.record_event_duration_secs(
+            '/jax/checkpoint/write/async/metadata_write_duration_secs',
+            time.time() - metadata_write_start_time,
+        )
       return 0
 
     return self._thread_pool.submit(_save_fn)

@@ -15,7 +15,9 @@
 """Orbax Future class used for duck typing."""
 
 import threading
-from typing import Any, Optional
+import time
+from typing import Any, Callable, Optional, Sequence
+from absl import logging
 from typing_extensions import Protocol
 
 
@@ -58,3 +60,35 @@ class ThreadRaisingException(threading.Thread):
     super().join(timeout=timeout)
     if self._exception is not None:
       raise self._exception
+
+
+class ChainedFuture:
+  """A future representing a sequence of multiple futures."""
+
+  def __init__(self, futures: Sequence[Future], cb: Callable[[], None]):
+    self._futures = futures
+    self._cb = cb
+
+  def result(self, timeout: Optional[int] = None) -> Any:
+    """Waits for all futures to complete."""
+    n = len(self._futures)
+    start = time.time()
+    time_remaining = timeout
+    for k, f in enumerate(self._futures):
+      f.result(timeout=time_remaining)
+      if time_remaining is not None:
+        time_elapsed = time.time() - start
+        time_remaining -= time_elapsed
+        if time_remaining <= 0:
+          raise TimeoutError(
+              'ChainedFuture completed {:d}/{:d} futures but timed out after'
+              ' {:.2f} seconds.'.format(k, n, time_elapsed)
+          )
+    time_elapsed = time.time() - start
+    logging.info(
+        'ChainedFuture completed %d/%d futures in %.2f seconds.',
+        n,
+        n,
+        time_elapsed,
+    )
+    self._cb()
