@@ -534,6 +534,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
     )
     if checkpointers:
+      jax.monitoring.record_event(
+          '/jax/orbax/deprecation/checkpoint_manager_legacy_init'
+      )
       logging.warning(
           'Configured `CheckpointManager` using deprecated legacy API. Please'
           ' follow the instructions at'

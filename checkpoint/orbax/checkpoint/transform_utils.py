@@ -21,6 +21,7 @@ import re
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 from absl import logging
+import jax.monitoring
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 
@@ -231,6 +232,7 @@ def apply_transformations(original_tree: PyTree,
       ' design. The current API will not be removed until this point, but it'
       ' will no longer be actively worked on.',
   )
+  jax.monitoring.record_event('/jax/orbax/deprecation/apply_transformations')
   if not new_tree:
     return {}
 

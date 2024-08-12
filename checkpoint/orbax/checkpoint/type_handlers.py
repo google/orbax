@@ -232,11 +232,10 @@ class SaveArgs:
 
   def __post_init__(self):
     if self.aggregate:
+      jax.monitoring.record_event('/jax/orbax/deprecation/aggregate')
       logging.log_every_n_seconds(
           logging.WARNING,
-          'SaveArgs.aggregate is deprecated, please use custom TypeHandler'
-          ' (https://orbax.readthedocs.io/en/latest/custom_handlers.html#typehandler)'
-          ' or contact Orbax team to migrate before August 1st, 2024.',
+          'The `aggregate` option is deprecated and will be ignored.',
           n_seconds=12 * 60 * 60,  # once every 12 hours
       )
 

@@ -123,6 +123,7 @@ def all_leaves_are_placeholders(tree: PyTree) -> bool:
 def pytree_structure(directory: epath.PathLike) -> PyTree:
   """Reconstruct state dict from saved model format in `directory`."""
   directory = epath.Path(directory)
+  jax.monitoring.record_event('/jax/orbax/deprecation/inferred_structure')
 
   def add_nested_key(subtree, nested_key, key_name):
     if not nested_key:

@@ -413,21 +413,6 @@ def _get_impl_save_args(
         item=item,
         save_args=save_args,
     )
-
-  def _overwrite_aggregate(sa: SaveArgs) -> SaveArgs:
-    if sa.aggregate:
-      logging.log_first_n(
-          logging.WARNING,
-          'The `aggregate` option is deprecated and will be ignored.',
-          5,
-      )
-    sa.aggregate = False
-    return sa
-
-  if args.save_args is not None:
-    args.save_args = jax.tree_util.tree_map(
-        _overwrite_aggregate, args.save_args
-    )
   return BasePyTreeSaveArgs(
       item=args.item,
       save_args=args.save_args,
@@ -897,6 +882,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           metadata_tree, keep_empty_nodes=True
       )
     except FileNotFoundError:
+      jax.monitoring.record_event('/jax/orbax/deprecation/missing_metadata')
       metadata_tree = None
       flat_metadata = None
       use_zarr3 = None
@@ -907,6 +893,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           aggregate_tree, keep_empty_nodes=True
       )
     except FileNotFoundError:
+      jax.monitoring.record_event('/jax/orbax/deprecation/missing_structure')
       aggregate_tree = None
       flat_aggregate = None
 
