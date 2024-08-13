@@ -422,8 +422,6 @@ class BasePyTreeCheckpointHandler(
       raise ValueError('Found empty item.')
     save_args = args.save_args
     ocdbt_target_data_file_size = args.ocdbt_target_data_file_size
-    if ocdbt_target_data_file_size is not None and not self._use_zarr3:
-      raise ValueError('`ocdbt_target_data_file_size` only works with Zarr3')
 
     save_args = _fill_missing_save_or_restore_args(item, save_args, mode='save')
     byte_limiter = serialization.get_byte_limiter(self._save_concurrent_bytes)
