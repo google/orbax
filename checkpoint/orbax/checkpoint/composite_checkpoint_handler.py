@@ -62,6 +62,7 @@ from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import future
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import proto_checkpoint_handler
+from orbax.checkpoint.handlers import handler_registration
 from orbax.checkpoint.path import atomicity
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
@@ -271,6 +272,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       self,
       *item_names: str,
       composite_options: CompositeOptions = CompositeOptions(),
+      handler_registry: Optional[
+          handler_registration.CheckpointHandlerRegistry
+      ] = None,
       **items_and_handlers: CheckpointHandler,
   ):
     """Constructor.
@@ -280,24 +284,67 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     Args:
       *item_names: A list of string item names that this handler will manage.
       composite_options: Options.
+      handler_registry: A `CheckpointHandlerRegistry` instance. If provided, the
+        `CompositeCheckpointHandler` will use this registry to determine the
+        `CheckpointHandler` for each item. This option is mutually exclusive
+        with `items_and_handlers` and `item_names`.
       **items_and_handlers: A mapping of item name to `CheckpointHandler`
         instance, which will be used as the handler for objects of the
         corresponding name.
     """
-    self._known_handlers: Dict[str, Optional[CheckpointHandler]] = (
-        items_and_handlers
-    )
-    for item in item_names:
-      if item not in self._known_handlers:
-        self._known_handlers[item] = None
-    for item_name, handler in self._known_handlers.items():
-      _maybe_raise_reserved_item_error(item_name)
-      if handler and not checkpoint_args.has_registered_args(handler):
-        logging.warning(
-            'No registered CheckpointArgs found for handler type: %s',
-            type(handler),
+    if handler_registry is not None and items_and_handlers:
+      raise ValueError(
+          'Both `handler_registry` and `items_and_handlers` were provided. '
+          'Please specify only one of the two.'
+      )
+    if handler_registry is not None and item_names:
+      raise ValueError(
+          'Both `handler_registry` and `item_names` were provided. '
+          'Please specify only one of the two.'
+      )
+
+    if handler_registry is not None:
+      self._handler_registry = handler_registry
+      self._known_handlers = {
+          item: handler
+          for (
+              item,
+              _,
+          ), handler in handler_registry.get_all_entries().items()
+          # The mapping is from item to handlers, so only include items that
+          # have handlers.
+          if item is not None
+      }
+    else:
+      if items_and_handlers:
+        logging.info(
+            'Prefer using `handler_registry` instead of `items_and_handlers`.'
         )
-        self._known_handlers[item_name] = get_legacy_handler_wrapper(handler)
+        self._handler_registry = None
+        self._known_handlers = items_and_handlers
+      else:
+        # If no handler registry or items_and_handlers are provided, we will
+        # default to the global registry.
+        self._handler_registry = None
+        self._known_handlers = {}
+
+      for item in item_names:
+        _maybe_raise_reserved_item_error(item)
+        if item not in self._known_handlers:
+          self._known_handlers[item] = None
+
+      for item_name, handler in self._known_handlers.items():
+        if handler and not checkpoint_args.has_registered_args(handler):
+          if self._handler_registry is not None:
+            raise ValueError(
+                'Handler registry has been provided, but no registered'
+                f' `CheckpointArgs` found for handler type: {type(handler)}.'
+            )
+          logging.warning(
+              'No registered CheckpointArgs found for handler type: %s',
+              type(handler),
+          )
+          self._known_handlers[item_name] = get_legacy_handler_wrapper(handler)
     self._primary_host = composite_options.multiprocessing_options.primary_host
     self._active_processes = (
         composite_options.multiprocessing_options.active_processes
@@ -318,11 +365,43 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       item_name: str,
       args: Optional[CheckpointArgs],
   ) -> CheckpointHandler:
-    if item_name not in self._known_handlers:
-      raise ValueError(
-          f'Unknown key "{item_name}". Please make sure that this key was'
-          ' specified during initialization.'
-      )
+    handler_registry = self._handler_registry
+    if handler_registry is not None:
+      if args is not None:
+        try:
+          handler = handler_registry.get(item_name, args)
+          if (
+              item_name not in self._known_handlers
+              or self._known_handlers[item_name] is None
+          ):
+            self._known_handlers[item_name] = handler
+
+          known_handler = self._known_handlers[item_name]
+          assert known_handler is not None
+          if not isinstance(known_handler, type(handler)):
+            raise ValueError(
+                f'For item, "{item_name}", CheckpointHandler'
+                f' {type(known_handler)} does not match with'
+                f' registered handler {type(handler)} in'
+                ' `self._handler_registry` for provided args of type:'
+                f' {type(args)}'
+            )
+          return handler
+
+        except handler_registration.NoEntryError:
+          logging.info(
+              'No entry found in handler registry for item: %s and args: %s.'
+              ' Falling back to global handler registry',
+              item_name,
+              args,
+          )
+          self._known_handlers[item_name] = None
+    else:
+      if item_name not in self._known_handlers:
+        raise ValueError(
+            f'Unknown key "{item_name}". Please make sure that this key was'
+            ' specified during initialization.'
+        )
     handler = self._known_handlers[item_name]
     if args is None:
       if handler is None:
@@ -346,9 +425,10 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       self._known_handlers[item_name] = handler
     if not isinstance(handler, registered_handler_cls_for_args):
       raise ValueError(
-          f'For item, "{item_name}", CheckpointHandler {type(handler)} does not'
-          f' match with registered handler {registered_handler_cls_for_args}'
-          f' for provided args of type: {type(args)}'
+          f'For item, "{item_name}", CheckpointHandler {type(handler)} does'
+          ' not match with registered handler'
+          f' {registered_handler_cls_for_args} for provided args of type:'
+          f' {type(args)}'
       )
     return handler
 
