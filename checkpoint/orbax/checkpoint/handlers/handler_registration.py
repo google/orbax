@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Registry for `CheckpointHandler`s.
+"""Registry for  :py:class:`CheckpointHandler`s.
 
 A checkpoint handler registry is used to register :py:class:`CheckpointHandler`s
 for specific item names and :py:class:`CheckpointArgs` types. When saving or
@@ -38,11 +38,12 @@ HandlerRegistryMapping = MutableMapping[
 class CheckpointHandlerRegistry(Protocol):
   """Protocol for `CheckpointHandlerRegistry`.
 
-  A checkpoint handler registry is used to register `CheckpointHandler`s for
-  specific item names and `CheckpointArgs` types. When saving or restoring a
-  checkpoint, the registry can be used to find the appropriate handler for the
-  item and its args. See :py:class:`DefaultCheckpointHandlerRegistry` for the
-  default implementation.
+  A checkpoint handler registry is used to register
+  :py:class:`CheckpointHandler`s for specific item names and
+  :py:class:`CheckpointArgs` types. When saving or restoring a checkpoint, the
+  registry can be used to find the appropriate handler for the item and its
+  args. See :py:class:`DefaultCheckpointHandlerRegistry` for the default
+  implementation.
   """
 
   def add(
@@ -95,44 +96,44 @@ def _get_args_type(
 
 
 class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
-  """Default implementation of `CheckpointHandlerRegistry`.
+  """Default implementation of :py:class:`CheckpointHandlerRegistry`.
 
-  ```python
-  from orbax.checkpoint.handlers import handler_registration
+  Usage::
+    from orbax.checkpoint.handlers import handler_registration
 
-  # Create a handler registry.
-  registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    # Create a handler registry.
+    registry = handler_registration.DefaultCheckpointHandlerRegistry()
 
-  # Add custom save and restore args for a checkpointable item.
-  registry.add(
-      'item',
-      FooCustomCheckpointSaveArgs,
-      FooCustomCheckpointHandler,
-  )
-  registry.add(
-      'item',
-      FooCustomCheckpoinRestoreArgs,
-      FooCustomCheckpointHandler,
-  )`
+    # Add custom save and restore args for a checkpointable item.
+    registry.add(
+        'item',
+        FooCustomCheckpointSaveArgs,
+        FooCustomCheckpointHandler,
+    )
+    registry.add(
+        'item',
+        FooCustomCheckpoinRestoreArgs,
+        FooCustomCheckpointHandler,
+    )`
 
-  # Retrieve the handler for the item and args.
-  handler = registry.get('item', FooCustomCheckpointSaveArgs)
-  assert isinstance(handler, FooCustomCheckpointHandler)
+    # Retrieve the handler for the item and args.
+    handler = registry.get('item', FooCustomCheckpointSaveArgs)
+    assert isinstance(handler, FooCustomCheckpointHandler)
 
 
-  # You can also register a handler for a general args type. When a handler for
-  # the specific item and args type is not found, the general args type handler
-  # will be returned if it exists.
-  registry.add(
-      None,
-      BarCustomCheckpointArgs,
-      BarCustomCheckpointHandler,
-  )
+    # You can also register a handler for a general args type. When a handler
+    # for the specific item and args type is not found, the general args type
+    # handler will be returned if it exists.
+    registry.add(
+        None,
+        BarCustomCheckpointArgs,
+        BarCustomCheckpointHandler,
+    )
 
-  # Retrieve the handler for the general args type (for an item which has
-  # not been registered).
-  handler = registry.get('not_registered_item', BarCustomCheckpointSaveArgs)
-  assert isinstance(handler, BarCustomCheckpointHandler)
+    # Retrieve the handler for the general args type (for an item which has
+    # not been registered).
+    handler = registry.get('not_registered_item', BarCustomCheckpointSaveArgs)
+    assert isinstance(handler, BarCustomCheckpointHandler)
   """
 
   def __init__(
