@@ -14,7 +14,13 @@
 
 """Registry for `CheckpointHandler`s.
 
-TODO: b/357913996 - Add proper user-facing documentation.
+A checkpoint handler registry is used to register :py:class:`CheckpointHandler`s
+for specific item names and :py:class:`CheckpointArgs` types. When saving or
+restoring a checkpoint, the registry can be used to find the appropriate handler
+for the item and its args. The default implementation of the registry is
+:py:class:`DefaultCheckpointHandlerRegistry`. See the docstring for the default
+implementation for an example how to use the registry.
+```
 """
 
 from typing import MutableMapping, Optional, Protocol, Type, Union
@@ -30,7 +36,14 @@ HandlerRegistryMapping = MutableMapping[
 
 
 class CheckpointHandlerRegistry(Protocol):
-  """Protocol for `CheckpointHandlerRegistry`."""
+  """Protocol for `CheckpointHandlerRegistry`.
+
+  A checkpoint handler registry is used to register `CheckpointHandler`s for
+  specific item names and `CheckpointArgs` types. When saving or restoring a
+  checkpoint, the registry can be used to find the appropriate handler for the
+  item and its args. See :py:class:`DefaultCheckpointHandlerRegistry` for the
+  default implementation.
+  """
 
   def add(
       self,
@@ -38,7 +51,8 @@ class CheckpointHandlerRegistry(Protocol):
       args: Union[Type[CheckpointArgs], CheckpointArgs],
       handler: Union[CheckpointHandler, Type[CheckpointHandler]],
       **kwargs,
-  ):
+  ) -> None:
+    """Adds an entry to the registry."""
     ...
 
   def get(
@@ -46,6 +60,7 @@ class CheckpointHandlerRegistry(Protocol):
       item: Optional[str],
       args: Union[Type[CheckpointArgs], CheckpointArgs],
   ) -> CheckpointHandler:
+    """Gets an entry from the registry."""
     ...
 
   def has(
@@ -53,6 +68,7 @@ class CheckpointHandlerRegistry(Protocol):
       item: Optional[str],
       args: Union[Type[CheckpointArgs], CheckpointArgs],
   ) -> bool:
+    """Checks if an entry exists in the registry."""
     ...
 
   def get_all_entries(
@@ -79,7 +95,45 @@ def _get_args_type(
 
 
 class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
-  """Default implementation of `CheckpointHandlerRegistry`."""
+  """Default implementation of `CheckpointHandlerRegistry`.
+
+  ```python
+  from orbax.checkpoint.handlers import handler_registration
+
+  # Create a handler registry.
+  registry = handler_registration.DefaultCheckpointHandlerRegistry()
+
+  # Add custom save and restore args for a checkpointable item.
+  registry.add(
+      'item',
+      FooCustomCheckpointSaveArgs,
+      FooCustomCheckpointHandler,
+  )
+  registry.add(
+      'item',
+      FooCustomCheckpoinRestoreArgs,
+      FooCustomCheckpointHandler,
+  )`
+
+  # Retrieve the handler for the item and args.
+  handler = registry.get('item', FooCustomCheckpointSaveArgs)
+  assert isinstance(handler, FooCustomCheckpointHandler)
+
+
+  # You can also register a handler for a general args type. When a handler for
+  # the specific item and args type is not found, the general args type handler
+  # will be returned if it exists.
+  registry.add(
+      None,
+      BarCustomCheckpointArgs,
+      BarCustomCheckpointHandler,
+  )
+
+  # Retrieve the handler for the general args type (for an item which has
+  # not been registered).
+  handler = registry.get('not_registered_item', BarCustomCheckpointSaveArgs)
+  assert isinstance(handler, BarCustomCheckpointHandler)
+  """
 
   def __init__(
       self, other_registry: Optional[CheckpointHandlerRegistry] = None
@@ -133,16 +187,16 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
     """Returns the handler for the given item and args type.
 
     Args:
-      item: The item name. If None, the entry will be added as a general
-        `args_type` entry.
-      args: The args type to get the handler for. If a concerete type is 
+      item: The item name. If None, the entry will be added as a general type
+        `args` entry.
+      args: The args type to get the handler for. If a concerete type is
         provided, the type will be used to get the handler.
 
-    If item the item has not been registered, the general `args_type` entry will
-    be returned if it exists.
+    If the item has not been registered, the general type `args` entry
+    will be returned if it exists.
 
     Raises:
-      NoEntryError: If no entry for the given item and args type exists in the
+      NoEntryError: If no entry for the given item and args exists in the
         registry.
     """
     args_type = _get_args_type(args)
@@ -169,10 +223,10 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
 
     Args:
       item: The item name or None.
-      args: The args type to check for. If a concrete type is provided, the
-        type will be used to check for the entry.
+      args: The args type to check for. If a concrete type is provided, the type
+        will be used to check for the entry.
 
-    Does not check for fall back to general `args_type` entry.
+    Does not check for fall back to general `args` entry.
     """
     args_type = _get_args_type(args)
     return (

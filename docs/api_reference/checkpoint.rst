@@ -22,3 +22,4 @@ orbax.checkpoint API Reference
    checkpoint.metadata
    checkpoint.logging
    checkpoint.options
+   checkpoint.handlers.handler_registration
