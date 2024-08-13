@@ -333,6 +333,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     self._max_to_keep = options.local.max_to_keep
     self._local_options = options.local
     self._device_array = device_array
+    self._steps = None
 
   def _global_list_union_interslice(self, steps: Sequence[int]) -> Set[int]:
     """Shares a list of steps across slices.
@@ -451,10 +452,12 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     Returns:
       A sequence of steps (integers)
     """
-    local_steps = self.local_host_steps(read)
-    common_steps_on_slice = self.common_steps_within_slice(local_steps)
-    steps = self._common_steps_global(common_steps_on_slice)
-    return [x for x in steps if x != -1]
+    if self._steps is None:
+      local_steps = self.local_host_steps(read)
+      common_steps_on_slice = self.common_steps_within_slice(local_steps)
+      steps = self._common_steps_global(common_steps_on_slice)
+      self._steps = [x for x in steps if x != -1]
+    return self._steps
 
   def latest_step(self) -> Optional[int]:
     """Returns the latest step saved in the local storage.
@@ -464,8 +467,38 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     Returns:
       A step (int) or None if no steps are present.
     """
-    local_all_steps = self.all_steps()
-    return max(local_all_steps) if local_all_steps else None
+    if self._steps is None:
+      self._steps = list(self.all_steps())
+
+    return max(self._steps) if self._steps else None
+
+  def save(
+      self,
+      step: int,
+      args: Optional[args_lib.CheckpointArgs] = None,
+      metrics: Optional[PyTree] = None,
+      force: Optional[bool] = False,
+  ) -> bool:
+    """Saves the checkpoint at the given step."""
+    saved = super().save(step, args=args, metrics=metrics, force=force)
+    if saved:
+      # the assumption is that super.save() calls latest_step() and the steps
+      # cache is updated
+      if self._steps is None:
+        logging.info('the steps cache should not be empty after save()')
+        self._steps = list(self.all_steps())
+      self._steps.append(step)
+      self._steps = self._steps[-self._max_to_keep :]
+
+    return saved
+
+  def reload(self):
+    """Reloads internal properties.
+
+    refreshes the cached list of globally available local checkpointed steps.
+    """
+    super().reload()
+    self._steps = None
 
 
 class CheckpointManager(
@@ -612,9 +645,7 @@ class CheckpointManager(
   def global_mesh(self) -> jax.sharding.Mesh:
     return self._global_mesh
 
-  def _data_per_individual_slice(
-      self, data: int
-  ) -> np.ndarray:
+  def _data_per_individual_slice(self, data: int) -> np.ndarray:
     """Broadcasts its own data and collect data from all other slices.
 
     This function assumes the slice is divided along the first axis (i.e. slice0
@@ -776,19 +807,23 @@ class CheckpointManager(
       metrics: Optional[PyTree] = None,
       force: Optional[bool] = False,
   ) -> bool:
+    """Returns True no matter if a checkpoint is saved or not."""
     # TODO: b/330608746 - implement save op on different slices
     if self.in_primary_slice:
       logging.info('Maybe saving at step %d (persistent).', step)
-      saved = self._persistent_checkpoint_manager.save(
+      _ = self._persistent_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
       )
     else:
       logging.info('Maybe saving at step %d (local).', step)
-      saved = self._local_checkpoint_manager.save(
+      _ = self._local_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
       )
 
-    return bool(self._global_max(int(saved)))
+    # global_max is costing a lot and it's not worth it to keep return value
+    # correct across processes. directly returning true.
+    # return bool(self._global_max(int(saved)))
+    return True
 
   def _find_slice_with_complete_checkpoint(self, step: int) -> int:
     """Return the slice id which has the step."""
