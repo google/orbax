@@ -112,28 +112,6 @@ class _FinalizeThread(threading.Thread):
 
   exception = None
 
-  def __init__(
-      self,
-      step: int,
-      target: Callable[..., object],
-      name: str,
-      args=(),
-      kwargs=None,
-      *,
-      daemon=None,
-  ):
-    super().__init__(
-        target=target,
-        name=name,
-        args=args,
-        kwargs=kwargs,
-        daemon=daemon,
-    )
-    self._step = step
-
-  def step(self) -> int:
-    return self._step
-
   def run(self):
     try:
       super().run()
@@ -658,9 +636,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if metadata is not None and not self._options.read_only:
       self._save_metadata(metadata)
 
-    self._finalize_thread_lock = threading.Lock()
-    with self._finalize_thread_lock:
-      self._finalize_thread = None
+    self._finalize_thread = None
 
     self._checkpoint_deleter: deleter.CheckpointDeleter = (
         deleter.create_checkpoint_deleter(
@@ -1179,23 +1155,28 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     assert self._finalize_thread is None
     if is_async_checkpointer(self._checkpointer):
-      with self._finalize_thread_lock:
-        finalize_thread_name = 'save_finalize'
-        logging.info(
-            'Starting CheckpointManager:finalize thread=%s',
-            finalize_thread_name,
-        )
-        self._finalize_thread = _FinalizeThread(
-            step=step,
-            name=finalize_thread_name,
-            target=self._finalize,
-            args=(step, steps_to_remove),
-        )
-        self._finalize_thread.start()
+      finalize_thread_name = 'save_finalize'
+      logging.info(
+          'Starting CheckpointManager:finalize thread=%s', finalize_thread_name
+      )
+      t = _FinalizeThread(
+          name=finalize_thread_name,
+          target=self._finalize,
+          args=(save_directory, steps_to_remove),
+      )
+      t.start()
+      self._finalize_thread = t
     else:
-      self._finalize(step, steps_to_remove)
+      self._finalize(save_directory, steps_to_remove)
       logging.info('Finished synchronous save.')
-
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'CheckpointManager:finalize',
+              prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+              suffix=str(step),
+          ),
+          processes=self._multiprocessing_options.active_processes,
+      )
     step_stats.synchronous = not is_async_checkpointer(self._checkpointer)
     step_stats.checkpoint_manager_blocking_duration_secs = (
         time.time() - step_stats.checkpoint_manager_blocking_start_time
@@ -1554,58 +1535,64 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def wait_until_finished(self):
     """See superclass documentation."""
+    if self._finalize_thread is None:
+      logging.info(
+          '[host=%s][thread=%s][wait_until_finished] No Save Finalize thread in'
+          ' progress, returning.',
+          jax.process_index(),
+          threading.current_thread().name,
+      )
+      return
+    t = self._finalize_thread
+    try:
+      logging.info(
+          '[host=%s][thread=%s][wait_until_finished] Waiting for Save Finalize'
+          ' thread (%s) to complete.',
+          jax.process_index(),
+          threading.current_thread().name,
+          t.name,
+      )
+      t.join()
+    except BaseException as e:  # pylint:disable=broad-exception-caught
+      logging.exception(
+          '[host=%s][thread=%s][wait_until_finished] Save Finalize thread (%s)'
+          ' failed.',
+          jax.process_index(),
+          threading.current_thread().name,
+          t.name,
+      )
+      # If an exception occurred in the in finalization of the previous
+      # save, we clean up since that checkpoint was never actually saved.
+      assert self._checkpoints
+      self._checkpoints = self._checkpoints[:-1]
+      raise e
+    finally:
+      self._finalize_thread = None
+      logging.info(
+          '[host=%s][thread=%s][wait_until_finished] Save Finalize thread (%s)'
+          ' is done on current host. Syncing with other hosts...',
+          jax.process_index(),
+          threading.current_thread().name,
+          t.name,
+      )
+    # Additional work is being done on process 0 of the finalize threads.
+    # When joining the threads, we must wait for all threads to complete
+    # before proceeding.
+    latest_step = self.latest_step()
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'CheckpointManager:join_finalize_thread',
+            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+            suffix=str(latest_step),
+        ),
+        processes=self._multiprocessing_options.active_processes,
+    )
     logging.info(
-        '[host=%s][thread=%s][wait_until_finished] Initiating wait for Save'
-        ' Finalize thread.',
+        '[host=%s][thread=%s][wait_until_finished] Save Finalize threads on all'
+        ' hosts are done. Ready for next save.',
         jax.process_index(),
         threading.current_thread().name,
     )
-    with self._finalize_thread_lock:
-      if self._finalize_thread is None:
-        logging.info(
-            '[host=%s][thread=%s][wait_until_finished] No Save Finalize thread'
-            ' to wait for. Returning.',
-            jax.process_index(),
-            threading.current_thread().name,
-        )
-        return
-
-      try:
-        logging.info(
-            '[host=%s][thread=%s][step=%s][wait_until_finished] Waiting for'
-            ' Save Finalize thread (%s) to complete.',
-            jax.process_index(),
-            threading.current_thread().name,
-            self._finalize_thread.step(),
-            self._finalize_thread.name,
-        )
-        self._finalize_thread.join()
-      except BaseException as e:  # pylint:disable=broad-exception-caught
-        logging.exception(
-            '[host=%s][thread=%s][step=%s][wait_until_finished] Save Finalize'
-            ' thread (%s) failed.',
-            jax.process_index(),
-            threading.current_thread().name,
-            self._finalize_thread.step(),
-            self._finalize_thread.name,
-        )
-        # If an exception occurred in the in finalization of the previous
-        # save, we clean up since that checkpoint was never actually saved.
-        # TODO: b/359321026 - Make self._checkpoints access threadsafe.
-        assert self._checkpoints
-        self._checkpoints = self._checkpoints[:-1]
-        raise e
-      finally:
-        logging.info(
-            '[host=%s][thread=%s][step=%s][wait_until_finished] Done waiting'
-            ' for Save Finalize thread (%s) at current step. Will not wait for'
-            ' it next time.',
-            jax.process_index(),
-            threading.current_thread().name,
-            self._finalize_thread.step(),
-            self._finalize_thread.name,
-        )
-        self._finalize_thread = None
 
   def is_saving_in_progress(self) -> bool:
     """Returns whether a checkpoint save is in progress."""
@@ -1628,13 +1615,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if utils.is_primary_host(self._multiprocessing_options.primary_host):
       try:
         self.check_for_errors()
-      except Exception:  # pylint: disable=broad-except
-        logging.exception(
+      except Exception as e:  # pylint: disable=broad-except
+        logging.error(
             (
-                '[step=%s] Checkpointer failed: one or more items may not be'
-                ' finalized. Skipping finalization of step checkpoint.'
+                'Received error: %s from Checkpointer. One or more items may'
+                ' not be finalized. Skipping finalization of step checkpoint.'
             ),
-            step,
+            e,
         )
         return None
       # If at a preemption step, record the time since the previous checkpoint.
@@ -1653,13 +1640,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             duration.total_seconds(),
         )
 
-  def _finalize(self, step: int, steps_to_remove: List[int]):
+  def _finalize(self, directory: epath.Path, steps_to_remove: List[int]):
     """Finalizes individual items and starts garbage collection."""
     self._non_blocking_checkpoint_metadata_store.wait_until_finished()
     self._wait_for_checkpointers()
     # If an error is encountered while waiting for commit futures to complete,
     # we will not proceed past this point.
-    self._finalize_checkpoint(step)
+    self._finalize_checkpoint(utils.step_from_checkpoint_name(directory.name))
     remove_steps_start_time = time.time()
     self._checkpoint_deleter.delete_steps(steps_to_remove)
     jax.monitoring.record_event_duration_secs(
@@ -1667,26 +1654,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         time.time() - remove_steps_start_time,
     )
     logging.info(
-        '[host=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
-        ' syncing with other hosts...',
+        '[host=%s][thread=%s] CheckpointManager Save Finalize is done.',
         jax.process_index(),
         threading.current_thread().name,
-        step,
-    )
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'CheckpointManager:finalize',
-            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-            suffix=str(step),
-        ),
-        processes=self._multiprocessing_options.active_processes,
-    )
-    logging.info(
-        '[host=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
-        ' done.',
-        jax.process_index(),
-        threading.current_thread().name,
-        step,
     )
 
   def close(self):
