@@ -187,6 +187,9 @@ def fully_replicated_host_local_array_to_global_array(
       [shard.data for shard in arr.addressable_shards],
       key=lambda x: list(x.devices())[0].id,
   )
-  return jax.make_array_from_single_device_arrays(
+  result = jax.make_array_from_single_device_arrays(
       global_shape, jax.sharding.NamedSharding(mesh, partition_spec), dbs
   )
+  if jax.config.jax_pmap_no_rank_reduction:
+    result = result[0]
+  return result
