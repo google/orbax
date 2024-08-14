@@ -188,7 +188,8 @@ class LimitInFlightBytes(ByteLimiter):
     async with self._cv:
       await self._cv.wait_for(lambda: self._available_bytes > requested_bytes)
       self._available_bytes -= requested_bytes
-      logging.debug(
+      logging.vlog(
+          1,
           'Reserved bytes: %s | Remaining bytes: %s',
           humanize.naturalsize(requested_bytes, binary=True),
           humanize.naturalsize(self._available_bytes, binary=True),
@@ -198,7 +199,8 @@ class LimitInFlightBytes(ByteLimiter):
   async def release_bytes(self, requested_bytes: int):
     async with self._cv:
       self._available_bytes += requested_bytes
-      logging.debug(
+      logging.vlog(
+          1,
           'Releasing bytes: %s | Available bytes: %s',
           humanize.naturalsize(requested_bytes, binary=True),
           humanize.naturalsize(self._available_bytes, binary=True),

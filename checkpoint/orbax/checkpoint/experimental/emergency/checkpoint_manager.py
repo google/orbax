@@ -839,7 +839,7 @@ class CheckpointManager(
 
     has_steps = self._data_per_individual_slice(has_step_in_this_slice).tolist()
 
-    logging.debug('has_steps=%s', has_steps)
+    logging.vlog(1, 'has_steps=%s', has_steps)
 
     try:
       return has_steps.index(True)
@@ -889,8 +889,8 @@ class CheckpointManager(
     single_replica_shardings_tuple = jax.tree.flatten(single_slice_shardings)[0]
 
     if is_restoring_slice:
-      logging.debug(
-          'emergency.CheckpointManager: restoring from local checkpoint.'
+      logging.vlog(
+          1, 'emergency.CheckpointManager: restoring from local checkpoint.'
       )
       ss_args = jax.tree.map(
           lambda ss_shard, arr: type_handlers.ArrayRestoreArgs(
@@ -912,7 +912,8 @@ class CheckpointManager(
       # LocalCheckpointManager a different number of times on the non-primary
       # slices, which leads to
       # _module_unique_count getting out of sync.
-      logging.debug(
+      logging.vlog(
+          1,
           'Restoring from %s',
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
       )
@@ -926,9 +927,10 @@ class CheckpointManager(
       )
       in_tree = tuple(jax.tree.flatten(single_slice_pytree)[0])
     else:
-      logging.debug(
+      logging.vlog(
+          1,
           'emergency.CheckpointManager: secondary slice, create zeros and'
-          ' wait for broacast.'
+          ' wait for broacast.',
       )
 
       @functools.partial(

@@ -766,7 +766,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       )
       return self._handler_impl.restore(directory, args=args)
 
-    logging.debug('directory=%s, restore_args=%s', directory, restore_args)
+    logging.vlog(1, 'directory=%s, restore_args=%s', directory, restore_args)
     if not directory.exists():
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
@@ -830,11 +830,12 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           transforms_default_to_original,
       )
 
-    if logging.level_debug():
-      logging.debug('param_infos: %s', param_infos)
-      logging.debug('checkpoint_restore_args: %s', checkpoint_restore_args)
-      logging.debug('restored_item: %s', jax.tree.structure(restored_item))
-      logging.debug(
+    if logging.vlog_is_on(1):
+      logging.vlog(1, 'param_infos: %s', param_infos)
+      logging.vlog(1, 'checkpoint_restore_args: %s', checkpoint_restore_args)
+      logging.vlog(1, 'restored_item: %s', jax.tree.structure(restored_item))
+      logging.vlog(
+          1,
           'ts_metrics: %s',
           json.dumps(ts.experimental_collect_matching_metrics('/tensorstore/')),
       )

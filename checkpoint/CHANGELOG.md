@@ -20,6 +20,7 @@ require a `CheckpointArgs` object, and instead allows directly passing the
 state and extra args.
 - Add log messages to improve debugging with jax process and threads.
 - Allow `CheckpointManager.wait_until_finished` to be called concurrently.
+- Improve logging to turn on DEBUG log per source file.
 
 ### Added
 - Add memory-based rate limiting support during save.

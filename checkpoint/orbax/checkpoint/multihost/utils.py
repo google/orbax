@@ -167,7 +167,8 @@ def get_barrier_sync_fn(
     if processes is None:
       client.wait_at_barrier(key, timeout_ms)
     else:
-      logging.debug(
+      logging.vlog(
+          1,
           '[process=%s] Barrier processes: %s',
           process_index(),
           barrier_processes,

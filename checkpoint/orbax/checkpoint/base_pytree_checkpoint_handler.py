@@ -456,9 +456,9 @@ class BasePyTreeCheckpointHandler(
     commit_futures = await asyncio.gather(*serialize_ops)
     commit_futures, _ = jax.tree.flatten(commit_futures)
 
-    if logging.level_debug():
-      logging.debug('param_info: %s', param_infos)
-      logging.debug('save_args: %s', save_args)
+    if logging.vlog_is_on(1):
+      logging.vlog(1, 'param_info: %s', param_infos)
+      logging.vlog(1, 'save_args: %s', save_args)
 
     if multihost.is_primary_host(self._primary_host):
       commit_futures.append(
@@ -648,7 +648,7 @@ class BasePyTreeCheckpointHandler(
     item = args.item
     restore_args = args.restore_args
 
-    logging.debug('directory=%s, restore_args=%s', directory, restore_args)
+    logging.vlog(1, 'directory=%s, restore_args=%s', directory, restore_args)
     if not directory.exists():
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
@@ -681,11 +681,12 @@ class BasePyTreeCheckpointHandler(
         self._maybe_deserialize(item, metadata, param_infos, restore_args)
     )
 
-    if logging.level_debug():
-      logging.debug('param_infos: %s', param_infos)
-      logging.debug('checkpoint_restore_args: %s', restore_args)
-      logging.debug('restored_item: %s', jax.tree.structure(restored_item))
-      logging.debug(
+    if logging.vlog_is_on(1):
+      logging.vlog(1, 'param_infos: %s', param_infos)
+      logging.vlog(1, 'checkpoint_restore_args: %s', restore_args)
+      logging.vlog(1, 'restored_item: %s', jax.tree.structure(restored_item))
+      logging.vlog(
+          1,
           'ts_metrics: %s',
           json.dumps(ts.experimental_collect_matching_metrics('/tensorstore/')),
       )

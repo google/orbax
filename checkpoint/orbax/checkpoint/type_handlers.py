@@ -339,7 +339,8 @@ def _choose_chunk_shape(
 
   chosen_shape = [dim_factors[i][-1] for i in range(rank)]
 
-  logging.debug(
+  logging.vlog(
+      1,
       'global_shape=%s, write_shape=%s, dtype=%s, target_byte_size=%d,'
       ' chosen_shape=%s',
       global_shape,
@@ -1051,10 +1052,10 @@ class NumpyHandler(TypeHandler):
           arg=arg,
       )
       tspec = get_cast_tspec_serialize(tspec, value, arg)
-      if logging.level_debug():
-        logging.debug('tspec = %s', tspec)
-        logging.debug('infos = %s', info)
-        logging.debug('args = %s', arg)
+      if logging.vlog_is_on(1):
+        logging.vlog(1, 'tspec = %s', tspec)
+        logging.vlog(1, 'infos = %s', info)
+        logging.vlog(1, 'args = %s', arg)
       if multihost.process_index() == 0:
         ts_context = info.ts_context
         write_coros.append(self._open_and_write(value, tspec, ts_context))
@@ -1069,9 +1070,9 @@ class NumpyHandler(TypeHandler):
     """Uses Tensorstore to serialize a numpy array."""
     args = args or [SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
-    if logging.level_debug():
-      logging.debug(
-          'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
+    if logging.vlog_is_on(1):
+      logging.vlog(
+          1, 'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
       )
     copied_values = [copy.deepcopy(v) for v in values]
     return [
@@ -1100,10 +1101,10 @@ class NumpyHandler(TypeHandler):
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       tspec = get_cast_tspec_deserialize(tspec, arg)
 
-      if logging.level_debug():
-        logging.debug('tspec = %s', tspec)
-        logging.debug('infos = %s', infos)
-        logging.debug('args = %s', args)
+      if logging.vlog_is_on(1):
+        logging.vlog(1, 'tspec = %s', tspec)
+        logging.vlog(1, 'infos = %s', infos)
+        logging.vlog(1, 'args = %s', args)
       open_futures += [
           ts.open(ts.Spec(tspec), open=True, context=info.ts_context)
       ]
@@ -1111,13 +1112,13 @@ class NumpyHandler(TypeHandler):
     read_ops = [t.read() for t in tensorstores]
     ret = await asyncio.gather(*read_ops)
 
-    if logging.level_debug():
+    if logging.vlog_is_on(1):
       for a in ret:
-        logging.debug(
-            'restored ndarray.shape = %s, array.dtype = %s', a.shape, a.dtype
+        logging.vlog(
+            1, 'restored ndarray.shape = %s, array.dtype = %s', a.shape, a.dtype
         )
-      logging.debug(
-          'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
+      logging.vlog(
+          1, 'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
       )
 
     return ret
@@ -1575,10 +1576,10 @@ class ArrayHandler(TypeHandler):
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
       tspec = get_cast_tspec_deserialize(tspec, arg)
-      if logging.level_debug():
-        logging.debug('tspec = %s', tspec)
-        logging.debug('infos = %s', infos)
-        logging.debug('args = %s', args)
+      if logging.vlog_is_on(1):
+        logging.vlog(1, 'tspec = %s', tspec)
+        logging.vlog(1, 'infos = %s', infos)
+        logging.vlog(1, 'args = %s', args)
       deserialize_ops += [
           serialization.async_deserialize(
               sharding,
@@ -1592,15 +1593,16 @@ class ArrayHandler(TypeHandler):
       ]
     ret = await asyncio.gather(*deserialize_ops)
 
-    if logging.level_debug():
+    if logging.vlog_is_on(1):
       for a in ret:
-        logging.debug(
+        logging.vlog(
+            1,
             'restored jax.Array.shape = %s, jax.array.dtype = %s',
             a.shape,
             a.dtype,
         )
-      logging.debug(
-          'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
+      logging.vlog(
+          1, 'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
       )
 
     return ret
