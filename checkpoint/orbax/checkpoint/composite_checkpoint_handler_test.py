@@ -316,7 +316,9 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     handler = CompositeCheckpointHandler('state')
     state = {'a': 1, 'b': 2}
     self.save(handler, dir1, CompositeArgs(state=args_lib.StandardSave(state)))
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(
+        ValueError, r'does not match with registered handler'
+    ):
       self.save(
           handler,
           dir2,
@@ -430,9 +432,13 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     self.assertTrue((self.directory / 'metadata').exists())
 
     handler = CompositeCheckpointHandler('state', 'metadata')
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(
+        ValueError, r'ensure the handler was specified during initialization'
+    ):
       handler.restore(self.directory)
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(
+        ValueError, r'ensure the handler was specified during initialization'
+    ):
       handler.restore(
           self.directory,
           CompositeArgs(),
@@ -470,9 +476,13 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     self.assertTrue((self.directory / 'metadata').exists())
 
     handler = CompositeCheckpointHandler('state', 'metadata')
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(
+        ValueError, r'ensure the handler was specified during initialization'
+    ):
       handler.restore(self.directory)
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(
+        ValueError, r'ensure the handler was specified during initialization'
+    ):
       handler.restore(
           self.directory,
           CompositeArgs(),
