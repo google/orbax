@@ -22,6 +22,7 @@ state and extra args.
 - Improve logging to turn on DEBUG log per source file.
 
 ### Added
+- Add utils that act as a heuristic for detecting standard Orbax checkpoints.
 - Add memory-based rate limiting support during save.
 - Metrics to track bytes/sec during save and restore.
 

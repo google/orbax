@@ -43,8 +43,8 @@ from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint.metadata import tree as tree_metadata
+from orbax.checkpoint.path import format_utils
 import tensorstore as ts
-
 
 
 PyTree = Any
@@ -61,8 +61,8 @@ LimitInFlightBytes = type_handlers.LimitInFlightBytes
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
 get_param_names = tree_utils.get_param_names
+PYTREE_METADATA_FILE = format_utils.PYTREE_METADATA_FILE
 
-METADATA_FILE = '_METADATA'
 DEFAULT_CONCURRENT_GB = 96
 
 
@@ -706,7 +706,7 @@ class BasePyTreeCheckpointHandler(
     def _save_fn():
       if utils.is_primary_host(self._primary_host):
         metadata_write_start_time = time.time()
-        path = directory / METADATA_FILE
+        path = directory / PYTREE_METADATA_FILE
         metadata_content = tree_metadata.TreeMetadata.build(
             param_infos,
             save_args=save_args,
@@ -735,10 +735,10 @@ class BasePyTreeCheckpointHandler(
     Raises:
       FileNotFoundError: if the metadata file is not found.
     """
-    path = directory / METADATA_FILE
+    path = directory / PYTREE_METADATA_FILE
     if not path.exists():
       raise FileNotFoundError(
-          f'Metadata file (named {METADATA_FILE}) does not exist at'
+          f'Metadata file (named {PYTREE_METADATA_FILE}) does not exist at'
           f' {directory}.'
       )
     return tree_metadata.TreeMetadata.from_json(json.loads(path.read_text()))

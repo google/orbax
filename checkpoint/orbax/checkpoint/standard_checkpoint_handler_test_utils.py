@@ -110,9 +110,7 @@ class StandardCheckpointHandlerTestBase:
 
     def test_basic(self):
       self.handler.save(self.directory, args=self.save_args_cls(self.pytree))
-      self.assertTrue(
-          (self.directory / type_handlers._OCDBT_MANIFEST_FILE).exists()  # pylint: disable=protected-access
-      )
+      self.assertTrue(type_handlers.is_ocdbt_checkpoint(self.directory))
       self.assertTrue(type_handlers.is_ocdbt_checkpoint(self.directory))
       restored = self.handler.restore(
           self.directory, args=self.restore_args_cls(self.zeros_pytree)
@@ -122,9 +120,7 @@ class StandardCheckpointHandlerTestBase:
     def test_basic_no_item_arg(self):
       self.handler.save(self.directory, args=self.save_args_cls(self.pytree))
       restored = self.handler.restore(self.directory)
-      self.assertTrue(
-          (self.directory / type_handlers._OCDBT_MANIFEST_FILE).exists()  # pylint: disable=protected-access
-      )
+      self.assertTrue(type_handlers.is_ocdbt_checkpoint(self.directory))
       test_utils.assert_tree_equal(self, self.pytree, restored)
 
     def test_shape_dtype_struct(self):
@@ -276,9 +272,7 @@ class StandardCheckpointHandlerTestBase:
       expected = jax.tree_util.tree_map_with_path(_none, self.pytree)
 
       self.handler.save(self.directory, args=self.save_args_cls(masked_tree))
-      self.assertTrue(
-          (self.directory / type_handlers._OCDBT_MANIFEST_FILE).exists()  # pylint: disable=protected-access
-      )
+      self.assertTrue(type_handlers.is_ocdbt_checkpoint(self.directory))
 
       # Restore it with item which was given before applying masking.
       restored = self.handler.restore(

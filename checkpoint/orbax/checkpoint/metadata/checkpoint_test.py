@@ -134,7 +134,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
 
   @parameterized.parameters(True, False)
   def test_read_corrupt_json_data(self, blocking_write: bool):
-    metadata_file = checkpoint._metadata_file_path(self.directory)
+    metadata_file = checkpoint.metadata_file_path(self.directory)
     metadata_file.touch()
 
     self.assertIsNone(

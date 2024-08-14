@@ -39,6 +39,7 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import serialization
 from orbax.checkpoint.metadata import sharding as sharding_metadata
 from orbax.checkpoint.metadata import value as value_metadata
+from orbax.checkpoint.path import format_utils
 from orbax.checkpoint.path import utils as path_utils
 import tensorstore as ts
 
@@ -51,7 +52,8 @@ ArrayMetadata = value_metadata.ArrayMetadata
 StringMetadata = value_metadata.StringMetadata
 ShardingMetadata = sharding_metadata.ShardingMetadata
 LimitInFlightBytes = serialization.LimitInFlightBytes
-_OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
+is_ocdbt_checkpoint = format_utils.is_ocdbt_checkpoint
+
 _BASE_TS_CONTEXT = {
     'file_io_concurrency': {'limit': 128},
 }
@@ -688,12 +690,6 @@ def check_input_arguments(*args):
       l = len(arg)
     elif len(arg) != l:
       raise ValueError('Found input args with mismatched lengths.')
-
-
-def is_ocdbt_checkpoint(path: epath.PathLike) -> bool:
-  """Determines whether a checkpoint uses OCDBT format."""
-  path = epath.Path(path)
-  return (path / _OCDBT_MANIFEST_FILE).exists()
 
 
 def merge_ocdbt_per_process_files(

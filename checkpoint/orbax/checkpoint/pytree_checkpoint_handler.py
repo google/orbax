@@ -68,8 +68,9 @@ BasePyTreeRestoreArgs = base_pytree_checkpoint_handler.BasePyTreeRestoreArgs
 LimitInFlightBytes = base_pytree_checkpoint_handler.LimitInFlightBytes
 get_param_names = base_pytree_checkpoint_handler.get_param_names
 
+PYTREE_METADATA_FILE = base_pytree_checkpoint_handler.PYTREE_METADATA_FILE
 _CHECKPOINT_FILE = 'checkpoint'
-_METADATA_FILE = base_pytree_checkpoint_handler.METADATA_FILE
+_METADATA_FILE = PYTREE_METADATA_FILE
 DEFAULT_CONCURRENT_GB = base_pytree_checkpoint_handler.DEFAULT_CONCURRENT_GB
 
 
@@ -755,7 +756,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     # options are not specified and metadata file exists and we do not need to
     # read from aggregate file.
     if (
-        (directory / _METADATA_FILE).exists()
+        (directory / PYTREE_METADATA_FILE).exists()
         and can_ignore_aggregate_file
         and transforms is None
         and legacy_transform_fn is None

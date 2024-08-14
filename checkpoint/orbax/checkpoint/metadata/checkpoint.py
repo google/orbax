@@ -26,7 +26,7 @@ from etils import epath
 _METADATA_FILENAME = '_CHECKPOINT_METADATA'
 
 
-def _metadata_file_path(path: epath.PathLike) -> epath.Path:
+def metadata_file_path(path: epath.PathLike) -> epath.Path:
   """Returns the path to metadata file for a given checkpoint directory."""
   return epath.Path(path) / _METADATA_FILENAME
 
@@ -125,7 +125,7 @@ class _CheckpointMetadataStoreImpl(CheckpointMetadataStore):
     if not checkpoint_path.exists():
       raise ValueError(f'Checkpoint path does not exist: {checkpoint_path}')
     json_data = json.dumps(dataclasses.asdict(checkpoint_metadata))
-    bytes_written = _metadata_file_path(checkpoint_path).write_text(json_data)
+    bytes_written = metadata_file_path(checkpoint_path).write_text(json_data)
     if bytes_written == 0:
       raise ValueError(
           f'Failed to write CheckpointMetadata={checkpoint_metadata},'
@@ -143,7 +143,7 @@ class _CheckpointMetadataStoreImpl(CheckpointMetadataStore):
   def read(
       self, checkpoint_path: epath.PathLike
   ) -> Optional[CheckpointMetadata]:
-    metadata_file = _metadata_file_path(checkpoint_path)
+    metadata_file = metadata_file_path(checkpoint_path)
     if not metadata_file.exists():
       logging.warning(
           'CheckpointMetadata file does not exist: %s', metadata_file
