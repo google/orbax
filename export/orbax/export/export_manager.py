@@ -21,13 +21,12 @@ from etils.epy.reraise_utils import maybe_reraise
 from orbax.export import dtensor_utils
 from orbax.export import jax_module
 from orbax.export import utils
-from orbax.export.export_manager_base import ExportManagerBase
 from orbax.export.serving_config import ServingConfig
 import tensorflow as tf
 from tensorflow.experimental import dtensor
 
 
-class ExportManager(ExportManagerBase):
+class ExportManager:
   """Exports a JAXModule with pre- and post-processors."""
 
   def __init__(
