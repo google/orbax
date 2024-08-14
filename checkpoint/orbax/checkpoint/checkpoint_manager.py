@@ -1157,7 +1157,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if is_async_checkpointer(self._checkpointer):
       finalize_thread_name = 'save_finalize'
       logging.info(
-          'Starting CheckpointManager:finalize thread=%s', finalize_thread_name
+          '[host=%s][thread=%s] Starting CheckpointManager:finalize thread=%s',
+          multihost.process_index(),
+          threading.current_thread().name,
+          finalize_thread_name,
       )
       t = _FinalizeThread(
           name=finalize_thread_name,
@@ -1168,7 +1171,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       self._finalize_thread = t
     else:
       self._finalize(save_directory, steps_to_remove)
-      logging.info('Finished synchronous save.')
+      logging.info(
+          '[host=%s][thread=%s] Finished synchronous save.',
+          multihost.process_index(),
+          threading.current_thread().name,
+      )
       multihost.sync_global_processes(
           multihost.unique_barrier_key(
               'CheckpointManager:finalize',
@@ -1539,7 +1546,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       logging.info(
           '[host=%s][thread=%s][wait_until_finished] No Save Finalize thread in'
           ' progress, returning.',
-          jax.process_index(),
+          multihost.process_index(),
           threading.current_thread().name,
       )
       return
@@ -1548,7 +1555,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       logging.info(
           '[host=%s][thread=%s][wait_until_finished] Waiting for Save Finalize'
           ' thread (%s) to complete.',
-          jax.process_index(),
+          multihost.process_index(),
           threading.current_thread().name,
           t.name,
       )
@@ -1557,7 +1564,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       logging.exception(
           '[host=%s][thread=%s][wait_until_finished] Save Finalize thread (%s)'
           ' failed.',
-          jax.process_index(),
+          multihost.process_index(),
           threading.current_thread().name,
           t.name,
       )
@@ -1571,7 +1578,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       logging.info(
           '[host=%s][thread=%s][wait_until_finished] Save Finalize thread (%s)'
           ' is done on current host. Syncing with other hosts...',
-          jax.process_index(),
+          multihost.process_index(),
           threading.current_thread().name,
           t.name,
       )
@@ -1590,7 +1597,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     logging.info(
         '[host=%s][thread=%s][wait_until_finished] Save Finalize threads on all'
         ' hosts are done. Ready for next save.',
-        jax.process_index(),
+        multihost.process_index(),
         threading.current_thread().name,
     )
 
@@ -1655,7 +1662,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
     logging.info(
         '[host=%s][thread=%s] CheckpointManager Save Finalize is done.',
-        jax.process_index(),
+        multihost.process_index(),
         threading.current_thread().name,
     )
 

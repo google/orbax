@@ -62,9 +62,11 @@ class _AsyncManager:
       barrier_sync_key_prefix: Optional[str] = None,
   ):
     logging.info(
-        '[process=%s] Using timeout: %d secs and primary_host=%s for async'
-        ' checkpoint writes',
+        '[process=%s][thread=%s] Using barrier_sync_fn: %s timeout: %d secs and'
+        ' primary_host=%s for async checkpoint writes',
         multihost.process_index(),
+        threading.current_thread().name,
+        barrier_sync_fn,
         timeout_secs,
         primary_host,
     )
@@ -301,9 +303,11 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
 
     # TODO(dicentra): consider folding into AsyncCheckpointer directly.
     self._async_manager = _AsyncManager(
-        barrier_sync_fn=async_options.barrier_sync_fn
-        or multihost.get_barrier_sync_fn(
-            processes=multiprocessing_options.active_processes
+        barrier_sync_fn=(
+            async_options.barrier_sync_fn
+            or multihost.get_barrier_sync_fn(
+                processes=multiprocessing_options.active_processes
+            )
         ),
         timeout_secs=timeout_secs,
         primary_host=multiprocessing_options.primary_host,

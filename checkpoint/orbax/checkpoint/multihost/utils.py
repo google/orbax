@@ -14,6 +14,7 @@
 
 """Orbax utils related to multihost functionality."""
 
+import threading
 import time
 from typing import List, Optional, Protocol, Set
 from absl import flags
@@ -72,7 +73,12 @@ def initialize_runtime_to_distributed_ids():
   for key, distributed_id in ids:
     runtime_id = int(key.split('/')[-1])
     _RUNTIME_TO_DISTRIBUTED_ID[runtime_id] = int(distributed_id)
-  logging.info('runtime_to_distributed_id: %s', _RUNTIME_TO_DISTRIBUTED_ID)
+  logging.info(
+      '[process=%s][thread=%s] runtime_to_distributed_id: %s',
+      process_index(),
+      threading.current_thread().name,
+      _RUNTIME_TO_DISTRIBUTED_ID,
+  )
 
 
 def runtime_to_distributed_ids() -> List[int]:
@@ -134,7 +140,7 @@ def get_barrier_sync_fn(
       processes.
 
   Returns:
-    None if there is a single JAX process.
+    No-op function if there is a single JAX process.
     A barrier synchronization callable which accepts two arguments:
       - "key": [str] unique barrier id;
       - "timeout_ms": [int] timeout to use for waiting on the barrier.
@@ -163,19 +169,28 @@ def get_barrier_sync_fn(
 
   def _fn(*, key: str, timeout_ms: int) -> None:
     key = _unique_barrier_key(key)
-    logging.info('[process=%s] Waiting at barrier: %s', process_index(), key)
+    logging.info(
+        '[process=%s][thread=%s] Waiting at barrier: %s',
+        process_index(),
+        threading.current_thread().name,
+        key,
+    )
     if processes is None:
       client.wait_at_barrier(key, timeout_ms)
     else:
       logging.vlog(
           1,
-          '[process=%s] Barrier processes: %s',
+          '[process=%s][thread=%s] Barrier processes: %s',
           process_index(),
+          threading.current_thread().name,
           barrier_processes,
       )
       client.wait_at_barrier(key, timeout_ms, process_ids=barrier_processes)
     logging.info(
-        '[process=%s] Done waiting at barrier: %s', process_index(), key
+        '[process=%s][thread=%s] Done waiting at barrier: %s',
+        process_index(),
+        threading.current_thread().name,
+        key,
     )
 
   return _fn
@@ -222,13 +237,33 @@ def sync_global_processes(
       provided, a default implementation is used.
   """
   if should_skip_process_sync():
-    logging.info('Skipping global process sync, barrier name: %s', name)
+    logging.info(
+        '[process=%s][thread=%s] Skipping global process sync, barrier'
+        ' name: %s',
+        process_index(),
+        threading.current_thread().name,
+        name,
+    )
     return
   timeout = timeout or _DEFAULT_BARRIER_TIMEOUT
   sync_start_time = time.time()
   # Temporarily default to existing behavior to minimize risk of breakage.
   if processes is None:
-    multihost_utils.sync_global_devices(_unique_barrier_key(name))
+    key = _unique_barrier_key(name)
+    logging.info(
+        '[process=%s][thread=%s] Waiting with jax/sync_global_devices("%s")',
+        process_index(),
+        threading.current_thread().name,
+        key,
+    )
+    multihost_utils.sync_global_devices(key)
+    logging.info(
+        '[process=%s][thread=%s] Done waiting with'
+        ' jax/sync_global_devices("%s")',
+        process_index(),
+        threading.current_thread().name,
+        key,
+    )
   else:
     barrier_sync_fn = barrier_sync_fn or get_barrier_sync_fn(
         processes=processes
@@ -250,8 +285,9 @@ def reached_preemption(step: int) -> bool:
   )
   if preemption_sync_point_reached:
     logging.warning(
-        '[process=%s] Reached preemption sync point, step=%s',
+        '[process=%s][thread=%s] Reached preemption sync point, step=%s',
         process_index(),
+        threading.current_thread().name,
         step,
     )
   return preemption_sync_point_reached
@@ -272,14 +308,18 @@ def process_index() -> int:
   except Exception:  # pylint: disable=broad-exception-caught
     logging.log_every_n_seconds(
         logging.INFO,
-        'Failed to get flag value for'
+        '[thread=%s] Failed to get flag value for'
         ' EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID.',
         120,
+        threading.current_thread().name,
     )
     experimental_orbax_use_distributed_process_id = False
   if experimental_orbax_use_distributed_process_id:
     logging.log_every_n_seconds(
-        logging.INFO, 'Using distributed process id.', 120
+        logging.INFO,
+        '[thread=%s] Using distributed process id.',
+        120,
+        threading.current_thread().name,
     )
     return jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
   else:
