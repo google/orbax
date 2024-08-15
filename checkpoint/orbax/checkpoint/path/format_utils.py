@@ -77,6 +77,7 @@ def is_orbax_checkpoint(path: epath.PathLike) -> bool:
   `PyTreeCheckpointHandler`). It will return False when pointing to a root
   directory (containing multiple step directories).
 
+
   Args:
     path: A directory corresponding to an Orbax checkpoint.
 
