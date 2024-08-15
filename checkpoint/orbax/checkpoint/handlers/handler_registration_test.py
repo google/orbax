@@ -144,65 +144,6 @@ class HandlerRegistryTest(parameterized.TestCase):
     ):
       registry.get(item, _TestArgs)
 
-  def test_concrete_item_takes_precedence_over_general_args_type(self):
-    none_item = None
-    item = 'item'
-    args_type = _TestArgs
-
-    class _TestCheckpointHandlerA(_TestCheckpointHandler):
-      pass
-
-    class _TestCheckpointHandlerB(_TestCheckpointHandler):
-      pass
-
-    registry = DefaultCheckpointHandlerRegistry()
-    registry.add(none_item, args_type, _TestCheckpointHandlerA)
-    registry.add(item, args_type, _TestCheckpointHandlerB)
-
-    self.assertTrue(registry.has(none_item, args_type))
-    self.assertTrue(registry.has(item, args_type))
-    self.assertIsInstance(
-        registry.get(none_item, args_type),
-        _TestCheckpointHandlerA,
-    )
-    self.assertIsInstance(
-        registry.get(item, args_type),
-        _TestCheckpointHandlerB,
-    )
-
-  def test_falls_back_to_general_args_type(self):
-    none_item = None
-    registered_item = 'registered_item'
-    item_without_registration = 'item_without_registration'
-    args_type = _TestArgs
-
-    class _TestCheckpointHandlerA(_TestCheckpointHandler):
-      pass
-
-    class _TestCheckpointHandlerB(_TestCheckpointHandler):
-      pass
-
-    registry = DefaultCheckpointHandlerRegistry()
-    registry.add(none_item, args_type, _TestCheckpointHandlerA)
-    registry.add(registered_item, args_type, _TestCheckpointHandlerB)
-
-    self.assertTrue(registry.has(none_item, args_type))
-    self.assertTrue(registry.has(registered_item, args_type))
-    self.assertFalse(registry.has(item_without_registration, args_type))
-
-    self.assertIsInstance(
-        registry.get(none_item, args_type),
-        _TestCheckpointHandlerA,
-    )
-    self.assertIsInstance(
-        registry.get(item_without_registration, args_type),
-        _TestCheckpointHandlerA,
-    )
-    self.assertIsInstance(
-        registry.get(registered_item, args_type),
-        _TestCheckpointHandlerB,
-    )
-
   def test_multiple_handlers_for_same_item(self):
     item = 'item'
 

@@ -368,8 +368,16 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     handler_registry = self._handler_registry
     if handler_registry is not None:
       if args is not None:
-        try:
+        # Check if registry contains a handler for the item name or the
+        # the general argument type.
+        if handler_registry.has(item_name, args):
           handler = handler_registry.get(item_name, args)
+        elif handler_registry.has(None, args):
+          handler = handler_registry.get(None, args)
+        else:
+          handler = None
+
+        if handler is not None:
           if (
               item_name not in self._known_handlers
               or self._known_handlers[item_name] is None
@@ -387,8 +395,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
                 f' {type(args)}'
             )
           return handler
-
-        except handler_registration.NoEntryError:
+        else:
           logging.info(
               'No entry found in handler registry for item: %s and args: %s.'
               ' Falling back to global handler registry',

@@ -121,9 +121,7 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
     assert isinstance(handler, FooCustomCheckpointHandler)
 
 
-    # You can also register a handler for a general args type. When a handler
-    # for the specific item and args type is not found, the general args type
-    # handler will be returned if it exists.
+    # You can also register a handler for a general args type.
     registry.add(
         None,
         BarCustomCheckpointArgs,
@@ -132,7 +130,7 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
 
     # Retrieve the handler for the general args type (for an item which has
     # not been registered).
-    handler = registry.get('not_registered_item', BarCustomCheckpointSaveArgs)
+    handler = registry.get(None, BarCustomCheckpointSaveArgs)
     assert isinstance(handler, BarCustomCheckpointHandler)
   """
 
@@ -193,9 +191,6 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
       args: The args type to get the handler for. If a concerete type is
         provided, the type will be used to get the handler.
 
-    If the item has not been registered, the general type `args` entry
-    will be returned if it exists.
-
     Raises:
       NoEntryError: If no entry for the given item and args exists in the
         registry.
@@ -204,12 +199,6 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
 
     if self.has(item, args_type):
       return self._registry[(item, args_type)]
-
-    # Fall back to general `args_type` if there is no entry for the given item
-    # in the registry.
-    if item is not None:
-      if (None, args_type) in self._registry:
-        return self.get(None, args_type)
 
     raise NoEntryError(
         f'No entry for item={item} and args_ty={args_type} in the registry.'
@@ -226,8 +215,6 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
       item: The item name or None.
       args: The args type to check for. If a concrete type is provided, the type
         will be used to check for the entry.
-
-    Does not check for fall back to general `args` entry.
     """
     args_type = _get_args_type(args)
     return (
