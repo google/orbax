@@ -402,7 +402,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
               item_name,
               args,
           )
-          self._known_handlers[item_name] = None
+          if item_name not in self._known_handlers:
+            self._known_handlers[item_name] = None
     else:
       if item_name not in self._known_handlers:
         raise ValueError(
@@ -553,9 +554,10 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       A CompositeResults object with keys matching `CompositeArgs`, or with keys
       for all known items as specified at creation.
     """
-    items_exist = self._items_exist(
-        directory, list(self._known_handlers.keys())
-    )
+    all_items = list(self._known_handlers.keys())
+    if args is not None:
+      all_items.extend(args.keys())
+    items_exist = self._items_exist(directory, all_items)
     if args is None or not args.items():
       composite_args_items = {}
       for item_name, handler in self._known_handlers.items():
