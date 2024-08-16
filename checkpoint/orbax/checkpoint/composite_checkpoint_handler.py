@@ -23,10 +23,8 @@ Usage example::
   # A dictionary to be serialized as JSON
   json_dict = ...
 
-  ckptr = ocp.Checkpointer(
-      ocp.CompositeCheckpointHandler('state', 'metadata')
-  )
-  ckptr.save(
+  checkpointer = ocp.Checkpointer(ocp.CompositeCheckpointHandler())
+  checkpointer.save(
       path,
       args=ocp.args.Composite(
           state=ocp.args.StandardSave(my_state),
@@ -34,7 +32,7 @@ Usage example::
       )
   )
 
-  restored = ckptr.restore(
+  restored = checkpointer.restore(
       path,
       args=ocp.args.Composite(
           state=ocp.args.StandardRestore(),
@@ -241,78 +239,118 @@ def _add_to_handler_registry_from_global_registry(
 class CompositeCheckpointHandler(AsyncCheckpointHandler):
   """CheckpointHandler for saving multiple items.
 
-  As with all `CheckpointHandler` implementations, use only in conjunction with
-  an instance of `AbstractCheckpointer`.
+  As with all :py:class:`CheckpointHandler` implementations, use only in
+  conjunction with an instance of `AbstractCheckpointer`.
 
-  `CompositeCheckpointHandler` allows dealing with multiple items of different
-  types or logical distinctness, such as training state (PyTree), dataset
-  iterator, JSON metadata, or anything else. The items managed by the
-  `CompositeCheckpointHandler` must be specified at initialization.
+  The :py:class:`CompositeCheckpointHandler` allows dealing with multiple items
+  of different types or logical distinctness, such as training state (PyTree),
+  dataset iterator, JSON metadata, or anything else. To specify the handler
+  and args for each checkpointable item, use the `handler_registry` option at
+  initialization (see :py:class:`CheckpointHandlerRegistry`).
 
-  For an individual item, `CompositeCheckpointHandler` provides two mechanisms
-  for ensuring that the object gets saved and restored as the correct type and
-  with the correct logic. The item-specific handler can either be (1) specified
-  when the `CompositeCheckpointHandler` is created, or (2) it can be deferred
-  (you just need to give the item name up-front). When deferred, the handler
-  will be determined from which `CheckpointArgs` are provided during the first
-  call to `save` or `restore`.
+  If a handler registry is provided, the :py:class:`CompositeCheckpointHandler`
+  will use this registry to determine the :py:class:`CheckpointHandler` for each
+  checkpointable item. If no registry is provided, an empty registry will be
+  constructed by default internally. Additional items not registered in the
+  handler registry can be specified when calling `save` or `restore`. The
+  handler will be determined from the provided :py:class:`CheckpointArgs` during
+  the first call to `save` or `restore`. Subsequent calls to `save` or `restore`
+  will use the same handler and will require the same :py:class:`CheckpointArgs`
+  to be provided.
+
+  `item_names` and `items_and_handlers` are deprecated arguments for specifying
+  the items and handlers. Please use `handler_registry` instead.
 
   Usage::
-
-    ckptr = ocp.Checkpointer(
-        ocp.CompositeCheckpointHandler('state', 'metadata')
+    # The simplest use-case, with no handler registry provided on construction.
+    checkpointer = ocp.Checkpointer(
+        ocp.CompositeCheckpointHandler()
     )
-    ckptr.save(directory,
+
+    checkpointer.save(directory,
         ocp.args.Composite(
-            # The handler now knows `state` uses `StandardCheckpointHandler`
-            # and `metadata` uses `JsonCheckpointHandler`. Any subsequent calls
-            # will have to conform to this assumption.
+            # The handler will be determined from the global registry using the
+            # provided args.
             state=ocp.args.StandardSave(pytree),
-            metadata=ocp.args.JsonSave(metadata),
         )
     )
 
-    restored: ocp.args.Composite = ckptr.restore(directory,
-        ocp.args.Composite(
-            state=ocp.args.StandardSave(abstract_pytree),
-            # Only provide the restoration arguments you actually need.
-            metadata=ocp.args.JsonRestore(),
-        )
-    )
-    restored.state ...
-    restored.metadata ...
-
-    # Skip restoring `metadata` (you can save a subset of items too, in a
-    # similar fashion).
-    restored: ocp.args.Composite = ckptr.restore(directory,
+    restored: ocp.args.Composite = checkpoint_handler.restore(directory,
         ocp.args.Composite(
             state=ocp.args.StandardRestore(abstract_pytree),
         )
     )
     restored.state ...
-    restored.metadata ... # Error
 
-    # If the per-item handler doesn't require any extra information in order to
-    # restore, in many cases you can use the following pattern if you just want
-    # to restore everything:
-    restored: ocp.args.Composite = ckptr.restore(directory)
-    restored.state ...
-    restored.metadata ...
-
-    ckptr = ocp.Checkpointer(
-        ocp.CompositeCheckpointHandler(
-            'state',
-            metadata=ocp.JsonCheckpointHandler()
+    # The "state" item's args was determined on the first call to `save`.
+    # Trying to save "state" with a different set of args will raise an error.
+    checkpointer.save(directory,
+      ocp.args.Composite(
+        # Will raise `ValueError: Item "state" and args "JsonSave [...]" does
+        not match with any registered handler! ...`.
+        state=ocp.args.JsonSave(pytree),
         )
     )
-    ckptr.save(directory,
+
+    # You can also register specific items and handlers using a handler
+    # registry.
+    handler_registry = (
+        ocp.handler_registration.DefaultCheckpointHandlerRegistry()
+    )
+    # Some subclass of `CheckpointHandler` that handles the "state" item.
+    handler = state_handler()
+    # Multiple save args and handlers can be registered for the same item.
+    handler_registry.add(
+        'state,
+        StateSaveArgs,
+        handler,
+    )
+    handler_registry.add(
+        'state',
+        StateRestoreArgs,
+        handler,
+    )
+
+    # The `CompositeCheckpointHandler` will use the handlers registered in the
+    # registry when it encounters the item name `state`.
+    checkpointer_with_registry = ocp.Checkpointer(
+        ocp.CompositeCheckpointHandler(handler_registry=handler_registry)
+    )
+
+    checkpointer_with_registry.save(directory,
         ocp.args.Composite(
-            state=ocp.args.StandardSave(pytree),
-            # Error because `metadata` was specified to use JSON save/restore
-            # logic, not `StandardCheckpointHandler`.
-            metadata=ocp.args.StandardSave(metadata),
+            # The handler knows that the "state" item should use the
+            # `state_handler` specified in the registry. When an item has been
+            # added to the handler registry, only save args that are registered
+            # for that item are allowed.
+            state=StateSaveArgs(pytree),
+            # You can also provide other arguments that are not registered in
+            # the handler registry as long as a handler has been globally
+            # registered for the args.
+            other_param=ocp.args.StandardSave(other_pytree),
         )
     )
+
+    restored: ocp.args.Composite = checkpointer_with_registry.restore(directory,
+        ocp.args.Composite(
+            state=StateRestoreArgs(abstract_pytree),
+            other_param=ocp.args.StandardRestore(abstract_other_pytree),
+        )
+    )
+    restored.state ...
+    restored.other_param...
+
+    # Skip restoring `other_params` (you can save a subset of items too, in a
+    # similar fashion).
+    restored_state_only: ocp.args.Composite = (
+      checkpointer_with_registry.restore(directory,
+        ocp.args.Composite(
+            state=StateRestoreArgs(abstract_pytree),
+        )
+      )
+    )
+    restored.state ...
+    restored.other_param ... # None.
   """
 
   _current_temporary_paths: Dict[str, atomicity.TemporaryPath] = {}
@@ -334,18 +372,24 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   ):
     """Constructor.
 
-    All items must be provided up-front, at initialization.
+    If you are `item_names` and/or `items_and_handlers`, all items must be
+    provided up-front, at initialization. If you are using a `handler_registry`,
+    you can register items at any time, even after the first call to `save` or
+    `restore`.
 
     Args:
       *item_names: A list of string item names that this handler will manage.
+        `item_names` is deprecated. Please use `handler_registry` instead.
       composite_options: Options.
-      handler_registry: A `CheckpointHandlerRegistry` instance. If provided, the
-        `CompositeCheckpointHandler` will use this registry to determine the
-        `CheckpointHandler` for each item. This option is mutually exclusive
-        with `items_and_handlers` and `item_names`.
+      handler_registry: A :py:class:`CheckpointHandlerRegistry` instance. If
+        provided, the :py:class:`CompositeCheckpointHandler` will use this
+        registry to determine the :py:class:`CheckpointHandler` for each item.
+        This option is mutually exclusive with `items_and_handlers` and
+        `item_names`.
       **items_and_handlers: A mapping of item name to `CheckpointHandler`
         instance, which will be used as the handler for objects of the
-        corresponding name.
+        corresponding name. `items_and_handlers` is deprecated. Please use
+        `handler_registry` instead.
     """
     if handler_registry is not None and items_and_handlers:
       raise ValueError(
