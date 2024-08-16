@@ -22,6 +22,7 @@ state and extra args.
 - Improve logging to turn on DEBUG log per source file.
 - Parallelize many directory creations using asyncio. Also reduce the number
 of `asyncio.run` calls by moving `async` functions higher in the stack.
+- Allow CheckpointManager.wait_until_finished to be called concurrently.
 
 ### Added
 - Add utils that act as a heuristic for detecting standard Orbax checkpoints.
