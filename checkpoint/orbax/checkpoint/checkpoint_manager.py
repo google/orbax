@@ -682,9 +682,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._finalize_thread_lock = threading.Lock()
     with self._finalize_thread_lock:
       self._finalize_thread = None
-    self._thread_safe_barrier_sync_fn = (
-        self._create_thread_safe_barrier_sync_fn()
-    )
 
     self._checkpoint_deleter: deleter.CheckpointDeleter = (
         deleter.create_checkpoint_deleter(
@@ -1751,7 +1748,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         threading.current_thread().name,
         step,
     )
-    self._thread_safe_barrier_sync_fn(
+    barrier_sync_fn = self._create_thread_safe_barrier_sync_fn()
+    barrier_sync_fn(
         multihost.unique_barrier_key(
             'CheckpointManager:finalize',
             prefix=self._multiprocessing_options.barrier_sync_key_prefix,
