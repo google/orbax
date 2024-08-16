@@ -383,6 +383,22 @@ def _create_root_directory(
   )
 
 
+def _determine_single_item_mode_from_args(
+    args: args_lib.CheckpointArgs,
+) -> bool:
+  if isinstance(args, args_lib.Composite):
+    return False
+  else:
+    return True
+
+
+def _determine_single_item_mode_from_directory(
+    directory: epath.Path,
+    step: int,
+) -> bool:
+  return (directory / str(step) / DEFAULT_ITEM_NAME).exists()
+
+
 class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   """A generic, synchronous AbstractCheckpointManager implementation."""
 
@@ -581,11 +597,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           checkpointers, self._options
       )
     elif self._handler_registry is not None:
-      # TODO: b/357913991 - Add support for single item mode with handler
-      # registry. This could be done using a "lazy" model where the single-item
-      # mode is determined when the first save/restore/item_metadata, call is
-      # made.
-      self._single_item = False
+      # There is no way to know if this is a single item or not, detemine this
+      # lazily instead on the first call to `save`, `restore` or
+      # `item_metadata`. Once locked-in, the value of `_single_item` will not
+      # change.
+      self._single_item = None
       self._checkpointer = self._configure_checkpointer_from_handler_registry(
           handler_registry,
           self._options,
@@ -1026,8 +1042,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')
+    if self._single_item is None:
+      self._single_item = _determine_single_item_mode_from_args(args)
     self._validate_args(items, args)
-
     if not force and not self.should_save(step):
       return False
     if self.reached_preemption(step):
@@ -1214,6 +1231,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     step_stats.step = step
     step_stats.checkpoint_manager_start_time = time.time()
     step_stats.directory = str(directory)
+
+    if self._single_item is None:
+      self._single_item = _determine_single_item_mode_from_directory(
+          directory, step
+      )
     self._validate_args(items, args)
 
     if items is None:
@@ -1282,6 +1304,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     result = self._checkpointer.metadata(
         self._get_read_step_directory(step, self.directory)
     )
+    if self._single_item is None:
+      self._single_item = _determine_single_item_mode_from_directory(
+          self.directory,
+          step,
+      )
     if self._single_item:
       return result[DEFAULT_ITEM_NAME]
     return result
