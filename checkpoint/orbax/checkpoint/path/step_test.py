@@ -19,6 +19,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+from orbax.checkpoint import test_utils
 from orbax.checkpoint.metadata import checkpoint
 from orbax.checkpoint.path import atomicity
 from orbax.checkpoint.path import step as step_lib
@@ -448,7 +449,7 @@ class UtilsTest(parameterized.TestCase):
     step_dir.mkdir(parents=True)
     self.assertFalse(step_lib.is_tmp_checkpoint(step_dir))
     tmp_step_dir = atomicity._get_tmp_directory(step_dir)
-    atomicity._create_tmp_directory(tmp_step_dir, step_dir)
+    test_utils.create_tmp_directory(tmp_step_dir, step_dir)
     self.assertTrue(step_lib.is_tmp_checkpoint(tmp_step_dir))
 
     item_dir = step_lib.get_save_directory(
@@ -457,7 +458,7 @@ class UtilsTest(parameterized.TestCase):
     item_dir.mkdir(parents=True)
     self.assertFalse(step_lib.is_tmp_checkpoint(item_dir))
     tmp_item_dir = atomicity._get_tmp_directory(item_dir)
-    atomicity._create_tmp_directory(tmp_item_dir, item_dir)
+    test_utils.create_tmp_directory(tmp_item_dir, item_dir)
     self.assertTrue(step_lib.is_tmp_checkpoint(tmp_item_dir))
 
   @parameterized.parameters(

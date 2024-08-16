@@ -58,22 +58,34 @@ class AtomicRenameTemporaryPathTest(parameterized.TestCase):
         ),
     )
 
-  def test_create(self):
+  async def test_create(self):
     path = self.directory / 'ckpt'
     tmp_path = AtomicRenameTemporaryPath.from_final(path)
-    tmp_path.create()
+    await tmp_path.create()
     self.assertTrue(tmp_path.get().exists())
     self.assertFalse(path.exists())
 
-  def test_finalize(self):
+  async def test_finalize(self):
     path = self.directory / 'ckpt'
     tmp_path = AtomicRenameTemporaryPath.from_final(path)
-    tmp_path.create()
+    await tmp_path.create()
     if multihost.process_index() == 0:
       tmp_path.finalize()
     test_utils.sync_global_processes('test_finalize')
     self.assertFalse(tmp_path.get().exists())
     self.assertTrue(path.exists())
+
+  async def test_create_all(self):
+    paths = [
+        self.directory / 'ckpt1',
+        self.directory / 'ckpt2',
+    ]
+    tmp_paths = [AtomicRenameTemporaryPath.from_final(path) for path in paths]
+    await atomicity.create_all(tmp_paths)
+    self.assertTrue(tmp_paths[0].get().exists())
+    self.assertTrue(tmp_paths[1].get().exists())
+    self.assertFalse(paths[0].exists())
+    self.assertFalse(paths[1].exists())
 
 
 class CommitFileTemporaryPathTest(parameterized.TestCase):
@@ -101,23 +113,35 @@ class CommitFileTemporaryPathTest(parameterized.TestCase):
         ),
     )
 
-  def test_create(self):
+  async def test_create(self):
     path = self.directory / 'ckpt'
     tmp_path = CommitFileTemporaryPath.from_final(path)
-    tmp_path.create()
+    await tmp_path.create()
     self.assertTrue(tmp_path.get().exists())
     self.assertFalse((tmp_path.get() / step_lib._COMMIT_SUCCESS_FILE).exists())
 
-  def test_finalize(self):
+  async def test_finalize(self):
     path = self.directory / 'ckpt'
     tmp_path = CommitFileTemporaryPath.from_final(path)
-    tmp_path.create()
+    await tmp_path.create()
     if multihost.process_index() == 0:
       tmp_path.finalize()
     test_utils.sync_global_processes('test_finalize')
     self.assertTrue(tmp_path.get().exists())
     self.assertTrue(path.exists())
     self.assertTrue((path / step_lib._COMMIT_SUCCESS_FILE).exists())
+
+  async def test_create_all(self):
+    paths = [
+        self.directory / 'ckpt1',
+        self.directory / 'ckpt2',
+    ]
+    tmp_paths = [CommitFileTemporaryPath.from_final(path) for path in paths]
+    await atomicity.create_all(tmp_paths)
+    self.assertTrue(tmp_paths[0].get().exists())
+    self.assertTrue(tmp_paths[1].get().exists())
+    self.assertFalse(paths[0].exists())
+    self.assertFalse(paths[1].exists())
 
 
 if __name__ == '__main__':

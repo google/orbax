@@ -14,6 +14,7 @@
 
 """Synchronous Checkpointer implementation."""
 
+import asyncio
 import time
 from typing import Any, Iterable, Optional, Type
 
@@ -136,26 +137,29 @@ class Checkpointer(
 
     jax.monitoring.record_event('/jax/orbax/checkpointer/init')
 
-  def create_temporary_path(
+  async def create_temporary_path(
       self, directory: epath.Path
   ) -> atomicity.TemporaryPath:
     temporary_path_class = (
         self._temporary_path_class
         or atomicity.get_default_temporary_path_class(directory)
     )
+    multiprocessing_options = options_lib.MultiprocessingOptions(
+        primary_host=self._primary_host,
+        active_processes=self._active_processes,
+        barrier_sync_key_prefix=self._barrier_sync_key_prefix,
+    )
     tmpdir = temporary_path_class.from_final(
         directory,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
-        multiprocessing_options=options_lib.MultiprocessingOptions(
-            primary_host=self._primary_host,
-            active_processes=self._active_processes,
-            barrier_sync_key_prefix=self._barrier_sync_key_prefix,
-        ),
+        multiprocessing_options=multiprocessing_options,
         file_options=options_lib.FileOptions(
             path_permission_mode=self._path_permission_mode
         ),
     )
-    tmpdir.create()
+    await atomicity.create_all(
+        [tmpdir], multiprocessing_options=multiprocessing_options
+    )
     return tmpdir
 
   def save(
@@ -191,7 +195,7 @@ class Checkpointer(
       else:
         raise ValueError(f'Destination {directory} already exists.')
     ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)
-    tmpdir = self.create_temporary_path(directory)
+    tmpdir = asyncio.run(self.create_temporary_path(directory))
     self._handler.save(tmpdir.get(), args=ckpt_args)
     multihost.sync_global_processes(
         multihost.unique_barrier_key(

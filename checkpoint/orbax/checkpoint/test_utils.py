@@ -68,7 +68,7 @@ def save_fake_tmp_dir(
       if step_lib.is_gcs_path(step_final_directory)
       else atomicity._get_tmp_directory(step_final_directory)
   )
-  atomicity._create_tmp_directory(step_tmp_directory, step_final_directory)
+  create_tmp_directory(step_tmp_directory, step_final_directory)
 
   item_final_directory = step_tmp_directory / item
   item_tmp_directory = (
@@ -76,13 +76,100 @@ def save_fake_tmp_dir(
       if step_lib.is_gcs_path(item_final_directory)
       else atomicity._get_tmp_directory(item_final_directory)
   )
-  atomicity._create_tmp_directory(item_tmp_directory, item_final_directory)
+  create_tmp_directory(item_tmp_directory, item_final_directory)
 
   if multihost.process_index() == 0:
     for sub in subdirs:
       (item_tmp_directory / sub).mkdir(parents=True)
   sync_global_processes('save_fake_tmp_dir')
   return item_tmp_directory
+
+
+def create_tmp_directory(
+    tmp_dir: epath.Path,
+    final_dir: epath.Path,
+    *,
+    primary_host: Optional[int] = 0,
+    active_processes: Optional[Set[int]] = None,
+    barrier_sync_key_prefix: Optional[str] = None,
+    path_permission_mode: int = step_lib.WORLD_READABLE_MODE,
+    checkpoint_metadata_store: Optional[
+        metadata_lib.CheckpointMetadataStore
+    ] = None,
+) -> epath.Path:
+  """Creates a non-deterministic tmp directory for saving for given `final_dir`.
+
+  Also writes checkpoint metadata in the tmp directory.
+
+  Args:
+    tmp_dir: The temporary directory path.
+    final_dir: The eventual directory path where checkpoint will be committed.
+    primary_host: primary host id, default=0.
+    active_processes: Ids of active processes. default=None
+    barrier_sync_key_prefix: A prefix to use for the barrier sync key.
+    path_permission_mode: Path permission mode for the temp directory. e.g.
+      0o750. Please check
+      https://github.com/google/etils/blob/main/etils/epath/backend.py if your
+        path is supported.
+    checkpoint_metadata_store: optional `CheckpointMetadataStore` instance. If
+      present then it is used to create `CheckpointMetadata` with current
+      timestamp.
+
+  Returns:
+    The tmp directory.
+
+  Raises:
+    FileExistsError: if tmp directory already exists.
+  """
+  # Sync before existence is checked and directory is created because there are
+  # additional existence checks happening in the callers of this function.
+  multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'create_tmp_directory:pre',
+          prefix=barrier_sync_key_prefix,
+          suffix=(
+              f'{final_dir.name}.{multihost.counters.tmp_directory_counter()}'
+          ),
+      ),
+      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+      processes=active_processes,
+  )
+  if multihost.is_primary_host(primary_host):
+    if tmp_dir.exists():
+      if step_lib.is_tmp_checkpoint(tmp_dir):
+        logging.warning(
+            'Attempted to create temporary directory %s which already exists.'
+            ' Removing existing directory since it is not finalized.',
+            tmp_dir,
+        )
+        tmp_dir.rmtree()
+      else:
+        raise FileExistsError(
+            f'Attempted to create temporary directory {tmp_dir} which already'
+            ' exists but appears to be a finalized checkpoint.'
+        )
+    logging.info('Creating tmp directory %s', tmp_dir)
+    tmp_dir.mkdir(parents=True, exist_ok=False, mode=path_permission_mode)
+    if checkpoint_metadata_store is not None:
+      checkpoint_metadata_store.write(
+          checkpoint_path=tmp_dir,
+          checkpoint_metadata=metadata_lib.CheckpointMetadata(
+              init_timestamp_nsecs=time.time_ns()
+          ),
+      )
+
+  multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'create_tmp_directory:post',
+          prefix=barrier_sync_key_prefix,
+          suffix=(
+              f'{final_dir.name}.{multihost.counters.tmp_directory_counter()}'
+          ),
+      ),
+      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+      processes=active_processes,
+  )
+  return tmp_dir
 
 
 def replicate_sharded_array(arr: jax.Array):

@@ -39,8 +39,8 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import serialization
 from orbax.checkpoint.metadata import sharding as sharding_metadata
 from orbax.checkpoint.metadata import value as value_metadata
+from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import format_utils
-from orbax.checkpoint.path import utils as path_utils
 import tensorstore as ts
 
 
@@ -84,7 +84,7 @@ async def _assert_parameter_files_exist(
     param_dir: epath.Path, metadata_key: Optional[str], use_zarr3: bool = False
 ):
   """Checks for existence of parameter subdir and .zarray file."""
-  exists = await path_utils.async_exists(param_dir)
+  exists = await async_utils.async_exists(param_dir)
   if not exists:
     raise FileNotFoundError(
         f'Individual parameter subdirectory not found at path: {param_dir}.'
@@ -92,7 +92,7 @@ async def _assert_parameter_files_exist(
   if metadata_key is None:
     metadata_key = 'zarr.json' if use_zarr3 else '.zarray'
   metadata_path = param_dir / metadata_key
-  exists = await path_utils.async_exists(metadata_path)
+  exists = await async_utils.async_exists(metadata_path)
   if not exists:
     raise FileNotFoundError(
         f'File not found: {metadata_path}. In many cases, this results from'
@@ -1327,7 +1327,7 @@ class ArrayHandler(TypeHandler):
     if infos[0].parent_dir is None:
       raise ValueError('parent_dir cannot be None')
     sharding_file_path = infos[0].parent_dir / _SHARDING
-    sharding_file_exists = await path_utils.async_exists(sharding_file_path)
+    sharding_file_exists = await async_utils.async_exists(sharding_file_path)
     for info in infos:
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
@@ -1517,7 +1517,7 @@ class ArrayHandler(TypeHandler):
     if infos[0].parent_dir is None:
       raise ValueError('parent_dir cannot be None')
     sharding_file_path = infos[0].parent_dir / _SHARDING
-    sharding_file_exists = await path_utils.async_exists(sharding_file_path)
+    sharding_file_exists = await async_utils.async_exists(sharding_file_path)
     for info, arg in zip(infos, args):
       sharding = None
       arg = cast(ArrayRestoreArgs, arg)

@@ -20,6 +20,8 @@ require a `CheckpointArgs` object, and instead allows directly passing the
 state and extra args.
 - Add log messages to improve debugging with jax process and threads.
 - Improve logging to turn on DEBUG log per source file.
+- Parallelize many directory creations using asyncio. Also reduce the number
+of `asyncio.run` calls by moving `async` functions higher in the stack.
 
 ### Added
 - Add utils that act as a heuristic for detecting standard Orbax checkpoints.

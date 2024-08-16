@@ -30,6 +30,7 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint.metadata import checkpoint
+from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import atomicity
 
 
@@ -317,44 +318,26 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   def _unique_operation_id(self) -> str:
     return multihost.counters.async_save_counter()
 
-  def save(
+  async def _save(
       self, directory: epath.PathLike, *args, force: bool = False, **kwargs
   ):
-    """Saves the given item to the provided directory.
-
-    Delegates to the underlying CheckpointHandler. Ensures save operation
-    atomicity. Must first block until any previous save operations running in
-    the background are completed.
-
-    This method should be called by all hosts - process synchronization and
-    actions that need to be performed on only one host are managed internally.
-
-    Args:
-      directory: a path to which to save.
-      *args: additional args to provide to the CheckpointHandler's save method.
-      force: if True, allows overwriting an existing directory. May add overhead
-        due to the need to delete any existing files.
-      **kwargs: additional keyword args to provide to the CheckpointHandler's
-        save method.
-
-    Raises:
-      ValueError if the provided directory already exists.
-    """
     checkpoint_start_time = time.time()
     directory = epath.Path(directory)
     self.wait_until_finished()
 
-    if directory.exists():
+    if await async_utils.async_exists(directory):
       if force:
         if utils.is_primary_host(self._primary_host):
           logging.info(
               '[process=%s] Specified `force`: removing existing directory.',
               multihost.process_index(),
           )
-          directory.rmtree()  # Post-sync handled by create_tmp_directory.
+          await async_utils.async_rmtree(
+              directory
+          )  # Post-sync handled by create_tmp_directory.
       else:
         raise ValueError(f'Destination {directory} already exists.')
-    tmpdir = self.create_temporary_path(directory)
+    tmpdir = await self.create_temporary_path(directory)
 
     logging.info(
         '[process=%s] Async saving checkpoint to tmp dir=%s, eventually to'
@@ -368,9 +351,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     ckpt_args = checkpointer.construct_checkpoint_args(
         self._handler, True, *args, **kwargs
     )
-    commit_ops = asyncio.run(
-        self._handler.async_save(tmpdir.get(), args=ckpt_args)
-    )
+    commit_ops = await self._handler.async_save(tmpdir.get(), args=ckpt_args)
     commit_ops, _ = jax.tree.flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
 
@@ -415,6 +396,31 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         '/jax/checkpoint/write/async/blocking_duration_secs',
         time.time() - checkpoint_start_time,
     )
+
+  def save(
+      self, directory: epath.PathLike, *args, force: bool = False, **kwargs
+  ):
+    """Saves the given item to the provided directory.
+
+    Delegates to the underlying CheckpointHandler. Ensures save operation
+    atomicity. Must first block until any previous save operations running in
+    the background are completed.
+
+    This method should be called by all hosts - process synchronization and
+    actions that need to be performed on only one host are managed internally.
+
+    Args:
+      directory: a path to which to save.
+      *args: additional args to provide to the CheckpointHandler's save method.
+      force: if True, allows overwriting an existing directory. May add overhead
+        due to the need to delete any existing files.
+      **kwargs: additional keyword args to provide to the CheckpointHandler's
+        save method.
+
+    Raises:
+      ValueError if the provided directory already exists.
+    """
+    asyncio.run(self._save(directory, *args, force=force, **kwargs))
 
   def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""

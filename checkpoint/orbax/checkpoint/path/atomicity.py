@@ -49,16 +49,18 @@ Configuration can be done in the following way::
   )
 """
 
+import asyncio
 import re
 import threading
 import time
-from typing import Optional, Protocol, Set, Type
+from typing import Optional, Protocol, Sequence, Type
 
 from absl import logging
 from etils import epath
 from orbax.checkpoint import metadata
 from orbax.checkpoint import multihost
 from orbax.checkpoint import options as options_lib
+from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import step as step_lib
 
 
@@ -105,7 +107,7 @@ class TemporaryPath(Protocol):
     """Returns the final path without creating it."""
     ...
 
-  def create(
+  async def create(
       self,
       *,
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
@@ -125,13 +127,10 @@ class TemporaryPath(Protocol):
     ...
 
 
-def _create_tmp_directory(
+async def _create_tmp_directory(
     tmp_dir: epath.Path,
-    final_dir: epath.Path,
     *,
     primary_host: Optional[int] = 0,
-    active_processes: Optional[Set[int]] = None,
-    barrier_sync_key_prefix: Optional[str] = None,
     path_permission_mode: int = step_lib.WORLD_READABLE_MODE,
     checkpoint_metadata_store: Optional[
         metadata.CheckpointMetadataStore
@@ -143,13 +142,11 @@ def _create_tmp_directory(
 
   Args:
     tmp_dir: The temporary directory path.
-    final_dir: The eventual directory path where checkpoint will be committed.
     primary_host: primary host id, default=0.
-    active_processes: Ids of active processes. default=None
-    barrier_sync_key_prefix: A prefix to use for the barrier sync key.
     path_permission_mode: Path permission mode for the temp directory. e.g.
-      0o750. To check if your path is supported, please see:
-      https://github.com/google/etils/blob/main/etils/epath/backend.py
+      0o750. Please check
+      https://github.com/google/etils/blob/main/etils/epath/backend.py if your
+        path is supported.
     checkpoint_metadata_store: optional `CheckpointMetadataStore` instance. If
       present then it is used to create `CheckpointMetadata` with current
       timestamp.
@@ -160,35 +157,27 @@ def _create_tmp_directory(
   Raises:
     FileExistsError: if tmp directory already exists.
   """
-  # Sync before existence is checked and directory is created because there are
-  # additional existence checks happening in the callers of this function.
-  multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'create_tmp_directory:pre',
-          prefix=barrier_sync_key_prefix,
-          suffix=(
-              f'{final_dir.name}.{multihost.counters.tmp_directory_counter()}'
-          ),
-      ),
-      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
-      processes=active_processes,
-  )
   if multihost.is_primary_host(primary_host):
-    if tmp_dir.exists():
-      if step_lib.is_tmp_checkpoint(tmp_dir):
+    if await async_utils.async_exists(tmp_dir):
+      if await async_utils.async_is_tmp_checkpoint(tmp_dir):
         logging.warning(
             'Attempted to create temporary directory %s which already exists.'
             ' Removing existing directory since it is not finalized.',
             tmp_dir,
         )
-        tmp_dir.rmtree()
+        await async_utils.async_rmtree(tmp_dir)
       else:
         raise FileExistsError(
             f'Attempted to create temporary directory {tmp_dir} which already'
-            ' exists but could not be resolved as a checkpoint tmp directory.'
+            ' exists but appears a non-temporary checkpoint.'
         )
     logging.info('Creating tmp directory %s', tmp_dir)
-    tmp_dir.mkdir(parents=True, exist_ok=False, mode=path_permission_mode)
+    await async_utils.async_makedirs(
+        tmp_dir,
+        parents=True,
+        exist_ok=False,
+        mode=path_permission_mode,
+    )
     if checkpoint_metadata_store is not None:
       checkpoint_metadata_store.write(
           checkpoint_path=tmp_dir,
@@ -197,17 +186,6 @@ def _create_tmp_directory(
           ),
       )
 
-  multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'create_tmp_directory:post',
-          prefix=barrier_sync_key_prefix,
-          suffix=(
-              f'{final_dir.name}.{multihost.counters.tmp_directory_counter()}'
-          ),
-      ),
-      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
-      processes=active_processes,
-  )
   return tmp_dir
 
 
@@ -296,7 +274,7 @@ class AtomicRenameTemporaryPath(TemporaryPath):
   def get_final(self) -> epath.Path:
     return self._final_path
 
-  def create(
+  async def create(
       self,
       *,
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
@@ -304,6 +282,10 @@ class AtomicRenameTemporaryPath(TemporaryPath):
     """Creates a non-deterministic tmp directory for saving for given `final_dir`.
 
     Also writes checkpoint metadata in the tmp directory.
+
+    NOTE: This function does not include any barrier syncs, and calling it
+    directly from multiprocess code can lead to race conditions. Prefer to
+    use `atomicity.create_all` in such cases.
 
     Args:
       file_options: FileOptions object.
@@ -318,12 +300,9 @@ class AtomicRenameTemporaryPath(TemporaryPath):
     mode = (
         file_options.path_permission_mode or self._path_permission_mode or mode
     )
-    return _create_tmp_directory(
+    return await _create_tmp_directory(
         self._tmp_path,
-        self._final_path,
         primary_host=self._primary_host,
-        active_processes=self._active_processes,
-        barrier_sync_key_prefix=self._barrier_sync_key_prefix,
         path_permission_mode=mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
@@ -416,7 +395,7 @@ class CommitFileTemporaryPath(TemporaryPath):
   def get_final(self) -> epath.Path:
     return self._final_path
 
-  def create(
+  async def create(
       self,
       *,
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
@@ -424,6 +403,10 @@ class CommitFileTemporaryPath(TemporaryPath):
     """Creates a non-deterministic tmp directory for saving for given `final_dir`.
 
     Also writes checkpoint metadata in the tmp directory.
+
+    NOTE: This function does not include any barrier syncs, and calling it
+    directly from multiprocess code can lead to race conditions. Prefer to
+    use `atomicity.create_all` in such cases.
 
     Args:
       file_options: FileOptions object.
@@ -438,12 +421,9 @@ class CommitFileTemporaryPath(TemporaryPath):
     mode = (
         file_options.path_permission_mode or self._path_permission_mode or mode
     )
-    return _create_tmp_directory(
+    return await _create_tmp_directory(
         self._tmp_path,
-        self._final_path,
         primary_host=self._primary_host,
-        active_processes=self._active_processes,
-        barrier_sync_key_prefix=self._barrier_sync_key_prefix,
         path_permission_mode=mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
@@ -465,6 +445,47 @@ class CommitFileTemporaryPath(TemporaryPath):
     commit_success_file.write_text(
         f'Checkpoint commit was successful to {self._final_path}'
     )
+
+
+async def create_all(
+    paths: Sequence[TemporaryPath],
+    *,
+    multiprocessing_options: Optional[
+        options_lib.MultiprocessingOptions
+    ] = None,
+):
+  """Creates all temporary paths in parallel."""
+  final_dir = paths[0].get_final()
+  multiprocessing_options = (
+      multiprocessing_options or options_lib.MultiprocessingOptions()
+  )
+  barrier_sync_key_prefix = multiprocessing_options.barrier_sync_key_prefix
+  active_processes = multiprocessing_options.active_processes
+  # Sync before existence is checked and directory is created because there are
+  # additional existence checks happening in the callers of this function.
+  multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'create_tmp_directory:pre',
+          prefix=barrier_sync_key_prefix,
+          suffix=(
+              f'{final_dir.name}.{multihost.counters.tmp_directory_counter()}'
+          ),
+      ),
+      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+      processes=active_processes,
+  )
+  await asyncio.gather(*[path.create() for path in paths])
+  multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'create_tmp_directory:post',
+          prefix=barrier_sync_key_prefix,
+          suffix=(
+              f'{final_dir.name}.{multihost.counters.tmp_directory_counter()}'
+          ),
+      ),
+      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+      processes=active_processes,
+  )
 
 
 def get_default_temporary_path_class(

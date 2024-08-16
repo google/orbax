@@ -47,7 +47,7 @@ import asyncio
 from collections.abc import Collection, KeysView
 import concurrent.futures
 import dataclasses
-from typing import AbstractSet, Any, Dict, List, Mapping, Optional, Tuple, Type, MutableSet
+from typing import AbstractSet, Any, Coroutine, Dict, List, Mapping, Optional, Tuple, Type, MutableSet
 import uuid
 
 from absl import logging
@@ -72,6 +72,8 @@ register_with_handler = checkpoint_args.register_with_handler
 ProtoCheckpointHandler = proto_checkpoint_handler.ProtoCheckpointHandler
 ProtoSaveArgs = proto_checkpoint_handler.ProtoSaveArgs
 ProtoRestoreArgs = proto_checkpoint_handler.ProtoRestoreArgs
+AsyncSaveCoroutine = Coroutine[Any, Any, Optional[List[Future]]]
+
 
 _CONCURRENT_WORKERS = 3
 RESERVED_ITEM_NAMES = []
@@ -479,6 +481,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     self._barrier_sync_key_prefix = (
         composite_options.multiprocessing_options.barrier_sync_key_prefix
     )
+    self._multiprocessing_options = composite_options.multiprocessing_options
+
     self._temporary_path_class = composite_options.temporary_path_class
     self._file_options = composite_options.file_options
 
@@ -624,19 +628,14 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     )
     tmp_item_dir = temporary_path_class.from_final(
         self._get_item_directory(directory, item_name),
-        multiprocessing_options=options_lib.MultiprocessingOptions(
-            primary_host=self._primary_host,
-            active_processes=self._active_processes,
-            barrier_sync_key_prefix=self._barrier_sync_key_prefix,
-        ),
+        multiprocessing_options=self._multiprocessing_options,
         file_options=self._file_options,
     )
     return tmp_item_dir
 
-  async def async_save(
+  def _get_item_temporary_paths(
       self, directory: epath.Path, args: 'CompositeArgs'
-  ) -> Optional[List[Future]]:
-    """Saves multiple items to individual subdirectories."""
+  ) -> Dict[str, atomicity.TemporaryPath]:
     # Sort keys to maintain consistent ordering across processes, otherwise
     # we may hit timeouts if processes wait at different barriers in per-item
     # handlers.
@@ -650,15 +649,25 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         self._get_item_temporary_directory(directory, item_name)
         for item_name in item_names
     ]
-    self._current_temporary_paths = {
+    result = {
         item_name: item_directory
         for item_name, item_directory in zip(item_names, item_temporary_paths)
     }
 
+    return result
 
-    for path in self._current_temporary_paths.values():
-      path.create()
 
+  async def async_save(
+      self, directory: epath.Path, args: 'CompositeArgs'
+  ) -> Optional[List[Future]]:
+    """Saves multiple items to individual subdirectories."""
+    self._current_temporary_paths = self._get_item_temporary_paths(
+        directory, args
+    )
+    await atomicity.create_all(
+        list(self._current_temporary_paths.values()),
+        multiprocessing_options=self._multiprocessing_options,
+    )
     save_ops = []
     for item_name, item_directory in self._current_temporary_paths.items():
       arg = args[item_name]

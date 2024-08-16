@@ -5,12 +5,6 @@ General Utilities
 
 .. automodule:: orbax.checkpoint.utils
 
-Async wrappers
-------------------------
-.. autofunction:: async_makedirs
-.. autofunction:: async_write_bytes
-.. autofunction:: async_exists
-
 Aggregate file
 ------------------------
 .. autofunction:: leaf_is_placeholder
@@ -24,11 +18,6 @@ Directories
 .. autofunction:: create_tmp_directory
 .. autofunction:: get_save_directory
 .. autofunction:: is_gcs_path
-
-Atomicity
-------------------------
-.. autofunction:: is_tmp_checkpoint
-.. autofunction:: is_checkpoint_finalized
 
 Checkpoint steps
 ------------------------

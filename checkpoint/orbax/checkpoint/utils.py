@@ -28,6 +28,7 @@ import jax
 import numpy as np
 from orbax.checkpoint import multihost
 from orbax.checkpoint import tree as tree_utils
+from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import step as step_lib
 from orbax.checkpoint.path import utils as path_utils
 
@@ -50,10 +51,9 @@ reached_preemption = multihost.reached_preemption
 is_primary_host = multihost.is_primary_host
 
 
-_wrap = path_utils._wrap  # pylint: disable=protected-access
-async_makedirs = path_utils.async_makedirs
-async_write_bytes = path_utils.async_write_bytes
-async_exists = path_utils.async_exists
+async_makedirs = async_utils.async_makedirs
+async_write_bytes = async_utils.async_write_bytes
+async_exists = async_utils.async_exists
 lockdir = path_utils.lockdir
 is_locked = path_utils.is_locked
 are_locked = path_utils.are_locked

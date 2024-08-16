@@ -20,46 +20,14 @@
 # outside Orbax (ignoring OSS).
 
 import asyncio
-import functools
-from typing import Any, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from etils import epath
+from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import step as step_lib
 
 
 _LOCK_ITEM_NAME = 'LOCKED'
-
-
-def _wrap(func):
-  """Wraps a function to make it async."""
-
-  @functools.wraps(func)
-  async def run(*args, loop=None, executor=None, **kwargs):
-    if loop is None:
-      loop = asyncio.get_event_loop()
-    partial_func = functools.partial(func, *args, **kwargs)
-    return await loop.run_in_executor(executor, partial_func)
-
-  return run
-
-
-# TODO(cpgaffney): This functionality should be provided by an external library.
-def async_makedirs(
-    path: epath.Path,
-    *args,
-    parents: bool = False,
-    exist_ok: bool = True,
-    **kwargs,
-):
-  return _wrap(path.mkdir)(*args, parents=parents, exist_ok=exist_ok, **kwargs)
-
-
-def async_write_bytes(path: epath.Path, data: Any):
-  return _wrap(path.write_bytes)(data)
-
-
-def async_exists(path: epath.Path):
-  return _wrap(path.exists)()
 
 
 def lockdir(directory: epath.Path) -> epath.Path:
@@ -69,10 +37,10 @@ def lockdir(directory: epath.Path) -> epath.Path:
 
 async def _async_is_locked(directory: epath.Path) -> bool:
   """(Async) determines whether a checkpoint step is considered `locked`."""
-  parent_dir_exists = await async_exists(directory)
+  parent_dir_exists = await async_utils.async_exists(directory)
   if not parent_dir_exists:
     raise ValueError(f'Parent directory {directory} does not exist.')
-  return await async_exists(lockdir(directory))
+  return await async_utils.async_exists(lockdir(directory))
 
 
 def is_locked(directory: epath.Path) -> bool:
