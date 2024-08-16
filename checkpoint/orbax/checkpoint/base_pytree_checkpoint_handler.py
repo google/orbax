@@ -102,9 +102,11 @@ def _log_io_per_sec_metric(name: str, size: int, start_time: float):
   time_elapsed = time.time() - start_time
   bytes_per_sec = float(size) / time_elapsed
   logging.info(
-      '%s: %s/s (time elapsed: %s)',
+      '[process=%d] %s: %s/s (bytes written: %s) (time elapsed: %s) (per-host)',
+      multihost.process_index(),
       name,
       humanize.naturalsize(bytes_per_sec, binary=True),
+      humanize.naturalsize(size, binary=True),
       humanize.naturaldelta(time_elapsed, minimum_unit='microseconds'),
   )
   jax.monitoring.record_event_duration_secs(name, bytes_per_sec)

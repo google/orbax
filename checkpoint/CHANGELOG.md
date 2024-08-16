@@ -20,6 +20,7 @@ require a `CheckpointArgs` object, and instead allows directly passing the
 state and extra args.
 - Add log messages to improve debugging with jax process and threads.
 - Improve logging to turn on DEBUG log per source file.
+- Update bytes/sec metrics to be per-host.
 - Parallelize many directory creations using asyncio. Also reduce the number
 of `asyncio.run` calls by moving `async` functions higher in the stack.
 - Allow CheckpointManager.wait_until_finished to be called concurrently.

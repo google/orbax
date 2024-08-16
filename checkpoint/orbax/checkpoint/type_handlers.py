@@ -654,6 +654,8 @@ class TypeHandler(abc.ABC):
     Note that the default implementation uses `sys.getsizeof`, which is not
     likely to be accurate for many types.
 
+    The value returned is intended to be per-host.
+
     Args:
       values: A batch of values.
 
@@ -1120,7 +1122,10 @@ class NumpyHandler(TypeHandler):
     return ret
 
   def memory_size(self, values: Sequence[np.ndarray]) -> Sequence[int]:
-    return [v.size * v.dtype.itemsize for v in values]
+    if multihost.process_index() == 0:
+      return [v.size * v.dtype.itemsize for v in values]
+    else:
+      return [0 for _ in values]
 
 
 class ScalarHandler(NumpyHandler):
@@ -1161,7 +1166,10 @@ class ScalarHandler(NumpyHandler):
     return [r.item() for r in results]
 
   def memory_size(self, values: Sequence[Scalar]) -> Sequence[int]:  # pytype: disable=signature-mismatch
-    return [sys.getsizeof(v) for v in values]
+    if multihost.process_index() == 0:
+      return [sys.getsizeof(v) for v in values]
+    else:
+      return [0 for _ in values]
 
 
 def get_sharding_tensorstore_spec(
@@ -1604,7 +1612,15 @@ class ArrayHandler(TypeHandler):
     return ret
 
   def memory_size(self, values: Sequence[jax.Array]) -> Sequence[int]:
-    return [v.size * v.dtype.itemsize for v in values]
+    sizes = []
+    for v in values:
+      replica_id = self._get_replica_id(v)
+      shards = serialization.get_shards_for_host_transfer(v, replica_id)
+      per_host_size = sum(
+          shard.data.size * shard.data.dtype.itemsize for shard in shards
+      )
+      sizes.append(per_host_size)
+    return sizes
 
 
 def _is_sharding_valid(
@@ -1915,7 +1931,10 @@ class StringHandler(TypeHandler):
     return await asyncio.gather(*read_ops)
 
   def memory_size(self, values: Sequence[str]) -> Sequence[int]:
-    return [sys.getsizeof(v) for v in values]
+    if multihost.process_index() == 0:
+      return [len(v.encode('utf-8')) for v in values]
+    else:
+      return [0 for _ in values]
 
 
 class TypeHandlerRegistry(Protocol):

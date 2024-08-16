@@ -282,14 +282,21 @@ def _transfer_shard_to_host(shard: jax.Shard) -> jax.Array:
   return data
 
 
-def transfer_array_to_host(arr: jax.Array, replica_id: int) -> Shards:
-  """Transfers a jax.Array to host memory."""
-  shard_data = []
-  dedup_shards = [
+def get_shards_for_host_transfer(
+    arr: jax.Array, replica_id: int
+) -> List[jax.Shard]:
+  """Returns the list of jax.Shard that should be transferred to host memory."""
+  return [
       shard
       for shard in arr.addressable_shards
       if shard.replica_id == replica_id
   ]
+
+
+def transfer_array_to_host(arr: jax.Array, replica_id: int) -> Shards:
+  """Transfers a jax.Array to host memory."""
+  shard_data = []
+  dedup_shards = get_shards_for_host_transfer(arr, replica_id)
   for shard in dedup_shards:
     shard_data.append(_transfer_shard_to_host(shard))
 
