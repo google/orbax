@@ -13,12 +13,13 @@
 # limitations under the License.
 
 """Tests for CompositeHandler."""
-
 from unittest import mock
 from absl.testing import absltest
+from absl.testing import parameterized
 from etils import epath
 from jax import numpy as jnp
 from orbax.checkpoint import args as args_lib
+from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import composite_checkpoint_handler
 from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import multihost
@@ -39,6 +40,7 @@ CompositeCheckpointHandler = (
 )
 ProtoCheckpointHandler = proto_checkpoint_handler.ProtoCheckpointHandler
 CompositeOptions = composite_checkpoint_handler.CompositeOptions
+CheckpointHandler = checkpoint_handler.CheckpointHandler
 
 
 # Test save and restore args that wrap the standard save and restore args which
@@ -103,7 +105,7 @@ class CompositeArgsTest(absltest.TestCase):
     self.assertLen(args, 2)
 
 
-class CompositeCheckpointHandlerTest(absltest.TestCase):
+class CompositeCheckpointHandlerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -117,28 +119,30 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
 
   def test_init(self):
     handler = CompositeCheckpointHandler('state', 'dataset')
-    self.assertIsNone(handler._known_handlers['state'])
-    self.assertIsNone(handler._known_handlers['dataset'])
     self.assertContainsSubset(
-        {'state', 'dataset'}, handler._known_handlers.keys()
+        {'state', 'dataset'}, handler._item_names_without_registered_handlers
     )
+
     handler = CompositeCheckpointHandler(state=StandardCheckpointHandler())
-    self.assertContainsSubset({'state'}, handler._known_handlers.keys())
     self.assertIsInstance(
-        handler._known_handlers['state'], StandardCheckpointHandler
+        handler._handler_registry.get(
+            'state', standard_checkpoint_handler.StandardSaveArgs
+        ),
+        StandardCheckpointHandler,
     )
+
     handler = CompositeCheckpointHandler(
         'tree', 'dataset', state=StandardCheckpointHandler()
     )
     self.assertContainsSubset(
-        {'tree', 'state', 'dataset'},
-        handler._known_handlers.keys(),
+        {'tree', 'dataset'}, handler._item_names_without_registered_handlers
     )
     self.assertIsInstance(
-        handler._known_handlers['state'], StandardCheckpointHandler
+        handler._handler_registry.get(
+            'state', standard_checkpoint_handler.StandardSaveArgs
+        ),
+        StandardCheckpointHandler,
     )
-    self.assertIsNone(handler._known_handlers['tree'])
-    self.assertIsNone(handler._known_handlers['dataset'])
 
   def test_save_restore(self):
     handler = CompositeCheckpointHandler('state', 'metadata')
@@ -153,6 +157,33 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
             metadata=args_lib.JsonSave(metadata),
         ),
     )
+    self.assertTrue((self.directory / 'state').exists())
+    self.assertTrue((self.directory / 'metadata').exists())
+    restored = handler.restore(
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardRestore(dummy_state),
+            metadata=args_lib.JsonRestore(),
+        ),
+    )
+    self.assertDictEqual(restored.state, state)
+    self.assertDictEqual(restored.metadata, metadata)
+
+  def test_save_restore_no_handler_args(self):
+    handler = CompositeCheckpointHandler()
+    state = {'a': 1, 'b': 2}
+    dummy_state = {'a': 0, 'b': 0}
+    metadata = {'lang': 'en', 'version': 1.0}
+
+    self.save(
+        handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+            metadata=args_lib.JsonSave(metadata),
+        ),
+    )
+
     self.assertTrue((self.directory / 'state').exists())
     self.assertTrue((self.directory / 'metadata').exists())
     restored = handler.restore(
@@ -313,14 +344,15 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     self.assertSameElements(restored.keys(), {'metadata'})
     self.assertDictEqual(restored.metadata, metadata)
 
-  def test_incorrect_args(self):
+  @parameterized.parameters(('state',), ())
+  def test_incorrect_args(self, *item_names: str):
     dir1 = epath.Path(self.create_tempdir(name='dir1'))
     dir2 = epath.Path(self.create_tempdir(name='dir2'))
-    handler = CompositeCheckpointHandler('state')
+    handler = CompositeCheckpointHandler(*item_names)
     state = {'a': 1, 'b': 2}
     self.save(handler, dir1, CompositeArgs(state=args_lib.StandardSave(state)))
     with self.assertRaisesRegex(
-        ValueError, r'does not match with registered handler'
+        ValueError, r'does not match with any registered handler'
     ):
       self.save(
           handler,
@@ -330,7 +362,7 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
           ),
       )
     with self.assertRaisesRegex(
-        ValueError, r'does not match with registered handler'
+        ValueError, r'does not match with any registered handler'
     ):
       handler.restore(dir1, CompositeArgs(state=args_lib.JsonRestore(state)))
 
@@ -358,7 +390,7 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
     )
 
     with self.assertRaisesRegex(
-        ValueError, r'does not match with registered handler'
+        ValueError, r'does not match with any registered handler'
     ):
       self.save(
           handler,
@@ -368,7 +400,7 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
           ),
       )
     with self.assertRaisesRegex(
-        ValueError, r'does not match with registered handler'
+        ValueError, r'does not match with any registered handler'
     ):
       handler.restore(
           self.directory, CompositeArgs(state=args_lib.JsonRestore(state))
@@ -514,18 +546,18 @@ class CompositeCheckpointHandlerTest(absltest.TestCase):
 
     handler = CompositeCheckpointHandler('state', 'metadata')
     with self.assertRaisesRegex(
-        ValueError, r'ensure the handler was specified during initialization'
+        ValueError, r'Providing `None` for the item is valid when restoring'
     ):
       handler.restore(self.directory)
     with self.assertRaisesRegex(
-        ValueError, r'ensure the handler was specified during initialization'
+        ValueError, r'Providing `None` for the item is valid when restoring'
     ):
       handler.restore(
           self.directory,
           CompositeArgs(),
       )
 
-  def test_no_restore_args_handler_unspecified_handler_registry(self):
+  def test_no_restore_args_handler_registry(self):
     handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
     state_handler = StandardCheckpointHandler()
     handler_registry.add('state', args_lib.StandardSave, state_handler)

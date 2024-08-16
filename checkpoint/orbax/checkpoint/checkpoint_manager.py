@@ -342,13 +342,17 @@ class CheckpointInfo:
 def _get_args_for_key(
     handler: CheckpointHandler, item_name: str
 ) -> Tuple[Type[CheckpointArgs], Type[CheckpointArgs]]:
+  """Returns the (save, restore) args for the given item name."""
+
   if not isinstance(handler, CompositeCheckpointHandler):
     raise ValueError(
         'Expected handler to be a `CompositeCheckpointHandler`, but got'
         f' {type(handler)}.'
     )
-  for key, handler in handler._known_handlers.items():  # pylint: disable=protected-access
-    if key == item_name:
+
+  registry = handler._handler_registry  # pylint: disable=protected-access
+  for (registered_item, _), handler in registry.get_all_entries().items():
+    if registered_item == item_name:
       return checkpoint_args.get_registered_args_cls(handler)
   raise ValueError(f'Unknown key "{item_name}" in CompositeCheckpointHandler.')
 
@@ -1261,19 +1265,19 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # TODO(b/321751056): Move the validation to CompositeCheckpointHandler by
     # changing the current metadata() biz logic.
     if isinstance(self._checkpointer.handler, CompositeCheckpointHandler):
-      items_missing_handlers = []
-      for (
-          item_name,
-          handler,
-      ) in self._checkpointer.handler._known_handlers.items():  # pylint: disable=protected-access
-        if handler is None:
-          items_missing_handlers.append(item_name)
-      if items_missing_handlers:
-        raise ValueError(
-            'No mapped CheckpointHandler found for items:'
-            f' {items_missing_handlers}. Please see documentation of'
-            ' `item_handlers` in CheckpointManager.'
+      if (
+          self._checkpointer.handler._item_names_without_registered_handlers  # pylint: disable=protected-access
+          is not None
+      ):
+        items_missing_handlers = list(
+            self._checkpointer.handler._item_names_without_registered_handlers  # pylint: disable=protected-access
         )
+        if items_missing_handlers:
+          raise ValueError(
+              'No mapped CheckpointHandler found for items:'
+              f' {items_missing_handlers}. Please see documentation of'
+              ' `item_handlers` in CheckpointManager.'
+          )
 
     result = self._checkpointer.metadata(
         self._get_read_step_directory(step, self.directory)
