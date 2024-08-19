@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+### Changed
+
+### Added
+- Add utils that act as a heuristic for detecting standard Orbax checkpoints.
+- Add memory-based rate limiting support during save.
+- Metrics to track bytes/sec during save and restore.
+- Added `handler_registration.HandlerRegistry` to store custom mappings between
+  checkpointable items and checkpoint args to a checkpoint handler.
+- Added `handler_registration.HandlerRegistry` argument to
+  `CompositeCheckpointhandler`. This replaces the `item_names` and
+  `items_and_handlers` arguments for configuring items and handlers.
+- Added `handler_registration.HandlerRegistry` argument to
+  `CheckpointManager`. This replaces the `checkpointers`, `item_names` and `items_and_handlers` arguments for configuring items and handlers.
+
+### Removed
+
+
 ## [0.6.0] - 2024-08-19
 
 ### Fixed
