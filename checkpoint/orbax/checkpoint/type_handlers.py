@@ -1879,17 +1879,14 @@ class StringHandler(TypeHandler):
     result = await tensorstore.read()
     return str(result)
 
-  async def serialize(
+  async def _background_serialize(
       self,
       values: Sequence[str],
       infos: Sequence[ParamInfo],
-      args: Optional[Sequence[SaveArgs]] = None,
-  ) -> Sequence[future.Future]:
-    """See superclass documentation."""
-    del args
+  ):
+    """Writes strings using Tensorstore in the background thread."""
     check_input_arguments(values, infos)
-    synchronous_ops = []
-    futures = []
+    write_coros = []
     txn = ts.Transaction()
     for (
         info,
@@ -1902,11 +1899,25 @@ class StringHandler(TypeHandler):
             open=True,
             context=self._ts_context,
         )
-        write_future = t.with_transaction(txn).write(value)
-        synchronous_ops += [write_future.copy]
-    await asyncio.gather(*synchronous_ops)
-    futures.append(txn.commit_async())
-    return futures
+        write_coros.append(t.with_transaction(txn).write(value))
+    await asyncio.gather(*write_coros)
+    await txn.commit_async()
+
+  async def serialize(
+      self,
+      values: Sequence[str],
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[SaveArgs]] = None,
+  ) -> Sequence[future.Future]:
+    """See superclass documentation."""
+    del args
+    # Copy is not needed since strings are passed by value.
+    return [
+        _CommitFuture(
+            self._background_serialize(values, infos),
+            name='string_type_handler',
+        )
+    ]
 
   async def deserialize(
       self,
