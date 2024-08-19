@@ -377,7 +377,9 @@ def _get_json_tspec(
   """Gets Tensorstore spec in JSON format."""
   if info.path is None:
     raise ValueError('Must construct serialization path.')
-  directory = os.fspath(info.parent_dir)
+  parent_dir = info.parent_dir
+  assert parent_dir is not None
+  directory = parent_dir.as_posix()
   tspec: Dict[str, Any] = _get_tensorstore_spec(
       directory,
       name=info.name,
@@ -711,7 +713,7 @@ def merge_ocdbt_per_process_files(
     ts_context: Tensorstore context.
   """
   open_ops = []
-  parent_tspec = _get_tensorstore_spec(os.fspath(directory), use_ocdbt=True)
+  parent_tspec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
   _add_write_tspec_ocdbt_options(parent_tspec)
   parent_tspec = parent_tspec['kvstore']
   open_ops.append(
@@ -724,7 +726,7 @@ def merge_ocdbt_per_process_files(
   for process_dir in directory.glob(f'{_PROCESS_SUBDIR_PREFIX}*'):
     process_id = process_dir.name.split('_')[-1]
     child_tspec = _get_tensorstore_spec(
-        os.fspath(directory), use_ocdbt=True, process_id=process_id
+        directory.as_posix(), use_ocdbt=True, process_id=process_id
     )
     child_tspec = child_tspec['kvstore']
     open_ops.append(
@@ -1344,10 +1346,11 @@ class ArrayHandler(TypeHandler):
           ts.open(ts.Spec(tspec), open=True, context=info.ts_context)
       )
 
+      assert info.parent_dir is not None
       sharding_op = None
       if info.name:
         tspec_sharding = get_sharding_tensorstore_spec(
-            os.fspath(info.parent_dir), info.name
+            info.parent_dir.as_posix(), info.name
         )
         if sharding_file_exists:
           sharding_op = ts.open(
@@ -1392,7 +1395,7 @@ class ArrayHandler(TypeHandler):
     if info.parent_dir is None:
       raise ValueError('parent_dir cannot be None')
     tspec_sharding = get_sharding_tensorstore_spec(
-        os.fspath(info.parent_dir), info.name
+        info.parent_dir.as_posix(), info.name
     )
     if multihost.is_primary_host(self._primary_host):
       # OCDBT is not used for sharding metadata.
@@ -1549,9 +1552,10 @@ class ArrayHandler(TypeHandler):
             ' restoring on a different topology than the checkpoint was saved'
             ' with.'
         )
+        assert info.parent_dir is not None
         if info.name:
           tspec_sharding = get_sharding_tensorstore_spec(
-              os.fspath(info.parent_dir), info.name
+              info.parent_dir.as_posix(), info.name
           )
           t = await ts.open(
               tspec_sharding,
@@ -1855,7 +1859,7 @@ class StringHandler(TypeHandler):
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
       raise ValueError('Must construct serialization path.')
-    directory = os.fspath(info.parent_dir / self._filename)
+    directory = (info.parent_dir / self._filename).as_posix()
     tspec: Dict[str, Any] = _get_tensorstore_spec(directory, use_ocdbt=False)
     tspec = {
         'driver': 'json',

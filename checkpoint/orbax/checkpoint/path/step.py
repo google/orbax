@@ -19,7 +19,6 @@ import concurrent
 import dataclasses
 import datetime
 import functools
-import os
 import re
 import time
 from typing import Callable, Generic, Iterator, List, Optional, Protocol, Sequence, Set, TypeVar
@@ -245,9 +244,9 @@ def find_step_path(
   else:
     step_name = name_format.build_name(step)
     uncommitted_step_path = None
-    for uncommited_name in tmp_checkpoints(base_path):
-      if uncommited_name.startswith(f'{step_name}{TMP_DIR_SUFFIX}'):
-        uncommitted_step_path = base_path / uncommited_name
+    for uncommitted_name in tmp_checkpoints(base_path):
+      if uncommitted_name.startswith(f'{step_name}{TMP_DIR_SUFFIX}'):
+        uncommitted_step_path = base_path / uncommitted_name
         break
   if uncommitted_step_path and uncommitted_step_path.exists():
     return uncommitted_step_path
@@ -446,7 +445,7 @@ def composite_name_format(
 # TODO(b/337137764) Can't move it to path/utils due to cyclic dependency.
 # Explore other options.
 def is_gcs_path(path: epath.Path) -> bool:
-  return os.fspath(path).startswith(_GCS_PATH_PREFIX)
+  return path.as_posix().startswith(_GCS_PATH_PREFIX)
 
 
 # TODO(b/337137764) Can't move it to path/utils due to cyclic dependency.
@@ -544,9 +543,11 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
         'This GCS path %s does not contain the %s file used to indicate a'
         ' successfully written GCS checkpoint. If the checkpoint was'
         ' originally saved with GCS, the checkpoint was not successfully'
-        ' written. If the the checkpoint was saved differently and copied, you'
-        ' need to add %s to the checkpoint directory.', path,
-        _COMMIT_SUCCESS_FILE, _COMMIT_SUCCESS_FILE
+        ' written. If the checkpoint was saved differently and copied, you'
+        ' need to add %s to the checkpoint directory.',
+        path,
+        _COMMIT_SUCCESS_FILE,
+        _COMMIT_SUCCESS_FILE,
     )
 
     return False
@@ -593,7 +594,7 @@ def record_saved_duration(checkpoint_start_time: float):
   current checkpoint start time.
 
   Note that we use the checkpoint start time instead of end time. The saved
-  duration should not include prallel training duration while the async
+  duration should not include parallel training duration while the async
   checkpoint is being written in the background.
 
   Args:
@@ -626,7 +627,7 @@ def _is_step_checkpoint(path: epath.Path) -> bool:
   Returns:
     bool indicating whether the path resembles an Orbax step directory.
   """
-  name = os.fspath(path.name)
+  name = path.name
   # Path must be a directory and either a digit, or end in '_' + digit.
   return path.is_dir() and (name.isdigit() or name.split('_')[-1].isdigit())
 
@@ -634,7 +635,7 @@ def _is_step_checkpoint(path: epath.Path) -> bool:
 def step_from_checkpoint_name(name: str) -> int:
   """Returns the step from a checkpoint name. Also works for tmp checkpoints."""
   if name.isdigit():
-    return int(os.fspath(name))
+    return int(name)
   elif name.split('_')[-1].isdigit():
     split = name.split('_')
     if len(split) == 2 and split[0]:
