@@ -30,6 +30,10 @@ of `asyncio.run` calls by moving `async` functions higher in the stack.
 - Add memory-based rate limiting support during save.
 - Metrics to track bytes/sec during save and restore.
 
+### Removed
+- Preliminary concurrent creation of parameter directories from
+`PyTreeCheckpointHandler` (in non-OCDBT case).
+
 
 ## [0.5.23] - 2024-07-26
 
