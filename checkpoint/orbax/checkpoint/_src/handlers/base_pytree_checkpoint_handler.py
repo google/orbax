@@ -365,6 +365,8 @@ class BasePyTreeCheckpointHandler(
           ),
       )
 
+    logging.info('****** names is %s', names)
+
     return jax.tree.map(
         _param_info, names, item, is_leaf=utils.is_empty_or_leaf
     )
@@ -412,10 +414,17 @@ class BasePyTreeCheckpointHandler(
     """
     start_time = time.time()
     item = args.item
-    if not item:
+    logging.info('****** item in base pytree ckpt handler is %s', item)
+    logging.info(
+        '****** item type in base pytree ckpt handler is %s', type(item)
+    )
+    if item is None:
       raise ValueError('Found empty item.')
     save_args = args.save_args
     ocdbt_target_data_file_size = args.ocdbt_target_data_file_size
+
+    logging.info('****** save_args is %s', save_args)
+    logging.info('****** item is %s', item)
 
     save_args = _fill_missing_save_or_restore_args(item, save_args, mode='save')
     byte_limiter = serialization.get_byte_limiter(self._save_concurrent_bytes)
@@ -426,6 +435,8 @@ class BasePyTreeCheckpointHandler(
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
         byte_limiter=byte_limiter,
     )
+    logging.info('****** param_infos is %s', param_infos)
+
     assert all(
         leaf.parent_dir == directory for leaf in jax.tree.leaves(param_infos)
     )
@@ -438,16 +449,21 @@ class BasePyTreeCheckpointHandler(
         self._type_handler_registry,
     )
     tree_memory_size = 0
+    logging.info('****** batch_requests is %s', batch_requests)
     for request in batch_requests:
+      logging.info('****** pre serialization')
       serialize_ops += [
           request.handler.serialize(request.values, request.infos, request.args)
       ]
+      logging.info('****** post serialization')
       tree_memory_size += _get_batch_memory_size(
           request.handler, request.values
       )
+    logging.info('****** Waiting for commit futures')
     # Await copy futures. Returns list of lists.
     commit_futures = await asyncio.gather(*serialize_ops)
     commit_futures, _ = jax.tree.flatten(commit_futures)
+    logging.info('****** futures are %s', commit_futures)
 
     if logging.vlog_is_on(1):
       logging.vlog(1, 'param_info: %s', param_infos)
@@ -642,11 +658,12 @@ class BasePyTreeCheckpointHandler(
     restore_args = args.restore_args
 
     logging.vlog(1, 'directory=%s, restore_args=%s', directory, restore_args)
-    if not directory.exists():
-      raise FileNotFoundError(
-          f'Requested directory for restore does not exist at {directory}'
-      )
+    # if not directory.exists():
+    #   raise FileNotFoundError(
+    #       f'Requested directory for restore does not exist at {directory}'
+    #   )
     metadata = self._read_metadata_file(directory)
+    logging.info('***** got metadata: %s', metadata)
     use_zarr3_metadata = metadata.use_zarr3
     metadata = metadata.as_nested_tree(keep_empty_nodes=True)
     if item is None:
@@ -729,11 +746,11 @@ class BasePyTreeCheckpointHandler(
       FileNotFoundError: if the metadata file is not found.
     """
     path = directory / PYTREE_METADATA_FILE
-    if not path.exists():
-      raise FileNotFoundError(
-          f'Metadata file (named {PYTREE_METADATA_FILE}) does not exist at'
-          f' {directory}.'
-      )
+    # if not path.exists():
+    #   raise FileNotFoundError(
+    #       f'Metadata file (named {PYTREE_METADATA_FILE}) does not exist at'
+    #       f' {directory}.'
+    #   )
     return tree_metadata.TreeMetadata.from_json(json.loads(path.read_text()))
 
   def metadata(self, directory: epath.Path) -> Optional[PyTree]:

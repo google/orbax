@@ -661,6 +661,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       self, directory: epath.Path, args: 'CompositeArgs'
   ) -> Optional[List[Future]]:
     """Saves multiple items to individual subdirectories."""
+    logging.info('****** In composite checkpoint handler async_save: %s', args)
     self._current_temporary_paths = self._get_item_temporary_paths(
         directory, args
     )
@@ -670,13 +671,17 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     )
     save_ops = []
     for item_name, item_directory in self._current_temporary_paths.items():
+      logging.info('****** item_name: %s', item_name)
+      logging.info('****** item_directory: %s', item_directory)
       arg = args[item_name]
       _maybe_raise_reserved_item_error(item_name)
       handler = self._get_or_set_handler(item_name, arg)
       if isinstance(handler, AsyncCheckpointHandler):
+        logging.info('****** type of handler async: %s', type(handler))
         save_ops.append(handler.async_save(item_directory.get(), args=arg))
       else:
         # Blocking save.
+        logging.info('****** type of handler: %s', type(handler))
         handler.save(item_directory.get(), args=arg)
 
     commit_futures = jax.tree.flatten(await asyncio.gather(*save_ops))[0]

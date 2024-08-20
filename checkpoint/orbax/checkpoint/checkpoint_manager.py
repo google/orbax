@@ -1125,9 +1125,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')
     if self._single_item is None:
+      logging.info('****** self._single_item is None')
       self._single_item = _determine_single_item_mode_from_args(args)
     self._validate_args(items, args)
     if not force and not self.should_save(step):
+      logging.info('****** items in checkpoint manager save is: %s', items)
       return False
     if self.reached_preemption(step):
       logging.info(
@@ -1137,6 +1139,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
       step_stats.reached_preemption = True
       step_stats.preemption_received_at = time.time()
+
+    logging.info('****** items in checkpoint manager save is: %s', items)
+    logging.info('****** items type is: %s', type(items))
+    logging.info('****** args in checkpoint manager save is: %s', args)
+    logging.info('****** args type is: %s', type(args))
 
     # Wait for ongoing saves to complete. Only applicable if some of the
     # checkpointers are AsyncCheckpointers.
@@ -1168,6 +1175,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if self._track_best and metrics is None:
       logging.warning('Requested `tracked_metric`; did not provide metrics.')
 
+    logging.info('****** args in checkpoint manager save is: %s', args)
     if args is None:
       args_dict = {}
       for key, item in items.items():
@@ -1175,6 +1183,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             self._checkpointer.handler,
             key,
         )
+        logging.info('****** save_ckpt_arg_cls: %s', save_ckpt_arg_cls)
         extra_args = save_kwargs[key] if key in save_kwargs else {}
         extra_args = extra_args or {}
         args_dict[key] = save_ckpt_arg_cls(item, **extra_args)  # pytype: disable=wrong-arg-count
@@ -1430,9 +1439,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       a list of CheckpointInfo, sorted by increasing step.
     """
     start = time.time()
-    steps = utils.checkpoint_steps(
-        self.directory, self._options.single_host_load_and_broadcast
-    )
+
+    # This should probably have a persistence or gcs call to get metadata.
+    # This will be necessary for restore.
+    steps = []
+    try:
+      steps = utils.checkpoint_steps(
+          self.directory, self._options.single_host_load_and_broadcast
+      )
+    except Exception as e:  # pylint: disable=broad-except
+      logging.exception('Failed to load checkpoint steps: %s', e)
     steps.sort()  # Prefer in-place sort.
 
     if not steps:
