@@ -100,7 +100,7 @@ def _get_batch_memory_size(handler: TypeHandler, values: Sequence[Any]) -> int:
 
 def _log_io_per_sec_metric(name: str, size: int, start_time: float):
   time_elapsed = time.time() - start_time
-  bytes_per_sec = float(size) / time_elapsed
+  bytes_per_sec = float('inf') if time_elapsed == 0 else float(size) / time_elapsed
   logging.info(
       '[process=%d] %s: %s/s (bytes written: %s) (time elapsed: %s) (per-host)',
       multihost.process_index(),
