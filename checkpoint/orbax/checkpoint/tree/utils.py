@@ -20,8 +20,9 @@ from jax import numpy as jnp
 import numpy as np
 from orbax.checkpoint.metadata import sharding as sharding_metadata
 from orbax.checkpoint.metadata import value as value_metadata
+from orbax.checkpoint.tree import types as tree_types
 
-PyTree = Any
+PyTree = tree_types.PyTree
 ScalarType = Union[Type[float], Type[int]]
 
 

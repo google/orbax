@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Added
+- Common public types to annotate pytrees.
 - Add utils that act as a heuristic for detecting standard Orbax checkpoints.
 - Add memory-based rate limiting support during save.
 - Metrics to track bytes/sec during save and restore.
