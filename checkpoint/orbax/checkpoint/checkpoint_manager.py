@@ -548,6 +548,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         details.
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
+    logging.info(
+        '[host=%s][thread=%s] CheckpointManager init: checkpointers=%s,'
+        ' item_names=%s, item_handlers=%s, handler_registry=%s',
+        multihost.process_index(),
+        threading.current_thread().name,
+        checkpointers,
+        item_names,
+        item_handlers,
+        handler_registry,
+    )
 
     self._options = options or CheckpointManagerOptions()
     self._multiprocessing_options = self._options.multiprocessing_options
@@ -640,6 +650,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
               self._single_item,
           )
       )
+    if (
+        self._options.async_options is not None
+        and self._options.async_options.post_finalization_callback is not None
+        and not isinstance(self._checkpointer, AsyncCheckpointer)
+    ):
+      raise ValueError(
+          'AsyncOptions.post_finalization_callback is only supported with'
+          ' AsyncCheckpointer. But final resolved checkpointer is: '
+          f' {self._checkpointer}'
+      )
 
     self._directory = epath.Path(directory)
     if self._options.read_only:
@@ -694,9 +714,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
 
     logging.info(
-        'CheckpointManager created, jax.process_index=%s, primary_host=%s,'
+        '[host=%s][thread=%s] CheckpointManager created,  primary_host=%s,'
         ' CheckpointManagerOptions=%s, root_directory=%s: %s',
         multihost.process_index(),
+        threading.current_thread().name,
         self._multiprocessing_options.primary_host,
         self._options,
         self.directory,

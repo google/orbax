@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `items_and_handlers` arguments for configuring items and handlers.
 - Added `handler_registration.HandlerRegistry` argument to
   `CheckpointManager`. This replaces the `checkpointers`, `item_names` and `items_and_handlers` arguments for configuring items and handlers.
+- Raise error if `AsyncOptions.post_finalization_callback` is given but
+ `CheckpointManager._checkpinter` is not async.
 
 ### Removed
 

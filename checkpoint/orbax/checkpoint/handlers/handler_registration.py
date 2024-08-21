@@ -227,3 +227,9 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
   ) -> HandlerRegistryMapping:
     """Returns all entries in the registry."""
     return self._registry
+
+  def __repr__(self):
+    return f'DefaultCheckpointHandlerRegistry({self._registry})'
+
+  def __str__(self):
+    return f'DefaultCheckpointHandlerRegistry({self._registry})'
