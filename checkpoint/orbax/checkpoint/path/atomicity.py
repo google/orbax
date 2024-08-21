@@ -514,7 +514,7 @@ def on_commit_callback(
   tmp_dir.finalize()
   step_lib.record_saved_duration(checkpoint_start_time)
   logging.info(
-      '[host=%s][thread=%s] Finalized tmp dir to `%s`.',
+      '[process=%s][thread=%s] Finalized tmp dir to `%s`.',
       multihost.process_index(),
       threading.current_thread().name,
       tmp_dir.get_final(),

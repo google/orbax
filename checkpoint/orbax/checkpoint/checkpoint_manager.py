@@ -549,7 +549,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
     logging.info(
-        '[host=%s][thread=%s] CheckpointManager init: checkpointers=%s,'
+        '[process=%s][thread=%s] CheckpointManager init: checkpointers=%s,'
         ' item_names=%s, item_handlers=%s, handler_registry=%s',
         multihost.process_index(),
         threading.current_thread().name,
@@ -714,7 +714,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
 
     logging.info(
-        '[host=%s][thread=%s] CheckpointManager created,  primary_host=%s,'
+        '[process=%s][thread=%s] CheckpointManager created,  primary_host=%s,'
         ' CheckpointManagerOptions=%s, root_directory=%s: %s',
         multihost.process_index(),
         threading.current_thread().name,
@@ -1121,7 +1121,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       return False
     if self.reached_preemption(step):
       logging.info(
-          '[host=%s] Saving checkpoint at step %d due to preemption.',
+          '[process=%s] Saving checkpoint at step %d due to preemption.',
           process_index,
           step,
       )
@@ -1194,7 +1194,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           and utils.is_tmp_checkpoint(save_directory)
       ):
         logging.warning(
-            '[host=%s] Attempting to save on GCS at step %s which has an'
+            '[process=%s] Attempting to save on GCS at step %s which has an'
             ' unfinalized checkpoint from previous runs. Removing the'
             ' unfinalized checkpoint before saving.',
             process_index,
@@ -1217,7 +1217,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
           processes=self._multiprocessing_options.active_processes,
       )
-    logging.info('[host=%s] Saving checkpoint at step %d', process_index, step)
+    logging.info(
+        '[process=%s] Saving checkpoint at step %d', process_index, step
+    )
     step_stats.checkpointer_blocking_start_time = time.time()
     self._checkpointer.save(save_directory, args=args)
     step_stats.checkpointer_blocking_duration_secs = (
@@ -1256,7 +1258,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       with self._finalize_thread_lock:
         finalize_thread_name = 'save_finalize'
         logging.info(
-            '[host=%s][thread=%s][step=%s] Starting CheckpointManager Save'
+            '[process=%s][thread=%s][step=%s] Starting CheckpointManager Save'
             ' Finalize thread=%s',
             process_index,
             threading.current_thread().name,
@@ -1273,7 +1275,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     else:
       self._finalize(step, steps_to_remove)
       logging.info(
-          '[host=%s][thread=%s][step=%s] Finished synchronous save.',
+          '[process=%s][thread=%s][step=%s] Finished synchronous save.',
           process_index,
           threading.current_thread().name,
           step,
@@ -1649,7 +1651,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """See superclass documentation."""
     process_index = multihost.process_index()
     logging.info(
-        '[host=%s][thread=%s][wait_until_finished] Initiating wait for Save'
+        '[process=%s][thread=%s][wait_until_finished] Initiating wait for Save'
         ' Finalize thread.',
         process_index,
         threading.current_thread().name,
@@ -1657,8 +1659,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     with self._finalize_thread_lock:
       if self._finalize_thread is None:
         logging.info(
-            '[host=%s][thread=%s][wait_until_finished] No Save Finalize thread'
-            ' to wait for. Returning.',
+            '[process=%s][thread=%s][wait_until_finished] No Save Finalize'
+            ' thread to wait for. Returning.',
             process_index,
             threading.current_thread().name,
         )
@@ -1667,7 +1669,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       step = self._finalize_thread.step()
       try:
         logging.info(
-            '[host=%s][thread=%s][step=%s][wait_until_finished] Waiting for'
+            '[process=%s][thread=%s][step=%s][wait_until_finished] Waiting for'
             ' Save Finalize thread (%s) to complete.',
             process_index,
             threading.current_thread().name,
@@ -1677,8 +1679,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self._finalize_thread.join()
       except BaseException as e:  # pylint:disable=broad-exception-caught
         logging.exception(
-            '[host=%s][thread=%s][step=%s][wait_until_finished] Save Finalize'
-            ' thread (%s) failed.',
+            '[process=%s][thread=%s][step=%s][wait_until_finished] Save'
+            ' Finalize thread (%s) failed.',
             process_index,
             threading.current_thread().name,
             step,
@@ -1692,7 +1694,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         raise e
       finally:
         logging.info(
-            '[host=%s][thread=%s][step=%s][wait_until_finished] Done waiting'
+            '[process=%s][thread=%s][step=%s][wait_until_finished] Done waiting'
             ' for Save Finalize thread (%s) at current step. Will not wait for'
             ' it next time.',
             process_index,
@@ -1763,7 +1765,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         time.time() - remove_steps_start_time,
     )
     logging.info(
-        '[host=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
+        '[process=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
         ' syncing with other hosts...',
         process_index,
         threading.current_thread().name,
@@ -1778,7 +1780,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
     )
     logging.info(
-        '[host=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
+        '[process=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
         ' done on all hosts.',
         process_index,
         threading.current_thread().name,
