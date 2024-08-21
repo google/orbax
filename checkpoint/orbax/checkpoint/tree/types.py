@@ -12,23 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Public symbols for tree module."""
+"""Public common types to work with pytrees."""
 
-# pylint: disable=g-importing-member, g-multiple-import
+from typing import Any, TypeVar, Union
 
-from orbax.checkpoint.tree.types import *
-from orbax.checkpoint.tree.utils import (
-    deserialize_tree,
-    from_flat_dict,
-    from_flattened_with_keypath,
-    get_key_name,
-    get_param_names,
-    is_dict_key,
-    is_empty_node,
-    is_empty_or_leaf,
-    is_sequence_key,
-    serialize_tree,
-    to_flat_dict,
-    to_shape_dtype_struct,
-    tuple_path_from_keypath,
-)
+from jax import tree_util as jtu
+
+
+PyTree = Any
+
+# This trick doesn't allow us to achieve full type checking but we at least can
+# use concrete types to document things like `PyTreeOf[jax.Array]`.
+T = TypeVar('T')
+PyTreeOf = Union[PyTree, T]
+
+PyTreeKey = Union[
+    jtu.SequenceKey, jtu.DictKey, jtu.GetAttrKey, jtu.FlattenedIndexKey
+]
+PyTreePath = tuple[PyTreeKey, ...]
