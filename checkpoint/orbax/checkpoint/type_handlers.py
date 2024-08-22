@@ -948,6 +948,9 @@ def _array_metadata_from_tensorstore(
       shape=t.shape,
       dtype=jnp.dtype(t.dtype.name),
       sharding=sharding,
+      storage=value_metadata.StorageMetadata(
+          chunk_shape=t.chunk_layout.read_chunk_template.shape
+      ),
   )
 
 
