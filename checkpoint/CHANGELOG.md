@@ -7,9 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
 
-### Changed
+## [0.6.1] - 2024-08-22
 
 ### Added
 - Common public types to annotate pytrees.
@@ -25,8 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CheckpointManager`. This replaces the `checkpointers`, `item_names` and `items_and_handlers` arguments for configuring items and handlers.
 - Raise error if `AsyncOptions.post_finalization_callback` is given but
  `CheckpointManager._checkpinter` is not async.
-
-### Removed
+- Add Tensorstore memory debug logs when debug message is turned on, eg. --vmodule=type_handlers=1
 
 
 ## [0.6.0] - 2024-08-19

@@ -954,12 +954,18 @@ def _array_metadata_from_tensorstore(
   )
 
 
-def _dump_debug_data(key, infos):
-  ts_metrics = ts.experimental_collect_matching_metrics('/tensorstore/')
+def _print_ts_debug_data(key, infos):
+  """Log Tensorstore related metrics."""
+  ts_metrics = ts.experimental_collect_matching_metrics('/tensorstore')
+  ts_metrics += ts.experimental_collect_matching_metrics('/mallocz')
+  ts_metrics += ts.experimental_collect_matching_metrics('/tcmalloc/')
   ts_metrics += [
       {'key': key},
       {'infos': [f'{info.name}' for info in infos]},
   ]
+
+  for metrics in ts_metrics:
+    logging.vlog(1, 'ts_metric: %s', metrics)
 
   return json.dumps(ts_metrics)
 
@@ -1074,9 +1080,7 @@ class NumpyHandler(TypeHandler):
     args = args or [SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
     if logging.vlog_is_on(1):
-      logging.vlog(
-          1, 'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
-      )
+      _print_ts_debug_data(self._metadata_key, infos)
     copied_values = [copy.deepcopy(v) for v in values]
     return [
         _CommitFuture(
@@ -1120,9 +1124,7 @@ class NumpyHandler(TypeHandler):
         logging.vlog(
             1, 'restored ndarray.shape = %s, array.dtype = %s', a.shape, a.dtype
         )
-      logging.vlog(
-          1, 'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
-      )
+        _print_ts_debug_data(self._metadata_key, infos)
 
     return ret
 
@@ -1612,9 +1614,7 @@ class ArrayHandler(TypeHandler):
             a.shape,
             a.dtype,
         )
-      logging.vlog(
-          1, 'ts_metrics: %s', _dump_debug_data(self._metadata_key, infos)
-      )
+      _print_ts_debug_data(self._metadata_key, infos)
 
     return ret
 
