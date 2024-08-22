@@ -41,6 +41,12 @@ class Metadata:
     return isinstance(other, Metadata)
 
 
+@dataclasses.dataclass(frozen=True)
+class StorageMetadata:
+  """Metadata describing how arrays are stored in a checkpoint."""
+  chunk_shape: Optional[tuple[int, ...]]
+
+
 @dataclasses.dataclass
 class ArrayMetadata(Metadata):
   """Metadata describing an array.
@@ -53,11 +59,14 @@ class ArrayMetadata(Metadata):
     properties but not require accessing real devices.
   dtype:
     Dtype of array elements.
+  storage:
+    Optional metadata describing how the array is stored in a checkpoint.
   """
 
   shape: tuple[int, ...]
   sharding: Optional[sharding_metadata.ShardingMetadata]
   dtype: Optional[jnp.dtype]
+  storage: Optional[StorageMetadata] = None
 
   def __eq__(self, other: 'Metadata') -> bool:
     return (
@@ -65,6 +74,7 @@ class ArrayMetadata(Metadata):
         and self.shape == other.shape
         and self.sharding == other.sharding
         and self.dtype == other.dtype
+        and self.storage == other.storage
     )
 
   @classmethod
