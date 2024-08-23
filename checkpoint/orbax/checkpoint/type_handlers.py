@@ -26,7 +26,7 @@ import os
 import re
 import sys
 import time
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union, cast
+from typing import Any, Callable, cast, Dict, List, Optional, Protocol, Sequence, Set, Tuple, Union
 import warnings
 
 from absl import logging
@@ -696,7 +696,7 @@ def check_input_arguments(*args):
       raise ValueError('Found input args with mismatched lengths.')
 
 
-def merge_ocdbt_per_process_files(
+async def merge_ocdbt_per_process_files(
     directory: epath.Path, ts_context: ts.Context
 ):
   """Merges OCDBT files written to per-process subdirectories.
@@ -736,19 +736,16 @@ def merge_ocdbt_per_process_files(
         )
     )
 
-  async def open_and_copy():
-    opened = await asyncio.gather(*open_ops)
-    parent, children = opened[0], opened[1:]
-    copy_ops = []
-    txn = ts.Transaction(atomic=True)
-    for child in children:
-      copy_ops.append(
-          child.experimental_copy_range_to(parent.with_transaction(txn))
-      )
-    await asyncio.gather(*copy_ops)
-    await txn.commit_async()
-
-  asyncio.run(open_and_copy())
+  opened = await asyncio.gather(*open_ops)
+  parent, children = opened[0], opened[1:]
+  copy_ops = []
+  txn = ts.Transaction(atomic=True)
+  for child in children:
+    copy_ops.append(
+        child.experimental_copy_range_to(parent.with_transaction(txn))
+    )
+  await asyncio.gather(*copy_ops)
+  await txn.commit_async()
 
 
 def _get_kvstore_for_gcs(ckpt_path: str) -> Dict[str, Any]:
@@ -1630,19 +1627,12 @@ class ArrayHandler(TypeHandler):
     return sizes
 
 
-def _is_sharding_valid(
-    primary_replica_ids: set[int], primary_replica_pids: set[int]
-) -> bool:
-  if multihost.process_index() in primary_replica_pids:
-    loc_devices_in_replica = primary_replica_ids.intersection(
-        set([d.id for d in jax.local_devices()])
-    )
-    return len(loc_devices_in_replica) == len(jax.local_devices())
-  return True
-
-
 def _is_host_for_primary_replica(primary_replica_ids: set[int]) -> bool:
   return multihost.process_index() in primary_replica_ids
+
+
+class InvalidShardingError(ValueError):
+  """Error raised when sharding is not valid."""
 
 
 class SingleReplicaArrayHandler(ArrayHandler):
@@ -1710,6 +1700,42 @@ class SingleReplicaArrayHandler(ArrayHandler):
     self.broadcast_memory_limit_bytes = broadcast_memory_limit_bytes
     self.broadcast_memory_scaling_factor = broadcast_memory_scaling_factor
 
+  def _validate_sharding_and_get_primary_replica_processes(
+      self,
+      sharding: jax.sharding.Sharding,
+  ) -> Set[int]:
+    """Validates sharding for restoration."""
+    if not isinstance(sharding, jax.sharding.NamedSharding):
+      raise InvalidShardingError(
+          'The provided sharding is not a NamedSharding. Please use'
+          ' NamedSharding instead.'
+      )
+    primary_replica_ids, primary_replica_pids = (
+        multihost.multislice.get_primary_replica_ids_and_pids(
+            replica_axis_idx=self.replica_axis_index,
+            mesh=sharding.mesh,  # pytype: disable=attribute-error
+            primary_replica_id=self.primary_replica_id,
+        )
+    )
+    if len(primary_replica_ids) == len(jax.devices()):
+      raise InvalidShardingError(
+          'All devices are in the primary replica. There are no non-primary'
+          ' replicas to broadcast to.'
+      )
+    local_device_ids = set([d.id for d in jax.local_devices()])
+    if multihost.process_index() in primary_replica_pids:
+      loc_devices_in_replica = primary_replica_ids.intersection(
+          local_device_ids
+      )
+      if len(loc_devices_in_replica) != jax.local_device_count():
+        raise InvalidShardingError(
+            'The provided sharding is not valid. The primary replica has'
+            f' {len(loc_devices_in_replica)} devices, but the host has'
+            f' {jax.local_device_count()} devices.'
+        )
+
+    return primary_replica_pids
+
   async def deserialize(
       self,
       infos: Sequence[ParamInfo],
@@ -1740,43 +1766,26 @@ class SingleReplicaArrayHandler(ArrayHandler):
     single_replica_shardings = []
     for info, arg in zip(infos, args):
       arg = cast(SingleReplicaArrayRestoreArgs, arg)
-
+      if not info.is_ocdbt_checkpoint:
+        await _assert_parameter_files_exist(  # pylint: disable=protected-access
+            info.path, self._metadata_key
+        )
       if not isinstance(arg, SingleReplicaArrayRestoreArgs):
         raise ValueError(
             'Must provide `SingleReplicaArrayRestoreArgs`, but got'
             f' {type(arg)}.'
         )
-
       if arg.sharding is None:
         raise ValueError('Must provide `sharding`.')
-
       sharding = arg.sharding
       shardings.append(sharding)
-      primary_replica_ids, primary_replica_pids = (
-          multihost.multislice.get_primary_replica_ids_and_pids(
-              replica_axis_idx=self.replica_axis_index,
-              mesh=sharding.mesh,  # pytype: disable=attribute-error
-              primary_replica_id=self.primary_replica_id,
-          )
+      primary_replica_pids = (
+          self._validate_sharding_and_get_primary_replica_processes(sharding)
       )
-      if not _is_sharding_valid(primary_replica_ids, primary_replica_pids):
-        raise ValueError(
-            'The provided sharding configuration is invalid because it'
-            ' includes a host with devices assigned to the primary replica and'
-            ' devices outside of the primary replica.'
-            f' primary_replica_ids={primary_replica_ids}'
-            f', primary_replica_pids={primary_replica_pids}'
-        )
-
       if arg.single_replica_sharding is None:
         raise ValueError('Must provide `single_replica_sharding`.')
       single_replica_sharding = arg.single_replica_sharding
       single_replica_shardings.append(single_replica_sharding)
-
-      if not info.is_ocdbt_checkpoint:
-        await _assert_parameter_files_exist(  # pylint: disable=protected-access
-            info.path, self._metadata_key
-        )
 
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)

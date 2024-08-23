@@ -772,8 +772,10 @@ class BasePyTreeCheckpointHandler(
     """
     merge_start_time = time.time()
     ts_context = type_handlers.get_ts_context()
-    type_handlers.merge_ocdbt_per_process_files(
-        directory, ts_context=ts_context
+    asyncio.run(
+        type_handlers.merge_ocdbt_per_process_files(
+            directory, ts_context=ts_context
+        )
     )
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/async/ocdbt_merge_duration_secs',
