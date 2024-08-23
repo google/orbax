@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Only allow main-thread to reset Save Finalize error.
+- Allow Orbax save to run from a non-main thread but continue to support
+ concurrent access to wait_until_finished().
 
 
 ## [0.6.1] - 2024-08-22

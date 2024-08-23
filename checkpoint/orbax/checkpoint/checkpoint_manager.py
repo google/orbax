@@ -115,6 +115,7 @@ class _FinalizeThread(threading.Thread):
   def __init__(
       self,
       step: int,
+      save_thread: threading.Thread,
       target: Callable[..., object],
       name: str,
       args=(),
@@ -130,9 +131,13 @@ class _FinalizeThread(threading.Thread):
         daemon=daemon,
     )
     self._step = step
+    self._save_thread = save_thread
 
   def step(self) -> int:
     return self._step
+
+  def save_thread(self) -> threading.Thread:
+    return self._save_thread
 
   def run(self):
     try:
@@ -1265,6 +1270,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
         self._finalize_thread = _FinalizeThread(
             step=step,
+            save_thread=threading.current_thread(),
             name=finalize_thread_name,
             target=self._finalize,
             args=(step, steps_to_remove),
@@ -1693,15 +1699,19 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             step,
             self._finalize_thread.name,
         )
-        if threading.current_thread() is threading.main_thread():
+        # Only thread which requested save is allowed to clean up.
+        if threading.current_thread() is self._finalize_thread.save_thread():
           # If an exception occurred in the finalization of the previous
           # save, we clean up since that checkpoint was never actually saved.
           # TODO: b/359321026 - Make self._checkpoints access threadsafe.
           assert self._checkpoints
+          assert self._checkpoints[-1].step == step
           self._checkpoints = self._checkpoints[:-1]
         raise
       finally:
-        if threading.current_thread() is threading.main_thread():
+        # Only thread which requested save is allowed to reset Save Finalize
+        # thread.
+        if threading.current_thread() is self._finalize_thread.save_thread():
           logging.info(
               '[process=%s][thread=%s][step=%s][wait_until_finished] Resetting'
               ' Save Finalize thread (%s) running at step=%d, also errors if'
