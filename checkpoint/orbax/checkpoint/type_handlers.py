@@ -1717,10 +1717,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
     """Constructor.
 
     Args:
-      replica_axis_index: The index of the axis dimension of the array, along
-        which the replicas are defined. # TODO(b/347273809): Currently works
-        only when replica is taken along # the first dimension, i.e.
-        replica_axis_index is 0.
+      replica_axis_index: Defines the axis of the global mesh along which
+        replicas are defined. E.g. all devices in
+        global_mesh.devices[replica_axis_index] are part of the same replica.
       primary_replica_id: The id of the replica hosts that is used to load and
         broadcast the checkpoint.
       broadcast_memory_limit_bytes: Specifies the memory size (in bytes) used
@@ -1730,8 +1729,6 @@ class SingleReplicaArrayHandler(ArrayHandler):
     """
 
     super(SingleReplicaArrayHandler, self).__init__()
-    if replica_axis_index != 0:
-      raise ValueError('replica_axis_index must be 0.')
     self.replica_axis_index = replica_axis_index
     self.primary_replica_id = primary_replica_id
     self.broadcast_memory_limit_bytes = broadcast_memory_limit_bytes
@@ -1759,17 +1756,17 @@ class SingleReplicaArrayHandler(ArrayHandler):
           'All devices are in the primary replica. There are no non-primary'
           ' replicas to broadcast to.'
       )
-    local_device_ids = set([d.id for d in jax.local_devices()])
-    if multihost.process_index() in primary_replica_pids:
-      loc_devices_in_replica = primary_replica_ids.intersection(
-          local_device_ids
+
+    expected_primary_replica_ids = {
+        d.id for d in jax.devices() if d.process_index in primary_replica_pids
+    }
+    if primary_replica_ids != expected_primary_replica_ids:
+      raise InvalidShardingError(
+          'The provided sharding is not valid. The primary replica has the'
+          f' following devices: {primary_replica_ids}, but process indices'
+          ' associated with primary replica devices are expected to be:'
+          f' {primary_replica_pids}.'
       )
-      if len(loc_devices_in_replica) != jax.local_device_count():
-        raise InvalidShardingError(
-            'The provided sharding is not valid. The primary replica has'
-            f' {len(loc_devices_in_replica)} devices, but the host has'
-            f' {jax.local_device_count()} devices.'
-        )
 
     return primary_replica_pids
 
@@ -1863,21 +1860,18 @@ class SingleReplicaArrayHandler(ArrayHandler):
       )
 
     else:
-      single_replica_shardings = [arg.single_replica_sharding for arg in args]
       shape_dtype = [
           jax.ShapeDtypeStruct(arg.global_shape, arg.dtype) for arg in args
       ]
       deserialized = create_zeros(tuple(shape_dtype))
 
     deserialized = tuple(deserialized)
-    single_replica_shardings = tuple(single_replica_shardings)
 
     start_broadcast = time.time()
     global_mesh = cast(jax.sharding.NamedSharding, shardings[0])
     shared_state, _ = multihost.multislice.broadcast_one_replica_to_all(
         deserialized,
         global_mesh.mesh,
-        single_replica_shardings,
         self.replica_axis_index,
         _is_host_for_primary_replica(primary_replica_pids),
         memory_limit_bytes=self.broadcast_memory_limit_bytes,

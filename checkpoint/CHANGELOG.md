@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Support for `replica_axis_index = 0,1` in `broadcast_one_replica_to_all`.
+
 ### Fixed
 - Only allow main-thread to reset Save Finalize error.
 - Allow Orbax save to run from a non-main thread but continue to support
@@ -35,10 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CompositeCheckpointhandler`. This replaces the `item_names` and
   `items_and_handlers` arguments for configuring items and handlers.
 - Added `handler_registration.HandlerRegistry` argument to
-  `CheckpointManager`. This replaces the `checkpointers`, `item_names` and `items_and_handlers` arguments for configuring items and handlers.
+  `CheckpointManager`. This replaces the `checkpointers`, `item_names` and
+  `items_and_handlers` arguments for configuring items and handlers.
 - Raise error if `AsyncOptions.post_finalization_callback` is given but
  `CheckpointManager._checkpinter` is not async.
-- Add Tensorstore memory debug logs when debug message is turned on, eg. --vmodule=type_handlers=1
+- Add Tensorstore memory debug logs when debug message is turned on, eg.
+  `--vmodule=type_handlers=1`.
 
 
 ## [0.6.0] - 2024-08-19

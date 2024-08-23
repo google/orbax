@@ -223,6 +223,8 @@ class CheckpointManagerOptions:
   persistent:
     Options relevant to the persistent checkpoints. See
     `PersistentCheckpointOptions`.
+  replica_axis_index:
+    The index of the replica axis in the global mesh.
   step_name_format:
     NameFormat to build or find steps under input root directory. If provided,
     `step_prefix`, `step_format_fixed_length` are ignored.
@@ -241,6 +243,8 @@ class CheckpointManagerOptions:
   persistent: PersistentCheckpointOptions = dataclasses.field(
       default_factory=PersistentCheckpointOptions
   )
+
+  replica_axis_index: int = 0
 
   step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None
   cleanup_tmp_directories: bool = False
@@ -605,6 +609,7 @@ class CheckpointManager(
     self._slice_id = multislice.process_slice_id(
         multihost.process_index(), self._global_mesh
     )
+    self._replica_axis_index = options.replica_axis_index
 
     self._local_state_handler = local_state_handler
     self._options = options
@@ -983,9 +988,8 @@ class CheckpointManager(
     shared_states, _ = multislice.broadcast_one_replica_to_all(
         in_tree,
         self._global_mesh,
-        tuple(single_replica_shardings_tuple),
-        0,
-        is_restoring_slice,
+        replica_axis_index=self._replica_axis_index,
+        is_source=is_restoring_slice,
     )
     broadcast_elapsed_s = time.time() - start_broadcast
     jax.monitoring.record_event_duration_secs(
