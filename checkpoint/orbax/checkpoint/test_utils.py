@@ -22,10 +22,9 @@ import contextlib
 import functools
 import inspect
 import itertools
-import string
 import time
 import typing
-from typing import Any, List, Optional, Set, Tuple
+from typing import Any, List, Optional, Set
 from unittest import mock
 
 from absl import logging
@@ -290,27 +289,6 @@ def setup_sharded_pytree(
       create_sharded_array, pytree, mesh_tree, axes_tree, is_leaf=is_leaf
   )
   return pytree, mesh_tree, axes_tree
-
-
-def setup_replica_sharded_arrays(
-    arrays: List[jax.Array],
-    mesh_shape: Tuple[int, ...],
-    is_replica_first: Optional[bool] = True,
-):
-  """Creates a tuple of sharded arrays for testing."""
-  devices = jax.devices()
-  devices = np.asarray(devices)
-
-  dim = len(mesh_shape)
-  axis_names = list(string.ascii_lowercase)
-  mesh = jax.sharding.Mesh(devices.reshape(mesh_shape), axis_names[-dim:])
-  if is_replica_first:
-    mesh_axes = jax.sharding.PartitionSpec(None, axis_names[-dim + 1 :])
-  else:
-    mesh_axes = jax.sharding.PartitionSpec(axis_names[-dim:-1], None)
-
-  sharded_arrs = [create_sharded_array(arr, mesh, mesh_axes) for arr in arrays]
-  return sharded_arrs, mesh, mesh_axes
 
 
 def get_fake_global_mesh_for_slices(
@@ -634,8 +612,8 @@ def ensure_atomic_save(
     ).finalize()
 
 
-def create_restore_args(
-    data: jax.Array,
+def create_single_replica_restore_args(
+    arr: jax.Array,
     mesh: jax.sharding.Mesh,
     pspec: jax.sharding.PartitionSpec,
     replica_axis_index: int,
@@ -647,9 +625,9 @@ def create_restore_args(
   return type_handlers.SingleReplicaArrayRestoreArgs(
       sharding=jax.sharding.NamedSharding(mesh, pspec),
       single_replica_sharding=ss_sharding,
-      global_shape=data.shape,
-      dtype=data.dtype,
-      )
+      global_shape=arr.shape,
+      dtype=arr.dtype,
+  )
 
 
 def _find_idx(array: np.ndarray, replica_axis_idx: int):
