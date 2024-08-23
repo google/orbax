@@ -143,9 +143,7 @@ class _FinalizeThread(threading.Thread):
   def join(self, *args, **kwargs):
     super().join(*args, **kwargs)
     if self.exception:
-      exception = self.exception
-      self.exception = None
-      raise exception
+      raise self.exception
 
 
 # TODO(b/268051457) Clean up when no longer depended upon by internal users.
@@ -1677,7 +1675,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             self._finalize_thread.name,
         )
         self._finalize_thread.join()
-      except BaseException as e:  # pylint:disable=broad-exception-caught
+        logging.info(
+            '[process=%s][thread=%s][step=%s][wait_until_finished] Done'
+            ' waiting for Save Finalize thread (%s) running at step=%d.',
+            process_index,
+            threading.current_thread().name,
+            step,
+            self._finalize_thread.name,
+            step,
+        )
+      except BaseException:  # pylint:disable=broad-exception-caught
         logging.exception(
             '[process=%s][thread=%s][step=%s][wait_until_finished] Save'
             ' Finalize thread (%s) failed.',
@@ -1686,27 +1693,33 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             step,
             self._finalize_thread.name,
         )
-        # If an exception occurred in the in finalization of the previous
-        # save, we clean up since that checkpoint was never actually saved.
-        # TODO: b/359321026 - Make self._checkpoints access threadsafe.
-        assert self._checkpoints
-        self._checkpoints = self._checkpoints[:-1]
-        raise e
+        if threading.current_thread() is threading.main_thread():
+          # If an exception occurred in the finalization of the previous
+          # save, we clean up since that checkpoint was never actually saved.
+          # TODO: b/359321026 - Make self._checkpoints access threadsafe.
+          assert self._checkpoints
+          self._checkpoints = self._checkpoints[:-1]
+        raise
       finally:
-        logging.info(
-            '[process=%s][thread=%s][step=%s][wait_until_finished] Done waiting'
-            ' for Save Finalize thread (%s) at current step. Will not wait for'
-            ' it next time.',
-            process_index,
-            threading.current_thread().name,
-            step,
-            self._finalize_thread.name,
-        )
-        self._finalize_thread = None
+        if threading.current_thread() is threading.main_thread():
+          logging.info(
+              '[process=%s][thread=%s][step=%s][wait_until_finished] Resetting'
+              ' Save Finalize thread (%s) running at step=%d, also errors if'
+              ' any.',
+              process_index,
+              threading.current_thread().name,
+              step,
+              self._finalize_thread.name,
+              step,
+          )
+          self._finalize_thread = None
 
   def is_saving_in_progress(self) -> bool:
     """Returns whether a checkpoint save is in progress."""
-    return self._finalize_thread is not None
+    with self._finalize_thread_lock:
+      return (
+          self._finalize_thread is not None and self._finalize_thread.is_alive()
+      )
 
   def check_for_errors(self):
     """See superclass documentation."""

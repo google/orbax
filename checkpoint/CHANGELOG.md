@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Only allow main-thread to reset Save Finalize error.
+
 
 ## [0.6.1] - 2024-08-22
 
