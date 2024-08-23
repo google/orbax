@@ -431,7 +431,8 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
     )
     root_dir = self.create_tempdir().full_path
     saved_dir = os.path.join(root_dir, 'jax_exported_map')
-    jax_exported_map = j_module.to_jax_exported_map(model_inputs, saved_dir)
+    jax_exported_map = j_module.to_jax_exported_map(model_inputs)
+    orbax_export_utils.save_jax_exported_map(saved_dir, jax_exported_map)
     restored_jax_exported_map = orbax_export_utils.load_jax_exported_map(
         saved_dir
     )
@@ -469,6 +470,25 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
     chex.assert_trees_all_equal_dtypes(
         in_avals,
         restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].in_avals,
+    )
+
+    # support grad function with vjp_order > 1
+    saved_dir = os.path.join(root_dir, 'jax_exported_map_vjp')
+    orbax_export_utils.save_jax_exported_map(
+        saved_dir, jax_exported_map, vjp_order=3
+    )
+    restored_jax_exported_map = orbax_export_utils.load_jax_exported_map(
+        saved_dir
+    )
+    f = restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].call
+    model_params_grad = jax.grad(lambda p, x: jnp.sum(f(p, x)), argnums=0)(
+        model_params, model_inputs
+    )
+    chex.assert_trees_all_equal(
+        model_params_grad,
+        jax.grad(lambda p, x: jnp.sum(linear(p, x)), argnums=0)(
+            model_params, model_inputs
+        ),
     )
 
 

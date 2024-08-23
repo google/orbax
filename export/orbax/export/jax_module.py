@@ -24,7 +24,6 @@ from jax import export as jax_export
 from jax.experimental import jax2tf
 from orbax.export import dtensor_utils
 from orbax.export import typing as orbax_export_typing
-from orbax.export import utils as orbax_export_utils
 import tensorflow as tf
 from tensorflow.experimental import dtensor
 
@@ -335,20 +334,17 @@ class JaxModule(tf.Module):
     return _make_closures(params, apply_fn_map)
 
   def to_jax_exported_map(
-      self, model_inputs: PyTree, output_dir: Union[str, None] = None
+      self, model_inputs: PyTree
   ) -> Mapping[str, jax_export.Exported]:
     """Converts the orbax.export JaxModule to jax_export.Exported.
 
     Args:
       model_inputs: The model inputs.
-      output_dir: The output directory to save the jax_exported_map.
 
     Returns:
       A mapping from method key to jax_export.Exported.
     """
     jax_exported_map = _jax_module_to_jax_exported_map(self, model_inputs)
-    if output_dir is not None:
-      orbax_export_utils.save_jax_exported_map(output_dir, jax_exported_map)
     return jax_exported_map
 
 

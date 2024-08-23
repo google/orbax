@@ -344,6 +344,7 @@ class CallableSignatures:
 def _save_jax_exported_to_disk(
     exp: jax_export.Exported,
     bin_file_path: str,
+    *,
     vjp_order: int = 0,
 ) -> None:
   if tf.io.gfile.exists(bin_file_path):
@@ -363,6 +364,8 @@ def _load_jax_exported_from_disk(bin_file_path: str) -> jax_export.Exported:
 def save_jax_exported_map(
     dir_path: str,
     jax_exported_map: Mapping[str, jax_export.Exported],
+    *,
+    vjp_order: int = 0,
 ):
   """Saves the orbax.export JaxExported Map to disk."""
   if tf.io.gfile.exists(dir_path):
@@ -371,7 +374,9 @@ def save_jax_exported_map(
   tf.io.gfile.makedirs(dir_path)
   for method_key, jax_exported in jax_exported_map.items():
     file_path = os.path.join(dir_path, f'{method_key}.{_FILE_TYPE}')
-    _save_jax_exported_to_disk(jax_exported, os.path.join(dir_path, file_path))
+    _save_jax_exported_to_disk(
+        jax_exported, os.path.join(dir_path, file_path), vjp_order=vjp_order
+    )
   logging.info('Saved JaxExported Map to %s successfully.', dir_path)
 
 
