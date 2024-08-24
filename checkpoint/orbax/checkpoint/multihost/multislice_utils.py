@@ -15,7 +15,7 @@
 """Multislice utils."""
 
 import functools
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Optional, Set, Tuple, Union
 
 from absl import logging
 import jax
@@ -244,7 +244,7 @@ def get_primary_replica_ids_and_pids(
     replica_axis_idx: int,
     mesh: jax.sharding.Mesh,
     primary_replica_id: int,
-):
+) -> Tuple[Set[int], Set[int]]:
   """Returns the primary replica ids and process ids."""
   replica_devices = np.take(
       mesh.devices,
