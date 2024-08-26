@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allow Orbax save to run from a non-main thread but continue to support
  concurrent access to wait_until_finished().
 
+### Changed
+- Refactor `merge_ocdbt_per_process_files()` to return explicitly without
+ merging if none of the child subdir names match `ocdbt.process_` pattern.
+
 
 ## [0.6.1] - 2024-08-22
 

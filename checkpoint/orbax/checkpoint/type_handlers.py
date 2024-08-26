@@ -25,6 +25,7 @@ import math
 import os
 import re
 import sys
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union, cast
 import warnings
@@ -77,7 +78,7 @@ _SHARDING = '_sharding'
 ZARR_VER2 = 'zarr'
 ZARR_VER3 = 'zarr3'
 
-_DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE = 2 ** 31  # 2GB
+_DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE = 2**31  # 2GB
 
 
 async def _assert_parameter_files_exist(
@@ -266,8 +267,9 @@ class RestoreArgs:
 
 def _find_divisors(size: int):
   """Fast-ish method for finding divisors of a number."""
-  sqrt_divs = [i for i in range(1, math.ceil(math.sqrt(size + 1)))
-               if size % i == 0]
+  sqrt_divs = [
+      i for i in range(1, math.ceil(math.sqrt(size + 1))) if size % i == 0
+  ]
   return sorted(set(sqrt_divs + [size // div for div in sqrt_divs][::-1]))
 
 
@@ -488,7 +490,8 @@ def _build_ts_zarr_shard_and_chunk_metadata(
     # Zarr ver2
     if chunk_byte_size is not None:
       metadata['chunks'] = _choose_chunk_shape(
-          global_shape, shard_shape, dtype, chunk_byte_size)
+          global_shape, shard_shape, dtype, chunk_byte_size
+      )
       logging.info('Chose a chunk shape equal to: %s', str(metadata['chunks']))
     else:
       metadata['chunks'] = np.array(np.maximum(1, shard_shape))
@@ -708,21 +711,14 @@ def merge_ocdbt_per_process_files(
   The original per-process subdirectories are not and should not be deleted -
   the global kvstore continues to reference them.
 
+  NOTE: If no suitable subdirs with OCDBT checkpoints are found, this function
+  does not raise any error and no merged checkpoint is created.
+
   Args:
     directory: checkpoint location.
     ts_context: Tensorstore context.
   """
   open_ops = []
-  parent_tspec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
-  _add_write_tspec_ocdbt_options(parent_tspec)
-  parent_tspec = parent_tspec['kvstore']
-  open_ops.append(
-      ts.KvStore.open(
-          ts.KvStore.Spec(parent_tspec),
-          context=ts_context,
-      )
-  )
-
   for process_dir in directory.glob(f'{_PROCESS_SUBDIR_PREFIX}*'):
     process_id = process_dir.name.split('_')[-1]
     child_tspec = _get_tensorstore_spec(
@@ -735,10 +731,29 @@ def merge_ocdbt_per_process_files(
             context=ts_context,
         )
     )
+  if not open_ops:  # No per-process OCDBT checkpoint found!
+    logging.warning(
+        '[process=%s][thread=%s] Skipping merge of OCDBT checkpoints: No'
+        ' per-process OCDBT checkpoint subdirs found in %s, ',
+        multihost.process_index(),
+        threading.current_thread().name,
+        directory,
+    )
+    return
+
+  parent_tspec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
+  _add_write_tspec_ocdbt_options(parent_tspec)
+  parent_tspec = parent_tspec['kvstore']
+  open_ops.append(
+      ts.KvStore.open(
+          ts.KvStore.Spec(parent_tspec),
+          context=ts_context,
+      )
+  )
 
   async def open_and_copy():
     opened = await asyncio.gather(*open_ops)
-    parent, children = opened[0], opened[1:]
+    parent, children = opened[-1], opened[:-1]
     copy_ops = []
     txn = ts.Transaction(atomic=True)
     for child in children:
