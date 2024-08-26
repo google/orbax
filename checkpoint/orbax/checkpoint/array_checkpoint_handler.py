@@ -36,6 +36,7 @@ ArrayType = Union[int, float, np.number, np.ndarray, jax.Array]
 _ELEMENT_KEY = 'ELEMENT'
 
 
+# TODO: b/362285520 - Refactor to delegate to PytreeCheckpointHandler.
 class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Handles saving and restoring individual arrays and scalars."""
 
