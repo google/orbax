@@ -105,7 +105,7 @@ def _log_io_per_sec_metric(name: str, size: int, start_time: float):
       float('nan') if time_elapsed == 0 else float(size) / time_elapsed
   )
   logging.info(
-      '[process=%d] %s: %s/s (bytes written: %s) (time elapsed: %s) (per-host)',
+      '[process=%d] %s: %s/s (total bytes: %s) (time elapsed: %s) (per-host)',
       multihost.process_index(),
       name,
       humanize.naturalsize(bytes_per_sec, binary=True),
