@@ -13,10 +13,11 @@
 # limitations under the License.
 
 """Base class for modules used in Orbax Model export."""
+
 import abc
 from collections.abc import Mapping
 from typing import Any, Callable, Union
-
+from jax import export as jax_export
 from orbax.export import typing as orbax_export_typing
 
 PyTree = orbax_export_typing.PyTree
@@ -31,7 +32,7 @@ class OrbaxModuleBase(abc.ABC):
   def __init__(
       self,
       params: PyTree,
-      apply_fn_map: Union[Mapping[str, ApplyFn], dict[str, ApplyFn]],
+      apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
       **kwargs: Any,
   ):
     """Constructor for creating an export Module."""
@@ -53,5 +54,13 @@ class OrbaxModuleBase(abc.ABC):
 
   @property
   @abc.abstractmethod
-  def jax_methods(self) -> Mapping[str, Callable[..., Any]]:
-    """Named methods in JAX context for validation."""
+  def with_gradient(self) -> bool:
+    """Returns True if a gradient function is defined."""
+
+  @abc.abstractmethod
+  def obm_module_to_jax_exported_map(
+      self,
+      model_inputs: PyTree,
+  ) -> Mapping[str, jax_export.Exported]:
+    """Converts the OrbaxModel to jax_export.Exported."""
+    return {}

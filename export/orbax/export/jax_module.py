@@ -14,32 +14,21 @@
 
 """Wraps JAX functions and parameters into a tf.Module."""
 
-from collections.abc import Callable, Mapping, Sequence
-import dataclasses
-from typing import Any, Optional, Tuple, Union
-from absl import logging
+from collections.abc import Callable, Mapping
+from typing import Any, cast, Optional, Union
+
 import jax
 from jax import export as jax_export
-from jax.experimental import jax2tf
-from orbax.export import config
 from orbax.export import constants
-from orbax.export import dtensor_utils
 from orbax.export import typing as orbax_export_typing
 from orbax.export.modules import obm_module
 from orbax.export.modules import orbax_module_base
 from orbax.export.modules import tensorflow_module
 import tensorflow as tf
-from tensorflow.experimental import dtensor
 
 
 PyTree = orbax_export_typing.PyTree
 ApplyFn = orbax_export_typing.ApplyFn
-
-obx_export_config = config.config
-
-
-def _same_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
-  return set(a.keys()) == set(b.keys())
 
 
 def _make_closures(
@@ -53,36 +42,12 @@ def _make_closures(
   return jax.tree_util.tree_map(bind_params, apply_fn_map)
 
 
-@dataclasses.dataclass(frozen=True)
-class _NonTrackableMetadata:
-  """A container that holds the metadata required for variable update.
-
-  Most fields of this dataclass are python containers (dict, list, tuple). If
-  they are attached a tf.Module directly, TF will turn them into TF trackable
-  wrappers (DictWrapper, ListWrapper, etc.), thus mutate their orginal PyTree
-  def. Therefore, we create this dataclass to hold the metadata to avoid such
-  implicit conversion. See also
-  https://github.com/google/jax/blob/main/jax/experimental/jax2tf/README.md#errors-due-to-tfmodule-magic-conversion-during-attribute-assignment
-  """
-
-  apply_fn_map: Mapping[str, ApplyFn]
-  tf_var_treedef: Any
-  var_trainable: Mapping[str, bool]
-  var_pspecs: Optional[Mapping[str, PyTree]]
-  model_params: PyTree
-  jax2tf_kwargs_map: Mapping[str, Any]
-  input_polymorphic_shape_map: Mapping[str, Any]
-  allow_multi_axis_sharding_consolidation: Optional[bool]
-
-
 class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
   """An exportable module for JAX functions and parameters.
 
   Holds tf.Variables converted from JAX parameters, as well as TF functions
   converted from JAX functions and bound with the tf.Variables.
   """
-
-  DEFAULT_METHOD_KEY = 'jax_module_default_method'
 
   def __init__(
       self,
@@ -109,154 +74,95 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
         boolean value to tell if all the parameters are trainable or not. By
         default all parameters are non-trainable. The default value is subject
         to change in the future, thus it is recommended to specify the value
-        explicitly.
+        explicitly. Currently trainable is only relevant for TF SavedModel
+        export.
       input_polymorphic_shape: the polymorhpic shape for the inputs of
         ``apply_fn``. If ``apply_fn`` is a mapping, ``input_polymorphic_shape``
         must be a mapping of method key to the input polymorphic shape for the
-        method.
+        method. Currently input_polymorphic_shape is only relevant for TF
+        SavedModel export.
       jax2tf_kwargs: options passed to jax2tf. ``polymorphic_shape`` is inferred
         from ``input_polymorphic_shape`` and should not be set.
         ``with_gradient``, if set, should be consistent with the ``trainable``
         argument above. If ``jax2tf_kwargs`` is unspecified, the default jax2tf
         option will be applied. If ``apply_fn`` is a mapping, `jax2tf_kwargs`
         must either be unspecified or a mapping of method key to the jax2tf
-        kwargs for the method.
+        kwargs for the method. The jax2tf_kwargs is only relevant for TF
+        SavedModel export.
       jit_compile: whether to jit compile the jax2tf converted functions. If
         ``apply_fn`` is a mapping, this can either be a boolean applied to all
         functions or a mapping of method key to the jit compile option for the
-        method.
+        method. The jit_compile is only relevant for TF SavedModel export as all
+        methods for the Orbax model export are jit compiled.
       pspecs: an optional pytree of PartitionSpecs of the ``params`` in the same
         structure as ``params``. If set, the leaves of ``params`` must be
         jax.Array, and ``JaxModule`` must be created within a DTensor export
-        context from ``with maybe_enable_dtensor_export_on(mesh)``.
+        context from ``with maybe_enable_dtensor_export_on(mesh)``. DTensor
+        export is only supported for TF SavedModel export.
       allow_multi_axis_sharding_consolidation: Disallowed by default. When set
         to true, it will allow consolidating JAX array multiple axis sharding
         into DTensor single axis sharding during checkpoint conversion. This
         would enable sharding across multiple axis names support for JAX model.
-      export_version: Either TF_SAVEDMODEL or ORBAX_MODEL depending on the
-        desired export format.
+        This is only relevant for TF SavedModel export.
+      export_version: The model export version. Either TF_SAVEDMODEL or
+        ORBAX_MODEL.
     """
-    if callable(apply_fn):
-      apply_fn_map: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
-      input_polymorphic_shape = {
-          self.DEFAULT_METHOD_KEY: input_polymorphic_shape
-      }
-      jax2tf_kwargs = {self.DEFAULT_METHOD_KEY: jax2tf_kwargs}
-      jit_compile = {self.DEFAULT_METHOD_KEY: jit_compile}
-    else:
-      # Check if `apply_fn`, `input_polymorphic_shape` and `jax2tf_kwargs` have
-      # the same structure.
-      apply_fn_map = apply_fn
-      if input_polymorphic_shape is None:
-        input_polymorphic_shape = jax.tree_util.tree_map(
-            lambda x: None, apply_fn_map
-        )
-      elif not isinstance(input_polymorphic_shape, Mapping) or not _same_keys(
-          input_polymorphic_shape, apply_fn_map
-      ):
-        raise ValueError(
-            '`input_polymorphic_shape` must have the same structure as that of'
-            f' `apply_fn`. Got apply_fn={apply_fn_map},'
-            f' input_polymorphic_shape={input_polymorphic_shape}.'
-        )
-      if jax2tf_kwargs is None:
-        # OK if it is unspecified, which means `jax2tf_kwargs` is unspecified
-        # for all apply functions.
-        jax2tf_kwargs = jax.tree_util.tree_map(lambda x: None, apply_fn_map)
-      elif not _same_keys(jax2tf_kwargs, apply_fn_map):
-        raise ValueError(
-            '`jax2tf_kwargs` must either be unspecified or have the same '
-            f'structure as that of `apply_fn`. Got apply_fn={apply_fn_map}, '
-            f'jax2tf_kwargs={jax2tf_kwargs}.'
-        )
-      if not isinstance(jit_compile, Mapping) or isinstance(jit_compile, bool):
-        jit_compile = jax.tree_util.tree_map(
-            lambda x: jit_compile, apply_fn_map
-        )
-      elif not _same_keys(jit_compile, apply_fn_map):
-        raise ValueError(
-            '`jit_compile` must either be a boolean or have the same '
-            f'structure as that of `apply_fn`. Got apply_fn={apply_fn_map}, '
-            f'jit_compile={jit_compile}.'
-        )
-
-    if trainable is None:
-      trainable = False
-    if isinstance(trainable, bool):
-      trainable = jax.tree_util.tree_map(lambda x: trainable, params)
-
-    self.with_gradient: bool = any(jax.tree_util.tree_leaves(trainable))
-
-    if obx_export_config.obx_export_tf_preprocess_only:  # pytype: disable=attribute-error
-      # Skip the heavy jax_params_to_tf_variables() call in TF preprocess only
-      # mode.
-      tf_var_treedef = None
-      self._tf_var_leaves = None
-      self._methods = dict()
-    else:
-      tf_vars = _jax_params_to_tf_variables(
-          params, trainable, pspecs, allow_multi_axis_sharding_consolidation
-      )
-      # Do not attach `tf_vars` to `self` directly, otherwise its structure will
-      # be mutated by `tf.Module.__setattr__`.
-      self._tf_var_leaves, tf_var_treedef = jax.tree_util.tree_flatten(tf_vars)
-      self._methods = jax.tree_util.tree_map(
-          self._make_tf_closure,
-          apply_fn_map,
-          input_polymorphic_shape,
-          jax2tf_kwargs,
-          jit_compile,
-      )
-
-    # # Preserve the original structure of this Metadata object to prevent
-    # unintended conversion by TF tf.Module (e.g., Dict to DictWrapper).
-    self._nontrackable_metadata = _NonTrackableMetadata(
-        apply_fn_map=apply_fn_map,
-        tf_var_treedef=tf_var_treedef,
-        var_trainable=trainable,
-        var_pspecs=pspecs,
-        model_params=params,
-        jax2tf_kwargs_map=jax2tf_kwargs,
-        input_polymorphic_shape_map=input_polymorphic_shape,
-        allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
-    )
-
+    self._export_version = export_version
     if export_version == constants.ExportModelType.ORBAX_MODEL:
-      self.export_module = obm_module.ObmModule(
+      self._export_module = obm_module.ObmModule(
           params=params,
-          apply_fn_map=apply_fn_map,
+          apply_fn=apply_fn,
       )
     else:
-      self.export_module = tensorflow_module.TensorFlowModule(
+      self._export_module = tensorflow_module.TensorFlowModule(
           params=params,
-          apply_fn_map=apply_fn_map,
+          apply_fn=apply_fn,
           trainable=trainable,
           input_polymorphic_shape=input_polymorphic_shape,
-          jax2tf_kwargs=jax2tf_kwargs,
           jit_compile=jit_compile,
           pspecs=pspecs,
           allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
+          jax2tf_kwargs=jax2tf_kwargs,
       )
 
   @property
   def apply_fn_map(self) -> Mapping[str, ApplyFn]:
     """Returns the apply_fn_map."""
-    return self._nontrackable_metadata.apply_fn_map
+    return self._export_module.apply_fn_map
 
   @property
   def model_params(self) -> PyTree:
     """Returns the model parameters."""
-    return self._nontrackable_metadata.model_params
+    return self._export_module.model_params
 
   @property
   def jax2tf_kwargs_map(self) -> Mapping[str, Any]:
     """Returns the jax2tf_kwargs_map."""
-    return self._nontrackable_metadata.jax2tf_kwargs_map
+    if self._export_version == constants.ExportModelType.ORBAX_MODEL:
+      raise TypeError(
+          'update_variables is not implemented for export version'
+          ' ExportModelType.ORBAX_MODEL.'
+      )
+    return cast(
+        tensorflow_module.TensorFlowModule, self._export_module
+    ).jax2tf_kwargs_map
 
   @property
   def input_polymorphic_shape_map(self) -> Mapping[str, PyTree]:
     """Returns the polymorphic shapes."""
-    return self._nontrackable_metadata.input_polymorphic_shape_map
+    if self._export_version == constants.ExportModelType.ORBAX_MODEL:
+      raise TypeError(
+          'update_variables is not implemented for export version'
+          ' ExportModelType.ORBAX_MODEL.'
+      )
+    return cast(
+        tensorflow_module.TensorFlowModule, self._export_module
+    ).input_polymorphic_shape_map
+
+  @property
+  def with_gradient(self) -> bool:
+    """Returns the with_gradient."""
+    return self._export_module.with_gradient
 
   def update_variables(self, params: PyTree):
     """Updates the variables associated with self.
@@ -267,74 +173,14 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
         shape and dtype of each parameter must be the same as the original
         parameter.
     """
-    # Update jax model_params
-    object.__setattr__(self._nontrackable_metadata, 'model_params', params)
-
-    # Update TF model_params
-    _, treedef = jax.tree_util.tree_flatten(params)
-    if treedef != self._nontrackable_metadata.tf_var_treedef:
-      raise ValueError(
-          'The PyTree structure of the updated parameters must be the same as'
-          f' that of the original parameters. Got new treedef: {treedef},'
-          f' original treedef: {self._nontrackable_metadata.tf_var_treedef}'
+    if self._export_version == constants.ExportModelType.ORBAX_MODEL:
+      raise TypeError(
+          'update_variables is not implemented for export version'
+          ' ExportModelType.ORBAX_MODEL.'
       )
-    new_vars = _jax_params_to_tf_variables(
-        self._nontrackable_metadata.model_params,
-        self._nontrackable_metadata.var_trainable,
-        self._nontrackable_metadata.var_pspecs,
-        self._nontrackable_metadata.allow_multi_axis_sharding_consolidation,
-    )
-    jax.tree_util.tree_map(
-        lambda v, new_v: v.assign(new_v), self._get_variable_tree(), new_vars
-    )
-
-  def _get_variable_tree(self) -> PyTree:
-    """Returns the PyTree of the tf.Variables associated with self."""
-    return jax.tree_util.tree_unflatten(
-        self._nontrackable_metadata.tf_var_treedef, self._tf_var_leaves
-    )
-
-  def _make_tf_closure(
-      self,
-      apply_fn: ApplyFn,
-      input_polymorphic_shape: Optional[PyTree],
-      jax2tf_kwargs: Optional[Mapping[str, Any]],
-      jit_compile: bool,
-  ) -> Callable[..., Any]:
-    """Creates a closure for `apply_fn` in TF context."""
-    jax2tf_kwargs = dict(jax2tf_kwargs or {})
-    if 'polymorphic_shapes' in jax2tf_kwargs:
-      raise ValueError(
-          'Do not use `polymorphic_shapes` in `jax2tf_kwargs`, use '
-          '`input_polymorphic_shape=...` instead.'
-      )
-
-    # All params have static shapes, so the first dimension of
-    # polymorphic_shapes is None.
-    jax2tf_kwargs['polymorphic_shapes'] = [None, input_polymorphic_shape]
-
-    if 'with_gradient' not in jax2tf_kwargs:
-      jax2tf_kwargs['with_gradient'] = self.with_gradient
-    elif jax2tf_kwargs['with_gradient'] and not self.with_gradient:
-      raise ValueError(
-          '`with_gradient=True` is specified in jax2tf_kwargs but '
-          'the JaxModule does not contain trainable variables.'
-      )
-    elif not jax2tf_kwargs['with_gradient'] and self.with_gradient:
-      raise ValueError(
-          '`with_gradient=False` is specified in jax2tf_kwargs but the '
-          'JaxModule contains trainable variables.'
-      )
-
-    if logging.vlog_is_on(3):
-      logging.vlog(3, 'jax2tf_kwargs=%s', jax2tf_kwargs)
-
-    apply_fn_tf = jax2tf.convert(apply_fn, **jax2tf_kwargs)
-    return tf.function(
-        lambda x: apply_fn_tf(self._get_variable_tree(), x),
-        jit_compile=jit_compile,
-        autograph=False,
-    )
+    cast(
+        tensorflow_module.TensorFlowModule, self._export_module
+    ).update_variables(params)
 
   def export_module(self) -> tf.Module:
     """Returns the tf.Module associated with this OrbaxModule."""
@@ -343,16 +189,16 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
   @property
   def methods(self) -> Mapping[str, Callable[..., Any]]:
     """Named methods in TF context."""
-    return self._methods
+    return self._export_module.methods
 
   @property
   def jax_methods(self) -> Mapping[str, Callable[..., Any]]:
     """Named methods in JAX context for validation."""
-    params = self._nontrackable_metadata.model_params
-    apply_fn_map = self._nontrackable_metadata.apply_fn_map
+    params = self._export_module.model_params
+    apply_fn_map = self._export_module.apply_fn_map
     return _make_closures(params, apply_fn_map)
 
-  def to_jax_exported_map(
+  def obm_module_to_jax_exported_map(
       self, model_inputs: PyTree
   ) -> Mapping[str, jax_export.Exported]:
     """Converts the orbax.export JaxModule to jax_export.Exported.
@@ -363,183 +209,4 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
     Returns:
       A mapping from method key to jax_export.Exported.
     """
-    jax_exported_map = _jax_module_to_jax_exported_map(self, model_inputs)
-    return jax_exported_map
-
-
-def _get_key_name(key: Any) -> Union[int, str]:
-  """Returns the name of a JAX Key."""
-  if isinstance(key, jax.tree_util.SequenceKey):
-    return key.idx
-  elif isinstance(key, jax.tree_util.DictKey):
-    return str(key.key)
-  elif isinstance(key, jax.tree_util.GetAttrKey):
-    return key.name
-  elif isinstance(key, jax.tree_util.FlattenedIndexKey):
-    return key.key
-  else:
-    raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
-
-
-def _get_param_names(params: PyTree) -> PyTree:
-  """Gets parameter names for PyTree elements."""
-
-  def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
-    name = '.'.join([str(_get_key_name(k)) for k in keypath])
-    # '~' is not allowed in variable names but are used by dm-haiku. See
-    # https://github.com/google/orbax/issues/420
-    return name.replace('~', '_')
-
-  names = jax.tree_util.tree_map_with_path(
-      lambda kp, _: _param_name_from_keypath(kp), params
-  )
-
-  if jax.tree_util.tree_structure(params) != jax.tree_util.tree_structure(
-      names
-  ):
-    logging.warning(
-        (
-            'Cannot construct variable names for JAX parameters, which means'
-            ' the parameters tree contains customized nodes not registered with'
-            ' ``jax.tree_util.register_pytree_with_keys``. Variables will be'
-            ' named to `jax_param_<index>` instead. PyTreeDef of params=%s.'
-        ),
-        jax.tree_util.tree_structure(params),
-    )
-    flat_params, tree_def = jax.tree_util.tree_flatten(params)
-    names = jax.tree_util.tree_unflatten(
-        tree_def, [f'jax_param_{i}' for i in range(len(flat_params))]
-    )
-  return names
-
-
-def _jax_params_to_tf_variables(
-    params: PyTree,
-    trainable: PyTree,
-    pspecs: Optional[PyTree],
-    allow_multi_axis_sharding_consolidation: Optional[bool] = None,
-) -> PyTree:
-  """Converts `params` to tf.Variables in the same pytree structure."""
-  mesh = dtensor_utils.get_current_mesh()
-  default_cpu_device = tf.config.list_logical_devices('CPU')[0]
-  if mesh is not None:
-    if pspecs is None:
-      raise ValueError(
-          'DTensor export is enabled but `pspecs` is not specified in'
-          ' JaxModule.'
-      )
-    if not all(
-        isinstance(x, jax.Array) for x in jax.tree_util.tree_leaves(params)
-    ):
-      logging.warning(
-          'Some params are not jax.Array, DTensor export will not take effect.'
-          'Falling back to traditional TF export.'
-      )
-      mesh = None
-
-  if mesh is None and pspecs is not None:
-    raise ValueError(
-        '`pspecs` is not None but JaxModule is not created within a DTensor'
-        ' export context. Please call `initialize_dtensor()` and use `with'
-        ' maybe_enable_dtensor_export_on(mesh)` to create a DTensor export'
-        ' context.'
-    )
-
-  def _to_tf_variable(x, name, trainable, pspec):
-    if mesh is not None:
-      return dtensor.DVariable(
-          dtensor_utils.jax_array_to_dtensor(
-              x,
-              pspec,
-              mesh.dtensor_mesh,
-              mesh.jax_mesh,
-              allow_multi_axis_sharding_consolidation,
-          ),
-          trainable=trainable,
-          shape=x.shape,
-          dtype=x.dtype,
-          name=name,
-      )
-
-    with tf.device(default_cpu_device):
-      return tf.Variable(
-          x, trainable=trainable, shape=x.shape, dtype=x.dtype, name=name
-      )
-
-  names = _get_param_names(params)
-  if pspecs is None:
-    pspecs = jax.tree_util.tree_map(lambda x: None, params)
-  return jax.tree_util.tree_map(
-      _to_tf_variable, params, names, trainable, pspecs
-  )
-
-
-def _jax_module_to_jax_exported_map(
-    j_module: JaxModule,
-    model_inputs: PyTree,
-) -> Mapping[str, jax_export.Exported]:
-  """Convert the orbax.export JaxModule to jax_export.Exported.
-
-  Args:
-    j_module: The orbax.export JaxModule.
-    model_inputs: The model inputs.
-
-  Returns:
-    A mapping from method key to jax_export.Exported.
-  """
-  apply_fn_map = j_module.apply_fn_map
-  model_params = j_module.model_params
-  input_polymorphic_shape_map = j_module.input_polymorphic_shape_map
-  jax2tf_kwargs_map = j_module.jax2tf_kwargs_map
-
-  jax_exported_map = {}
-
-  def _symbolic_args_specs(model_inputs, method_key):
-    input_polymorphic_shape = input_polymorphic_shape_map[method_key]
-    polymorphic_constraints: Sequence[str] = ()
-    if 'polymorphic_constraints' in jax2tf_kwargs_map[method_key]:
-      polymorphic_constraints = jax2tf_kwargs_map[method_key][
-          'polymorphic_constraints'
-      ]
-    if input_polymorphic_shape is None:
-      return model_inputs
-    else:
-      return jax_export.symbolic_args_specs(
-          model_inputs,
-          input_polymorphic_shape,
-          constraints=polymorphic_constraints,
-      )
-
-  symbolic_model_inputs_map = {
-      k: _symbolic_args_specs(model_inputs, k)
-      for k in input_polymorphic_shape_map.keys()
-  }
-
-  def _lowering_platforms(
-      jax2tf_kwargs: Any,
-  ) -> Optional[Sequence[str]]:
-    if jax2tf_kwargs and 'native_serialization_platforms' in jax2tf_kwargs:
-      return tuple(jax2tf_kwargs['native_serialization_platforms'])
-    else:
-      return None
-
-  lowering_platforms_map = {
-      k: _lowering_platforms(v) for k, v in jax2tf_kwargs_map.items()
-  }
-
-  for method_key, apply_fn in apply_fn_map.items():
-    if not hasattr(apply_fn, 'trace'):
-      apply_fn = jax.jit(apply_fn)
-    if method_key not in input_polymorphic_shape_map:
-      raise ValueError(
-          f'Method key {method_key} not found in input_polymorphic_shape_map.'
-      )
-    if method_key not in lowering_platforms_map:
-      raise ValueError(
-          f'Method key {method_key} not found in lowering_platforms_map.'
-      )
-    jax_exported = jax_export.export(
-        apply_fn, platforms=lowering_platforms_map[method_key]
-    )(model_params, symbolic_model_inputs_map[method_key])
-    jax_exported_map[method_key] = jax_exported
-  return jax_exported_map
+    return self._export_module.obm_module_to_jax_exported_map(model_inputs)

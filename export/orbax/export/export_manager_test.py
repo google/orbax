@@ -35,8 +35,8 @@ def _from_feature_dict(feature_dict):
 def _add_output_name(outputs):
   return {'outputs': outputs}
 
-
 _ZERO_VAR = tf.Variable(0)
+_DEFAULT_METHOD_KEY = constants.DEFAULT_METHOD_KEY
 
 
 def _add_zero(x):
@@ -121,7 +121,7 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     method = jax_module.JaxModule(
         {'bias': jnp.array(1)},
         lambda p, x: x + p['bias'],
-    ).methods[jax_module.JaxModule.DEFAULT_METHOD_KEY]
+    ).methods[_DEFAULT_METHOD_KEY]
     inference_fn = make_e2e_inference_fn(
         method,
         sc.ServingConfig('key', input_signature, preprocessor, postprocessor),

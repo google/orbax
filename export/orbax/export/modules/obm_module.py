@@ -16,6 +16,8 @@
 
 from collections.abc import Callable, Mapping
 from typing import Any, Union
+
+from jax import export as jax_export
 from orbax.export.modules import orbax_module_base
 from orbax.export.typing import ApplyFn
 from orbax.export.typing import PyTree
@@ -27,7 +29,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
   def __init__(
       self,
       params: PyTree,
-      apply_fn_map: Union[Mapping[str, ApplyFn], dict[str, ApplyFn]],
+      apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
       **kwargs: Any,
   ):
     pass
@@ -35,20 +37,36 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
   @property
   def apply_fn_map(self) -> Mapping[str, ApplyFn]:
     """Returns the apply_fn_map."""
-    return {}
+    raise NotImplementedError(
+        'ObmModule.methods not implemented yet. See b/363061755.'
+    )
 
   @property
   def model_params(self) -> PyTree:
     """Returns the model parameters."""
-    return {}
+    raise NotImplementedError(
+        'ObmModule.methods not implemented yet. See b/363061755.'
+    )
+
+  def obm_module_to_jax_exported_map(
+      self,
+      model_inputs: PyTree,
+  ) -> Mapping[str, jax_export.Exported]:
+    """Converts the OrbaxModel to jax_export.Exported."""
+    raise NotImplementedError(
+        'ObmModule.methods not implemented yet. See b/363061755.'
+    )
+
+  @property
+  def with_gradient(self) -> bool:
+    """Returns True if a gradient function is defined."""
+    raise NotImplementedError(
+        'ObmModule.methods not implemented yet. See b/363061755.'
+    )
 
   @property
   def methods(self) -> Mapping[str, Callable[..., Any]]:
     """Named methods in the context of the chosen export pathway."""
-    return {}
-
-  @property
-  def jax_methods(self) -> Mapping[str, Callable[..., Any]]:
-    """Named methods in JAX context for validation."""
-    return {}
-
+    raise NotImplementedError(
+        'ObmModule.methods not implemented yet. See b/363061755.'
+    )
