@@ -74,6 +74,9 @@ _DEFAULT_DRIVER = 'file'
 _PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
 _OCDBT_PROCESS_ID_RE = r'[A-Za-z0-9]+'
 _SHARDING = '_sharding'
+_SHARDING_SUFFIX_RE = r'/\d+(\.\d+)*$'  # /0, /0.0, /1.0.1, etc.
+_ZARRAY_SUFFIX_RE = r'/\.zarray$'
+_ZARRAY_SUFFIX = '/.zarray'
 
 ZARR_VER2 = 'zarr'
 ZARR_VER3 = 'zarr3'
@@ -699,8 +702,106 @@ def check_input_arguments(*args):
       raise ValueError('Found input args with mismatched lengths.')
 
 
+async def _validate_params(
+    ts_kv_store: ts.KvStore,
+    use_zarr3: bool,
+) -> None:
+  """Validates the params present in tensorstore KvStore.
+
+  Supports zarr2.
+
+  NOTE: Support for zarr3 will be added later.
+
+  Args:
+    ts_kv_store: Tensorstore KvStore.
+    use_zarr3: If True, use zarr3 driver, otherwise, use zarr driver.
+  """
+  # TODO: b/362328389 - Add support for zarr3.
+  if use_zarr3:
+    logging.warning(
+        'Param validation support for Zarr3 will be added later (b/362328389).'
+    )
+    return
+
+  raw_ts_params = await ts_kv_store.list()
+  if not raw_ts_params:
+    # TODO: b/361090820 - Raise error once we confirm that Bennu writing empty
+    # states is a bug.
+    # e.g. //learning/deepmind/jax/roc/formats/roc_orbax:roc_orbax_test
+    logging.warning(
+        'Skipping param validation: No params found in TensorStore'
+        ' KvStore: %s.',
+        ts_kv_store,
+    )
+    return
+
+  # [a/.zarray, a/0, b.zarray, b/0.0, b/0.1, c/0, d/.zarray] -> {a, b, d}
+  with_zarray = set()
+  # [a/.zarray, a/0, b.zarray, b/0.0, b/0.1, c/0, d/.zarray] -> {a, b, c}
+  without_zarray = set()
+  for ts_param in raw_ts_params:
+    ts_param = ts_param.decode('utf-8')
+    logging.vlog(
+        1,
+        '[process=%s][thread=%s] Validating raw param: %s',
+        multihost.process_index(),
+        threading.current_thread().name,
+        ts_param,
+    )
+    # b/0.0 -> b, a/0 -> a, a/.zarray -> a/.zarray
+    ts_param = re.sub(_SHARDING_SUFFIX_RE, '', ts_param)
+    if ts_param.endswith(_ZARRAY_SUFFIX):
+      # a/.zarray -> a
+      ts_param = re.sub(_ZARRAY_SUFFIX_RE, '', ts_param)
+      with_zarray.add(ts_param)
+      logging.vlog(
+          1,
+          '[process=%s][thread=%s] Collecting param with .zarray: %s',
+          multihost.process_index(),
+          threading.current_thread().name,
+          ts_param,
+      )
+    else:
+      # b -> b
+      without_zarray.add(ts_param)
+      logging.vlog(
+          1,
+          '[process=%s][thread=%s] Collecting param without .zarray: %s',
+          multihost.process_index(),
+          threading.current_thread().name,
+          ts_param,
+      )
+
+  unique = with_zarray | without_zarray
+  logging.info(
+      '[process=%s][thread=%s] Validating params (raw input=%s, unique=%s) in'
+      ' TensorStore KvStore: %s.',
+      multihost.process_index(),
+      threading.current_thread().name,
+      len(raw_ts_params),
+      len(unique),
+      ts_kv_store,
+  )
+  missing_params = unique - without_zarray
+  if missing_params:
+    formatted_missing_params = ' \n'.join(sorted(missing_params))
+    raise ValueError(
+        f'Save failed: {len(missing_params)}/{len(unique)} params are missing'
+        f' in checkpoint:\n{formatted_missing_params}.\nTensorstore KvStore:'
+        f' {ts_kv_store}.'
+    )
+  missing_zarrays = unique - with_zarray
+  if missing_zarrays:
+    formatted_missing_zarrays = ' \n'.join(sorted(missing_zarrays))
+    raise ValueError(
+        f'Save failed: {len(missing_zarrays)}/{len(unique)} params are missing'
+        f' .zarray in checkpoint:\n{formatted_missing_zarrays}.\nTensorstore'
+        f' KvStore: {ts_kv_store}.'
+    )
+
+
 def merge_ocdbt_per_process_files(
-    directory: epath.Path, ts_context: ts.Context
+    directory: epath.Path, ts_context: ts.Context, use_zarr3: bool
 ):
   """Merges OCDBT files written to per-process subdirectories.
 
@@ -717,20 +818,18 @@ def merge_ocdbt_per_process_files(
   Args:
     directory: checkpoint location.
     ts_context: Tensorstore context.
+    use_zarr3: If True, use zarr3 driver, otherwise, use zarr driver for params
+      validation.
   """
   open_ops = []
   for process_dir in directory.glob(f'{_PROCESS_SUBDIR_PREFIX}*'):
     process_id = process_dir.name.split('_')[-1]
     child_tspec = _get_tensorstore_spec(
-        directory.as_posix(), use_ocdbt=True, process_id=process_id
+        directory.as_posix(),
+        use_ocdbt=True,
+        process_id=process_id,
     )
-    child_tspec = child_tspec['kvstore']
-    open_ops.append(
-        ts.KvStore.open(
-            ts.KvStore.Spec(child_tspec),
-            context=ts_context,
-        )
-    )
+    open_ops.append(_open_kv_store(child_tspec, ts_context))
   if not open_ops:  # No per-process OCDBT checkpoint found!
     logging.warning(
         '[process=%s][thread=%s] Skipping merge of OCDBT checkpoints: No'
@@ -743,13 +842,7 @@ def merge_ocdbt_per_process_files(
 
   parent_tspec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
   _add_write_tspec_ocdbt_options(parent_tspec)
-  parent_tspec = parent_tspec['kvstore']
-  open_ops.append(
-      ts.KvStore.open(
-          ts.KvStore.Spec(parent_tspec),
-          context=ts_context,
-      )
-  )
+  open_ops.append(_open_kv_store(parent_tspec, ts_context))
 
   async def open_and_copy():
     opened = await asyncio.gather(*open_ops)
@@ -762,8 +855,23 @@ def merge_ocdbt_per_process_files(
       )
     await asyncio.gather(*copy_ops)
     await txn.commit_async()
+    # Validate merged params.
+    merged_ts_spec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
+    ts_kv_store = await _open_kv_store(merged_ts_spec, ts_context)
+    await _validate_params(ts_kv_store, use_zarr3=use_zarr3)
 
   asyncio.run(open_and_copy())
+
+
+async def _open_kv_store(
+    ts_spec: dict[str, Any], ts_context: ts.Context
+) -> ts.KvStore:
+  ts_spec = ts_spec['kvstore']
+  ts_kv_store = await ts.KvStore.open(
+      ts.KvStore.Spec(ts_spec),
+      context=ts_context,
+  )
+  return ts_kv_store
 
 
 def _get_kvstore_for_gcs(ckpt_path: str) -> Dict[str, Any]:

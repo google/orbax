@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactor `merge_ocdbt_per_process_files()` to return explicitly without
  merging if none of the child subdir names match `ocdbt.process_` pattern.
 
+### Added
+- Validate merged and saved checkpoint params by comparing it against its
+ `.zarray` counterpart.
 
 ## [0.6.1] - 2024-08-22
 
