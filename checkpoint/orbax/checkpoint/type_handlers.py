@@ -376,7 +376,7 @@ def _validate_divisible_shapes(
 def _get_json_tspec(
     info: ParamInfo,
     use_ocdbt: bool,
-    process_index: Optional[int] = None,
+    process_index: Optional[Union[int, str]] = None,
     metadata_key: Optional[str] = None,
 ) -> Dict[str, Any]:
   """Gets Tensorstore spec in JSON format."""
@@ -417,7 +417,7 @@ def get_json_tspec_write(
     global_shape: tuple[int, ...],
     local_shape: tuple[int, ...],
     dtype: Union[jnp.dtype, np.dtype],
-    process_index: Optional[int] = None,
+    process_index: Optional[Union[int, str]] = None,
     metadata_key: Optional[str] = None,
     arg: Optional[SaveArgs] = None,
 ):
@@ -1001,10 +1001,11 @@ def _get_tensorstore_spec(
 
 def get_process_index_for_subdir(
     use_ocdbt: bool,
-) -> Optional[int]:
+    override_ocdbt_process_id: Optional[str] = None,
+) -> Optional[Union[int, str]]:
   """If OCDBT + merge feature is in use, returns a process index."""
   if use_ocdbt:
-    return multihost.process_index()
+    return override_ocdbt_process_id or multihost.process_index()
   else:
     return None
 
@@ -1096,23 +1097,25 @@ def _print_ts_debug_data(key, infos):
 class NumpyHandler(TypeHandler):
   """Provides an implementation of TypeHandler for replicated numpy arrays."""
 
-  def __init__(
-      self,
-      metadata_key: Optional[str] = None,
-  ):
+  def __init__(self, metadata_key: Optional[str] = None):
     """Constructor.
 
     Args:
       metadata_key: name to give to Tensorstore metadata files.
     """
     self._metadata_key = metadata_key
+    # Name of the process id to be used by single controller systems to write
+    # in OCDBT format. The checkpoints are written in a subdir with this name
+    # to avoid collisions with the subdir names used by other host processes
+    # managed by this controller.
+    self._override_ocdbt_process_id: Optional[str] = None
 
   def _get_json_tspec_write(
       self,
       info: ParamInfo,
       value: np.ndarray,
       use_ocdbt: bool,
-      process_index: Optional[int] = None,
+      process_index: Optional[Union[int, str]] = None,
       arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
@@ -1180,7 +1183,10 @@ class NumpyHandler(TypeHandler):
           info,
           value,
           use_ocdbt=info.is_ocdbt_checkpoint,
-          process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
+          process_index=get_process_index_for_subdir(
+              use_ocdbt=info.is_ocdbt_checkpoint,
+              override_ocdbt_process_id=self._override_ocdbt_process_id,
+          ),
           arg=arg,
       )
       tspec = get_cast_tspec_serialize(tspec, value, arg)
@@ -1427,7 +1433,7 @@ class ArrayHandler(TypeHandler):
       info: ParamInfo,
       value: serialization.Shards,
       use_ocdbt: bool,
-      process_index: Optional[int] = None,
+      process_index: Optional[Union[int, str]] = None,
       arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
@@ -1553,7 +1559,7 @@ class ArrayHandler(TypeHandler):
     """Runs serialization in a background thread."""
     write_coros = []
     sharding_metadata_txn = ts.Transaction()
-    ocdbt_transaction: ts.Transaction | None = None
+    ocdbt_transaction: Optional[ts.Transaction] = None
     for value, info, arg in zip(values, infos, args):
       # The byte_limiter can't be used with a transaction, because awaiting the
       # `write` only waits until the in-memory transaction state reflects the
