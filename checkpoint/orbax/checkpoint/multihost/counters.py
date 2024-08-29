@@ -24,7 +24,10 @@ _async_save_counter = itertools.count()
 _composite_save_counter = itertools.count()
 _tmp_directory_counter = itertools.count()
 _model_surgery_loading_counter = itertools.count()
-_interslice_steps_broadcast_counter = itertools.count()
+
+_global_max_broadcast_counter = itertools.count()
+_local_all_steps_broadcast_counter = itertools.count()
+_find_complete_slice_broadcast_counter = itertools.count()
 
 
 def async_save_counter() -> str:
@@ -43,5 +46,16 @@ def model_surgery_loading_counter() -> str:
   return str(next(_model_surgery_loading_counter))
 
 
-def interslice_steps_broadcast_counter() -> str:
-  return str(next(_interslice_steps_broadcast_counter))
+# Emergency checkpointing counters.
+
+
+def global_max_broadcast_counter() -> str:
+  return str(next(_global_max_broadcast_counter))
+
+
+def local_all_steps_broadcast_counter() -> str:
+  return str(next(_local_all_steps_broadcast_counter))
+
+
+def find_complete_slice_broadcast_counter() -> str:
+  return str(next(_find_complete_slice_broadcast_counter))
