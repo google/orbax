@@ -170,10 +170,10 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
   def finalize(self, directory: epath.Path):
     ts_context = type_handlers.get_ts_context()
-    type_handlers.merge_ocdbt_per_process_files(
-        directory,
-        ts_context=ts_context,
-        use_zarr3=False,
+    asyncio.run(
+        type_handlers.merge_ocdbt_per_process_files(
+            directory, ts_context=ts_context, use_zarr3=False,
+        )
     )
 
   def close(self):

@@ -23,22 +23,13 @@ import ml_dtypes
 import numpy as np
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import json_checkpoint_handler
-from orbax.checkpoint import multihost
 from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import type_handlers
 import tensorstore as ts
 
 
-class PyTreeCheckpointHandler(
-    pytree_checkpoint_handler.PyTreeCheckpointHandler
-):
-
-  def save(self, directory, *args, **kwargs):
-    super().save(directory, *args, **kwargs)
-    if multihost.process_index() == 0:
-      self.finalize(directory)
-    test_utils.sync_global_processes('PyTreeCheckpointHandler:finalize')
+PyTreeCheckpointHandler = test_utils.PyTreeCheckpointHandler
 
 
 class SingleHostTest(parameterized.TestCase):
