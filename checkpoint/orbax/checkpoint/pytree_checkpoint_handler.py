@@ -519,12 +519,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     that are saved depend on the specific combination of options, including
     `use_ocdbt`. A JSON metadata file will be present to store the
     tree structure.
-    In addition, a msgpack file may be present, allowing users to store
-    aggregated values (see below).
 
     Example usage::
 
-      ckptr = Checkpointer(PyTreeCheckpointHandler())
+      ckptr = ocp.Checkpointer(ocp.PyTreeCheckpointHandler())
       item = {
           'layer0': {
               'w': np.ndarray(...),
@@ -537,14 +535,11 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       }
       # Note: save_args may be None if no customization is desired for saved
       # parameters.
-      # In this case, we "aggregate" small parameters into a single file to
-      # allow for greater file read/write efficiency (and potentially less)
-      # wasted space). With OCDBT format active, this parameter is obsolete.
-      save_args =
-        jax.tree.map(
-            lambda x: SaveArgs(aggregate=x.size < some_size), item)
+      # Otherwise, settings can be used to customize save behavior, e.g.
+      # casting.
+      save_args = jax.tree.map(lambda x: ocp.SaveArgs(dtype=np.int32), item)
       # Eventually calls through to `async_save`.
-      ckptr.save(path, item, save_args)
+      ckptr.save(path, args=ocp.PyTreeSave(item, save_args))
 
     Args:
       directory: save location directory.
@@ -656,28 +651,28 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     Example::
 
-      ckptr = Checkpointer(PyTreeCheckpointHandler())
+      ckptr = ocp.Checkpointer(ocp.PyTreeCheckpointHandler())
       restore_args = {
           'layer0': {
-              'w': RestoreArgs(),
-              'b': RestoreArgs(),
+              'w': ocp.RestoreArgs(),
+              'b': ocp.RestoreArgs(),
           },
           'layer1': {
-              'w': ArrayRestoreArgs(
+              'w': ocp.ArrayRestoreArgs(
                   # Restores as jax.Array, regardless of how it was saved.
                   restore_type=jax.Array,
                   sharding=jax.sharding.Sharding(...),
                   # Warning: may truncate or pad!
                   global_shape=(x, y),
                 ),
-              'b': ArrayRestoreArgs(
+              'b': ocp.ArrayRestoreArgs(
                   restore_type=jax.Array,
                   sharding=jax.sharding.Sharding(...),
                   global_shape=(x, y),
                 ),
           },
       }
-      ckptr.restore(path, restore_args=restore_args)
+      ckptr.restore(path, args=ocp.PyTreeRestore(restore_args=restore_args))
 
     Providing `item` is typically only necessary when restoring a custom PyTree
     class (or when using transformations). In this case, the restored object

@@ -82,12 +82,6 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     if not save_args:
       save_args = type_handlers.SaveArgs()
-    if save_args.aggregate:
-      return [
-          await self._aggregate_handler.serialize(
-              directory / self._checkpoint_name, {_ELEMENT_KEY: item}
-          )
-      ]
 
     type_handler = type_handlers.get_type_handler(type(item))
     info = type_handlers.ParamInfo(
