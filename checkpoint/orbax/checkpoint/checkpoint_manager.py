@@ -395,7 +395,8 @@ def _create_root_directory(
   if not directory.exists() and utils.is_primary_host(
       multiprocessing_options.primary_host
   ):
-    directory.mkdir(parents=True)
+    # exists_ok=True is required, see b/362903314.
+    directory.mkdir(parents=True, exist_ok=True)
     logging.info('Created directory=%s', directory)
   multihost.sync_global_processes(
       multihost.unique_barrier_key(
