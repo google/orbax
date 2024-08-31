@@ -27,7 +27,7 @@ import re
 import sys
 import threading
 import time
-from typing import Any, Callable, cast, Dict, List, Optional, Protocol, Sequence, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union, cast
 import warnings
 
 from absl import logging
@@ -800,7 +800,7 @@ async def _validate_params(
     )
 
 
-async def merge_ocdbt_per_process_files(
+def merge_ocdbt_per_process_files(
     directory: epath.Path, ts_context: ts.Context, use_zarr3: bool
 ):
   """Merges OCDBT files written to per-process subdirectories.
@@ -844,21 +844,23 @@ async def merge_ocdbt_per_process_files(
   _add_write_tspec_ocdbt_options(parent_tspec)
   open_ops.append(_open_kv_store(parent_tspec, ts_context))
 
-  opened = await asyncio.gather(*open_ops)
-  parent, children = opened[-1], opened[:-1]
-  copy_ops = []
-  txn = ts.Transaction(atomic=True)
-  for child in children:
-    copy_ops.append(
-        child.experimental_copy_range_to(parent.with_transaction(txn))
-    )
-  await asyncio.gather(*copy_ops)
-  await txn.commit_async()
+  async def open_and_copy():
+    opened = await asyncio.gather(*open_ops)
+    parent, children = opened[-1], opened[:-1]
+    copy_ops = []
+    txn = ts.Transaction(atomic=True)
+    for child in children:
+      copy_ops.append(
+          child.experimental_copy_range_to(parent.with_transaction(txn))
+      )
+    await asyncio.gather(*copy_ops)
+    await txn.commit_async()
+    # Validate merged params.
+    merged_ts_spec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
+    ts_kv_store = await _open_kv_store(merged_ts_spec, ts_context)
+    await _validate_params(ts_kv_store, use_zarr3=use_zarr3)
 
-  # Validate merged params.
-  merged_ts_spec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
-  ts_kv_store = await _open_kv_store(merged_ts_spec, ts_context)
-  await _validate_params(ts_kv_store, use_zarr3=use_zarr3)
+  asyncio.run(open_and_copy())
 
 
 async def _open_kv_store(
@@ -1757,12 +1759,19 @@ class ArrayHandler(TypeHandler):
     return sizes
 
 
+def _is_sharding_valid(
+    primary_replica_ids: set[int], primary_replica_pids: set[int]
+) -> bool:
+  if multihost.process_index() in primary_replica_pids:
+    loc_devices_in_replica = primary_replica_ids.intersection(
+        set([d.id for d in jax.local_devices()])
+    )
+    return len(loc_devices_in_replica) == len(jax.local_devices())
+  return True
+
+
 def _is_host_for_primary_replica(primary_replica_ids: set[int]) -> bool:
   return multihost.process_index() in primary_replica_ids
-
-
-class InvalidShardingError(ValueError):
-  """Error raised when sharding is not valid."""
 
 
 class SingleReplicaArrayHandler(ArrayHandler):
@@ -1830,42 +1839,6 @@ class SingleReplicaArrayHandler(ArrayHandler):
     self.broadcast_memory_limit_bytes = broadcast_memory_limit_bytes
     self.broadcast_memory_scaling_factor = broadcast_memory_scaling_factor
 
-  def _validate_sharding_and_get_primary_replica_processes(
-      self,
-      sharding: jax.sharding.Sharding,
-  ) -> Set[int]:
-    """Validates sharding for restoration."""
-    if not isinstance(sharding, jax.sharding.NamedSharding):
-      raise InvalidShardingError(
-          'The provided sharding is not a NamedSharding. Please use'
-          ' NamedSharding instead.'
-      )
-    primary_replica_ids, primary_replica_pids = (
-        multihost.multislice.get_primary_replica_ids_and_pids(
-            replica_axis_idx=self.replica_axis_index,
-            mesh=sharding.mesh,  # pytype: disable=attribute-error
-            primary_replica_id=self.primary_replica_id,
-        )
-    )
-    if len(primary_replica_ids) == len(jax.devices()):
-      raise InvalidShardingError(
-          'All devices are in the primary replica. There are no non-primary'
-          ' replicas to broadcast to.'
-      )
-    local_device_ids = set([d.id for d in jax.local_devices()])
-    if multihost.process_index() in primary_replica_pids:
-      loc_devices_in_replica = primary_replica_ids.intersection(
-          local_device_ids
-      )
-      if len(loc_devices_in_replica) != jax.local_device_count():
-        raise InvalidShardingError(
-            'The provided sharding is not valid. The primary replica has'
-            f' {len(loc_devices_in_replica)} devices, but the host has'
-            f' {jax.local_device_count()} devices.'
-        )
-
-    return primary_replica_pids
-
   async def deserialize(
       self,
       infos: Sequence[ParamInfo],
@@ -1896,26 +1869,43 @@ class SingleReplicaArrayHandler(ArrayHandler):
     single_replica_shardings = []
     for info, arg in zip(infos, args):
       arg = cast(SingleReplicaArrayRestoreArgs, arg)
-      if not info.is_ocdbt_checkpoint:
-        await _assert_parameter_files_exist(  # pylint: disable=protected-access
-            info.path, self._metadata_key
-        )
+
       if not isinstance(arg, SingleReplicaArrayRestoreArgs):
         raise ValueError(
             'Must provide `SingleReplicaArrayRestoreArgs`, but got'
             f' {type(arg)}.'
         )
+
       if arg.sharding is None:
         raise ValueError('Must provide `sharding`.')
+
       sharding = arg.sharding
       shardings.append(sharding)
-      primary_replica_pids = (
-          self._validate_sharding_and_get_primary_replica_processes(sharding)
+      primary_replica_ids, primary_replica_pids = (
+          multihost.multislice.get_primary_replica_ids_and_pids(
+              replica_axis_idx=self.replica_axis_index,
+              mesh=sharding.mesh,  # pytype: disable=attribute-error
+              primary_replica_id=self.primary_replica_id,
+          )
       )
+      if not _is_sharding_valid(primary_replica_ids, primary_replica_pids):
+        raise ValueError(
+            'The provided sharding configuration is invalid because it'
+            ' includes a host with devices assigned to the primary replica and'
+            ' devices outside of the primary replica.'
+            f' primary_replica_ids={primary_replica_ids}'
+            f', primary_replica_pids={primary_replica_pids}'
+        )
+
       if arg.single_replica_sharding is None:
         raise ValueError('Must provide `single_replica_sharding`.')
       single_replica_sharding = arg.single_replica_sharding
       single_replica_shardings.append(single_replica_sharding)
+
+      if not info.is_ocdbt_checkpoint:
+        await _assert_parameter_files_exist(  # pylint: disable=protected-access
+            info.path, self._metadata_key
+        )
 
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
