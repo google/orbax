@@ -801,7 +801,11 @@ async def _validate_params(
 
 
 async def merge_ocdbt_per_process_files(
-    directory: epath.Path, ts_context: ts.Context, use_zarr3: bool
+    directory: epath.Path,
+    ts_context: ts.Context,
+    *,
+    use_zarr3: bool,
+    validate_merged_parameters: bool = True,
 ):
   """Merges OCDBT files written to per-process subdirectories.
 
@@ -820,6 +824,8 @@ async def merge_ocdbt_per_process_files(
     ts_context: Tensorstore context.
     use_zarr3: If True, use zarr3 driver, otherwise, use zarr driver for params
       validation.
+    validate_merged_parameters: If True, validate the parameters metadata after
+      merging.
   """
   open_ops = []
   for process_dir in directory.glob(f'{_PROCESS_SUBDIR_PREFIX}*'):
@@ -854,6 +860,9 @@ async def merge_ocdbt_per_process_files(
     )
   await asyncio.gather(*copy_ops)
   await txn.commit_async()
+
+  if not validate_merged_parameters:
+    return
 
   # Validate merged params.
   merged_ts_spec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
