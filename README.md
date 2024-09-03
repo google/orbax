@@ -1,9 +1,10 @@
 # Orbax
 
-[Orbax](https://orbax.readthedocs.io/en/latest/) is a
-namespace providing common utility libraries for JAX users.
+[Orbax](https://orbax.readthedocs.io/en/latest/) provides common checkpointing and persistence utilities for JAX users.
 
 ## [Documentation](https://orbax.readthedocs.io/en/latest/)
+
+Refer to our full documentation [here](https://orbax.readthedocs.io/en/latest/).
 
 ## Checkpointing
 
@@ -41,6 +42,11 @@ exporting of JAX models to the TensorFlow SavedModel format.
 Note that `orbax-export` requires TensorFlow, but does not include it by default
 to allow for flexibility in version choice. If you wish to install with standard
 TensorFlow, please use `pip install orbax-export[all]`.
+
+
+## Releases
+
+You can find the latest releases of Orbax Checkpointing at [orbax-checkpoint](https://pypi.org/project/orbax-checkpoint/#history) and for Orbax Export at [orbax-export](https://pypi.org/project/orbax-export/#history).
 
 
 ## Support
