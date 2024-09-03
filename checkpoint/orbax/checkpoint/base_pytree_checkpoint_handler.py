@@ -270,6 +270,7 @@ class BasePyTreeCheckpointHandler(
       use_zarr3: bool = False,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
+      enable_post_merge_validation: bool = True,
   ):
     """Creates BasePyTreeCheckpointHandler.
 
@@ -286,6 +287,8 @@ class BasePyTreeCheckpointHandler(
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
         specified, the global type handler registry will be used. # BEGIN
       enable_descriptor: If True, logs a Descriptor proto that contains lineage
+      enable_post_merge_validation: If True, enables validation of the
+        parameters after the finalize step.
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
@@ -293,6 +296,7 @@ class BasePyTreeCheckpointHandler(
     self._use_zarr3 = use_zarr3
     self._primary_host = multiprocessing_options.primary_host
     self._type_handler_registry = type_handler_registry
+    self._enable_post_merge_validation = enable_post_merge_validation
 
 
     jax.monitoring.record_event(
@@ -774,7 +778,10 @@ class BasePyTreeCheckpointHandler(
     ts_context = type_handlers.get_ts_context()
     asyncio.run(
         type_handlers.merge_ocdbt_per_process_files(
-            directory, ts_context=ts_context, use_zarr3=self._use_zarr3,
+            directory,
+            ts_context=ts_context,
+            use_zarr3=self._use_zarr3,
+            enable_validation=self._enable_post_merge_validation,
         )
     )
     jax.monitoring.record_event_duration_secs(

@@ -801,7 +801,10 @@ async def _validate_params(
 
 
 async def merge_ocdbt_per_process_files(
-    directory: epath.Path, ts_context: ts.Context, use_zarr3: bool
+    directory: epath.Path,
+    ts_context: ts.Context,
+    use_zarr3: bool,
+    enable_validation: bool = True,
 ):
   """Merges OCDBT files written to per-process subdirectories.
 
@@ -820,6 +823,8 @@ async def merge_ocdbt_per_process_files(
     ts_context: Tensorstore context.
     use_zarr3: If True, use zarr3 driver, otherwise, use zarr driver for params
       validation.
+    enable_validation: If True, validate params after merging. May have a
+      performance impact.
   """
   open_ops = []
   for process_dir in directory.glob(f'{_PROCESS_SUBDIR_PREFIX}*'):
@@ -856,9 +861,10 @@ async def merge_ocdbt_per_process_files(
   await txn.commit_async()
 
   # Validate merged params.
-  merged_ts_spec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
-  ts_kv_store = await _open_kv_store(merged_ts_spec, ts_context)
-  await _validate_params(ts_kv_store, use_zarr3=use_zarr3)
+  if enable_validation:
+    merged_ts_spec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
+    ts_kv_store = await _open_kv_store(merged_ts_spec, ts_context)
+    await _validate_params(ts_kv_store, use_zarr3=use_zarr3)
 
 
 async def _open_kv_store(
