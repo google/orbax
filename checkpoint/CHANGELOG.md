@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Refactor `merge_ocdbt_per_process_files()` to return explicitly without
  merging if none of the child subdir names match `ocdbt.process_` pattern.
+- Moved `_choose_chunk_shape` from `type_handlers.py` to a new internal module.
 
 ### Added
 - Validate merged and saved checkpoint params by comparing it against its
