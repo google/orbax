@@ -79,8 +79,3 @@ except RuntimeError:
 # A new PyPI release will be pushed everytime `__version__` is increased.
 # Also modify version and date in CHANGELOG.
 __version__ = '0.6.1'
-
-# TODO: b/362813406 - Log at INFO level.
-# TODO: b/362813406 - Print/log the timestamp of latest orbax/checkpoint code
-# commit (not just the latest release).
-print(f'orbax-checkpoint version: {__version__}')

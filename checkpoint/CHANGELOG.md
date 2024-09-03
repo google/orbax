@@ -20,8 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Validate merged and saved checkpoint params by comparing it against its
  `.zarray` counterpart.
 - Added private utilities to work with array fragments (`_src/arrays`).
-- Print (STDOUT) `orbax-checkpoint version` when orbax/checkpoint package is
- loaded.
 
 ## [0.6.1] - 2024-08-22
 
