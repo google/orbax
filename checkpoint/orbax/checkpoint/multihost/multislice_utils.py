@@ -69,10 +69,6 @@ def local_slice_devices(devices_array: np.ndarray) -> np.ndarray:
   )
 
 
-def _sum(x, replica_axis_index):
-  return jax.tree.map(functools.partial(jnp.sum, axis=replica_axis_index), x)
-
-
 @functools.partial(jax.jit, static_argnums=0)
 def fake_zero_data(sharding, x):
   x = jnp.zeros_like(x)
@@ -138,7 +134,6 @@ def get_available_memory(
 def broadcast_one_replica_to_all(
     in_tree: Tuple[PyTree, ...],
     global_mesh: jax.sharding.Mesh,
-    per_replica_shardings: Tuple[Optional[jax.sharding.NamedSharding], ...],
     replica_axis_index: int,
     is_source: bool,
     memory_limit_bytes: Optional[Union[int, None]] = None,
@@ -147,14 +142,14 @@ def broadcast_one_replica_to_all(
   """One replica reads the data and broadcasts to others.
 
   Args:
-    in_tree: pytree to be broadcasted.
+    in_tree: pytree to be broadcast. Shardings should correspond to the origin
+      replica.
     global_mesh: global mesh.
-    per_replica_shardings: shardings for each replica.
     replica_axis_index: axis index along which the data is replicated.
-    is_source: indicates if the current host is in primary replica.
-    memory_limit_bytes: memory limit for broadcasting. in bytes.
-    memory_scaling_factor: indicates the frunction of the estimated available
-      memory to be used when broadcustind data.
+    is_source: indicates if the current host is in origin replica.
+    memory_limit_bytes: memory limit for broadcasting in bytes.
+    memory_scaling_factor: indicates the fraction of the estimated available
+      memory to be used when broadcasting data.
 
   Returns:
      Tuple containing:
@@ -168,22 +163,22 @@ def broadcast_one_replica_to_all(
     memory_limit_bytes = get_available_memory(in_tree, memory_scaling_factor)
     logging.info('Using available memory of %d bytes.', memory_limit_bytes)
 
-  def pre_jit(x, per_replica_sharding):
-    if is_source:
-      inp = x
-    else:
-      inp = fake_zero_data(per_replica_sharding, x)
-    inp = jnp.expand_dims(inp, axis=replica_axis_index)
+  # Set replica_axis to be 0, regardless of its actual value.
+  def globalize_single_replica_arrays(inp):
+    sharding = inp.sharding
+    if not isinstance(sharding, jax.sharding.NamedSharding):
+      raise ValueError(
+          'Must provide input arrays with NamedSharding. '
+          f'Got {type(sharding)} instead.'
+      )
+    if not is_source:
+      inp = fake_zero_data(sharding, inp)
+    inp = jnp.expand_dims(inp, axis=0)
     in_spec = jax.sharding.PartitionSpec(
-        *x.sharding.spec[:replica_axis_index],
         replica_axis_name,
-        *x.sharding.spec[replica_axis_index:],
+        *sharding.spec,
     )
-    global_shape = (
-        x.shape[:replica_axis_index]
-        + (num_replicas,)
-        + x.shape[replica_axis_index:]
-    )
+    global_shape = (num_replicas,) + inp.shape[1:]
     global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
     return jax.make_array_from_single_device_arrays(
         global_shape, global_sharding, [s.data for s in inp.addressable_shards]
@@ -222,13 +217,12 @@ def broadcast_one_replica_to_all(
         ),
         subtree,
     )
-    in_tree_sharded = jax.tree.map(
-        pre_jit, subtree, per_replica_shardings[start:end]
-    )
+    in_tree_sharded = jax.tree.map(globalize_single_replica_arrays, subtree)
     # Delete immediately to conserve memory.
     jax.tree.map(lambda x: x.delete(), subtree)
+
     out_subtree = jax.jit(
-        functools.partial(_sum, replica_axis_index=replica_axis_index),
+        lambda tree: jax.tree.map(functools.partial(jnp.sum, axis=0), tree),
         out_shardings=out_sharding,
     )(in_tree_sharded)
     out_tree.extend(out_subtree)
