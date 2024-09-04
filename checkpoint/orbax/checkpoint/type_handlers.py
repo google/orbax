@@ -26,7 +26,7 @@ import re
 import sys
 import threading
 import time
-from typing import Any, Callable, cast, Dict, List, Optional, Protocol, Sequence, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Set, Tuple, Union, cast
 import warnings
 
 from absl import logging
@@ -636,49 +636,54 @@ async def _validate_params(
     )
     return
 
+  process_index = multihost.process_index()
+  current_thread_name = threading.current_thread().name
   # [a/.zarray, a/0, b.zarray, b/0.0, b/0.1, c/0, d/.zarray] -> {a, b, d}
   with_zarray = set()
   # [a/.zarray, a/0, b.zarray, b/0.0, b/0.1, c/0, d/.zarray] -> {a, b, c}
   without_zarray = set()
   for ts_param in raw_ts_params:
     ts_param = ts_param.decode('utf-8')
-    logging.vlog(
-        1,
-        '[process=%s][thread=%s] Validating raw param: %s',
-        multihost.process_index(),
-        threading.current_thread().name,
-        ts_param,
-    )
+    if logging.vlog_is_on(1):
+      logging.vlog(
+          1,
+          '[process=%s][thread=%s] Validating raw param: %s',
+          process_index,
+          current_thread_name,
+          ts_param,
+      )
     # b/0.0 -> b, a/0 -> a, a/.zarray -> a/.zarray
     ts_param = re.sub(_SHARDING_SUFFIX_RE, '', ts_param)
     if ts_param.endswith(_ZARRAY_SUFFIX):
       # a/.zarray -> a
       ts_param = re.sub(_ZARRAY_SUFFIX_RE, '', ts_param)
       with_zarray.add(ts_param)
-      logging.vlog(
-          1,
-          '[process=%s][thread=%s] Collecting param with .zarray: %s',
-          multihost.process_index(),
-          threading.current_thread().name,
-          ts_param,
-      )
+      if logging.vlog_is_on(1):
+        logging.vlog(
+            1,
+            '[process=%s][thread=%s] Collecting param with .zarray: %s',
+            process_index,
+            current_thread_name,
+            ts_param,
+        )
     else:
       # b -> b
       without_zarray.add(ts_param)
-      logging.vlog(
-          1,
-          '[process=%s][thread=%s] Collecting param without .zarray: %s',
-          multihost.process_index(),
-          threading.current_thread().name,
-          ts_param,
-      )
+      if logging.vlog_is_on(1):
+        logging.vlog(
+            1,
+            '[process=%s][thread=%s] Collecting param without .zarray: %s',
+            process_index,
+            current_thread_name,
+            ts_param,
+        )
 
   unique = with_zarray | without_zarray
   logging.info(
       '[process=%s][thread=%s] Validating params (raw input=%s, unique=%s) in'
       ' TensorStore KvStore: %s.',
-      multihost.process_index(),
-      threading.current_thread().name,
+      process_index,
+      current_thread_name,
       len(raw_ts_params),
       len(unique),
       ts_kv_store,
