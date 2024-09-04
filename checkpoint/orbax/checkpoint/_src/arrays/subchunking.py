@@ -26,6 +26,9 @@ from orbax.checkpoint._src.arrays import types
 Shape = types.Shape
 
 
+_MIB = 1024**2  # 1 MiB
+
+
 def _find_divisors(size: int):
   """Fast-ish method for finding divisors of a number."""
   sqrt_divs = [
@@ -62,7 +65,7 @@ def choose_chunk_shape(
         f'global_shape={global_shape} and write_shape={write_shape} must have'
         ' the same length.'
     )
-  if target_byte_size < 1048576:  # 1 MB
+  if target_byte_size < 1 * _MIB:
     logging.warning(
         'Setting the target_byte_size too small could reduce performance.'
     )
