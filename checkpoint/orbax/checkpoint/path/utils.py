@@ -20,6 +20,7 @@
 # outside Orbax (ignoring OSS).
 
 import asyncio
+import os
 from typing import List, Optional, Tuple
 
 from etils import epath
