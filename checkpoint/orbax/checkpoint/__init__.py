@@ -17,8 +17,8 @@
 import asyncio
 import contextlib
 import functools
-
 import nest_asyncio
+
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import args
 from orbax.checkpoint import checkpoint_utils
@@ -75,7 +75,9 @@ try:
 except RuntimeError:
   pass
 
-
+# pylint: disable=g-bad-import-order, g-import-not-at-top
+from orbax.checkpoint import version
 # A new PyPI release will be pushed everytime `__version__` is increased.
-# Also modify version and date in CHANGELOG.
-__version__ = '0.6.1'
+__version__ = version.__version__
+del version
+# pylint: enable=g-bad-import-order, g-import-not-at-top

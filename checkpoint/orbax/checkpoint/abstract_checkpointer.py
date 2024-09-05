@@ -16,7 +16,9 @@
 
 import abc
 from typing import Any, Optional
+from absl import logging
 from etils import epath
+from orbax.checkpoint import version
 
 
 class AbstractCheckpointer(abc.ABC):
@@ -28,6 +30,10 @@ class AbstractCheckpointer(abc.ABC):
   common logic related to atomicity, synchronization, or asynchronous thread
   management.
   """
+
+  def __new__(cls, *args, **kwargs):  # pylint: disable=unused-argument
+    logging.log_first_n(logging.INFO, version.get_details(), n=1)
+    return super().__new__(cls)
 
   @abc.abstractmethod
   def save(self, directory: epath.PathLike, *args, **kwargs):
@@ -42,10 +48,7 @@ class AbstractCheckpointer(abc.ABC):
     pass
 
   @abc.abstractmethod
-  def restore(self,
-              directory: epath.PathLike,
-              *args,
-              **kwargs) -> Any:
+  def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """Restores from the provided directory.
 
     Delegates to underlying handler.
