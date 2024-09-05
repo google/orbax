@@ -16,12 +16,12 @@
 
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
-import os
 from typing import Any, Optional, Tuple, Union
 from absl import logging
 import jax
 from jax import export as jax_export
 from jax.experimental import jax2tf
+from orbax.export import config
 from orbax.export import dtensor_utils
 from orbax.export import typing as orbax_export_typing
 import tensorflow as tf
@@ -31,16 +31,7 @@ from tensorflow.experimental import dtensor
 PyTree = orbax_export_typing.PyTree
 ApplyFn = orbax_export_typing.ApplyFn
 
-
-def get_obx_export_tf_preprocess_only() -> bool:
-  """Returns whether the export is in TF preprocess only mode."""
-  # If it is True, the export will only export the
-  # servering_config.tf_preprocess instead of the whole model. This mode is
-  # majorly used for debugging.
-  obx_export_tf_preprocess_only = (
-      os.getenv('OBX_EXPORT_TF_PREPROCESS_ONLY') == 'True'
-  )
-  return obx_export_tf_preprocess_only
+obx_export_config = config.config
 
 
 def _same_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
@@ -189,7 +180,7 @@ class JaxModule(tf.Module):
 
     self.with_gradient: bool = any(jax.tree_util.tree_leaves(trainable))
 
-    if get_obx_export_tf_preprocess_only():
+    if obx_export_config.obx_export_tf_preprocess_only:  # pytype: disable=attribute-error
       # Skip the heavy jax_params_to_tf_variables() call in TF preprocess only
       # mode.
       tf_var_treedef = None

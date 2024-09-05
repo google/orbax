@@ -17,13 +17,17 @@
 from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional
 
-from etils.epy.reraise_utils import maybe_reraise
+from etils.epy import reraise_utils
+from orbax.export import config
 from orbax.export import dtensor_utils
 from orbax.export import jax_module
 from orbax.export import utils
 from orbax.export.serving_config import ServingConfig
 import tensorflow as tf
 from tensorflow.experimental import dtensor
+
+obx_export_config = config.config
+maybe_reraise = reraise_utils.maybe_reraise
 
 
 class ExportManager:
@@ -48,13 +52,9 @@ class ExportManager:
     self._serving_signatures = {}
     tf_trackable_resources = []
 
-    obx_export_tf_preprocess_only = (
-        jax_module.get_obx_export_tf_preprocess_only()
-    )
-
     for sc in serving_configs:
       with maybe_reraise(f'Failed exporting signature_key={sc.signature_key} '):
-        if obx_export_tf_preprocess_only:
+        if obx_export_config.obx_export_tf_preprocess_only:  # pytype: disable=attribute-error
           if not sc.tf_preprocessor:
             raise ValueError(
                 'serving_config.tf_preprocessor must be provided when'

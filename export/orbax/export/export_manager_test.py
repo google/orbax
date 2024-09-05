@@ -18,6 +18,7 @@ from absl.testing import parameterized
 import chex
 import jax
 import jax.numpy as jnp
+from orbax.export import config
 from orbax.export.export_manager import ExportManager
 from orbax.export.export_manager import make_e2e_inference_fn
 from orbax.export.jax_module import JaxModule
@@ -432,7 +433,6 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     self.assertAllEqual(res, 3)
 
   def test_return_preprocess_only_fn(self):
-    os.environ['OBX_EXPORT_TF_PREPROCESS_ONLY'] = 'True'
 
     def tf_preprocessor(*inputs):
       x = inputs[0]
@@ -447,33 +447,35 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     ]
     inputs = [tf.random.uniform([10], dtype=tf.float32)]
     dict_inputs = {f'inputs_{i}': v for i, v in enumerate(inputs)}
-    with self.subTest('with_preprocessor'):
-      em = ExportManager(
-          JaxModule({'bias': jnp.array(1)}, lambda p, x: x + p['bias']),
-          serving_configs,
-      )
-      em.save(self._output_dir)
-      loaded = tf.saved_model.load(self._output_dir, ['serve'])
-      chex.assert_trees_all_close(
-          loaded.signatures['serving_1'](**dict_inputs),
-          {'output_0': tf_preprocessor(*inputs)},
-      )
-    with self.subTest('without_preprocessor'):
-      serving_configs = [
-          ServingConfig(
-              'serving_2',
-              input_signature=[tf.TensorSpec((), tf.dtypes.float32)],
-          ),
-      ]
-      with self.assertRaisesRegex(
-          ValueError, 'serving_config.tf_preprocessor must be provided'
-      ):
+
+    with config.obx_export_tf_preprocess_only(True):
+
+      with self.subTest('with_preprocessor'):
         em = ExportManager(
             JaxModule({'bias': jnp.array(1)}, lambda p, x: x + p['bias']),
             serving_configs,
         )
         em.save(self._output_dir)
-    os.environ.pop('OBX_EXPORT_TF_PREPROCESS_ONLY')
+        loaded = tf.saved_model.load(self._output_dir, ['serve'])
+        chex.assert_trees_all_close(
+            loaded.signatures['serving_1'](**dict_inputs),
+            {'output_0': tf_preprocessor(*inputs)},
+        )
+      with self.subTest('without_preprocessor'):
+        serving_configs = [
+            ServingConfig(
+                'serving_2',
+                input_signature=[tf.TensorSpec((), tf.dtypes.float32)],
+            ),
+        ]
+        with self.assertRaisesRegex(
+            ValueError, 'serving_config.tf_preprocessor must be provided'
+        ):
+          em = ExportManager(
+              JaxModule({'bias': jnp.array(1)}, lambda p, x: x + p['bias']),
+              serving_configs,
+          )
+          em.save(self._output_dir)
 
 
 if __name__ == '__main__':
