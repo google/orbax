@@ -14,6 +14,7 @@
 
 """Tests for atomicity.py."""
 
+import unittest
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -27,7 +28,10 @@ CommitFileTemporaryPath = atomicity.CommitFileTemporaryPath
 TMP_DIR_SUFFIX = atomicity.TMP_DIR_SUFFIX
 
 
-class AtomicRenameTemporaryPathTest(parameterized.TestCase):
+class AtomicRenameTemporaryPathTest(
+    parameterized.TestCase,
+    unittest.IsolatedAsyncioTestCase,
+):
 
   def setUp(self):
     super().setUp()
@@ -88,7 +92,10 @@ class AtomicRenameTemporaryPathTest(parameterized.TestCase):
     self.assertFalse(paths[1].exists())
 
 
-class CommitFileTemporaryPathTest(parameterized.TestCase):
+class CommitFileTemporaryPathTest(
+    parameterized.TestCase,
+    unittest.IsolatedAsyncioTestCase,
+):
 
   def setUp(self):
     super().setUp()
@@ -140,8 +147,8 @@ class CommitFileTemporaryPathTest(parameterized.TestCase):
     await atomicity.create_all(tmp_paths)
     self.assertTrue(tmp_paths[0].get().exists())
     self.assertTrue(tmp_paths[1].get().exists())
-    self.assertFalse(paths[0].exists())
-    self.assertFalse(paths[1].exists())
+    self.assertTrue(paths[0].exists())
+    self.assertTrue(paths[1].exists())
 
 
 if __name__ == '__main__':
