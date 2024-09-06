@@ -540,10 +540,10 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         return handler
       else:
         logging.info(
-            'No entry found in handler registry for item: %s and args: %s.'
-            ' Falling back to global handler registry.',
+            'No entry found in handler registry for item: %s and args with'
+            ' type: %s. Falling back to global handler registry.',
             item_name,
-            args,
+            type(args),
         )
     else:
       # Try to find a handler for the item. If none is found, raise an error.
