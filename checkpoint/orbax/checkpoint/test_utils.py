@@ -33,14 +33,14 @@ import jax
 from jax.experimental import pjit
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import metadata as metadata_lib
 from orbax.checkpoint import multihost
-from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import serialization
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
+from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint.multihost import multislice
 from orbax.checkpoint.path import atomicity
 from orbax.checkpoint.path import step as step_lib
@@ -652,9 +652,7 @@ def _replica_devices(device_array: np.ndarray, replica_axis_idx: int):
     devices inside the replica that current host is in
   """
   idx = _find_idx(device_array, replica_axis_idx)
-  replica_result = np.take(device_array,
-                           idx,
-                           axis=replica_axis_idx)
+  replica_result = np.take(device_array, idx, axis=replica_axis_idx)
   return np.expand_dims(replica_result, axis=replica_axis_idx)
 
 

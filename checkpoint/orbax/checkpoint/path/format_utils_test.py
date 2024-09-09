@@ -21,8 +21,8 @@ import numpy as np
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpointer
-from orbax.checkpoint import pytree_checkpoint_handler
-from orbax.checkpoint import standard_checkpoint_handler
+from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint.path import format_utils
 

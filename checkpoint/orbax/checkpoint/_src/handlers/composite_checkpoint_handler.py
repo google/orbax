@@ -47,20 +47,20 @@ import asyncio
 from collections.abc import Collection, KeysView
 import concurrent.futures
 import dataclasses
-from typing import AbstractSet, Any, Coroutine, Dict, List, Mapping, Optional, Tuple, Type, MutableSet
+from typing import AbstractSet, Any, Coroutine, Dict, List, Mapping, MutableSet, Optional, Tuple, Type
 import uuid
 
 from absl import logging
 from etils import epath
 import jax
 import nest_asyncio
-from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import checkpoint_handler
 from orbax.checkpoint import future
 from orbax.checkpoint import options as options_lib
-from orbax.checkpoint import proto_checkpoint_handler
-from orbax.checkpoint.handlers import handler_registration
+from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.handlers import checkpoint_handler
+from orbax.checkpoint._src.handlers import handler_registration
+from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint.path import atomicity
 
 CheckpointArgs = checkpoint_args.CheckpointArgs

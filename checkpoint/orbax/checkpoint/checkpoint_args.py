@@ -18,7 +18,8 @@ import dataclasses
 import inspect
 from typing import Tuple, Type, Union
 
-from orbax.checkpoint import checkpoint_handler
+from orbax.checkpoint._src.handlers import checkpoint_handler
+
 CheckpointHandler = checkpoint_handler.CheckpointHandler
 
 

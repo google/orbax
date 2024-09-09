@@ -26,7 +26,7 @@ implementation for an example how to use the registry.
 from typing import MutableMapping, Optional, Protocol, Type, Union
 
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import checkpoint_handler
+from orbax.checkpoint._src.handlers import checkpoint_handler
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 CheckpointHandler = checkpoint_handler.CheckpointHandler

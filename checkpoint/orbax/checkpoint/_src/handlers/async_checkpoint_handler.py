@@ -18,17 +18,17 @@ import abc
 from typing import List, Optional
 
 from etils import epath
-from orbax.checkpoint.checkpoint_handler import CheckpointHandler
-from orbax.checkpoint.future import Future
+from orbax.checkpoint import future
+from orbax.checkpoint._src.handlers import checkpoint_handler
 
 
-class AsyncCheckpointHandler(CheckpointHandler):
+class AsyncCheckpointHandler(checkpoint_handler.CheckpointHandler):
   """An interface providing async methods that can be used with CheckpointHandler."""
 
   @abc.abstractmethod
   async def async_save(
       self, directory: epath.Path, *args, **kwargs
-  ) -> Optional[List[Future]]:
+  ) -> Optional[List[future.Future]]:
     """Constructs a save operation.
 
     Synchronously awaits a copy of the item, before returning commit futures

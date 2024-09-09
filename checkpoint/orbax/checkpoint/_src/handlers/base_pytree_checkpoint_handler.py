@@ -33,7 +33,6 @@ from absl import logging
 from etils import epath
 import humanize
 import jax
-from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import multihost
@@ -42,9 +41,11 @@ from orbax.checkpoint import serialization
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint.metadata import tree as tree_metadata
 from orbax.checkpoint.path import format_utils
 import tensorstore as ts
+
 
 
 PyTree = Any

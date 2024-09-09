@@ -19,21 +19,21 @@
 # that these Args are all documented.
 
 # Built-in CheckpointArgs.
-from orbax.checkpoint.array_checkpoint_handler import ArrayRestoreArgs as ArrayRestore
-from orbax.checkpoint.array_checkpoint_handler import ArraySaveArgs as ArraySave
-from orbax.checkpoint.composite_checkpoint_handler import CompositeArgs as Composite
-from orbax.checkpoint.json_checkpoint_handler import JsonRestoreArgs as JsonRestore
-from orbax.checkpoint.json_checkpoint_handler import JsonSaveArgs as JsonSave
-from orbax.checkpoint.proto_checkpoint_handler import ProtoRestoreArgs as ProtoRestore
-from orbax.checkpoint.proto_checkpoint_handler import ProtoSaveArgs as ProtoSave
-from orbax.checkpoint.pytree_checkpoint_handler import PyTreeRestoreArgs as PyTreeRestore
-from orbax.checkpoint.pytree_checkpoint_handler import PyTreeSaveArgs as PyTreeSave
-from orbax.checkpoint.standard_checkpoint_handler import StandardRestoreArgs as StandardRestore
-from orbax.checkpoint.standard_checkpoint_handler import StandardSaveArgs as StandardSave
-from orbax.checkpoint.random_key_checkpoint_handler import JaxRandomKeySaveArgs as JaxRandomKeySave
-from orbax.checkpoint.random_key_checkpoint_handler import JaxRandomKeyRestoreArgs as JaxRandomKeyRestore
-from orbax.checkpoint.random_key_checkpoint_handler import NumpyRandomKeySaveArgs as NumpyRandomKeySave
-from orbax.checkpoint.random_key_checkpoint_handler import NumpyRandomKeyRestoreArgs as NumpyRandomKeyRestore
+from orbax.checkpoint._src.handlers.array_checkpoint_handler import ArrayRestoreArgs as ArrayRestore
+from orbax.checkpoint._src.handlers.array_checkpoint_handler import ArraySaveArgs as ArraySave
+from orbax.checkpoint._src.handlers.composite_checkpoint_handler import CompositeArgs as Composite
+from orbax.checkpoint._src.handlers.json_checkpoint_handler import JsonRestoreArgs as JsonRestore
+from orbax.checkpoint._src.handlers.json_checkpoint_handler import JsonSaveArgs as JsonSave
+from orbax.checkpoint._src.handlers.proto_checkpoint_handler import ProtoRestoreArgs as ProtoRestore
+from orbax.checkpoint._src.handlers.proto_checkpoint_handler import ProtoSaveArgs as ProtoSave
+from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import PyTreeRestoreArgs as PyTreeRestore
+from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import PyTreeSaveArgs as PyTreeSave
+from orbax.checkpoint._src.handlers.standard_checkpoint_handler import StandardRestoreArgs as StandardRestore
+from orbax.checkpoint._src.handlers.standard_checkpoint_handler import StandardSaveArgs as StandardSave
+from orbax.checkpoint._src.handlers.random_key_checkpoint_handler import JaxRandomKeySaveArgs as JaxRandomKeySave
+from orbax.checkpoint._src.handlers.random_key_checkpoint_handler import JaxRandomKeyRestoreArgs as JaxRandomKeyRestore
+from orbax.checkpoint._src.handlers.random_key_checkpoint_handler import NumpyRandomKeySaveArgs as NumpyRandomKeySave
+from orbax.checkpoint._src.handlers.random_key_checkpoint_handler import NumpyRandomKeyRestoreArgs as NumpyRandomKeyRestore
 
 # For defining custom CheckpointArgs.
 from orbax.checkpoint.checkpoint_args import CheckpointArgs

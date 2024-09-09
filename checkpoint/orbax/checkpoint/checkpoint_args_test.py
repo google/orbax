@@ -17,8 +17,8 @@
 import dataclasses
 from absl.testing import absltest
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import checkpoint_handler
-from orbax.checkpoint import standard_checkpoint_handler
+from orbax.checkpoint._src.handlers import checkpoint_handler
+from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 
 StandardCheckpointHandler = (
     standard_checkpoint_handler.StandardCheckpointHandler

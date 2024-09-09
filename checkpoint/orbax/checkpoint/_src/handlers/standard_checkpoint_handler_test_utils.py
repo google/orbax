@@ -26,10 +26,10 @@ from jax import numpy as jnp
 import numpy as np
 import optax
 from orbax.checkpoint import multihost
-from orbax.checkpoint import standard_checkpoint_handler
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 
 PyTree = Any
 SaveArgs = type_handlers.SaveArgs
@@ -131,9 +131,7 @@ class StandardCheckpointHandlerTestBase:
       restored = self.handler.restore(
           self.directory,
           args=self.restore_args_cls(
-              jax.tree.map(
-                  utils.to_shape_dtype_struct, self.mixed_pytree
-              )
+              jax.tree.map(utils.to_shape_dtype_struct, self.mixed_pytree)
           ),
       )
       test_utils.assert_tree_equal(self, self.mixed_pytree, restored)
@@ -161,9 +159,7 @@ class StandardCheckpointHandlerTestBase:
           args=self.save_args_cls(self.pytree, save_args=save_args),
       )
       metadata = self.handler.metadata(self.directory)
-      jax.tree.map(
-          lambda m: self.assertEqual(m.dtype, jnp.float32), metadata
-      )
+      jax.tree.map(lambda m: self.assertEqual(m.dtype, jnp.float32), metadata)
 
       def check_dtype(x, dtype):
         if utils.is_scalar(x):

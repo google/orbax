@@ -39,34 +39,23 @@ from orbax.checkpoint.path import step
 # pylint: disable=g-importing-member, g-bad-import-order
 from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
-from orbax.checkpoint.array_checkpoint_handler import ArrayCheckpointHandler
-from orbax.checkpoint.async_checkpoint_handler import AsyncCheckpointHandler
+
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
-from orbax.checkpoint.checkpoint_handler import CheckpointHandler
 from orbax.checkpoint.checkpoint_manager import AsyncOptions
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
 from orbax.checkpoint.checkpointer import Checkpointer
-from orbax.checkpoint.composite_checkpoint_handler import CompositeCheckpointHandler
 from orbax.checkpoint.future import Future
-from orbax.checkpoint.handlers.handler_registration import CheckpointHandlerRegistry
-from orbax.checkpoint.handlers.handler_registration import DefaultCheckpointHandlerRegistry
-from orbax.checkpoint.json_checkpoint_handler import JsonCheckpointHandler
-from orbax.checkpoint.proto_checkpoint_handler import ProtoCheckpointHandler
-from orbax.checkpoint.pytree_checkpoint_handler import ArrayRestoreArgs
-from orbax.checkpoint.pytree_checkpoint_handler import PyTreeCheckpointHandler
-from orbax.checkpoint.base_pytree_checkpoint_handler import BasePyTreeCheckpointHandler
-from orbax.checkpoint.pytree_checkpoint_handler import RestoreArgs
-from orbax.checkpoint.pytree_checkpoint_handler import SaveArgs
 from orbax.checkpoint.pytree_checkpointer import PyTreeCheckpointer
-from orbax.checkpoint.random_key_checkpoint_handler import JaxRandomKeyCheckpointHandler
-from orbax.checkpoint.random_key_checkpoint_handler import NumpyRandomKeyCheckpointHandler
-from orbax.checkpoint.standard_checkpoint_handler import StandardCheckpointHandler
 from orbax.checkpoint.standard_checkpointer import StandardCheckpointer
 from orbax.checkpoint.transform_utils import apply_transformations
 from orbax.checkpoint.transform_utils import merge_trees
 from orbax.checkpoint.transform_utils import RestoreTransform
 from orbax.checkpoint.transform_utils import Transform
+from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import RestoreArgs
+from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import SaveArgs
+
+from orbax.checkpoint.handlers import *
 # pylint: enable=g-importing-member, g-bad-import-order
 
 try:

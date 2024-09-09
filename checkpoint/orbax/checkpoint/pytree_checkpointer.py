@@ -17,7 +17,7 @@
 from typing import Optional
 from orbax.checkpoint import checkpointer
 from orbax.checkpoint import options as options_lib
-from orbax.checkpoint import pytree_checkpoint_handler
+from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 
 
 class PyTreeCheckpointer(checkpointer.Checkpointer):

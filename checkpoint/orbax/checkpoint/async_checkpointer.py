@@ -22,13 +22,13 @@ from typing import Any, Callable, Optional, Sequence, Type
 from absl import logging
 from etils import epath
 import jax
-from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpointer
 from orbax.checkpoint import future as future_lib
 from orbax.checkpoint import multihost
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint.metadata import checkpoint
 from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import atomicity

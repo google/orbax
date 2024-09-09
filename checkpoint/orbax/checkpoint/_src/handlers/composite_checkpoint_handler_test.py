@@ -13,20 +13,21 @@
 # limitations under the License.
 
 """Tests for CompositeHandler."""
+
 from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 from jax import numpy as jnp
 from orbax.checkpoint import args as args_lib
-from orbax.checkpoint import checkpoint_handler
-from orbax.checkpoint import composite_checkpoint_handler
-from orbax.checkpoint import json_checkpoint_handler
 from orbax.checkpoint import multihost
-from orbax.checkpoint import proto_checkpoint_handler
-from orbax.checkpoint import standard_checkpoint_handler
 from orbax.checkpoint import test_utils
-from orbax.checkpoint.handlers import handler_registration
+from orbax.checkpoint._src.handlers import checkpoint_handler
+from orbax.checkpoint._src.handlers import composite_checkpoint_handler
+from orbax.checkpoint._src.handlers import handler_registration
+from orbax.checkpoint._src.handlers import json_checkpoint_handler
+from orbax.checkpoint._src.handlers import proto_checkpoint_handler
+from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step
 

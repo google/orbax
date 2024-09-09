@@ -44,9 +44,9 @@ from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import multihost
-from orbax.checkpoint import pytree_checkpoint_handler
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint.experimental.emergency import multihost as emergency_multihost
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import standard_logger

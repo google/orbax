@@ -19,8 +19,8 @@ from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint import args as args_lib
-from orbax.checkpoint import composite_checkpoint_handler
-from orbax.checkpoint import random_key_checkpoint_handler
+from orbax.checkpoint._src.handlers import composite_checkpoint_handler
+from orbax.checkpoint._src.handlers import random_key_checkpoint_handler
 
 # Parse absl flags test_srcdir and test_tmpdir.
 jax.config.parse_flags_with_absl()

@@ -22,11 +22,11 @@ from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint import aggregate_handlers
-from orbax.checkpoint import async_checkpoint_handler
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.handlers import async_checkpoint_handler
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
@@ -166,7 +166,9 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     ts_context = type_handlers.get_ts_context()
     asyncio.run(
         type_handlers.merge_ocdbt_per_process_files(
-            directory, ts_context=ts_context, use_zarr3=False,
+            directory,
+            ts_context=ts_context,
+            use_zarr3=False,
         )
     )
 

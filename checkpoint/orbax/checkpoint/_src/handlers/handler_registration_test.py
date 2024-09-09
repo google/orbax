@@ -19,8 +19,8 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import checkpoint_handler
-from orbax.checkpoint.handlers import handler_registration
+from orbax.checkpoint._src.handlers import checkpoint_handler
+from orbax.checkpoint._src.handlers import handler_registration
 
 
 CheckpointHandler = checkpoint_handler.CheckpointHandler
