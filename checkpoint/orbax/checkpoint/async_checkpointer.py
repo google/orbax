@@ -325,6 +325,13 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     directory = epath.Path(directory)
     self.wait_until_finished()
 
+    jax.monitoring.record_event('/jax/orbax/save/async_checkpointer/start')
+    logging.info(
+        '[process=%s] Started async saving checkpoint to %s.',
+        multihost.process_index(),
+        directory,
+    )
+
     if await async_utils.async_exists(directory):
       if force:
         if utils.is_primary_host(self._primary_host):
@@ -337,15 +344,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           )  # Post-sync handled by create_tmp_directory.
       else:
         raise ValueError(f'Destination {directory} already exists.')
-    tmpdir = await self.create_temporary_path(directory)
 
-    logging.info(
-        '[process=%s] Async saving checkpoint to tmp dir=%s, eventually to'
-        ' final dir=%s.',
-        multihost.process_index(),
-        tmpdir.get(),
-        tmpdir.get_final(),
-    )
+    tmpdir = await self.create_temporary_path(directory)
     # Run copy ops.
     # Try to save using new CheckpointArgs API if supported by the handler.
     ckpt_args = checkpointer.construct_checkpoint_args(

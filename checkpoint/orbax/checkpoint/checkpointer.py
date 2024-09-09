@@ -186,7 +186,14 @@ class Checkpointer(
     """
     checkpoint_start_time = time.time()
     directory = epath.Path(directory)
-    logging.info('Saving checkpoint to %s.', directory)
+
+    jax.monitoring.record_event('/jax/orbax/save/checkpointer/start')
+    logging.info(
+        '[process=%s] Started saving checkpoint to %s.',
+        multihost.process_index(),
+        directory,
+    )
+
     if directory.exists():
       if force:
         if utils.is_primary_host(self._primary_host):

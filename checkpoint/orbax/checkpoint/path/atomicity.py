@@ -57,6 +57,7 @@ from typing import Optional, Protocol, Sequence, Type
 
 from absl import logging
 from etils import epath
+import jax
 from orbax.checkpoint import metadata
 from orbax.checkpoint import multihost
 from orbax.checkpoint import options as options_lib
@@ -513,8 +514,10 @@ def on_commit_callback(
   """
   tmp_dir.finalize()
   step_lib.record_saved_duration(checkpoint_start_time)
+  jax.monitoring.record_event('/jax/orbax/save/success')
   logging.info(
-      '[process=%s][thread=%s] Finalized tmp dir to `%s`.',
+      '[process=%s][thread=%s] Finished saving checkpoint (finalized tmp dir)'
+      ' to `%s`.',
       multihost.process_index(),
       threading.current_thread().name,
       tmp_dir.get_final(),

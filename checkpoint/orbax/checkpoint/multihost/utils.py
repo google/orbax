@@ -278,18 +278,27 @@ def sync_global_processes(
   )
 
 
+def _maybe_log_reached_preemption(
+    step: int, preemption_sync_point_reached: bool
+):
+  if not preemption_sync_point_reached:
+    return
+  jax.monitoring.record_event('/jax/orbax/save/preemption')
+  logging.warning(
+      '[process=%s][thread=%s] Reached preemption sync point, step=%s',
+      process_index(),
+      threading.current_thread().name,
+      step,
+  )
+
+
 def reached_preemption(step: int) -> bool:
   """Returns True if a preemption sync point has been reached."""
+
   preemption_sync_point_reached = multihost_utils.reached_preemption_sync_point(
       step
   )
-  if preemption_sync_point_reached:
-    logging.warning(
-        '[process=%s][thread=%s] Reached preemption sync point, step=%s',
-        process_index(),
-        threading.current_thread().name,
-        step,
-    )
+  _maybe_log_reached_preemption(step, preemption_sync_point_reached)
   return preemption_sync_point_reached
 
 
