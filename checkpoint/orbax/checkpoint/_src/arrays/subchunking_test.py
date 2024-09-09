@@ -18,10 +18,14 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 import numpy as np
+from orbax.checkpoint._src.arrays import fragments as fragments_lib
+from orbax.checkpoint._src.arrays import numpy_utils as np_utils
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
 
 
+Fragment = fragments_lib.Fragment
+Fragments = fragments_lib.Fragments
 Shape = types.Shape
 
 
@@ -325,6 +329,186 @@ class ChooseChunkShapeWithShardAxesTest(parameterized.TestCase):
       # We also should have sharded at least once on both of the requested axes.
       for i in shard_axes:
         self.assertLess(chosen_shape[i], write_shape[i])
+
+
+class ChunkFragmentTest(parameterized.TestCase):
+
+  def test_rejects_abstract_fragments(self):
+    with self.assertRaisesRegex(ValueError, 'abstract fragment'):
+      _ = subchunking.chunk_fragment(
+          fragment=Fragment(index=np.s_[0:4:1, 0:6:1]),
+          target_shape=(2, 3),
+      )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='shorter_target_shape',
+          fragment_shape=(3, 10, 4),
+          target_shape=(3, 5),
+          expected_regex='must have the same length'
+      ),
+      dict(
+          testcase_name='longer_target_shape',
+          fragment_shape=(3, 10, 4),
+          target_shape=(3, 5, 2, 2),
+          expected_regex='must have the same length'
+      ),
+      dict(
+          testcase_name='shorter_indivisible_dim_in_target_shape',
+          fragment_shape=(3, 10, 4),
+          target_shape=(2, 5, 2),
+          expected_regex='is not divisible by target_shape'
+      ),
+      dict(
+          testcase_name='longer_indivisible_dim_in_target_shape',
+          fragment_shape=(3, 10, 4),
+          target_shape=(3, 13, 2),
+          expected_regex='is not divisible by target_shape'
+      ),
+  )
+  def test_rejects_incompatible_shapes(
+      self,
+      fragment_shape: Shape,
+      target_shape: Shape,
+      expected_regex: str,
+  ):
+    fragment = Fragment(
+        index=tuple(slice(0, d, 1) for d in fragment_shape),
+        value=np.zeros(fragment_shape, dtype=np.int32),
+    )
+    with self.assertRaisesRegex(ValueError, expected_regex):
+      _ = subchunking.chunk_fragment(fragment, target_shape)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='target_shape_matches_fragment_shape',
+          global_shape=(8, 27),
+          fragment_index=np.s_[4:8:1, 9:18:1],
+          target_shape=(4, 9),
+          expected_indices=[np.s_[4:8:1, 9:18:1]],
+      ),
+      dict(
+          testcase_name='target_shape_divides_all_dims_of_fragment_shape',
+          global_shape=(8, 27),
+          fragment_index=np.s_[4:8:1, 18:27:1],
+          target_shape=(2, 3),
+          expected_indices=[
+              np.s_[4:6:1, 18:21:1],
+              np.s_[4:6:1, 21:24:1],
+              np.s_[4:6:1, 24:27:1],
+              np.s_[6:8:1, 18:21:1],
+              np.s_[6:8:1, 21:24:1],
+              np.s_[6:8:1, 24:27:1],
+          ],
+      ),
+      dict(
+          testcase_name='target_shape_divides_some_dims_of_fragment_shape',
+          global_shape=(4, 10, 6),
+          fragment_index=np.s_[0:4:1, 0:10:1, 0:6:1],
+          target_shape=(2, 10, 3),
+          expected_indices=[
+              np.s_[0:2:1, 0:10:1, 0:3:1],
+              np.s_[0:2:1, 0:10:1, 3:6:1],
+              np.s_[2:4:1, 0:10:1, 0:3:1],
+              np.s_[2:4:1, 0:10:1, 3:6:1],
+          ],
+      ),
+      dict(
+          testcase_name='target_shape_divides_all_of_fragment_shape_3d',
+          global_shape=(8, 30, 9),
+          fragment_index=np.s_[0:4:1, 10:20:1, 3:9:1],
+          target_shape=(2, 5, 3),
+          expected_indices=[
+              np.s_[0:2:1, 10:15:1, 3:6:1],
+              np.s_[0:2:1, 10:15:1, 6:9:1],
+              np.s_[0:2:1, 15:20:1, 3:6:1],
+              np.s_[0:2:1, 15:20:1, 6:9:1],
+              np.s_[2:4:1, 10:15:1, 3:6:1],
+              np.s_[2:4:1, 10:15:1, 6:9:1],
+              np.s_[2:4:1, 15:20:1, 3:6:1],
+              np.s_[2:4:1, 15:20:1, 6:9:1],
+          ],
+      ),
+  )
+  def test_splits_fragment_into_chunks(
+      self,
+      global_shape: Shape,
+      fragment_index: types.Index,
+      target_shape: Shape,
+      expected_indices: list[slice],
+  ):
+    global_array = np.arange(np.prod(global_shape), dtype=np.int32).reshape(
+        global_shape
+    )
+    fragment = Fragment(
+        index=fragment_index,
+        value=global_array[fragment_index],
+    )
+    assert fragment.value is not None  # Make type checker happy.
+    assert fragment.value.base is not None  # A view after reshaping.
+
+    chunks = subchunking.chunk_fragment(fragment, target_shape)
+    self.assertLen(chunks, len(expected_indices))
+
+    index_to_tuple = lambda x: tuple(
+        np_utils.int_tuple_from_slice(s) for s in x
+    )
+
+    expected_indices = set(index_to_tuple(idx) for idx in expected_indices)
+    for chunk in chunks:
+      chunk_index_as_tuple = index_to_tuple(chunk.index)
+      self.assertIn(chunk_index_as_tuple, expected_indices)
+      assert chunk.value is not None
+      self.assertIs(chunk.value.base, fragment.value.base)
+      np.testing.assert_array_equal(
+          chunk.value,
+          global_array[chunk.index],
+      )
+      expected_indices.remove(chunk_index_as_tuple)
+    self.assertEmpty(expected_indices)
+
+
+class ChunkFragmentsTest(parameterized.TestCase):
+
+  def test_splits_all_fragments_into_chunks(self):
+    global_shape = (4, 10, 6)
+    fragment_shape = (2, 10, 3)
+    target_shape = (1, 5, 3)
+    global_array = np.arange(np.prod(global_shape), dtype=np.int32).reshape(
+        global_shape
+    )
+
+    original_indices = [
+        np.s_[0:2:1, 0:10:1, 0:3:1],
+        np.s_[0:2:1, 0:10:1, 3:6:1],
+        np.s_[2:4:1, 0:10:1, 0:3:1],
+        np.s_[2:4:1, 0:10:1, 3:6:1],
+    ]
+    original_fragments = Fragments(
+        shape=global_shape,
+        dtype=np.dtype(np.int32),
+        fragments=[
+            Fragment(index=idx, value=global_array[idx])
+            for idx in original_indices
+        ],
+    )
+    for of in original_fragments.fragments:
+      assert of.value is not None
+      assert of.value.shape == fragment_shape
+      np.testing.assert_array_equal(of.value, global_array[of.index])
+
+    chunked_fragments = subchunking.chunk_fragments(
+        original_fragments, target_shape
+    )
+    self.assertEqual(chunked_fragments.shape, global_shape)
+    self.assertEqual(chunked_fragments.dtype, np.dtype(np.int32))
+    present = np.full(global_shape, False, dtype=np.bool_)
+    for f in chunked_fragments.fragments:
+      self.assertEqual(f.shape, target_shape)
+      self.assertIsNotNone(f.value)
+      np.testing.assert_array_equal(f.value, global_array[f.index])
+      present[f.index] = True
+    self.assertTrue(np.all(present))
 
 
 if __name__ == '__main__':

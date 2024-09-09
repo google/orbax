@@ -14,15 +14,21 @@
 
 """Utilities for managing storage layout of arrays in checkpoints."""
 
+import dataclasses
+import itertools
 import math
 from typing import Union
 
 from absl import logging
+import jax
 from jax import numpy as jnp
 import numpy as np
+from orbax.checkpoint._src.arrays import fragments as fragments_lib
 from orbax.checkpoint._src.arrays import types
 
 
+Fragment = fragments_lib.Fragment
+Fragments = fragments_lib.Fragments
 Shape = types.Shape
 
 
@@ -195,3 +201,56 @@ def validate_divisible_shapes(
   except ValueError:
     # eg. imcompatible shape
     return False
+
+
+# TODO(b/363218206): double-check if we can have scalar fragments.
+
+
+def chunk_fragment(fragment: Fragment, target_shape: Shape) -> list[Fragment]:
+  """Chunks (with zero-copy) the given fragment into the given target shape."""
+  if fragment.value is None:
+    raise ValueError(f"Can't chunk an abstract fragment: {fragment!r}")
+
+  if fragment.shape == target_shape:
+    return [fragment]
+
+  if len(target_shape) != len(fragment.shape):
+    raise ValueError(
+        f'target_shape={target_shape} must have the same length as'
+        f' fragment.shape={fragment.shape}'
+    )
+  if not validate_divisible_shapes(fragment.shape, target_shape):
+    raise ValueError(
+        f'fragment.shape={fragment.shape} is not divisible by'
+        f' target_shape={target_shape}'
+    )
+
+  start_indices_per_dim = (
+      range(start, stop, new_dim)
+      for start, stop, new_dim in jax.util.safe_zip(
+          fragment.start, fragment.stop, target_shape
+      )
+  )
+  start_indices = itertools.product(*start_indices_per_dim)
+  new_fragments = []
+  for start_index in start_indices:
+    new_index = tuple(
+        slice(start_index[i], start_index[i] + target_shape[i], 1)
+        for i in range(len(target_shape))
+    )
+    value_index = Fragment(index=new_index).offset_by(-fragment.start).index
+    new_fragments.append(
+        Fragment(index=new_index, value=fragment.value[value_index])
+    )
+  return new_fragments
+
+
+def chunk_fragments(
+    fragments: Fragments,
+    target_shape: Shape,
+) -> Fragments:
+  """Chunks (with zero-copy) the given fragments into the given target shape."""
+  new_fragments = []
+  for fragment in fragments.fragments:
+    new_fragments.extend(chunk_fragment(fragment, target_shape))
+  return dataclasses.replace(fragments, fragments=new_fragments)
