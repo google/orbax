@@ -42,6 +42,8 @@ def choose_chunk_shape(
     write_shape: Shape,
     dtype: Union[jnp.dtype, np.dtype],
     target_byte_size: int,
+    *,
+    shard_axes: tuple[int, ...] = (),
 ) -> Shape:
   """Chooses a chunk shape that divides the `write_shape`.
 
@@ -49,13 +51,19 @@ def choose_chunk_shape(
   or equal to `target_byte_size`, but is otherwise as large as possible.
 
   This uses a greedy algorithm that attempts to split the largest and sharded
-  dimensions first.
+  dimensions first, unless the `shard_axes` optional parameter is also provided.
+  In the latter case, the algorithm will prioritize these explicitly specified
+  axes and ensure that array's storage representation is sharded at least once
+  on as many of these axes as possible.
 
   Args:
-    global_shape: the global shape of the array
-    write_shape: the local shape being written
-    dtype: the dtype of the array
-    target_byte_size: Desired chunk byte size.  Must be >= dtype.itemsize.
+    global_shape: The global shape of the array.
+    write_shape: The local shape being written.
+    dtype: The dtype of the array.
+    target_byte_size: Desired chunk byte size. Must be >= dtype.itemsize.
+    shard_axes: [optional] A list of axes that should be prioritized for
+      storage sharding. The implementation will try to shard at least once on as
+      many of these axes as possible.
 
   Returns:
     List of length `len(write_shape)` specifying the chosen chunk shape.
@@ -82,16 +90,65 @@ def choose_chunk_shape(
   # The current chunk shape is:
   # [dim_factors[i][-1] for i in range(rank)]
 
-  def get_total_elements():
-    """Returns the number of elements in the current chunk shape."""
-    total_elements = 1
-    for i in range(rank):
-      total_elements *= dim_factors[i][-1]
-    return total_elements
+  total_elements = math.prod(write_shape)
 
-  # Reduce the current chunk shape until the desired number of elements is
-  # reached.
-  while get_total_elements() > target_elements:
+  def reduce_dim(dim_to_reduce: int) -> None:
+    """Reduces the given dimension in the current chunk shape."""
+    nonlocal total_elements
+    current_dim = dim_factors[dim_to_reduce].pop()
+    new_dim = dim_factors[dim_to_reduce][-1]
+    total_elements = (total_elements // current_dim) * new_dim
+    sharded_dimensions[dim_to_reduce] = True
+
+  # First, try to reduce the size of the chunk shape on the `shard_axes`.
+  # If some of these specified axes are already sharded, we will skip them on
+  # the first iteration which ensures that we shard at least once on each of the
+  # `shard_axes`. It might also be the case that the given target_byte_size is
+  # too big to shard on all of the requested axes, in which case we will
+  # maximize the number of the number of axes that are sharded.
+  could_shard = bool(shard_axes)
+  first_sharding_iteration = True
+  while could_shard and total_elements > target_elements:
+    could_shard = False
+    # For the first pass, exclude dimensions that are already sharded.
+    # We do our best to shard at least once of each of the `shard_axes`.
+    if first_sharding_iteration:
+      must_shard_dims = (i for i in shard_axes if not sharded_dimensions[i])
+      first_sharding_iteration = False
+    else:
+      must_shard_dims = shard_axes
+    # Exclude dimensions that can no longer be sharded.
+    must_shard_dims = set(i for i in must_shard_dims if len(dim_factors[i]) > 1)
+    # Shard once on each of the remaining dimensions in a round-robin fashion,
+    # while we can.
+    while must_shard_dims and total_elements > target_elements:
+      could_shard = True
+      # Find the minimum available divisor among the remaining dimensions.
+      dim_idx = min(
+          must_shard_dims,
+          key=lambda i: dim_factors[i][-1] // dim_factors[i][-2],
+      )
+      reduce_dim(dim_idx)
+      must_shard_dims.remove(dim_idx)
+
+  if shard_axes:
+    current_shape = tuple(dim_factors[i][-1] for i in range(rank))
+    if current_shape != write_shape:
+      logging.vlog(
+          1,
+          'Reduced write shape using shard_axes=%s: global_shape=%s,'
+          ' write_shape=%s, dtype=%s, target_byte_size=%d; reduced shape: %s',
+          shard_axes,
+          global_shape,
+          write_shape,
+          dtype,
+          target_byte_size,
+          current_shape,
+      )
+
+  # If we are not within target_byte_size yet, continue to reduce the current
+  # chunk shape until the desired number of elements is reached.
+  while total_elements > target_elements:
     # Greedily reduce the largest dimension.  This is not guaranteed to bring us
     # the closest to `target_elements`, but is simple to implement and should
     # work well enough.
@@ -104,21 +161,24 @@ def choose_chunk_shape(
         dim_to_reduce = i
 
     if dim_to_reduce_size > 1:
-      dim_factors[dim_to_reduce].pop()
+      reduce_dim(dim_to_reduce)
     else:
-      # need to start splitting on unsharded dimension
+      # We need to start splitting on unsharded dimensions.
       sharded_dimensions = np.ones(len(write_shape))
 
   chosen_shape = tuple(dim_factors[i][-1] for i in range(rank))
 
+  # TODO: b/363218206 - Consider info logging the storage shape in saving and
+  # loading code.
   logging.vlog(
       1,
-      'global_shape=%s, write_shape=%s, dtype=%s, target_byte_size=%d,'
-      ' chosen_shape=%s',
+      'Reduced write shape: global_shape=%s, write_shape=%s, dtype=%s,'
+      ' target_byte_size=%d, shard_axes=%s; chosen shape: %s',
       global_shape,
       write_shape,
       dtype,
       target_byte_size,
+      shard_axes,
       chosen_shape,
   )
 
