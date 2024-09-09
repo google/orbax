@@ -514,7 +514,7 @@ def on_commit_callback(
   """
   tmp_dir.finalize()
   step_lib.record_saved_duration(checkpoint_start_time)
-  jax.monitoring.record_event('/jax/orbax/save/success')
+  jax.monitoring.record_event('/jax/orbax/write/success')
   logging.info(
       '[process=%s][thread=%s] Finished saving checkpoint (finalized tmp dir)'
       ' to `%s`.',

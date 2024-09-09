@@ -325,7 +325,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     directory = epath.Path(directory)
     self.wait_until_finished()
 
-    jax.monitoring.record_event('/jax/orbax/save/async_checkpointer/start')
+    jax.monitoring.record_event('/jax/orbax/write/async/start')
     logging.info(
         '[process=%s] Started async saving checkpoint to %s.',
         multihost.process_index(),
