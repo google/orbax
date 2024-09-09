@@ -27,7 +27,12 @@ class TestShardingMetadata(absltest.TestCase):
         jax.sharding.PartitionSpec(None),
     )
     expected_named_sharding_metadata = sharding_metadata.NamedShardingMetadata(
-        shape=np.array([1]), axis_names=(["x"]), partition_spec=(None,)
+        shape=np.array([1]),
+        axis_names=(["x"]),
+        partition_spec=(None,),
+        device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
+            jax_sharding.mesh
+        ),
     )
     converted_named_sharding_metadata = sharding_metadata.from_jax_sharding(
         jax_sharding

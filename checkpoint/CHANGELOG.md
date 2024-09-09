@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  `.zarray` counterpart.
 - Added private utilities to work with array fragments (`_src/arrays`).
 - Log `orbax-checkpoint version` when Checkpointer instances are created.
+- NamedShardingMetadata includes full device mesh which will be used for
+  restoration when sharding in restore_args is not provided.
 
 ## [0.6.1] - 2024-08-22
 

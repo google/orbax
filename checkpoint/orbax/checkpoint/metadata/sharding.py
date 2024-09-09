@@ -19,7 +19,7 @@ import dataclasses
 import enum
 import json
 import logging
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Mapping, Optional, Sequence, Tuple, Union
 import jax
 from jax.experimental import mesh_utils
 import numpy as np
@@ -33,7 +33,9 @@ _DEVICE_STR = 'device_str'
 _MESH_AXES = 'axis_names'
 _MESH_SHAPE = 'shape'
 _DEVICES_SHAPE = 'shape'
+_DEVICE_MESH = 'device_mesh'
 _MEMORY_KIND = 'memory_kind'
+_ID = 'id'
 
 
 class ShardingTypes(enum.Enum):
@@ -43,23 +45,100 @@ class ShardingTypes(enum.Enum):
   GSPMD_SHARDING = 'GSPMDSharding'
 
 
-def _convert_jax_partition_spec_to_partition_spec_elements(
-    jax_spec: jax.sharding.PartitionSpec,
-) -> 'NamedShardingMetadata.partition_spec':
-  """Converts `jax.sharding.PartitionSpec` to `NamedShardingMetadata.partition_spec`."""
+@dataclasses.dataclass
+class DeviceMetadata:
+  """TPU Device metadata class."""
 
-  converted_spec = []
-  for element in jax_spec:
-    if element is None:
-      converted_element = None
-    elif isinstance(element, str):
-      converted_element = element
-    elif isinstance(element, (tuple, list)):
-      converted_element = tuple(element)
-    else:
-      raise ValueError(f'Unsupported element type: {type(element)}')
-    converted_spec.append(converted_element)
-  return tuple(converted_spec)
+  id: int
+
+  @classmethod
+  def from_dict(cls, data: dict[str, Any]) -> 'DeviceMetadata':
+    return DeviceMetadata(
+        id=data[_ID],
+    )
+
+  @classmethod
+  def from_jax_device(cls, device: jax.Device) -> 'DeviceMetadata':
+    return DeviceMetadata(
+        id=device.id,
+    )
+
+  def __eq__(self, other: 'DeviceMetadata'):
+    return self.id == other.id
+
+
+@dataclasses.dataclass
+class DeviceMetadataMesh:
+  """Contain a mesh of DeviceMetadata class."""
+
+  mesh: Sequence[Any]
+
+  @classmethod
+  def from_dict(cls, data: dict[str, Any]) -> 'DeviceMetadataMesh':
+    mesh = data['mesh']
+    device_mesh = jax.tree.map(
+        DeviceMetadata.from_dict,
+        mesh,
+        is_leaf=lambda x: isinstance(x, Mapping) and _ID in x,
+    )
+    return DeviceMetadataMesh(mesh=device_mesh)
+
+  @classmethod
+  def from_jax_mesh(
+      cls, mesh: jax.sharding.Mesh
+  ) -> Optional['DeviceMetadataMesh']:
+    """Take in of jax.sharding.Mesh and convert into DeviceMetadata while keeping the sequences.
+
+    Support only TPU-device.  If there is any non-TPU device, return None.
+
+    Args:
+      mesh: jax.sharding.Mesh
+
+    Returns:
+      DeviceMetadataMesh if only TPU-devices are in the mesh.
+    """
+
+    if isinstance(devices := mesh.devices, np.ndarray):
+      devices = devices.tolist()
+    device_mesh = jax.tree.map(
+        DeviceMetadata.from_jax_device,
+        devices,
+        is_leaf=lambda x: isinstance(x, jax.Device),
+    )
+
+    return DeviceMetadataMesh(mesh=device_mesh)
+
+  def to_jax_device_mesh(self):
+    """return a jax Device mesh.
+
+    Returns:
+      Nested sequence of jax.Device
+    """
+
+    # build device.id to device map
+    device_map = {}
+    for device in jax.devices():
+      device_map[device.id] = device
+
+    def build_device(m: DeviceMetadata) -> jax.Device:
+      if ret := device_map.get(m.id):
+        return ret
+      else:
+        raise ValueError(
+            'The available devices are different from the devices used to'
+            ' save the checkpoint.  Please restore checkpoint by passing'
+            f' new shardings for target devices. Original={self.mesh},'
+            f' current available={jax.devices()}'
+        )
+
+    return jax.tree.map(
+        build_device,
+        self.mesh,
+        is_leaf=lambda x: isinstance(x, DeviceMetadata),
+    )
+
+  def __eq__(self, other):
+    return self.mesh == other.mesh
 
 
 @dataclasses.dataclass
@@ -103,6 +182,10 @@ class NamedShardingMetadata(ShardingMetadata):
       PartitionSpecElement, ...
   ]  # Each element is either ``None``, a string, or a tuple of strings.
 
+  # Optional device mesh.  If it's None, use jax.devices(),
+  # otherwise, the stored device_mesh will be used to recreate NamedSharding.
+  device_mesh: Optional[DeviceMetadataMesh] = None
+
   @classmethod
   def from_jax_sharding(
       cls, jax_sharding: jax.sharding.NamedSharding
@@ -110,15 +193,19 @@ class NamedShardingMetadata(ShardingMetadata):
     return cls(
         shape=np.array(list(jax_sharding.mesh.shape.values())),
         axis_names=list(jax_sharding.mesh.axis_names),
-        partition_spec=_convert_jax_partition_spec_to_partition_spec_elements(
-            jax_sharding.spec
-        ),
+        partition_spec=tuple(jax_sharding.spec),
+        device_mesh=DeviceMetadataMesh.from_jax_mesh(jax_sharding.mesh),
     )
 
   def to_jax_sharding(self) -> jax.sharding.NamedSharding:
+    if self.device_mesh:
+      mesh_devices = self.device_mesh.to_jax_device_mesh()
+    else:
+      mesh_devices = jax.devices()
+
     return jax.sharding.NamedSharding(
         jax.sharding.Mesh(
-            np.array(jax.devices()).reshape(self.shape),
+            np.asarray(mesh_devices).reshape(self.shape),
             axis_names=self.axis_names,
         ),
         spec=jax.sharding.PartitionSpec(*self.partition_spec),
@@ -126,7 +213,7 @@ class NamedShardingMetadata(ShardingMetadata):
 
   @classmethod
   def from_deserialized_dict(
-      cls, deserialized_dict: dict[str, str]
+      cls, deserialized_dict: dict[str, Any]
   ) -> 'NamedShardingMetadata':
     if (
         _MESH_SHAPE in deserialized_dict
@@ -136,10 +223,16 @@ class NamedShardingMetadata(ShardingMetadata):
       shape = np.array(deserialized_dict[_MESH_SHAPE])
       axis_names = list(deserialized_dict[_MESH_AXES])
       partition_spec = tuple(deserialized_dict[_PARTITION_SPEC])
+      if device_mesh_dic := deserialized_dict.get(_DEVICE_MESH):
+        device_mesh = DeviceMetadataMesh.from_dict(device_mesh_dic)
+      else:
+        device_mesh = None
+
       return cls(
           shape=shape,
           axis_names=axis_names,
           partition_spec=partition_spec,
+          device_mesh=device_mesh,
       )
     else:
       raise ValueError(
@@ -152,12 +245,15 @@ class NamedShardingMetadata(ShardingMetadata):
     sharding_data[_MESH_SHAPE] = self.shape.tolist()
     sharding_data[_MESH_AXES] = self.axis_names
     sharding_data[_PARTITION_SPEC] = self.partition_spec
+    if self.device_mesh:
+      sharding_data[_DEVICE_MESH] = dataclasses.asdict(self.device_mesh)
     return json.dumps(sharding_data)
 
   def __repr__(self):
     return (
         f'NamedShardingMetadata(shape={self.shape},'
         f' axis_names={self.axis_names}, partition_spec={self.partition_spec})'
+        f' device_mesh={self.device_mesh}'
     )
 
   def __eq__(self, other):
@@ -165,6 +261,7 @@ class NamedShardingMetadata(ShardingMetadata):
         np.array_equal(self.shape, other.shape)
         and self.axis_names == other.axis_names
         and self.partition_spec == other.partition_spec
+        and self.device_mesh == other.device_mesh
     )
 
 
