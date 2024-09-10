@@ -20,6 +20,7 @@ jobs:
     - uses: etils-actions/pypi-auto-publish@v1
       with:
         pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_CKPT }}
+        gh-token: ${{ secrets.GH_PUBLISH_TOKEN }}
         path: "./checkpoint/"
         pkg-name: orbax-checkpoint
 
@@ -39,6 +40,7 @@ jobs:
     # 1. Publish the sub-packages first
     - uses: etils-actions/pypi-auto-publish@v1
       with:
+        # NOTE: Do not use gh-token here, as it would conflict with orbax-checkpoint.
         pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_EXPT }}
         path: "./export/"
         pkg-name: orbax-export
