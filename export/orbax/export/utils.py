@@ -45,6 +45,16 @@ class TensorSpecWithDefault:
 
   tensor_spec: tf.TensorSpec
   default_val: Any
+  # Whether this tensor is a primary input tensor.
+  # A primary input tensor is a tensor whose batch size is already or will be
+  # tiled to match the batch size of all other primary input tensors, so all
+  # primary input tensors will have the same batch size.
+  # A non-primary input tensor must have a batch size of 1, or the same as the
+  # primary batch size.
+  #
+  # This attribute will be used in
+  # `orbax.export.utils.make_auto_batching_function` and there are several
+  # constraints. See `make_auto_batching_function` for details.
   is_primary: bool = False
 
   def __post_init__(self):
