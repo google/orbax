@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2024-09-10
+
 ### Added
 - Support for `replica_axis_index = 0,1` in `broadcast_one_replica_to_all`.
 - Checkpoint snapshot implementation so evals will run on the snapshot of the
