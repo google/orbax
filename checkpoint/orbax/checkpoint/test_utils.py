@@ -41,6 +41,7 @@ from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.multihost import multislice
 from orbax.checkpoint.path import atomicity
 from orbax.checkpoint.path import step as step_lib
@@ -433,7 +434,7 @@ def set_tensorstore_driver_for_test():
   # Sets TS driver for testing. Within Google, this defaults to `gfile`, which
   # results in issues writing to the OCDBT manifest. When using `gfile` on the
   # local filesystem, write operations are not atomic.
-  serialization._DEFAULT_DRIVER = 'file'
+  ts_utils.DEFAULT_DRIVER = 'file'
 
 
 class PyTreeCheckpointHandler(

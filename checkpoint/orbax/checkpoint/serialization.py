@@ -32,13 +32,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import multihost
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
 
 
 TS_CONTEXT = ts.Context({'file_io_concurrency': {'limit': 128}})
 _REMOVED_VALUE = 'Value removed'
 _CHECKPOINT_SUCCESS = 'checkpoint_write_success'
-_DEFAULT_DRIVER = 'file'
 _REMOTE_URL_PREFIXES = ['gs://', 's3://']
 _REMOTE_DRIVER_VALIDATIONS = [
     {'driver': 'gcs', 'path_regex': None},
@@ -108,7 +108,7 @@ def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
     base_driver_spec = (
         base_path
         if is_gcs_path
-        else {'driver': _DEFAULT_DRIVER, 'path': base_path}
+        else {'driver': ts_utils.DEFAULT_DRIVER, 'path': base_path}
     )
     spec['kvstore'] = {
         'driver': 'ocdbt',
@@ -119,7 +119,7 @@ def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
     if is_gcs_path:
       spec['kvstore'] = _get_kvstore_for_gcs(ckpt_path)
     else:
-      spec['kvstore'] = {'driver': _DEFAULT_DRIVER, 'path': ckpt_path}
+      spec['kvstore'] = {'driver': ts_utils.DEFAULT_DRIVER, 'path': ckpt_path}
 
   return spec
 

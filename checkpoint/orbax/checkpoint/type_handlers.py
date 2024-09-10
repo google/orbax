@@ -21,7 +21,6 @@ import copy
 import dataclasses
 import functools
 import json
-import os
 import re
 import sys
 import threading
@@ -38,6 +37,7 @@ from orbax.checkpoint import future
 from orbax.checkpoint import multihost
 from orbax.checkpoint import serialization
 from orbax.checkpoint._src.arrays import subchunking
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.metadata import sharding as sharding_metadata
 from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import async_utils
@@ -70,18 +70,10 @@ RESTORE_TYPE_DICT = 'Dict'
 RESTORE_TYPE_LIST = 'List'
 RESTORE_TYPE_UNKNOWN = 'Unknown'
 
-_DEFAULT_DRIVER = 'file'
-_PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
-_OCDBT_PROCESS_ID_RE = r'[A-Za-z0-9]+'
 _SHARDING = '_sharding'
 _SHARDING_SUFFIX_RE = r'/\d+(\.\d+)*$'  # /0, /0.0, /1.0.1, etc.
 _ZARRAY_SUFFIX_RE = r'/\.zarray$'
 _ZARRAY_SUFFIX = '/.zarray'
-
-ZARR_VER2 = 'zarr'
-ZARR_VER3 = 'zarr3'
-
-_DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE = 2**31  # 2GB
 
 
 async def _assert_parameter_files_exist(
@@ -282,7 +274,7 @@ def _get_json_tspec(
   parent_dir = info.parent_dir
   assert parent_dir is not None
   directory = parent_dir.as_posix()
-  tspec: Dict[str, Any] = _get_tensorstore_spec(
+  tspec: Dict[str, Any] = ts_utils.get_tensorstore_spec(
       directory,
       name=info.name,
       use_ocdbt=use_ocdbt,
@@ -335,7 +327,7 @@ def get_json_tspec_write(
     ocdbt_target_data_file_size = info.ocdbt_target_data_file_size
     if ocdbt_target_data_file_size is None:
       # from https://google.github.io/tensorstore/kvstore/ocdbt/index.html
-      ocdbt_target_data_file_size = _DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE
+      ocdbt_target_data_file_size = ts_utils.DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE
     if ocdbt_target_data_file_size < 0:
       raise ValueError(
           'ocdbt_target_data_file_size must be >= 0 where 0 means no limit'
@@ -733,9 +725,9 @@ async def merge_ocdbt_per_process_files(
       performance impact.
   """
   open_ops = []
-  for process_dir in directory.glob(f'{_PROCESS_SUBDIR_PREFIX}*'):
+  for process_dir in directory.glob(f'{ts_utils.PROCESS_SUBDIR_PREFIX}*'):
     process_id = process_dir.name.split('_')[-1]
-    child_tspec = _get_tensorstore_spec(
+    child_tspec = ts_utils.get_tensorstore_spec(
         directory.as_posix(),
         use_ocdbt=True,
         process_id=process_id,
@@ -751,7 +743,9 @@ async def merge_ocdbt_per_process_files(
     )
     return
 
-  parent_tspec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
+  parent_tspec = ts_utils.get_tensorstore_spec(
+      directory.as_posix(), use_ocdbt=True
+  )
   _add_write_tspec_ocdbt_options(parent_tspec)
   open_ops.append(_open_kv_store(parent_tspec, ts_context))
 
@@ -768,7 +762,9 @@ async def merge_ocdbt_per_process_files(
 
   # Validate merged params.
   if enable_validation:
-    merged_ts_spec = _get_tensorstore_spec(directory.as_posix(), use_ocdbt=True)
+    merged_ts_spec = ts_utils.get_tensorstore_spec(
+        directory.as_posix(), use_ocdbt=True
+    )
     ts_kv_store = await _open_kv_store(merged_ts_spec, ts_context)
     await _validate_params(ts_kv_store, use_zarr3=use_zarr3)
 
@@ -782,18 +778,6 @@ async def _open_kv_store(
       context=ts_context,
   )
   return ts_kv_store
-
-
-def _get_kvstore_for_gcs(ckpt_path: str) -> Dict[str, Any]:
-  m = re.fullmatch('^gs://([^/]*)/(.*)$', ckpt_path, re.DOTALL)
-  if m is None:
-    raise ValueError(
-        'The ckpt_path should contain the bucket name and the '
-        f'file path inside the bucket. Got: {ckpt_path}'
-    )
-  gcs_bucket = m.group(1)
-  path_without_bucket = m.group(2)
-  return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
 
 
 def _get_metadata(
@@ -825,88 +809,6 @@ def _get_metadata(
       )
   )
   return metadata
-
-
-def _get_tensorstore_spec(
-    directory: str,
-    name: Optional[str] = None,
-    use_ocdbt: bool = True,
-    process_id: Optional[Union[int, str]] = None,
-    use_zarr3: Optional[bool] = False,
-    ocdbt_target_data_file_size: Optional[int] = None,
-) -> Dict[str, Any]:
-  """Constructs a Tensorstore spec.
-
-  Args:
-    directory: Parent directory where the parameter will be written.
-    name: Name of the parameter.
-    use_ocdbt: Whether to use OCDBT to write the array.
-    process_id: If provided, will write to a sub-directory named
-      `ocdbt.process_<process_id>`. If a string, must conform to [A-Za-z0-9]+
-      pattern.
-    use_zarr3: If True, use ZARR_VER3 driver, otherwise, use ZARR_VER2 driver.
-    ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
-      OCDBT data file.
-
-  Returns:
-    A ts.Spec in dictionary form.
-  """
-  default_driver = serialization._DEFAULT_DRIVER  # pylint: disable=protected-access
-  # Normalize path to exclude trailing '/'. In GCS path case, we will need to
-  # fix the path prefix to add back the stripped '/'.
-  directory = os.path.normpath(directory).replace('gs:/', 'gs://')
-  is_gcs_path = directory.startswith('gs://')
-  spec = {'driver': ZARR_VER3 if use_zarr3 else ZARR_VER2, 'kvstore': {}}
-
-  if use_ocdbt:
-    if not is_gcs_path and not os.path.isabs(directory):
-      raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
-    if process_id is not None:
-      process_id = str(process_id)
-      assert re.fullmatch(_OCDBT_PROCESS_ID_RE, process_id) is not None, (
-          f'process_id must conform to {_OCDBT_PROCESS_ID_RE} pattern'
-          f', got {process_id}'
-      )
-      directory = os.path.join(
-          directory, f'{_PROCESS_SUBDIR_PREFIX}{process_id}'
-      )
-    base_driver_spec = (
-        directory
-        if is_gcs_path
-        else {'driver': default_driver, 'path': str(directory)}
-    )
-    spec['kvstore'] = {
-        'driver': 'ocdbt',
-        'base': base_driver_spec,
-    }
-    if name is not None:
-      spec['kvstore']['path'] = name
-    spec.update(
-        {'recheck_cached_data': False, 'recheck_cached_metadata': False}
-    )
-    spec['kvstore'].update({  # pytype: disable=attribute-error
-        # Enable read coalescing.  This feature merges adjacent read_ops into
-        # one, which could reduce I/O ops by a factor of 10. This is especially
-        # beneficial for unstacked models.
-        'experimental_read_coalescing_threshold_bytes': 1000000,
-        'experimental_read_coalescing_merged_bytes': 500000000000,
-        'experimental_read_coalescing_interval': '1ms',
-        # References the cache specified in ts.Context.
-        'cache_pool': 'cache_pool#ocdbt',
-    })
-    if ocdbt_target_data_file_size:
-      spec['kvstore']['target_data_file_size'] = ocdbt_target_data_file_size
-  else:
-    if name is None:
-      ckpt_path = directory
-    else:
-      ckpt_path = os.path.join(directory, name)
-    if is_gcs_path:
-      spec['kvstore'] = _get_kvstore_for_gcs(ckpt_path)
-    else:
-      spec['kvstore'] = {'driver': default_driver, 'path': ckpt_path}
-
-  return spec
 
 
 def get_process_index_for_subdir(
@@ -1221,9 +1123,9 @@ class ScalarHandler(NumpyHandler):
 def get_sharding_tensorstore_spec(
     directory: str, param_name: str
 ) -> Dict[str, Any]:
-  kvstore = _get_tensorstore_spec(directory, name=_SHARDING, use_ocdbt=False)[
-      'kvstore'
-  ]
+  kvstore = ts_utils.get_tensorstore_spec(
+      directory, name=_SHARDING, use_ocdbt=False
+  )['kvstore']
   return {
       'driver': 'json',
       'kvstore': kvstore,
@@ -1908,7 +1810,9 @@ class StringHandler(TypeHandler):
     if info.path is None:
       raise ValueError('Must construct serialization path.')
     directory = (info.parent_dir / self._filename).as_posix()
-    tspec: Dict[str, Any] = _get_tensorstore_spec(directory, use_ocdbt=False)
+    tspec: Dict[str, Any] = ts_utils.get_tensorstore_spec(
+        directory, use_ocdbt=False
+    )
     tspec = {
         'driver': 'json',
         'kvstore': tspec['kvstore'],
