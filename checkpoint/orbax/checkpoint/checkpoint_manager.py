@@ -691,7 +691,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             multiprocessing_options=self._multiprocessing_options
         ),
         multiprocessing_options=self._options.multiprocessing_options,
-        path_permission_mode=self._options.file_options.path_permission_mode,
+        file_options=self._options.file_options,
         checkpoint_metadata_store=self._blocking_checkpoint_metadata_store,
         temporary_path_class=self._options.temporary_path_class,
     )
@@ -761,7 +761,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           handler,
           multiprocessing_options=options.multiprocessing_options,
           async_options=options.async_options or AsyncOptions(),
-          path_permission_mode=options.file_options.path_permission_mode,
+          file_options=options.file_options,
           checkpoint_metadata_store=self._non_blocking_checkpoint_metadata_store,
           temporary_path_class=options.temporary_path_class,
       )
@@ -769,7 +769,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       return Checkpointer(
           handler,
           multiprocessing_options=options.multiprocessing_options,
-          path_permission_mode=options.file_options.path_permission_mode,
+          file_options=options.file_options,
           checkpoint_metadata_store=self._blocking_checkpoint_metadata_store,
           temporary_path_class=options.temporary_path_class,
       )

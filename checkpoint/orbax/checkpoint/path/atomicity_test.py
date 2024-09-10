@@ -151,5 +151,6 @@ class CommitFileTemporaryPathTest(
     self.assertTrue(paths[1].exists())
 
 
+
 if __name__ == '__main__':
   absltest.main()

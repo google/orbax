@@ -104,7 +104,7 @@ class Checkpointer(
       handler: checkpoint_handler.CheckpointHandler,
       *,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
-      path_permission_mode: Optional[int] = None,
+      file_options: options_lib.FileOptions = options_lib.FileOptions(),
       checkpoint_metadata_store: Optional[
           checkpoint.CheckpointMetadataStore
       ] = None,
@@ -122,7 +122,7 @@ class Checkpointer(
     self._barrier_sync_key_prefix = (
         multiprocessing_options.barrier_sync_key_prefix
     )
-    self._path_permission_mode = path_permission_mode  # e.g. 0o750
+    self._file_options = file_options
     self._temporary_path_class = temporary_path_class
 
     # If not provided then use checkpoint_metadata_store with blocking writes.
@@ -153,9 +153,7 @@ class Checkpointer(
         directory,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
         multiprocessing_options=multiprocessing_options,
-        file_options=options_lib.FileOptions(
-            path_permission_mode=self._path_permission_mode
-        ),
+        file_options=self._file_options,
     )
     await atomicity.create_all(
         [tmpdir], multiprocessing_options=multiprocessing_options

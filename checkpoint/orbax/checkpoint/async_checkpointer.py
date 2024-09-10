@@ -265,7 +265,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       *,
       async_options: options_lib.AsyncOptions = options_lib.AsyncOptions(),
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
-      path_permission_mode: Optional[int] = None,
+      file_options: options_lib.FileOptions = options_lib.FileOptions(),
       checkpoint_metadata_store: Optional[
           checkpoint.CheckpointMetadataStore
       ] = None,
@@ -294,7 +294,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         else f'{multiprocessing_options.barrier_sync_key_prefix}.{unique_class_id}'
     )
     self._barrier_sync_key_prefix = barrier_sync_key_prefix
-    self._path_permission_mode = path_permission_mode  # e.g. 0o750
+    self._file_options = file_options
     self._checkpoint_metadata_store = (
         checkpoint_metadata_store
         or checkpoint.checkpoint_metadata_store(enable_write=True)

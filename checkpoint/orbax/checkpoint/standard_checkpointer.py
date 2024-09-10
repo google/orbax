@@ -61,7 +61,7 @@ class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
       *,
       async_options: options_lib.AsyncOptions = options_lib.AsyncOptions(),
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
-      path_permission_mode: Optional[int] = None,
+      file_options: options_lib.FileOptions = options_lib.FileOptions(),
       checkpoint_metadata_store: Optional[
           checkpoint.CheckpointMetadataStore
       ] = None,
@@ -73,7 +73,7 @@ class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
     Args:
       async_options: See superclass documentation.
       multiprocessing_options: See superclass documentation.
-      path_permission_mode: See superclass documentation.
+      file_options: See superclass documentation.
       checkpoint_metadata_store: See superclass documentation.
       temporary_path_class: See superclass documentation.
       **kwargs: Additional init args passed to StandardCHeckpointHandler. See
@@ -86,7 +86,7 @@ class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
         ),
         async_options=async_options,
         multiprocessing_options=multiprocessing_options,
-        path_permission_mode=path_permission_mode,
+        file_options=file_options,
         checkpoint_metadata_store=checkpoint_metadata_store,
         temporary_path_class=temporary_path_class,
     )
