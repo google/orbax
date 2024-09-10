@@ -97,13 +97,13 @@ async def _assert_parameter_files_exist(
 
 
 def is_supported_empty_aggregation_type(value: Any) -> bool:
-  """Determines if the *empty* value is supported for aggregation."""
+  """Determines if the *empty* `value` is supported without custom TypeHandler."""
   # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
   return isinstance(value, (dict, list, type(None))) and not value
 
 
 def is_supported_aggregation_type(value: Any) -> bool:
-  """Determines if the value is supported for aggregation."""
+  """Determines if the `value` is supported without custom TypeHandler."""
   return isinstance(
       value,
       (str, int, float, np.number, np.ndarray, bytes, jax.Array),
