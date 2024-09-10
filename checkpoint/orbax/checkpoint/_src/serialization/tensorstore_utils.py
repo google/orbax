@@ -18,8 +18,6 @@ import os
 import re
 from typing import Any, Optional, Union
 
-from absl import logging
-
 
 DEFAULT_DRIVER = 'file'
 
@@ -71,7 +69,6 @@ def get_tensorstore_spec(
     A ts.Spec in dictionary form.
   """
   default_driver = DEFAULT_DRIVER
-  logging.info('TS driver: %s', default_driver)
   # Normalize path to exclude trailing '/'. In GCS path case, we will need to
   # fix the path prefix to add back the stripped '/'.
   directory = os.path.normpath(directory).replace('gs:/', 'gs://')
