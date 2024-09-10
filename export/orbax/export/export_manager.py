@@ -15,16 +15,22 @@
 """Manage the exporting of a JAXModule."""
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Callable, Optional
+import enum
+from typing import Any, Callable, Dict, Optional
 
 from etils.epy import reraise_utils
 from orbax.export import config
-from orbax.export import dtensor_utils
 from orbax.export import jax_module
+from orbax.export import obm_export
+from orbax.export import serving_config as osc
+from orbax.export import tensorflow_export
 from orbax.export import utils
-from orbax.export.serving_config import ServingConfig
 import tensorflow as tf
-from tensorflow.experimental import dtensor
+
+
+class ExportModelType(enum.Enum):
+  TF_SAVEDMODEL = 'TF_SAVEDMODEL',
+  ORBAX_MODEL = 'ORBAX_MODEL',
 
 obx_export_config = config.config
 maybe_reraise = reraise_utils.maybe_reraise
@@ -36,7 +42,8 @@ class ExportManager:
   def __init__(
       self,
       module: jax_module.JaxModule,
-      serving_configs: Sequence[ServingConfig],
+      serving_configs: Sequence[osc.ServingConfig],
+      version: ExportModelType = ExportModelType.TF_SAVEDMODEL,
   ):
     """ExportManager constructor.
 
@@ -44,54 +51,24 @@ class ExportManager:
       module: the `JaxModule` to be exported.
       serving_configs: a sequence of which each element is a `ServingConfig`
         cooresponding to a serving signature of the exported SavedModel.
+      version: the version of the export format to use. Defaults to
+        TF_SAVEDMODEL.
     """
     # Creates a new tf.Module wrapping the JaxModule and extra trackable
     # resources.
     self._module = tf.Module()
     self._module.computation_module = module
     self._serving_signatures = {}
-    tf_trackable_resources = []
+    self.serialization_functions = tensorflow_export.TensorFlowExport()
+    if version == ExportModelType.ORBAX_MODEL:
+      self.serialization_functions = obm_export.ObmExport()
 
-    for sc in serving_configs:
-      with maybe_reraise(f'Failed exporting signature_key={sc.signature_key} '):
-        if obx_export_config.obx_export_tf_preprocess_only:  # pytype: disable=attribute-error
-          if not sc.tf_preprocessor:
-            raise ValueError(
-                'serving_config.tf_preprocessor must be provided when'
-                ' in `obx_export_tf_preprocess_only` mode.'
-            )
-
-          def tf_preprocessor(*inputs):
-            return tf.nest.flatten(sc.tf_preprocessor(*inputs))  # pylint: disable=cell-var-from-loop
-
-          preprocessor = utils.with_default_args(
-              tf_preprocessor, sc.get_input_signature()
-          )
-          inference_fn = preprocessor
-        else:
-          method = sc.get_infer_step(module.methods)
-          inference_fn = make_e2e_inference_fn(method, sc)
-        if isinstance(sc.signature_key, str):
-          keys = [sc.signature_key]
-        else:
-          keys = sc.signature_key
-        for key in keys:
-          if key in self._serving_signatures:
-            raise ValueError(
-                f'Duplicated key "{sc.signature_key}" in `serving_configs`.'
-            )
-          self._serving_signatures[key] = inference_fn
-
-        if sc.extra_trackable_resources is not None:
-          tf_trackable_resources.append(sc.extra_trackable_resources)
-
-      if len(serving_configs) == 1:
-        # Make this module callable. Once exported, it can be loaded back in
-        # python and the nested input structure will be preservered. In
-        # contrast, signatures will flatten the TensorSpecs of the to kwargs.
-        self.tf_module.__call__ = inference_fn
-
-    self._module.tf_trackable_resources = tf_trackable_resources
+    process_serving_configs(
+        serving_configs,
+        obx_export_config.obx_export_tf_preprocess_only,  # pytype: disable=attribute-error
+        self._module,
+        self._serving_signatures,
+    )
 
   @property
   def tf_module(self) -> tf.Module:
@@ -118,32 +95,25 @@ class ExportManager:
       signature_overrides: signatures to override the self-maintained ones, or
         additional signatures to export.
     """
-    save_options = save_options or tf.saved_model.SaveOptions()
-    save_options.experimental_custom_gradients = (
-        self._module.computation_module.with_gradient
-    )
-
-    serving_signatures = dict(self.serving_signatures)
+    serving_signatures = dict(self._serving_signatures)
     if signature_overrides:
       serving_signatures.update(signature_overrides)
 
-    tf.saved_model.save(
-        self.tf_module, model_path, serving_signatures, options=save_options
+    self.serialization_functions.save(
+        jax_module=self._module,
+        model_path=model_path,
+        save_options=save_options,
+        serving_signatures=serving_signatures,
     )
 
-    mesh = dtensor_utils.get_current_mesh()
-    if mesh:
-      # TODO(b/261191533): we can remove this once tf.saved_model.save is aware
-      # of SPMD saving.
-      dtensor.barrier(mesh.dtensor_mesh, 'export done')
-
   def load(self, model_path: str, **kwargs: Any):
-    loaded = tf.saved_model.load(model_path, **kwargs)
+    loaded = self.serialization_functions.load(model_path, **kwargs)
     return loaded
 
 
 def make_e2e_inference_fn(
-    model_fn: Callable[..., Any], serving_config: ServingConfig
+    model_fn: Callable[..., Any],
+    serving_config: osc.ServingConfig,
 ) -> Callable[..., Any]:
   """Creates an concrete end-to-end inference tf.function.
 
@@ -160,3 +130,73 @@ def make_e2e_inference_fn(
   return utils.with_default_args(
       infer_step_func_map[signature_key], serving_config.get_input_signature()
   )
+
+
+def process_serving_configs(
+    serving_configs: Sequence[osc.ServingConfig],
+    obx_export_tf_preprocess_only: bool,
+    module: tf.Module,
+    serving_signatures: Dict[str, Callable[..., Any]],
+):
+  """Processes the serving functions into their TF wrapped concrete functions.
+
+  The function will use the serving_configs and the methods defined in the
+  provided module to populate the serving_signatures map with the concrete
+  inference functions.
+
+  In addition, if trackable resources are provided in the serving_configs,
+  they will be added to the module's tf_trackable_resources property.
+
+  Args:
+    serving_configs: a sequence of which each element is a `ServingConfig`
+      cooresponding to a serving signature of the exported SavedModel.
+    obx_export_tf_preprocess_only: a boolean indicating whether to export only
+      the preprocessor.
+    module: A tf module  that will provide the method definitions. The module
+      should have a JaxModule set as a computation_module property.
+    serving_signatures: a map of signature keys to serving functions. This map
+      will be populated by this function.
+  """
+  tf_trackable_resources = []
+  for sc in serving_configs:
+    with maybe_reraise(f'Failed exporting signature_key={sc.signature_key} '):
+      if obx_export_tf_preprocess_only:
+        if not sc.tf_preprocessor:
+          raise ValueError(
+              'serving_config.tf_preprocessor must be provided when'
+              ' in `obx_export_tf_preprocess_only` mode.'
+          )
+
+        def tf_preprocessor(*inputs):
+          return tf.nest.flatten(sc.tf_preprocessor(*inputs))  # pylint: disable=cell-var-from-loop
+
+        preprocessor = utils.with_default_args(
+            tf_preprocessor, sc.get_input_signature()
+        )
+        inference_fn = preprocessor
+      else:
+        method = sc.get_infer_step(module.computation_module.methods)
+        inference_fn = make_e2e_inference_fn(method, sc)
+
+      if isinstance(sc.signature_key, str):
+        keys = [sc.signature_key]
+      else:
+        keys = sc.signature_key
+
+      for key in keys:
+        if key in serving_signatures:
+          raise ValueError(
+              f'Duplicated key "{sc.signature_key}" in `serving_configs`.'
+          )
+        serving_signatures[key] = inference_fn
+
+      if sc.extra_trackable_resources is not None:
+        tf_trackable_resources.append(sc.extra_trackable_resources)
+
+    if len(serving_configs) == 1:
+      # Make this module callable. Once exported, it can be loaded back in
+      # python and the nested input structure will be preservered. In
+      # contrast, signatures will flatten the TensorSpecs of the to kwargs.
+      module.__call__ = inference_fn
+
+  module.tf_trackable_resources = tf_trackable_resources

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `orbax_export.config_class` API to set global configs.
 - Add `orbax_export.typing` API
 - Require jax version >=0.4.30 as the jax.export API was introduced in this release.
+- Add version flag to export_manager.py and a stubbed class to handle each version.
 
 
 ## [0.0.4] - 2024-1-19
