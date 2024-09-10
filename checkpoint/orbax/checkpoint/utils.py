@@ -30,7 +30,6 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import step as step_lib
-from orbax.checkpoint.path import utils as path_utils
 
 
 TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
@@ -54,9 +53,6 @@ is_primary_host = multihost.is_primary_host
 async_makedirs = async_utils.async_makedirs
 async_write_bytes = async_utils.async_write_bytes
 async_exists = async_utils.async_exists
-lockdir = path_utils.lockdir
-is_locked = path_utils.is_locked
-are_locked = path_utils.are_locked
 
 is_gcs_path = step_lib.is_gcs_path
 checkpoint_steps = step_lib.checkpoint_steps

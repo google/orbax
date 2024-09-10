@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Support for `replica_axis_index = 0,1` in `broadcast_one_replica_to_all`.
+- Checkpoint snapshot implementation so evals will run on the snapshot of the
+ checkpoint instead of locking the current checkpoint.
 
 ### Fixed
 - Only allow main-thread to reset Save Finalize error.
