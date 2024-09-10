@@ -28,6 +28,7 @@ class DefaultSnapshotTest(absltest.TestCase):
   def __init__(self, *args, **kwargs):
     super(DefaultSnapshotTest, self).__init__(*args, **kwargs)
     self.source_dir = epath.Path(self.create_tempdir(name='source').full_path)
+    # self.source_dir = '/tmp/test/path/to/source/'
     os.makedirs(self.source_dir, exist_ok=True)
     with open(os.path.join(self.source_dir, 'data.txt'), 'w') as f:
       f.write('data')

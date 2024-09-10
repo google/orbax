@@ -25,14 +25,12 @@ import numpy as np
 from orbax.checkpoint import multihost
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
-from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step as step_lib
 
 
 PyTree = Any
 STANDARD_ARRAY_TYPES = (int, float, np.ndarray, jax.Array)
-_SNAPSHOTS = '_SNAPSHOTS'
 
 
 def _init_step_name_format(
@@ -46,47 +44,40 @@ def _init_step_name_format(
   )
 
 
-def get_snapshot_dir_from_step_dir(step_dir: epath.Path) -> epath.Path:
-  """Returns the snapshot directory from the step directory."""
-  snapshot_dir = step_dir.parent / _SNAPSHOTS
-  snapshot_dir.mkdir(parents=True, exist_ok=True)
-  new_path = snapshot_dir / step_dir.name
-  return new_path
-
-
-def _snapshot_checkpoint(
+def _lock_checkpoint(
     checkpoint_dir: epath.Path,
     step: int,
     step_name_format: step_lib.NameFormat[step_lib.Metadata],
 ) -> bool:
-  """Uses `Snapshot` class to create a cheap "copy" of the checkpoint."""
-  if multihost.process_index() == 0:
-    logging.info('Snpashotting step: %d.', step)
-    step_dir = step_name_format.find_step(checkpoint_dir, step).path
-    if not step_dir.exists():
-      raise ValueError(f'Step directory {step_dir} does not exist.')
-    snapshot_path = get_snapshot_dir_from_step_dir(step_dir)
-    if snapshot_path.exists():
-      return True
-    snapshot_impl = snapshot_lib.create_instance(str(snapshot_path))
-    dst_path = snapshot_impl.create_snapshot(str(step_dir), str(snapshot_path))
-    if str(snapshot_path) == dst_path:
-      return True
+  """Locks a checkpoint by writing a LOCKED directory."""
+  logging.info('Locking step: %d before gaining control.', step)
+  step_dir = step_name_format.find_step(checkpoint_dir, step).path
+  if not step_dir.exists():
+    raise ValueError(f'Step directory {step_dir} does not exist.')
+  lockdir = utils.lockdir(step_dir)
+  try:
+    lockdir.mkdir(parents=False, exist_ok=True)
+    return True
+  except FileNotFoundError as e:
+    logging.warning(
+        'Failed to lock step: %d due to: %s. This may be attributed to'
+        ' the checkpoint being cleaned up concurrently.',
+        step,
+        e,
+    )
     return False
 
 
-def _release_snapshot(
+def _unlock_checkpoint(
     checkpoint_dir: epath.Path,
     step: int,
     step_name_format: step_lib.NameFormat[step_lib.Metadata],
 ):
-  """Releases snapshot by deleting the snapshot of the checkpoint."""
+  """Removes a LOCKED directory to indicate unlocking."""
   if multihost.process_index() == 0:
-    logging.info('Releasing snapshot at step: %d.', step)
+    logging.info('Unlocking existing step: %d.', step)
     step_dir = step_name_format.find_step(checkpoint_dir, step).path
-    snapshot_path = get_snapshot_dir_from_step_dir(step_dir)
-    snapshot_impl = snapshot_lib.create_instance(str(snapshot_path))
-    snapshot_impl.release_snapshot(str(snapshot_path))
+    utils.lockdir(step_dir).unlink(missing_ok=True)
 
 
 def unlock_existing_checkpoints(
@@ -113,7 +104,9 @@ def unlock_existing_checkpoints(
       step_format_fixed_length=step_format_fixed_length,
   )
   for step in steps:
-    _release_snapshot(checkpoint_dir, step, step_name_format)
+    step_dir = step_name_format.find_step(checkpoint_dir, step).path
+    if utils.is_locked(step_dir):
+      _unlock_checkpoint(checkpoint_dir, step, step_name_format)
 
 
 def _reached_desired_step(step: int, until_step: Optional[int]) -> bool:
@@ -167,7 +160,7 @@ def _wait_for_new_checkpoint(
       steps = utils.checkpoint_steps(checkpoint_dir)
       checkpoint_step = max(steps) if steps else None
       if _reached_desired_step(checkpoint_step, until_step):
-        if not _snapshot_checkpoint(
+        if not _lock_checkpoint(
             checkpoint_dir, checkpoint_step, step_name_format
         ):
           continue
@@ -203,8 +196,8 @@ def wait_for_new_checkpoint(
 ):
   """Waits until a new checkpoint file is found.
 
-  Automatically snapshots any checkpoint that is returned, and releases the
-  snapshot of the checkpoint when execution returns to this function.
+  Automatically locks any checkpoint that is returned, and unlocks the
+  checkpoint when execution returns to this function.
 
   Args:
     checkpoint_dir: The directory in which checkpoints are saved.
@@ -244,12 +237,10 @@ def wait_for_new_checkpoint(
   try:
     yield step
   finally:
-    # Release snapshot on the checkpoint step.
+    # Release lock on the checkpoint step.
     if step != -1:
-      logging.info(
-          'Releasing snapshot for step: %d after releasing control.', step
-      )
-      _release_snapshot(checkpoint_dir, step, step_name_format)
+      logging.info('Unlocking step: %d after releasing control.', step)
+      _unlock_checkpoint(checkpoint_dir, step, step_name_format)
 
 
 def checkpoints_iterator(
@@ -329,11 +320,16 @@ def checkpoints_iterator(
       step_prefix=step_prefix,
       step_format_fixed_length=step_format_fixed_length,
   )
-  snapshot_impl = snapshot_lib.create_instance(str(checkpoint_dir))
-  snapshot_dir = checkpoint_dir / _SNAPSHOTS
-  if snapshot_dir.exists():
-    for step_dir in snapshot_dir.iterdir():
-      snapshot_impl.release_snapshot(str(step_dir))
+  try:
+    unlock_existing_checkpoints(
+        checkpoint_dir, step_name_format=step_name_format
+    )
+  except FileNotFoundError as e:
+    logging.warning(
+        'Encountered error while unlocking existing checkpoints. Some'
+        ' checkpoints may still be locked. %s.',
+        e,
+    )
   checkpoint_step = None
   while True:
     until_step = checkpoint_step + 1 if checkpoint_step is not None else None

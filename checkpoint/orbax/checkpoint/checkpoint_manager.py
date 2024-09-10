@@ -1556,6 +1556,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         len(self._checkpoints),
     )
 
+    # Exclude the latest checkpoint, since it is not finalized.
+    are_locked = utils.are_locked(
+        self.directory,
+        steps=tuple([info.step for info in self._checkpoints[:-1]]),
+        step_name_format=self._step_name_format,
+    )
+    self._checkpoints[:-1] = [
+        dataclasses.replace(info, is_locked=is_locked)
+        for info, is_locked in zip(self._checkpoints[:-1], are_locked)
+    ]
+
     if self._track_best:
       # Best steps (to keep) are at the end, after sorting.
       (
