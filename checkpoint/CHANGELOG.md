@@ -69,7 +69,7 @@ into the background.
 - Consolidate usages of `MultiprocessingOptions` and `AsyncOptions`.
 - Formalize `StandardCheckpointer` as an `AsyncCheckpointer` that doesn't
 require a `CheckpointArgs` object, and instead allows directly passing the
-state and extra args.
+state and extra args (breaking change).
 - Add log messages to improve debugging with jax process and threads.
 - Improve logging to turn on DEBUG log per source file.
 - Update bytes/sec metrics to be per-host.
