@@ -37,6 +37,7 @@ from orbax.checkpoint import future
 from orbax.checkpoint import multihost
 from orbax.checkpoint import serialization
 from orbax.checkpoint._src.arrays import subchunking
+from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.metadata import sharding as sharding_metadata
 from orbax.checkpoint.metadata import value as value_metadata
@@ -45,6 +46,7 @@ from orbax.checkpoint.path import format_utils
 import tensorstore as ts
 
 
+Shape = types.Shape
 Scalar = Union[int, float, np.number]
 Metadata = value_metadata.Metadata
 NamedSharding = jax.sharding.NamedSharding
@@ -210,28 +212,16 @@ class SaveArgs:
     If provided, casts the parameter to the given dtype before saving.
     Note that the parameter must be compatible with the given type (e.g.
     jnp.bfloat16 is not compatible with np.ndarray).
-  write_chunk_shape:
-    This only applies to Zarr version 3.  This specifies the shape of a shard
-    used in writing.  The default(None) is set to equal to the array shard size,
-    so there are equal number of write chunks and shards. The write_chunk_shape
-    needs to be a divisor of the array shape.
-  read_chunk_shape:
-    This only applies to Zarr version 3.  This specifies the chunk sizes within
-    a write chunk. Default is set to equal to the write_chunk_shape. The
-    read_chunk_shape is required to be a divisor of the write_chunk_shape.
   chunk_byte_size:
     This is an experimental feature that automatically chooses the largest chunk
     shape possible, while keeping the chunk byte size less than or equal to the
     specified chunk_byte_size. Both the write_chunk_shape and read_chunk_shape
     are automatically set to the chosen shape. This uses a greedy algorithm that
-    prioritizes splitting the largest dimensions first. In order to enable this
-    feature, both write_chunk_shape and read_chunk_shape must be set to None.
+    prioritizes splitting the largest dimensions first.
   """
 
   aggregate: bool = False
   dtype: Optional[jnp.dtype] = None
-  write_chunk_shape: Optional[tuple[int, ...]] = None
-  read_chunk_shape: Optional[tuple[int, ...]] = None
   chunk_byte_size: Optional[int] = None
 
   def __post_init__(self):
@@ -361,8 +351,6 @@ def get_json_tspec_write(
           shard_shape=local_shape,
           dtype=dtype,
           use_zarr3=info.use_zarr3,
-          write_chunk_shape=arg.write_chunk_shape if arg else None,
-          read_chunk_shape=arg.read_chunk_shape if arg else None,
           chunk_byte_size=chunk_byte_size,
       )
   )
@@ -372,95 +360,65 @@ def get_json_tspec_write(
 
 
 def _build_ts_zarr_shard_and_chunk_metadata(
-    global_shape: tuple[int, ...],
-    shard_shape: tuple[int, ...],
+    *,
+    global_shape: Shape,
+    shard_shape: Shape,
     use_zarr3: bool,
     dtype: Union[jnp.dtype, np.dtype],
-    write_chunk_shape: Optional[tuple[int, ...]] = None,
-    read_chunk_shape: Optional[tuple[int, ...]] = None,
     chunk_byte_size: Optional[int] = None,
-) -> Dict[Any, Any]:
+) -> ts_utils.JsonSpec:
   """This function returns the TS metadata for write spec."""
-
-  if (write_chunk_shape or read_chunk_shape) and not use_zarr3:
+  # TODO: b/354139177 - This check is too generous; the minimally viable chunk
+  # size should be set to something within the range of [4 KiB; 1 MiB] (from
+  # TensorStore and storage performance considerations).
+  if chunk_byte_size is not None and chunk_byte_size < dtype.itemsize:
     raise ValueError(
-        'Zarr3 is not enabled when `write_chunk_shape`, `read_chunk_shape`'
-        ' is specified.'
+        f'chunk_byte_size={chunk_byte_size} must be >= {dtype.itemsize}'
     )
 
   metadata = {}
 
   if not use_zarr3:
-    # Zarr ver2
+    # Zarr v2.
     if chunk_byte_size is not None:
       metadata['chunks'] = subchunking.choose_chunk_shape(
           global_shape, shard_shape, dtype, chunk_byte_size
       )
+      # TODO: b/354139177 - Log this in both v2 and v3 and include the
+      # corresponding tree path.
       logging.info('Chose a chunk shape equal to: %s', str(metadata['chunks']))
     else:
       metadata['chunks'] = np.array(np.maximum(1, shard_shape))
     metadata['compressor'] = {'id': 'zstd'}
   else:
-    # Zarr ver3
-    # Shard configs{
+    # Zarr v3.
 
-    # choose write_chunk_shape and read_chunk_shape that result a chunk byte
-    # size equal or less than the `chunk_byte_size`
-    if chunk_byte_size:
-      if write_chunk_shape is None and read_chunk_shape is None:
-        if chunk_byte_size < dtype.itemsize:
-          raise ValueError(
-              f'chunk_byte_size={chunk_byte_size} must be >= {dtype.itemsize}'
-          )
-        write_chunk_shape = read_chunk_shape = subchunking.choose_chunk_shape(
-            global_shape, shard_shape, dtype, chunk_byte_size
-        )
-      else:
-        logging.warning(
-            '`chunk_byte_size` is ignored because `write_chunk_shape` or'
-            ' `read_chunk_shape` is not None.'
-        )
-
-    # If `write_chunk_shape` is not specified, make it the same as Jax sharding
-    if write_chunk_shape:
-      if not subchunking.validate_divisible_shapes(
-          shard_shape, write_chunk_shape
-      ):
-        raise ValueError(
-            f'write_chunk_shape={write_chunk_shape} is not a divisor of'
-            f' shard_shape={shard_shape}'
-        )
-      write_shape = write_chunk_shape
+    # Choose write and read chunk shape that gives chunk byte size equal or less
+    # than the `chunk_byte_size`.
+    if chunk_byte_size is not None:
+      chunk_shape = subchunking.choose_chunk_shape(
+          global_shape, shard_shape, dtype, chunk_byte_size
+      )
     else:
-      write_shape = shard_shape
+      # If chunk byte size is not specified, set the chunk shape to be the same
+      # as the shard shape.
+      chunk_shape = shard_shape
 
     metadata['chunk_grid'] = {
         'name': 'regular',
         'configuration': {
-            'chunk_shape': write_shape,
+            'chunk_shape': chunk_shape,
         },
     }
 
-    # Sub-chunk configs
-    # If `read_chunk_shape` is not specified, make it the same as
-    # `write_shape`
-    if read_chunk_shape:
-      if not subchunking.validate_divisible_shapes(
-          write_shape, read_chunk_shape
-      ):
-        raise ValueError(
-            f'read_chunk_shape={read_chunk_shape} is not a divisor of'
-            f' write_chunk_shape={write_shape}'
-        )
-      read_shape = read_chunk_shape
-    else:
-      read_shape = shard_shape
+    # TODO: b/354139177 - Consider if using write shape equal to shard shape and
+    # read shape equal to chosen chunk shape would be a better setting.
 
     metadata['codecs'] = [
         {
             'name': 'sharding_indexed',
             'configuration': {
-                'chunk_shape': read_shape,
+                'chunk_shape': chunk_shape,
                 'codecs': [
                     {'name': 'bytes', 'configuration': {'endian': 'little'}},
                     {'name': 'zstd'},

@@ -65,22 +65,13 @@ class SingleHostTest(parameterized.TestCase):
     np.testing.assert_array_equal(x, restored_tree['x'])
     assert isinstance(restored_tree['x'], jax.Array)
 
-  def test_save_and_restore_zarrv3_jax_array_custom_chunk_size(self):
+  def test_save_and_restore_zarrv3_jax_array_default_chunk_size(self):
     handler = PyTreeCheckpointHandler(use_zarr3=True)
     key = jax.random.PRNGKey(0)
-    x = jax.random.normal(key, (10,))
+    array_shape = (10, 7)
+    x = jax.random.normal(key, array_shape)
     pytree = {'x': x}
-    write_chunk_shape = (2,)
-    read_chunk_shape = (1,)
-
-    save_args = jax.tree.map(
-        lambda x: type_handlers.SaveArgs(
-            write_chunk_shape=write_chunk_shape,
-            read_chunk_shape=read_chunk_shape,
-        ),
-        pytree,
-    )
-    handler.save(self.ckpt_dir, pytree, save_args=save_args)
+    handler.save(self.ckpt_dir, pytree)
 
     # validate the stored array is in the chunk_layout specified
     tsstore = ts.open({
@@ -93,10 +84,10 @@ class SingleHostTest(parameterized.TestCase):
     }).result()
 
     np.testing.assert_array_equal(
-        tsstore.chunk_layout.read_chunk.shape, read_chunk_shape
+        tsstore.chunk_layout.read_chunk.shape, array_shape
     )
     np.testing.assert_array_equal(
-        tsstore.chunk_layout.write_chunk.shape, write_chunk_shape
+        tsstore.chunk_layout.write_chunk.shape, array_shape
     )
 
     # validate the restored_tree is identical as the written one
@@ -120,29 +111,7 @@ class SingleHostTest(parameterized.TestCase):
     np.testing.assert_array_equal(x, restored_tree['x'])
     self.assertIsInstance(restored_tree['x'], jax.Array)
 
-  @parameterized.parameters([
-      ((3,), None),
-      (None, (3,)),
-      ((5,), (2,)),
-  ])
-  def test_save_zarrv3_jax_array_with_invalid_write_or_read_chunk_sizes(
-      self, write_chunk_shape, read_chunk_shape
-  ):
-    handler = PyTreeCheckpointHandler(use_zarr3=True)
-    key = jax.random.PRNGKey(0)
-    x = jax.random.normal(key, (10,))
-    pytree = {'x': x}
-
-    save_args = jax.tree.map(
-        lambda x: type_handlers.SaveArgs(
-            write_chunk_shape=write_chunk_shape,
-            read_chunk_shape=read_chunk_shape,
-        ),
-        pytree,
-    )
-    with self.assertRaises(ValueError):
-      handler.save(self.ckpt_dir, pytree, save_args=save_args)
-
+  # TODO: b/354139177 - Add a test for invalid chunk_byte_size values.
   def test_chunk_byte_size(self):
     handler = PyTreeCheckpointHandler(use_zarr3=True)
     key = jax.random.PRNGKey(0)
