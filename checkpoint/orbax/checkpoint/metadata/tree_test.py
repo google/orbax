@@ -336,9 +336,7 @@ class TreeMetadataTest(parameterized.TestCase):
                       {'key': 'no_attribute_chex_dataclass', 'key_type': 2},
                   ),
                   'value_metadata': {
-                      'value_type': (
-                          'None'
-                      ),  # TODO: b/363367296 - Should be Dict.
+                      'value_type': 'Dict',
                       'skip_deserialize': True,
                   },
               },
@@ -553,7 +551,7 @@ class TreeMetadataTest(parameterized.TestCase):
                       {'key': 'nested_empty_data_class', 'key_type': 2},
                   ),
                   'value_metadata': {
-                      'value_type': 'None',
+                      'value_type': 'Dict',
                       'skip_deserialize': True,
                   },
               },

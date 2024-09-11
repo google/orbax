@@ -25,7 +25,7 @@ import re
 import sys
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Set, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Set, Tuple, Union, cast
 import warnings
 
 from absl import logging
@@ -69,6 +69,7 @@ RESTORE_TYPE_NONE = 'None'
 RESTORE_TYPE_DICT = 'Dict'
 RESTORE_TYPE_LIST = 'List'
 RESTORE_TYPE_UNKNOWN = 'Unknown'
+# TODO: b/365169723 - Handle tuple/NamedTuple restore types.
 
 _SHARDING = '_sharding'
 _SHARDING_SUFFIX_RE = r'/\d+(\.\d+)*$'  # /0, /0.0, /1.0.1, etc.
@@ -99,7 +100,7 @@ async def _assert_parameter_files_exist(
 def is_supported_empty_aggregation_type(value: Any) -> bool:
   """Determines if the *empty* `value` is supported without custom TypeHandler."""
   # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
-  return isinstance(value, (dict, list, type(None))) and not value
+  return isinstance(value, (dict, list, type(None), Mapping)) and not value
 
 
 def is_supported_aggregation_type(value: Any) -> bool:
@@ -110,14 +111,15 @@ def is_supported_aggregation_type(value: Any) -> bool:
   ) or is_supported_empty_aggregation_type(value)
 
 
+# TODO: b/365169723 - Handle tuple/NamedTuple empty val in following 3 methods.
 def get_empty_value_typestr(value: Any) -> str:
   if not is_supported_empty_aggregation_type(value):
     raise ValueError(f'{value} is not a supported empty aggregation type.')
   if isinstance(value, list):
     return RESTORE_TYPE_LIST
-  elif isinstance(value, dict):
+  elif isinstance(value, (dict, Mapping)):
     return RESTORE_TYPE_DICT
-  elif isinstance(value, type(None)):
+  elif value is None:
     return RESTORE_TYPE_NONE
   else:
     raise ValueError(f'Unrecognized empty type: {value}.')
