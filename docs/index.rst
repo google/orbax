@@ -70,18 +70,18 @@ Install from GitHub using the following.
    :maxdepth: 1
    :caption: Checkpointing
 
-   orbax_checkpoint_announcements
-   orbax_checkpoint_101
-   orbax_checkpoint_api_overview
-   api_refactor
-   checkpointing_pytrees
-   checkpoint_format
-   optimized_checkpointing
-   custom_handlers
-   transformations
-   preemption_checkpointing
-   async_checkpointing
-   debug_guide
+   guides/checkpoint/orbax_checkpoint_announcements
+   guides/checkpoint/orbax_checkpoint_101
+   guides/checkpoint/orbax_checkpoint_api_overview
+   guides/checkpoint/api_refactor
+   guides/checkpoint/checkpointing_pytrees
+   guides/checkpoint/checkpoint_format
+   guides/checkpoint/optimized_checkpointing
+   guides/checkpoint/custom_handlers
+   guides/checkpoint/transformations
+   guides/checkpoint/preemption_checkpointing
+   guides/checkpoint/async_checkpointing
+   guides/checkpoint/debug_guide
    api_reference/checkpoint
 
 .. toctree::
@@ -89,7 +89,7 @@ Install from GitHub using the following.
    :maxdepth: 1
    :caption: Exporting
 
-   orbax_export_101
+   guides/export/orbax_export_101
    api_reference/export
 
 
@@ -102,84 +102,84 @@ Checkpointing
 
       .. card:: Announcements
          :class-card: sd-text-black sd-bg-warning
-         :link: orbax_checkpoint_announcements.html
+         :link: guides/checkpoint/orbax_checkpoint_announcements.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Getting Started
          :class-card: sd-text-black sd-bg-light
-         :link: orbax_checkpoint_101.html
+         :link: guides/checkpoint/orbax_checkpoint_101.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: API Overview
          :class-card: sd-text-black sd-bg-light
-         :link: orbax_checkpoint_api_overview.html
+         :link: guides/checkpoint/orbax_checkpoint_api_overview.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: API Refactor
          :class-card: sd-text-black sd-bg-light
-         :link: api_refactor.html
+         :link: guides/checkpoint/api_refactor.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Checkpointing PyTrees of Arrays
          :class-card: sd-text-black sd-bg-light
-         :link: checkpointing_pytrees.html
+         :link: guides/checkpoint/checkpointing_pytrees.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Checkpoint Format Guide
          :class-card: sd-text-black sd-bg-light
-         :link: checkpoint_format.html
+         :link: guides/checkpoint/checkpoint_format.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Optimized Checkpointing
          :class-card: sd-text-black sd-bg-light
-         :link: optimized_checkpointing.html
+         :link: guides/checkpoint/optimized_checkpointing.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Custom Handlers
          :class-card: sd-text-black sd-bg-light
-         :link: custom_handlers.html
+         :link: guides/checkpoint/custom_handlers.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Transformations
          :class-card: sd-text-black sd-bg-light
-         :link: transformations.html
+         :link: guides/checkpoint/transformations.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Preemption Tolerance
          :class-card: sd-text-black sd-bg-light
-         :link: preemption_checkpointing.html
+         :link: guides/checkpoint/preemption_checkpointing.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Async Checkpointing
          :class-card: sd-text-black sd-bg-light
-         :link: async_checkpointing.html
+         :link: guides/checkpoint/async_checkpointing.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Debug Guide
          :class-card: sd-text-black sd-bg-light
-         :link: debug_guide.html
+         :link: guides/checkpoint/debug_guide.html
 
    .. grid-item::
       :columns: 6 6 6 4
@@ -198,7 +198,7 @@ Exporting
 
       .. card:: Getting Started
          :class-card: sd-text-black sd-bg-light
-         :link: orbax_export_101.html
+         :link: guides/export/orbax_export_101.html
 
    .. grid-item::
       :columns: 6 6 6 4
