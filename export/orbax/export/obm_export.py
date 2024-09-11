@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Export class that implements the save and load abstract class defined in Export Base for use with the Orbax Model export format."""
+
 from typing import Any
 
 from absl import logging
@@ -38,12 +39,12 @@ class ObmExport(export_base.ExportBase):
         arguments are `save_options` and `serving_signatures`.
     """
 
-     # TODO(b/363061755): Implment the ObmExport.save method.
+    # TODO: b/363061755 - Implment the ObmExport.save method.
     logging.info("Exporting model using Orbax Export Model.")
     raise NotImplementedError("ObmExport.save not implemented yet.")
 
   def load(self, model_path: str, **kwargs: Any):
     """Loads the model previously saved in the Orbax Model export format."""
-    # TODO(b/363061755): Implment the ObmExport.load method.
+    # TODO: b/363061755 - Implment the ObmExport.load method.
     logging.info("Loading model using Orbax Export Model.")
     raise NotImplementedError("ObmExport.load not implemented yet.")
