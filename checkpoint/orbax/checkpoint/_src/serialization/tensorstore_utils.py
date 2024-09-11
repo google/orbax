@@ -16,7 +16,7 @@
 
 import os
 import re
-from typing import Any, Optional, Union
+from typing import  Any, Optional, Union
 
 
 DEFAULT_DRIVER = 'file'
@@ -31,7 +31,10 @@ ZARR_VER3 = 'zarr3'
 _GCS_PATH_RE = r'^gs://([^/]*)/(.*)$'
 
 
-def _get_kvstore_for_gcs(ckpt_path: str) -> dict[str, Any]:
+JsonSpec = dict[str, Any]
+
+
+def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
   m = re.fullmatch(_GCS_PATH_RE, ckpt_path, re.DOTALL)
   if m is None:
     raise ValueError(
@@ -51,7 +54,7 @@ def get_tensorstore_spec(
     process_id: Optional[Union[int, str]] = None,
     use_zarr3: Optional[bool] = False,
     ocdbt_target_data_file_size: Optional[int] = None,
-) -> dict[str, Any]:
+) -> JsonSpec:
   """Constructs a Tensorstore spec.
 
   Args:
@@ -112,6 +115,8 @@ def get_tensorstore_spec(
         # References the cache specified in ts.Context.
         'cache_pool': 'cache_pool#ocdbt',
     })
+    # TODO: b/354139177 - double-check this option and its default value are
+    # taking effect as expected.
     if ocdbt_target_data_file_size:
       spec['kvstore']['target_data_file_size'] = ocdbt_target_data_file_size
   else:
@@ -125,3 +130,21 @@ def get_tensorstore_spec(
       spec['kvstore'] = {'driver': default_driver, 'path': path}
 
   return spec
+
+
+def add_ocdbt_write_options(tspec: JsonSpec) -> None:
+  """Adds additional write-specific OCDBT options to a TensorStore spec."""
+  tspec['kvstore']['config'] = {
+      # Store .zarray metadata inline but not large chunks.
+      'max_inline_value_bytes': 1024,
+      # Large value allows a single root node to support faster traversal.
+      'max_decoded_node_bytes': 100000000,
+      # There won't be any concurrent writes by multiple machines to the same
+      # OCDBT database.  Therefore, we can use the simpler and more efficient
+      # single-file manifest format in all cases.
+      'manifest_kind': 'single',
+  }
+  # assume_config avoids writing an initial empty manifest to ensure a
+  # consistent configuration, since Orbax never writes to the same OCDBT
+  # database concurrently from multiple processes.
+  tspec['kvstore'].update(assume_config=True)

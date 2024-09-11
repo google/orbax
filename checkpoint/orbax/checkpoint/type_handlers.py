@@ -357,7 +357,7 @@ def get_json_tspec_write(
       )
   )
   if use_ocdbt:
-    tspec = _add_write_tspec_ocdbt_options(tspec)
+    ts_utils.add_ocdbt_write_options(tspec)
   return tspec
 
 
@@ -748,7 +748,7 @@ async def merge_ocdbt_per_process_files(
   parent_tspec = ts_utils.get_tensorstore_spec(
       directory.as_posix(), use_ocdbt=True
   )
-  _add_write_tspec_ocdbt_options(parent_tspec)
+  ts_utils.add_ocdbt_write_options(parent_tspec)
   open_ops.append(_open_kv_store(parent_tspec, ts_context))
 
   opened = await asyncio.gather(*open_ops)
@@ -853,25 +853,6 @@ def get_cast_tspec_deserialize(tspec, args):
         'driver': 'cast',
         'dtype': jnp.dtype(args.dtype).name,
     }
-  return tspec
-
-
-def _add_write_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
-  """Adds additional OCDBT options used when writing."""
-  tspec['kvstore']['config'] = {
-      # Store .zarray metadata inline but not large chunks.
-      'max_inline_value_bytes': 1024,
-      # Large value allows a single root node to support faster traversal.
-      'max_decoded_node_bytes': 100000000,
-      # There won't be any concurrent writes by multiple machines to the same
-      # OCDBT database.  Therefore, we can use the simpler and more efficient
-      # single-file manifest format in all cases.
-      'manifest_kind': 'single',
-  }
-  # assume_config avoids writing an initial empty manifest to ensure a
-  # consistent configuration, since Orbax never writes to the same OCDBT
-  # database concurrently from multiple processes.
-  tspec['kvstore'].update(assume_config=True)
   return tspec
 
 
