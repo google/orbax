@@ -782,37 +782,6 @@ async def _open_kv_store(
   return ts_kv_store
 
 
-def _get_metadata(
-    arr,
-    use_zarr3,
-    write_chunk_shape,
-    read_chunk_shape,
-    chunk_byte_size,
-):
-  """build metadata for a Tensorstore array."""
-  if arr.dtype == jnp.bfloat16:
-    # Tensorstore uses 'bfloat16', not '<V2'.
-    dtype = 'bfloat16'
-  else:
-    dtype = np.dtype(arr.dtype).str
-  metadata = {
-      'shape': arr.shape,
-      'dtype': dtype,
-  }
-  metadata.update(
-      _build_ts_zarr_shard_and_chunk_metadata(
-          global_shape=arr.shape,
-          shard_shape=arr.sharding.shard_shape(arr.shape),
-          dtype=arr.dtype,
-          use_zarr3=use_zarr3,
-          write_chunk_shape=write_chunk_shape,
-          read_chunk_shape=read_chunk_shape,
-          chunk_byte_size=chunk_byte_size,
-      )
-  )
-  return metadata
-
-
 def get_process_index_for_subdir(
     use_ocdbt: bool,
     override_ocdbt_process_id: Optional[str] = None,
