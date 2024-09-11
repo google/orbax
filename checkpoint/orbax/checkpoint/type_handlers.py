@@ -276,19 +276,27 @@ def _get_json_tspec(
   parent_dir = info.parent_dir
   assert parent_dir is not None
   directory = parent_dir.as_posix()
-  tspec: Dict[str, Any] = ts_utils.get_tensorstore_spec(
+  kvstore_tspec = ts_utils.build_kvstore_tspec(
       directory,
       name=info.name,
       use_ocdbt=use_ocdbt,
       process_id=process_index,
-      use_zarr3=info.use_zarr3,
       ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
   )
+
+  tspec = {
+      'driver': ts_utils.ZARR_VER3 if info.use_zarr3 else ts_utils.ZARR_VER2,
+      'kvstore': kvstore_tspec,
+      'recheck_cached_data': False,
+      'recheck_cached_metadata': False,
+  }
   if metadata_key is not None:
     tspec['metadata_key'] = metadata_key
   return tspec
 
 
+# TODO: b/354139177 - Rename this to `build_array_tspec_read`.
+# Keep the existing name for backward compatibility but mark as deprecated.
 def get_json_tspec_read(
     info: ParamInfo,
     use_ocdbt: bool,
@@ -302,6 +310,8 @@ def get_json_tspec_read(
   )
 
 
+# TODO: b/354139177 - Rename this to `build_array_tspec_write`.
+# Keep the existing name for backward compatibility but mark as deprecated.
 def get_json_tspec_write(
     info: ParamInfo,
     use_ocdbt: bool,
@@ -357,7 +367,7 @@ def get_json_tspec_write(
       )
   )
   if use_ocdbt:
-    ts_utils.add_ocdbt_write_options(tspec)
+    ts_utils.add_ocdbt_write_options(tspec['kvstore'])
   return tspec
 
 
@@ -729,12 +739,12 @@ async def merge_ocdbt_per_process_files(
   open_ops = []
   for process_dir in directory.glob(f'{ts_utils.PROCESS_SUBDIR_PREFIX}*'):
     process_id = process_dir.name.split('_')[-1]
-    child_tspec = ts_utils.get_tensorstore_spec(
+    child_kvstore_tspec = ts_utils.build_kvstore_tspec(
         directory.as_posix(),
         use_ocdbt=True,
         process_id=process_id,
     )
-    open_ops.append(_open_kv_store(child_tspec, ts_context))
+    open_ops.append(_open_kv_store(child_kvstore_tspec, ts_context))
   if not open_ops:  # No per-process OCDBT checkpoint found!
     logging.warning(
         '[process=%s][thread=%s] Skipping merge of OCDBT checkpoints: No'
@@ -745,11 +755,11 @@ async def merge_ocdbt_per_process_files(
     )
     return
 
-  parent_tspec = ts_utils.get_tensorstore_spec(
+  parent_kvstore_tspec = ts_utils.build_kvstore_tspec(
       directory.as_posix(), use_ocdbt=True
   )
-  ts_utils.add_ocdbt_write_options(parent_tspec)
-  open_ops.append(_open_kv_store(parent_tspec, ts_context))
+  ts_utils.add_ocdbt_write_options(parent_kvstore_tspec)
+  open_ops.append(_open_kv_store(parent_kvstore_tspec, ts_context))
 
   opened = await asyncio.gather(*open_ops)
   parent, children = opened[-1], opened[:-1]
@@ -764,22 +774,21 @@ async def merge_ocdbt_per_process_files(
 
   # Validate merged params.
   if enable_validation:
-    merged_ts_spec = ts_utils.get_tensorstore_spec(
+    merged_kvstore_tspec = ts_utils.build_kvstore_tspec(
         directory.as_posix(), use_ocdbt=True
     )
-    ts_kv_store = await _open_kv_store(merged_ts_spec, ts_context)
+    ts_kv_store = await _open_kv_store(merged_kvstore_tspec, ts_context)
     await _validate_params(ts_kv_store, use_zarr3=use_zarr3)
 
 
 async def _open_kv_store(
-    ts_spec: dict[str, Any], ts_context: ts.Context
+    kvstore_tspec: ts_utils.JsonSpec,
+    ts_context: ts.Context,
 ) -> ts.KvStore:
-  ts_spec = ts_spec['kvstore']
-  ts_kv_store = await ts.KvStore.open(
-      ts.KvStore.Spec(ts_spec),
+  return await ts.KvStore.open(
+      ts.KvStore.Spec(kvstore_tspec),
       context=ts_context,
   )
-  return ts_kv_store
 
 
 def get_process_index_for_subdir(
@@ -1075,12 +1084,12 @@ class ScalarHandler(NumpyHandler):
 def get_sharding_tensorstore_spec(
     directory: str, param_name: str
 ) -> Dict[str, Any]:
-  kvstore = ts_utils.get_tensorstore_spec(
+  kvstore_tspec = ts_utils.build_kvstore_tspec(
       directory, name=_SHARDING, use_ocdbt=False
-  )['kvstore']
+  )
   return {
       'driver': 'json',
-      'kvstore': kvstore,
+      'kvstore': kvstore_tspec,
       'json_pointer': '/' + base64.urlsafe_b64encode(
           param_name.encode()
       ).decode('utf-8'),
@@ -1762,12 +1771,10 @@ class StringHandler(TypeHandler):
     if info.path is None:
       raise ValueError('Must construct serialization path.')
     directory = (info.parent_dir / self._filename).as_posix()
-    tspec: Dict[str, Any] = ts_utils.get_tensorstore_spec(
-        directory, use_ocdbt=False
-    )
+    kvstore_tspec = ts_utils.build_kvstore_tspec(directory, use_ocdbt=False)
     tspec = {
         'driver': 'json',
-        'kvstore': tspec['kvstore'],
+        'kvstore': kvstore_tspec,
         'json_pointer': '/' + info.name,
     }
     return tspec

@@ -46,37 +46,36 @@ def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
   return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
 
 
-def get_tensorstore_spec(
+def build_kvstore_tspec(
     directory: str,
     name: Optional[str] = None,
     *,
     use_ocdbt: bool = True,
     process_id: Optional[Union[int, str]] = None,
-    use_zarr3: Optional[bool] = False,
     ocdbt_target_data_file_size: Optional[int] = None,
 ) -> JsonSpec:
-  """Constructs a Tensorstore spec.
+  """Constructs a spec for a Tensorstore KvStore.
 
   Args:
-    directory: Parent directory where the parameter will be written.
+    directory: Base path (key prefix) of the KvStore, used by the underlying
+      file driver.
     name: Name (filename) of the parameter.
-    use_ocdbt: Whether to use OCDBT to write the array.
-    process_id: If provided, will write to a sub-directory named
-      `ocdbt.process_<process_id>`. If a string, must conform to [A-Za-z0-9]+
-      pattern.
-    use_zarr3: If True, use ZARR_VER3 driver, otherwise, use ZARR_VER2 driver.
-    ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
-      OCDBT data file.
+    use_ocdbt: Whether to use OCDBT driver.
+    process_id: [only used with OCDBT driver] If provided,
+      `{directory}/ocdbt.process_{process_id}` path is used as the base path.
+      If a string, must conform to [A-Za-z0-9]+ pattern.
+    ocdbt_target_data_file_size: [only used with OCDBT driver] Specifies the
+      target size (in bytes) of each OCDBT data file.
 
   Returns:
-    A ts.Spec in dictionary form.
+    A Tensorstore KvStore spec in dictionary form.
   """
   default_driver = DEFAULT_DRIVER
   # Normalize path to exclude trailing '/'. In GCS path case, we will need to
   # fix the path prefix to add back the stripped '/'.
   directory = os.path.normpath(directory).replace('gs:/', 'gs://')
   is_gcs_path = directory.startswith('gs://')
-  spec = {'driver': ZARR_VER3 if use_zarr3 else ZARR_VER2, 'kvstore': {}}
+  kv_spec = {}
 
   if use_ocdbt:
     if not is_gcs_path and not os.path.isabs(directory):
@@ -96,16 +95,14 @@ def get_tensorstore_spec(
         if is_gcs_path
         else {'driver': default_driver, 'path': str(directory)}
     )
-    spec['kvstore'] = {
+    kv_spec.update({
         'driver': 'ocdbt',
         'base': base_driver_spec,
-    }
+    })
     if name is not None:
-      spec['kvstore']['path'] = name
-    spec.update(
-        {'recheck_cached_data': False, 'recheck_cached_metadata': False}
-    )
-    spec['kvstore'].update({  # pytype: disable=attribute-error
+      kv_spec['path'] = name
+
+    kv_spec.update({  # pytype: disable=attribute-error
         # Enable read coalescing.  This feature merges adjacent read_ops into
         # one, which could reduce I/O ops by a factor of 10. This is especially
         # beneficial for unstacked models.
@@ -118,23 +115,23 @@ def get_tensorstore_spec(
     # TODO: b/354139177 - double-check this option and its default value are
     # taking effect as expected.
     if ocdbt_target_data_file_size:
-      spec['kvstore']['target_data_file_size'] = ocdbt_target_data_file_size
+      kv_spec['target_data_file_size'] = ocdbt_target_data_file_size
   else:
     if name is None:
       path = directory
     else:
       path = os.path.join(directory, name)
     if is_gcs_path:
-      spec['kvstore'] = _get_kvstore_for_gcs(path)
+      kv_spec = _get_kvstore_for_gcs(path)
     else:
-      spec['kvstore'] = {'driver': default_driver, 'path': path}
+      kv_spec = {'driver': default_driver, 'path': path}
 
-  return spec
+  return kv_spec
 
 
-def add_ocdbt_write_options(tspec: JsonSpec) -> None:
-  """Adds additional write-specific OCDBT options to a TensorStore spec."""
-  tspec['kvstore']['config'] = {
+def add_ocdbt_write_options(kvstore_tspec: JsonSpec) -> None:
+  """Adds write-specific options to a TensorStore OCDBT KVStore spec."""
+  kvstore_tspec['config'] = {
       # Store .zarray metadata inline but not large chunks.
       'max_inline_value_bytes': 1024,
       # Large value allows a single root node to support faster traversal.
@@ -147,4 +144,4 @@ def add_ocdbt_write_options(tspec: JsonSpec) -> None:
   # assume_config avoids writing an initial empty manifest to ensure a
   # consistent configuration, since Orbax never writes to the same OCDBT
   # database concurrently from multiple processes.
-  tspec['kvstore'].update(assume_config=True)
+  kvstore_tspec.update(assume_config=True)
