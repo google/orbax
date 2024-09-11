@@ -294,16 +294,19 @@ def setup_sharded_pytree(
 
 def get_fake_global_mesh_for_slices(
     slice_processes: List[Set[int]],
+    replica_axis_index: int = 0,
 ) -> jax.sharding.Mesh:
   """Creates a "multi-slice" global mesh for testing.
 
   Args:
     slice_processes: List of sets of process indices, where each element in the
       list is a set of processes that are active in a single slice.
+    replica_axis_index: The index of the replica axis in the global mesh.
 
   Returns:
     A global mesh.
   """
+  assert replica_axis_index in [0, 1]
   devices = jax.devices()
   slice_devices = []
   devices_per_slices = None
@@ -323,15 +326,20 @@ def get_fake_global_mesh_for_slices(
     raise ValueError('All processes must be accounted for.')
 
   slice_devices = np.asarray(slice_devices)
-  return jax.sharding.Mesh(slice_devices, ('replica', 'data'))
+  axis_names = ('replica', 'data')
+  if replica_axis_index == 1:
+    slice_devices = np.transpose(slice_devices, (1, 0))
+    axis_names = ('data', 'replica')
+  return jax.sharding.Mesh(slice_devices, axis_names)
 
 
 def select_single_replica(
     arrays: List[jax.Array], global_mesh: jax.sharding.Mesh
 ) -> List[jax.Array]:
   """Returns arrays sharded over single slice."""
-  slice_devices = multislice.local_slice_devices(global_mesh.devices)
-  # slice_devices = global_mesh.devices[0]
+  slice_devices = multislice.local_slice_devices(
+      global_mesh, replica_axis_index=0
+  )
   single_slice_mesh = jax.sharding.Mesh(
       slice_devices, global_mesh.axis_names[1:]
   )

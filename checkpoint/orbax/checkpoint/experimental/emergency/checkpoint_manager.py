@@ -67,6 +67,9 @@ _PROCESS_METADATA_FILE_NAME = 'process_metadata.json'
 _GLOBAL_PROCESS_METADATA_FILE_NAME = 'global_process_metadata.json'
 _MESH_METADATA_FILE_NAME = 'mesh_metadata.json'
 
+_PRIMARY_REPLICA_ID = 0
+_SECONDARY_REPLICA_ID = 1
+
 
 def _write_process_metadata(path: epath.Path, mesh: jax.sharding.Mesh):
   """Write process metadata to the given path."""
@@ -272,7 +275,10 @@ class _BarrierIdentifier(enum.Enum):
 
 
 def _common_values_per_slice(
-    per_process_values: Dict[int, Set[int]], global_mesh: jax.sharding.Mesh
+    per_process_values: Dict[int, Set[int]],
+    global_mesh: jax.sharding.Mesh,
+    *,
+    replica_axis_index: int,
 ) -> Dict[int, Set[int]]:
   """Obtains values shared in common across all processes in each slice.
 
@@ -280,35 +286,40 @@ def _common_values_per_slice(
     per_process_values: A mapping of process index to a list of values local to
       that process.
     global_mesh: The global mesh.
+    replica_axis_index: The index of the replica axis in the global mesh.
 
   Returns:
     A mapping of slice index to a set of values shared in common across all
     processes in that slice. A value appearing in one process but not another
     in the same slice will not appear in the output.
   """
-  total_num_slices = global_mesh.devices.shape[0]
+  total_num_slices = global_mesh.devices.shape[replica_axis_index]
   num_processes_per_slice = (
       global_mesh.devices.size // total_num_slices // jax.local_device_count()
   )
-  per_slice_steps = collections.defaultdict(list)
-  for pid, steps in per_process_values.items():
-    slice_id = multislice.process_slice_id(pid, global_mesh)
-    per_slice_steps[slice_id].extend(steps)
+  per_slice_values = collections.defaultdict(list)
+  for pid, values in per_process_values.items():
+    slice_id = multislice.process_slice_id(
+        pid, global_mesh, replica_axis_index=replica_axis_index
+    )
+    per_slice_values[slice_id].extend(values)
 
-  for slice_id, steps in per_slice_steps.items():
-    counter = collections.Counter(steps)
-    common_steps = [k for k in counter if counter[k] == num_processes_per_slice]
-    # here len(result) will be <= len(steps) because there are at most
-    # len(steps) unique step number that appeared `slice_process_count` times in
-    # an array with size [len(steps), slice_process_count]
-    if len(common_steps) > len(steps):
+  for slice_id, values in per_slice_values.items():
+    counter = collections.Counter(values)
+    common_values = [
+        k for k in counter if counter[k] == num_processes_per_slice
+    ]
+    # Here `len(common_values)`` will be less than or equal to `len(values)`
+    # because a value can only appear in `common_values` if it occurs
+    # `num_processes_per_slice` times in `values`.
+    if len(common_values) > len(values):
       raise AssertionError(
-          f' len(result steps) {common_steps} exceeded length of input steps'
-          f' {steps}'
+          f' len(common_values) ({common_values}) exceeded length of input'
+          f' values ({values}).'
       )
-    per_slice_steps[slice_id] = common_steps
+    per_slice_values[slice_id] = common_values
 
-  return {k: set(v) for k, v in per_slice_steps.items()}
+  return {k: set(v) for k, v in per_slice_values.items()}
 
 
 def _pad_steps(steps, target):
@@ -415,11 +426,15 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     # TODO: b/330585086 - Fully support options.
     options = options or CheckpointManagerOptions()
     self._global_mesh = global_mesh
-    devices = (
-        self._global_mesh.devices
-        if options.local.debug_use_full_global_mesh
-        else self._global_mesh.devices[1:]
-    )
+    self._replica_axis_index = options.replica_axis_index
+
+    devices = np.asarray(self._global_mesh.devices)
+    # Select all devices except those belonging to the primary replica.
+    if not options.local.debug_use_full_global_mesh:
+      devices = np.delete(
+          devices, _PRIMARY_REPLICA_ID, axis=self._replica_axis_index
+      )
+
     self._active_processes = multihost.unique_processes_from_devices(devices)
     local_options = checkpoint_manager.CheckpointManagerOptions(
         save_interval_steps=options.local.save_interval_steps,
@@ -492,10 +507,14 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
           barrier_id=_BarrierIdentifier.LOCAL_ALL_STEPS,
       )
       slice_id = multislice.process_slice_id(
-          multihost.process_index(), self._global_mesh
+          multihost.process_index(),
+          self._global_mesh,
+          replica_axis_index=self._replica_axis_index,
       )
       per_slice_steps = _common_values_per_slice(
-          per_process_steps, self._global_mesh
+          per_process_steps,
+          self._global_mesh,
+          replica_axis_index=self._replica_axis_index,
       )
       logging.info(
           'After broadcast, found steps %s shared between local slice'
@@ -602,34 +621,46 @@ class CheckpointManager(
     self._logger = logger or standard_logger.StandardLogger()
     # TODO: b/330585086 - Fully support options.
     options = options or CheckpointManagerOptions()
+    self._replica_axis_index = options.replica_axis_index
     self._global_mesh = global_mesh
     _maybe_save_process_metadata(self._persistent_directory, self._global_mesh)
 
     self._abstract_state = abstract_state
     self._slice_id = multislice.process_slice_id(
-        multihost.process_index(), self._global_mesh
+        multihost.process_index(),
+        self._global_mesh,
+        replica_axis_index=self._replica_axis_index,
     )
-    self._replica_axis_index = options.replica_axis_index
-
     self._local_state_handler = local_state_handler
     self._options = options
     self._metadata = metadata
-    self._persistent_primary_host = multihost.runtime_to_distributed_process_id(
-        global_mesh.devices[0].flat[0].process_index
-    )
-    self._local_primary_host = None
-    if global_mesh.devices.shape[0] > 1:
-      self._local_primary_host = multihost.runtime_to_distributed_process_id(
-          global_mesh.devices[1].flat[0].process_index
-      )
-    if self._local_primary_host is None:
+
+    if len(global_mesh.devices.shape) <= self._replica_axis_index:
       raise AssertionError(
-          'To use this CheckpointManager, at least 2 data-parallel slices are'
+          f'replica_axis_index {self._replica_axis_index} is out of bound for'
+          f' global_mesh.devices.shape {global_mesh.devices.shape}'
+      )
+    if global_mesh.devices.shape[self._replica_axis_index] <= 1:
+      raise AssertionError(
+          'To use this CheckpointManager, at least 2 data-parallel replicas are'
           ' needed.'
       )
 
-    self.in_primary_slice = multislice.in_primary_slice(
-        multihost.process_index(), global_mesh
+    self._persistent_primary_host = multislice.primary_process_in_slice(
+        self._global_mesh,
+        replica_axis_index=self._replica_axis_index,
+        replica_id=_PRIMARY_REPLICA_ID,
+    )
+    self._local_primary_host = multislice.primary_process_in_slice(
+        self._global_mesh,
+        replica_axis_index=self._replica_axis_index,
+        replica_id=_SECONDARY_REPLICA_ID,
+    )
+    self.in_primary_slice = multislice.in_slice(
+        multihost.process_index(),
+        global_mesh,
+        replica_axis_index=self._replica_axis_index,
+        replica_id=_PRIMARY_REPLICA_ID,
     )
     self._persistent_max_to_keep = self._options.persistent.max_to_keep
     self._local_max_to_keep = self._options.local.max_to_keep
@@ -638,8 +669,23 @@ class CheckpointManager(
     ).coordination_timeout_secs
 
     if self.in_primary_slice:
+      persistent_multiprocessing_options = (
+          checkpoint_manager.MultiprocessingOptions(
+              primary_host=self._persistent_primary_host,
+              active_processes=multihost.unique_processes_from_devices(
+                  multislice.slice_devices(
+                      self._global_mesh,
+                      replica_axis_index=self._replica_axis_index,
+                      replica_id=_PRIMARY_REPLICA_ID,
+                  )
+              ),
+              barrier_sync_key_prefix='persistent',
+          )
+      )
       self._persistent_checkpoint_manager = (
-          self._make_persistent_checkpoint_manager()
+          self._make_persistent_checkpoint_manager(
+              persistent_multiprocessing_options
+          )
       )
     else:
       self._local_checkpoint_manager = self._make_local_checkpoint_manager()
@@ -652,16 +698,10 @@ class CheckpointManager(
         jax.process_index(),
     )
 
-  def _make_persistent_checkpoint_manager(self):
-    persistent_multiprocessing_options = (
-        checkpoint_manager.MultiprocessingOptions(
-            primary_host=self._persistent_primary_host,
-            active_processes=multihost.unique_processes_from_devices(
-                self._global_mesh.devices[0]
-            ),
-            barrier_sync_key_prefix='persistent',
-        )
-    )
+  def _make_persistent_checkpoint_manager(
+      self,
+      persistent_multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
+  ) -> checkpoint_manager.CheckpointManager:
     persistent_options = checkpoint_manager.CheckpointManagerOptions(
         save_interval_steps=self._options.persistent.save_interval_steps,
         max_to_keep=self._persistent_max_to_keep,
@@ -684,7 +724,7 @@ class CheckpointManager(
         logger=self._logger,
     )
 
-  def _make_local_checkpoint_manager(self):
+  def _make_local_checkpoint_manager(self) -> _LocalCheckpointManager:
     return _LocalCheckpointManager(
         self._local_directory,
         self._local_state_handler,
@@ -876,7 +916,9 @@ class CheckpointManager(
     )
     logging.vlog(1, 'per_process_steps=%s', per_process_steps)
     per_slice_steps = _common_values_per_slice(
-        per_process_steps, self._global_mesh
+        per_process_steps,
+        self._global_mesh,
+        replica_axis_index=self._replica_axis_index,
     )
     logging.vlog(1, 'per_slice_steps=%s', per_slice_steps)
 
@@ -885,7 +927,7 @@ class CheckpointManager(
         return slice_id
     return -1
 
-  def _restore_from_lcm(
+  def _restore_from_local(
       self,
       step: int,
       restoring_slice_id: int,
@@ -906,14 +948,24 @@ class CheckpointManager(
     step_stats.is_restoring_slice = is_restoring_slice
     step_stats.in_primary_slice = self.in_primary_slice
 
+    slice_devices = multislice.slice_devices(
+        self._global_mesh,
+        replica_id=self._slice_id,
+        replica_axis_index=self._replica_axis_index,
+    )
     shape_dtypes, tree_defs = jax.tree.flatten(self._abstract_state)
 
     def _get_single_slice_sharding(
         mesh: jax.sharding.Mesh,
         pspec: jax.sharding.PartitionSpec,
     ):
-      slice_devices = np.asarray([self._global_mesh.devices[self._slice_id]])
-      slice_mesh = jax.sharding.Mesh(slice_devices, mesh.axis_names)
+      ss_mesh_shape = [
+          1 if i == self._replica_axis_index else d
+          for i, d in enumerate(self._global_mesh.devices.shape)
+      ]
+      slice_mesh = jax.sharding.Mesh(
+          slice_devices.reshape(ss_mesh_shape), mesh.axis_names
+      )
       ss_sharding = jax.sharding.NamedSharding(slice_mesh, pspec)
       return ss_sharding
 
@@ -1006,7 +1058,7 @@ class CheckpointManager(
     logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
     return jax.tree.unflatten(tree_defs, shared_states)
 
-  def _restore_from_persistent_cm(
+  def _restore_from_persistent(
       self,
       step: int,
       args: Optional[args_lib.CheckpointArgs] = None,
@@ -1052,14 +1104,14 @@ class CheckpointManager(
     restoring_slice_id = self._find_slice_with_complete_checkpoint(step)
     if restoring_slice_id > -1:
       # restore from LCM
-      return self._restore_from_lcm(
+      return self._restore_from_local(
           step=step,
           restoring_slice_id=restoring_slice_id,
           args=args,
           directory=directory,
       )
 
-    return self._restore_from_persistent_cm(
+    return self._restore_from_persistent(
         step=step, args=args, directory=directory
     )
 

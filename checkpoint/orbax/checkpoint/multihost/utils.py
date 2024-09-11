@@ -336,7 +336,7 @@ def process_index() -> int:
 
 
 def unique_processes_from_devices(device_array: np.ndarray) -> Set[int]:
-  pid = np.vectorize(
+  get_pids_from_devices = np.vectorize(
       lambda d: runtime_to_distributed_process_id(d.process_index)
   )
-  return set(pid(device_array).flat)
+  return set(get_pids_from_devices(device_array).flat)

@@ -30,42 +30,95 @@ PyTree = Any
 MEMORY_FACTOR = 3
 
 
-def process_slice_id(process_index: int, global_mesh: jax.sharding.Mesh) -> int:
+def process_slice_id(
+    process_index: int,
+    global_mesh: jax.sharding.Mesh,
+    *,
+    replica_axis_index: int = 0,
+) -> int:
   """Returns the slice id that the process_index belongs to."""
-  for slice_id, device_slice in enumerate(global_mesh.devices):
-    if process_index in _pid_in_slice(device_slice):
+  num_slices = global_mesh.devices.shape[replica_axis_index]
+  for slice_id in range(num_slices):
+    device_slice = slice_devices(
+        global_mesh, replica_id=slice_id, replica_axis_index=replica_axis_index
+    )
+    if process_index in utils.unique_processes_from_devices(device_slice):
       return slice_id
-
   return -1
 
 
-def _pid_in_slice(device_slice: np.ndarray) -> np.ndarray:
-  pid = np.vectorize(
-      lambda d: utils.runtime_to_distributed_process_id(d.process_index)
-  )
-  return pid(device_slice)
-
-
-def in_slice(process_index: int, device_slice: np.ndarray) -> bool:
-  return process_index in _pid_in_slice(device_slice)
-
-
-def in_primary_slice(
-    process_index: int, global_mesh: jax.sharding.Mesh
+def _process_in_device_slice(
+    process_index: int, device_slice: np.ndarray
 ) -> bool:
-  """Returns true if host is in primary slice (the first slice)."""
-  primary_slice = global_mesh.devices[0]
-
-  return in_slice(process_index, primary_slice)
+  return process_index in utils.unique_processes_from_devices(device_slice)
 
 
-def local_slice_devices(devices_array: np.ndarray) -> np.ndarray:
-  for device_slice in devices_array:
-    if in_slice(utils.process_index(), device_slice):
-      return device_slice
+def slice_devices(
+    global_mesh: jax.sharding.Mesh,
+    *,
+    replica_id: int = 0,
+    replica_axis_index: int = 0,
+) -> np.ndarray:
+  return np.take(
+      global_mesh.devices,
+      replica_id,
+      axis=replica_axis_index,
+  )
+
+
+def local_slice_devices(
+    global_mesh: jax.sharding.Mesh, *, replica_axis_index: int = 0
+) -> np.ndarray:
+  """Get devices in the host-local slice."""
+  for replica_id in range(global_mesh.devices.shape[replica_axis_index]):
+    if in_slice(
+        utils.process_index(),
+        global_mesh,
+        replica_id=replica_id,
+        replica_axis_index=replica_axis_index,
+    ):
+      return slice_devices(
+          global_mesh,
+          replica_id=replica_id,
+          replica_axis_index=replica_axis_index,
+      )
   raise ValueError(
       f'process_index {utils.process_index()} does not exist in provided'
       ' `global_mesh`'
+  )
+
+
+def primary_process_in_slice(
+    global_mesh: jax.sharding.Mesh,
+    *,
+    replica_id: int = 0,
+    replica_axis_index: int = 0,
+) -> int:
+  """Returns an arbitrary process in the requested slice to serve as primary."""
+  device_slice = slice_devices(
+      global_mesh,
+      replica_axis_index=replica_axis_index,
+      replica_id=replica_id,
+  )
+  processes = utils.unique_processes_from_devices(device_slice)
+  return next(iter(processes))
+
+
+def in_slice(
+    process_index: int,
+    global_mesh: jax.sharding.Mesh,
+    *,
+    replica_id: int = 0,
+    replica_axis_index: int = 0,
+) -> bool:
+  """Returns if the process belongs to the indicated slice ID."""
+  return _process_in_device_slice(
+      process_index,
+      slice_devices(
+          global_mesh,
+          replica_id=replica_id,
+          replica_axis_index=replica_axis_index,
+      ),
   )
 
 
@@ -240,11 +293,11 @@ def get_primary_replica_ids_and_pids(
     primary_replica_id: int,
 ) -> Tuple[Set[int], Set[int]]:
   """Returns the primary replica ids and process ids."""
-  replica_devices = np.take(
-      mesh.devices,
-      primary_replica_id,
-      axis=replica_axis_idx,
+  replica_devices = slice_devices(
+      mesh,
+      replica_id=primary_replica_id,
+      replica_axis_index=replica_axis_idx,
   ).flatten()
-  pids = set([d.process_index for d in replica_devices])
   ids = set([d.id for d in replica_devices])
+  pids = set([d.process_index for d in replica_devices])
   return ids, pids
