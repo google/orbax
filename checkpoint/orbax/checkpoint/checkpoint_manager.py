@@ -383,7 +383,9 @@ def _get_args_for_key(
 
 
 def _create_root_directory(
-    directory: epath.PathLike, multiprocessing_options: MultiprocessingOptions
+    directory: epath.PathLike,
+    multiprocessing_options: MultiprocessingOptions,
+    file_options: Optional[FileOptions] = None,
 ) -> None:
   """Creates the top-level directory if it does not already exist."""
   if multiprocessing_options.active_processes is not None:
@@ -669,7 +671,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if self._options.read_only:
       logging.warning('Given directory is read only=%s', self._directory)
     if self._options.create:
-      _create_root_directory(self._directory, self._multiprocessing_options)
+      _create_root_directory(
+          self._directory,
+          self._multiprocessing_options,
+          self._options.file_options,
+      )
 
 
     # Cleanup directories from previous runs that may not have been finalized.
