@@ -15,22 +15,17 @@
 """Manage the exporting of a JAXModule."""
 
 from collections.abc import Mapping, Sequence
-import enum
 from typing import Any, Callable, Dict, Optional
 
 from etils.epy import reraise_utils
 from orbax.export import config
+from orbax.export import constants
 from orbax.export import jax_module
 from orbax.export import obm_export
 from orbax.export import serving_config as osc
 from orbax.export import tensorflow_export
 from orbax.export import utils
 import tensorflow as tf
-
-
-class ExportModelType(enum.Enum):
-  TF_SAVEDMODEL = 'TF_SAVEDMODEL',
-  ORBAX_MODEL = 'ORBAX_MODEL',
 
 
 obx_export_config = config.config
@@ -44,7 +39,7 @@ class ExportManager:
       self,
       module: jax_module.JaxModule,
       serving_configs: Sequence[osc.ServingConfig],
-      version: ExportModelType = ExportModelType.TF_SAVEDMODEL,
+      version: constants.ExportModelType = constants.ExportModelType.TF_SAVEDMODEL,
   ):
     """ExportManager constructor.
 
@@ -55,13 +50,11 @@ class ExportManager:
       version: the version of the export format to use. Defaults to
         TF_SAVEDMODEL.
     """
-    # Creates a new tf.Module wrapping the JaxModule and extra trackable
-    # resources.
     self._module = tf.Module()
     self._module.computation_module = module
     self._serving_signatures = {}
     self.serialization_functions = tensorflow_export.TensorFlowExport()
-    if version == ExportModelType.ORBAX_MODEL:
+    if version == constants.ExportModelType.ORBAX_MODEL:
       self.serialization_functions = obm_export.ObmExport()
 
     process_serving_configs(

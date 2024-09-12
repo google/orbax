@@ -22,8 +22,12 @@ import jax
 from jax import export as jax_export
 from jax.experimental import jax2tf
 from orbax.export import config
+from orbax.export import constants
 from orbax.export import dtensor_utils
 from orbax.export import typing as orbax_export_typing
+from orbax.export.modules import obm_module
+from orbax.export.modules import orbax_module_base
+from orbax.export.modules import tensorflow_module
 import tensorflow as tf
 from tensorflow.experimental import dtensor
 
@@ -71,7 +75,7 @@ class _NonTrackableMetadata:
   allow_multi_axis_sharding_consolidation: Optional[bool]
 
 
-class JaxModule(tf.Module):
+class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
   """An exportable module for JAX functions and parameters.
 
   Holds tf.Variables converted from JAX parameters, as well as TF functions
@@ -90,6 +94,7 @@ class JaxModule(tf.Module):
       jit_compile: Union[bool, Mapping[str, bool]] = True,
       pspecs: Optional[PyTree] = None,
       allow_multi_axis_sharding_consolidation: Optional[bool] = None,
+      export_version: constants.ExportModelType = constants.ExportModelType.TF_SAVEDMODEL,
   ):
     """JaxModule constructor.
 
@@ -128,6 +133,8 @@ class JaxModule(tf.Module):
         to true, it will allow consolidating JAX array multiple axis sharding
         into DTensor single axis sharding during checkpoint conversion. This
         would enable sharding across multiple axis names support for JAX model.
+      export_version: Either TF_SAVEDMODEL or ORBAX_MODEL depending on the
+        desired export format.
     """
     if callable(apply_fn):
       apply_fn_map: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
@@ -213,6 +220,23 @@ class JaxModule(tf.Module):
         input_polymorphic_shape_map=input_polymorphic_shape,
         allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
     )
+
+    if export_version == constants.ExportModelType.ORBAX_MODEL:
+      self.export_module = obm_module.ObmModule(
+          params=params,
+          apply_fn_map=apply_fn_map,
+      )
+    else:
+      self.export_module = tensorflow_module.TensorFlowModule(
+          params=params,
+          apply_fn_map=apply_fn_map,
+          trainable=trainable,
+          input_polymorphic_shape=input_polymorphic_shape,
+          jax2tf_kwargs=jax2tf_kwargs,
+          jit_compile=jit_compile,
+          pspecs=pspecs,
+          allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
+      )
 
   @property
   def apply_fn_map(self) -> Mapping[str, ApplyFn]:
@@ -311,6 +335,10 @@ class JaxModule(tf.Module):
         jit_compile=jit_compile,
         autograph=False,
     )
+
+  def export_module(self) -> tf.Module:
+    """Returns the tf.Module associated with this OrbaxModule."""
+    return self
 
   @property
   def methods(self) -> Mapping[str, Callable[..., Any]]:

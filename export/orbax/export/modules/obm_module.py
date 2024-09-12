@@ -16,7 +16,6 @@
 
 from collections.abc import Callable, Mapping
 from typing import Any, Union
-from jax import export as jax_export
 from orbax.export.modules import orbax_module_base
 from orbax.export.typing import ApplyFn
 from orbax.export.typing import PyTree
@@ -53,8 +52,3 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     """Named methods in JAX context for validation."""
     return {}
 
-  def convert_to_jax_exported_map(
-      self, model_inputs: PyTree
-  ) -> Mapping[str, jax_export.Exported]:
-    """Returns the JaxModule associated with this OrbaxModule."""
-    return {}

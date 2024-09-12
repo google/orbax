@@ -19,6 +19,7 @@ import chex
 import jax
 import jax.numpy as jnp
 from orbax.export import config
+from orbax.export import constants
 from orbax.export import export_manager
 from orbax.export import jax_module
 from orbax.export import serving_config as sc
@@ -508,7 +509,7 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
               {'bias': jnp.array(1)}, lambda p, x: x + p['bias']
           ),
           serving_configs,
-          export_manager.ExportModelType.ORBAX_MODEL,
+          constants.ExportModelType.ORBAX_MODEL,
       )
       em.save(self._output_dir)
 

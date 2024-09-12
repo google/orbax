@@ -17,7 +17,6 @@ import abc
 from collections.abc import Mapping
 from typing import Any, Callable, Union
 
-from jax import export as jax_export
 from orbax.export import typing as orbax_export_typing
 
 PyTree = orbax_export_typing.PyTree
@@ -37,6 +36,7 @@ class OrbaxModuleBase(abc.ABC):
   ):
     """Constructor for creating an export Module."""
 
+  @property
   @abc.abstractmethod
   def apply_fn_map(self) -> Mapping[str, ApplyFn]:
     """Returns the apply_fn_map."""
@@ -55,9 +55,3 @@ class OrbaxModuleBase(abc.ABC):
   @abc.abstractmethod
   def jax_methods(self) -> Mapping[str, Callable[..., Any]]:
     """Named methods in JAX context for validation."""
-
-  @abc.abstractmethod
-  def convert_to_jax_exported_map(
-      self, model_inputs: PyTree
-  ) -> Mapping[str, jax_export.Exported]:
-    """Returns the JaxModule associated with this OrbaxModule."""
