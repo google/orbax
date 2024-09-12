@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `write_chunk_shape` and `read_chunk_shape` from `SaveArgs`.
 - Rename `is_supported_empty_aggregation_type` and
  `is_supported_aggregation_type` functions.
+- Raise error if jax/sync_global_devices is called from multiple threads in a
+ process lifetime.
 
 
 ## [0.6.3] - 2024-09-10

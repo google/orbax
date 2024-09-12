@@ -43,6 +43,37 @@ EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID = flags.DEFINE_bool(
 )
 
 
+class _JaxSyncGlobalDevicesThreadValidator:
+  """Tracks threads that call `jax/sync_global_devices()`.
+
+  In a process lifetime, only one thread can call `jax/sync_global_devices()`.
+
+  NOTE: Must be used as a SINGLETON object.
+  """
+
+  def __init__(self):
+    self._lock = threading.Lock()
+    self._handler_thread: Optional[threading.Thread] = None
+
+  def validate(self):
+    with self._lock:
+      if self._handler_thread is None:
+        self._handler_thread = threading.current_thread()
+        return
+      current_thread = threading.current_thread()
+      if self._handler_thread != current_thread:
+        raise ValueError(
+            'jax/sync_global_devices() called from multiple threads in a'
+            f' process lifetime. Past thread: {self._handler_thread}, Current'
+            f' thread: {current_thread}'
+        )
+
+
+_JAX_SYNC_GLOBAL_DEVICES_THREAD_VALIDATOR = (
+    _JaxSyncGlobalDevicesThreadValidator()
+)
+
+
 
 
 def is_runtime_to_distributed_ids_initialized() -> bool:
@@ -215,6 +246,11 @@ def unique_barrier_key(
   return key
 
 
+def _jax_sync_global_devices_with_multi_thread_check(name: str):
+  _JAX_SYNC_GLOBAL_DEVICES_THREAD_VALIDATOR.validate()
+  multihost_utils.sync_global_devices(name)
+
+
 def sync_global_processes(
     name: str,
     *,
@@ -256,7 +292,8 @@ def sync_global_processes(
         threading.current_thread().name,
         key,
     )
-    multihost_utils.sync_global_devices(key)
+    # Raise error if called from multiple threads in a process lifetime.
+    _jax_sync_global_devices_with_multi_thread_check(key)
     logging.info(
         '[process=%s][thread=%s] Done waiting with'
         ' jax/sync_global_devices("%s")',
