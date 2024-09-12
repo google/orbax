@@ -241,7 +241,7 @@ def _get_restore_parameters(
       name: str,
       meta_or_value: Union[Any, tree_metadata.ValueMetadataEntry],
   ) -> Union[ParamInfo, Any]:
-    if type_handlers.is_supported_empty_aggregation_type(meta_or_value):
+    if type_handlers.is_supported_empty_value(meta_or_value):
       # Empty node, ParamInfo should not be returned.
       return meta_or_value
     elif not isinstance(meta_or_value, tree_metadata.ValueMetadataEntry):
@@ -894,13 +894,13 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       aggregate_tree = None
       flat_aggregate = None
 
-    def _is_empty_aggregate_value(value):
-      return type_handlers.is_supported_empty_aggregation_type(
+    def _is_empty_value(value):
+      return type_handlers.is_supported_empty_value(
           value
       ) or not utils.leaf_is_placeholder(value)
 
     def _process_aggregate_leaf(value):
-      if _is_empty_aggregate_value(value):
+      if _is_empty_value(value):
         return value
       return tree_metadata.ValueMetadataEntry(
           value_type=type_handlers.RESTORE_TYPE_UNKNOWN,
@@ -908,7 +908,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       )
 
     def _process_metadata_and_aggregate_leaves(value_meta, value):
-      if _is_empty_aggregate_value(value):
+      if _is_empty_value(value):
         return value
       if type_handlers.is_empty_typestr(value_meta.value_type):
         return type_handlers.get_empty_value_from_typestr(value_meta.value_type)

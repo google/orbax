@@ -98,24 +98,24 @@ async def _assert_parameter_files_exist(
     )
 
 
-def is_supported_empty_aggregation_type(value: Any) -> bool:
+def is_supported_empty_value(value: Any) -> bool:
   """Determines if the *empty* `value` is supported without custom TypeHandler."""
   # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
   return isinstance(value, (dict, list, type(None), Mapping)) and not value
 
 
-def is_supported_aggregation_type(value: Any) -> bool:
+def is_supported_type(value: Any) -> bool:
   """Determines if the `value` is supported without custom TypeHandler."""
   return isinstance(
       value,
       (str, int, float, np.number, np.ndarray, bytes, jax.Array),
-  ) or is_supported_empty_aggregation_type(value)
+  ) or is_supported_empty_value(value)
 
 
 # TODO: b/365169723 - Handle tuple/NamedTuple empty val in following 3 methods.
 def get_empty_value_typestr(value: Any) -> str:
-  if not is_supported_empty_aggregation_type(value):
-    raise ValueError(f'{value} is not a supported empty aggregation type.')
+  if not is_supported_empty_value(value):
+    raise ValueError(f'{value} is not a supported empty type.')
   if isinstance(value, list):
     return RESTORE_TYPE_LIST
   elif isinstance(value, (dict, Mapping)):
@@ -1985,7 +1985,7 @@ def default_restore_type(args: RestoreArgs) -> Any:
 
 def get_param_typestr(value: Any, registry: TypeHandlerRegistry) -> str:
   """Retrieves the typestr for a given value."""
-  if is_supported_empty_aggregation_type(value):
+  if is_supported_empty_value(value):
     typestr = get_empty_value_typestr(value)
   else:
     try:

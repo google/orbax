@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
  ### Changed
 - Removed `write_chunk_shape` and `read_chunk_shape` from `SaveArgs`.
+- Rename `is_supported_empty_aggregation_type` and
+ `is_supported_aggregation_type` functions.
 
 
 ## [0.6.3] - 2024-09-10
