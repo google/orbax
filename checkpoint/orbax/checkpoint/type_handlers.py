@@ -36,7 +36,6 @@ import numpy as np
 from orbax.checkpoint import future
 from orbax.checkpoint import multihost
 from orbax.checkpoint import serialization
-from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.metadata import sharding as sharding_metadata
@@ -319,9 +318,6 @@ def get_json_tspec_write(
       process_index=process_index,
       metadata_key=metadata_key,
   )
-  tspec['metadata'] = {
-      'shape': global_shape,
-  }
 
   # check if the chunk size would exceed ocdbt target file size
   chunk_byte_size = arg.chunk_byte_size if arg else None
@@ -345,94 +341,16 @@ def get_json_tspec_write(
       else:
         chunk_byte_size = min(chunk_byte_size, ocdbt_target_data_file_size)
 
-  tspec['metadata'].update(
-      _build_ts_zarr_shard_and_chunk_metadata(
-          global_shape=global_shape,
-          shard_shape=local_shape,
-          dtype=dtype,
-          use_zarr3=info.use_zarr3,
-          chunk_byte_size=chunk_byte_size,
-      )
+  tspec['metadata'] = ts_utils.build_zarr_shard_and_chunk_metadata(
+      global_shape=global_shape,
+      shard_shape=local_shape,
+      dtype=dtype,
+      use_zarr3=info.use_zarr3,
+      chunk_byte_size=chunk_byte_size,
   )
   if use_ocdbt:
     ts_utils.add_ocdbt_write_options(tspec['kvstore'])
   return tspec
-
-
-def _build_ts_zarr_shard_and_chunk_metadata(
-    *,
-    global_shape: Shape,
-    shard_shape: Shape,
-    use_zarr3: bool,
-    dtype: Union[jnp.dtype, np.dtype],
-    chunk_byte_size: Optional[int] = None,
-) -> ts_utils.JsonSpec:
-  """This function returns the TS metadata for write spec."""
-  # TODO: b/354139177 - This check is too generous; the minimally viable chunk
-  # size should be set to something within the range of [4 KiB; 1 MiB] (from
-  # TensorStore and storage performance considerations).
-  if chunk_byte_size is not None and chunk_byte_size < dtype.itemsize:
-    raise ValueError(
-        f'chunk_byte_size={chunk_byte_size} must be >= {dtype.itemsize}'
-    )
-
-  metadata = {}
-
-  if not use_zarr3:
-    # Zarr v2.
-    if chunk_byte_size is not None:
-      metadata['chunks'] = subchunking.choose_chunk_shape(
-          global_shape, shard_shape, dtype, chunk_byte_size
-      )
-      # TODO: b/354139177 - Log this in both v2 and v3 and include the
-      # corresponding tree path.
-      logging.info('Chose a chunk shape equal to: %s', str(metadata['chunks']))
-    else:
-      metadata['chunks'] = np.array(np.maximum(1, shard_shape))
-    metadata['compressor'] = {'id': 'zstd'}
-  else:
-    # Zarr v3.
-
-    # Choose write and read chunk shape that gives chunk byte size equal or less
-    # than the `chunk_byte_size`.
-    if chunk_byte_size is not None:
-      chunk_shape = subchunking.choose_chunk_shape(
-          global_shape, shard_shape, dtype, chunk_byte_size
-      )
-    else:
-      # If chunk byte size is not specified, set the chunk shape to be the same
-      # as the shard shape.
-      chunk_shape = shard_shape
-
-    metadata['chunk_grid'] = {
-        'name': 'regular',
-        'configuration': {
-            'chunk_shape': chunk_shape,
-        },
-    }
-
-    # TODO: b/354139177 - Consider if using write shape equal to shard shape and
-    # read shape equal to chosen chunk shape would be a better setting.
-
-    metadata['codecs'] = [
-        {
-            'name': 'sharding_indexed',
-            'configuration': {
-                'chunk_shape': chunk_shape,
-                'codecs': [
-                    {'name': 'bytes', 'configuration': {'endian': 'little'}},
-                    {'name': 'zstd'},
-                ],
-                'index_codecs': [
-                    {'name': 'bytes', 'configuration': {'endian': 'little'}},
-                    {'name': 'crc32c'},
-                ],
-                'index_location': 'end',
-            },
-        },
-    ]
-
-  return metadata
 
 
 class TypeHandler(abc.ABC):

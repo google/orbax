@@ -18,6 +18,12 @@ import os
 import re
 from typing import  Any, Optional, Union
 
+from absl import logging
+from jax import numpy as jnp
+import numpy as np
+from orbax.checkpoint._src.arrays import subchunking
+from orbax.checkpoint._src.arrays import types
+
 
 DEFAULT_DRIVER = 'file'
 
@@ -32,6 +38,10 @@ _GCS_PATH_RE = r'^gs://([^/]*)/(.*)$'
 
 
 JsonSpec = dict[str, Any]
+Shape = types.Shape
+
+
+### Building KvStore specs.
 
 
 def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
@@ -145,3 +155,82 @@ def add_ocdbt_write_options(kvstore_tspec: JsonSpec) -> None:
   # consistent configuration, since Orbax never writes to the same OCDBT
   # database concurrently from multiple processes.
   kvstore_tspec.update(assume_config=True)
+
+
+### Building Zarr array metadata.
+
+
+def build_zarr_shard_and_chunk_metadata(
+    *,
+    global_shape: Shape,
+    shard_shape: Shape,
+    use_zarr3: bool,
+    dtype: Union[jnp.dtype, np.dtype],
+    chunk_byte_size: Optional[int] = None,
+) -> JsonSpec:
+  """Constructs Zarr metadata for TensorStore array write spec."""
+  # TODO: b/354139177 - This check is too generous; the minimally viable chunk
+  # size should be set to something within the range of [4 KiB; 1 MiB] (from
+  # TensorStore and storage performance considerations).
+  if chunk_byte_size is not None and chunk_byte_size < dtype.itemsize:
+    raise ValueError(
+        f'chunk_byte_size={chunk_byte_size} must be >= {dtype.itemsize}'
+    )
+
+  metadata = {'shape': global_shape}
+
+  if not use_zarr3:
+    # Zarr v2.
+    if chunk_byte_size is not None:
+      metadata['chunks'] = subchunking.choose_chunk_shape(
+          global_shape, shard_shape, dtype, chunk_byte_size
+      )
+      # TODO: b/354139177 - Log this in both v2 and v3 and include the
+      # corresponding tree path.
+      logging.info('Chose a chunk shape equal to: %s', str(metadata['chunks']))
+    else:
+      metadata['chunks'] = np.array(np.maximum(1, shard_shape))
+    metadata['compressor'] = {'id': 'zstd'}
+  else:
+    # Zarr v3.
+
+    # Choose write and read chunk shape that gives chunk byte size equal or less
+    # than the `chunk_byte_size`.
+    if chunk_byte_size is not None:
+      chunk_shape = subchunking.choose_chunk_shape(
+          global_shape, shard_shape, dtype, chunk_byte_size
+      )
+    else:
+      # If chunk byte size is not specified, set the chunk shape to be the same
+      # as the shard shape.
+      chunk_shape = shard_shape
+
+    metadata['chunk_grid'] = {
+        'name': 'regular',
+        'configuration': {
+            'chunk_shape': chunk_shape,
+        },
+    }
+
+    # TODO: b/354139177 - Consider if using write shape equal to shard shape and
+    # read shape equal to chosen chunk shape would be a better setting.
+
+    metadata['codecs'] = [
+        {
+            'name': 'sharding_indexed',
+            'configuration': {
+                'chunk_shape': chunk_shape,
+                'codecs': [
+                    {'name': 'bytes', 'configuration': {'endian': 'little'}},
+                    {'name': 'zstd'},
+                ],
+                'index_codecs': [
+                    {'name': 'bytes', 'configuration': {'endian': 'little'}},
+                    {'name': 'crc32c'},
+                ],
+                'index_location': 'end',
+            },
+        },
+    ]
+
+  return metadata
