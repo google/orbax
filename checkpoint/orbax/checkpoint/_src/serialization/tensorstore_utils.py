@@ -14,6 +14,7 @@
 
 """TensorStore serialization helper functions."""
 
+import math
 import os
 import re
 from typing import  Any, Optional, Union
@@ -29,7 +30,7 @@ DEFAULT_DRIVER = 'file'
 
 PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
 _OCDBT_PROCESS_ID_RE = r'[A-Za-z0-9]+'
-DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE = 2**31  # 2 GiB
+_DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE = 2**31  # 2 GiB
 
 ZARR_VER2 = 'zarr'
 ZARR_VER3 = 'zarr3'
@@ -62,7 +63,6 @@ def build_kvstore_tspec(
     *,
     use_ocdbt: bool = True,
     process_id: Optional[Union[int, str]] = None,
-    ocdbt_target_data_file_size: Optional[int] = None,
 ) -> JsonSpec:
   """Constructs a spec for a Tensorstore KvStore.
 
@@ -74,8 +74,6 @@ def build_kvstore_tspec(
     process_id: [only used with OCDBT driver] If provided,
       `{directory}/ocdbt.process_{process_id}` path is used as the base path.
       If a string, must conform to [A-Za-z0-9]+ pattern.
-    ocdbt_target_data_file_size: [only used with OCDBT driver] Specifies the
-      target size (in bytes) of each OCDBT data file.
 
   Returns:
     A Tensorstore KvStore spec in dictionary form.
@@ -122,10 +120,6 @@ def build_kvstore_tspec(
         # References the cache specified in ts.Context.
         'cache_pool': 'cache_pool#ocdbt',
     })
-    # TODO: b/354139177 - double-check this option and its default value are
-    # taking effect as expected.
-    if ocdbt_target_data_file_size:
-      kv_spec['target_data_file_size'] = ocdbt_target_data_file_size
   else:
     if name is None:
       path = directory
@@ -139,8 +133,20 @@ def build_kvstore_tspec(
   return kv_spec
 
 
-def add_ocdbt_write_options(kvstore_tspec: JsonSpec) -> None:
+def add_ocdbt_write_options(
+    kvstore_tspec: JsonSpec,
+    target_data_file_size: Optional[int] = None,
+) -> None:
   """Adds write-specific options to a TensorStore OCDBT KVStore spec."""
+  if target_data_file_size is not None:
+    # TODO: b/354139177 - disallow too small values, too.
+    if target_data_file_size < 0:
+      raise ValueError(
+          'OCDBT target_data_file_size must be >= 0, where 0 means no limit'
+          f'; got {target_data_file_size}'
+      )
+    kvstore_tspec['target_data_file_size'] = target_data_file_size
+
   kvstore_tspec['config'] = {
       # Store .zarray metadata inline but not large chunks.
       'max_inline_value_bytes': 1024,
@@ -234,3 +240,33 @@ def build_zarr_shard_and_chunk_metadata(
     ]
 
   return metadata
+
+
+def adjust_chunk_byte_size(
+    write_shape: Shape,
+    dtype: Union[jnp.dtype, np.dtype],
+    *,
+    chunk_byte_size: Optional[int],
+    ocdbt_target_data_file_size: Optional[int] = None,
+) -> Optional[int]:
+  """Adjusts chunk byte size to match OCDBT target data file size."""
+  # Check if the chunk size would exceed ocdbt target file size.
+  if ocdbt_target_data_file_size is None:
+    # Set to default used by TensorStore
+    # (from https://google.github.io/tensorstore/kvstore/ocdbt/index.html).
+    ocdbt_target_data_file_size = _DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE
+
+  if ocdbt_target_data_file_size == 0:
+    # No limit.
+    return chunk_byte_size
+
+  if chunk_byte_size is None:
+    write_nbytes = math.prod(write_shape) * dtype.itemsize
+    if write_nbytes > ocdbt_target_data_file_size:
+      chunk_byte_size = ocdbt_target_data_file_size
+    else:
+      # Let chunk_byte_size stay None.
+      chunk_byte_size = None
+  else:
+    chunk_byte_size = min(chunk_byte_size, ocdbt_target_data_file_size)
+  return chunk_byte_size

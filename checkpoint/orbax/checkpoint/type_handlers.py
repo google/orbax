@@ -177,7 +177,9 @@ class ParamInfo:
   use_zarr3:
     If True, use Zarr ver3 otherwise ver2.
   ocdbt_target_data_file_size:
-    Specifies the target size (in bytes) of each OCDBT data file.
+    Specifies the target size (in bytes) of each OCDBT data file. If set to 0,
+    data file size is not limited. If omitted (None), the TensorStore default
+    is used.
   ts_context:
     Tensorstore context to use for reading/writing.
   value_typestr: stores the original value's typestr (from TypeHandler).
@@ -270,7 +272,6 @@ def _get_json_tspec(
       name=info.name,
       use_ocdbt=use_ocdbt,
       process_id=process_index,
-      ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
   )
 
   tspec = {
@@ -319,27 +320,19 @@ def get_json_tspec_write(
       metadata_key=metadata_key,
   )
 
-  # check if the chunk size would exceed ocdbt target file size
   chunk_byte_size = arg.chunk_byte_size if arg else None
   if use_ocdbt:
     ocdbt_target_data_file_size = info.ocdbt_target_data_file_size
-    if ocdbt_target_data_file_size is None:
-      # from https://google.github.io/tensorstore/kvstore/ocdbt/index.html
-      ocdbt_target_data_file_size = ts_utils.DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE
-    if ocdbt_target_data_file_size < 0:
-      raise ValueError(
-          'ocdbt_target_data_file_size must be >= 0 where 0 means no limit'
-      )
-    if ocdbt_target_data_file_size > 0:  # 0 means no limit
-      if chunk_byte_size is None:
-        local_size = np.prod(local_shape)
-        if local_size * dtype.itemsize > ocdbt_target_data_file_size:
-          chunk_byte_size = ocdbt_target_data_file_size
-        else:
-          # let chunk_byte_size stay None
-          chunk_byte_size = None
-      else:
-        chunk_byte_size = min(chunk_byte_size, ocdbt_target_data_file_size)
+    ts_utils.add_ocdbt_write_options(
+        tspec['kvstore'],
+        ocdbt_target_data_file_size,
+    )
+    chunk_byte_size = ts_utils.adjust_chunk_byte_size(
+        local_shape,
+        dtype,
+        chunk_byte_size=chunk_byte_size,
+        ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+    )
 
   tspec['metadata'] = ts_utils.build_zarr_shard_and_chunk_metadata(
       global_shape=global_shape,
@@ -348,8 +341,6 @@ def get_json_tspec_write(
       use_zarr3=info.use_zarr3,
       chunk_byte_size=chunk_byte_size,
   )
-  if use_ocdbt:
-    ts_utils.add_ocdbt_write_options(tspec['kvstore'])
   return tspec
 
 
