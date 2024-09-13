@@ -14,7 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  ### Changed
 - Removed `write_chunk_shape` and `read_chunk_shape` from `SaveArgs`.
 - Rename `is_supported_empty_aggregation_type` and
- `is_supported_aggregation_type` functions.
+  `is_supported_aggregation_type` functions.
+- Adjust `CompositeCheckpointHandler` behavior for unregistered items and empty
+  `args`. Now, `metadata` only returns entries for which an item actually
+  exists in the checkpoint. `restore` will raise an error if a requested item
+  does not exist, and will attempt to restore all existing items if empty `args`
+  are provided.
 
 
 ## [0.6.3] - 2024-09-10
