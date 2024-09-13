@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.4] - 2024-09-17
-
+### Changed
+- Use thread-safe barrier api by default in Orbax.
 
 ## [0.6.4] - 2024-09-17
 

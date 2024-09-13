@@ -17,7 +17,9 @@
 import dataclasses
 from typing import Callable, Optional, Set
 
+from absl import logging
 from orbax.checkpoint import multihost
+
 
 
 @dataclasses.dataclass
@@ -48,11 +50,29 @@ class MultiprocessingOptions:
   barrier_sync_key_prefix: A string to be prepended to the barrier sync key
     used to synchronize processes. This is useful to avoid collisions with
     other barrier syncs if another CheckpointManager is being used concurrently.
+    If not specified, a string will be used using monotonically increasing
+    counter.
   """
 
   primary_host: Optional[int] = 0
   active_processes: Optional[Set[int]] = None
   barrier_sync_key_prefix: Optional[str] = None
+
+  def __post_init__(self):
+    default_barrier_sync_key_prefix = (
+        multihost.counters.multiprocessing_options_counter()
+    )
+    if self.barrier_sync_key_prefix is None:
+      self.barrier_sync_key_prefix = (
+          f'options_{default_barrier_sync_key_prefix}'
+      )
+    else:
+      self.barrier_sync_key_prefix = (
+          f'{self.barrier_sync_key_prefix}_{default_barrier_sync_key_prefix}'
+      )
+    logging.info(
+        'Initialized barrier_sync_key_prefix: %s', self.barrier_sync_key_prefix
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -63,7 +83,6 @@ class FileOptions:
     path_permission_mode: Path permission mode for step directories, user
       metadata files. e.g. 0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
-        path is supported. default=None.
   """
 
   path_permission_mode: Optional[int] = None

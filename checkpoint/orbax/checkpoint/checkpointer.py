@@ -242,7 +242,7 @@ class Checkpointer(
         multihost.unique_barrier_key(
             'Checkpointer:restore',
             prefix=self._barrier_sync_key_prefix,
-            suffix=directory.name,
+            suffix=f'{directory.name}_{multihost.counters.restore_counter()}',
         ),
         processes=self._active_processes,
     )
