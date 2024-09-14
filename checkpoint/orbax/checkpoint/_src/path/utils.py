@@ -16,7 +16,7 @@
 
 import os
 import time
-from typing import Iterable
+from typing import Iterable, Optional
 
 from etils import epath
 
