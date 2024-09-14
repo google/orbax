@@ -714,23 +714,12 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         item_name: exists for item_name, exists in zip(item_names, items_exist)
     }
 
-  def _existing_items(self, directory: epath.Path) -> List[str]:
-    return [p.name for p in directory.iterdir() if p.is_dir()]
-
   def restore(
       self,
       directory: epath.Path,
       args: Optional['CompositeArgs'] = None,
   ) -> 'CompositeResults':
     """Restores the provided item synchronously.
-
-    Restoration can happen in a variety of modes, depending on which `args` is
-    passed:
-      - `args` is not None and not empty. Item names present in `args` will
-        be restored as long as they exist in the checkpoint and have a
-        registered handler.
-      - `args` is None or empty. All items in the checkpoint that have a
-        registered handler will be restored.
 
     Args:
       directory: Path to restore from.
@@ -743,27 +732,34 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     Returns:
       A CompositeResults object with keys matching `CompositeArgs`, or with keys
       for all known items as specified at creation.
-
-    Raises:
-      KeyError: If an item could not be restored.
     """
 
-    items_to_handlers = dict(
+    items_and_handlers = (
         self._get_all_registered_and_unregistered_items_and_handlers()
     )
-    existing_items = self._existing_items(directory)
+
+    all_items = [item_name for item_name, _ in items_and_handlers]
+    if args is not None:
+      all_items.extend(args.keys())
+
+    items_exist = self._items_exist(directory, all_items)
 
     if args is None or not args.items():
+      if self._item_names_without_registered_handlers:
+        raise ValueError(
+            ' No `CheckpointArgs` were provided, and the following items were'
+            ' not registered: %s. Providing `None` for the item is valid when'
+            ' restoring, but only if the `CheckpointHandler` was already'
+            ' configured. Provide a `CheckpointArgs` subclass so that'
+            ' `CompositeCheckpointHandler` will know how to restore the item.'
+            % self._item_names_without_registered_handlers
+        )
       composite_args_items = {}
-      for item_name in existing_items:
-        if item_name not in items_to_handlers:
-          raise KeyError(
-              f'Item "{item_name}" was found in the checkpoint, but could not'
-              ' be restored. Please provide a `CheckpointHandlerRegistry`, or'
-              ' call `restore` with an appropriate `CheckpointArgs` subclass.'
-          )
-        handler = items_to_handlers[item_name]
-        # Skip reserved items (they were not specifically requested).
+      for item_name, handler in items_and_handlers:
+        if not items_exist[item_name]:
+          composite_args_items[item_name] = None
+          continue
+        # Skip reserved items unless specifically requested.
         if item_name in RESERVED_ITEM_NAMES:
           continue
         if handler is None:
@@ -776,7 +772,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         _, restore_ckpt_args_cls = checkpoint_args.get_registered_args_cls(
             handler
         )
-        # Try default constructing the args.
         try:
           composite_args_items[item_name] = restore_ckpt_args_cls()
         except TypeError as e:
@@ -796,11 +791,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     # async-compatible barrier function.
     for item_name in sorted(args.keys()):
       arg = args[item_name]
-      if item_name not in existing_items:
-        raise KeyError(
-            f'Item "{item_name}" was not found in the checkpoint. Available'
-            f' items: {existing_items}'
-        )
+      if not items_exist[item_name]:
+        restored[item_name] = None
+        continue
       handler = self._get_or_set_handler(item_name, arg)
       restored[item_name] = handler.restore(
           self._get_item_directory(directory, item_name), args=arg
@@ -808,43 +801,23 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     return CompositeResults(**restored)
 
   def metadata(self, directory: epath.Path) -> 'CompositeResults':
-    """Metadata for each item in the checkpoint.
-
-    This has much the same logic as `restore`, in the sense that it tries to
-    restore the metadata for each item present in the checkpoint. However, for
-    any items that do not have a registered handler, the metadata for that item
-    will simply be returned as `None`.
-
-    Args:
-      directory: Path to the checkpoint.
-
-    Returns:
-      CompositeResults
-    """
-    items_to_handlers = dict(
+    items_and_handlers = (
         self._get_all_registered_and_unregistered_items_and_handlers()
     )
-    existing_items = self._existing_items(directory)
+    items_exist = self._items_exist(
+        directory, [item_name for item_name, _ in items_and_handlers]
+    )
 
     metadata = {}
-    for item_name in existing_items:
-      if (
-          item_name not in items_to_handlers
-          or items_to_handlers[item_name] is None
-      ):
-        logging.warning(
-            'Item "%s" was found in the checkpoint, but could not'
-            ' be restored. Please provide a `CheckpointHandlerRegistry`, or'
-            ' call `restore` with an appropriate `CheckpointArgs` subclass.',
-            item_name,
-        )
+
+    for item_name, handler in items_and_handlers:
+      if not items_exist[item_name]:
         metadata[item_name] = None
         continue
-      handler = items_to_handlers[item_name]
-      assert handler is not None
-      metadata[item_name] = handler.metadata(
-          self._get_item_directory(directory, item_name)
-      )
+      if handler is not None:
+        metadata[item_name] = handler.metadata(
+            self._get_item_directory(directory, item_name)
+        )
     return CompositeResults(**metadata)
 
   def finalize(self, directory: epath.Path):
