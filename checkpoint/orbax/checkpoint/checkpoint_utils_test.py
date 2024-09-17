@@ -268,16 +268,25 @@ class EvalUtilsTest(parameterized.TestCase):
       self.assertEqual(step, 2)
     self.assertEqual(counter, 1)
 
-  def test_locking(self):
+  def test_snapshotting(self):
     max_step = 5
     self.manager.save(0, self.items)
     previous_step = None
     for step in checkpoint_utils.checkpoints_iterator(
         self.directory, timeout=0
     ):
+
       if previous_step is not None:
-        self.assertFalse(utils.is_locked(self.directory / str(previous_step)))
-      self.assertTrue(utils.is_locked(self.directory / str(step)))
+        self.assertFalse(
+            (
+                self.directory
+                / checkpoint_utils._SNAPSHOTS
+                / str(previous_step)
+            ).exists()
+        )
+      self.assertTrue(
+          (self.directory / checkpoint_utils._SNAPSHOTS / str(step)).exists()
+      )
       previous_step = step
 
       if step + 1 < max_step:
@@ -287,20 +296,34 @@ class EvalUtilsTest(parameterized.TestCase):
     self.manager.save(0, self.items)
     self.manager.save(1, self.items)
 
-    checkpoint_utils._lock_checkpoint(
+    checkpoint_utils._snapshot_checkpoint(
         self.directory,
         step=0,
         step_name_format=step_lib.standard_name_format(
             step_prefix=None, step_format_fixed_length=None
         ),
     )
-    self.assertTrue(utils.is_locked(self.directory / str(0)))
-    self.assertFalse(utils.is_locked(self.directory / str(1)))
-
+    self.assertTrue(
+        (self.directory / checkpoint_utils._SNAPSHOTS / str(0)).exists()
+    )
+    self.assertFalse(
+        (self.directory / checkpoint_utils._SNAPSHOTS / str(1)).exists()
+    )
+    checkpoint_utils._release_snapshot(
+        self.directory,
+        step=0,
+        step_name_format=step_lib.standard_name_format(
+            step_prefix=None, step_format_fixed_length=None
+        ),
+    )
     for _ in checkpoint_utils.checkpoints_iterator(self.directory):
       break
-    self.assertFalse(utils.is_locked(self.directory / str(0)))
-    self.assertFalse(utils.is_locked(self.directory / str(1)))
+    self.assertFalse(
+        (self.directory / checkpoint_utils._SNAPSHOTS / str(0)).exists()
+    )
+    self.assertFalse(
+        (self.directory / checkpoint_utils._SNAPSHOTS / str(1)).exists()
+    )
 
   @parameterized.parameters(
       (None, None),
@@ -333,8 +356,23 @@ class EvalUtilsTest(parameterized.TestCase):
         step_format_fixed_length=step_format_fixed_length,
     ) as step:
       self.assertEqual(step, 1)
-      self.assertFalse(utils.is_locked(step_directory(0)))
-      self.assertTrue(utils.is_locked(step_directory(1)))
+      self.assertFalse(
+          (self.directory / checkpoint_utils._SNAPSHOTS / str(0)).exists()
+      )
+      self.assertFalse(
+          epath.Path(
+              checkpoint_utils.get_snapshot_dir_from_step_dir(step_directory(0))
+          ).exists()
+      )
+      self.assertTrue(
+          (
+              epath.Path(
+                  checkpoint_utils.get_snapshot_dir_from_step_dir(
+                      step_directory(1)
+                  )
+              )
+          ).exists()
+      )
 
     manager.save(2, self.items)
     manager.save(3, self.items)
@@ -345,7 +383,11 @@ class EvalUtilsTest(parameterized.TestCase):
         step_format_fixed_length=step_format_fixed_length,
     ) as step:
       self.assertEqual(step, 3)
-      self.assertTrue(utils.is_locked(step_directory(3)))
+      self.assertTrue(
+          epath.Path(
+              checkpoint_utils.get_snapshot_dir_from_step_dir(step_directory(3))
+          ).exists()
+      )
 
     with checkpoint_utils.wait_for_new_checkpoint(
         self.directory,
@@ -362,7 +404,11 @@ class EvalUtilsTest(parameterized.TestCase):
         step_format_fixed_length=step_format_fixed_length,
     ) as step:
       self.assertEqual(step, 3)
-      self.assertTrue(utils.is_locked(step_directory(3)))
+      self.assertTrue(
+          epath.Path(
+              checkpoint_utils.get_snapshot_dir_from_step_dir(step_directory(3))
+          ).exists()
+      )
 
     with checkpoint_utils.wait_for_new_checkpoint(
         self.directory,
@@ -371,7 +417,11 @@ class EvalUtilsTest(parameterized.TestCase):
         step_format_fixed_length=step_format_fixed_length,
     ) as step:
       self.assertEqual(step, 3)
-      self.assertTrue(utils.is_locked(step_directory(3)))
+      self.assertTrue(
+          epath.Path(
+              checkpoint_utils.get_snapshot_dir_from_step_dir(step_directory(3))
+          ).exists()
+      )
 
   def test_wait_for_directory_creation(self):
     directory = self.directory / 'checkpoints'
