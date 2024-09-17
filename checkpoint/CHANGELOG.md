@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2024-09-17
+
 ### Fixed
 - Return empty dict (instead of None) as metadata for *empty* Mapping typed
  unregistered types.
+- Restore to user mesh after emergency checkpoint local restoration.
 
  ### Changed
 - Removed `write_chunk_shape` and `read_chunk_shape` from `SaveArgs`.
