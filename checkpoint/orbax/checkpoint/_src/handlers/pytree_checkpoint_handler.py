@@ -563,6 +563,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   ):
     """Saves the provided item. See async_save."""
     args = _get_impl_save_args(item, save_args, args)
+    logging.info(
+        '****** type of self._handler_impl is %s', type(self._handler_impl)
+    )
     self._handler_impl.save(directory, args=args)
 
   async def _maybe_deserialize(
@@ -717,10 +720,11 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       ValueError: `transforms` is provided without `item`.
       ValueError: `transforms` contains elements with `multi_value_fn`.
     """
-    if not directory.exists():
-      raise FileNotFoundError(
-          f'Requested directory for restore does not exist at {directory}.'
-      )
+    logging.info('****** Restoring from %s', directory)
+    # if not directory.exists():
+    #   raise FileNotFoundError(
+    #       f'Requested directory for restore does not exist at {directory}.'
+    #   )
     if isinstance(item, CheckpointArgs):
       raise ValueError(
           'Make sure to specify kwarg name `args=` when providing'
@@ -760,13 +764,18 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           item,
           restore_args=restore_args,
       )
+      logging.info(
+          '****** Attempting to restore using BasePyTreeCheckpointHandler '
+          'restore args: %s',
+          restore_args,
+      )
       return self._handler_impl.restore(directory, args=args)
 
     logging.vlog(1, 'directory=%s, restore_args=%s', directory, restore_args)
-    if not directory.exists():
-      raise FileNotFoundError(
-          f'Requested directory for restore does not exist at {directory}'
-      )
+    # if not directory.exists():
+    #   raise FileNotFoundError(
+    #       f'Requested directory for restore does not exist at {directory}'
+    #   )
     structure, use_zarr3_metadata = self._get_internal_metadata(directory)
     # `checkpoint_restore_args` has a structure relative to the checkpoint,
     # while `restore_args` remains structured relative to the output.

@@ -50,6 +50,7 @@ def construct_checkpoint_args(
 ) -> checkpoint_args.CheckpointArgs:
   """Constructs `CheckpointArgs` for save or restore for the handler."""
   for arg in args:
+    logging.info('****** construct checkpoint args arg: %s', arg)
     if isinstance(arg, checkpoint_args.CheckpointArgs):
       return arg
   for arg in kwargs.values():

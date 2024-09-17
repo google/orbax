@@ -21,6 +21,7 @@ import asyncio
 from concurrent import futures
 import dataclasses
 import json
+import logging
 from typing import Any, List, Mapping, Optional
 
 from etils import epath
@@ -98,6 +99,9 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       if commit_futures:
         for f in commit_futures:
           f.result()
+
+    logging.info('****** JsonCheckpointHandler save with item %s', item)
+    logging.info('****** JsonCheckpointHandler save with args %s', args)
 
     asyncio.run(async_save(directory, item, args))
 

@@ -100,7 +100,7 @@ def _read_process_metadata(path: epath.Path):
   return runtime_to_distributed_ids, device_ids
 
 
-def _maybe_save_process_metadata(
+def maybe_save_process_metadata(
     path: epath.Path, global_mesh: jax.sharding.Mesh
 ) -> bool:
   """Saves process metadata if it does not already exist."""
@@ -322,7 +322,7 @@ def _common_values_per_slice(
   return {k: set(v) for k, v in per_slice_values.items()}
 
 
-def _pad_steps(steps, target):
+def pad_steps(steps, target):
   return steps + [-1] * (target - len(steps))
 
 
@@ -483,7 +483,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
           f' `max_to_keep` {self._max_to_keep}'
       )
 
-    return _pad_steps(local_steps, self._max_to_keep)
+    return pad_steps(local_steps, self._max_to_keep)
 
   def all_steps(self, read: bool = False) -> Sequence[int]:
     """Returns all steps tracked by the manager.
@@ -623,7 +623,7 @@ class CheckpointManager(
     options = options or CheckpointManagerOptions()
     self._replica_axis_index = options.replica_axis_index
     self._global_mesh = global_mesh
-    _maybe_save_process_metadata(self._persistent_directory, self._global_mesh)
+    maybe_save_process_metadata(self._persistent_directory, self._global_mesh)
 
     self._abstract_state = abstract_state
     self._slice_id = multislice.process_slice_id(
@@ -769,11 +769,11 @@ class CheckpointManager(
             f'persistent_step on host {multihost.process_index()} exceeded'
             f' `max_to_keep` {self._persistent_max_to_keep}'
         )
-      persistent_steps = _pad_steps(
+      persistent_steps = pad_steps(
           persistent_steps, self._persistent_max_to_keep
       )
     else:
-      local_steps = _pad_steps(
+      local_steps = pad_steps(
           list(self._local_checkpoint_manager.all_steps(read)),
           self._local_max_to_keep,
       )
