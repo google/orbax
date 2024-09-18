@@ -221,6 +221,7 @@ def sync_global_processes(
     timeout: Optional[int] = None,
     processes: Optional[Set[int]] = None,
     barrier_sync_fn: Optional[BarrierSyncFn] = None,
+    use_thread_safe_barrier: bool = True,
 ):
   """Barrier to sync concurrent processes.
 
@@ -235,6 +236,8 @@ def sync_global_processes(
       processes.
     barrier_sync_fn: Used as the implementation for the synchronization. If not
       provided, a default implementation is used.
+    use_thread_safe_barrier: If True, always uses a thread-safe barrier
+      implementation.
   """
   if should_skip_process_sync():
     logging.info(
@@ -248,7 +251,7 @@ def sync_global_processes(
   timeout = timeout or _DEFAULT_BARRIER_TIMEOUT
   sync_start_time = time.time()
   # Temporarily default to existing behavior to minimize risk of breakage.
-  if processes is None:
+  if processes is None and not use_thread_safe_barrier:
     key = _unique_barrier_key(name)
     logging.info(
         '[process=%s][thread=%s] Waiting with jax/sync_global_devices("%s")',

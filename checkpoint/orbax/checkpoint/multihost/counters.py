@@ -20,6 +20,8 @@ Do not add any functions unless they conform precisely to the existing pattern.
 import itertools
 
 
+_multiprocessing_options_counter = itertools.count()
+_restore_counter = itertools.count()
 _async_save_counter = itertools.count()
 _composite_save_counter = itertools.count()
 _tmp_directory_counter = itertools.count()
@@ -28,6 +30,14 @@ _model_surgery_loading_counter = itertools.count()
 _global_max_broadcast_counter = itertools.count()
 _local_all_steps_broadcast_counter = itertools.count()
 _find_complete_slice_broadcast_counter = itertools.count()
+
+
+def multiprocessing_options_counter() -> str:
+  return str(next(_multiprocessing_options_counter))
+
+
+def restore_counter() -> str:
+  return str(next(_restore_counter))
 
 
 def async_save_counter() -> str:
