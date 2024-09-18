@@ -300,8 +300,8 @@ def get_json_tspec_read(
   )
 
 
-# TODO: b/354139177 - Rename this to `build_array_tspec_write`.
-# Keep the existing name for backward compatibility but mark as deprecated.
+# TODO: b/354139177 - Replace usages of this with `build_array_tspec_write`
+# and remove it.
 def get_json_tspec_write(
     info: ParamInfo,
     use_ocdbt: bool,
@@ -342,6 +342,41 @@ def get_json_tspec_write(
       chunk_byte_size=chunk_byte_size,
   )
   return tspec
+
+
+def _build_array_tspec_write(
+    info: ParamInfo,
+    arg: Optional[SaveArgs] = None,
+    *,
+    global_shape: types.Shape,
+    local_shape: types.Shape,
+    dtype: Union[jnp.dtype, np.dtype],
+    use_ocdbt: bool,
+    process_index: Optional[Union[int, str]] = None,
+    metadata_key: Optional[str] = None,
+):
+  """Gets Tensorstore spec for writing."""
+  if info.path is None:
+    raise ValueError('Must construct serialization path.')
+  parent_dir = info.parent_dir
+  assert parent_dir is not None
+  directory = parent_dir.as_posix()
+
+  return ts_utils.build_array_tspec_for_write(
+      directory, relative_array_filename=info.name,
+      array_metadata=ts_utils.ArrayWriteMetadata(
+          global_shape=global_shape,
+          write_shape=local_shape,
+          dtype=dtype,
+          target_dtype=(arg.dtype if arg is not None else None),
+          chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
+          use_zarr3=info.use_zarr3,
+      ),
+      use_ocdbt=use_ocdbt,
+      process_id=process_index,
+      ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
+      metadata_key=metadata_key,
+  )
 
 
 class TypeHandler(abc.ABC):
@@ -759,15 +794,15 @@ class NumpyHandler(TypeHandler):
       arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
-    return get_json_tspec_write(
+    return _build_array_tspec_write(
         info=info,
+        arg=arg,
         global_shape=value.shape,
         local_shape=value.shape,
         dtype=value.dtype,
         use_ocdbt=use_ocdbt,
         process_index=process_index,
         metadata_key=self._metadata_key,
-        arg=arg,
     )
 
   def _get_json_tspec_read(
@@ -829,7 +864,6 @@ class NumpyHandler(TypeHandler):
           ),
           arg=arg,
       )
-      tspec = get_cast_tspec_serialize(tspec, value, arg)
       if logging.vlog_is_on(1):
         logging.vlog(1, 'tspec = %s', tspec)
         logging.vlog(1, 'infos = %s', info)
@@ -1078,15 +1112,15 @@ class ArrayHandler(TypeHandler):
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
 
-    return get_json_tspec_write(
+    return _build_array_tspec_write(
         info=info,
-        use_ocdbt=use_ocdbt,
+        arg=arg,
         global_shape=value.shape,
         local_shape=value.sharding.shard_shape(value.shape),
         dtype=value.dtype,
+        use_ocdbt=use_ocdbt,
         process_index=process_index,
         metadata_key=self._metadata_key,
-        arg=arg,
     )
 
   def _get_json_tspec_read(
@@ -1215,7 +1249,6 @@ class ArrayHandler(TypeHandler):
           process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
           arg=arg,
       )
-      tspec = get_cast_tspec_serialize(tspec, value, arg)
       ts_context = info.ts_context
       replica_id = self._get_replica_id(value)
       write_coros.append(
