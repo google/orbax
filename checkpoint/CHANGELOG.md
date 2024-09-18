@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Checkpoint snapshot implementation so evals will run on the snapshot of the
  checkpoint instead of locking the current checkpoint.
 
+
+## [0.6.4] - 2024-09-17
+
 ### Fixed
 - Return empty dict (instead of None) as metadata for *empty* Mapping typed
  unregistered types.
