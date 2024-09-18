@@ -152,7 +152,7 @@ class StandardCheckpointHandlerTestBase:
       # TODO(dicentra): casting from int dtypes currently doesn't work
       # in the model surgery context.
       save_args = jax.tree.map(
-          lambda _: SaveArgs(dtype=jnp.float32), self.pytree
+          lambda _: SaveArgs(dtype=jnp.dtype(jnp.float32)), self.pytree
       )
       self.handler.save(
           self.directory,
