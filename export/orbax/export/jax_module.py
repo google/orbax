@@ -82,8 +82,6 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
   converted from JAX functions and bound with the tf.Variables.
   """
 
-  DEFAULT_METHOD_KEY = 'jax_module_default_method'
-
   def __init__(
       self,
       params: PyTree,
@@ -102,7 +100,7 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
       params: a pytree of JAX parameters.
       apply_fn: A JAX ``ApplyFn`` (i.e. of signature ``apply_fn(params, x)``),
         or a mapping of method key to ``ApplyFn``. If it is an ``ApplyFn``, it
-        will be assigned a key ``JaxModule.DEFAULT_METHOD_KEY`` automatically,
+        will be assigned a key ``constants.DEFAULT_METHOD_KEY`` automatically,
         which can be used to look up the TF function converted from it.
       trainable: a pytree in the same structure as ``params`` and boolean leaves
         to tell if a parameter is trainable. Alternatively, it can be a single
@@ -137,12 +135,14 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
         desired export format.
     """
     if callable(apply_fn):
-      apply_fn_map: dict[str, ApplyFn] = {self.DEFAULT_METHOD_KEY: apply_fn}
-      input_polymorphic_shape = {
-          self.DEFAULT_METHOD_KEY: input_polymorphic_shape
+      apply_fn_map: dict[str, ApplyFn] = {
+          constants.DEFAULT_METHOD_KEY: apply_fn
       }
-      jax2tf_kwargs = {self.DEFAULT_METHOD_KEY: jax2tf_kwargs}
-      jit_compile = {self.DEFAULT_METHOD_KEY: jit_compile}
+      input_polymorphic_shape = {
+          constants.DEFAULT_METHOD_KEY: input_polymorphic_shape
+      }
+      jax2tf_kwargs = {constants.DEFAULT_METHOD_KEY: jax2tf_kwargs}
+      jit_compile = {constants.DEFAULT_METHOD_KEY: jit_compile}
     else:
       # Check if `apply_fn`, `input_polymorphic_shape` and `jax2tf_kwargs` have
       # the same structure.

@@ -19,5 +19,14 @@ import enum
 
 class ExportModelType(enum.Enum):
   """Defines the export types available for serializing a JAX model through Orbax."""
+
   TF_SAVEDMODEL = 'TF_SAVEDMODEL',
-  ORBAX_MODEL = 'ORBAX_MODEL'
+  ORBAX_MODEL = 'ORBAX_MODEL',
+
+
+# Default dictionary key used for mapping from an apply fn provided during the
+# JaxModule creation if the apply function passed wasn't already provided in
+# a dictionary from name to function. During creation the JaxModule will
+# normalize the JaxModule arguments to be a dictionary from name to function. If
+# the user provided a single function, it will be mapped to this default key.
+DEFAULT_METHOD_KEY = 'jax_module_default_method'

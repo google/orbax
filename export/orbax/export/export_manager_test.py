@@ -121,7 +121,7 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     method = jax_module.JaxModule(
         {'bias': jnp.array(1)},
         lambda p, x: x + p['bias'],
-    ).methods[jax_module.JaxModule.DEFAULT_METHOD_KEY]
+    ).methods[constants.DEFAULT_METHOD_KEY]
     inference_fn = make_e2e_inference_fn(
         method,
         sc.ServingConfig('key', input_signature, preprocessor, postprocessor),

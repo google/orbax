@@ -23,11 +23,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax import export as obx_export
+from orbax.export import constants
 from orbax.export import utils as orbax_export_utils
 import tensorflow as tf
 
 
-DEFAULT_METHOD_KEY = obx_export.JaxModule.DEFAULT_METHOD_KEY
+DEFAULT_METHOD_KEY = constants.DEFAULT_METHOD_KEY
 JaxModule = obx_export.JaxModule
 
 
@@ -448,13 +449,13 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
         f'{restored_jax_exported_map.keys()} vs {j_module.apply_fn_map.keys()}',
     )
     chex.assert_trees_all_close(
-        restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].call(
+        restored_jax_exported_map[DEFAULT_METHOD_KEY].call(
             model_params, model_inputs
         ),
         linear(model_params, model_inputs),
     )
     chex.assert_equal(
-        set(restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].platforms),
+        set(restored_jax_exported_map[DEFAULT_METHOD_KEY].platforms),
         set(lowering_platforms),
     )
     args_kwargs = ((model_params, model_inputs), {})
@@ -462,15 +463,15 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
     in_avals = tuple(jax.tree.leaves(args_kwargs))
     chex.assert_equal(
         in_tree,
-        restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].in_tree,
+        restored_jax_exported_map[DEFAULT_METHOD_KEY].in_tree,
     )
     chex.assert_trees_all_equal_shapes(
         in_avals,
-        restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].in_avals,
+        restored_jax_exported_map[DEFAULT_METHOD_KEY].in_avals,
     )
     chex.assert_trees_all_equal_dtypes(
         in_avals,
-        restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].in_avals,
+        restored_jax_exported_map[DEFAULT_METHOD_KEY].in_avals,
     )
 
     # support grad function with vjp_order > 1
@@ -481,7 +482,7 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
     restored_jax_exported_map = orbax_export_utils.load_jax_exported_map(
         saved_dir
     )
-    f = restored_jax_exported_map[JaxModule.DEFAULT_METHOD_KEY].call
+    f = restored_jax_exported_map[DEFAULT_METHOD_KEY].call
     model_params_grad = jax.grad(lambda p, x: jnp.sum(f(p, x)), argnums=0)(
         model_params, model_inputs
     )
