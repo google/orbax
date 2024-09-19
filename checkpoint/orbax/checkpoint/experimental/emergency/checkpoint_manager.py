@@ -1080,15 +1080,10 @@ class CheckpointManager(
 
     # transfer to global_mesh
     def transfer_to_global_mesh(x):
-      # TODO(b/367435655) add donate to device_put instead of block+delete
       y = jax.device_put(
           x,
           device=jax.sharding.NamedSharding(self._global_mesh, x.sharding.spec),
       )
-      y.block_until_ready()
-
-      # delete immediately to conserve memory
-      x.delete()
       return y
 
     logging.info('Transferring from consistent restore mesh to global mesh')
