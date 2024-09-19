@@ -18,6 +18,8 @@ A fragment is a lot like a shard but its shape is not constrained by any
 relationship to a mesh of devices, or to other fragments.
 """
 
+from __future__ import annotations
+
 import dataclasses
 from typing import Optional, Sequence, Union
 
@@ -52,6 +54,7 @@ class Fragment:
     value: The data for this fragment. If this is `None`, the fragment is
       abstract.
   """
+
   np_index: np.ndarray  # shape=[{rank}, 3], dtype=int
   value: Optional[np.ndarray] = None
 
@@ -110,7 +113,7 @@ class Fragment:
   def size(self) -> int:
     return np.prod(self.shape)
 
-  def __eq__(self, other: 'Fragment'):
+  def __eq__(self, other: Fragment):
     if not isinstance(other, Fragment):
       return False
     if not np.array_equal(self.np_index, other.np_index):
@@ -121,9 +124,10 @@ class Fragment:
       return other_value is None
     else:
       return (
-          other_value is not None and
-          self_value.dtype == other_value.dtype and
-          np.array_equal(self_value, other_value))
+          other_value is not None
+          and self_value.dtype == other_value.dtype
+          and np.array_equal(self_value, other_value)
+      )
 
   def __repr__(self):
     maybe_value_str = ', value=...' if self.value is not None else ''
@@ -134,9 +138,7 @@ class Fragment:
 
   def __array__(self) -> np.ndarray:
     if self.value is None:
-      raise ValueError(
-          f"Can\'t convert abstract fragment to array: {self!r}.'"
-      )
+      raise ValueError(f"Can't convert abstract fragment to array: {self!r}.'")
     return self.value  # pytype: disable=bad-return-type
 
   def is_degenerate(self) -> bool:
@@ -147,13 +149,14 @@ class Fragment:
   def nbytes(self) -> int:
     if self.value is None:
       raise ValueError(
-          'Can\'t compute nbytes of abstract fragment. Use nbytes_astype().')
+          "Can't compute nbytes of abstract fragment. Use nbytes_astype()."
+      )
     return self.value.nbytes
 
   def nbytes_astype(self, dtype: np.dtype) -> int:
     return np.prod([dtype.itemsize, *self.shape])
 
-  def offset_by(self, delta: np.ndarray) -> 'Fragment':
+  def offset_by(self, delta: np.ndarray) -> Fragment:
     out_idx = self.np_index.copy()
     out_idx[:, :2] += np.expand_dims(delta, axis=1)
     return Fragment(np_index=out_idx, value=self.value)
@@ -169,6 +172,7 @@ class Fragments:
   of a `jax.Array` (fragments are not required to have the same shape, or to map
   to a device mesh).
   """
+
   shape: Shape
   dtype: np.dtype
   fragments: Sequence[Fragment]
@@ -177,7 +181,8 @@ class Fragments:
     for fragment in self.fragments:
       if not isinstance(fragment, Fragment):
         raise TypeError(
-            f'Fragments must contain Fragment, not {type(fragment)}.')
+            f'Fragments must contain Fragment, not {type(fragment)}.'
+        )
 
   def is_degenerate(self) -> bool:
     """Whether this contains only degenerate fragments."""
@@ -197,7 +202,7 @@ class Fragments:
     for f in self.fragments:
       if f.value is None:
         raise ValueError(
-            f"Can\'t convert abstract fragments to array: {self!r}.'"
+            f"Can't convert abstract fragments to array: {self!r}.'"
         )
     non_degenerate_fragments = [
         f for f in self.fragments if not f.is_degenerate()
@@ -212,7 +217,8 @@ class Fragments:
         return f.value  # pytype: disable=bad-return-type
     if not _is_full(self):
       raise ValueError(
-          f'Attempt to convert non-full Fragments to array: {self}.')
+          f'Attempt to convert non-full Fragments to array: {self}.'
+      )
     result = np.empty(self.shape, dtype=self.dtype)
     for f in non_degenerate_fragments:
       result[f.index] = f.value
@@ -246,28 +252,32 @@ def addressable_shards(
   if not sharding:
     return [tuple(slice(0, dim, 1) for dim in shape)]
   return [
-      _normalize(idx, shape) for idx in
-      sharding.addressable_devices_indices_map(shape).values()
+      _normalize(idx, shape)
+      for idx in sharding.addressable_devices_indices_map(shape).values()
   ]
 
 
 def abstract_fragments(
-    x: Union[jax.Array, jax.ShapeDtypeStruct, Fragments]
+    x: Union[jax.Array, jax.ShapeDtypeStruct, Fragments],
 ) -> Fragments:
   if isinstance(x, Fragments):
     return x
   return Fragments(
       x.shape,
       x.dtype,
-      [Fragment(index=index, value=None) for index in addressable_shards(x)])
+      [Fragment(index=index, value=None) for index in addressable_shards(x)],
+  )
 
 
 def validate_fragments_can_be_stacked(fragments: Fragments) -> None:
   """Validates that the given fragments can be stacked."""
   if not fragments.fragments:
     raise ValueError('No fragments to stack.')
-  fragment_arrays = [fragment.value for fragment in fragments.fragments
-                     if fragment.value is not None]
+  fragment_arrays = [
+      fragment.value
+      for fragment in fragments.fragments
+      if fragment.value is not None
+  ]
   if len(fragment_arrays) != len(fragments.fragments):
     raise ValueError(f'Not all fragments have values: {fragments}')
   fragment_shape = fragment_arrays[0].shape

@@ -14,6 +14,8 @@
 
 """Utilities for working with Orbax metadata."""
 
+from __future__ import annotations
+
 import asyncio
 import collections
 import dataclasses
@@ -21,6 +23,7 @@ import enum
 import functools
 import operator
 from typing import Any, Dict, Hashable, List, Optional, Tuple, TypeVar, Union
+
 from etils import epath
 import jax
 from orbax.checkpoint import tree as tree_utils
@@ -54,7 +57,7 @@ class KeyType(enum.Enum):
     return self.value
 
   @classmethod
-  def from_json(cls, value: int) -> 'KeyType':
+  def from_json(cls, value: int) -> KeyType:
     return cls(value)
 
 
@@ -81,6 +84,7 @@ def _keypath_from_key_type(key_name: str, key_type: KeyType) -> Any:
 @dataclasses.dataclass
 class NestedKeyMetadataEntry:
   """Represents a key at a single level of nesting."""
+
   nested_key_name: str
   key_type: KeyType
 
@@ -93,7 +97,7 @@ class NestedKeyMetadataEntry:
   @classmethod
   def from_json(
       cls, json_dict: Dict[str, Union[str, int]]
-  ) -> 'NestedKeyMetadataEntry':
+  ) -> NestedKeyMetadataEntry:
     return NestedKeyMetadataEntry(
         nested_key_name=json_dict[_KEY_NAME],
         key_type=KeyType.from_json(json_dict[_KEY_TYPE]),
@@ -103,6 +107,7 @@ class NestedKeyMetadataEntry:
 @dataclasses.dataclass
 class KeyMetadataEntry:
   """Represents metadata for a key (all levels of nesting)."""
+
   nested_key_metadata_entries: List[NestedKeyMetadataEntry]
 
   def to_json(self) -> Tuple[Dict[str, Union[str, int]], ...]:
@@ -113,13 +118,13 @@ class KeyMetadataEntry:
   @classmethod
   def from_json(
       cls, json_dict: Tuple[Dict[str, Union[str, int]], ...]
-  ) -> 'KeyMetadataEntry':
+  ) -> KeyMetadataEntry:
     return KeyMetadataEntry(
         [NestedKeyMetadataEntry.from_json(entry) for entry in json_dict]
     )
 
   @classmethod
-  def build(cls, keypath: KeyPath) -> 'KeyMetadataEntry':
+  def build(cls, keypath: KeyPath) -> KeyMetadataEntry:
     return KeyMetadataEntry([
         NestedKeyMetadataEntry(
             str(tree_utils.get_key_name(k)), _get_key_metadata_type(k)
@@ -131,6 +136,7 @@ class KeyMetadataEntry:
 @dataclasses.dataclass
 class ValueMetadataEntry:
   """Represents metadata for a leaf in a tree."""
+
   value_type: str
   skip_deserialize: bool = False
 
@@ -141,7 +147,7 @@ class ValueMetadataEntry:
     }
 
   @classmethod
-  def from_json(cls, json_dict: Dict[str, Any]) -> 'ValueMetadataEntry':
+  def from_json(cls, json_dict: Dict[str, Any]) -> ValueMetadataEntry:
     return ValueMetadataEntry(
         value_type=json_dict[_VALUE_TYPE],
         skip_deserialize=json_dict[_SKIP_DESERIALIZE],
@@ -152,7 +158,7 @@ class ValueMetadataEntry:
       cls,
       info: type_handlers.ParamInfo,
       save_arg: type_handlers.SaveArgs,
-  ) -> 'ValueMetadataEntry':
+  ) -> ValueMetadataEntry:
     """Builds a ValueMetadataEntry."""
     del save_arg
     if info.value_typestr is None:
@@ -168,6 +174,7 @@ class ValueMetadataEntry:
 @dataclasses.dataclass
 class TreeMetadataEntry:
   """Represents metadata for a named key/value pair in a tree."""
+
   keypath: str
   key_metadata: KeyMetadataEntry
   value_metadata: ValueMetadataEntry
@@ -183,7 +190,7 @@ class TreeMetadataEntry:
   @classmethod
   def from_json(
       cls, keypath: str, json_dict: Dict[str, Any]
-  ) -> 'TreeMetadataEntry':
+  ) -> TreeMetadataEntry:
     return TreeMetadataEntry(
         keypath,
         KeyMetadataEntry.from_json(json_dict[_KEY_METADATA_KEY]),
@@ -196,7 +203,7 @@ class TreeMetadataEntry:
       keypath: KeyPath,
       info: type_handlers.ParamInfo,
       save_arg: type_handlers.SaveArgs,
-  ) -> 'TreeMetadataEntry':
+  ) -> TreeMetadataEntry:
     """Builds a TreeMetadataEntry."""
     key_metadata_entry = KeyMetadataEntry.build(keypath)
     value_metadata_entry = ValueMetadataEntry.build(info, save_arg)
@@ -229,7 +236,7 @@ class TreeMetadata:
       *,
       save_args: Optional[PyTree] = None,
       use_zarr3: bool = False,
-  ) -> 'TreeMetadata':
+  ) -> TreeMetadata:
     """Builds the tree metadata."""
     if save_args is None:
       save_args = jax.tree.map(
@@ -282,7 +289,7 @@ class TreeMetadata:
     }
 
   @classmethod
-  def from_json(cls, json_dict: Dict[str, Any]) -> 'TreeMetadata':
+  def from_json(cls, json_dict: Dict[str, Any]) -> TreeMetadata:
     """Convert the TreeMetadata from a JSON representation."""
     use_zarr3 = False
     if _USE_ZARR3 in json_dict:

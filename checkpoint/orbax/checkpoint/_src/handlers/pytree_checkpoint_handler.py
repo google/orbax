@@ -19,6 +19,8 @@ of the underlying reading/writing logic for individual leaf types can be
 customized, and is delegated to the `TypeHandler` class.
 """
 
+from __future__ import annotations
+
 import asyncio
 import dataclasses
 import json
@@ -400,8 +402,8 @@ def _transform_checkpoint(
 
 def _get_impl_save_args(
     item: Optional[PyTree] = None,
-    save_args: Optional['PyTreeSaveArgs'] = None,
-    args: Optional['PyTreeSaveArgs'] = None,
+    save_args: Optional[PyTreeSaveArgs] = None,
+    args: Optional[PyTreeSaveArgs] = None,
 ) -> BasePyTreeSaveArgs:
   """Construct BasePyTreeSaveArgs."""
   if isinstance(item, CheckpointArgs):
@@ -505,8 +507,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       self,
       directory: epath.Path,
       item: Optional[PyTree] = None,
-      save_args: Optional['PyTreeSaveArgs'] = None,
-      args: Optional['PyTreeSaveArgs'] = None,
+      save_args: Optional[PyTreeSaveArgs] = None,
+      args: Optional[PyTreeSaveArgs] = None,
   ) -> Optional[List[future.Future]]:
     """Saves a PyTree to a given directory.
 
@@ -558,8 +560,8 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       self,
       directory: epath.Path,
       item: Optional[PyTree] = None,
-      save_args: Optional['PyTreeSaveArgs'] = None,
-      args: Optional['PyTreeSaveArgs'] = None,
+      save_args: Optional[PyTreeSaveArgs] = None,
+      args: Optional[PyTreeSaveArgs] = None,
   ):
     """Saves the provided item. See async_save."""
     args = _get_impl_save_args(item, save_args, args)
@@ -628,7 +630,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       transforms: Optional[PyTree] = None,
       transforms_default_to_original: bool = True,
       legacy_transform_fn: Optional[LegacyTransformFn] = None,
-      args: Optional['PyTreeRestoreArgs'] = None,
+      args: Optional[PyTreeRestoreArgs] = None,
   ) -> PyTree:
     """Restores a PyTree from the checkpoint directory at the given path.
 

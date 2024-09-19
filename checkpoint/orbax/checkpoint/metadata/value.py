@@ -14,6 +14,8 @@
 
 """Metadata describing PyTree values.""" ''
 
+from __future__ import annotations
+
 import dataclasses
 from typing import Optional
 
@@ -37,13 +39,14 @@ class Metadata:
   name: str
   directory: Optional[epath.Path]
 
-  def __eq__(self, other: 'Metadata') -> bool:
+  def __eq__(self, other: Metadata) -> bool:
     return isinstance(other, Metadata)
 
 
 @dataclasses.dataclass(frozen=True)
 class StorageMetadata:
   """Metadata describing how arrays are stored in a checkpoint."""
+
   chunk_shape: Optional[tuple[int, ...]]
 
 
@@ -68,7 +71,7 @@ class ArrayMetadata(Metadata):
   dtype: Optional[jnp.dtype]
   storage: Optional[StorageMetadata] = None
 
-  def __eq__(self, other: 'Metadata') -> bool:
+  def __eq__(self, other: Metadata) -> bool:
     return (
         isinstance(other, ArrayMetadata)
         and self.shape == other.shape
@@ -83,7 +86,7 @@ class ArrayMetadata(Metadata):
       s: jax.ShapeDtypeStruct,
       name: Optional[str] = None,
       directory: Optional[epath.Path] = None,
-  ) -> 'ArrayMetadata':
+  ) -> ArrayMetadata:
     return cls(
         name=name,
         directory=directory,
@@ -105,7 +108,7 @@ class ScalarMetadata(ArrayMetadata):
   sharding: Optional[sharding_metadata.ShardingMetadata] = None
   dtype: Optional[jnp.dtype] = None
 
-  def __eq__(self, other: 'Metadata') -> bool:
+  def __eq__(self, other: Metadata) -> bool:
     return isinstance(other, ScalarMetadata) and self.dtype == other.dtype
 
 
@@ -113,5 +116,5 @@ class ScalarMetadata(ArrayMetadata):
 class StringMetadata(Metadata):
   """Metadata describing a string value."""
 
-  def __eq__(self, other: 'Metadata') -> bool:
+  def __eq__(self, other: Metadata) -> bool:
     return isinstance(other, StringMetadata)

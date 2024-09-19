@@ -43,6 +43,8 @@ Usage example::
   json_dict = restored.metadata
 """
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import Collection, KeysView
 import concurrent.futures
@@ -634,7 +636,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     return tmp_item_dir
 
   def _get_item_temporary_paths(
-      self, directory: epath.Path, args: 'CompositeArgs'
+      self, directory: epath.Path, args: CompositeArgs
   ) -> Dict[str, atomicity.TemporaryPath]:
     # Sort keys to maintain consistent ordering across processes, otherwise
     # we may hit timeouts if processes wait at different barriers in per-item
@@ -658,7 +660,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
 
   async def async_save(
-      self, directory: epath.Path, args: 'CompositeArgs'
+      self, directory: epath.Path, args: CompositeArgs
   ) -> Optional[List[Future]]:
     """Saves multiple items to individual subdirectories."""
     self._current_temporary_paths = self._get_item_temporary_paths(
@@ -717,8 +719,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   def restore(
       self,
       directory: epath.Path,
-      args: Optional['CompositeArgs'] = None,
-  ) -> 'CompositeResults':
+      args: Optional[CompositeArgs] = None,
+  ) -> CompositeResults:
     """Restores the provided item synchronously.
 
     Args:
@@ -800,7 +802,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       )
     return CompositeResults(**restored)
 
-  def metadata(self, directory: epath.Path) -> 'CompositeResults':
+  def metadata(self, directory: epath.Path) -> CompositeResults:
     items_and_handlers = (
         self._get_all_registered_and_unregistered_items_and_handlers()
     )
@@ -928,12 +930,12 @@ class CompositeArgs(CheckpointArgs):
     except KeyError:
       return default
 
-  def __and__(self, other: 'CompositeArgs') -> 'CompositeArgs':
+  def __and__(self, other: CompositeArgs) -> CompositeArgs:
     if isinstance(other, dict):
       other = CompositeArgs(**other)
     return CompositeArgs(**(self.__items__ & other.__items__))
 
-  def __or__(self, other: 'CompositeArgs') -> 'CompositeArgs':
+  def __or__(self, other: CompositeArgs) -> CompositeArgs:
     if isinstance(other, dict):
       other = CompositeArgs(**other)
     return CompositeArgs(**(self.__items__ | other.__items__))

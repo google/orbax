@@ -14,6 +14,8 @@
 
 """RandomKeyCheckpointHandlers for saving and restoring individual Jax and Numpy random keys."""
 
+from __future__ import annotations
+
 import abc
 import asyncio
 import dataclasses
@@ -181,7 +183,7 @@ class JaxRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
     super().__init__(key_name or 'jax_random_key')
 
   def checkpoint_save_args(
-      self, args: 'JaxRandomKeySaveArgs'
+      self, args: JaxRandomKeySaveArgs
   ) -> Tuple[CheckpointArgs, JsonSaveArgs]:
     item = args.item
     save_args = args.save_args
@@ -199,7 +201,7 @@ class JaxRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
     )
 
   def checkpoint_restore_args(
-      self, args: 'JaxRandomKeyRestoreArgs'
+      self, args: JaxRandomKeyRestoreArgs
   ) -> CheckpointArgs:
     return ArrayRestoreArgs(restore_args=args.restore_args)
 
@@ -250,7 +252,7 @@ class NumpyRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
     super().__init__(key_name or 'np_random_key')
 
   def checkpoint_save_args(
-      self, args: 'NumpyRandomKeySaveArgs'
+      self, args: NumpyRandomKeySaveArgs
   ) -> Tuple[CheckpointArgs, JsonSaveArgs]:
     item = args.item
 
@@ -264,7 +266,7 @@ class NumpyRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
     return (PyTreeSaveArgs(item), JsonSaveArgs(metadata))
 
   def checkpoint_restore_args(
-      self, args: 'NumpyRandomKeyRestoreArgs'
+      self, args: NumpyRandomKeyRestoreArgs
   ) -> CheckpointArgs:
     return PyTreeRestoreArgs()
 

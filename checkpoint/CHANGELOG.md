@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.4] - 2024-09-17
+### Changed
+- Modernize type annotations using `from __future__ import annotations`.
 
 
 ## [0.6.4] - 2024-09-17

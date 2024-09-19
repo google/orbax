@@ -14,6 +14,8 @@
 
 """ArrayCheckpointHandler for saving and restoring individual arrays/scalars."""
 
+from __future__ import annotations
+
 import asyncio
 import dataclasses
 from typing import List, Optional, Union
@@ -60,7 +62,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       directory: epath.Path,
       item: Optional[ArrayType] = None,
       save_args: Optional[type_handlers.SaveArgs] = None,
-      args: Optional['ArraySaveArgs'] = None,
+      args: Optional[ArraySaveArgs] = None,
   ) -> Optional[List[future.Future]]:
     """Saves an object asynchronously.
 
@@ -112,7 +114,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       directory: epath.Path,
       item: Optional[ArrayType] = None,
       restore_args: Optional[type_handlers.RestoreArgs] = None,
-      args: Optional['ArrayRestoreArgs'] = None,
+      args: Optional[ArrayRestoreArgs] = None,
   ) -> ArrayType:
     """Restores an object.
 

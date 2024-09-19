@@ -49,6 +49,8 @@ Configuration can be done in the following way::
   )
 """
 
+from __future__ import annotations
+
 import asyncio
 import re
 import threading
@@ -91,7 +93,7 @@ class TemporaryPath(Protocol):
       multiprocessing_options: Optional[
           options_lib.MultiprocessingOptions
       ] = None,
-  ) -> 'TemporaryPath':
+  ) -> TemporaryPath:
     """Creates a TemporaryPath from a final path."""
     ...
 
@@ -251,7 +253,7 @@ class AtomicRenameTemporaryPath(TemporaryPath):
       multiprocessing_options: Optional[
           options_lib.MultiprocessingOptions
       ] = None,
-  ) -> 'AtomicRenameTemporaryPath':
+  ) -> AtomicRenameTemporaryPath:
     return cls(
         _get_tmp_directory(final_path),
         final_path,
@@ -374,7 +376,7 @@ class CommitFileTemporaryPath(TemporaryPath):
       multiprocessing_options: Optional[
           options_lib.MultiprocessingOptions
       ] = None,
-  ) -> 'CommitFileTemporaryPath':
+  ) -> CommitFileTemporaryPath:
     return cls(
         final_path,
         final_path,

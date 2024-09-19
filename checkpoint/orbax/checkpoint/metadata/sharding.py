@@ -14,12 +14,15 @@
 
 """ShardingMetadata representing Sharding property."""
 
+from __future__ import annotations
+
 import abc
 import dataclasses
 import enum
 import json
 import logging
 from typing import Any, List, Mapping, Optional, Sequence, Tuple, Union
+
 import jax
 from jax.experimental import mesh_utils
 import numpy as np
@@ -52,18 +55,18 @@ class DeviceMetadata:
   id: int
 
   @classmethod
-  def from_dict(cls, data: dict[str, Any]) -> 'DeviceMetadata':
+  def from_dict(cls, data: dict[str, Any]) -> DeviceMetadata:
     return DeviceMetadata(
         id=data[_ID],
     )
 
   @classmethod
-  def from_jax_device(cls, device: jax.Device) -> 'DeviceMetadata':
+  def from_jax_device(cls, device: jax.Device) -> DeviceMetadata:
     return DeviceMetadata(
         id=device.id,
     )
 
-  def __eq__(self, other: 'DeviceMetadata'):
+  def __eq__(self, other: DeviceMetadata):
     return self.id == other.id
 
 
@@ -74,7 +77,7 @@ class DeviceMetadataMesh:
   mesh: Sequence[Any]
 
   @classmethod
-  def from_dict(cls, data: dict[str, Any]) -> 'DeviceMetadataMesh':
+  def from_dict(cls, data: dict[str, Any]) -> DeviceMetadataMesh:
     mesh = data['mesh']
     device_mesh = jax.tree.map(
         DeviceMetadata.from_dict,
@@ -86,7 +89,7 @@ class DeviceMetadataMesh:
   @classmethod
   def from_jax_mesh(
       cls, mesh: jax.sharding.Mesh
-  ) -> Optional['DeviceMetadataMesh']:
+  ) -> Optional[DeviceMetadataMesh]:
     """Take in of jax.sharding.Mesh and convert into DeviceMetadata while keeping the sequences.
 
     Support only TPU-device.  If there is any non-TPU device, return None.
@@ -154,7 +157,7 @@ class ShardingMetadata(abc.ABC):
 
   @classmethod
   @abc.abstractmethod
-  def from_jax_sharding(cls, jax_sharding) -> 'ShardingMetadata':
+  def from_jax_sharding(cls, jax_sharding) -> ShardingMetadata:
     """Converts `jax.sharding.Sharding` to `ShardingMetadata`."""
 
   @abc.abstractmethod
@@ -165,7 +168,7 @@ class ShardingMetadata(abc.ABC):
   @abc.abstractmethod
   def from_deserialized_dict(
       cls, deserialized_dict: dict[str, str]
-  ) -> 'ShardingMetadata':
+  ) -> ShardingMetadata:
     """Converts serialized_string in the form of `dict[str, str]` to `ShardingMetadata`."""
 
   @abc.abstractmethod
@@ -176,6 +179,7 @@ class ShardingMetadata(abc.ABC):
 @dataclasses.dataclass
 class NamedShardingMetadata(ShardingMetadata):
   """NamedShardingMetadata representing `jax.sharding.NamedSharding`."""
+
   shape: np.ndarray
   axis_names: List[str]
   partition_spec: Tuple[
@@ -189,7 +193,7 @@ class NamedShardingMetadata(ShardingMetadata):
   @classmethod
   def from_jax_sharding(
       cls, jax_sharding: jax.sharding.NamedSharding
-  ) -> 'NamedShardingMetadata':
+  ) -> NamedShardingMetadata:
     return cls(
         shape=np.array(list(jax_sharding.mesh.shape.values())),
         axis_names=list(jax_sharding.mesh.axis_names),
@@ -214,7 +218,7 @@ class NamedShardingMetadata(ShardingMetadata):
   @classmethod
   def from_deserialized_dict(
       cls, deserialized_dict: dict[str, Any]
-  ) -> 'NamedShardingMetadata':
+  ) -> NamedShardingMetadata:
     if (
         _MESH_SHAPE in deserialized_dict
         and _MESH_AXES in deserialized_dict
@@ -274,7 +278,7 @@ class SingleDeviceShardingMetadata(ShardingMetadata):
   @classmethod
   def from_jax_sharding(
       cls, jax_sharding: jax.sharding.SingleDeviceSharding
-  ) -> 'SingleDeviceShardingMetadata':
+  ) -> SingleDeviceShardingMetadata:
     return cls(device_str=str(next(iter(jax_sharding.device_set))))
 
   def to_jax_sharding(self) -> jax.sharding.SingleDeviceSharding:
@@ -290,7 +294,7 @@ class SingleDeviceShardingMetadata(ShardingMetadata):
   @classmethod
   def from_deserialized_dict(
       cls, deserialized_dict: dict[str, str]
-  ) -> 'SingleDeviceShardingMetadata':
+  ) -> SingleDeviceShardingMetadata:
     if (
         _DEVICE_STR in deserialized_dict
         and deserialized_dict[_DEVICE_STR] is not None
@@ -321,13 +325,14 @@ class GSPMDShardingMetadata(ShardingMetadata):
 @dataclasses.dataclass
 class PositionalShardingMetadata(ShardingMetadata):
   """PositionalShardingMetadata representing `jax.sharding.PositionalSharding`."""
+
   shape: np.ndarray
   memory_kind: Optional[str] = None
 
   @classmethod
   def from_jax_sharding(
       cls, jax_sharding: jax.sharding.PositionalSharding
-  ) -> 'PositionalShardingMetadata':
+  ) -> PositionalShardingMetadata:
     return cls(
         shape=np.array(list(jax_sharding.shape)),
         memory_kind=jax_sharding.memory_kind,
@@ -342,7 +347,7 @@ class PositionalShardingMetadata(ShardingMetadata):
   @classmethod
   def from_deserialized_dict(
       cls, deserialized_dict: dict[str, str]
-  ) -> 'PositionalShardingMetadata':
+  ) -> PositionalShardingMetadata:
     if _DEVICES_SHAPE in deserialized_dict:
       shape = np.array(deserialized_dict[_DEVICES_SHAPE])
       memory_kind = deserialized_dict.get(_MEMORY_KIND, None)
@@ -406,9 +411,7 @@ def from_serialized_string(serialized_str) -> ShardingMetadata:
       deserialized_dict[_SHARDING_TYPE]
       == ShardingTypes.POSITIONAL_SHARDING.value
   ):
-    return PositionalShardingMetadata.from_deserialized_dict(
-        deserialized_dict
-    )
+    return PositionalShardingMetadata.from_deserialized_dict(deserialized_dict)
   else:
     raise NotImplementedError(
         f'Conversion for {deserialized_dict[_SHARDING_TYPE]} has not been'

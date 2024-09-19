@@ -14,6 +14,8 @@
 
 """StandardCheckpointHandler class."""
 
+from __future__ import annotations
+
 import asyncio
 import dataclasses
 from typing import Any, List, Optional
@@ -117,7 +119,7 @@ class StandardCheckpointHandler(
       directory: epath.Path,
       item: Optional[PyTree] = None,
       save_args: Optional[PyTree] = None,
-      args: Optional['StandardSaveArgs'] = None,
+      args: Optional[StandardSaveArgs] = None,
   ) -> Optional[List[future.Future]]:
     """Saves a PyTree of array-like objects. See PyTreeCheckpointHandler."""
     if isinstance(item, CheckpointArgs):
@@ -154,7 +156,7 @@ class StandardCheckpointHandler(
       self,
       directory: epath.Path,
       item: Optional[PyTree] = None,
-      args: Optional['StandardRestoreArgs'] = None,
+      args: Optional[StandardRestoreArgs] = None,
   ) -> PyTree:
     """Restores a PyTree. See PyTreeCheckpointHandler.
 

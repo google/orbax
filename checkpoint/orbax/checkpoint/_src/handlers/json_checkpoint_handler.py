@@ -17,6 +17,8 @@
 Implementation of CheckpointHandler interface.
 """
 
+from __future__ import annotations
+
 import asyncio
 from concurrent import futures
 import dataclasses
@@ -66,7 +68,7 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       self,
       directory: epath.Path,
       item: Optional[Mapping[str, Any]] = None,
-      args: Optional['JsonSaveArgs'] = None,
+      args: Optional[JsonSaveArgs] = None,
   ) -> Optional[List[future.Future]]:
     """Saves the given item.
 
@@ -91,7 +93,7 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       self,
       directory: epath.Path,
       item: Optional[Mapping[str, Any]] = None,
-      args: Optional['JsonSaveArgs'] = None,
+      args: Optional[JsonSaveArgs] = None,
   ):
     async def async_save(directory, item, args):
       commit_futures = await self.async_save(directory, item, args)
@@ -105,7 +107,7 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       self,
       directory: epath.Path,
       item: Optional[Mapping[str, Any]] = None,
-      args: Optional['JsonRestoreArgs'] = None,
+      args: Optional[JsonRestoreArgs] = None,
   ) -> Mapping[str, Any]:
     """Restores json mapping from directory.
 

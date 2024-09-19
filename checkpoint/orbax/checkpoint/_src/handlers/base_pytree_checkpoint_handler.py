@@ -19,6 +19,8 @@ of the underlying reading/writing logic for individual leaf types can be
 customized, and is delegated to the `TypeHandler` class.
 """
 
+from __future__ import annotations
+
 import asyncio
 from concurrent import futures
 import dataclasses
@@ -372,7 +374,7 @@ class BasePyTreeCheckpointHandler(
   async def async_save(
       self,
       directory: epath.Path,
-      args: 'BasePyTreeSaveArgs',
+      args: BasePyTreeSaveArgs,
   ) -> Optional[List[future.Future]]:
     """Saves a PyTree to a given directory.
 
@@ -552,7 +554,7 @@ class BasePyTreeCheckpointHandler(
   def restore(
       self,
       directory: epath.Path,
-      args: Optional['BasePyTreeRestoreArgs'] = None,
+      args: Optional[BasePyTreeRestoreArgs] = None,
   ) -> PyTree:
     """Restores a PyTree from the checkpoint directory at the given path.
 

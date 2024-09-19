@@ -14,6 +14,8 @@
 
 """A class providing functionalities for managing a series of checkpoints."""
 
+from __future__ import annotations
+
 import concurrent.futures
 import dataclasses
 import datetime
@@ -357,7 +359,7 @@ class CheckpointInfo:
         f' is_locked={self.is_locked}]'
     )
 
-  def __eq__(self, other: 'CheckpointInfo') -> bool:
+  def __eq__(self, other: CheckpointInfo) -> bool:
     return self.step == other.step and self.time == other.time
 
   def __hash__(self) -> int:
