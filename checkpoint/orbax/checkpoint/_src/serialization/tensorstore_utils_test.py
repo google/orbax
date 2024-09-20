@@ -427,6 +427,78 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
 
   @parameterized.product(
       (
+          dict(use_ocdbt=False, process_id=None),
+          dict(use_ocdbt=True, process_id=13),
+      ),
+      use_zarr3=(True, False),
+      target_dtype=(None, np.dtype(np.int16)),
+      shard_axes=(
+          (1, 2),  # both unsharded
+          (0, 2),  # one already sharded and another unsharded
+      ),
+  )
+  def test_chunk_byte_size_with_shard_axes(
+      self,
+      use_ocdbt: bool,
+      process_id: Optional[int],
+      use_zarr3: bool,
+      target_dtype: Optional[np.dtype],
+      shard_axes: tuple[int, ...],
+  ):
+    self.global_shape = (8, 64, 32)
+    self.write_shape = (2, 64, 32)
+
+    # Value in-between of two exact powers of 2 to check that the chunk shape is
+    # adjusted for the target dtype, and small enough to be subchunked on all of
+    # the requested shard axes.
+    chunk_byte_size = 100
+    assert chunk_byte_size < (
+        math.prod(self.write_shape) * (target_dtype or self.dtype).itemsize
+    ) // 2 ** len(shard_axes)
+
+    array_metadata = dataclasses.replace(
+        self.array_metadata(use_zarr3=use_zarr3),
+        target_dtype=target_dtype,
+        chunk_byte_size=chunk_byte_size,
+        shard_axes=shard_axes,
+    )
+    assert array_metadata.target_dtype == target_dtype
+
+    tspec = ts_utils.build_array_tspec_for_write(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        array_metadata=array_metadata,
+        use_ocdbt=use_ocdbt,
+        process_id=process_id,
+    )
+    chunk_shape = self._get_chunk_shape_from_tspec(
+        tspec['base'] if target_dtype is not None else tspec,
+        use_zarr3,
+    )
+    self.assertTrue(
+        subchunking.validate_divisible_shapes(self.write_shape, chunk_shape),
+        f'Write shape {self.write_shape} is not divisible by chunk shape'
+        f' {chunk_shape}.',
+    )
+    storage_dtype = array_metadata.target_dtype or array_metadata.dtype
+    # Byte size within requested limit.
+    self.assertLessEqual(
+        math.prod(chunk_shape) * storage_dtype.itemsize,
+        chunk_byte_size,
+    )
+    # Write shape subchunked on both of requested axes.
+    for shard_axis in shard_axes:
+      self.assertLess(chunk_shape[shard_axis], self.write_shape[shard_axis])
+    # If storage dtype is different from the dtype, it should be accounted for.
+    if storage_dtype != array_metadata.dtype:
+      assert storage_dtype.itemsize < array_metadata.dtype.itemsize
+      self.assertGreater(
+          math.prod(chunk_shape) * array_metadata.dtype.itemsize,
+          chunk_byte_size,
+      )
+
+  @parameterized.product(
+      (
           dict(
               chunk_byte_size=None,
               target_data_file_size=None,

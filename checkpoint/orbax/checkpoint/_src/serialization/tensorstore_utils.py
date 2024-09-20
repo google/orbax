@@ -174,6 +174,7 @@ def build_zarr_shard_and_chunk_metadata(
     use_zarr3: bool,
     dtype: Union[jnp.dtype, np.dtype],
     chunk_byte_size: Optional[int] = None,
+    shard_axes: tuple[int, ...] = (),
 ) -> JsonSpec:
   """Constructs Zarr metadata for TensorStore array write spec."""
   # TODO: b/354139177 - This check is too generous; the minimally viable chunk
@@ -190,7 +191,11 @@ def build_zarr_shard_and_chunk_metadata(
     # Zarr v2.
     if chunk_byte_size is not None:
       metadata['chunks'] = subchunking.choose_chunk_shape(
-          global_shape, shard_shape, dtype, chunk_byte_size
+          global_shape,
+          shard_shape,
+          dtype,
+          chunk_byte_size,
+          shard_axes=shard_axes,
       )
       # TODO: b/354139177 - Log this in both v2 and v3 and include the
       # corresponding tree path.
@@ -205,7 +210,11 @@ def build_zarr_shard_and_chunk_metadata(
     # than the `chunk_byte_size`.
     if chunk_byte_size is not None:
       chunk_shape = subchunking.choose_chunk_shape(
-          global_shape, shard_shape, dtype, chunk_byte_size
+          global_shape,
+          shard_shape,
+          dtype,
+          chunk_byte_size,
+          shard_axes=shard_axes,
       )
     else:
       # If chunk byte size is not specified, set the chunk shape to be the same
@@ -284,6 +293,7 @@ class ArrayWriteMetadata:
   dtype: Union[jnp.dtype, np.dtype]
   target_dtype: Optional[Union[jnp.dtype, np.dtype]] = None
   chunk_byte_size: Optional[int] = None
+  shard_axes: tuple[int, ...] = ()
   use_zarr3: bool = False
 
 
@@ -357,6 +367,7 @@ def build_array_tspec_for_write(
       dtype=target_storage_dtype,
       use_zarr3=array_metadata.use_zarr3,
       chunk_byte_size=chunk_byte_size,
+      shard_axes=array_metadata.shard_axes,
   )
 
   return _maybe_add_cast_to_write_spec(
