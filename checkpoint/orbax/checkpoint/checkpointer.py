@@ -83,9 +83,9 @@ class Checkpointer(
   Basic example::
 
     ckptr = Checkpointer(StandardCheckpointHandler())
-    args = ocp.args.StandardSave(state=pytree_of_arrays)
+    args = ocp.args.StandardSave(item=pytree_of_arrays)
     ckptr.save(path, args=args)
-    args = ocp.args.StandardRestore(state=abstract_pytree_target)
+    args = ocp.args.StandardRestore(item=abstract_pytree_target)
     ckptr.restore(path, args=args)
 
   Each handler includes `...SaveArgs` and `...RestoreArgs` classes that document
