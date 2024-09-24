@@ -25,9 +25,7 @@ from orbax.export import config
 from orbax.export import constants
 from orbax.export import dtensor_utils
 from orbax.export import typing as orbax_export_typing
-from orbax.export.modules import obm_module
 from orbax.export.modules import orbax_module_base
-from orbax.export.modules import tensorflow_module
 import tensorflow as tf
 from tensorflow.experimental import dtensor
 
@@ -220,23 +218,6 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
         input_polymorphic_shape_map=input_polymorphic_shape,
         allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
     )
-
-    if export_version == constants.ExportModelType.ORBAX_MODEL:
-      self.export_module = obm_module.ObmModule(
-          params=params,
-          apply_fn_map=apply_fn_map,
-      )
-    else:
-      self.export_module = tensorflow_module.TensorFlowModule(
-          params=params,
-          apply_fn_map=apply_fn_map,
-          trainable=trainable,
-          input_polymorphic_shape=input_polymorphic_shape,
-          jax2tf_kwargs=jax2tf_kwargs,
-          jit_compile=jit_compile,
-          pspecs=pspecs,
-          allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
-      )
 
   @property
   def apply_fn_map(self) -> Mapping[str, ApplyFn]:

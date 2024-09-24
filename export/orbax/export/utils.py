@@ -19,10 +19,11 @@ import dataclasses
 import functools
 import inspect
 import os
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Tuple, Union
 from absl import logging
 import jax
 from jax import export as jax_export
+from jax import tree_util
 import jaxtyping
 import tensorflow as tf
 
@@ -415,3 +416,57 @@ def load_jax_exported_map(dir_path: str) -> Mapping[str, jax_export.Exported]:
     raise ValueError(f'No .{_FILE_TYPE} files found in {dir_path}.')
   logging.info('Loaded ApplyFn JaxExported Map from %s successfully.', dir_path)
   return jax_exported_map
+
+
+def get_key_name(key: Any) -> Union[int, str]:
+  """Returns the name of a JAX Key."""
+  if isinstance(key, jax.tree_util.SequenceKey):
+    return key.idx
+  elif isinstance(key, jax.tree_util.DictKey):
+    return str(key.key)
+  elif isinstance(key, jax.tree_util.GetAttrKey):
+    return key.name
+  elif isinstance(key, jax.tree_util.FlattenedIndexKey):
+    return key.key
+  else:
+    raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
+
+
+def get_param_names(params: PyTree) -> PyTree:
+  """Gets parameter names for PyTree elements."""
+
+  def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
+    name = '.'.join([str(get_key_name(k)) for k in keypath])
+    # '~' is not allowed in variable names but are used by dm-haiku. See
+    # https://github.com/google/orbax/issues/420
+    return name.replace('~', '_')
+
+  names = jax.tree_util.tree_map_with_path(
+      lambda kp, _: _param_name_from_keypath(kp), params
+  )
+
+  if jax.tree_util.tree_structure(params) != jax.tree_util.tree_structure(
+      names
+  ):
+    logging.warning(
+        (
+            'Cannot construct variable names for JAX parameters, which means'
+            ' the parameters tree contains customized nodes not registered with'
+            ' ``jax.tree_util.register_pytree_with_keys``. Variables will be'
+            ' named to `jax_param_<index>` instead. PyTreeDef of params=%s.'
+        ),
+        jax.tree_util.tree_structure(params),
+    )
+    flat_params, tree_def = jax.tree_util.tree_flatten(params)
+    names = jax.tree_util.tree_unflatten(
+        tree_def, [f'jax_param_{i}' for i in range(len(flat_params))]
+    )
+  return names
+
+
+def get_variable_tree(
+    var_treedef: tree_util.PyTreeDef, var_leaves: list[Any]
+) -> PyTree:
+  """Returns the PyTree of the tf.Variables or obm.Variables associated with the var_treedef."""
+  return jax.tree_util.tree_unflatten(var_treedef, var_leaves)
+
