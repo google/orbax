@@ -35,20 +35,19 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
   @property
   def apply_fn_map(self) -> Mapping[str, ApplyFn]:
     """Returns the apply_fn_map."""
-    return {}
+    raise NotImplementedError('apply_fn_map is not implemented for ObmModule.')
 
   @property
   def model_params(self) -> PyTree:
     """Returns the model parameters."""
-    return {}
+    raise NotImplementedError('apply_fn_map is not implemented for ObmModule.')
 
   @property
   def methods(self) -> Mapping[str, Callable[..., Any]]:
     """Named methods in the context of the chosen export pathway."""
-    return {}
+    raise NotImplementedError('apply_fn_map is not implemented for ObmModule.')
 
   @property
   def jax_methods(self) -> Mapping[str, Callable[..., Any]]:
     """Named methods in JAX context for validation."""
-    return {}
-
+    raise NotImplementedError('apply_fn_map is not implemented for ObmModule.')
