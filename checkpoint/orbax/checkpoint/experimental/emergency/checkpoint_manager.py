@@ -478,9 +478,10 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     )
 
     if len(local_steps) > self._max_to_keep:
-      raise AssertionError(
-          f' local_step on host {multihost.process_index()} exceeded'
-          f' `max_to_keep` {self._max_to_keep}'
+      logging.error(
+          'local_step on host %d exceeded `max_to_keep` %d',
+          multihost.process_index(),
+          self._max_to_keep,
       )
 
     return _pad_steps(local_steps, self._max_to_keep)
@@ -765,9 +766,10 @@ class CheckpointManager(
         # TODO: b/330585086 - for now we assume that
         # persistent_checkpoint_manager.all_steps returns an array with length
         # smaller than max_to_keep
-        raise AssertionError(
-            f'persistent_step on host {multihost.process_index()} exceeded'
-            f' `max_to_keep` {self._persistent_max_to_keep}'
+        logging.error(
+            'persistent_step on host %d exceeded `max_to_keep` %d',
+            multihost.process_index(),
+            self._persistent_max_to_keep,
         )
       persistent_steps = _pad_steps(
           persistent_steps, self._persistent_max_to_keep
