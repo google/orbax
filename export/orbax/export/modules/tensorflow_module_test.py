@@ -76,7 +76,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
         v.name: v
         for v in TensorFlowModule(
             params=params,
-            apply_fn_map={DEFAULT_METHOD_KEY: lambda params, x: x},
+            apply_fn={DEFAULT_METHOD_KEY: lambda params, x: x},
         ).variables
     }
     self.assertEqual(
@@ -106,7 +106,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
     variable_names_to_vals = {
         v.name: v
         for v in TensorFlowModule(
-            params=params, apply_fn_map=DEFAULT_APPLY_FN
+            params=params, apply_fn=DEFAULT_APPLY_FN
         ).variables
     }
     self.assertEqual(
@@ -134,25 +134,25 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
     params = {'x': jnp.array(1), 'y': jnp.array(2)}
     trainable = {'x': True, 'y': False}
     jm = TensorFlowModule(
-        params=params, apply_fn_map=DEFAULT_APPLY_FN, trainable=trainable
+        params=params, apply_fn=DEFAULT_APPLY_FN, trainable=trainable
     )
     self.assertLen(jm.trainable_variables, 1)
     self.assertEqual(jm.trainable_variables[0].name, 'x:0')
     self.assertEqual(jm.trainable_variables[0], jnp.array(1))
     self.assertTrue(jm.with_gradient)
 
-    jm = TensorFlowModule(params=params, apply_fn_map=DEFAULT_APPLY_FN)
+    jm = TensorFlowModule(params=params, apply_fn=DEFAULT_APPLY_FN)
     self.assertEmpty(jm.trainable_variables)
     self.assertFalse(jm.with_gradient)
 
     jm = TensorFlowModule(
-        params=params, apply_fn_map=DEFAULT_APPLY_FN, trainable=True
+        params=params, apply_fn=DEFAULT_APPLY_FN, trainable=True
     )
     self.assertLen(jm.trainable_variables, 2)
     self.assertTrue(jm.with_gradient)
 
     jm = TensorFlowModule(
-        params=params, apply_fn_map=DEFAULT_APPLY_FN, trainable=False
+        params=params, apply_fn=DEFAULT_APPLY_FN, trainable=False
     )
     self.assertEmpty(jm.trainable_variables)
     self.assertFalse(jm.with_gradient)
@@ -174,7 +174,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
     )
     self.assertIsInstance(arr, jax.Array)
     variables = TensorFlowModule(
-        params={'arr': arr}, apply_fn_map=DEFAULT_APPLY_FN
+        params={'arr': arr}, apply_fn=DEFAULT_APPLY_FN
     ).variables
     self.assertLen(variables, 1)
     self.assertEqual(variables[0].name, 'arr:0')
@@ -195,7 +195,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
 
     tf_module = TensorFlowModule(
         params=params,
-        apply_fn_map={DEFAULT_METHOD_KEY: linear},
+        apply_fn={DEFAULT_METHOD_KEY: linear},
         jit_compile=jit_compile,
     )
     logging.info('tf_module.methods: %s', tf_module.methods)
@@ -221,7 +221,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
 
     j_module = TensorFlowModule(
         params=params,
-        apply_fn_map={'linear1': linear1, 'linear2': linear2},
+        apply_fn={'linear1': linear1, 'linear2': linear2},
         jit_compile=jit_compile,
     )
     self.assertEqual(
@@ -257,7 +257,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'Do not use `polymorphic_shapes`'):
       TensorFlowModule(
           params,
-          apply_fn_map={DEFAULT_METHOD_KEY: linear},
+          apply_fn={DEFAULT_METHOD_KEY: linear},
           jax2tf_kwargs={
               DEFAULT_METHOD_KEY: {'polymorphic_shapes': [None, 'b, ...']}
           },
@@ -265,7 +265,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
 
     tf_module = TensorFlowModule(
         params,
-        apply_fn_map={DEFAULT_METHOD_KEY: linear},
+        apply_fn={DEFAULT_METHOD_KEY: linear},
         jit_compile=jit_compile,
         input_polymorphic_shape={DEFAULT_METHOD_KEY: 'b, ...'},
     )
@@ -306,7 +306,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
     # With user provided constraints, the trace compiling should succeed.
     tf_module = TensorFlowModule(
         params,
-        apply_fn_map={DEFAULT_METHOD_KEY: linear},
+        apply_fn={DEFAULT_METHOD_KEY: linear},
         input_polymorphic_shape={DEFAULT_METHOD_KEY: 'b, _'},
         jax2tf_kwargs={
             DEFAULT_METHOD_KEY: {'polymorphic_constraints': ('b >= 2',)}
@@ -317,7 +317,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
   def test_multi_functions(self):
     tf_module = TensorFlowModule(
         params={'delta': jnp.ones((), jnp.int32)},
-        apply_fn_map={
+        apply_fn={
             'add': lambda params, x: x + params['delta'],
             'sub': lambda params, x: x - params['delta'],
         },
@@ -379,7 +379,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'contains trainable'):
       TensorFlowModule(
           params,
-          apply_fn_map={DEFAULT_METHOD_KEY: lambda p, x: x},
+          apply_fn={DEFAULT_METHOD_KEY: lambda p, x: x},
           trainable=True,
           jax2tf_kwargs={DEFAULT_METHOD_KEY: {'with_gradient': False}},
       )
@@ -387,7 +387,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'does not contain trainable'):
       TensorFlowModule(
           params,
-          apply_fn_map={DEFAULT_METHOD_KEY: lambda p, x: x},
+          apply_fn={DEFAULT_METHOD_KEY: lambda p, x: x},
           trainable=False,
           jax2tf_kwargs={DEFAULT_METHOD_KEY: {'with_gradient': True}},
       )
@@ -404,7 +404,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
 
     tf_module = TensorFlowModule(
         params=params,
-        apply_fn_map={DEFAULT_METHOD_KEY: linear},
+        apply_fn={DEFAULT_METHOD_KEY: linear},
         input_polymorphic_shape={DEFAULT_METHOD_KEY: 'b, ...'},
     )
 
@@ -422,7 +422,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
     params = {'w': np.zeros((4, 8), dtype=np.float32)}
     tf_module = TensorFlowModule(
         params=params,
-        apply_fn_map={DEFAULT_METHOD_KEY: lambda params, x: params['w'] @ x},
+        apply_fn={DEFAULT_METHOD_KEY: lambda params, x: params['w'] @ x},
     )
 
     with self.assertRaisesRegex(
@@ -453,7 +453,7 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
 
     tf_module = TensorFlowModule(
         model_params,
-        apply_fn_map={DEFAULT_METHOD_KEY: linear},
+        apply_fn={DEFAULT_METHOD_KEY: linear},
         jax2tf_kwargs={
             DEFAULT_METHOD_KEY: {
                 'native_serialization_platforms': lowering_platforms

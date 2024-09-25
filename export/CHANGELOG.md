@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add version flag to export_manager.py and a stubbed class to handle each version.
 - Adds a new module base class and two new module subclasses one for TensorFlow and
   one for Orbax.
-- Continues refactoring to isolate TF dependencies.
+- Moves the TF dependent export logic out of JaxModule and into TensorFlowModule.
 
 ## [0.0.4] - 2024-1-19
 

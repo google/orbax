@@ -23,6 +23,7 @@ import jax
 from jax import export as jax_export
 from jax.experimental import jax2tf
 from orbax.export import config
+from orbax.export import constants
 from orbax.export import dtensor_utils
 from orbax.export import typing as orbax_export_typing
 from orbax.export.modules import orbax_module_base
@@ -82,7 +83,7 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
   def __init__(
       self,
       params: PyTree,
-      apply_fn_map: Mapping[str, ApplyFn],
+      apply_fn: Union[Callable[..., Any], Mapping[str, ApplyFn]],
       **kwargs: Any,
   ):
     jax2tf_kwargs = kwargs.get('jax2tf_kwargs', None)
@@ -93,46 +94,67 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
     allow_multi_axis_sharding_consolidation = kwargs.get(
         'allow_multi_axis_sharding_consolidation', None
     )
+
     self._with_gradient = any(jax.tree_util.tree_leaves(trainable))
 
-    # Check if `apply_fn`, `input_polymorphic_shape` and `jax2tf_kwargs` have
-    # the same structure.
-    if input_polymorphic_shape is None:
-      input_polymorphic_shape = jax.tree_util.tree_map(
-          lambda x: None, apply_fn_map
-      )
-    elif not isinstance(input_polymorphic_shape, Mapping) or not _same_keys(
-        input_polymorphic_shape, apply_fn_map
-    ):
-      raise ValueError(
-          '`input_polymorphic_shape` must have the same structure as that of'
-          f' `apply_fn`. Got apply_fn={apply_fn_map},'
-          f' input_polymorphic_shape={input_polymorphic_shape}.'
-      )
-    if jax2tf_kwargs is None:
-      # OK if it is unspecified, which means `jax2tf_kwargs` is unspecified
-      # for all apply functions.
-      jax2tf_kwargs = jax.tree_util.tree_map(lambda x: None, apply_fn_map)
-    elif not _same_keys(jax2tf_kwargs, apply_fn_map):
-      raise ValueError(
-          '`jax2tf_kwargs` must either be unspecified or have the same '
-          f'structure as that of `apply_fn`. Got apply_fn={apply_fn_map}, '
-          f'jax2tf_kwargs={jax2tf_kwargs}.'
-      )
-    if not isinstance(jit_compile, Mapping) or isinstance(jit_compile, bool):
-      jit_compile = jax.tree_util.tree_map(lambda x: jit_compile, apply_fn_map)
-    elif not _same_keys(jit_compile, apply_fn_map):
-      raise ValueError(
-          '`jit_compile` must either be a boolean or have the same '
-          f'structure as that of `apply_fn`. Got apply_fn={apply_fn_map}, '
-          f'jit_compile={jit_compile}.'
-      )
+    # If the apply_fn passed was not already a mapping, normalize the inputs
+    # to be a function with a key of DEFAULT_METHOD_KEY. Each of the arguments
+    # must agree so we wrap related arguments here as well.
+    apply_fn_map, input_polymorphic_shape, jax2tf_kwargs, jit_compile = (
+        self._normalize_inputs(
+            apply_fn, input_polymorphic_shape, jax2tf_kwargs, jit_compile
+        )
+    )
 
-    if trainable is None:
-      trainable = False
+    # Ensure that the mappings of the input arguments all contain the same keys.
+    # If not, raise a ValueError.
+    self._check_input_structure(
+        apply_fn_map, input_polymorphic_shape, jax2tf_kwargs, jit_compile
+    )
+
+    # If trainable is a bool and not a mapping, convert it to a mapping and
+    # apply the samve value across all parameters.
+    trainable = False if trainable is None else trainable
     if isinstance(trainable, bool):
       trainable = jax.tree_util.tree_map(lambda x: trainable, params)
 
+    # Wrap the JAX functions and parameters in TF functions and variables.
+    self._to_tensorflow_constructs(
+        params=params,
+        trainable=trainable,
+        pspecs=pspecs,
+        allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
+        apply_fn_map=apply_fn_map,
+        input_polymorphic_shape=input_polymorphic_shape,
+        jax2tf_kwargs=jax2tf_kwargs,
+        jit_compile=jit_compile,
+    )
+
+    # Preserve the original structure of this Metadata object to prevent
+    # unintended conversion by TF tf.Module (e.g., Dict to DictWrapper).
+    self._nontrackable_metadata = _NonTrackableMetadata(
+        apply_fn_map=apply_fn_map,
+        tf_var_treedef=self._tf_var_treedef,
+        var_trainable=trainable,
+        var_pspecs=pspecs,
+        model_params=params,
+        jax2tf_kwargs_map=jax2tf_kwargs,
+        input_polymorphic_shape_map=input_polymorphic_shape,
+        allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
+    )
+
+  def _to_tensorflow_constructs(
+      self,
+      params,
+      trainable,
+      pspecs,
+      allow_multi_axis_sharding_consolidation,
+      apply_fn_map,
+      input_polymorphic_shape,
+      jax2tf_kwargs,
+      jit_compile,
+  ):
+    """Wraps JAX functions and parameters in TF functions and variables."""
     if obx_export_config.obx_export_tf_preprocess_only:  # pytype: disable=attribute-error
       # Skip the heavy jax_params_to_tf_variables() call in TF preprocess only
       # mode.
@@ -157,17 +179,66 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
           jit_compile,
       )
 
-    # # Preserve the original structure of this Metadata object to prevent
-    # unintended conversion by TF tf.Module (e.g., Dict to DictWrapper).
-    self._nontrackable_metadata = _NonTrackableMetadata(
-        apply_fn_map=apply_fn_map,
-        tf_var_treedef=self._tf_var_treedef,
-        var_trainable=trainable,
-        var_pspecs=pspecs,
-        model_params=params,
-        jax2tf_kwargs_map=jax2tf_kwargs,
-        input_polymorphic_shape_map=input_polymorphic_shape,
-        allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
+  def _check_input_structure(
+      self,
+      apply_fn_map: Mapping[str, ApplyFn],
+      input_polymorphic_shape: Mapping[str, Any],
+      jax2tf_kwargs: Mapping[str, Any],
+      jit_compile: Mapping[str, bool],
+  ):
+    """Checks the mapping keys of the inputs to ensure they align."""
+    for mapping in [
+        (input_polymorphic_shape, 'input_polymorphic_shape'),
+        (jax2tf_kwargs, 'jax2tf_kwargs'),
+        (jit_compile, 'jit_compile'),
+    ]:
+      if not _same_keys(apply_fn_map, mapping[0]):
+        raise ValueError(
+            f'Mapping `{mapping[1]}` must have the same structure as that of'
+            f' `apply_fn`. Got apply_fn={apply_fn_map}, {mapping[1]}={mapping}.'
+        )
+
+  def _normalize_inputs(
+      self,
+      apply_fn: Any,
+      input_polymorphic_shape: Any,
+      jax2tf_kwargs: Any,
+      jit_compile: Any,
+  ) -> tuple[
+      Mapping[str, ApplyFn],
+      Mapping[str, Any],
+      Mapping[str, Any],
+      Mapping[str, bool],
+  ]:
+    """Normalizes the inputs to be a mapping with the same keys."""
+    if callable(apply_fn):
+      apply_fn = {constants.DEFAULT_METHOD_KEY: apply_fn}
+      input_polymorphic_shape = {
+          constants.DEFAULT_METHOD_KEY: input_polymorphic_shape,
+      }
+      jax2tf_kwargs = {constants.DEFAULT_METHOD_KEY: jax2tf_kwargs}
+      jit_compile = {constants.DEFAULT_METHOD_KEY: jit_compile}
+    else:
+      # Check if `apply_fn`, `input_polymorphic_shape` and `jax2tf_kwargs` have
+      # the same structure.
+      if input_polymorphic_shape is None:
+        input_polymorphic_shape = jax.tree_util.tree_map(
+            lambda x: None, apply_fn
+        )
+
+      if jax2tf_kwargs is None:
+        # OK if it is unspecified, which means `jax2tf_kwargs` is unspecified
+        # for all apply functions.
+        jax2tf_kwargs = jax.tree_util.tree_map(lambda x: None, apply_fn)
+
+      if not isinstance(jit_compile, Mapping) or isinstance(jit_compile, bool):
+        jit_compile = jax.tree_util.tree_map(lambda x: jit_compile, apply_fn)
+
+    return (
+        apply_fn,
+        input_polymorphic_shape,
+        jax2tf_kwargs,
+        jit_compile,
     )
 
   @property
@@ -232,6 +303,10 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
     names = export_utils.get_param_names(params)
     if pspecs is None:
       pspecs = jax.tree_util.tree_map(lambda x: None, params)
+    logging.info('pspecs: %s', pspecs)
+    logging.info('params: %s', params)
+    logging.info('names: %s', names)
+    logging.info('trainable: %s', trainable)
     return jax.tree_util.tree_map(
         _to_tf_variable, params, names, trainable, pspecs
     )

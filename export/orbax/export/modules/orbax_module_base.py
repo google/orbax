@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Base class for modules used in Orbax Model export."""
+
 import abc
 from collections.abc import Mapping
 from typing import Any, Callable, Union
@@ -31,7 +32,9 @@ class OrbaxModuleBase(abc.ABC):
   def __init__(
       self,
       params: PyTree,
-      apply_fn_map: Union[Mapping[str, ApplyFn], dict[str, ApplyFn]],
+      apply_fn: Union[
+          Callable[..., Any], Mapping[str, ApplyFn], dict[str, ApplyFn]
+      ],
       **kwargs: Any,
   ):
     """Constructor for creating an export Module."""
