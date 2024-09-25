@@ -21,6 +21,7 @@ from absl import logging
 import jax
 from jax import numpy as jnp
 import numpy as np
+from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint.multihost import utils
 
 PyTree = Any
@@ -28,6 +29,12 @@ PyTree = Any
 # When using broadcasting from single replica to others, 3 copies of the data
 # are stored in memory.
 MEMORY_FACTOR = 3
+
+
+def _log_array(keypath, arr):
+  logging.info('Key: %s', tree_utils.tuple_path_from_keypath(keypath))
+  for shard in arr.addressable_shards:
+    logging.info(shard.data)
 
 
 def process_slice_id(
@@ -217,7 +224,8 @@ def broadcast_one_replica_to_all(
     logging.info('Using available memory of %d bytes.', memory_limit_bytes)
 
   # Set replica_axis to be 0, regardless of its actual value.
-  def globalize_single_replica_arrays(inp):
+  def globalize_single_replica_arrays(keypath, inp):
+    logging.info('Key: %s', tree_utils.tuple_path_from_keypath(keypath))
     sharding = inp.sharding
     if not isinstance(sharding, jax.sharding.NamedSharding):
       raise ValueError(
@@ -233,9 +241,12 @@ def broadcast_one_replica_to_all(
     )
     global_shape = (num_replicas,) + inp.shape[1:]
     global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
-    return jax.make_array_from_single_device_arrays(
+    result = jax.make_array_from_single_device_arrays(
         global_shape, global_sharding, [s.data for s in inp.addressable_shards]
     )
+    for shard in result.addressable_shards:
+      logging.info(shard.data)
+    return result
 
   tree_len = len(in_tree)
   start = 0
@@ -270,7 +281,9 @@ def broadcast_one_replica_to_all(
         ),
         subtree,
     )
-    in_tree_sharded = jax.tree.map(globalize_single_replica_arrays, subtree)
+    in_tree_sharded = jax.tree_util.tree_map_with_path(
+        globalize_single_replica_arrays, subtree
+    )
     # Delete immediately to conserve memory.
     jax.tree.map(lambda x: x.delete(), subtree)
 
@@ -278,6 +291,7 @@ def broadcast_one_replica_to_all(
         lambda tree: jax.tree.map(functools.partial(jnp.sum, axis=0), tree),
         out_shardings=out_sharding,
     )(in_tree_sharded)
+    jax.tree_util.tree_map_with_path(_log_array, out_subtree)
     out_tree.extend(out_subtree)
     jax.block_until_ready(out_subtree)
     start = end
