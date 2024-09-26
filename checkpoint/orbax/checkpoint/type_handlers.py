@@ -426,7 +426,7 @@ class TypeHandler(abc.ABC):
       values: a sequence of parameters to save.
       infos: a sequence of ParamInfo containing relevant information for
         serialization of each value.
-      args: a sequnece of additional arguments for serialization, provided by
+      args: a sequence of additional arguments for serialization, provided by
         the user.
 
     Returns:
@@ -444,7 +444,7 @@ class TypeHandler(abc.ABC):
     """Reads the parameter from a storage location.
 
     Args:
-      infos: Sequnece of ParamInfo for deserialization.
+      infos: Sequence of ParamInfo for deserialization.
       args: Sequence of user-provided restoration information.
 
     Returns:
