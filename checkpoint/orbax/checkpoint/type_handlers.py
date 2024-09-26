@@ -36,6 +36,7 @@ import numpy as np
 from orbax.checkpoint import future
 from orbax.checkpoint import multihost
 from orbax.checkpoint import serialization
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.metadata import sharding as sharding_metadata
@@ -363,7 +364,8 @@ def _build_array_tspec_write(
   directory = parent_dir.as_posix()
 
   return ts_utils.build_array_tspec_for_write(
-      directory, relative_array_filename=info.name,
+      directory,
+      relative_array_filename=info.name,
       array_metadata=ts_utils.ArrayWriteMetadata(
           global_shape=global_shape,
           write_shape=local_shape,
@@ -490,7 +492,7 @@ class _CommitFuture(future.Future):
   def __init__(self, coro, name: Optional[str] = None):
     self._t = future.ThreadRaisingException(
         name=name,
-        target=lambda: asyncio.run(coro),
+        target=lambda: asyncio_utils.run_sync(coro),
     )
     self._t.start()
 

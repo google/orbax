@@ -14,7 +14,6 @@
 
 """Synchronous Checkpointer implementation."""
 
-import asyncio
 import time
 from typing import Any, Iterable, Optional, Type
 
@@ -27,6 +26,7 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import multihost
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint.metadata import checkpoint
@@ -200,7 +200,7 @@ class Checkpointer(
       else:
         raise ValueError(f'Destination {directory} already exists.')
     ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)
-    tmpdir = asyncio.run(self.create_temporary_path(directory))
+    tmpdir = asyncio_utils.run_sync(self.create_temporary_path(directory))
     self._handler.save(tmpdir.get(), args=ckpt_args)
     multihost.sync_global_processes(
         multihost.unique_barrier_key(

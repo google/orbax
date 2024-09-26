@@ -23,6 +23,7 @@ import asyncio
 from typing import List, Optional, Tuple
 
 from etils import epath
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import step as step_lib
 
@@ -45,7 +46,7 @@ async def _async_is_locked(directory: epath.Path) -> bool:
 
 def is_locked(directory: epath.Path) -> bool:
   """Determines whether a checkpoint step is considered `locked`."""
-  return asyncio.run(_async_is_locked(directory))
+  return asyncio_utils.run_sync(_async_is_locked(directory))
 
 
 def are_locked(
@@ -69,4 +70,4 @@ def are_locked(
       _async_is_locked(step_name_format.find_step(directory, step).path)
       for step in steps
   ]
-  return asyncio.run(_run_in_parallel(ops))
+  return asyncio_utils.run_sync(_run_in_parallel(ops))

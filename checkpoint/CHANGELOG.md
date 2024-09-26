@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Modernize type annotations using `from __future__ import annotations`.
+- Refactor to extract a separate module, `asyncio_utils`, for asyncio helper
+ functions from `path/async_utils` module.
 
 
 ## [0.6.4] - 2024-09-17

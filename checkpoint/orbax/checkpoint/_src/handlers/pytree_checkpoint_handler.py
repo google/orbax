@@ -41,6 +41,7 @@ from orbax.checkpoint import transform_utils
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint.metadata import tree as tree_metadata
@@ -813,7 +814,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         _maybe_set_default_restore_types, structure, checkpoint_restore_args
     )
 
-    restored_item = asyncio.run(
+    restored_item = asyncio_utils.run_sync(
         self._maybe_deserialize(
             structure, structure, param_infos, checkpoint_restore_args
         )

@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 from typing import List, Optional, Union
 
@@ -28,6 +27,7 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
@@ -107,7 +107,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         for f in commit_futures:
           f.result()  # Block on result.
 
-    asyncio.run(async_save())
+    asyncio_utils.run_sync(async_save())
 
   def restore(
       self,
@@ -158,7 +158,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       if restore_type is None:
         restore_type = type_handlers.default_restore_type(restore_args)
       type_handler = type_handlers.get_type_handler(restore_type)
-      result = asyncio.run(
+      result = asyncio_utils.run_sync(
           type_handler.deserialize([info], args=[restore_args])
       )[0]
 
@@ -166,7 +166,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
   def finalize(self, directory: epath.Path):
     ts_context = type_handlers.get_ts_context()
-    asyncio.run(
+    asyncio_utils.run_sync(
         type_handlers.merge_ocdbt_per_process_files(
             directory,
             ts_context=ts_context,

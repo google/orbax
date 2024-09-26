@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import abc
-import asyncio
 import dataclasses
 from typing import Any, List, Mapping, Optional, Tuple, Union
 
@@ -26,6 +25,7 @@ import jax
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import type_handlers
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import array_checkpoint_handler
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
@@ -136,7 +136,7 @@ class BaseRandomKeyCheckpointHandler(
         for f in commit_futures:
           f.result()  # Block on result.
 
-    asyncio.run(async_save())
+    asyncio_utils.run_sync(async_save())
 
   def restore(
       self,

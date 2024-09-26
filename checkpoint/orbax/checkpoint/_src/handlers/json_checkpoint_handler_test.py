@@ -14,7 +14,6 @@
 
 """Tests for JsonCheckpointHandler."""
 
-import asyncio
 import time
 from typing import Optional
 
@@ -22,6 +21,7 @@ from absl import flags
 from absl.testing import absltest
 from etils import epath
 import jax
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 
 # Parse absl flags test_srcdir and test_tmpdir.
@@ -92,7 +92,7 @@ class JsonCheckpointHandlerTest(absltest.TestCase):
       restored = handler.restore(directory=self.directory, args=None)
       self.assertEqual(item, restored)
 
-    asyncio.run(run_async_test())
+    asyncio_utils.run_sync(run_async_test())
     handler.close()
 
 

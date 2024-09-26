@@ -43,6 +43,7 @@ from orbax.checkpoint import serialization
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint.metadata import tree as tree_metadata
 from orbax.checkpoint.path import format_utils
@@ -500,7 +501,7 @@ class BasePyTreeCheckpointHandler(
         for f in commit_futures:
           f.result()  # Block on result.
 
-    asyncio.run(async_save(directory, *args, **kwargs))
+    asyncio_utils.run_sync(async_save(directory, *args, **kwargs))
 
   async def _maybe_deserialize(
       self,
@@ -672,7 +673,7 @@ class BasePyTreeCheckpointHandler(
         use_ocdbt=type_handlers.is_ocdbt_checkpoint(directory),
         use_zarr3=use_zarr3,
     )
-    tree_memory_size, restored_item = asyncio.run(
+    tree_memory_size, restored_item = asyncio_utils.run_sync(
         self._maybe_deserialize(item, metadata, param_infos, restore_args)
     )
 
@@ -781,7 +782,7 @@ class BasePyTreeCheckpointHandler(
     """
     merge_start_time = time.time()
     ts_context = type_handlers.get_ts_context()
-    asyncio.run(
+    asyncio_utils.run_sync(
         type_handlers.merge_ocdbt_per_process_files(
             directory,
             ts_context=ts_context,

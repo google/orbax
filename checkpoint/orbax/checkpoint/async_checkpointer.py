@@ -14,7 +14,6 @@
 
 """AsyncCheckpointer."""
 
-import asyncio
 import threading
 import time
 from typing import Any, Callable, Optional, Sequence, Type
@@ -28,6 +27,7 @@ from orbax.checkpoint import future as future_lib
 from orbax.checkpoint import multihost
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint.metadata import checkpoint
 from orbax.checkpoint.path import async_utils
@@ -420,7 +420,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     Raises:
       ValueError if the provided directory already exists.
     """
-    asyncio.run(self._save(directory, *args, force=force, **kwargs))
+    asyncio_utils.run_sync(self._save(directory, *args, force=force, **kwargs))
 
   def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""

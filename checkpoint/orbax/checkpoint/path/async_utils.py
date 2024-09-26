@@ -14,25 +14,11 @@
 
 """Provides async variants of path functions."""
 
-import asyncio
-import functools
 from typing import Any
 
 from etils import epath
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.path import step as step_lib
-
-
-def as_async_function(func):
-  """Wraps a function to make it async."""
-
-  @functools.wraps(func)
-  async def run(*args, loop=None, executor=None, **kwargs):
-    if loop is None:
-      loop = asyncio.get_event_loop()
-    partial_func = functools.partial(func, *args, **kwargs)
-    return await loop.run_in_executor(executor, partial_func)
-
-  return run
 
 
 # TODO(b/360190539): This functionality should be provided by either an external
@@ -44,22 +30,22 @@ def async_makedirs(
     exist_ok: bool = True,
     **kwargs,
 ):
-  return as_async_function(path.mkdir)(
+  return asyncio_utils.as_async_function(path.mkdir)(
       *args, parents=parents, exist_ok=exist_ok, **kwargs
   )
 
 
 def async_write_bytes(path: epath.Path, data: Any):
-  return as_async_function(path.write_bytes)(data)
+  return asyncio_utils.as_async_function(path.write_bytes)(data)
 
 
 def async_exists(path: epath.Path):
-  return as_async_function(path.exists)()
+  return asyncio_utils.as_async_function(path.exists)()
 
 
 def async_rmtree(path: epath.Path):
-  return as_async_function(path.rmtree)()
+  return asyncio_utils.as_async_function(path.rmtree)()
 
 
 def async_is_tmp_checkpoint(path: epath.Path):
-  return as_async_function(step_lib.is_tmp_checkpoint)(path)
+  return asyncio_utils.as_async_function(step_lib.is_tmp_checkpoint)(path)

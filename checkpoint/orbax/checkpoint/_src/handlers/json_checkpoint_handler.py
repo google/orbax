@@ -19,7 +19,6 @@ Implementation of CheckpointHandler interface.
 
 from __future__ import annotations
 
-import asyncio
 from concurrent import futures
 import dataclasses
 import json
@@ -30,6 +29,7 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
@@ -101,7 +101,7 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         for f in commit_futures:
           f.result()
 
-    asyncio.run(async_save(directory, item, args))
+    asyncio_utils.run_sync(async_save(directory, item, args))
 
   def restore(
       self,

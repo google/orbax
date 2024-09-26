@@ -28,6 +28,7 @@ from etils import epath
 import jax
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.metadata import value as value_metadata
 
 
@@ -378,7 +379,7 @@ class TreeMetadata:
     async def _get_metadata():
       return await asyncio.gather(*metadata_ops)
 
-    batched_metadatas = asyncio.run(_get_metadata())
+    batched_metadatas = asyncio_utils.run_sync(_get_metadata())
     for keypath_batch, metadata_batch in zip(
         batched_keypaths.values(), batched_metadatas
     ):
