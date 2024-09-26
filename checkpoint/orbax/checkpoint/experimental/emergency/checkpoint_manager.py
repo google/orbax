@@ -958,21 +958,23 @@ class CheckpointManager(
       restore_mesh = _consistent_restore_mesh_from_metadata(
           self._persistent_directory, self._global_mesh
       )
+      logging.error('HYT debug: restore mesh: %s', restore_mesh.devices)
+      logging.error('HYT debug: global mesh: %s', self._global_mesh.devices)
 
-    slice_devices = multislice.slice_devices(
-        restore_mesh,
-        replica_id=self._slice_id,
-        replica_axis_index=self._replica_axis_index,
-    )
     shape_dtypes, tree_defs = jax.tree.flatten(self._abstract_state)
 
     def _get_single_slice_sharding(
         mesh: jax.sharding.Mesh,
         pspec: jax.sharding.PartitionSpec,
     ):
+      slice_devices = multislice.slice_devices(
+          mesh,
+          replica_id=self._slice_id,
+          replica_axis_index=self._replica_axis_index,
+      )
       ss_mesh_shape = [
           1 if i == self._replica_axis_index else d
-          for i, d in enumerate(restore_mesh.devices.shape)
+          for i, d in enumerate(mesh.devices.shape)
       ]
       slice_mesh = jax.sharding.Mesh(
           slice_devices.reshape(ss_mesh_shape), mesh.axis_names
@@ -980,25 +982,42 @@ class CheckpointManager(
       ss_sharding = jax.sharding.NamedSharding(slice_mesh, pspec)
       return ss_sharding
 
-    single_slice_shardings = jax.tree.map(
+    restore_slice_shardings = jax.tree.map(
         lambda arr: _get_single_slice_sharding(
-            mesh=arr.sharding.mesh,
+            mesh=restore_mesh,
             pspec=arr.sharding.spec,
         ),
         self._abstract_state,
     )
-    single_replica_shardings_tuple = jax.tree.flatten(single_slice_shardings)[0]
+    original_single_slice_shardings = jax.tree.map(
+        lambda arr: _get_single_slice_sharding(
+            mesh=self._global_mesh,
+            pspec=arr.sharding.spec,
+        ),
+        self._abstract_state,
+    )
+    restore_slice_shardings_tuple = jax.tree.flatten(
+        restore_slice_shardings
+    )[0]
+    original_replica_shardings_tuple = jax.tree.flatten(
+        original_single_slice_shardings
+    )[0]
+    logging.error('HYT debug: restore_slice_shardings_tuple: %s',
+                  restore_slice_shardings_tuple[0].mesh.devices)
+    logging.error('HYT debug: original_replica_shardings_tuple: %s',
+                  original_replica_shardings_tuple[0].mesh.devices)
 
     if is_restoring_slice:
-      logging.vlog(
-          1, 'emergency.CheckpointManager: restoring from local checkpoint.'
+      logging.error(
+          'HYT debug: emergency.CheckpointManager: restoring from local'
+          ' checkpoint.'
       )
       ss_args = jax.tree.map(
           lambda ss_shard, arr: type_handlers.ArrayRestoreArgs(
               sharding=ss_shard,
               global_shape=arr.shape,  # sigle-slice sharding
           ),
-          single_slice_shardings,
+          restore_slice_shardings,
           self._abstract_state,
       )
       restore_directory = (
@@ -1027,17 +1046,27 @@ class CheckpointManager(
           time.time() - step_stats.checkpointer_start_time
       )
       in_tree = tuple(jax.tree.flatten(single_slice_pytree)[0])
+
+      if not np.array_equal(
+          restore_mesh.device_ids, self._global_mesh.device_ids
+      ):
+        logging.error('HYT debug: in_tree_leaves: %s',
+                      in_tree[0].sharding.mesh.devices)
+        logging.error('HYT debug: before intree : %s', in_tree)
+        in_tree = self._consistent_restore_mesh_to_global_mesh(
+            in_tree, tuple(original_replica_shardings_tuple)
+        )
+        logging.error('HYT debug: after intree : %s', in_tree)
     else:
-      logging.vlog(
-          1,
-          'emergency.CheckpointManager: secondary slice, create zeros and'
-          ' wait for broacast.',
+      logging.error(
+          'HYT debug: emergency.CheckpointManager: secondary slice, create'
+          ' zeros and wait for broacast.',
       )
 
       @functools.partial(
           jax.jit,
           static_argnums=0,
-          out_shardings=tuple(single_replica_shardings_tuple),
+          out_shardings=tuple(original_replica_shardings_tuple),
       )
       def create_zeros(shape_dtype_tup):
         return jax.tree.map(
@@ -1050,7 +1079,7 @@ class CheckpointManager(
     start_broadcast = time.time()
     shared_states, _ = multislice.broadcast_one_replica_to_all(
         in_tree,
-        restore_mesh,
+        global_mesh=self._global_mesh,
         replica_axis_index=self._replica_axis_index,
         is_source=is_restoring_slice,
     )
@@ -1068,24 +1097,24 @@ class CheckpointManager(
 
     logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
 
-    if np.array_equal(restore_mesh.device_ids, self._global_mesh.device_ids):
-      finalized_shared_states = shared_states
-    else:
-      finalized_shared_states = self._consistent_restore_mesh_to_global_mesh(
-          shared_states
-      )
+    return jax.tree.unflatten(tree_defs, shared_states)
 
-    return jax.tree.unflatten(tree_defs, finalized_shared_states)
-
-  def _consistent_restore_mesh_to_global_mesh(self, shared_states) -> Any:
+  def _consistent_restore_mesh_to_global_mesh(
+      self, shared_states, original_single_slice_shardings
+  ) -> Any:
     """Transfers from consistent restore mesh to global mesh."""
 
     # transfer to global_mesh
-    def transfer_to_global_mesh(x):
+    def transfer_to_global_mesh(x, original_single_slice_sharding):
       # TODO(b/367435655) add donate to device_put instead of block+delete
+      logging.error(
+          'HYT debug: transfer_to_global_mesh: \nfrom: %s\n\nto: %s',
+          x.sharding.mesh.devices,
+          original_single_slice_sharding.mesh.devices,
+      )
       y = jax.device_put(
           x,
-          device=jax.sharding.NamedSharding(self._global_mesh, x.sharding.spec),
+          device=original_single_slice_sharding,
       )
       y.block_until_ready()
 
@@ -1099,6 +1128,7 @@ class CheckpointManager(
     finalized_shared_states = jax.tree.map(
         transfer_to_global_mesh,
         shared_states,
+        original_single_slice_shardings,
     )
     transfer_elapsed_s = time.time() - start_transfer
     logging.info(
