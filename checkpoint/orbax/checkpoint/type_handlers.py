@@ -510,7 +510,8 @@ def check_input_arguments(*args):
 
 
 async def _validate_params(
-    ts_kv_store: ts.KvStore,
+    directory: epath.Path,
+    ts_context: ts.Context,
     use_zarr3: bool,
 ) -> None:
   """Validates the params present in tensorstore KvStore.
@@ -520,9 +521,15 @@ async def _validate_params(
   NOTE: Support for zarr3 will be added later.
 
   Args:
-    ts_kv_store: Tensorstore KvStore.
+    directory: checkpoint location.
+    ts_context: Tensorstore context.
     use_zarr3: If True, use zarr3 driver, otherwise, use zarr driver.
   """
+  merged_kvstore_tspec = ts_utils.build_kvstore_tspec(
+      directory.as_posix(), use_ocdbt=True
+  )
+  ts_kv_store = await _open_kv_store(merged_kvstore_tspec, ts_context)
+
   # TODO: b/362328389 - Add support for zarr3.
   if use_zarr3:
     logging.warning(
@@ -586,13 +593,13 @@ async def _validate_params(
 
   unique = with_zarray | without_zarray
   logging.info(
-      '[process=%s][thread=%s] Validating params (raw input=%s, unique=%s) in'
-      ' TensorStore KvStore: %s.',
+      '[process=%s][thread=%s] Validating params (raw input=%s, unique=%s)'
+      ' at %s.',
       process_index,
       current_thread_name,
       len(raw_ts_params),
       len(unique),
-      ts_kv_store,
+      directory,
   )
   missing_params = unique - without_zarray
   if missing_params:
@@ -676,11 +683,7 @@ async def merge_ocdbt_per_process_files(
 
   # Validate merged params.
   if enable_validation:
-    merged_kvstore_tspec = ts_utils.build_kvstore_tspec(
-        directory.as_posix(), use_ocdbt=True
-    )
-    ts_kv_store = await _open_kv_store(merged_kvstore_tspec, ts_context)
-    await _validate_params(ts_kv_store, use_zarr3=use_zarr3)
+    await _validate_params(directory, ts_context, use_zarr3=use_zarr3)
 
 
 async def _open_kv_store(
