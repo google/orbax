@@ -91,10 +91,10 @@ class _LegacyCheckpointHandlerWrapper(checkpoint_handler.CheckpointHandler):
   def __init__(self, handler: checkpoint_handler.CheckpointHandler):
     self._handler = handler
 
-  def save(self, directory: epath.Path, args: '_WrapperArgs'):
+  def save(self, directory: epath.Path, args: _WrapperArgs):
     return self._handler.save(directory, *args.args, **args.kwargs)
 
-  def restore(self, directory: epath.Path, args: '_WrapperArgs'):
+  def restore(self, directory: epath.Path, args: _WrapperArgs):
     return self._handler.restore(directory, *args.args, **args.kwargs)
 
   def metadata(self, directory: epath.Path) -> Optional[Any]:
@@ -134,13 +134,13 @@ class _AsyncLegacyCheckpointHandlerWrapper(
   def __init__(self, handler: async_checkpoint_handler.AsyncCheckpointHandler):
     self._handler = handler
 
-  def save(self, directory: epath.Path, args: '_AsyncWrapperArgs'):
+  def save(self, directory: epath.Path, args: _AsyncWrapperArgs):
     return self._handler.save(directory, *args.args, **args.kwargs)
 
-  async def async_save(self, directory: epath.Path, args: '_AsyncWrapperArgs'):
+  async def async_save(self, directory: epath.Path, args: _AsyncWrapperArgs):
     return await self._handler.async_save(directory, *args.args, **args.kwargs)
 
-  def restore(self, directory: epath.Path, args: '_AsyncWrapperArgs'):
+  def restore(self, directory: epath.Path, args: _AsyncWrapperArgs):
     return self._handler.restore(directory, *args.args, **args.kwargs)
 
   def metadata(self, directory: epath.Path) -> Optional[Any]:

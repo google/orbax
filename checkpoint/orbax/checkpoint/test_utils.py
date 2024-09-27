@@ -16,6 +16,8 @@
 
 # pylint: disable=protected-access
 
+from __future__ import annotations
+
 import asyncio
 from concurrent import futures
 import contextlib
@@ -223,10 +225,12 @@ def assert_tree_equal(testclass, expected, actual):
   expected_flat = tree_utils.to_flat_dict(expected)
   actual_flat = tree_utils.to_flat_dict(actual)
   testclass.assertSameElements(expected_flat.keys(), actual_flat.keys())
+
   def _eq(x, y):
     if x is None:
       return
     assert_array_equal(testclass, x, y)
+
   jax.tree.map(_eq, expected, actual, is_leaf=lambda x: x is None)
 
 
@@ -470,13 +474,13 @@ class ErrorCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._handler = handler
     self._executor = executor
 
-  def save(self, directory: epath.Path, args: 'ErrorSaveArgs'):
+  def save(self, directory: epath.Path, args: ErrorSaveArgs):
     return self._handler.save(directory, args=args)
 
-  def restore(self, directory: epath.Path, args: 'ErrorRestoreArgs'):
+  def restore(self, directory: epath.Path, args: ErrorRestoreArgs):
     return self._handler.restore(directory, args=args)
 
-  async def async_save(self, directory: epath.Path, args: 'ErrorSaveArgs'):
+  async def async_save(self, directory: epath.Path, args: ErrorSaveArgs):
     commit_futures = await self._handler.async_save(directory, args=args)
 
     def error_commit():
