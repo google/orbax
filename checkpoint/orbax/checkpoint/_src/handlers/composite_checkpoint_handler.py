@@ -55,7 +55,6 @@ import uuid
 from absl import logging
 from etils import epath
 import jax
-import nest_asyncio
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import options as options_lib
@@ -690,9 +689,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     """Saves synchronously."""
 
     async def async_save():
-      # Needed for item handlers that also call `asyncio.run`.
-      asyncio.get_running_loop()
-      nest_asyncio.apply()
       commit_futures = await self.async_save(*args, **kwargs)
       if commit_futures:
         for f in commit_futures:
