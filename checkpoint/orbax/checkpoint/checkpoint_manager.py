@@ -765,12 +765,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       use_async: bool,
   ) -> Checkpointer:
     if use_async:
+      async_options = options.async_options or AsyncOptions()
+      checkpoint_metadata_store = (
+          self._blocking_checkpoint_metadata_store
+          if async_options.blocking_metadata_write
+          else self._non_blocking_checkpoint_metadata_store
+      )
       return async_checkpointer.AsyncCheckpointer(
           handler,
           multiprocessing_options=options.multiprocessing_options,
-          async_options=options.async_options or AsyncOptions(),
+          async_options=async_options,
           file_options=options.file_options,
-          checkpoint_metadata_store=self._non_blocking_checkpoint_metadata_store,
+          checkpoint_metadata_store=checkpoint_metadata_store,
           temporary_path_class=options.temporary_path_class,
       )
     else:

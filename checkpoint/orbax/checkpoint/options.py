@@ -30,6 +30,8 @@ class AsyncOptions:
   timeout_secs: int = 300
   barrier_sync_fn: Optional[multihost.BarrierSyncFn] = None
   post_finalization_callback: Optional[Callable[[], None]] = None
+  # If True, forces metadata write to be synchronous.
+  blocking_metadata_write: bool = False
 
 
 @dataclasses.dataclass

@@ -297,7 +297,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     self._file_options = file_options
     self._checkpoint_metadata_store = (
         checkpoint_metadata_store
-        or checkpoint.checkpoint_metadata_store(enable_write=True)
+        or checkpoint.checkpoint_metadata_store(
+            enable_write=True,
+            blocking_write=async_options.blocking_metadata_write,
+        )
     )
     self._temporary_path_class = temporary_path_class
     timeout_secs = timeout_secs or async_options.timeout_secs
