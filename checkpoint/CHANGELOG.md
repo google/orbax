@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Modernize type annotations using `from __future__ import annotations`.
+- Adjust `CompositeCheckpointHandler` behavior for unregistered items and empty
+  `args`. Now, `metadata` only returns entries for which an item actually
+  exists in the checkpoint. `restore` will raise an error if a requested item
+  does not exist, and will attempt to restore all existing items if empty `args`
+  are provided.
 - Refactor to extract a separate module, `asyncio_utils`, for asyncio helper
  functions from `path/async_utils` module.
 

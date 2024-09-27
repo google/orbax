@@ -914,11 +914,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         raise ValueError(
             f'Found {item_name} in `checkpointers`; this is a reserved key.'
         )
-    if options.best_fn:
-      all_item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
-          filename=METRIC_ITEM_NAME,
-          multiprocessing_options=self._multiprocessing_options,
-      )
+    all_item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
+        filename=METRIC_ITEM_NAME,
+        multiprocessing_options=self._multiprocessing_options,
+    )
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
     return self._configure_checkpointer_common(
