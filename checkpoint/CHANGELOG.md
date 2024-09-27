@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactor to extract a separate module, `asyncio_utils`, for asyncio helper
  functions from `path/async_utils` module.
 
+### Added
+- Support nested `asyncio.run` with `asyncio_utils.run_sync`.
 
 ## [0.6.4] - 2024-09-17
 
