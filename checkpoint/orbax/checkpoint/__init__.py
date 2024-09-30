@@ -14,10 +14,8 @@
 
 """Defines exported symbols for the namespace package `orbax.checkpoint`."""
 
-import asyncio
 import contextlib
 import functools
-import nest_asyncio
 
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import args
@@ -57,12 +55,6 @@ from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import SaveArgs
 
 from orbax.checkpoint.handlers import *
 # pylint: enable=g-importing-member, g-bad-import-order
-
-try:
-  asyncio.get_running_loop()
-  nest_asyncio.apply()
-except RuntimeError:
-  pass
 
 # pylint: disable=g-bad-import-order, g-import-not-at-top
 from orbax.checkpoint import version
