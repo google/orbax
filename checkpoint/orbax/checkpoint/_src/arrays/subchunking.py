@@ -112,6 +112,7 @@ def choose_chunk_shape(
   # `shard_axes`. It might also be the case that the given target_byte_size is
   # too big to shard on all of the requested axes, in which case we will
   # maximize the number of the number of axes that are sharded.
+  (shard_axes := list(shard_axes)).sort()
   could_shard = bool(shard_axes)
   first_sharding_iteration = True
   while could_shard and total_elements > target_elements:
@@ -119,12 +120,14 @@ def choose_chunk_shape(
     # For the first pass, exclude dimensions that are already sharded.
     # We do our best to shard at least once of each of the `shard_axes`.
     if first_sharding_iteration:
-      must_shard_dims = (i for i in shard_axes if not sharded_dimensions[i])
+      must_shard_dims = list(i for i in shard_axes if not sharded_dimensions[i])
       first_sharding_iteration = False
     else:
       must_shard_dims = shard_axes
     # Exclude dimensions that can no longer be sharded.
-    must_shard_dims = set(i for i in must_shard_dims if len(dim_factors[i]) > 1)
+    must_shard_dims = list(
+        i for i in must_shard_dims if len(dim_factors[i]) > 1
+    )
     # Shard once on each of the remaining dimensions in a round-robin fashion,
     # while we can.
     while must_shard_dims and total_elements > target_elements:

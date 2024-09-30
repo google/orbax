@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
+import itertools
 import math
 
 from absl.testing import absltest
@@ -139,6 +141,29 @@ class ChooseChunkShapeWithShardAxesTest(parameterized.TestCase):
         shard_axes=(0, 1, 2),
     )
     np.testing.assert_array_equal(chosen_shape, (4, 5, 9))
+
+  def test_result_is_deterministic(self):
+    dtype = np.dtype(np.float32)
+    global_shape = (8, 64, 32, 16)
+    target_byte_size = 8200
+    total_byte_size = math.prod(global_shape) * dtype.itemsize
+    # Ensure target_byte_size results in 7 splits in total, across all of four
+    # chunk dimensions; this way we guarantee that at least one of the
+    # dimensions will have its number of splits different from the others.
+    assert (
+        total_byte_size // 64 > target_byte_size
+        and total_byte_size // 128 < target_byte_size
+    )
+    subchunk = functools.partial(
+        subchunking.choose_chunk_shape,
+        global_shape=global_shape,
+        write_shape=global_shape,
+        dtype=dtype,
+        target_byte_size=target_byte_size,
+    )
+    chosen_shape = subchunk(shard_axes=(0, 1, 2, 3))
+    for shard_axes in itertools.permutations(range(4)):
+      self.assertEqual(subchunk(shard_axes=shard_axes), chosen_shape)
 
   @parameterized.named_parameters(
       dict(
