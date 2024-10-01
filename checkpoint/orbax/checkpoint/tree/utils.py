@@ -44,6 +44,10 @@ def is_empty_or_leaf(x: Any) -> bool:
 
 def get_key_name(key: Any) -> Union[int, str]:
   """Returns the name of a JAX Key."""
+  if isinstance(key, tree_types.ListKey):
+    return key.idx
+  if isinstance(key, tree_types.TupleKey):
+    return key.idx
   if isinstance(key, jax.tree_util.SequenceKey):
     return key.idx
   elif isinstance(key, jax.tree_util.DictKey):
@@ -71,6 +75,14 @@ def is_sequence_key(key) -> bool:
   )
 
 
+def is_list_key(key) -> bool:
+  return isinstance(key, tree_types.ListKey)
+
+
+def is_tuple_key(key) -> bool:
+  return isinstance(key, tree_types.TupleKey)
+
+
 def _raise_unsupported_key_error(key):
   raise ValueError(f'Unsupported KeyEntry: {key}.')
 
@@ -80,6 +92,37 @@ def _extend_list(ls, idx, nextvalue):
   if idx == len(ls):
     ls.append(nextvalue)
   return ls
+
+
+def _extend_tuple(ts, idx, nextvalue):
+  assert idx <= len(ts)
+  if idx == len(ts):
+    return ts + (nextvalue,)
+  return ts
+
+
+# TODO: b/365169723 - Add support for `ListKey` and `TupleKey`.
+def tree_flatten_with_path(
+    tree: Any, is_leaf: Optional[Callable[[Any], bool]] = None
+) -> tuple[list[tuple[tree_types.KeyPath, Any]], jax.tree_util.PyTreeDef]:
+  """Flattens a pytree like ``tree_flatten``, but also returns each leaf's key path.
+
+  NOTE: Enhances `jax.tree_util.tree_flatten_with_path` by returning `ListKey`
+  for `list` and `TupleKey` for `tuple` container nodes.
+  `jax.tree_util.tree_flatten_with_path` returns `SequenceKey` for both `list`
+  and `tuple` nodes, which is not sufficient to distinguish between the two in
+  Orbax use cases.
+
+  Args:
+    tree: a pytree to flatten.
+    is_leaf: If provided, a function that returns True if a value is a leaf.
+
+  Returns:
+    A pair which the first element is a list of key-leaf pairs, each of
+    which contains a leaf and its key path. The second element is a treedef
+    representing the structure of the flattened tree.
+  """
+  return jax.tree_util.tree_flatten_with_path(tree, is_leaf)
 
 
 def from_flattened_with_keypath(
@@ -101,8 +144,10 @@ def from_flattened_with_keypath(
   outerkey = first_el[0][0]
   if is_dict_key(outerkey):
     result = {}
-  elif is_sequence_key(outerkey):
+  elif is_sequence_key(outerkey) or is_list_key(outerkey):
     result = []
+  elif is_tuple_key(outerkey):
+    result = ()
   else:
     result = None
     _raise_unsupported_key_error(outerkey)
@@ -116,16 +161,22 @@ def from_flattened_with_keypath(
         if is_dict_key(key):
           assert isinstance(subtree, dict)
           subtree[get_key_name(key)] = value
-        elif is_sequence_key(key):
+        elif is_sequence_key(key) or is_list_key(key):
           assert isinstance(subtree, list)
           idx = get_key_name(key)
           subtree = _extend_list(subtree, idx, value)
+        elif is_tuple_key(key):
+          assert isinstance(subtree, tuple)
+          idx = get_key_name(key)
+          subtree = _extend_tuple(subtree, idx, value)
       else:
         nextkey = keypath[i + 1]
         if is_dict_key(nextkey):
           nextvalue = {}
-        elif is_sequence_key(nextkey):
+        elif is_sequence_key(nextkey) or is_list_key(nextkey):
           nextvalue = []
+        elif is_tuple_key(nextkey):
+          nextvalue = ()
         else:
           nextvalue = None
           _raise_unsupported_key_error(nextkey)
@@ -136,10 +187,15 @@ def from_flattened_with_keypath(
           if name not in subtree:
             subtree[name] = nextvalue
           subtree = subtree[name]
-        elif is_sequence_key(key):
+        elif is_sequence_key(key) or is_list_key(key):
           assert isinstance(subtree, list)
           idx = get_key_name(key)
           subtree = _extend_list(subtree, idx, nextvalue)
+          subtree = subtree[idx]
+        elif is_tuple_key(key):
+          assert isinstance(subtree, tuple)
+          idx = get_key_name(key)
+          subtree = _extend_tuple(subtree, idx, nextvalue)
           subtree = subtree[idx]
         else:
           _raise_unsupported_key_error(key)
@@ -158,8 +214,9 @@ def serialize_tree(tree: PyTree, keep_empty_nodes: bool = False) -> PyTree:
   Returns:
     The serialized PyTree.
   """
-  flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
-      tree, is_leaf=is_empty_or_leaf if keep_empty_nodes else None
+  flat_with_keys, _ = tree_flatten_with_path(
+      tree,
+      is_leaf=is_empty_or_leaf if keep_empty_nodes else None,
   )
   return from_flattened_with_keypath(flat_with_keys)
 
@@ -217,9 +274,7 @@ def to_flat_dict(
     A flattened dictionary and the tree structure.
   """
   is_leaf = is_leaf or (is_empty_or_leaf if keep_empty_nodes else None)
-  flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
-      tree, is_leaf=is_leaf
-  )
+  flat_with_keys, _ = tree_flatten_with_path(tree, is_leaf=is_leaf)
   flat_dict = {tuple_path_from_keypath(k): v for k, v in flat_with_keys}
   if sep is not None:
     flat_dict = {sep.join(k): v for k, v in flat_dict.items()}

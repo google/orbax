@@ -22,7 +22,7 @@ import dataclasses
 import enum
 import functools
 import operator
-from typing import Any, Dict, Hashable, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from etils import epath
 import jax
@@ -43,9 +43,6 @@ _VALUE_METADATA_KEY = 'value_metadata'
 _USE_ZARR3 = 'use_zarr3'
 
 PyTree = Any
-TupleKeyPathStr = Tuple[str, ...]
-KeyEntry = TypeVar('KeyEntry', bound=Hashable)
-KeyPath = tuple[KeyEntry, ...]
 
 
 class KeyType(enum.Enum):
@@ -53,6 +50,8 @@ class KeyType(enum.Enum):
 
   SEQUENCE = 1
   DICT = 2
+  LIST = 3
+  TUPLE = 4
 
   def to_json(self) -> int:
     return self.value
@@ -74,6 +73,10 @@ def _get_key_metadata_type(key: Any) -> KeyType:
 
 def _keypath_from_key_type(key_name: str, key_type: KeyType) -> Any:
   """Converts from Key in TreeMetadata to JAX keypath class."""
+  if key_type == KeyType.LIST:
+    return tree_utils.ListKey(int(key_name))
+  if key_type == KeyType.TUPLE:
+    return tree_utils.TupleKey(int(key_name))
   if key_type == KeyType.SEQUENCE:
     return jax.tree_util.SequenceKey(int(key_name))
   elif key_type == KeyType.DICT:
@@ -125,7 +128,7 @@ class KeyMetadataEntry:
     )
 
   @classmethod
-  def build(cls, keypath: KeyPath) -> KeyMetadataEntry:
+  def build(cls, keypath: tree_utils.KeyPath) -> KeyMetadataEntry:
     return KeyMetadataEntry([
         NestedKeyMetadataEntry(
             str(tree_utils.get_key_name(k)), _get_key_metadata_type(k)
@@ -201,7 +204,7 @@ class TreeMetadataEntry:
   @classmethod
   def build(
       cls,
-      keypath: KeyPath,
+      keypath: tree_utils.KeyPath,
       info: type_handlers.ParamInfo,
       save_arg: type_handlers.SaveArgs,
   ) -> TreeMetadataEntry:
@@ -214,7 +217,7 @@ class TreeMetadataEntry:
         value_metadata_entry,
     )
 
-  def jax_keypath(self) -> KeyPath:
+  def jax_keypath(self) -> tree_utils.KeyPath:
     keypath = []
     for nested_key_entry in self.key_metadata.nested_key_metadata_entries:
       nested_key_name = nested_key_entry.nested_key_name
@@ -245,15 +248,15 @@ class TreeMetadata:
           param_infos,
           is_leaf=tree_utils.is_empty_or_leaf,
       )
-    flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
+    flat_info_with_keys, _ = tree_utils.tree_flatten_with_path(
         param_infos, is_leaf=tree_utils.is_empty_or_leaf
     )
-    flat_save_args_with_keys, _ = jax.tree_util.tree_flatten_with_path(
+    flat_save_args_with_keys, _ = tree_utils.tree_flatten_with_path(
         save_args, is_leaf=tree_utils.is_empty_or_leaf
     )
     tree_metadata_entries = []
     for (keypath, info), (_, save_arg) in zip(
-        flat_with_keys, flat_save_args_with_keys
+        flat_info_with_keys, flat_save_args_with_keys
     ):
       tree_metadata_entries.append(
           TreeMetadataEntry.build(keypath, info, save_arg)
