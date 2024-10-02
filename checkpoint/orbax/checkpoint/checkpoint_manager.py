@@ -574,7 +574,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       raise ValueError('`best_mode` must be one of: "min", "max"')
 
     self._logger = logger or standard_logger.StandardLogger()
-    self._handler_registry = handler_registry
 
     if checkpointers and item_names:
       raise ValueError(
@@ -636,7 +635,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       self._checkpointer = self._configure_checkpointer_legacy_init(
           checkpointers, self._options
       )
-    elif self._handler_registry is not None:
+    elif handler_registry is not None:
       # There is no way to know if this is a single item or not, detemine this
       # lazily instead on the first call to `save`, `restore` or
       # `item_metadata`. Once locked-in, the value of `_single_item` will not
@@ -646,10 +645,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           handler_registry,
           self._options,
       )
-    else:
-      self._single_item = isinstance(item_handlers, CheckpointHandler) or (
-          item_names is None and item_handlers is None
+    elif item_names is None and item_handlers is None:
+      # In this case, we can just default construct the
+      # CheckpointHandlerRegistry and allow the user to lazily specify single
+      # vs. multi-item mode.
+      self._single_item = None
+      handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+      self._checkpointer = self._configure_checkpointer_from_handler_registry(
+          handler_registry,
+          self._options,
       )
+    else:
+      self._single_item = isinstance(item_handlers, CheckpointHandler)
       self._checkpointer = (
           self._configure_checkpointer_from_item_names_and_handlers(
               item_names,
@@ -658,6 +665,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
               self._single_item,
           )
       )
+
     if (
         self._options.async_options is not None
         and self._options.async_options.post_finalization_callback is not None
@@ -840,9 +848,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
 
     # if options.best_fn:
-    item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
-        filename=METRIC_ITEM_NAME
-    )
+    item_handlers[METRIC_ITEM_NAME] = self._metrics_handler
     if options.async_options is None:
       options.async_options = (
           AsyncOptions(timeout_secs=async_timeout)
@@ -861,17 +867,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         use_async,
     )
 
-
-  def _validate_handler(self, handler):
-    if (
-        hasattr(handler, '_primary_host')
-        and handler._primary_host != self._multiprocessing_options.primary_host  # pylint: disable=protected-access
-    ):
-      raise ValueError(
-          'Inconsistent primary_host,'
-          f' CheckpointManager={self._multiprocessing_options.primary_host}, '
-          f'handler[{type(handler)}]={handler._primary_host} '  # pylint: disable=protected-access
-      )
 
   def _configure_checkpointer_from_item_names_and_handlers(
       self,
@@ -907,17 +902,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         for item_name, handler in item_handlers.items():
           all_item_handlers[item_name] = handler
 
-    for item_name, handler in all_item_handlers.items():
-      if handler is not None:
-        self._validate_handler(handler)
+    for item_name in all_item_handlers:
       if item_name in RESERVED_ITEM_NAMES:
         raise ValueError(
             f'Found {item_name} in `checkpointers`; this is a reserved key.'
         )
-    all_item_handlers[METRIC_ITEM_NAME] = JsonCheckpointHandler(
-        filename=METRIC_ITEM_NAME,
-        multiprocessing_options=self._multiprocessing_options,
-    )
+    all_item_handlers[METRIC_ITEM_NAME] = self._metrics_handler
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
     return self._configure_checkpointer_common(
@@ -938,6 +928,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       options: CheckpointManagerOptions,
   ) -> Checkpointer:
     """Initializes _CompositeCheckpointer given a `handler_registry`."""
+    metrics_handler = self._metrics_handler
+    if not handler_registry.has(METRIC_ITEM_NAME, args_lib.JsonSave):
+      handler_registry.add(METRIC_ITEM_NAME, args_lib.JsonSave, metrics_handler)
+    if not handler_registry.has(METRIC_ITEM_NAME, args_lib.JsonRestore):
+      handler_registry.add(
+          METRIC_ITEM_NAME, args_lib.JsonRestore, metrics_handler
+      )
 
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
@@ -1191,6 +1188,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         args = typing.cast(args_lib.Composite, args)
 
     args_dict = dict(args.items())
+    if any(
+        [item_name in RESERVED_ITEM_NAMES for item_name in args_dict.keys()]
+    ):
+      raise ValueError(
+          'Some provided items have prohibited reserved names:'
+          f' {args_dict.keys()}. Reserved names: {RESERVED_ITEM_NAMES}.'
+      )
     if metrics is not None and self._track_best:
       args_dict['metrics'] = args_lib.JsonSave(metrics)
     args = args_lib.Composite(**args_dict)
@@ -1300,6 +1304,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._logger.log_entry(dataclasses.asdict(step_stats))
     return True
 
+  def _maybe_get_default_item(self, composite_result: args_lib.Composite):
+    if self._single_item:
+      if DEFAULT_ITEM_NAME not in composite_result:
+        raise ValueError(
+            'Unable to retrieve default item. Please ensure that a handler for'
+            ' the default item is registered using `handler_registry` when'
+            ' initializing the `CheckpointManager`.'
+        )
+      return composite_result[DEFAULT_ITEM_NAME]
+    return composite_result
+
   def restore(
       self,
       step: Optional[int],
@@ -1366,28 +1381,24 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
     self._logger.log_entry(dataclasses.asdict(step_stats))
 
-    if self._single_item:
-      return restored[DEFAULT_ITEM_NAME]
-    return restored
+    return self._maybe_get_default_item(restored)
 
   def item_metadata(self, step: int) -> Union[Any, args_lib.Composite]:
-    """See superclass documentation."""
-    # TODO(b/321751056): Move the validation to CompositeCheckpointHandler by
-    # changing the current metadata() biz logic.
-    if isinstance(self._checkpointer.handler, CompositeCheckpointHandler):
-      if (
-          self._checkpointer.handler._item_names_without_registered_handlers  # pylint: disable=protected-access
-          is not None
-      ):
-        items_missing_handlers = list(
-            self._checkpointer.handler._item_names_without_registered_handlers  # pylint: disable=protected-access
-        )
-        if items_missing_handlers:
-          raise ValueError(
-              'No mapped CheckpointHandler found for items:'
-              f' {items_missing_handlers}. Please see documentation of'
-              ' `item_handlers` in CheckpointManager.'
-          )
+    """Retrieves metadata for all known items.
+
+    Note that metadata will only be returned for items that can actually be
+    interpreted. If an item is present in the checkpoint but not registered
+    (using a prior save or restore, or with `handler_registry` at init), the
+    item will not be returned.
+
+    Args:
+      step: The step to retrieve metadata for.
+
+    Returns:
+      Either metadata for the item itself, if in single-item mode, or a
+      Composite of metadata for each item.
+    """
+    assert isinstance(self._checkpointer.handler, CompositeCheckpointHandler)
 
     result = self._checkpointer.metadata(
         self._get_read_step_directory(step, self.directory)
@@ -1397,25 +1408,31 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           self.directory,
           step,
       )
-    if self._single_item:
-      return result[DEFAULT_ITEM_NAME]
-    return result
+    return self._maybe_get_default_item(result)
 
   def metrics(self, step: int) -> Optional[PyTree]:
     if self._track_best:
       try:
         # Use handler directly, since this happens in a background thread and
-        # barriers cannot be used. This usage pattern is generally not
+        # barriers cannot be used. This usage pattern is not
         # recommended in other contexts.
-        return JsonCheckpointHandler(filename=METRIC_ITEM_NAME).restore(
+        return self._metrics_handler.restore(
             self._get_read_step_directory(step, self.directory)
             / METRIC_ITEM_NAME
         )
-      except FileNotFoundError:
+      except FileNotFoundError as e:
         logging.warning('Missing metrics for step %d', step)
+        logging.error(e)
         return None
     else:
       return None
+
+  @property
+  def _metrics_handler(self) -> CheckpointHandler:
+    return JsonCheckpointHandler(
+        filename=METRIC_ITEM_NAME,
+        multiprocessing_options=self._multiprocessing_options,
+    )
 
   @property
   def _track_best(self):

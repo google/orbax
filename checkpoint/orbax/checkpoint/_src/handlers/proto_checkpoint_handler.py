@@ -36,13 +36,15 @@ from orbax.checkpoint._src.handlers import async_checkpoint_handler
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
 
+_DEFAULT_FILENAME = "proto.pbtxt"
+
 
 class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Serializes/deserializes protocol buffers."""
 
   def __init__(
       self,
-      filename: str,
+      filename: str = _DEFAULT_FILENAME,
       *,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions()
   ):

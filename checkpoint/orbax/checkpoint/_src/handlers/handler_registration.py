@@ -99,10 +99,10 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
   """Default implementation of :py:class:`CheckpointHandlerRegistry`.
 
   Usage::
-    from orbax.checkpoint.handlers import handler_registration
+    from orbax.checkpoint import handlers
 
     # Create a handler registry.
-    registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    registry = handlers.DefaultCheckpointHandlerRegistry()
 
     # Add custom save and restore args for a checkpointable item.
     registry.add(
@@ -233,3 +233,4 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
 
   def __str__(self):
     return f'DefaultCheckpointHandlerRegistry({self._registry})'
+

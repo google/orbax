@@ -595,13 +595,9 @@ async def _validate_params(
 
   unique = with_zarray | without_zarray
   logging.info(
-      '[process=%s][thread=%s] Validating params (raw input=%s, unique=%s)'
-      ' at %s.',
+      '[process=%s][thread=%s] Validating params in TensorStore KvStore.',
       process_index,
       current_thread_name,
-      len(raw_ts_params),
-      len(unique),
-      directory,
   )
   missing_params = unique - without_zarray
   if missing_params:
