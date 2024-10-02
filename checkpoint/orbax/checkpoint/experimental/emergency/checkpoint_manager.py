@@ -568,6 +568,35 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     self._steps = None
 
 
+def _reshard_pytree(pytree: PyTree, new_shardings) -> PyTree:
+  """Reshards arrays using the new shardings.
+
+  Args:
+    pytree: Pytree of arrays.
+    new_shardings: New shardings for the `pytree`.
+
+  Returns: 
+    resharded arrays
+  """
+  def reshard(x, new_sharding):
+    # TODO(b/367435655) add donate to device_put instead of block+delete
+    y = jax.device_put(
+        x,
+        device=new_sharding,
+    )
+    y.block_until_ready()
+
+    # delete immediately to conserve memory
+    x.delete()
+    return y
+
+  return jax.tree.map(
+      reshard,
+      pytree,
+      new_shardings
+  )
+
+
 class CheckpointManager(
     abstract_checkpoint_manager.AbstractCheckpointManager, epy.ContextManager
 ):
@@ -1066,8 +1095,20 @@ class CheckpointManager(
         # available shard correctly. This may cause performance issues.
 
         # Thus, we re-shard the array to follow the original mesh and layout.
-        in_tree = self._consistent_restore_mesh_to_global_mesh(
+        logging.info('Transferring from consistent restore mesh to global mesh')
+        start_transfer = time.time()
+        in_tree = _reshard_pytree(
             in_tree, original_single_slice_shardings_tuple
+        )
+        transfer_elapsed_s = time.time() - start_transfer
+        logging.info(
+            'Finished transferring from consistent restore mesh to global mesh'
+            ' in %.2fs',
+            transfer_elapsed_s,
+        )
+        jax.monitoring.record_event_duration_secs(
+            '/orbax/emergency/checkpoint/read/transfer_global_shard_duration_secs',
+            transfer_elapsed_s,
         )
     else:
       logging.vlog(
@@ -1111,45 +1152,6 @@ class CheckpointManager(
     logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
 
     return jax.tree.unflatten(tree_defs, shared_states)
-
-  def _consistent_restore_mesh_to_global_mesh(self, original_state: PyTree,
-                                              desired_slice_shardings,
-                                              ) -> Any:
-    """Transfers from consistent restore mesh to global mesh."""
-
-    # transfer to global_mesh
-    def transfer_to_global_mesh(x, desired_slice_sharding):
-      # TODO(b/367435655) add donate to device_put instead of block+delete
-      y = jax.device_put(
-          x,
-          device=desired_slice_sharding,
-      )
-      y.block_until_ready()
-
-      # delete immediately to conserve memory
-      x.delete()
-      return y
-
-    logging.info('Transferring from consistent restore mesh to global mesh')
-
-    start_transfer = time.time()
-    resharded_state = jax.tree.map(
-        transfer_to_global_mesh,
-        original_state,
-        desired_slice_shardings
-    )
-    transfer_elapsed_s = time.time() - start_transfer
-    logging.info(
-        'Finished transferring from consistent restore mesh to global mesh'
-        ' in %.2fs',
-        transfer_elapsed_s,
-    )
-    jax.monitoring.record_event_duration_secs(
-        '/orbax/emergency/checkpoint/read/transfer_global_shard_duration_secs',
-        transfer_elapsed_s,
-    )
-
-    return resharded_state
 
   def _restore_from_persistent(
       self,
