@@ -70,8 +70,9 @@ _DEFAULT_OCDBT_TS_CONTEXT = {
 RESTORE_TYPE_NONE = 'None'
 RESTORE_TYPE_DICT = 'Dict'
 RESTORE_TYPE_LIST = 'List'
+RESTORE_TYPE_TUPLE = 'Tuple'
 RESTORE_TYPE_UNKNOWN = 'Unknown'
-# TODO: b/365169723 - Handle tuple/NamedTuple restore types.
+# TODO: b/365169723 - Handle empty NamedTuple.
 
 _SHARDING = '_sharding'
 _SHARDING_SUFFIX_RE = r'/\d+(\.\d+)*$'  # /0, /0.0, /1.0.1, etc.
@@ -99,10 +100,20 @@ async def _assert_parameter_files_exist(
     )
 
 
+def isinstance_of_namedtuple(value: Any) -> bool:
+  """Determines if the `value` is a NamedTuple."""
+  return isinstance(value, tuple) and hasattr(value, '_fields')
+
+
 def is_supported_empty_value(value: Any) -> bool:
   """Determines if the *empty* `value` is supported without custom TypeHandler."""
   # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
-  return isinstance(value, (dict, list, type(None), Mapping)) and not value
+  # TODO: b/365169723 - Handle empty NamedTuple.
+  if isinstance_of_namedtuple(value):
+    return False
+  return (
+      isinstance(value, (dict, list, tuple, type(None), Mapping)) and not value
+  )
 
 
 def is_supported_type(value: Any) -> bool:
@@ -113,37 +124,43 @@ def is_supported_type(value: Any) -> bool:
   ) or is_supported_empty_value(value)
 
 
-# TODO: b/365169723 - Handle tuple/NamedTuple empty val in following 3 methods.
+# TODO: b/365169723 - Handle empty NamedTuple.
 def get_empty_value_typestr(value: Any) -> str:
+  """Returns the typestr constant for the empty value."""
   if not is_supported_empty_value(value):
     raise ValueError(f'{value} is not a supported empty type.')
   if isinstance(value, list):
     return RESTORE_TYPE_LIST
-  elif isinstance(value, (dict, Mapping)):
+  if isinstance(value, tuple):
+    return RESTORE_TYPE_TUPLE
+  if isinstance(value, (dict, Mapping)):
     return RESTORE_TYPE_DICT
-  elif value is None:
+  if value is None:
     return RESTORE_TYPE_NONE
-  else:
-    raise ValueError(f'Unrecognized empty type: {value}.')
+  raise ValueError(f'Unrecognized empty type: {value}.')
 
 
+# TODO: b/365169723 - Handle empty NamedTuple.
 def is_empty_typestr(typestr: str) -> bool:
   return (
       typestr == RESTORE_TYPE_LIST
+      or typestr == RESTORE_TYPE_TUPLE
       or typestr == RESTORE_TYPE_DICT
       or typestr == RESTORE_TYPE_NONE
   )
 
 
+# TODO: b/365169723 - Handle empty NamedTuple.
 def get_empty_value_from_typestr(typestr: str) -> Any:
   if typestr == RESTORE_TYPE_LIST:
     return []
-  elif typestr == RESTORE_TYPE_DICT:
+  if typestr == RESTORE_TYPE_TUPLE:
+    return tuple()
+  if typestr == RESTORE_TYPE_DICT:
     return {}
-  elif typestr == RESTORE_TYPE_NONE:
+  if typestr == RESTORE_TYPE_NONE:
     return None
-  else:
-    raise ValueError(f'Unrecognized typestr: {typestr}.')
+  raise ValueError(f'Unrecognized typestr: {typestr}.')
 
 
 @dataclasses.dataclass

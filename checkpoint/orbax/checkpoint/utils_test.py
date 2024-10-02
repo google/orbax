@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Test for utils.py."""
+"""Test for utils module."""
 
-from typing import Mapping, Sequence
+from typing import Mapping, NamedTuple, Sequence
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -24,6 +24,10 @@ import jax
 import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import tree as tree_utils
+
+
+class EmptyNamedTuple(NamedTuple):
+  pass
 
 
 class UtilsTest(parameterized.TestCase):
@@ -167,8 +171,19 @@ class UtilsTest(parameterized.TestCase):
       ({'a': {}}, False),
       ([], True),
       ([[]], False),
+      ([tuple()], False),
+      ([dict()], False),
+      ([{}], False),
+      ([1], False),
+      (tuple(), True),
+      ((tuple(),), False),
+      (([],), False),
+      (({},), False),
+      ((dict(),), False),
+      ((1,), False),
       (None, True),
       ((1, 2), False),
+      (EmptyNamedTuple(), True),
   )
   def test_is_empty_or_leaf(self, value, expected):
     self.assertEqual(expected, tree_utils.is_empty_or_leaf(value))

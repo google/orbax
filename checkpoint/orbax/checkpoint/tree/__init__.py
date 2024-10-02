@@ -30,5 +30,6 @@ from orbax.checkpoint.tree.utils import (
     serialize_tree,
     to_flat_dict,
     to_shape_dtype_struct,
+    tree_flatten_with_path,
     tuple_path_from_keypath,
 )

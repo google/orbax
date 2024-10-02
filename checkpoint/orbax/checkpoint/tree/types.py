@@ -14,7 +14,8 @@
 
 """Public common types to work with pytrees."""
 
-from typing import Any, TypeVar, Union
+import dataclasses
+from typing import Any, Hashable, TypeVar, Union
 
 from jax import tree_util as jtu
 
@@ -26,7 +27,36 @@ PyTree = Any
 T = TypeVar('T')
 PyTreeOf = Union[PyTree, T]
 
+KeyEntry = TypeVar('KeyEntry', bound=Hashable)
+KeyPath = tuple[KeyEntry, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class ListKey:
+  """A strict version of `jax.tree_util.SequenceKey` specific to List nodes."""
+
+  idx: int
+
+  def __str__(self):
+    return f'[{self.idx!r}]'
+
+
+@dataclasses.dataclass(frozen=True)
+class TupleKey:
+  """A strict version of `jax.tree_util.SequenceKey` specific to Tuple nodes."""
+
+  idx: int
+
+  def __str__(self):
+    return f'[{self.idx!r}]'
+
+
 PyTreeKey = Union[
-    jtu.SequenceKey, jtu.DictKey, jtu.GetAttrKey, jtu.FlattenedIndexKey
+    ListKey,
+    TupleKey,
+    jtu.SequenceKey,
+    jtu.DictKey,
+    jtu.GetAttrKey,
+    jtu.FlattenedIndexKey,
 ]
 PyTreePath = tuple[PyTreeKey, ...]
