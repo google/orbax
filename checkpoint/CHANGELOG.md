@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exists in the checkpoint. `restore` will raise an error if a requested item
   does not exist, and will attempt to restore all existing items if empty `args`
   are provided.
+- Allow registering an item in `DefaultCheckpointHandlerRegistry` without
+  providing the actual handler, as long as the provided args correspond to a
+  globally registered handler. This allows for slightly reduced verbosity if we
+  just want to ensure an association between an item name and args/handler.
 - Refactor to extract a separate module, `asyncio_utils`, for asyncio helper
  functions from `path/async_utils` module.
 

@@ -21,6 +21,7 @@ from etils import epath
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
+from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 
 
 CheckpointHandler = checkpoint_handler.CheckpointHandler
@@ -43,6 +44,22 @@ class _TestCheckpointHandler(CheckpointHandler):
 
 @dataclasses.dataclass
 class _TestArgs(checkpoint_args.CheckpointArgs):
+  """No-op checkpoint args for testing."""
+  ...
+
+
+class _TestHandlerWithRequiredInit(_TestCheckpointHandler):
+
+  def __init__(self, foo: str):
+    super().__init__()
+    self._foo = foo
+
+
+@checkpoint_args.register_with_handler(
+    _TestHandlerWithRequiredInit, for_save=True, for_restore=True
+)
+@dataclasses.dataclass
+class _TestArgsWithRequiredInit(checkpoint_args.CheckpointArgs):
   """No-op checkpoint args for testing."""
 
   ...
@@ -189,6 +206,32 @@ class HandlerRegistryTest(parameterized.TestCase):
         rf'Entry for item={item} and args_type={_TestArgs}',
     ):
       registry.add(item, _TestArgs, _TestCheckpointHandler)
+
+  @parameterized.product(
+      item=(None, 'item'),
+  )
+  def test_register_with_default_handler(self, item: Optional[str]):
+    registry = DefaultCheckpointHandlerRegistry()
+    with self.assertRaisesRegex(
+        ValueError, 'Provided a `None` `CheckpointHandler`'
+    ):
+      registry.add(item, _TestArgs)
+
+    registry.add(item, standard_checkpoint_handler.StandardSaveArgs)
+    self.assertIsInstance(
+        registry.get(item, standard_checkpoint_handler.StandardSaveArgs),
+        standard_checkpoint_handler.StandardCheckpointHandler,
+    )
+
+  @parameterized.product(
+      item=(None, 'item'),
+  )
+  def test_register_with_default_handler_required_init(
+      self, item: Optional[str]
+  ):
+    registry = DefaultCheckpointHandlerRegistry()
+    with self.assertRaisesRegex(ValueError, 'not default-constructible'):
+      registry.add(item, _TestArgsWithRequiredInit)
 
 
 if __name__ == '__main__':

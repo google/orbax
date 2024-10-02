@@ -50,7 +50,9 @@ class CheckpointHandlerRegistry(Protocol):
       self,
       item: Optional[str],
       args: Union[Type[CheckpointArgs], CheckpointArgs],
-      handler: Union[CheckpointHandler, Type[CheckpointHandler]],
+      handler: Optional[
+          Union[CheckpointHandler, Type[CheckpointHandler]]
+      ] = None,
       **kwargs,
   ) -> None:
     """Adds an entry to the registry."""
@@ -132,6 +134,11 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
     # not been registered).
     handler = registry.get(None, BarCustomCheckpointSaveArgs)
     assert isinstance(handler, BarCustomCheckpointHandler)
+
+    # Associate a `CheckpointArgs` (and `CheckpointHandler`) with a given item
+    # name, provided that the `CheckpointHandler` is globally registered.
+    registry.add('state', ocp.args.StandardSave)
+    registry.add('state', ocp.args.StandardRestore)
   """
 
   def __init__(
@@ -151,7 +158,9 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
       self,
       item: Optional[str],
       args: Union[Type[CheckpointArgs], CheckpointArgs],
-      handler: Union[CheckpointHandler, Type[CheckpointHandler]],
+      handler: Optional[
+          Union[CheckpointHandler, Type[CheckpointHandler]]
+      ] = None,
   ):
     """Adds an entry to the registry.
 
@@ -161,11 +170,15 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
       args: The args type to be added to registry. If a concerete type is
         provided, the type will be added to the registry.
       handler: The handler. If a type is provided, an instance of the type will
-        be added to the registry.
+        be added to the registry. If None, tries to find a globally registered
+        handler for the given args type.
 
     Raises:
       AlreadyExistsError: If an entry for the given item and args type already
         exists in the registry.
+      ValueError: If no globally registered handler can be found for the given
+        args type and handler is provided as None or if the handler is globally
+        registered but not default-constructible.
     """
     args_type = _get_args_type(args)
 
@@ -174,9 +187,34 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
           f'Entry for item={item} and args_type={args_type} already'
           ' exists in the registry.'
       )
+    if handler is None:
+      try:
+        handler_to_register = checkpoint_args.get_registered_handler_cls(args)
+      except ValueError as e:
+        raise ValueError(
+            'Provided a `None` `CheckpointHandler` when registering'
+            f' item={item} and args_type={args_type}. Unable to find a globally'
+            ' registered handler for the given args type. Provide a `handler`'
+            ' or ensure the args type corresponds to a globally registered'
+            ' handler.'
+        ) from e
     else:
-      handler_instance = handler() if isinstance(handler, type) else handler
-      self._registry[(item, args_type)] = handler_instance
+      handler_to_register = handler
+
+    if isinstance(handler_to_register, type):
+      try:
+        handler_instance = handler_to_register()
+      except TypeError as e:
+        raise ValueError(
+            'Provided a `None` `CheckpointHandler` when registering'
+            f' item={item} and args_type={args_type}. The globally-registered'
+            ' handler for this args type is not default-constructible. Please'
+            ' a `handler` when adding this args type to the registry.'
+        ) from e
+    else:
+      handler_instance = handler_to_register
+
+    self._registry[(item, args_type)] = handler_instance
 
   def get(
       self,
@@ -233,4 +271,3 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
 
   def __str__(self):
     return f'DefaultCheckpointHandlerRegistry({self._registry})'
-
