@@ -218,14 +218,15 @@ class TreeMetadataTest(parameterized.TestCase):
           },
       },
       {
-          'tree_provider': lambda: {'tuple_of_empty_list': tuple([])},
+          'tree_provider': lambda: {'tuple_of_empty_list': ([],)},
           'expected_tree_json': {
-              "('tuple_of_empty_list',)": {
+              "('tuple_of_empty_list', '0')": {
                   'key_metadata': (
                       {'key': 'tuple_of_empty_list', 'key_type': 2},
+                      {'key': '0', 'key_type': 1},
                   ),
                   'value_metadata': {
-                      'value_type': 'None',  # TODO: b/365169723 - Fix this.
+                      'value_type': 'List',
                       'skip_deserialize': True,
                   },
               },
@@ -291,7 +292,7 @@ class TreeMetadataTest(parameterized.TestCase):
               "('empty_tuple',)": {
                   'key_metadata': ({'key': 'empty_tuple', 'key_type': 2},),
                   'value_metadata': {
-                      'value_type': 'None',  # TODO: b/365169723 - Fix this.
+                      'value_type': 'Tuple',
                       'skip_deserialize': True,
                   },
               },
@@ -306,7 +307,7 @@ class TreeMetadataTest(parameterized.TestCase):
                       {'key': '0', 'key_type': 1},
                   ),
                   'value_metadata': {
-                      'value_type': 'None',  # TODO: b/365169723 - Fix this.
+                      'value_type': 'Tuple',
                       'skip_deserialize': True,
                   },
               },
@@ -320,7 +321,8 @@ class TreeMetadataTest(parameterized.TestCase):
                       {'key': 'empty_named_tuple', 'key_type': 2},
                   ),
                   'value_metadata': {
-                      'value_type': 'None',  # TODO: b/365169723 - Fix this.
+                      # TODO: b/365169723 - Handle empty NamedTuple.
+                      'value_type': 'None',
                       'skip_deserialize': True,
                   },
               },
@@ -708,6 +710,7 @@ class TreeMetadataTest(parameterized.TestCase):
                       {'key': 'nested_empty_named_tuple', 'key_type': 2},
                   ),
                   'value_metadata': {
+                      # TODO: b/365169723 - Handle empty NamedTuple.
                       'value_type': 'None',
                       'skip_deserialize': True,
                   },

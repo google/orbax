@@ -43,7 +43,6 @@ _VALUE_METADATA_KEY = 'value_metadata'
 _USE_ZARR3 = 'use_zarr3'
 
 PyTree = Any
-TupleKeyPathStr = Tuple[str, ...]
 KeyEntry = TypeVar('KeyEntry', bound=Hashable)
 KeyPath = tuple[KeyEntry, ...]
 
@@ -245,7 +244,7 @@ class TreeMetadata:
           param_infos,
           is_leaf=tree_utils.is_empty_or_leaf,
       )
-    flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
+    flat_info_with_keys, _ = jax.tree_util.tree_flatten_with_path(
         param_infos, is_leaf=tree_utils.is_empty_or_leaf
     )
     flat_save_args_with_keys, _ = jax.tree_util.tree_flatten_with_path(
@@ -253,7 +252,7 @@ class TreeMetadata:
     )
     tree_metadata_entries = []
     for (keypath, info), (_, save_arg) in zip(
-        flat_with_keys, flat_save_args_with_keys
+        flat_info_with_keys, flat_save_args_with_keys
     ):
       tree_metadata_entries.append(
           TreeMetadataEntry.build(keypath, info, save_arg)

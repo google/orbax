@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Support nested `asyncio.run` with `nest_asyncio` library.
+- Support empty tuple values in checkpointable params.
+
 
 ## [0.6.4] - 2024-09-17
 
