@@ -155,7 +155,7 @@ def create_tmp_directory(
     if checkpoint_metadata_store is not None:
       checkpoint_metadata_store.write(
           checkpoint_path=tmp_dir,
-          checkpoint_metadata=metadata_lib.CheckpointMetadata(
+          checkpoint_metadata=metadata_lib.StepMetadata(
               init_timestamp_nsecs=time.time_ns()
           ),
       )

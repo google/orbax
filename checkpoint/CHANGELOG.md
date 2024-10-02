@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   just want to ensure an association between an item name and args/handler.
 - Refactor to extract a separate module, `asyncio_utils`, for asyncio helper
  functions from `path/async_utils` module.
+- Rename `CheckpointMetadata` to `StepMetadata`.
 
 ### Added
 - Support nested `asyncio.run` with `nest_asyncio` library.

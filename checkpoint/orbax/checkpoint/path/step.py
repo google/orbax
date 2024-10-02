@@ -59,7 +59,7 @@ class Metadata:
   path: epath.Path
 
   @functools.cached_property
-  def _checkpoint_metadata(self) -> Optional[checkpoint.CheckpointMetadata]:
+  def _checkpoint_metadata(self) -> Optional[checkpoint.StepMetadata]:
     """Returns checkpoint metadata of this step."""
     store = checkpoint.checkpoint_metadata_store(enable_write=False)
     return store.read(self.path)

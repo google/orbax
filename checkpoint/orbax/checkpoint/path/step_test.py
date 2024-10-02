@@ -381,7 +381,7 @@ class MetadataTest(parameterized.TestCase):
         enable_write=True, blocking_write=True
     ).write(
         step_path,
-        checkpoint.CheckpointMetadata(
+        checkpoint.StepMetadata(
             init_timestamp_nsecs=1, commit_timestamp_nsecs=2
         ),
     )

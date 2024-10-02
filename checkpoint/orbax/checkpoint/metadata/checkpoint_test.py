@@ -77,12 +77,12 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
       with self.assertRaisesRegex(ValueError, 'Checkpoint path does not exist'):
         self.write_metadata_store(blocking_write).write(
             checkpoint_path='unknown_checkpoint_path',
-            checkpoint_metadata=checkpoint.CheckpointMetadata(),
+            checkpoint_metadata=checkpoint.StepMetadata(),
         )
     else:
       self.write_metadata_store(blocking_write).write(
           checkpoint_path='unknown_checkpoint_path',
-          checkpoint_metadata=checkpoint.CheckpointMetadata(),
+          checkpoint_metadata=checkpoint.StepMetadata(),
       )
       try:
         self.write_metadata_store(blocking_write).wait_until_finished()
@@ -98,7 +98,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
 
   @parameterized.parameters(True, False)
   def test_read_default_values(self, blocking_write: bool):
-    metadata = checkpoint.CheckpointMetadata()
+    metadata = checkpoint.StepMetadata()
 
     self.write_metadata_store(blocking_write).write(
         checkpoint_path=self.directory, checkpoint_metadata=metadata
@@ -115,7 +115,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
 
   @parameterized.parameters(True, False)
   def test_read_with_values(self, blocking_write: bool):
-    metadata = checkpoint.CheckpointMetadata(
+    metadata = checkpoint.StepMetadata(
         init_timestamp_nsecs=time.time_ns(),
         commit_timestamp_nsecs=time.time_ns() + 1,
     )
@@ -157,7 +157,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
         self.write_metadata_store(blocking_write).read(
             checkpoint_path=self.directory
         ),
-        checkpoint.CheckpointMetadata(
+        checkpoint.StepMetadata(
             init_timestamp_nsecs=1,
             commit_timestamp_nsecs=2,
         ),
@@ -165,7 +165,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
 
   @parameterized.parameters(True, False)
   def test_update_with_prior_data(self, blocking_write: bool):
-    metadata = checkpoint.CheckpointMetadata(init_timestamp_nsecs=1)
+    metadata = checkpoint.StepMetadata(init_timestamp_nsecs=1)
     self.write_metadata_store(blocking_write).write(
         checkpoint_path=self.directory, checkpoint_metadata=metadata
     )
@@ -181,7 +181,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
         self.write_metadata_store(blocking_write).read(
             checkpoint_path=self.directory
         ),
-        checkpoint.CheckpointMetadata(
+        checkpoint.StepMetadata(
             init_timestamp_nsecs=1,
             commit_timestamp_nsecs=2,
         ),
@@ -208,7 +208,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
 
     self.read_metadata_store(blocking_write).write(
         checkpoint_path=self.directory,
-        checkpoint_metadata=checkpoint.CheckpointMetadata(),
+        checkpoint_metadata=checkpoint.StepMetadata(),
     )
 
     self.assertIsNone(
@@ -226,7 +226,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
     # setup some data with blocking store.
     self.write_metadata_store(blocking_write=True).write(
         checkpoint_path=self.directory,
-        checkpoint_metadata=checkpoint.CheckpointMetadata(
+        checkpoint_metadata=checkpoint.StepMetadata(
             init_timestamp_nsecs=1
         ),
     )
@@ -235,13 +235,13 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
         self.read_metadata_store(blocking_write=False).read(
             checkpoint_path=self.directory
         ),
-        checkpoint.CheckpointMetadata(init_timestamp_nsecs=1),
+        checkpoint.StepMetadata(init_timestamp_nsecs=1),
     )
 
     # write validations
     self.write_metadata_store(blocking_write=False).write(
         checkpoint_path=self.directory,
-        checkpoint_metadata=checkpoint.CheckpointMetadata(
+        checkpoint_metadata=checkpoint.StepMetadata(
             init_timestamp_nsecs=2, commit_timestamp_nsecs=3
         ),
     )
@@ -250,7 +250,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
         self.read_metadata_store(blocking_write=False).read(
             checkpoint_path=self.directory
         ),
-        checkpoint.CheckpointMetadata(
+        checkpoint.StepMetadata(
             init_timestamp_nsecs=2, commit_timestamp_nsecs=3
         ),
     )
@@ -258,7 +258,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
         self.write_metadata_store(blocking_write=False).read(
             checkpoint_path=self.directory
         ),
-        checkpoint.CheckpointMetadata(
+        checkpoint.StepMetadata(
             init_timestamp_nsecs=2, commit_timestamp_nsecs=3
         ),
     )
@@ -272,7 +272,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
         self.read_metadata_store(blocking_write=False).read(
             checkpoint_path=self.directory
         ),
-        checkpoint.CheckpointMetadata(
+        checkpoint.StepMetadata(
             init_timestamp_nsecs=2, commit_timestamp_nsecs=7
         ),
     )
@@ -280,7 +280,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
         self.write_metadata_store(blocking_write=False).read(
             checkpoint_path=self.directory
         ),
-        checkpoint.CheckpointMetadata(
+        checkpoint.StepMetadata(
             init_timestamp_nsecs=2, commit_timestamp_nsecs=7
         ),
     )

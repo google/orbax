@@ -16,7 +16,7 @@
 
 # pylint: disable=g-importing-member, g-bad-import-order
 
-from orbax.checkpoint.metadata.checkpoint import CheckpointMetadata
+from orbax.checkpoint.metadata.checkpoint import StepMetadata
 from orbax.checkpoint.metadata.checkpoint import CheckpointMetadataStore
 from orbax.checkpoint.metadata.checkpoint import checkpoint_metadata_store
 

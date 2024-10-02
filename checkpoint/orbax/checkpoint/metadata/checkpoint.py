@@ -32,7 +32,7 @@ def metadata_file_path(path: epath.PathLike) -> epath.Path:
 
 
 @dataclasses.dataclass
-class CheckpointMetadata:
+class StepMetadata:
   """Metadata of a checkpoint at step level (not per item).
 
   NOTE: Internal class. Please reach out to Orbax team if you want to use it in
@@ -49,7 +49,7 @@ class CheckpointMetadata:
   commit_timestamp_nsecs: Optional[int] = None
 
   @classmethod
-  def from_dict(cls, dict_data: Any) -> CheckpointMetadata:
+  def from_dict(cls, dict_data: Any) -> StepMetadata:
     validated_dict = {}
     if 'init_timestamp_nsecs' in dict_data:
       validated_dict['init_timestamp_nsecs'] = dict_data['init_timestamp_nsecs']
@@ -57,7 +57,7 @@ class CheckpointMetadata:
       validated_dict['commit_timestamp_nsecs'] = dict_data[
           'commit_timestamp_nsecs'
       ]
-    return CheckpointMetadata(**validated_dict)
+    return StepMetadata(**validated_dict)
 
 
 class CheckpointMetadataStore(Protocol):
@@ -70,14 +70,14 @@ class CheckpointMetadataStore(Protocol):
   def write(
       self,
       checkpoint_path: epath.PathLike,
-      checkpoint_metadata: CheckpointMetadata,
+      checkpoint_metadata: StepMetadata,
   ) -> None:
     """[Over]Writes `checkpoint_metadata` to `checkpoint_path`/*metadata_file*."""
     ...
 
   def read(
       self, checkpoint_path: epath.PathLike
-  ) -> Optional[CheckpointMetadata]:
+  ) -> Optional[StepMetadata]:
     """Reads `checkpoint_path`/*metadata_file* and returns `CheckpointMetadata`."""
     ...
 
@@ -119,7 +119,7 @@ class _CheckpointMetadataStoreImpl(CheckpointMetadataStore):
   def write(
       self,
       checkpoint_path: epath.PathLike,
-      checkpoint_metadata: CheckpointMetadata,
+      checkpoint_metadata: StepMetadata,
   ) -> None:
     checkpoint_path = epath.Path(checkpoint_path)
     if not checkpoint_path.exists():
@@ -142,7 +142,7 @@ class _CheckpointMetadataStoreImpl(CheckpointMetadataStore):
 
   def read(
       self, checkpoint_path: epath.PathLike
-  ) -> Optional[CheckpointMetadata]:
+  ) -> Optional[StepMetadata]:
     metadata_file = metadata_file_path(checkpoint_path)
     if not metadata_file.exists():
       logging.warning(
@@ -170,7 +170,7 @@ class _CheckpointMetadataStoreImpl(CheckpointMetadataStore):
           e,
       )
       return None
-    result = CheckpointMetadata.from_dict(json_data)
+    result = StepMetadata.from_dict(json_data)
     logging.log_every_n(
         logging.INFO,
         'Read CheckpointMetadata=%s from %s',
@@ -185,7 +185,7 @@ class _CheckpointMetadataStoreImpl(CheckpointMetadataStore):
       checkpoint_path: epath.PathLike,
       **kwargs,
   ) -> None:
-    metadata = self.read(checkpoint_path) or CheckpointMetadata()
+    metadata = self.read(checkpoint_path) or StepMetadata()
     updated = dataclasses.replace(metadata, **kwargs)
     self.write(checkpoint_path, updated)
     logging.log_every_n(
@@ -230,7 +230,7 @@ class _BlockingCheckpointMetadataStore(CheckpointMetadataStore):
   def write(
       self,
       checkpoint_path: epath.PathLike,
-      checkpoint_metadata: CheckpointMetadata,
+      checkpoint_metadata: StepMetadata,
   ) -> None:
     if not self.enable_write:
       return
@@ -239,7 +239,7 @@ class _BlockingCheckpointMetadataStore(CheckpointMetadataStore):
 
   def read(
       self, checkpoint_path: epath.PathLike
-  ) -> Optional[CheckpointMetadata]:
+  ) -> Optional[StepMetadata]:
     return self._store_impl.read(checkpoint_path)
 
   def update(
@@ -304,7 +304,7 @@ class _NonBlockingCheckpointMetadataStore(CheckpointMetadataStore):
   def _write_and_log(
       self,
       checkpoint_path: epath.PathLike,
-      checkpoint_metadata: CheckpointMetadata,
+      checkpoint_metadata: StepMetadata,
   ) -> None:
     """Writes `checkpoint_metadata` and logs error if any."""
     try:
@@ -321,7 +321,7 @@ class _NonBlockingCheckpointMetadataStore(CheckpointMetadataStore):
   def write(
       self,
       checkpoint_path: epath.PathLike,
-      checkpoint_metadata: CheckpointMetadata,
+      checkpoint_metadata: StepMetadata,
   ) -> None:
     """[Over]Writes `checkpoint_metadata` in non blocking manner."""
     if not self.enable_write:
@@ -340,7 +340,7 @@ class _NonBlockingCheckpointMetadataStore(CheckpointMetadataStore):
 
   def read(
       self, checkpoint_path: epath.PathLike
-  ) -> Optional[CheckpointMetadata]:
+  ) -> Optional[StepMetadata]:
     """Reads `checkpoint_path`/*metadata_file* and returns `CheckpointMetadata`."""
     return self._store_impl.read(checkpoint_path)
 
@@ -358,7 +358,7 @@ class _NonBlockingCheckpointMetadataStore(CheckpointMetadataStore):
       raise
 
   def _validate_kwargs(self, **kwargs) -> None:
-    _ = CheckpointMetadata(**kwargs)
+    _ = StepMetadata(**kwargs)
 
   def update(
       self,

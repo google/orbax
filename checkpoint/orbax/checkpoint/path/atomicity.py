@@ -151,8 +151,7 @@ async def _create_tmp_directory(
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
         path is supported.
     checkpoint_metadata_store: optional `CheckpointMetadataStore` instance. If
-      present then it is used to create `CheckpointMetadata` with current
-      timestamp.
+      present then it is used to create `StepMetadata` with current timestamp.
 
   Returns:
     The tmp directory.
@@ -184,7 +183,7 @@ async def _create_tmp_directory(
     if checkpoint_metadata_store is not None:
       checkpoint_metadata_store.write(
           checkpoint_path=tmp_dir,
-          checkpoint_metadata=metadata.CheckpointMetadata(
+          checkpoint_metadata=metadata.StepMetadata(
               init_timestamp_nsecs=time.time_ns()
           ),
       )
