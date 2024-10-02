@@ -16,6 +16,7 @@
 
 from typing import List, Optional
 
+from absl import logging
 import jax
 import numpy as np
 from orbax.checkpoint.multihost import utils as multihost_utils
@@ -119,6 +120,10 @@ def consistent_restore_mesh(
   """
   runtime_id_across_restarts = _get_runtime_id_across_restarts(
       previous_runtime_to_dist_id
+  )
+  logging.debug(
+      'runtime_id_across_restarts (index: before restart, value: after'
+      ' restart): %s', runtime_id_across_restarts
   )
   new_flattened_mesh_device_ids = [
       runtime_id_across_restarts[process_index_from_device_id(raw_id)]

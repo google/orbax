@@ -950,55 +950,86 @@ class CheckpointManager(
     step_stats.is_restoring_slice = is_restoring_slice
     step_stats.in_primary_slice = self.in_primary_slice
 
-    restore_mesh = self._global_mesh
-    if _should_restore_mesh_from_metadata(self._persistent_directory):
-      logging.info(
-          'Found consistent_restore_mesh, using it for local restoration'
-      )
-      restore_mesh = _consistent_restore_mesh_from_metadata(
-          self._persistent_directory, self._global_mesh
-      )
-
-    slice_devices = multislice.slice_devices(
-        restore_mesh,
-        replica_id=self._slice_id,
-        replica_axis_index=self._replica_axis_index,
-    )
     shape_dtypes, tree_defs = jax.tree.flatten(self._abstract_state)
 
     def _get_single_slice_sharding(
         mesh: jax.sharding.Mesh,
         pspec: jax.sharding.PartitionSpec,
+        replica_id: int,
+        replica_axis_index: int,
     ):
-      ss_mesh_shape = [
-          1 if i == self._replica_axis_index else d
-          for i, d in enumerate(restore_mesh.devices.shape)
+      slice_devices = multislice.slice_devices(
+          mesh,
+          replica_id=replica_id,
+          replica_axis_index=replica_axis_index,
+      )
+      single_slice_mesh_shape = [
+          1 if i == replica_axis_index else d
+          for i, d in enumerate(mesh.devices.shape)
       ]
       slice_mesh = jax.sharding.Mesh(
-          slice_devices.reshape(ss_mesh_shape), mesh.axis_names
+          slice_devices.reshape(single_slice_mesh_shape), mesh.axis_names
       )
-      ss_sharding = jax.sharding.NamedSharding(slice_mesh, pspec)
-      return ss_sharding
+      return jax.sharding.NamedSharding(slice_mesh, pspec)
 
-    single_slice_shardings = jax.tree.map(
+    original_single_slice_shardings = jax.tree.map(
         lambda arr: _get_single_slice_sharding(
             mesh=arr.sharding.mesh,
             pspec=arr.sharding.spec,
+            replica_id=self._slice_id,
+            replica_axis_index=self._replica_axis_index,
         ),
         self._abstract_state,
     )
-    single_replica_shardings_tuple = jax.tree.flatten(single_slice_shardings)[0]
+    original_single_slice_shardings_tuple = tuple(jax.tree.flatten(
+        original_single_slice_shardings)[0])
 
     if is_restoring_slice:
       logging.vlog(
           1, 'emergency.CheckpointManager: restoring from local checkpoint.'
       )
-      ss_args = jax.tree.map(
-          lambda ss_shard, arr: type_handlers.ArrayRestoreArgs(
-              sharding=ss_shard,
-              global_shape=arr.shape,  # sigle-slice sharding
+      # Each device has its own specific local shard.
+      # Naive example:
+      #  Before restart: device X (with id 0) saves shard 0.
+      #  After restart:  device X (with new id 1) reads shard 0.
+      # To ensure the same device X (with different software ids) reads the
+      # same locally available shard and represent it in the correct index
+      # within the global jax.Array, we use the `restore_mesh`.
+
+      # More context on `restore_mesh`:
+      # 1. We can think of mesh as being backed by a list of devices.
+      # 2. Default mesh follows the default device id order [0, ..., n-1]. Or
+      #    the user may permute it according to their needs.
+      # 3. After restart, the user will construct the same software mesh as (2).
+      # 4. But a given hardware device may change its id because of scheduler
+      #    or runtime quirks.
+      # 5. Goal: construct the mesh with the same hardware device order as
+      #    before restart, that may not follow the current software ids.
+      # 5. Thus, we shuffle the device order within the mesh by checking how
+      #    each device's software ids changed across restarts.
+      restore_mesh = self._global_mesh
+      if _should_restore_mesh_from_metadata(self._persistent_directory):
+        logging.info(
+            'Found consistent_restore_mesh, using it for local restoration'
+        )
+        restore_mesh = _consistent_restore_mesh_from_metadata(
+            self._persistent_directory, self._global_mesh
+        )
+      restore_single_slice_shardings = jax.tree.map(
+          lambda arr: _get_single_slice_sharding(
+              mesh=restore_mesh,
+              pspec=arr.sharding.spec,
+              replica_id=self._slice_id,
+              replica_axis_index=self._replica_axis_index,
           ),
-          single_slice_shardings,
+          self._abstract_state,
+      )
+      restore_args = jax.tree.map(
+          lambda restore_shard, arr: type_handlers.ArrayRestoreArgs(
+              sharding=restore_shard,
+              global_shape=arr.shape,  # single-slice sharding
+          ),
+          restore_single_slice_shardings,
           self._abstract_state,
       )
       restore_directory = (
@@ -1021,12 +1052,23 @@ class CheckpointManager(
       step_stats.checkpointer_start_time = time.time()
       single_slice_pytree = self._local_state_handler.restore(
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
-          args=dataclasses.replace(args, restore_args=ss_args),
+          args=dataclasses.replace(args, restore_args=restore_args),
       )
       step_stats.checkpointer_duration_secs = (
           time.time() - step_stats.checkpointer_start_time
       )
       in_tree = tuple(jax.tree.flatten(single_slice_pytree)[0])
+      if not np.array_equal(
+          restore_mesh.device_ids, self._global_mesh.device_ids
+      ):
+        # User-provided mesh is usually optimized for performance.
+        # But we permuted the original mesh so that we can read each locally
+        # available shard correctly. This may cause performance issues.
+
+        # Thus, we re-shard the array to follow the original mesh and layout.
+        in_tree = self._consistent_restore_mesh_to_global_mesh(
+            in_tree, original_single_slice_shardings_tuple
+        )
     else:
       logging.vlog(
           1,
@@ -1037,7 +1079,7 @@ class CheckpointManager(
       @functools.partial(
           jax.jit,
           static_argnums=0,
-          out_shardings=tuple(single_replica_shardings_tuple),
+          out_shardings=original_single_slice_shardings_tuple,
       )
       def create_zeros(shape_dtype_tup):
         return jax.tree.map(
@@ -1050,7 +1092,7 @@ class CheckpointManager(
     start_broadcast = time.time()
     shared_states, _ = multislice.broadcast_one_replica_to_all(
         in_tree,
-        restore_mesh,
+        self._global_mesh,
         replica_axis_index=self._replica_axis_index,
         is_source=is_restoring_slice,
     )
@@ -1068,24 +1110,19 @@ class CheckpointManager(
 
     logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
 
-    if np.array_equal(restore_mesh.device_ids, self._global_mesh.device_ids):
-      finalized_shared_states = shared_states
-    else:
-      finalized_shared_states = self._consistent_restore_mesh_to_global_mesh(
-          shared_states
-      )
+    return jax.tree.unflatten(tree_defs, shared_states)
 
-    return jax.tree.unflatten(tree_defs, finalized_shared_states)
-
-  def _consistent_restore_mesh_to_global_mesh(self, shared_states) -> Any:
+  def _consistent_restore_mesh_to_global_mesh(self, original_state: PyTree,
+                                              desired_slice_shardings,
+                                              ) -> Any:
     """Transfers from consistent restore mesh to global mesh."""
 
     # transfer to global_mesh
-    def transfer_to_global_mesh(x):
+    def transfer_to_global_mesh(x, desired_slice_sharding):
       # TODO(b/367435655) add donate to device_put instead of block+delete
       y = jax.device_put(
           x,
-          device=jax.sharding.NamedSharding(self._global_mesh, x.sharding.spec),
+          device=desired_slice_sharding,
       )
       y.block_until_ready()
 
@@ -1096,9 +1133,10 @@ class CheckpointManager(
     logging.info('Transferring from consistent restore mesh to global mesh')
 
     start_transfer = time.time()
-    finalized_shared_states = jax.tree.map(
+    resharded_state = jax.tree.map(
         transfer_to_global_mesh,
-        shared_states,
+        original_state,
+        desired_slice_shardings
     )
     transfer_elapsed_s = time.time() - start_transfer
     logging.info(
@@ -1111,7 +1149,7 @@ class CheckpointManager(
         transfer_elapsed_s,
     )
 
-    return finalized_shared_states
+    return resharded_state
 
   def _restore_from_persistent(
       self,
