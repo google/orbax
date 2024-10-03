@@ -16,6 +16,7 @@
 
 # pylint: disable=g-importing-member, unused-import
 
+from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers.array_checkpoint_handler import ArrayCheckpointHandler
 from orbax.checkpoint._src.handlers.async_checkpoint_handler import AsyncCheckpointHandler
 from orbax.checkpoint._src.handlers.base_pytree_checkpoint_handler import BasePyTreeCheckpointHandler
