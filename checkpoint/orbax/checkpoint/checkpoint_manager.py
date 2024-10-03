@@ -422,11 +422,8 @@ def _determine_single_item_mode_from_args(
     return True
 
 
-def _determine_single_item_mode_from_directory(
-    directory: epath.Path,
-    step: int,
-) -> bool:
-  return (directory / str(step) / DEFAULT_ITEM_NAME).exists()
+def _determine_single_item_mode_from_directory(step_path: epath.Path) -> bool:
+  return (step_path / DEFAULT_ITEM_NAME).exists()
 
 
 class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
@@ -1337,7 +1334,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     if self._single_item is None:
       self._single_item = _determine_single_item_mode_from_directory(
-          directory, step
+          self._get_read_step_directory(step, directory)
       )
     self._validate_args(items, args)
 
@@ -1399,14 +1396,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       Composite of metadata for each item.
     """
     assert isinstance(self._checkpointer.handler, CompositeCheckpointHandler)
+    read_step_directory = self._get_read_step_directory(step, self.directory)
 
-    result = self._checkpointer.metadata(
-        self._get_read_step_directory(step, self.directory)
-    )
+    result = self._checkpointer.metadata(read_step_directory)
     if self._single_item is None:
       self._single_item = _determine_single_item_mode_from_directory(
-          self.directory,
-          step,
+          read_step_directory
       )
     return self._maybe_get_default_item(result)
 
