@@ -17,8 +17,8 @@
 from collections.abc import Callable, Mapping
 import dataclasses
 from typing import Any, Optional, Sequence, Union
-
 from absl import logging
+from etils.epy import reraise_utils
 import jax
 from jax import export as jax_export
 from jax.experimental import jax2tf
@@ -34,6 +34,7 @@ from tensorflow.experimental import dtensor
 PyTree = orbax_export_typing.PyTree
 ApplyFn = orbax_export_typing.ApplyFn
 obx_export_config = config.config
+maybe_reraise = reraise_utils.maybe_reraise
 
 
 def _same_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
@@ -83,7 +84,7 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
   def __init__(
       self,
       params: PyTree,
-      apply_fn: Union[Callable[..., Any], Mapping[str, ApplyFn]],
+      apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
       **kwargs: Any,
   ):
     jax2tf_kwargs = kwargs.get('jax2tf_kwargs', None)

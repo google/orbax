@@ -14,11 +14,10 @@
 
 """Export class that implements the save and load abstract class defined in Export Base for use with the Orbax Model export format."""
 
-from typing import Any
+from typing import Any, Callable, Mapping
 
 from absl import logging
 from orbax.export import export_base
-import tensorflow as tf
 
 
 class ObmExport(export_base.ExportBase):
@@ -26,14 +25,12 @@ class ObmExport(export_base.ExportBase):
 
   def save(
       self,
-      jax_module: tf.Module,
       model_path: str,
       **kwargs: Any,
   ):
     """Saves a Jax model in the Orbax Model export format.
 
     Args:
-      jax_module: The `JaxModule` to be exported.
       model_path: The path to save the model.
       **kwargs: Additional arguments to pass to the `save` method. Accepted
         arguments are `save_options` and `serving_signatures`.
@@ -47,4 +44,9 @@ class ObmExport(export_base.ExportBase):
     """Loads the model previously saved in the Orbax Model export format."""
     # TODO: b/363061755 - Implment the ObmExport.load method.
     logging.info("Loading model using Orbax Export Model.")
+    raise NotImplementedError("ObmExport.load not implemented yet.")
+
+  @property
+  def serving_signatures(self) -> Mapping[str, Callable[..., Any]]:
+    """Returns a map of signature keys to serving functions."""
     raise NotImplementedError("ObmExport.load not implemented yet.")

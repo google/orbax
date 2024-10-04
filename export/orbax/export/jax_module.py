@@ -23,14 +23,13 @@ from orbax.export import typing as orbax_export_typing
 from orbax.export.modules import obm_module
 from orbax.export.modules import orbax_module_base
 from orbax.export.modules import tensorflow_module
-import tensorflow as tf
 
 
 PyTree = orbax_export_typing.PyTree
 ApplyFn = orbax_export_typing.ApplyFn
 
 
-class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
+class JaxModule(orbax_module_base.OrbaxModuleBase):
   """An exportable module for JAX functions and parameters.
 
   Holds tf.Variables converted from JAX parameters, as well as TF functions
@@ -178,9 +177,11 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
         tensorflow_module.TensorFlowModule, self._export_module
     ).update_variables(params)
 
-  def export_module(self) -> tf.Module:
-    """Returns the tf.Module associated with this OrbaxModule."""
-    return self
+  def export_module(
+      self,
+  ) -> orbax_module_base.OrbaxModuleBase:
+    """Returns the platform specific export module."""
+    return self._export_module
 
   @property
   def methods(self) -> Mapping[str, Callable[..., Any]]:
