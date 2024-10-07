@@ -18,11 +18,11 @@ jobs:
         working-directory: checkpoint
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.10", "3.11"]
         jax-version: ["newest"]
         include:
-          - python-version: "3.9"
-            jax-version: "0.4.26"  # keep in sync with minimum version in checkpoint/pyproject.toml
+          - python-version: "3.10"
+            jax-version: "0.4.34"  # keep in sync with minimum version in checkpoint/pyproject.toml
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.8.0

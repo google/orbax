@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2024-10-07
+
+### Removed
+- Support for Python 3.9.
+
 ### Changed
 - Modernize type annotations using `from __future__ import annotations`.
 - Adjust `CompositeCheckpointHandler` behavior for unregistered items and empty

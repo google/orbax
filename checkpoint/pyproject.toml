@@ -7,7 +7,7 @@ name = "orbax-checkpoint"
 description = "Orbax Checkpoint"
 readme = 'README.md'
 license = {file = 'LICENSE'}
-requires-python = '>=3.9'
+requires-python = '>=3.10'
 authors = [{name = 'Orbax Authors', email='orbax-dev@google.com'}]
 classifiers=[
     'Development Status :: 4 - Beta',
@@ -26,8 +26,7 @@ dependencies = [
     'etils[epath,epy]',
     'typing_extensions',
     'msgpack',
-    'jax >= 0.4.26',
-    'jaxlib',
+    'jax >= 0.4.34',
     'numpy',
     'pyyaml',
     'tensorstore >= 0.1.60',
