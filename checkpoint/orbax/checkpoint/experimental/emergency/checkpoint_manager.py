@@ -1116,27 +1116,11 @@ class CheckpointManager(
                                               desired_slice_shardings,
                                               ) -> Any:
     """Transfers from consistent restore mesh to global mesh."""
-
-    # transfer to global_mesh
-    def transfer_to_global_mesh(x, desired_slice_sharding):
-      # TODO(b/367435655) add donate to device_put instead of block+delete
-      y = jax.device_put(
-          x,
-          device=desired_slice_sharding,
-      )
-      y.block_until_ready()
-
-      # delete immediately to conserve memory
-      x.delete()
-      return y
-
     logging.info('Transferring from consistent restore mesh to global mesh')
 
     start_transfer = time.time()
-    resharded_state = jax.tree.map(
-        transfer_to_global_mesh,
-        original_state,
-        desired_slice_shardings
+    resharded_state = jax.device_put(
+        original_state, desired_slice_shardings, donate=True
     )
     transfer_elapsed_s = time.time() - start_transfer
     logging.info(
