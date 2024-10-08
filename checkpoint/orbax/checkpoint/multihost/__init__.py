@@ -25,6 +25,7 @@ from orbax.checkpoint.multihost.utils import process_index
 from orbax.checkpoint.multihost.utils import BarrierSyncFn
 from orbax.checkpoint.multihost.utils import get_barrier_sync_fn
 from orbax.checkpoint.multihost.utils import unique_barrier_key
+from orbax.checkpoint.multihost.utils import is_pathways_on_cloud_backend
 
 # EXPERIMENTAL
 from orbax.checkpoint.multihost.utils import unique_processes_from_devices

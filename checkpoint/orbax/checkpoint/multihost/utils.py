@@ -45,6 +45,11 @@ EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID = flags.DEFINE_bool(
 
 
 
+def is_pathways_on_cloud_backend() -> bool:
+  # Pathways on cloud indicator.
+  return jax.config.jax_platforms and 'proxy' in jax.config.jax_platforms
+
+
 def is_runtime_to_distributed_ids_initialized() -> bool:
   return _RUNTIME_TO_DISTRIBUTED_ID is not None
 
@@ -96,12 +101,16 @@ def runtime_to_distributed_process_id(pid: int) -> int:
 
 def broadcast_one_to_all(in_tree, is_source: Optional[bool] = None):
   """Broadcast data from a source host to all other hosts."""
+  if is_pathways_on_cloud_backend():
+    return in_tree
   if is_source is None:
     is_source = process_index() == 0
   return multihost_utils.broadcast_one_to_all(in_tree, is_source=is_source)
 
 
 def should_skip_process_sync() -> bool:
+  if is_pathways_on_cloud_backend():
+    return True
   if jax.process_count() == 1:
     return True
   return False
@@ -294,6 +303,9 @@ def _maybe_log_reached_preemption(
 
 def reached_preemption(step: int) -> bool:
   """Returns True if a preemption sync point has been reached."""
+  if is_pathways_on_cloud_backend():
+    return False
+
 
   preemption_sync_point_reached = multihost_utils.reached_preemption_sync_point(
       step
@@ -310,6 +322,8 @@ def is_primary_host(primary_host: Optional[int]):
 
 def process_index() -> int:
   """Customized logic for obtaining JAX process index."""
+  if is_pathways_on_cloud_backend():
+    return jax.process_index()
   try:
     experimental_orbax_use_distributed_process_id = (
         EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID.value
