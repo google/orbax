@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- bytes_per_sec calculation needs different values for read and write.
+
 ## [0.7.0] - 2024-10-07
 
 ### Removed
