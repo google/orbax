@@ -37,6 +37,7 @@ from orbax.checkpoint import future
 from orbax.checkpoint import multihost
 from orbax.checkpoint import serialization
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.metadata import sharding as sharding_metadata
@@ -352,13 +353,20 @@ def get_json_tspec_write(
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
     )
 
+  chunk_shape = subchunking.choose_chunk_shape(
+      global_shape,
+      local_shape,
+      dtype,
+      chunk_byte_size,
+  )
+
   tspec['metadata'] = ts_utils.build_zarr_shard_and_chunk_metadata(
       global_shape=global_shape,
       shard_shape=local_shape,
-      dtype=dtype,
       use_zarr3=info.use_zarr3,
-      chunk_byte_size=chunk_byte_size,
+      chunk_shape=chunk_shape,
   )
+
   return tspec
 
 

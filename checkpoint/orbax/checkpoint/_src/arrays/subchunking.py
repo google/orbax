@@ -17,7 +17,7 @@
 import dataclasses
 import itertools
 import math
-from typing import Union
+from typing import Optional, Union
 
 from absl import logging
 import jax
@@ -47,7 +47,7 @@ def choose_chunk_shape(
     global_shape: Shape,
     write_shape: Shape,
     dtype: Union[jnp.dtype, np.dtype],
-    target_byte_size: int,
+    target_byte_size: Optional[int],
     *,
     shard_axes: tuple[int, ...] = (),
 ) -> Shape:
@@ -74,6 +74,17 @@ def choose_chunk_shape(
   Returns:
     List of length `len(write_shape)` specifying the chosen chunk shape.
   """
+  if target_byte_size is None:
+    return write_shape
+
+  # TODO: b/354139177 - This check is too generous; the minimally viable chunk
+  # size should be set to something within the range of [4 KiB; 1 MiB] (from
+  # TensorStore and storage performance considerations).
+  if target_byte_size < dtype.itemsize:
+    raise ValueError(
+        f'target_byte_size={target_byte_size} must be >= {dtype.itemsize}'
+    )
+
   if len(global_shape) != len(write_shape):
     raise ValueError(
         f'global_shape={global_shape} and write_shape={write_shape} must have'

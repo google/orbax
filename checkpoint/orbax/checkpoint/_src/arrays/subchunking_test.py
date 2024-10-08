@@ -126,6 +126,43 @@ class ChooseChunkShapeTest(parameterized.TestCase):
       )
       np.testing.assert_array_equal(chosen_shape, (10, 1, 100))
 
+  @parameterized.product(shard_axes=((), (0, 1)))
+  def test_returns_write_shape_if_target_byte_size_is_none(
+      self,
+      shard_axes: tuple[int, ...],
+  ):
+    dtype = np.dtype('float32')
+    global_shape = (10, 100, 200)
+    write_shape = (5, 50, 200)
+    chosen_shape = subchunking.choose_chunk_shape(
+        global_shape=global_shape,
+        write_shape=write_shape,
+        dtype=dtype,
+        target_byte_size=None,
+        shard_axes=shard_axes,
+    )
+    np.testing.assert_array_equal(chosen_shape, write_shape)
+
+  @parameterized.product(
+      dtype=(np.dtype(np.float32), np.dtype(np.int16)),
+      shard_axes=((), (0, 1)),
+  )
+  def test_raises_if_target_byte_size_is_too_small(
+      self,
+      dtype: np.dtype,
+      shard_axes: tuple[int, ...],
+  ):
+    global_shape = (10, 100, 200)
+    write_shape = (5, 50, 200)
+    with self.assertRaisesRegex(ValueError, 'must be >='):
+      _ = subchunking.choose_chunk_shape(
+          global_shape=global_shape,
+          write_shape=write_shape,
+          dtype=dtype,
+          target_byte_size=max(0, dtype.itemsize - 1),
+          shard_axes=shard_axes,
+      )
+
 
 class ChooseChunkShapeWithShardAxesTest(parameterized.TestCase):
 

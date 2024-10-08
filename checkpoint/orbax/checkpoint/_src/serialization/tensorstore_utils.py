@@ -172,65 +172,26 @@ def build_zarr_shard_and_chunk_metadata(
     global_shape: Shape,
     shard_shape: Shape,
     use_zarr3: bool,
-    dtype: Union[jnp.dtype, np.dtype],
-    chunk_byte_size: Optional[int] = None,
-    shard_axes: tuple[int, ...] = (),
+    chunk_shape: Shape,
 ) -> JsonSpec:
   """Constructs Zarr metadata for TensorStore array write spec."""
-  # TODO: b/354139177 - This check is too generous; the minimally viable chunk
-  # size should be set to something within the range of [4 KiB; 1 MiB] (from
-  # TensorStore and storage performance considerations).
-  if chunk_byte_size is not None and chunk_byte_size < dtype.itemsize:
-    raise ValueError(
-        f'chunk_byte_size={chunk_byte_size} must be >= {dtype.itemsize}'
-    )
-
   metadata = {'shape': global_shape}
 
   if not use_zarr3:
     # Zarr v2.
-    if chunk_byte_size is not None:
-      metadata['chunks'] = subchunking.choose_chunk_shape(
-          global_shape,
-          shard_shape,
-          dtype,
-          chunk_byte_size,
-          shard_axes=shard_axes,
-      )
-      # TODO: b/354139177 - Log this in both v2 and v3 and include the
-      # corresponding tree path.
-      logging.info('Chose a chunk shape equal to: %s', str(metadata['chunks']))
-    else:
-      metadata['chunks'] = np.array(np.maximum(1, shard_shape))
+    metadata['chunks'] = chunk_shape
     metadata['compressor'] = {'id': 'zstd'}
   else:
     # Zarr v3.
-
-    # Choose write and read chunk shape that gives chunk byte size equal or less
-    # than the `chunk_byte_size`.
-    if chunk_byte_size is not None:
-      chunk_shape = subchunking.choose_chunk_shape(
-          global_shape,
-          shard_shape,
-          dtype,
-          chunk_byte_size,
-          shard_axes=shard_axes,
-      )
-    else:
-      # If chunk byte size is not specified, set the chunk shape to be the same
-      # as the shard shape.
-      chunk_shape = shard_shape
-
     metadata['chunk_grid'] = {
         'name': 'regular',
         'configuration': {
             'chunk_shape': chunk_shape,
         },
     }
-
     # TODO: b/354139177 - Consider if using write shape equal to shard shape and
     # read shape equal to chosen chunk shape would be a better setting.
-
+    del shard_shape  # Currently unused.
     metadata['codecs'] = [
         {
             'name': 'sharding_indexed',
@@ -330,13 +291,14 @@ def build_array_tspec_for_write(
     metadata_key: Optional[str] = None,
 ) -> JsonSpec:
   """Builds a TensorStore spec for writing an array."""
+  # Construct the underlying KvStore spec.
   kvstore_tspec = build_kvstore_tspec(
       directory,
       name=relative_array_filename,
       use_ocdbt=use_ocdbt,
       process_id=process_id,
   )
-
+  # Construct the top-level array spec.
   tspec = {
       'driver': ZARR_VER3 if array_metadata.use_zarr3 else ZARR_VER2,
       'kvstore': kvstore_tspec,
@@ -348,6 +310,7 @@ def build_array_tspec_for_write(
 
   target_storage_dtype = array_metadata.target_dtype or array_metadata.dtype
 
+  # Choose target file and chunk byte sizes.
   chunk_byte_size = array_metadata.chunk_byte_size
   if use_ocdbt:
     add_ocdbt_write_options(
@@ -360,16 +323,31 @@ def build_array_tspec_for_write(
         chunk_byte_size=chunk_byte_size,
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
     )
-
+  # Choose chunk shape.
+  chunk_shape = subchunking.choose_chunk_shape(
+      array_metadata.global_shape,
+      array_metadata.write_shape,
+      target_storage_dtype,
+      chunk_byte_size,
+      shard_axes=array_metadata.shard_axes,
+  )
+  if chunk_shape != array_metadata.write_shape:
+    logging.info(
+        'Array name: %r, global shape: %r, write shape: %r, chosen chunk'
+        ' shape: %r',
+        relative_array_filename,
+        array_metadata.global_shape,
+        array_metadata.write_shape,
+        chunk_shape,
+    )
+  # Construct Zarr chunk metadata.
   tspec['metadata'] = build_zarr_shard_and_chunk_metadata(
       global_shape=array_metadata.global_shape,
       shard_shape=array_metadata.write_shape,
-      dtype=target_storage_dtype,
       use_zarr3=array_metadata.use_zarr3,
-      chunk_byte_size=chunk_byte_size,
-      shard_axes=array_metadata.shard_axes,
+      chunk_shape=chunk_shape,
   )
-
+  # Wrap spec into `cast` driver if needed.
   return _maybe_add_cast_to_write_spec(
       tspec,
       dtype=array_metadata.dtype,
