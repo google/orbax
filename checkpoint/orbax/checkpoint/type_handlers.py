@@ -388,10 +388,10 @@ def _build_array_tspec_write(
   assert parent_dir is not None
   directory = parent_dir.as_posix()
 
-  return ts_utils.build_array_tspec_for_write(
+  return ts_utils.ArrayTSpecForWrite(
       directory,
       relative_array_filename=info.name,
-      array_metadata=ts_utils.ArrayWriteMetadata(
+      array_spec=ts_utils.ArrayWriteSpec(
           global_shape=global_shape,
           write_shape=local_shape,
           dtype=dtype,
@@ -403,7 +403,7 @@ def _build_array_tspec_write(
       process_id=process_index,
       ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
       metadata_key=metadata_key,
-  )
+  ).json
 
 
 class TypeHandler(abc.ABC):
