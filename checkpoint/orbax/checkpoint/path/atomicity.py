@@ -457,6 +457,7 @@ async def create_all(
     ] = None,
 ):
   """Creates all temporary paths in parallel."""
+  start = time.time()
   final_dir = paths[0].get_final()
   multiprocessing_options = (
       multiprocessing_options or options_lib.MultiprocessingOptions()
@@ -487,6 +488,9 @@ async def create_all(
       ),
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,
+  )
+  jax.monitoring.record_event_duration_secs(
+      'jax/orbax/write/directory_creation_secs', time.time() - start
   )
 
 
