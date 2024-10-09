@@ -247,8 +247,8 @@ def calculate_chunk_byte_size(
 
 
 @dataclasses.dataclass(frozen=True)
-class ArrayWriteMetadata:
-  """Write-time metadata for a single array."""
+class ArrayWriteSpec:
+  """Write-time specification for a single array."""
   global_shape: Shape
   write_shape: Shape
   dtype: Union[jnp.dtype, np.dtype]
@@ -256,6 +256,17 @@ class ArrayWriteMetadata:
   chunk_byte_size: Optional[int] = None
   shard_axes: tuple[int, ...] = ()
   use_zarr3: bool = False
+
+
+@dataclasses.dataclass(frozen=True)
+class ArrayMetadata:
+  """TensorStore metadata for a single array."""
+  shape: Shape
+  dtype: Union[jnp.dtype, np.dtype]
+  write_shape: Shape
+  chunk_shape: Shape
+  use_ocdbt: bool
+  use_zarr3: bool
 
 
 def _maybe_add_cast_to_write_spec(
@@ -280,76 +291,95 @@ def _maybe_add_cast_to_write_spec(
   return array_tspec
 
 
-def build_array_tspec_for_write(
-    directory: str,
-    relative_array_filename: str,
-    array_metadata: ArrayWriteMetadata,
-    *,
-    use_ocdbt: bool,
-    ocdbt_target_data_file_size: Optional[int] = None,
-    process_id: Optional[Union[int, str]] = None,
-    metadata_key: Optional[str] = None,
-) -> JsonSpec:
-  """Builds a TensorStore spec for writing an array."""
-  # Construct the underlying KvStore spec.
-  kvstore_tspec = build_kvstore_tspec(
-      directory,
-      name=relative_array_filename,
-      use_ocdbt=use_ocdbt,
-      process_id=process_id,
-  )
-  # Construct the top-level array spec.
-  tspec = {
-      'driver': ZARR_VER3 if array_metadata.use_zarr3 else ZARR_VER2,
-      'kvstore': kvstore_tspec,
-      'recheck_cached_data': False,
-      'recheck_cached_metadata': False,
-  }
-  if metadata_key is not None:
-    tspec['metadata_key'] = metadata_key
+@dataclasses.dataclass(frozen=True, init=False)
+class ArrayTSpecForWrite:
+  """TensorStore spec for writing an array."""
 
-  target_storage_dtype = array_metadata.target_dtype or array_metadata.dtype
+  metadata: ArrayMetadata
+  json: JsonSpec
 
-  # Choose target file and chunk byte sizes.
-  chunk_byte_size = array_metadata.chunk_byte_size
-  if use_ocdbt:
-    add_ocdbt_write_options(
-        tspec['kvstore'],
-        ocdbt_target_data_file_size,
+  def __init__(
+      self,
+      directory: str,
+      relative_array_filename: str,
+      array_spec: ArrayWriteSpec,
+      *,
+      use_ocdbt: bool,
+      ocdbt_target_data_file_size: Optional[int] = None,
+      process_id: Optional[Union[int, str]] = None,
+      metadata_key: Optional[str] = None,
+  ):
+    """Builds a TensorStore spec for writing an array."""
+    # Construct the underlying KvStore spec.
+    kvstore_tspec = build_kvstore_tspec(
+        directory,
+        name=relative_array_filename,
+        use_ocdbt=use_ocdbt,
+        process_id=process_id,
     )
-    chunk_byte_size = calculate_chunk_byte_size(
-        array_metadata.write_shape,
+    # Construct the top-level array spec.
+    tspec = {
+        'driver': ZARR_VER3 if array_spec.use_zarr3 else ZARR_VER2,
+        'kvstore': kvstore_tspec,
+        'recheck_cached_data': False,
+        'recheck_cached_metadata': False,
+    }
+    if metadata_key is not None:
+      tspec['metadata_key'] = metadata_key
+
+    target_storage_dtype = array_spec.target_dtype or array_spec.dtype
+
+    # Choose target file and chunk byte sizes.
+    chunk_byte_size = array_spec.chunk_byte_size
+    if use_ocdbt:
+      add_ocdbt_write_options(
+          tspec['kvstore'],
+          ocdbt_target_data_file_size,
+      )
+      chunk_byte_size = calculate_chunk_byte_size(
+          array_spec.write_shape,
+          target_storage_dtype,
+          chunk_byte_size=chunk_byte_size,
+          ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+      )
+    # Choose chunk shape.
+    chunk_shape = subchunking.choose_chunk_shape(
+        array_spec.global_shape,
+        array_spec.write_shape,
         target_storage_dtype,
-        chunk_byte_size=chunk_byte_size,
-        ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+        chunk_byte_size,
+        shard_axes=array_spec.shard_axes,
     )
-  # Choose chunk shape.
-  chunk_shape = subchunking.choose_chunk_shape(
-      array_metadata.global_shape,
-      array_metadata.write_shape,
-      target_storage_dtype,
-      chunk_byte_size,
-      shard_axes=array_metadata.shard_axes,
-  )
-  if chunk_shape != array_metadata.write_shape:
-    logging.info(
-        'Array name: %r, global shape: %r, write shape: %r, chosen chunk'
-        ' shape: %r',
-        relative_array_filename,
-        array_metadata.global_shape,
-        array_metadata.write_shape,
-        chunk_shape,
+    if chunk_shape != array_spec.write_shape:
+      logging.info(
+          'Array name: %r, global shape: %r, write shape: %r, chosen chunk'
+          ' shape: %r',
+          relative_array_filename,
+          array_spec.global_shape,
+          array_spec.write_shape,
+          chunk_shape,
+      )
+    # Construct Zarr chunk metadata.
+    tspec['metadata'] = build_zarr_shard_and_chunk_metadata(
+        global_shape=array_spec.global_shape,
+        shard_shape=array_spec.write_shape,
+        use_zarr3=array_spec.use_zarr3,
+        chunk_shape=chunk_shape,
     )
-  # Construct Zarr chunk metadata.
-  tspec['metadata'] = build_zarr_shard_and_chunk_metadata(
-      global_shape=array_metadata.global_shape,
-      shard_shape=array_metadata.write_shape,
-      use_zarr3=array_metadata.use_zarr3,
-      chunk_shape=chunk_shape,
-  )
-  # Wrap spec into `cast` driver if needed.
-  return _maybe_add_cast_to_write_spec(
-      tspec,
-      dtype=array_metadata.dtype,
-      target_dtype=target_storage_dtype,
-  )
+    # Keep the metadata in a separate field.
+    metadata = ArrayMetadata(
+        shape=array_spec.global_shape,
+        dtype=target_storage_dtype,
+        write_shape=array_spec.write_shape,
+        chunk_shape=chunk_shape,
+        use_ocdbt=use_ocdbt,
+        use_zarr3=array_spec.use_zarr3,
+    )
+    object.__setattr__(self, 'metadata', metadata)
+    # Wrap spec into `cast` driver if needed, and keep it in a separate field.
+    json_spec = _maybe_add_cast_to_write_spec(
+        tspec,
+        dtype=array_spec.dtype,
+        target_dtype=target_storage_dtype,
+    )
+    object.__setattr__(self, 'json', json_spec)
