@@ -265,13 +265,19 @@ class Shards:
       )
 
 
-def _transfer_shard_to_host(shard: jax.Shard) -> jax.Array:
+def _transfer_shard_to_host(
+    shard: jax.Shard, enable_pinned_host_transfer: bool
+) -> jax.Array:
   """Asynchronously transfers a shard to host memory. Does not block."""
   data = shard.data
   has_pinned_host = any(
       m.kind == 'pinned_host' for m in shard.device.addressable_memories()
   )
-  if jax._src.config.enable_memories.value and has_pinned_host:  # pylint: disable=protected-access
+  if (
+      enable_pinned_host_transfer
+      and has_pinned_host
+      and jax._src.config.enable_memories.value  # pylint: disable=protected-access
+  ):
     # If available, transfer to pinned host memory
     sharding = jax.sharding.SingleDeviceSharding(
         shard.device, memory_kind='pinned_host'
@@ -293,12 +299,16 @@ def get_shards_for_host_transfer(
   ]
 
 
-def transfer_array_to_host(arr: jax.Array, replica_id: int) -> Shards:
+def transfer_array_to_host(
+    arr: jax.Array, replica_id: int, *, enable_pinned_host_transfer: bool = True
+) -> Shards:
   """Transfers a jax.Array to host memory."""
   shard_data = []
   dedup_shards = get_shards_for_host_transfer(arr, replica_id)
   for shard in dedup_shards:
-    shard_data.append(_transfer_shard_to_host(shard))
+    shard_data.append(
+        _transfer_shard_to_host(shard, enable_pinned_host_transfer)
+    )
 
   return Shards(
       [

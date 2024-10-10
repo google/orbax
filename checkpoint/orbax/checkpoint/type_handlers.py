@@ -238,11 +238,15 @@ class SaveArgs:
     specified chunk_byte_size. Both the write_chunk_shape and read_chunk_shape
     are automatically set to the chosen shape. This uses a greedy algorithm that
     prioritizes splitting the largest dimensions first.
+  enable_pinned_host_transfer:
+    True by default. If False, disables transfer to pinned host when copying
+    from device to host, regardless of the presence of pinned host memory.
   """
 
   aggregate: bool = False
   dtype: Optional[jnp.dtype] = None
   chunk_byte_size: Optional[int] = None
+  enable_pinned_host_transfer: bool = True
 
   def __post_init__(self):
     if self.aggregate:
@@ -1321,8 +1325,12 @@ class ArrayHandler(TypeHandler):
 
     # Start D2H transfer in parallel for each array.
     host_shards = [
-        serialization.transfer_array_to_host(value, self._get_replica_id(value))
-        for value in values
+        serialization.transfer_array_to_host(
+            value,
+            self._get_replica_id(value),
+            enable_pinned_host_transfer=arg.enable_pinned_host_transfer,
+        )
+        for value, arg in zip(values, args)
     ]
     jax.tree.map(lambda x: x.block_until_ready(), host_shards)
 
