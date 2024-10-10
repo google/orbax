@@ -380,7 +380,7 @@ def _build_array_tspec_write(
     use_ocdbt: bool,
     process_index: Optional[Union[int, str]] = None,
     metadata_key: Optional[str] = None,
-):
+) -> ts_utils.JsonSpec:
   """Gets Tensorstore spec for writing."""
   if info.path is None:
     raise ValueError('Must construct serialization path.')
@@ -388,22 +388,20 @@ def _build_array_tspec_write(
   assert parent_dir is not None
   directory = parent_dir.as_posix()
 
-  return ts_utils.build_array_tspec_for_write(
+  return ts_utils.ArrayWriteSpec(
       directory,
       relative_array_filename=info.name,
-      array_metadata=ts_utils.ArrayWriteMetadata(
-          global_shape=global_shape,
-          write_shape=local_shape,
-          dtype=dtype,
-          target_dtype=(arg.dtype if arg is not None else None),
-          chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
-          use_zarr3=info.use_zarr3,
-      ),
+      global_shape=global_shape,
+      write_shape=local_shape,
+      dtype=dtype,
+      target_dtype=(arg.dtype if arg is not None else None),
+      chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
+      use_zarr3=info.use_zarr3,
       use_ocdbt=use_ocdbt,
       process_id=process_index,
       ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
       metadata_key=metadata_key,
-  )
+  ).json
 
 
 class TypeHandler(abc.ABC):

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import dataclasses
+import functools
 import math
 import os
 from typing import Optional
@@ -68,36 +68,51 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     self.directory = self.create_tempdir().full_path
     self.param_name = 'params/a'
 
-  def array_metadata(
-      self,
-      use_zarr3: bool = False,
-  ) -> ts_utils.ArrayWriteMetadata:
-    return ts_utils.ArrayWriteMetadata(
+    self.array_write_spec_constructor = functools.partial(
+        ts_utils.ArrayWriteSpec,
         global_shape=self.shape,
         write_shape=self.write_shape,
         dtype=self.dtype,
-        use_zarr3=use_zarr3
     )
 
-  @parameterized.product(use_zarr3=[True, False])
-  def test_respects_zarr_version(self, use_zarr3: bool):
-    with self.subTest('with_ocdbt'):
-      tspec = ts_utils.build_array_tspec_for_write(
+  @parameterized.product(
+      use_zarr3=(True, False),
+      use_ocdbt=(True, False),
+  )
+  def test_metadata(self, use_zarr3: bool, use_ocdbt: bool):
+    if use_ocdbt:
+      tspec = self.array_write_spec_constructor(
           directory=self.directory,
           relative_array_filename=self.param_name,
-          array_metadata=self.array_metadata(use_zarr3=use_zarr3),
+          use_zarr3=use_zarr3,
           use_ocdbt=True,
           process_id=0,
       )
-      self.assertEqual(tspec['driver'], 'zarr3' if use_zarr3 else 'zarr')
-    with self.subTest('without_ocdbt'):
-      tspec = ts_utils.build_array_tspec_for_write(
+    else:
+      tspec = self.array_write_spec_constructor(
           directory=self.directory,
           relative_array_filename=self.param_name,
-          array_metadata=self.array_metadata(use_zarr3=use_zarr3),
+          use_zarr3=use_zarr3,
           use_ocdbt=False,
       )
-      self.assertEqual(tspec['driver'], 'zarr3' if use_zarr3 else 'zarr')
+    self.assertEqual(tspec.metadata.shape, self.shape)
+    self.assertEqual(tspec.metadata.write_shape, self.write_shape)
+    self.assertEqual(tspec.metadata.chunk_shape, self.write_shape)
+    self.assertEqual(tspec.metadata.dtype, self.dtype)
+    self.assertEqual(tspec.metadata.use_ocdbt, use_ocdbt)
+    self.assertEqual(tspec.metadata.use_zarr3, use_zarr3)
+    self.assertEqual(tspec.json['driver'], 'zarr3' if use_zarr3 else 'zarr')
+
+  @parameterized.product(use_ocdbt=(True, False))
+  def test_default_zarr_driver_version(self, use_ocdbt: bool):
+    tspec = self.array_write_spec_constructor(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        use_ocdbt=use_ocdbt,
+    )
+    self.assertEqual(tspec.metadata.use_ocdbt, use_ocdbt)
+    self.assertFalse(tspec.metadata.use_zarr3)
+    self.assertEqual(tspec.json['driver'], 'zarr')
 
   @parameterized.named_parameters(
       dict(
@@ -111,16 +126,17 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       directory: str,
       expected_driver: str,
   ):
-    array_metadata = self.array_metadata()
-    tspec = ts_utils.build_array_tspec_for_write(
+    tspec = self.array_write_spec_constructor(
         directory=directory,
         relative_array_filename=self.param_name,
-        array_metadata=array_metadata,
+        use_zarr3=False,
         use_ocdbt=False,
     )
-    self.assertEqual(tspec['kvstore']['driver'], expected_driver)
+    self.assertFalse(tspec.metadata.use_ocdbt)
+    json_tspec = tspec.json
+    self.assertEqual(json_tspec['kvstore']['driver'], expected_driver)
     self.assertEqual(
-        tspec['kvstore']['path'], os.path.join(directory, self.param_name)
+        json_tspec['kvstore']['path'], os.path.join(directory, self.param_name)
     )
 
   @parameterized.named_parameters(
@@ -137,15 +153,15 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       self,
       directory: str,
   ):
-    array_metadata = self.array_metadata()
-    tspec = ts_utils.build_array_tspec_for_write(
+    tspec = self.array_write_spec_constructor(
         directory=directory,
         relative_array_filename=self.param_name,
-        array_metadata=array_metadata,
+        use_zarr3=False,
         use_ocdbt=False,
     )
+    self.assertFalse(tspec.metadata.use_ocdbt)
     self.assertEqual(
-        tspec['kvstore'],
+        tspec.json['kvstore'],
         {
             'driver': 'gcs',
             'bucket': 'gcs_bucket',
@@ -165,22 +181,23 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       directory: str,
       expected_base_driver: str,
   ):
-    array_metadata = self.array_metadata()
-    tspec = ts_utils.build_array_tspec_for_write(
+    tspec = self.array_write_spec_constructor(
         directory=directory,
         relative_array_filename=self.param_name,
-        array_metadata=array_metadata,
+        use_zarr3=False,
         use_ocdbt=True,
         process_id=13,
     )
-    self.assertEqual(tspec['kvstore']['driver'], 'ocdbt')
-    base_spec = tspec['kvstore']['base']
+    self.assertTrue(tspec.metadata.use_ocdbt)
+    json_tspec = tspec.json
+    self.assertEqual(json_tspec['kvstore']['driver'], 'ocdbt')
+    base_spec = json_tspec['kvstore']['base']
     self.assertEqual(base_spec['driver'], expected_base_driver)
     self.assertEqual(
         base_spec['path'],
         os.path.join(directory, 'ocdbt.process_13'),
     )
-    self.assertEqual(tspec['kvstore']['path'], self.param_name)
+    self.assertEqual(json_tspec['kvstore']['path'], self.param_name)
 
   @parameterized.named_parameters(
       dict(
@@ -199,31 +216,35 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       directory: str,
       expected_directory: Optional[str],
   ):
-    array_metadata = self.array_metadata()
-    tspec = ts_utils.build_array_tspec_for_write(
+    tspec = self.array_write_spec_constructor(
         directory=directory,
         relative_array_filename=self.param_name,
-        array_metadata=array_metadata,
+        use_zarr3=False,
         use_ocdbt=True,
         process_id=0,
     )
-    self.assertEqual(tspec['kvstore']['driver'], 'ocdbt')
+    self.assertTrue(tspec.metadata.use_ocdbt)
+    kvstore_tspec = tspec.json['kvstore']
+    self.assertEqual(kvstore_tspec['driver'], 'ocdbt')
     self.assertEqual(
-        tspec['kvstore']['base'],
+        kvstore_tspec['base'],
         os.path.join(expected_directory or directory, 'ocdbt.process_0'),
     )
-    self.assertEqual(tspec['kvstore']['path'], self.param_name)
+    self.assertEqual(kvstore_tspec['path'], self.param_name)
 
-  def test_ocdbt_kvstore_default_target_data_file_size(self):
-    tspec = ts_utils.build_array_tspec_for_write(
+  @parameterized.product(use_zarr3=(True, False))
+  def test_ocdbt_kvstore_default_target_data_file_size(self, use_zarr3: bool):
+    tspec = self.array_write_spec_constructor(
         directory=self.directory,
         relative_array_filename=self.param_name,
-        array_metadata=self.array_metadata(),
+        use_zarr3=use_zarr3,
         use_ocdbt=True,
         process_id=13
     )
-    self.assertEqual(tspec['kvstore']['driver'], 'ocdbt')
-    self.assertNotIn('target_data_file_size', tspec['kvstore'])
+    self.assertEqual(tspec.metadata.use_zarr3, use_zarr3)
+    self.assertTrue(tspec.metadata.use_ocdbt)
+    self.assertEqual(tspec.json['kvstore']['driver'], 'ocdbt')
+    self.assertNotIn('target_data_file_size', tspec.json['kvstore'])
 
   @parameterized.named_parameters(
       dict(testcase_name='none', target_data_file_size=None),
@@ -234,101 +255,98 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       self,
       target_data_file_size: Optional[int],
   ):
-    tspec = ts_utils.build_array_tspec_for_write(
+    tspec = self.array_write_spec_constructor(
         directory=self.directory,
         relative_array_filename=self.param_name,
-        array_metadata=self.array_metadata(),
+        use_zarr3=False,
         use_ocdbt=True,
         process_id=13,
         ocdbt_target_data_file_size=target_data_file_size,
     )
-    self.assertEqual(tspec['kvstore']['driver'], 'ocdbt')
+    self.assertTrue(tspec.metadata.use_ocdbt)
+    kvstore_tspec = tspec.json['kvstore']
+    self.assertEqual(kvstore_tspec['driver'], 'ocdbt')
     if target_data_file_size is None:
-      self.assertNotIn('target_data_file_size', tspec['kvstore'])
+      self.assertNotIn('target_data_file_size', kvstore_tspec)
     else:
       self.assertEqual(
-          tspec['kvstore']['target_data_file_size'], target_data_file_size
+          kvstore_tspec['target_data_file_size'], target_data_file_size
       )
 
   @parameterized.product(
-      use_zarr3=[True, False],
-      use_ocdbt=[True, False],
+      use_zarr3=(True, False),
+      use_ocdbt=(True, False),
   )
   def test_data_recheck_disabled(self, use_zarr3: bool, use_ocdbt: bool):
-    tspec = ts_utils.build_array_tspec_for_write(
+    json_tspec = self.array_write_spec_constructor(
         directory=self.directory,
         relative_array_filename=self.param_name,
-        array_metadata=self.array_metadata(use_zarr3=use_zarr3),
+        use_zarr3=use_zarr3,
         use_ocdbt=use_ocdbt,
         process_id=13,
-    )
-    self.assertFalse(tspec['recheck_cached_metadata'])
-    self.assertFalse(tspec['recheck_cached_data'])
+    ).json
+    self.assertFalse(json_tspec['recheck_cached_metadata'])
+    self.assertFalse(json_tspec['recheck_cached_data'])
 
   @parameterized.product(
-      use_zarr3=[True, False],
-      use_ocdbt=[True, False],
+      use_zarr3=(True, False),
+      use_ocdbt=(True, False),
   )
   def test_dtype(self, use_zarr3: bool, use_ocdbt: bool):
-    array_metadata = self.array_metadata(use_zarr3=use_zarr3)
-    self.assertIsNone(array_metadata.target_dtype)
-    tspec = ts_utils.build_array_tspec_for_write(
+    tspec = self.array_write_spec_constructor(
         directory=self.directory,
         relative_array_filename=self.param_name,
-        array_metadata=array_metadata,
+        use_zarr3=use_zarr3,
         use_ocdbt=use_ocdbt,
         process_id=42,
     )
-    self.assertEqual(tspec['dtype'], 'int32')
+    self.assertEqual(tspec.metadata.dtype, self.dtype)
+    self.assertEqual(tspec.json['dtype'], 'int32')
 
   @parameterized.product(
-      use_zarr3=[True, False],
-      use_ocdbt=[True, False],
+      use_zarr3=(True, False),
+      use_ocdbt=(True, False),
   )
   def test_no_casting_if_target_dtype_matches_source(
       self,
       use_zarr3: bool,
       use_ocdbt: bool,
   ):
-    array_metadata = self.array_metadata(use_zarr3=use_zarr3)
-    array_metadata = dataclasses.replace(
-        array_metadata,
-        target_dtype=array_metadata.dtype,
-    )
-    tspec = ts_utils.build_array_tspec_for_write(
+    tspec = self.array_write_spec_constructor(
         directory=self.directory,
         relative_array_filename=self.param_name,
-        array_metadata=array_metadata,
+        use_zarr3=use_zarr3,
+        target_dtype=self.dtype,
         use_ocdbt=use_ocdbt,
         process_id=42,
     )
-    self.assertEqual(tspec['dtype'], 'int32')
-    self.assertEqual(tspec['driver'], 'zarr3' if use_zarr3 else 'zarr')
+    self.assertEqual(tspec.metadata.dtype, self.dtype)
+    self.assertEqual(tspec.json['dtype'], 'int32')
+    self.assertEqual(tspec.json['driver'], 'zarr3' if use_zarr3 else 'zarr')
 
   @parameterized.product(
-      use_zarr3=[True, False],
-      use_ocdbt=[True, False],
+      use_zarr3=(True, False),
+      use_ocdbt=(True, False),
   )
   def test_casts_to_target_dtype(
       self,
       use_zarr3: bool,
       use_ocdbt: bool,
   ):
-    array_metadata = dataclasses.replace(
-        self.array_metadata(use_zarr3=use_zarr3),
-        target_dtype=np.dtype(np.float32),
-    )
-    assert array_metadata.target_dtype != array_metadata.dtype
-    tspec = ts_utils.build_array_tspec_for_write(
+    target_dtype = np.dtype(np.float32)
+    assert target_dtype != self.dtype
+    tspec = self.array_write_spec_constructor(
         directory=self.directory,
         relative_array_filename=self.param_name,
-        array_metadata=array_metadata,
+        target_dtype=target_dtype,
+        use_zarr3=use_zarr3,
         use_ocdbt=use_ocdbt,
         process_id=42,
     )
-    self.assertEqual(tspec['driver'], 'cast')
-    self.assertEqual(tspec['dtype'], 'int32')
-    self.assertEqual(tspec['base']['dtype'], 'float32')
+    self.assertEqual(tspec.metadata.dtype, target_dtype)
+    self.assertEqual(tspec.json['driver'], 'cast')
+    self.assertEqual(tspec.json['dtype'], 'int32')
+    self.assertEqual(tspec.json['base']['dtype'], 'float32')
 
   def _get_chunk_shape_from_tspec(
       self,
@@ -348,8 +366,8 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
           dict(use_ocdbt=False, process_id=None),
           dict(use_ocdbt=True, process_id=13),
       ),
-      use_zarr3=[True, False],
-      chunk_byte_size=[None, 256, 512, 1024, 1024**2],
+      use_zarr3=(True, False),
+      chunk_byte_size=(None, 256, 512, 1024, 1024**2),
   )
   def test_chunk_byte_size(
       self,
@@ -358,18 +376,16 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       use_zarr3: bool,
       chunk_byte_size: Optional[int],
   ):
-    array_metadata = dataclasses.replace(
-        self.array_metadata(use_zarr3=use_zarr3),
-        chunk_byte_size=chunk_byte_size,
-    )
-    tspec = ts_utils.build_array_tspec_for_write(
+    tspec = self.array_write_spec_constructor(
         directory=self.directory,
         relative_array_filename=self.param_name,
-        array_metadata=array_metadata,
+        chunk_byte_size=chunk_byte_size,
+        use_zarr3=use_zarr3,
         use_ocdbt=use_ocdbt,
         process_id=process_id,
     )
-    chunk_shape = self._get_chunk_shape_from_tspec(tspec, use_zarr3)
+    chunk_shape = self._get_chunk_shape_from_tspec(tspec.json, use_zarr3)
+    np.testing.assert_array_equal(chunk_shape, tspec.metadata.chunk_shape)
     if chunk_byte_size is None:
       np.testing.assert_array_equal(chunk_shape, self.write_shape)
     else:
@@ -377,7 +393,7 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
           subchunking.validate_divisible_shapes(self.write_shape, chunk_shape)
       )
       self.assertLessEqual(
-          math.prod(chunk_shape) * array_metadata.dtype.itemsize,
+          math.prod(chunk_shape) * self.dtype.itemsize,
           chunk_byte_size,
       )
 
@@ -386,7 +402,7 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
           dict(use_ocdbt=False, process_id=None),
           dict(use_ocdbt=True, process_id=13),
       ),
-      use_zarr3=[True, False],
+      use_zarr3=(True, False),
   )
   def test_chunk_byte_size_accounts_for_target_dtype(
       self,
@@ -394,34 +410,39 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       process_id: Optional[int],
       use_zarr3: bool,
   ):
-    self.global_shape = (8, 64, 32)
+    self.shape = (8, 64, 32)
     self.write_shape = (4, 64, 16)
     chunk_byte_size = 100  # In-between of two exact powers of 2.
-    array_metadata = dataclasses.replace(
-        self.array_metadata(use_zarr3=use_zarr3),
-        target_dtype=np.dtype(np.int16),
-        chunk_byte_size=chunk_byte_size,
-    )
-    assert array_metadata.target_dtype is not None  # Make type checker happy.
-    tspec = ts_utils.build_array_tspec_for_write(
+    target_dtype = np.dtype(np.int16)
+    assert target_dtype != self.dtype
+    tspec = ts_utils.ArrayWriteSpec(
         directory=self.directory,
         relative_array_filename=self.param_name,
-        array_metadata=array_metadata,
+        global_shape=self.shape,
+        write_shape=self.write_shape,
+        dtype=self.dtype,
+        target_dtype=target_dtype,
+        chunk_byte_size=chunk_byte_size,
+        use_zarr3=use_zarr3,
         use_ocdbt=use_ocdbt,
         process_id=process_id,
     )
-    chunk_shape = self._get_chunk_shape_from_tspec(tspec['base'], use_zarr3)
+    chunk_shape = self._get_chunk_shape_from_tspec(
+        tspec.json['base'], use_zarr3
+    )
+    self.assertEqual(tspec.metadata.dtype, target_dtype)
+    np.testing.assert_array_equal(chunk_shape, tspec.metadata.chunk_shape)
     self.assertTrue(
         subchunking.validate_divisible_shapes(self.write_shape, chunk_shape),
         f'Write shape {self.write_shape} is not divisible by chunk shape'
         f' {chunk_shape}.',
     )
     self.assertLessEqual(
-        math.prod(chunk_shape) * array_metadata.target_dtype.itemsize,
+        math.prod(chunk_shape) * target_dtype.itemsize,
         chunk_byte_size,
     )
     self.assertGreater(
-        math.prod(chunk_shape) * array_metadata.dtype.itemsize,
+        math.prod(chunk_shape) * self.dtype.itemsize,
         chunk_byte_size,
     )
 
@@ -445,42 +466,42 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       target_dtype: Optional[np.dtype],
       shard_axes: tuple[int, ...],
   ):
-    self.global_shape = (8, 64, 32)
+    self.shape = (8, 64, 32)
     self.write_shape = (2, 64, 32)
+    storage_dtype = target_dtype or self.dtype
 
     # Value in-between of two exact powers of 2 to check that the chunk shape is
     # adjusted for the target dtype, and small enough to be subchunked on all of
     # the requested shard axes.
     chunk_byte_size = 100
     assert chunk_byte_size < (
-        math.prod(self.write_shape) * (target_dtype or self.dtype).itemsize
+        math.prod(self.write_shape) * storage_dtype.itemsize
     ) // 2 ** len(shard_axes)
 
-    array_metadata = dataclasses.replace(
-        self.array_metadata(use_zarr3=use_zarr3),
+    tspec = ts_utils.ArrayWriteSpec(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        global_shape=self.shape,
+        write_shape=self.write_shape,
+        dtype=self.dtype,
         target_dtype=target_dtype,
         chunk_byte_size=chunk_byte_size,
         shard_axes=shard_axes,
-    )
-    assert array_metadata.target_dtype == target_dtype
-
-    tspec = ts_utils.build_array_tspec_for_write(
-        directory=self.directory,
-        relative_array_filename=self.param_name,
-        array_metadata=array_metadata,
+        use_zarr3=use_zarr3,
         use_ocdbt=use_ocdbt,
         process_id=process_id,
     )
     chunk_shape = self._get_chunk_shape_from_tspec(
-        tspec['base'] if target_dtype is not None else tspec,
+        tspec.json['base'] if target_dtype is not None else tspec.json,
         use_zarr3,
     )
+    np.testing.assert_array_equal(chunk_shape, tspec.metadata.chunk_shape)
     self.assertTrue(
         subchunking.validate_divisible_shapes(self.write_shape, chunk_shape),
         f'Write shape {self.write_shape} is not divisible by chunk shape'
         f' {chunk_shape}.',
     )
-    storage_dtype = array_metadata.target_dtype or array_metadata.dtype
+    self.assertEqual(tspec.metadata.dtype, storage_dtype)
     # Byte size within requested limit.
     self.assertLessEqual(
         math.prod(chunk_shape) * storage_dtype.itemsize,
@@ -490,10 +511,10 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     for shard_axis in shard_axes:
       self.assertLess(chunk_shape[shard_axis], self.write_shape[shard_axis])
     # If storage dtype is different from the dtype, it should be accounted for.
-    if storage_dtype != array_metadata.dtype:
-      assert storage_dtype.itemsize < array_metadata.dtype.itemsize
+    if storage_dtype != self.dtype:
+      assert storage_dtype.itemsize < self.dtype.itemsize
       self.assertGreater(
-          math.prod(chunk_shape) * array_metadata.dtype.itemsize,
+          math.prod(chunk_shape) * self.dtype.itemsize,
           chunk_byte_size,
       )
 
@@ -539,32 +560,29 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       use_zarr3: bool,
       target_dtype: Optional[np.dtype],
   ):
-    self.global_shape = (8 * 1024, 2 * 1024, 4 * 1024)
+    self.shape = (8 * 1024, 2 * 1024, 4 * 1024)
     self.write_shape = (2 * 1024, 1024, 2 * 1024)
-    array_metadata = dataclasses.replace(
-        self.array_metadata(use_zarr3=use_zarr3),
-        target_dtype=target_dtype,
-        chunk_byte_size=chunk_byte_size,
-    )
-    if target_dtype is not None:
-      assert array_metadata.target_dtype is not None
-      assert array_metadata.target_dtype == target_dtype
-      storage_dtype = array_metadata.target_dtype
-    else:
-      storage_dtype = array_metadata.dtype
+    storage_dtype = target_dtype or self.dtype
 
-    tspec = ts_utils.build_array_tspec_for_write(
+    tspec = ts_utils.ArrayWriteSpec(
         directory=self.directory,
         relative_array_filename=self.param_name,
-        array_metadata=array_metadata,
+        global_shape=self.shape,
+        write_shape=self.write_shape,
+        dtype=self.dtype,
+        target_dtype=target_dtype,
+        chunk_byte_size=chunk_byte_size,
+        use_zarr3=use_zarr3,
         use_ocdbt=True,
         process_id='w13',
         ocdbt_target_data_file_size=target_data_file_size,
     )
+    self.assertEqual(tspec.metadata.dtype, storage_dtype)
     chunk_shape = self._get_chunk_shape_from_tspec(
-        tspec if target_dtype is None else tspec['base'],
+        tspec.json if target_dtype is None else tspec.json['base'],
         use_zarr3,
     )
+    np.testing.assert_array_equal(chunk_shape, tspec.metadata.chunk_shape)
     self.assertTrue(
         subchunking.validate_divisible_shapes(self.write_shape, chunk_shape),
         f'Write shape {self.write_shape} is not divisible by chunk shape'
@@ -575,10 +593,10 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
         math.prod(chunk_shape) * storage_dtype.itemsize,
         expected_chunk_byte_size_limit,
     )
-    if storage_dtype != array_metadata.dtype:
-      assert storage_dtype.itemsize < array_metadata.dtype.itemsize
+    if storage_dtype != self.dtype:
+      assert storage_dtype.itemsize < self.dtype.itemsize
       self.assertGreater(
-          math.prod(chunk_shape) * array_metadata.dtype.itemsize,
+          math.prod(chunk_shape) * self.dtype.itemsize,
           expected_chunk_byte_size_limit,
       )
 
