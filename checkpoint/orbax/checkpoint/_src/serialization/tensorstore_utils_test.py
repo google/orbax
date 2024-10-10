@@ -15,7 +15,6 @@
 import functools
 import math
 import os
-from typing import Optional
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -214,7 +213,7 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
   def test_ocdbt_kvstore_with_gcs_path(
       self,
       directory: str,
-      expected_directory: Optional[str],
+      expected_directory: str | None,
   ):
     tspec = self.array_write_spec_constructor(
         directory=directory,
@@ -253,7 +252,7 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
   )
   def test_ocdbt_kvstore_target_data_file_size(
       self,
-      target_data_file_size: Optional[int],
+      target_data_file_size: int | None,
   ):
     tspec = self.array_write_spec_constructor(
         directory=self.directory,
@@ -372,9 +371,9 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
   def test_chunk_byte_size(
       self,
       use_ocdbt: bool,
-      process_id: Optional[int],
+      process_id: int | None,
       use_zarr3: bool,
-      chunk_byte_size: Optional[int],
+      chunk_byte_size: int | None,
   ):
     tspec = self.array_write_spec_constructor(
         directory=self.directory,
@@ -407,7 +406,7 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
   def test_chunk_byte_size_accounts_for_target_dtype(
       self,
       use_ocdbt: bool,
-      process_id: Optional[int],
+      process_id: int | None,
       use_zarr3: bool,
   ):
     self.shape = (8, 64, 32)
@@ -461,9 +460,9 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
   def test_chunk_byte_size_with_shard_axes(
       self,
       use_ocdbt: bool,
-      process_id: Optional[int],
+      process_id: int | None,
       use_zarr3: bool,
-      target_dtype: Optional[np.dtype],
+      target_dtype: np.dtype | None,
       shard_axes: tuple[int, ...],
   ):
     self.shape = (8, 64, 32)
@@ -554,11 +553,11 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
   )
   def test_chunk_byte_size_is_adjusted_for_target_data_file_size(
       self,
-      chunk_byte_size: Optional[int],
-      target_data_file_size: Optional[int],
+      chunk_byte_size: int | None,
+      target_data_file_size: int | None,
       expected_chunk_byte_size_limit: int,
       use_zarr3: bool,
-      target_dtype: Optional[np.dtype],
+      target_dtype: np.dtype | None,
   ):
     self.shape = (8 * 1024, 2 * 1024, 4 * 1024)
     self.write_shape = (2 * 1024, 1024, 2 * 1024)

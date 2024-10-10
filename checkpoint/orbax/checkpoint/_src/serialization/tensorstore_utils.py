@@ -18,7 +18,7 @@ import dataclasses
 import math
 import os
 import re
-from typing import  Any, Optional, Union
+from typing import  Any, TypeAlias
 
 from absl import logging
 from jax import numpy as jnp
@@ -39,8 +39,9 @@ ZARR_VER3 = 'zarr3'
 _GCS_PATH_RE = r'^gs://([^/]*)/(.*)$'
 
 
-JsonSpec = dict[str, Any]
-Shape = types.Shape
+JsonSpec: TypeAlias = dict[str, Any]
+Shape: TypeAlias = types.Shape
+DType: TypeAlias = jnp.dtype | np.dtype
 
 
 ### Building KvStore specs.
@@ -60,10 +61,10 @@ def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
 
 def build_kvstore_tspec(
     directory: str,
-    name: Optional[str] = None,
+    name: str | None = None,
     *,
     use_ocdbt: bool = True,
-    process_id: Optional[Union[int, str]] = None,
+    process_id: int | str | None = None,
 ) -> JsonSpec:
   """Constructs a spec for a Tensorstore KvStore.
 
@@ -136,7 +137,7 @@ def build_kvstore_tspec(
 
 def add_ocdbt_write_options(
     kvstore_tspec: JsonSpec,
-    target_data_file_size: Optional[int] = None,
+    target_data_file_size: int | None = None,
 ) -> None:
   """Adds write-specific options to a TensorStore OCDBT KVStore spec."""
   if target_data_file_size is not None:
@@ -215,11 +216,11 @@ def build_zarr_shard_and_chunk_metadata(
 
 def calculate_chunk_byte_size(
     write_shape: Shape,
-    dtype: Union[jnp.dtype, np.dtype],
+    dtype: DType,
     *,
-    chunk_byte_size: Optional[int],
-    ocdbt_target_data_file_size: Optional[int] = None,
-) -> Optional[int]:
+    chunk_byte_size: int | None,
+    ocdbt_target_data_file_size: int | None = None,
+) -> int | None:
   """Selects chunk byte size to fit both target data file and chunk sizes."""
   # Check if the chunk size would exceed ocdbt target file size.
   if ocdbt_target_data_file_size is None:
@@ -250,7 +251,7 @@ def calculate_chunk_byte_size(
 class ArrayMetadata:
   """TensorStore metadata for a single array in a checkpoint."""
   shape: Shape
-  dtype: Union[jnp.dtype, np.dtype]
+  dtype: DType
   write_shape: Shape
   chunk_shape: Shape
   use_ocdbt: bool
@@ -260,8 +261,8 @@ class ArrayMetadata:
 def _maybe_add_cast_to_write_spec(
     array_tspec: JsonSpec,
     *,
-    dtype: Union[jnp.dtype, np.dtype],
-    target_dtype: Union[jnp.dtype, np.dtype],
+    dtype: DType,
+    target_dtype: DType,
 ) -> JsonSpec:
   """Adds cast driver to a write array TensorStore spec, if needed."""
   if target_dtype == dtype:
@@ -289,15 +290,15 @@ class ArrayWriteSpec:
       *,
       global_shape: Shape,
       write_shape: Shape,
-      dtype: Union[jnp.dtype, np.dtype],
-      target_dtype: Optional[Union[jnp.dtype, np.dtype]] = None,
-      chunk_byte_size: Optional[int] = None,
+      dtype: DType,
+      target_dtype: DType | None = None,
+      chunk_byte_size: int | None = None,
       shard_axes: tuple[int, ...] = (),
       use_zarr3: bool = False,
       use_ocdbt: bool,
-      ocdbt_target_data_file_size: Optional[int] = None,
-      process_id: Optional[Union[int, str]] = None,
-      metadata_key: Optional[str] = None,
+      ocdbt_target_data_file_size: int | None = None,
+      process_id: int | str | None = None,
+      metadata_key: str | None = None,
   ):
     """Builds a TensorStore spec for writing an array."""
     # Construct the underlying KvStore spec.
