@@ -325,6 +325,7 @@ class BasePyTreeCheckpointHandler(
       use_ocdbt: bool = True,
       use_zarr3: Optional[bool] = None,
       ocdbt_target_data_file_size: Optional[int] = None,
+      enable_pinned_host_transfer: bool = True,
       byte_limiter: Optional[serialization.ByteLimiter] = None,
   ) -> PyTree:
     """Returns parameter information for elements in `item`.
@@ -339,6 +340,7 @@ class BasePyTreeCheckpointHandler(
       use_zarr3: Whether to use zarr3.
       ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
         OCDBT data file.
+      enable_pinned_host_transfer: See ParamInfo docs.
       byte_limiter: ByteLimiter object.
 
     Returns:
@@ -360,6 +362,7 @@ class BasePyTreeCheckpointHandler(
           skip_deserialize=skip_deserialize,
           is_ocdbt_checkpoint=use_ocdbt,
           use_zarr3=use_zarr3,
+          enable_pinned_host_transfer=enable_pinned_host_transfer,
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
           byte_limiter=byte_limiter,
           ts_context=ts_context,
@@ -427,6 +430,7 @@ class BasePyTreeCheckpointHandler(
         directory,
         use_ocdbt=self._use_ocdbt,
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+        enable_pinned_host_transfer=args.enable_pinned_host_transfer,
         byte_limiter=byte_limiter,
     )
     assert all(
@@ -816,11 +820,15 @@ class BasePyTreeSaveArgs(CheckpointArgs):
       indicates no maximum file size limit.  For best results, ensure
       chunk_byte_size is smaller than this value.  For more details, refer to
       https://google.github.io/tensorstore/kvstore/ocdbt/index.html#json-kvstore/ocdbt.target_data_file_size
+    enable_pinned_host_transfer: True by default. If False, disables transfer to
+      pinned host when copying from device to host, regardless of the presence
+      of pinned host memory.
   """
 
   item: PyTree
   save_args: Optional[PyTree] = None
   ocdbt_target_data_file_size: Optional[int] = None
+  enable_pinned_host_transfer: bool = True
 
 
 @register_with_handler(BasePyTreeCheckpointHandler, for_restore=True)

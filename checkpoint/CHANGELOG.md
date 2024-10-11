@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Add a `SaveArgs` option that allows disabling pinned host transfer on a per-array basis.
+- Add a `SaveArgs` option that allows disabling pinned host transfer on a per-array basis. UPDATE: Modify `enable_pinned_host_transfer` option to be provided once for the entire pytree, since it's not really reasonable to customize this on a per-array level.
 
 ### Changed
 - Rename `CheckpointManager._single_item` to `CheckpointManager._default_item`.

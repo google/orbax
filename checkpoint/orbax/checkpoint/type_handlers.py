@@ -203,6 +203,9 @@ class ParamInfo:
     Tensorstore context to use for reading/writing.
   value_typestr: stores the original value's typestr (from TypeHandler).
     Only required when saving.
+  enable_pinned_host_transfer:
+    True by default. If False, disables transfer to pinned host when copying
+    from device to host, regardless of the presence of pinned host memory.
   """
 
   name: Optional[str] = None
@@ -215,6 +218,7 @@ class ParamInfo:
   ocdbt_target_data_file_size: Optional[int] = None
   ts_context: Optional[ts.Context] = None
   value_typestr: Optional[str] = None
+  enable_pinned_host_transfer: bool = True
 
 
 @dataclasses.dataclass
@@ -238,15 +242,11 @@ class SaveArgs:
     specified chunk_byte_size. Both the write_chunk_shape and read_chunk_shape
     are automatically set to the chosen shape. This uses a greedy algorithm that
     prioritizes splitting the largest dimensions first.
-  enable_pinned_host_transfer:
-    True by default. If False, disables transfer to pinned host when copying
-    from device to host, regardless of the presence of pinned host memory.
   """
 
   aggregate: bool = False
   dtype: Optional[jnp.dtype] = None
   chunk_byte_size: Optional[int] = None
-  enable_pinned_host_transfer: bool = True
 
   def __post_init__(self):
     if self.aggregate:
@@ -1323,14 +1323,18 @@ class ArrayHandler(TypeHandler):
     args = args or [SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
 
+    assert all([info.enable_pinned_host_transfer for info in infos]) or all(
+        [not info.enable_pinned_host_transfer for info in infos]
+    )
+
     # Start D2H transfer in parallel for each array.
     host_shards = [
         serialization.transfer_array_to_host(
             value,
             self._get_replica_id(value),
-            enable_pinned_host_transfer=arg.enable_pinned_host_transfer,
+            enable_pinned_host_transfer=infos[0].enable_pinned_host_transfer,
         )
-        for value, arg in zip(values, args)
+        for value in values
     ]
     jax.tree.map(lambda x: x.block_until_ready(), host_shards)
 
