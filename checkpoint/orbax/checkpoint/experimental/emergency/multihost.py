@@ -19,7 +19,7 @@ from typing import List, Optional
 from absl import logging
 import jax
 import numpy as np
-from orbax.checkpoint.multihost import utils as multihost_utils
+from orbax.checkpoint._src.multihost import multihost
 
 
 def _int_list_flip_index_and_value(int_list: List[int]):
@@ -143,7 +143,7 @@ def consistent_restore_mesh(
 def runtime_to_distributed_ids() -> List[int]:
   """Returns the runtime to distributed process id mapping."""
   # TODO(b/325293150): Deprecate this after jaxlib contains the fix.
-  result = multihost_utils.runtime_to_distributed_ids()
+  result = multihost.runtime_to_distributed_ids()
   runtime_and_distributed_ids_are_the_same = all([
       result[i] == i for i in range(len(result))
   ])
@@ -161,4 +161,3 @@ def runtime_to_distributed_ids() -> List[int]:
       ].process_index
     assert -1 not in result
   return result
-

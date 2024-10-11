@@ -27,7 +27,7 @@ from absl import logging
 from etils import epath
 import jax
 import numpy as np
-from orbax.checkpoint import multihost
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.metadata import checkpoint
 
 

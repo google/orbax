@@ -37,14 +37,15 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import metadata as metadata_lib
-from orbax.checkpoint import multihost
 from orbax.checkpoint import serialization
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.multihost import counters
+from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
-from orbax.checkpoint.multihost import multislice
 from orbax.checkpoint.path import atomicity
 from orbax.checkpoint.path import step as step_lib
 
@@ -129,9 +130,7 @@ def create_tmp_directory(
       multihost.unique_barrier_key(
           'create_tmp_directory:pre',
           prefix=barrier_sync_key_prefix,
-          suffix=(
-              f'{final_dir.name}.{multihost.counters.tmp_directory_counter()}'
-          ),
+          suffix=f'{final_dir.name}.{counters.tmp_directory_counter()}',
       ),
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,
@@ -164,9 +163,7 @@ def create_tmp_directory(
       multihost.unique_barrier_key(
           'create_tmp_directory:post',
           prefix=barrier_sync_key_prefix,
-          suffix=(
-              f'{final_dir.name}.{multihost.counters.tmp_directory_counter()}'
-          ),
+          suffix=f'{final_dir.name}.{counters.tmp_directory_counter()}',
       ),
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,
@@ -322,7 +319,7 @@ def get_fake_global_mesh_for_slices(
     slice_devices.append([
         d
         for d in devices
-        if multihost.utils.runtime_to_distributed_process_id(d.process_index)
+        if multihost.runtime_to_distributed_process_id(d.process_index)
         in processes
     ])
     devices_per_slices = devices_per_slices or len(slice_devices[-1])
@@ -551,16 +548,14 @@ def _get_test_wrapper_function(test_func):
 
     test_counters = {}
     patched_counters = {}
-    for name, _ in inspect.getmembers(
-        multihost.counters, predicate=inspect.isfunction
-    ):
+    for name, _ in inspect.getmembers(counters, predicate=inspect.isfunction):
       test_counters[name] = itertools.count()
       patched_counters[name] = functools.partial(
           _patched_save_counter, test_counters[name]
       )
 
     with mock.patch.object(
-        multihost.utils,
+        multihost,
         '_unique_barrier_key',
         new=_get_unique_barrier_key,
     ):
@@ -568,7 +563,7 @@ def _get_test_wrapper_function(test_func):
         for name, patched_counter in patched_counters.items():
           stack.enter_context(
               mock.patch.object(
-                  multihost.counters,
+                  counters,
                   name,
                   new=patched_counter,
               )
@@ -589,7 +584,7 @@ def barrier_compatible_test(cls):
       ...
 
   The point of this decorator is to modify all functions to mock the private
-  method `multihost.utils._unique_barrier_key`, to append the test case name.
+  method `multihost._unique_barrier_key`, to append the test case name.
   This allows multiple test cases to reuse barrier names that would otherwise
   conflict.
 

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Orbax utils related to multihost functionality."""
+"""Orbax utils related to multihost_utils functionality."""
 
 import threading
 import time

@@ -17,7 +17,7 @@
 import dataclasses
 from typing import Callable, Optional, Set
 
-from orbax.checkpoint import multihost
+from orbax.checkpoint._src.multihost import multihost
 
 
 
