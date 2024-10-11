@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Add a `SaveArgs` option that allows disabling pinned host transfer on a per-array basis.
 
+### Changed
+- Rename `CheckpointManager._single_item` to `CheckpointManager._default_item`.
+
 ## [0.7.0] - 2024-10-07
 
 ### Removed

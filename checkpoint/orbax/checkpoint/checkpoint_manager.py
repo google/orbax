@@ -413,7 +413,7 @@ def _create_root_directory(
   )
 
 
-def _determine_single_item_mode_from_args(
+def _determine_default_item_mode_from_args(
     args: args_lib.CheckpointArgs,
 ) -> bool:
   if isinstance(args, args_lib.Composite):
@@ -422,7 +422,7 @@ def _determine_single_item_mode_from_args(
     return True
 
 
-def _determine_single_item_mode_from_directory(step_path: epath.Path) -> bool:
+def _determine_default_item_mode_from_directory(step_path: epath.Path) -> bool:
   return (step_path / DEFAULT_ITEM_NAME).exists()
 
 
@@ -460,10 +460,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     Example::
 
+      # Multiple items.
       with CheckpointManager(
         'path/to/dir/',
-        # Multiple items.
-        item_names=('train_state', 'custom_metadata'),
         metadata={'version': 1.1, 'lang': 'en'},
       ) as mngr:
         mngr.save(0, args=args.Composite(
@@ -481,7 +480,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         print(restored.train_state)
         print(restored.custom_metadata)  # Error, not restored
 
-      # Single item, no need to specify `item_names`.
+      # Single, unnamed (default) item.
       with CheckpointManager(
           'path/to/dir/',
           options = CheckpointManagerOptions(max_to_keep=5, ...),
@@ -518,14 +517,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     Args:
       directory: the top level directory in which to save all files.
-      checkpointers: a mapping of object name to Checkpointer object. For
-        example, `items` provided to `save` below should have keys matching the
-        keys in this argument. Alternatively, a single Checkpointer may be
-        provided, in which case `save` and `restore` should always be called
-        with a single item rather than a dictionary of items. See below for more
-        details. `item_names` and `checkpointers` are mutually exclusive - do
-        not use together. Also, please don't use `checkpointers` and
-        `item_handlers` together.
+      checkpointers: deprecated, do not use. use `handler_registry` instead.
       options: CheckpointManagerOptions. May be provided to specify additional
         arguments. If None, uses default values of CheckpointManagerOptions.
       metadata: High-level metadata that does not depend on step number. If
@@ -536,16 +528,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         expected. A CheckpointManager instance with a read-only `directory` uses
         the metadata if already present, otherwise always uses the current given
         metadata.
-      item_names: Names of distinct items that may be saved/restored with this
-        `CheckpointManager`. `item_names` and `checkpointers` are mutually
-        exclusive - do not use together. Also see `item_handlers` below.
-      item_handlers: A mapping of item name to `CheckpointHandler`. The mapped
-        CheckpointHandler must be registered against the `CheckpointArgs` input
-        in save/restore operations. Please don't use `checkpointers` and
-        `item_handlers` together. It can be used with or without `item_names`.
-        The item name key may or may not be present in `item_names`.
-        Alternatively, a single CheckpointHandler may be provided, in which case
-        `save` and `restore` should always be called in a single item context.
+      item_names: deprecated, do not use. use `handler_registry` instead.
+      item_handlers: deprecated, do not use. use `handler_registry` instead.
       logger: A logger to log checkpointing events.
       handler_registry: A registry of handlers to use for checkpointing. This
         option is mutually exclusive with `checkpointers`,`item_handlers`, and
@@ -584,7 +568,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
     if item_names and isinstance(item_handlers, CheckpointHandler):
       raise ValueError(
-          '`item_handlers` in single item mode and `item_names` should not be'
+          '`item_handlers` in default item mode and `item_names` should not be'
           ' provided together.'
       )
     if checkpointers is not None and handler_registry is not None:
@@ -628,38 +612,38 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           ' https://orbax.readthedocs.io/en/latest/api_refactor.html to'
           ' migrate.'
       )
-      self._single_item = isinstance(checkpointers, AbstractCheckpointer)
+      self._default_item = isinstance(checkpointers, AbstractCheckpointer)
       self._checkpointer = self._configure_checkpointer_legacy_init(
           checkpointers, self._options
       )
     elif handler_registry is not None:
-      # There is no way to know if this is a single item or not, detemine this
-      # lazily instead on the first call to `save`, `restore` or
-      # `item_metadata`. Once locked-in, the value of `_single_item` will not
-      # change.
-      self._single_item = None
+      # There is no way to know if this is a single, unnamed (default) item or
+      # not, detemine this lazily instead on the first call to `save`, `restore`
+      # or `item_metadata`. Once locked-in, the value of `_default_item` will
+      # not change.
+      self._default_item = None
       self._checkpointer = self._configure_checkpointer_from_handler_registry(
           handler_registry,
           self._options,
       )
     elif item_names is None and item_handlers is None:
       # In this case, we can just default construct the
-      # CheckpointHandlerRegistry and allow the user to lazily specify single
+      # CheckpointHandlerRegistry and allow the user to lazily specify default
       # vs. multi-item mode.
-      self._single_item = None
+      self._default_item = None
       handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
       self._checkpointer = self._configure_checkpointer_from_handler_registry(
           handler_registry,
           self._options,
       )
     else:
-      self._single_item = isinstance(item_handlers, CheckpointHandler)
+      self._default_item = isinstance(item_handlers, CheckpointHandler)
       self._checkpointer = (
           self._configure_checkpointer_from_item_names_and_handlers(
               item_names,
               item_handlers,
               self._options,
-              self._single_item,
+              self._default_item,
           )
       )
 
@@ -870,7 +854,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       item_names: Optional[Sequence[str]],
       item_handlers: Optional[Union[CheckpointHandler, CheckpointHandlersDict]],
       options: CheckpointManagerOptions,
-      single_item: bool,
+      default_item: bool,
   ) -> Checkpointer:
     """Initializes _CompositeCheckpointer given `item_names`."""
     if (
@@ -881,7 +865,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           'When primary_host is set to None, item_handlers must be provided to'
           ' match with the primary_host setting.'
       )
-    if single_item:
+    if default_item:
       item_handler = (
           item_handlers
           if isinstance(item_handlers, CheckpointHandler)
@@ -1088,11 +1072,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         raise ValueError(
             f'Expected args of type `CheckpointArgs`; found {type(args)}.'
         )
-      if self._single_item:
+      if self._default_item:
         if isinstance(args, args_lib.Composite):
           raise ValueError(
               'Cannot provide `args` of type `Composite` when dealing with a'
-              ' single checkpointable object.'
+              ' single, unnamed (default) checkpointable object.'
           )
       else:
         if not isinstance(args, args_lib.Composite):
@@ -1119,8 +1103,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')
-    if self._single_item is None:
-      self._single_item = _determine_single_item_mode_from_args(args)
+    if self._default_item is None:
+      self._default_item = _determine_default_item_mode_from_args(args)
     self._validate_args(items, args)
     if not force and not self.should_save(step):
       return False
@@ -1156,7 +1140,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       items = {}
     if save_kwargs is None:
       save_kwargs = {}
-    if self._single_item:
+    if self._default_item:
       items = {DEFAULT_ITEM_NAME: items}
       save_kwargs = {DEFAULT_ITEM_NAME: save_kwargs}
 
@@ -1172,10 +1156,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
         extra_args = save_kwargs[key] if key in save_kwargs else {}
         extra_args = extra_args or {}
-        args_dict[key] = save_ckpt_arg_cls(item, **extra_args)  # pytype: disable=wrong-arg-count
+        args_dict[key] = save_ckpt_arg_cls(item, **extra_args)  # pylint: disable=too-many-function-args  # pytype: disable=wrong-arg-count
       args = args_lib.Composite(**args_dict)
     else:
-      if self._single_item:
+      if self._default_item:
         args = args_lib.Composite(**{DEFAULT_ITEM_NAME: args})
       else:
         if not isinstance(args, args_lib.Composite):
@@ -1302,7 +1286,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     return True
 
   def _maybe_get_default_item(self, composite_result: args_lib.Composite):
-    if self._single_item:
+    if self._default_item:
       if DEFAULT_ITEM_NAME not in composite_result:
         raise ValueError(
             'Unable to retrieve default item. Please ensure that a handler for'
@@ -1332,19 +1316,19 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     step_stats.checkpoint_manager_start_time = time.time()
     step_stats.directory = str(directory)
 
-    if self._single_item is None:
-      self._single_item = _determine_single_item_mode_from_directory(
+    if self._default_item is None:
+      self._default_item = _determine_default_item_mode_from_directory(
           self._get_read_step_directory(step, directory)
       )
     self._validate_args(items, args)
 
     if items is None:
       items = {}
-    elif self._single_item:
+    elif self._default_item:
       items = {DEFAULT_ITEM_NAME: items}
     if restore_kwargs is None:
       restore_kwargs = {}
-    elif self._single_item:
+    elif self._default_item:
       restore_kwargs = {DEFAULT_ITEM_NAME: restore_kwargs}
 
     if args is None:
@@ -1358,10 +1342,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         item = items[key] if key in items else None
         extra_args = restore_kwargs[key] if key in restore_kwargs else {}
         extra_args = extra_args or {}
-        args_dict[key] = restore_ckpt_arg_cls(item, **extra_args)  # pytype: disable=wrong-arg-count
+        args_dict[key] = restore_ckpt_arg_cls(item, **extra_args)  # pylint: disable=too-many-function-args  # pytype: disable=wrong-arg-count
       args = args_lib.Composite(**args_dict)
     else:
-      if self._single_item:
+      if self._default_item:
         args = args_lib.Composite(**{DEFAULT_ITEM_NAME: args})
       else:
         args = typing.cast(args_lib.Composite, args)
@@ -1392,15 +1376,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       step: The step to retrieve metadata for.
 
     Returns:
-      Either metadata for the item itself, if in single-item mode, or a
+      Either metadata for the item itself, if in default-item mode, or a
       Composite of metadata for each item.
     """
     assert isinstance(self._checkpointer.handler, CompositeCheckpointHandler)
     read_step_directory = self._get_read_step_directory(step, self.directory)
 
     result = self._checkpointer.metadata(read_step_directory)
-    if self._single_item is None:
-      self._single_item = _determine_single_item_mode_from_directory(
+    if self._default_item is None:
+      self._default_item = _determine_default_item_mode_from_directory(
           read_step_directory
       )
     return self._maybe_get_default_item(result)
