@@ -59,6 +59,28 @@ def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
   return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
 
 
+def _get_kvstore_for_yt(ckpt_path: str):
+  if "TS_GRPC_ADDRESS" not in os.environ:
+    raise ValueError(
+      'yt:// scheme requires TS_GRPC_ADDRESS environment variable to be set.'
+    )
+
+  grpc_address = os.environ.get('TS_GRPC_ADDRESS')
+
+  path_without_prefix = ckpt_path.removeprefix("yt:")
+
+  return {
+    'driver': 'tsgrpc_kvstore',
+    'address': grpc_address,
+    'path': path_without_prefix,
+    'timeout': '1h',
+  }
+
+
+def _get_default_kvstore(ckpt_path: str):
+  return {'driver': DEFAULT_DRIVER, 'path': ckpt_path}
+
+
 def build_kvstore_tspec(
     directory: str,
     name: str | None = None,
@@ -80,15 +102,19 @@ def build_kvstore_tspec(
   Returns:
     A Tensorstore KvStore spec in dictionary form.
   """
-  default_driver = DEFAULT_DRIVER
   # Normalize path to exclude trailing '/'. In GCS path case, we will need to
   # fix the path prefix to add back the stripped '/'.
-  directory = os.path.normpath(directory).replace('gs:/', 'gs://')
+
+  directory = os.path.normpath(directory)\
+    .replace('gs:/', 'gs://')\
+    .replace('yt:/', 'yt://')
   is_gcs_path = directory.startswith('gs://')
+  is_yt_path = directory.startswith('yt://')
+  is_special_path = is_gcs_path or is_yt_path
   kv_spec = {}
 
   if use_ocdbt:
-    if not is_gcs_path and not os.path.isabs(directory):
+    if not is_special_path and not os.path.isabs(directory):
       raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
     if process_id is not None:
       process_id = str(process_id)
@@ -100,11 +126,14 @@ def build_kvstore_tspec(
       directory = os.path.join(
           directory, f'{PROCESS_SUBDIR_PREFIX}{process_id}'
       )
-    base_driver_spec = (
-        directory
-        if is_gcs_path
-        else {'driver': default_driver, 'path': str(directory)}
-    )
+    
+    if is_gcs_path:
+      base_driver_spec = directory
+    elif is_yt_path:
+      base_driver_spec = _get_kvstore_for_yt(directory)
+    else:
+      base_driver_spec = _get_default_kvstore(str(directory))
+
     kv_spec.update({
         'driver': 'ocdbt',
         'base': base_driver_spec,
@@ -127,10 +156,13 @@ def build_kvstore_tspec(
       path = directory
     else:
       path = os.path.join(directory, name)
+
     if is_gcs_path:
       kv_spec = _get_kvstore_for_gcs(path)
+    elif is_yt_path:
+      kv_spec = _get_kvstore_for_yt(path)
     else:
-      kv_spec = {'driver': default_driver, 'path': path}
+      kv_spec = _get_default_kvstore(path)
 
   return kv_spec
 
