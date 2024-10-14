@@ -74,6 +74,9 @@ def choose_chunk_shape(
   Returns:
     List of length `len(write_shape)` specifying the chosen chunk shape.
   """
+  # TensorStore Zarr metadata doesn't support 0-sized dimensions.
+  write_shape = tuple(max(1, d) for d in write_shape)
+
   if target_byte_size is None:
     return write_shape
 

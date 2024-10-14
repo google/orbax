@@ -143,6 +143,36 @@ class ChooseChunkShapeTest(parameterized.TestCase):
     )
     np.testing.assert_array_equal(chosen_shape, write_shape)
 
+  def test_handles_zeros_in_shape(self):
+    dtype = np.dtype('float32')
+    global_shape = (10, 0, 200)
+    write_shape = (5, 0, 200)
+    with self.subTest('chunk_byte_size_none'):
+      chosen_shape = subchunking.choose_chunk_shape(
+          global_shape=global_shape,
+          write_shape=write_shape,
+          dtype=dtype,
+          target_byte_size=None,
+      )
+      np.testing.assert_array_equal(chosen_shape, (5, 1, 200))
+    with self.subTest('chunk_byte_size_limited'):
+      chosen_shape = subchunking.choose_chunk_shape(
+          global_shape=global_shape,
+          write_shape=write_shape,
+          dtype=dtype,
+          target_byte_size=(100 * dtype.itemsize),
+      )
+      np.testing.assert_array_equal(chosen_shape, (1, 1, 100))
+    with self.subTest('with_shard_axes'):
+      chosen_shape = subchunking.choose_chunk_shape(
+          global_shape=global_shape,
+          write_shape=write_shape,
+          dtype=dtype,
+          target_byte_size=(100 * dtype.itemsize),
+          shard_axes=(1, 2),
+      )
+      np.testing.assert_array_equal(chosen_shape, (5, 1, 20))
+
   @parameterized.product(
       dtype=(np.dtype(np.float32), np.dtype(np.int16)),
       shard_axes=((), (0, 1)),
