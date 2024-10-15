@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Rename `CheckpointManager._single_item` to `CheckpointManager._default_item`.
+- Set `AsyncOptions.timeout_secs` default value to 10 minutes.
 
 ## [0.7.0] - 2024-10-07
 

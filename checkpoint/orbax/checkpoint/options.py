@@ -20,6 +20,7 @@ from typing import Callable, Optional, Set
 from orbax.checkpoint import multihost
 
 
+
 @dataclasses.dataclass
 class AsyncOptions:
   """Options used to configure async behavior.
@@ -27,7 +28,7 @@ class AsyncOptions:
   See `AsyncCheckpointer` for details.
   """
 
-  timeout_secs: int = 300
+  timeout_secs: int = 600  # 10 minutes. Same as default in `AsyncCheckpointer`.
   barrier_sync_fn: Optional[multihost.BarrierSyncFn] = None
   post_finalization_callback: Optional[Callable[[], None]] = None
 
