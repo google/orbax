@@ -26,9 +26,10 @@ from typing import Optional, Sequence, Union
 import jax
 import numpy as np
 from orbax.checkpoint._src.arrays import numpy_utils as np_utils
+from orbax.checkpoint._src.arrays import types
 
-Shape = np_utils.Shape
-Index = np_utils.Index
+Shape = types.Shape
+Index = types.Index
 
 
 def _ndarray_from_index(idx: Index) -> np.ndarray:

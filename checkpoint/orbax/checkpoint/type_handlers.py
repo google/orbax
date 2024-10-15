@@ -37,6 +37,7 @@ from orbax.checkpoint import future
 from orbax.checkpoint import multihost
 from orbax.checkpoint import serialization
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.arrays import fragments
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
@@ -1115,36 +1116,26 @@ class ArrayHandler(TypeHandler):
           'Setting `primary_host` to None requires JAX version > 0.4.25.'
       )
 
-  def _get_replica_id(
-      self, value: Union[jax.Array, serialization.Shards]
-  ) -> int:
-    """Return shard replica ID to be used for serialization."""
-    if isinstance(value, jax.Array):
-      shards = value.addressable_shards
-    elif isinstance(value, serialization.Shards):
-      shards = value.shards
-    else:
-      raise ValueError(f'Unsupported value type: {type(value)}')
-    if self._replica_id is None:
-      return shards[0].replica_id
-    else:
-      return self._replica_id
-
   def _get_json_tspec_write(
       self,
       info: ParamInfo,
-      value: serialization.Shards,
+      value: fragments.Fragments,
       use_ocdbt: bool,
       process_index: Optional[Union[int, str]] = None,
       arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
+    if value.is_degenerate():
+      local_shape = value.shape
+    else:
+      fragments.validate_fragments_can_be_stacked(value)
+      local_shape = value.fragments[0].shape
 
     return _build_array_tspec_write(
         info=info,
         arg=arg,
         global_shape=value.shape,
-        local_shape=value.sharding.shard_shape(value.shape),
+        local_shape=local_shape,
         dtype=value.dtype,
         use_ocdbt=use_ocdbt,
         process_index=process_index,
@@ -1223,7 +1214,7 @@ class ArrayHandler(TypeHandler):
 
   async def _serialize_sharding(
       self,
-      value: jax.Array,
+      sharding: jax.sharding.Sharding,
       info: ParamInfo,
       sharding_metadata_txn: ts.Transaction,
   ):
@@ -1242,9 +1233,7 @@ class ArrayHandler(TypeHandler):
           context=sharding_ts_context,
       )
       serialized_sharding = None
-      sharding_metadata_value = sharding_metadata.from_jax_sharding(
-          value.sharding
-      )
+      sharding_metadata_value = sharding_metadata.from_jax_sharding(sharding)
       if sharding_metadata_value is not None:
         serialized_sharding = sharding_metadata_value.to_serialized_string()
       if serialized_sharding is not None:
@@ -1254,7 +1243,8 @@ class ArrayHandler(TypeHandler):
 
   async def _background_serialize(
       self,
-      values: Sequence[serialization.Shards],
+      values: Sequence[fragments.Fragments],
+      shardings: Sequence[jax.sharding.Sharding],
       infos: Sequence[ParamInfo],
       args: Sequence[SaveArgs],
   ):
@@ -1262,7 +1252,7 @@ class ArrayHandler(TypeHandler):
     write_coros = []
     sharding_metadata_txn = ts.Transaction()
     ocdbt_transaction: Optional[ts.Transaction] = None
-    for value, info, arg in zip(values, infos, args):
+    for value, sharding, info, arg in zip(values, shardings, infos, args):
       # The byte_limiter can't be used with a transaction, because awaiting the
       # `write` only waits until the in-memory transaction state reflects the
       # write, but the memory will remain in use until the transaction is
@@ -1278,21 +1268,19 @@ class ArrayHandler(TypeHandler):
           arg=arg,
       )
       ts_context = info.ts_context
-      replica_id = self._get_replica_id(value)
       write_coros.append(
-          serialization.async_serialize_shards(
+          serialization.async_serialize_fragments(
               value,
               tspec,
               primary_host=self._primary_host,
-              replica_id=replica_id,
               context=ts_context,
               transaction=ocdbt_transaction,
               byte_limiter=info.byte_limiter,
           )
       )
-      if self._enable_write_sharding_file and value.sharding is not None:
+      if self._enable_write_sharding_file and sharding is not None:
         write_coros.append(
-            self._serialize_sharding(value, info, sharding_metadata_txn)
+            self._serialize_sharding(sharding, info, sharding_metadata_txn)
         )
 
     await asyncio.gather(*write_coros)
@@ -1327,20 +1315,18 @@ class ArrayHandler(TypeHandler):
         [not info.enable_pinned_host_transfer for info in infos]
     )
 
-    # Start D2H transfer in parallel for each array.
-    host_shards = [
-        serialization.transfer_array_to_host(
-            value,
-            self._get_replica_id(value),
-            enable_pinned_host_transfer=infos[0].enable_pinned_host_transfer,
-        )
-        for value in values
-    ]
-    jax.tree.map(lambda x: x.block_until_ready(), host_shards)
+    # Complete D2H transfer in parallel for each array.
+    fragmentses = serialization.transfer_arrays_to_host(
+        values,
+        self._replica_id,
+        enable_pinned_host_transfer=infos[0].enable_pinned_host_transfer,
+    )
 
     return [
         _CommitFuture(
-            self._background_serialize(host_shards, infos, args),
+            self._background_serialize(
+                fragmentses, [arr.sharding for arr in values], infos, args
+            ),
             name='array_type_handler',
         )
     ]
@@ -1459,8 +1445,7 @@ class ArrayHandler(TypeHandler):
   def memory_size(self, values: Sequence[jax.Array]) -> Sequence[int]:
     sizes = []
     for v in values:
-      replica_id = self._get_replica_id(v)
-      shards = serialization.get_shards_for_host_transfer(v, replica_id)
+      shards = serialization.get_unique_shards(v, self._replica_id)
       per_host_size = sum(
           shard.data.size * shard.data.dtype.itemsize for shard in shards
       )
