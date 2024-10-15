@@ -169,17 +169,15 @@ class LocalCheckpointOptions:
     Ensures checkpoints will only be saved every m steps. Defaults to 10.
   max_to_keep:
     Specifies the maximum number of local checkpoints to
-    keep. Older checkpoints are removed. When set, no more than `max_to_keep`
-    checkpoints will be present at any one time. This option has a slightly
-    different meaning than it normally does in Orbax: this should be treated
-    as a hard cap on the number of checkpoints concurrently present, rather
-    than a threshold beyond which checkpoints start to be deleted.
+    keep aside from the one currently being written. Older checkpoints are
+    removed. When set, no more than (`max_to_keep` + 1) checkpoints will be
+    present at any one time.
   read_only:
     If True, the local checkpoint manager will not save any checkpoints.
   """
 
   save_interval_steps: int = 10
-  max_to_keep: int = 2
+  max_to_keep: int = 1
   read_only: bool = False
 
   debug_use_full_global_mesh: bool = False
@@ -451,6 +449,8 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         enable_async_checkpointing=options.enable_async_checkpointing,
         read_only=options.local.read_only,
         single_host_load_and_broadcast=False,
+        # enable_background_delete set to False to ensure gc is done before save
+        enable_background_delete=False
     )
     self._logger = logger or standard_logger.StandardLogger()
     self._coordination_timeout_secs = (
@@ -466,6 +466,13 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     self._max_to_keep = options.local.max_to_keep
     self._local_options = options.local
     self._steps = None
+
+    # Remove steps that might be left over from previous runs.
+    steps_to_remove = self._get_old_steps_to_remove()
+    self._checkpoints = [
+        info for info in self._checkpoints if info.step not in steps_to_remove
+    ]
+    self._checkpoint_deleter.delete_steps(steps_to_remove)
 
   def local_host_steps(self, read: bool) -> Sequence[int]:
     """Returns steps known to local host."""
@@ -981,8 +988,9 @@ class CheckpointManager(
         ),
         self._abstract_state,
     )
-    original_single_slice_shardings_tuple = tuple(jax.tree.flatten(
-        original_single_slice_shardings)[0])
+    original_single_slice_shardings_tuple = tuple(
+        jax.tree.flatten(original_single_slice_shardings)[0]
+    )
 
     if is_restoring_slice:
       logging.vlog(
@@ -1112,9 +1120,11 @@ class CheckpointManager(
 
     return jax.tree.unflatten(tree_defs, shared_states)
 
-  def _consistent_restore_mesh_to_global_mesh(self, original_state: PyTree,
-                                              desired_slice_shardings,
-                                              ) -> Any:
+  def _consistent_restore_mesh_to_global_mesh(
+      self,
+      original_state: PyTree,
+      desired_slice_shardings,
+  ) -> Any:
     """Transfers from consistent restore mesh to global mesh."""
     logging.info('Transferring from consistent restore mesh to global mesh')
 
