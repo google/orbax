@@ -15,6 +15,8 @@ customize this on a per-array level.
 
 ### Changed
 - Rename `CheckpointManager._single_item` to `CheckpointManager._default_item`.
+- Add `strict` option in `ArrayRestoreArgs`, defaulting to True. This prevents
+arrays from being accidentally padded or truncated when restoring.
 - Use `Fragments` for serialization.
 - Set `AsyncOptions.timeout_secs` default value to 10 minutes.
 
