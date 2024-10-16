@@ -1097,6 +1097,8 @@ class CheckpointManager(
       zeros_pytree = create_zeros(tuple(shape_dtypes))
       in_tree = tuple(zeros_pytree)
 
+    multihost.sync_global_processes('local_restore_pre_broadcast')
+
     start_broadcast = time.time()
     shared_states, _ = multislice.broadcast_one_replica_to_all(
         in_tree,
