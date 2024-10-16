@@ -20,6 +20,7 @@ customize this on a per-array level.
 - Rename `CheckpointManager._single_item` to `CheckpointManager._default_item`.
 - Use `Fragments` for serialization.
 - Set `AsyncOptions.timeout_secs` default value to 10 minutes.
+- De-duplicate `get_ts_context` usages and move to ts_utils.
 
 ## [0.7.0] - 2024-10-07
 

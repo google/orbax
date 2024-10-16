@@ -29,6 +29,7 @@ import jax
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.metadata import value as value_metadata
 
 
@@ -337,7 +338,7 @@ class TreeMetadata:
     flat_param_infos = {}
     flat_restore_types = {}
     metadata_tree = self.as_nested_tree(keep_empty_nodes=True)
-    ts_context = type_handlers.get_ts_context()
+    ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
     for keypath, value_meta in tree_utils.to_flat_dict(metadata_tree).items():
       param_name = '.'.join(keypath)
       flat_param_infos[keypath] = type_handlers.ParamInfo(

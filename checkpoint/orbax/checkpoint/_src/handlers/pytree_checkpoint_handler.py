@@ -44,8 +44,10 @@ from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.metadata import tree as tree_metadata
 import tensorstore as ts
+
 
 PyTree = Any
 TupleKey = Tuple[str, ...]
@@ -238,7 +240,7 @@ def _get_restore_parameters(
   flat_param_infos = {}
   flat_input_restore_args = {}
   is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
-  ts_context = type_handlers.get_ts_context()
+  ts_context = ts_utils.get_ts_context(use_ocdbt=is_ocdbt_checkpoint)
 
   def _get_param_info(
       name: str,
