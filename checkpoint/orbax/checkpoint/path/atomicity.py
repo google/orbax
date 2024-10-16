@@ -490,7 +490,7 @@ async def create_all(
       processes=active_processes,
   )
   jax.monitoring.record_event_duration_secs(
-      'jax/orbax/write/directory_creation_secs', time.time() - start
+      '/jax/orbax/write/directory_creation_secs', time.time() - start
   )
 
 
