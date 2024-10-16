@@ -88,9 +88,12 @@ def _default_sizeof_values(values: Sequence[Any]) -> Sequence[int]:
   return [sys.getsizeof(v) for v in values]
 
 
-def _get_batch_memory_size(handler: TypeHandler, values: Sequence[Any]) -> int:
+def _get_batch_memory_size(
+    handler: TypeHandler, values: Sequence[Any]
+) -> Tuple[int, int]:
+  """Gets memory size for a batch of leaf values."""
   try:
-    sizes = handler.memory_size(values)
+    write_sizes, read_sizes = zip(*handler.memory_size(values))
   except NotImplementedError:
     logging.warning(
         '`memory_size` is not implemented for `TypeHandler` of type: %s. Using'
@@ -98,11 +101,18 @@ def _get_batch_memory_size(handler: TypeHandler, values: Sequence[Any]) -> int:
         ' may result in inaccurate estimation.',
         type(handler),
     )
-    sizes = _default_sizeof_values(values)
-  return sum(sizes)
+    write_sizes = read_sizes = _default_sizeof_values(values)
+  assert len(write_sizes) == len(values)
+  assert len(read_sizes) == len(values)
+  return sum(write_sizes), sum(read_sizes)
 
 
-def _log_io_per_sec_metric(name: str, size: int, start_time: float):
+def _log_io_metrics(
+    size: int,
+    start_time: float,
+    bytes_per_sec_metric: str,
+    bytes_metric: Optional[str] = None,
+):
   """Logs the bytes per second metric."""
   time_elapsed = time.time() - start_time
   bytes_per_sec = (
@@ -111,12 +121,14 @@ def _log_io_per_sec_metric(name: str, size: int, start_time: float):
   logging.info(
       '[process=%d] %s: %s/s (total bytes: %s) (time elapsed: %s) (per-host)',
       multihost.process_index(),
-      name,
+      bytes_per_sec_metric,
       humanize.naturalsize(bytes_per_sec, binary=True),
       humanize.naturalsize(size, binary=True),
       humanize.naturaldelta(time_elapsed, minimum_unit='microseconds'),
   )
-  jax.monitoring.record_event_duration_secs(name, bytes_per_sec)
+  jax.monitoring.record_event_duration_secs(bytes_per_sec_metric, bytes_per_sec)
+  if bytes_metric is not None:
+    jax.monitoring.record_event(bytes_metric, bytes=size)
 
 
 @dataclasses.dataclass
@@ -449,9 +461,8 @@ class BasePyTreeCheckpointHandler(
       serialize_ops += [
           request.handler.serialize(request.values, request.infos, request.args)
       ]
-      tree_memory_size += _get_batch_memory_size(
-          request.handler, request.values
-      )
+      write_size, _ = _get_batch_memory_size(request.handler, request.values)
+      tree_memory_size += write_size
     # Await copy futures. Returns list of lists.
     commit_futures = await asyncio.gather(*serialize_ops)
     commit_futures, _ = jax.tree.flatten(commit_futures)
@@ -467,19 +478,20 @@ class BasePyTreeCheckpointHandler(
           )
       )
 
-    _log_io_per_sec_metric(
-        '/jax/checkpoint/write/blocking_bytes_per_sec',
+    _log_io_metrics(
         tree_memory_size,
         start_time,
+        '/jax/checkpoint/write/blocking_bytes_per_sec',
     )
     return [
         future.ChainedFuture(
             commit_futures,
             functools.partial(
-                _log_io_per_sec_metric,
-                '/jax/checkpoint/write/bytes_per_sec',
+                _log_io_metrics,
                 tree_memory_size,
                 start_time,
+                '/jax/checkpoint/write/bytes_per_sec',
+                '/jax/checkpoint/write/bytes',
             ),
         )
     ]
@@ -540,7 +552,8 @@ class BasePyTreeCheckpointHandler(
     tree_memory_size = 0
     flat_restored = {}
     for request, deserialized in zip(batch_requests, deserialized_batches):
-      tree_memory_size += _get_batch_memory_size(request.handler, deserialized)
+      _, read_size = _get_batch_memory_size(request.handler, deserialized)
+      tree_memory_size += read_size
       for key, value in zip(request.keys, deserialized):
         flat_restored[key] = value
     # Add in empty nodes from the metadata tree.
@@ -691,8 +704,11 @@ class BasePyTreeCheckpointHandler(
           json.dumps(ts.experimental_collect_matching_metrics('/tensorstore/')),
       )
 
-    _log_io_per_sec_metric(
-        '/jax/checkpoint/read/bytes_per_sec', tree_memory_size, start_time
+    _log_io_metrics(
+        tree_memory_size,
+        start_time,
+        '/jax/checkpoint/read/bytes_per_sec',
+        '/jax/checkpoint/read/bytes',
     )
     return restored_item
 

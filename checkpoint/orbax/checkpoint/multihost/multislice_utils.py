@@ -122,6 +122,29 @@ def in_slice(
   )
 
 
+def get_single_slice_sharding(
+    global_sharding: jax.sharding.NamedSharding,
+    *,
+    replica_id: int,
+    replica_axis_index: int,
+):
+  """Given a global sharding, constructs a local single-slice sharding."""
+  devices = slice_devices(
+      global_sharding.mesh,
+      replica_id=replica_id,
+      replica_axis_index=replica_axis_index,
+  )
+  assert global_sharding.mesh.devices is not None
+  single_slice_mesh_shape = [
+      1 if i == replica_axis_index else d
+      for i, d in enumerate(global_sharding.mesh.devices.shape)
+  ]
+  slice_mesh = jax.sharding.Mesh(
+      devices.reshape(single_slice_mesh_shape), global_sharding.mesh.axis_names
+  )
+  return jax.sharding.NamedSharding(slice_mesh, global_sharding.spec)
+
+
 @functools.partial(jax.jit, static_argnums=0)
 def fake_zero_data(sharding, x):
   x = jnp.zeros_like(x)

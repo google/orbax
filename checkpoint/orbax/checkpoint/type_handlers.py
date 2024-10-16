@@ -493,7 +493,7 @@ class TypeHandler(abc.ABC):
     """
     pass
 
-  def memory_size(self, values: Sequence[Any]) -> Sequence[int]:
+  def memory_size(self, values: Sequence[Any]) -> Sequence[Tuple[int, int]]:
     """For a batch of values, returns the size of each value in bytes.
 
     Note that the default implementation uses `sys.getsizeof`, which is not
@@ -505,7 +505,8 @@ class TypeHandler(abc.ABC):
       values: A batch of values.
 
     Returns:
-      The size of each value in bytes.
+      A sequence of elements corresponding to `values`. Each element is a tuple
+      of [write_size, read_size]. In many cases these values may be the same.
 
     Raises:
       NotImplementedError: Raises error by default since we will rely on a
@@ -960,11 +961,16 @@ class NumpyHandler(TypeHandler):
 
     return ret
 
-  def memory_size(self, values: Sequence[np.ndarray]) -> Sequence[int]:
+  def memory_size(
+      self, values: Sequence[np.ndarray]
+  ) -> Sequence[Tuple[int, int]]:
+    actual_sizes = [v.size * v.dtype.itemsize for v in values]
     if multihost.process_index() == 0:
-      return [v.size * v.dtype.itemsize for v in values]
+      write_sizes = actual_sizes
     else:
-      return [0 for _ in values]
+      write_sizes = [0 for _ in values]
+    read_sizes = actual_sizes
+    return list(zip(write_sizes, read_sizes))
 
 
 class ScalarHandler(NumpyHandler):
@@ -1004,11 +1010,14 @@ class ScalarHandler(NumpyHandler):
         raise ValueError('Restored result is not a scalar.')
     return [r.item() for r in results]
 
-  def memory_size(self, values: Sequence[Scalar]) -> Sequence[int]:  # pytype: disable=signature-mismatch
+  def memory_size(self, values: Sequence[Scalar]) -> Sequence[Tuple[int, int]]:  # pytype: disable=signature-mismatch
+    actual_sizes = [sys.getsizeof(v) for v in values]
     if multihost.process_index() == 0:
-      return [sys.getsizeof(v) for v in values]
+      write_sizes = actual_sizes
     else:
-      return [0 for _ in values]
+      write_sizes = [0 for _ in values]
+    read_sizes = actual_sizes
+    return list(zip(write_sizes, read_sizes))
 
 
 def get_sharding_tensorstore_spec(
@@ -1442,15 +1451,19 @@ class ArrayHandler(TypeHandler):
 
     return ret
 
-  def memory_size(self, values: Sequence[jax.Array]) -> Sequence[int]:
-    sizes = []
+  def memory_size(
+      self, values: Sequence[jax.Array]
+  ) -> Sequence[Tuple[int, int]]:
+    write_sizes = []
+    read_sizes = []
+    shard_size = lambda shard: shard.data.size * shard.data.dtype.itemsize
     for v in values:
-      shards = serialization.get_unique_shards(v, self._replica_id)
-      per_host_size = sum(
-          shard.data.size * shard.data.dtype.itemsize for shard in shards
+      write_shards = serialization.get_unique_shards(v, self._replica_id)
+      write_sizes.append(sum(shard_size(shard) for shard in write_shards))
+      read_sizes.append(
+          sum(shard_size(shard) for shard in v.addressable_shards)
       )
-      sizes.append(per_host_size)
-    return sizes
+    return list(zip(write_sizes, read_sizes))
 
 
 def _is_host_for_primary_replica(primary_replica_ids: set[int]) -> bool:
@@ -1673,6 +1686,12 @@ class SingleReplicaArrayHandler(ArrayHandler):
     logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
     return shared_state
 
+  # TODO(b/370396118): Calculation overestimates bytes read.
+  def memory_size(  # pylint: disable=useless-parent-delegation
+      self, values: Sequence[jax.Array]
+  ) -> Sequence[Tuple[int, int]]:
+    return super().memory_size(values)
+
 
 class StringHandler(TypeHandler):
   """TypeHandler for strings."""
@@ -1777,11 +1796,14 @@ class StringHandler(TypeHandler):
     read_ops = [self._convert_to_string(t) for t in tensorstores]
     return await asyncio.gather(*read_ops)
 
-  def memory_size(self, values: Sequence[str]) -> Sequence[int]:
+  def memory_size(self, values: Sequence[str]) -> Sequence[Tuple[int, int]]:
+    actual_sizes = [len(v.encode('utf-8')) for v in values]
     if multihost.process_index() == 0:
-      return [len(v.encode('utf-8')) for v in values]
+      write_sizes = actual_sizes
     else:
-      return [0 for _ in values]
+      write_sizes = [0 for _ in values]
+    read_sizes = actual_sizes
+    return list(zip(write_sizes, read_sizes))
 
 
 class TypeHandlerRegistry(Protocol):

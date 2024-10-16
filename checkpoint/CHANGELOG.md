@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- bytes_per_sec calculation needs different values for read and write.
+
 ### Added
 - Add a `SaveArgs` option that allows disabling pinned host transfer on a
 per-array basis. UPDATE: Modify `enable_pinned_host_transfer` option to be
