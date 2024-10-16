@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Multislice utils."""
+"""Multislice utilities."""
 
 import functools
 from typing import Any, Optional, Set, Tuple, Union
@@ -21,7 +21,7 @@ from absl import logging
 import jax
 from jax import numpy as jnp
 import numpy as np
-from orbax.checkpoint.multihost import utils
+from orbax.checkpoint._src.multihost import multihost
 
 PyTree = Any
 
@@ -42,7 +42,7 @@ def process_slice_id(
     device_slice = slice_devices(
         global_mesh, replica_id=slice_id, replica_axis_index=replica_axis_index
     )
-    if process_index in utils.unique_processes_from_devices(device_slice):
+    if process_index in multihost.unique_processes_from_devices(device_slice):
       return slice_id
   return -1
 
@@ -50,7 +50,7 @@ def process_slice_id(
 def _process_in_device_slice(
     process_index: int, device_slice: np.ndarray
 ) -> bool:
-  return process_index in utils.unique_processes_from_devices(device_slice)
+  return process_index in multihost.unique_processes_from_devices(device_slice)
 
 
 def slice_devices(
@@ -72,7 +72,7 @@ def local_slice_devices(
   """Get devices in the host-local slice."""
   for replica_id in range(global_mesh.devices.shape[replica_axis_index]):
     if in_slice(
-        utils.process_index(),
+        multihost.process_index(),
         global_mesh,
         replica_id=replica_id,
         replica_axis_index=replica_axis_index,
@@ -83,7 +83,7 @@ def local_slice_devices(
           replica_axis_index=replica_axis_index,
       )
   raise ValueError(
-      f'process_index {utils.process_index()} does not exist in provided'
+      f'process_index {multihost.process_index()} does not exist in provided'
       ' `global_mesh`'
   )
 
@@ -100,7 +100,7 @@ def primary_process_in_slice(
       replica_axis_index=replica_axis_index,
       replica_id=replica_id,
   )
-  processes = utils.unique_processes_from_devices(device_slice)
+  processes = multihost.unique_processes_from_devices(device_slice)
   return next(iter(processes))
 
 

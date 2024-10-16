@@ -61,8 +61,10 @@ from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import metadata
-from orbax.checkpoint import multihost
 from orbax.checkpoint import options as options_lib
+from orbax.checkpoint._src.multihost import counters
+from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import utils
 from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import step as step_lib
 
@@ -195,9 +197,7 @@ def _get_tmp_directory(final_path: epath.Path) -> epath.Path:
   # Path may not be completely unique if a preemption occurs. We rely on the
   # existing tmp directory being deleted elsewhere.
   return epath.Path(final_path.parent) / (
-      final_path.name
-      + TMP_DIR_SUFFIX
-      + str(multihost.counters.tmp_directory_counter())
+      final_path.name + TMP_DIR_SUFFIX + str(counters.tmp_directory_counter())
   )
 
 
@@ -470,9 +470,7 @@ async def create_all(
       multihost.unique_barrier_key(
           'create_tmp_directory:pre',
           prefix=barrier_sync_key_prefix,
-          suffix=(
-              f'{final_dir.name}.{multihost.counters.tmp_directory_counter()}'
-          ),
+          suffix=f'{final_dir.name}.{counters.tmp_directory_counter()}',
       ),
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,
@@ -482,9 +480,7 @@ async def create_all(
       multihost.unique_barrier_key(
           'create_tmp_directory:post',
           prefix=barrier_sync_key_prefix,
-          suffix=(
-              f'{final_dir.name}.{multihost.counters.tmp_directory_counter()}'
-          ),
+          suffix=f'{final_dir.name}.{counters.tmp_directory_counter()}',
       ),
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,

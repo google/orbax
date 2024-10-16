@@ -35,7 +35,6 @@ from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import async_checkpointer
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpointer as checkpointer_lib
-from orbax.checkpoint import multihost
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.handlers import checkpoint_handler
@@ -43,6 +42,8 @@ from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
+from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import standard_logger
 from orbax.checkpoint.logging import step_statistics

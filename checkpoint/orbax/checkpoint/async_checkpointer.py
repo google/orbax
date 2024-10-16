@@ -24,11 +24,12 @@ import jax
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpointer
 from orbax.checkpoint import future as future_lib
-from orbax.checkpoint import multihost
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.multihost import counters
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.metadata import checkpoint
 from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import atomicity
@@ -316,7 +317,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
 
   def _unique_operation_id(self) -> str:
-    return multihost.counters.async_save_counter()
+    return counters.async_save_counter()
 
   async def _save(
       self, directory: epath.PathLike, *args, force: bool = False, **kwargs

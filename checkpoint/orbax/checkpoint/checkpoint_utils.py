@@ -22,9 +22,9 @@ from absl import logging
 from etils import epath
 import jax
 import numpy as np
-from orbax.checkpoint import multihost
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step as step_lib
 

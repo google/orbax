@@ -34,12 +34,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import future
-from orbax.checkpoint import multihost
 from orbax.checkpoint import serialization
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.arrays import fragments
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.metadata import sharding as sharding_metadata
 from orbax.checkpoint.metadata import value as value_metadata
@@ -1547,7 +1548,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
           ' NamedSharding instead.'
       )
     primary_replica_ids, primary_replica_pids = (
-        multihost.multislice.get_primary_replica_ids_and_pids(
+        multislice.get_primary_replica_ids_and_pids(
             replica_axis_idx=self.replica_axis_index,
             mesh=sharding.mesh,  # pytype: disable=attribute-error
             primary_replica_id=self.primary_replica_id,
@@ -1575,7 +1576,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
   async def deserialize(
       self,
       infos: Sequence[ParamInfo],
-      args: Optional[Sequence[SingleReplicaArrayRestoreArgs]] = None,  # pytype: disable=signature-mismatch
+      args: Optional[
+          Sequence[SingleReplicaArrayRestoreArgs]
+      ] = None,  # pytype: disable=signature-mismatch
   ) -> Sequence[jax.Array]:
     """Deserializing in case of single replica broadcasting.
 
@@ -1671,7 +1674,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
 
     start_broadcast = time.time()
     global_mesh = cast(jax.sharding.NamedSharding, shardings[0])
-    shared_state, _ = multihost.multislice.broadcast_one_replica_to_all(
+    shared_state, _ = multislice.broadcast_one_replica_to_all(
         deserialized,
         global_mesh.mesh,
         self.replica_axis_index,

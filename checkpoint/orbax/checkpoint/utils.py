@@ -26,8 +26,8 @@ from typing import Any
 from etils import epath
 import jax
 import numpy as np
-from orbax.checkpoint import multihost
 from orbax.checkpoint import tree as tree_utils
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import step as step_lib
 from orbax.checkpoint.path import utils as path_utils
