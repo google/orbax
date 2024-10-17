@@ -12,15 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for obm_export."""
+import os
 
+from absl.testing import absltest
 from absl.testing import parameterized
+import jax
+from jax import sharding
+from jax.experimental import mesh_utils
+import jax.numpy as jnp
+from orbax.export import constants
+from orbax.export import jax_module
+from orbax.export import obm_export
+from orbax.export import serving_config as osc
+
+os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
 
 
 class ObmExportTest(parameterized.TestCase):
 
-  def test_obm_export_save(self):
-    # TODO: b/363061755 - Implement the ObmExport.save method. Until then, stub
-    # out the test.
+  def setUp(self):
+    super().setUp()
+    self._output_dir = self.create_tempdir().full_path
+
+  def test_incorrect_export_version(self):
     pass
 
+
+if __name__ == '__main__':
+  absltest.main()

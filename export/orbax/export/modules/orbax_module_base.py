@@ -16,9 +16,12 @@
 
 import abc
 from collections.abc import Mapping
-from typing import Any, Callable, Union
-
+from typing import Any, Callable, Sequence, Union
+from orbax.export import constants
+from orbax.export import serving_config as osc
 from orbax.export import typing as orbax_export_typing
+import tensorflow as tf
+from typing_extensions import Self
 
 PyTree = orbax_export_typing.PyTree
 ApplyFn = orbax_export_typing.ApplyFn
@@ -32,17 +35,26 @@ class OrbaxModuleBase(abc.ABC):
   def __init__(
       self,
       params: PyTree,
-      apply_fn: Union[
-          Callable[..., Any], Mapping[str, ApplyFn], dict[str, ApplyFn]
-      ],
+      apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
+      serving_configs: Sequence[osc.ServingConfig],
       **kwargs: Any,
   ):
-    """Constructor for creating an export Module."""
+    """Constructor for creating an expofrt Module."""
 
   @property
   @abc.abstractmethod
   def apply_fn_map(self) -> Mapping[str, ApplyFn]:
     """Returns the apply_fn_map."""
+
+  @abc.abstractmethod
+  def export_version(self) -> constants.ExportModelType:
+    """Returns the export version."""
+
+  @abc.abstractmethod
+  def export_module(
+      self,
+  ) -> Union[tf.Module, Self]:
+    """Returns the OrbaxModule associated with this module."""
 
   @property
   @abc.abstractmethod

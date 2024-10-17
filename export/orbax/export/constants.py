@@ -30,3 +30,18 @@ class ExportModelType(enum.Enum):
 # normalize the JaxModule arguments to be a dictionary from name to function. If
 # the user provided a single function, it will be mapped to this default key.
 DEFAULT_METHOD_KEY = 'jax_module_default_method'
+
+
+class OrbaxNativeSerializationType(enum.Enum):
+  """Defines the native serialization types available for a JAX model through Orbax."""
+
+  CPU = ('cpu',)
+  CUDA = ('cuda',)
+  ROCM = ('rocm',)
+  TPU = ('tpu',)
+
+# Keyword args
+JAX2OBM_KWARGS = 'jax2obm_kwargs'
+PSPECS = 'pspecs'
+NATIVE_SERIALIZATION_PLATFORM = 'native_serialization_platform'
+FLATTEN_SIGNATURE = 'flatten_signature'

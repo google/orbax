@@ -14,11 +14,12 @@
 
 """Wraps JAX functions and parameters into a tf.Module."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Optional, Union, cast
 
 from jax import export as jax_export
 from orbax.export import constants
+from orbax.export import serving_config as osc
 from orbax.export import typing as orbax_export_typing
 from orbax.export.modules import obm_module
 from orbax.export.modules import orbax_module_base
@@ -44,10 +45,13 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
       trainable: Optional[Union[bool, PyTree]] = None,
       input_polymorphic_shape: Union[PyTree, Mapping[str, PyTree], None] = None,
       jax2tf_kwargs: Optional[Mapping[str, Any]] = None,
+      jax2obm_kwargs: Optional[Mapping[str, Any]] = None,
       jit_compile: Union[bool, Mapping[str, bool]] = True,
       pspecs: Optional[PyTree] = None,
       allow_multi_axis_sharding_consolidation: Optional[bool] = None,
       export_version: constants.ExportModelType = constants.ExportModelType.TF_SAVEDMODEL,
+      serving_configs: Optional[Sequence[osc.ServingConfig]] = None,
+      flatten_signature: bool = False,
   ):
     """JaxModule constructor.
 
@@ -77,6 +81,9 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
         must either be unspecified or a mapping of method key to the jax2tf
         kwargs for the method. The jax2tf_kwargs is only relevant for TF
         SavedModel export.
+      jax2obm_kwargs: options passed to the Orbax model export.  Accepted
+        arguments are 'native_serialization_platform' with values that must
+        match 'cpu', 'cuda', 'rocm', or 'tpu'.
       jit_compile: whether to jit compile the jax2tf converted functions. If
         ``apply_fn`` is a mapping, this can either be a boolean applied to all
         functions or a mapping of method key to the jit compile option for the
@@ -94,13 +101,22 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
         This is only relevant for TF SavedModel export.
       export_version: The model export version. Either TF_SAVEDMODEL or
         ORBAX_MODEL.
+      serving_configs: The serving configs for the model. Should be an instance
+        of orbax.export.ServingConfig.
+      flatten_signature: Whether to flatten the signature of the apply_fn when
+        exporting using ORBAX_MODEL.
     """
     self._export_version = export_version
 
     if export_version == constants.ExportModelType.ORBAX_MODEL:
       self._export_module = obm_module.ObmModule(
           params=params,
-          apply_fn_map=apply_fn,
+          apply_fn=apply_fn,
+          serving_configs=serving_configs,
+          pspecs=pspecs,
+          jax2obm_kwargs=jax2obm_kwargs,
+          export_version=export_version,
+          flatten_signature=flatten_signature,
       )
     else:
       self._export_module = tensorflow_module.TensorFlowModule(
@@ -112,6 +128,8 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
           pspecs=pspecs,
           allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
           jax2tf_kwargs=jax2tf_kwargs,
+          serving_configs=serving_configs,
+          export_version=export_version,
       )
 
   @property
@@ -123,6 +141,14 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
   def model_params(self) -> PyTree:
     """Returns the model parameters."""
     return self._export_module.model_params
+
+  def export_version(self) -> constants.ExportModelType:
+    """Returns the export version."""
+    return self._export_version
+
+  def export_module(self) -> orbax_module_base.OrbaxModuleBase:
+    """Returns the export module."""
+    return self._export_module
 
   @property
   def jax2tf_kwargs_map(self) -> Mapping[str, Any]:
@@ -178,9 +204,9 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
         tensorflow_module.TensorFlowModule, self._export_module
     ).update_variables(params)
 
-  def export_module(self) -> tf.Module:
-    """Returns the tf.Module associated with this OrbaxModule."""
-    return self
+  def orbax_module(self) -> orbax_module_base.OrbaxModuleBase:
+    """Returns the OrbaxModule associated with this JaxModule."""
+    return self._export_module
 
   @property
   def methods(self) -> Mapping[str, Callable[..., Any]]:

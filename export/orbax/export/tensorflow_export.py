@@ -14,7 +14,7 @@
 
 """Export class that implements the save and load abstract class defined in Export Base for use with the TensorFlow SavedModel export format."""
 
-from typing import Any
+from typing import Any, Optional
 from absl import logging
 from orbax.export import export_base
 import tensorflow as tf
@@ -27,6 +27,7 @@ class TensorFlowExport(export_base.ExportBase):
       self,
       jax_module: tf.Module,
       model_path: str,
+      save_options: Optional[tf.saved_model.SaveOptions] = None,
       **kwargs: Any,
   ):
     """Saves the model.
@@ -34,17 +35,14 @@ class TensorFlowExport(export_base.ExportBase):
     Args:
       jax_module: The `JaxModule` to be exported.
       model_path: The path to save the model.
+      save_options: The `SaveOptions` to use when exporting the model.
       **kwargs: Additional arguments to pass to the `save` method. Accepted
         arguments are `save_options` and `serving_signatures`.
     """
 
     logging.info('Exporting model using TensorFlow SavedModel.')
-    save_options = (
-        kwargs['save_options']
-        if 'save_options' in kwargs and kwargs['save_options'] is not None
-        else tf.saved_model.SaveOptions()
-    )
-
+    if save_options is None:
+      save_options = tf.saved_model.SaveOptions()
     save_options.experimental_custom_gradients = (
         jax_module.computation_module.with_gradient
     )

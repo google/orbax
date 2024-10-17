@@ -40,12 +40,12 @@ class TensorFlowExportTest(tf.test.TestCase, parameterized.TestCase):
       ),
   )
   def test_save(self, serving_configs, expected_keys):
-    tfe = tensorflow_export.TensorFlowExport()
     module = tf.Module()
     module.computation_module = jax_module.JaxModule(
         {'bias': jnp.array(1)}, lambda p, x: x + p['bias']
     )
     serving_signatures = {}
+    tfe = tensorflow_export.TensorFlowExport()
     em.process_serving_configs(
         serving_configs,
         obx_export_tf_preprocess_only=False,

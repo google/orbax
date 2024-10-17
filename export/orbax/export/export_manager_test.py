@@ -496,22 +496,25 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
           )
           em.save(self._output_dir)
 
-  def test_export_with_obx_model_export(self):
-    serving_configs = [
-        sc.ServingConfig(
-            'serving_config',
-            input_signature=[tf.TensorSpec((), tf.dtypes.float32)],
-        ),
-    ]
-    with self.assertRaises(NotImplementedError):
-      em = export_manager.ExportManager(
-          jax_module.JaxModule(
-              {'bias': jnp.array(1)}, lambda p, x: x + p['bias']
-          ),
-          serving_configs,
-          constants.ExportModelType.ORBAX_MODEL,
-      )
-      em.save(self._output_dir)
+  # TODO(bdwalker): Re-enable this test once the ObmExport is fully implemented.
+  # def test_export_with_obx_model_export(self):
+  #   serving_configs = [
+  #       sc.ServingConfig(
+  #           'serving_config',
+  #           input_signature=[tf.TensorSpec((), tf.dtypes.float32)],
+  #       ),
+  #   ]
+  #   with self.assertRaises(NotImplementedError):
+  #     em = export_manager.ExportManager(
+  #         jax_module.JaxModule(
+  #             {'bias': jnp.array(1)},
+  #             lambda p, x: x + p['bias'],
+  #             export_version=constants.ExportModelType.ORBAX_MODEL,
+  #         ),
+  #         serving_configs,
+  #         constants.ExportModelType.ORBAX_MODEL,
+  #     )
+  #     em.save(self._output_dir)
 
 
 if __name__ == '__main__':

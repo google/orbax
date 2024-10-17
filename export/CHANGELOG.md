@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Adds a new module base class and two new module subclasses one for TensorFlow and
   one for Orbax.
 - Moves the TF dependent export logic out of JaxModule and into TensorFlowModule.
+- Wires up the Orbax Model export flow.
 
 ## [0.0.4] - 2024-1-19
 

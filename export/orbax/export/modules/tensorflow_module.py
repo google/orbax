@@ -94,6 +94,11 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
     allow_multi_axis_sharding_consolidation = kwargs.get(
         'allow_multi_axis_sharding_consolidation', None
     )
+    self._export_version = (
+        kwargs['export_version']
+        if 'export_version' in kwargs
+        else constants.ExportModelType.TF_SAVEDMODEL
+    )
 
     self._with_gradient = any(jax.tree_util.tree_leaves(trainable))
 
@@ -155,7 +160,9 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
       jit_compile,
   ):
     """Wraps JAX functions and parameters in TF functions and variables."""
-    if obx_export_config.obx_export_tf_preprocess_only:  # pytype: disable=attribute-error
+    if (
+        obx_export_config.obx_export_tf_preprocess_only  # pytype: disable=attribute-error
+    ):
       # Skip the heavy jax_params_to_tf_variables() call in TF preprocess only
       # mode.
       self._tf_var_treedef = None
@@ -178,6 +185,14 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
           jax2tf_kwargs,
           jit_compile,
       )
+
+  def export_module(
+      self,
+  ) -> Union[tf.Module, orbax_module_base.OrbaxModuleBase]:
+    return self
+
+  def export_version(self) -> constants.ExportModelType:
+    return self._export_version
 
   def _check_input_structure(
       self,
