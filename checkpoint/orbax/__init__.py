@@ -54,6 +54,16 @@ from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import RestoreArgs
 from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import SaveArgs
 
 from orbax.checkpoint.handlers import *
+
+# jax depends on error_log module which initializes root handlers by calling
+# logging.info while it is being imported. This is a problem for Orbax users
+# who want to use their own logging configuration. To avoid this, we remove the
+# default handlers.
+import logging as standard_logging
+
+for handler in standard_logging.root.handlers:
+  standard_logging.root.removeHandler(handler)
+del standard_logging
 # pylint: enable=g-importing-member, g-bad-import-order
 
 # pylint: disable=g-bad-import-order, g-import-not-at-top

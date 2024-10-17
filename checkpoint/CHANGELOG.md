@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - bytes_per_sec calculation needs different values for read and write.
+- Fix user `logging.basicConfig` issue.
 
 ### Added
 - Add a `SaveArgs` option that allows disabling pinned host transfer on a
