@@ -57,7 +57,7 @@ async def create_async_array_from_callback(
     global_shape: Shape,
     inp_sharding: jax.sharding.Sharding,
     data_callback: Callable[[Index, jax.Device], Awaitable[jax.Array]],
-):
+) -> jax.Array:
   device_to_index_map = inp_sharding.devices_indices_map(global_shape)
   addressable_da = inp_sharding._addressable_device_assignment  # pylint: disable=protected-access
   future_arrays = [data_callback(device_to_index_map[d], d)
