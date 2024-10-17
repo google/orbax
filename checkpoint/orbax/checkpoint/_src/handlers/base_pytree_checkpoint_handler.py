@@ -471,7 +471,10 @@ class BasePyTreeCheckpointHandler(
       logging.vlog(1, 'param_info: %s', param_infos)
       logging.vlog(1, 'save_args: %s', save_args)
 
-    if multihost.is_primary_host(self._primary_host):
+    if (
+        multihost.is_primary_host(self._primary_host)
+        and not multihost.is_pathways_on_cloud_backend()
+    ):
       commit_futures.append(
           self._write_metadata_file(
               directory, param_infos, save_args, self._use_zarr3
@@ -662,7 +665,7 @@ class BasePyTreeCheckpointHandler(
     restore_args = args.restore_args
 
     logging.vlog(1, 'directory=%s, restore_args=%s', directory, restore_args)
-    if not directory.exists():
+    if not directory.exists() and not multihost.is_pathways_on_cloud_backend():
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
       )
@@ -752,7 +755,7 @@ class BasePyTreeCheckpointHandler(
       FileNotFoundError: if the metadata file is not found.
     """
     path = directory / PYTREE_METADATA_FILE
-    if not path.exists():
+    if not path.exists() and not multihost.is_pathways_on_cloud_backend():
       raise FileNotFoundError(
           f'Metadata file (named {PYTREE_METADATA_FILE}) does not exist at'
           f' {directory}.'
