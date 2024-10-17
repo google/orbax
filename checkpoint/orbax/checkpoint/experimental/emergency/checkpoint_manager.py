@@ -32,7 +32,7 @@ import functools
 import json
 import operator
 import time
-from typing import Any, Dict, Iterable, Optional, Sequence, Set
+from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set
 
 from absl import logging
 from etils import epath
@@ -174,11 +174,17 @@ class LocalCheckpointOptions:
     present at any one time.
   read_only:
     If True, the local checkpoint manager will not save any checkpoints.
+  should_save_fn:
+    Predicate callable to check if given step can be saved. This callable
+    accepts step number and optional latest step number as param and returns
+    bool. If present then `save_interval_steps` and `save_on_steps` options are
+    ignored.
   """
 
   save_interval_steps: int = 10
   max_to_keep: int = 1
   read_only: bool = False
+  should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
 
   debug_use_full_global_mesh: bool = False
 
@@ -196,10 +202,16 @@ class PersistentCheckpointOptions:
     checkpoints. Must be None or non-negative. When set, checkpoints
     may be considered for deletion when there are more than `max_to_keep`
     checkpoints present.
+  should_save_fn:
+    Predicate callable to check if given step can be saved. This callable
+    accepts step number and optional latest step number as param and returns
+    bool. If present then `save_interval_steps` and `save_on_steps` options are
+    ignored.
   """
 
   save_interval_steps: int = 1000
   max_to_keep: Optional[int] = None
+  should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
 
 
 @dataclasses.dataclass
@@ -438,6 +450,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         save_interval_steps=options.local.save_interval_steps,
         max_to_keep=options.local.max_to_keep,
         step_name_format=options.step_name_format,
+        should_save_fn=options.local.should_save_fn,
         create=False,
         cleanup_tmp_directories=options.cleanup_tmp_directories,
         async_options=options.async_options,
@@ -719,6 +732,7 @@ class CheckpointManager(
         async_options=self._options.async_options,
         multiprocessing_options=persistent_multiprocessing_options,
         enable_async_checkpointing=self._options.enable_async_checkpointing,
+        should_save_fn=self._options.persistent.should_save_fn,
     )
     return checkpoint_manager.CheckpointManager(
         self._persistent_directory,
@@ -1189,6 +1203,8 @@ class CheckpointManager(
       args: Optional[args_lib.CheckpointArgs] = None,
       directory: Optional[epath.PathLike] = None,
   ) -> Any:
+    if step is None:
+      raise ValueError('Step must be provided for restore. Found None.')
     logging.info('Restoring at step %d.', step)
     restoring_slice_id = self._find_slice_with_complete_checkpoint(step)
     if restoring_slice_id > -1:
