@@ -34,7 +34,6 @@ class ObmModuleTest(absltest.TestCase):
       obm_module.ObmModule(
           params=params,
           apply_fn={function_name: apply_fn},
-          export_version=constants.ExportModelType.TF_SAVEDMODEL,
           serving_configs=[osc.ServingConfig(signature_key=function_name)],
       )
 
@@ -50,7 +49,6 @@ class ObmModuleTest(absltest.TestCase):
       obm_module.ObmModule(
           params=params,
           apply_fn={function_name: apply_fn},
-          export_version=constants.ExportModelType.TF_SAVEDMODEL,
           serving_configs=[
               osc.ServingConfig(
                   signature_key=function_name,
@@ -74,7 +72,6 @@ class ObmModuleTest(absltest.TestCase):
       obm_module.ObmModule(
           params=params,
           apply_fn={function_name: apply_fn, function_name_2: apply_fn_2},
-          export_version=constants.ExportModelType.TF_SAVEDMODEL,
           serving_configs=[
               osc.ServingConfig(
                   signature_key=function_name,
@@ -96,7 +93,6 @@ class ObmModuleTest(absltest.TestCase):
       obm_module.ObmModule(
           params=params,
           apply_fn={function_name: apply_fn},
-          export_version=constants.ExportModelType.TF_SAVEDMODEL,
           jax2obm_kwargs={
               constants.NATIVE_SERIALIZATION_PLATFORM: (
                   'bad_serialization_platform'
@@ -122,9 +118,84 @@ class ObmModuleTest(absltest.TestCase):
       obm_module.ObmModule(
           params=params,
           apply_fn={function_name: apply_fn},
-          export_version=constants.ExportModelType.TF_SAVEDMODEL,
           serving_configs={},
       )
+
+  def test_obm_module_with_checkpoint_path(self):
+    @jax.jit
+    def apply_fn(params, inputs):
+      return params + inputs
+
+    params_shape = (2, 5)
+    params_dtype = jnp.dtype(jnp.float32)
+    params = jnp.array(jnp.ones(params_shape, dtype=params_dtype))
+    function_name = 'simple_add'
+
+    orbax_model_module = obm_module.ObmModule(
+        params=params,
+        apply_fn={function_name: apply_fn},
+        jax2obm_kwargs={
+            constants.CHECKPOINT_PATH: 'checkpoint_path',
+            constants.WEIGHTS_NAME: 'test_weights',
+        },
+        serving_configs=[
+            osc.ServingConfig(
+                signature_key=function_name,
+                input_signature=jax.ShapeDtypeStruct((2, 5), jnp.float32),
+            )
+        ],
+    )
+
+    self.assertEqual(
+        getattr(orbax_model_module.orbax_export_module(), 'test_weights'),
+        obm.ExternalValue(
+            data=obm.manifest_pb2.UnstructuredData(
+                file_system_location=obm.manifest_pb2.FileSystemLocation(
+                    string_path='checkpoint_path'
+                ),
+                mime_type=constants.ORBAX_CHECKPOINT_MIME_TYPE,
+            ),
+        ),
+    )
+
+  def test_obm_module_with_checkpoint_path_default_weights_name(self):
+    @jax.jit
+    def apply_fn(params, inputs):
+      return params + inputs
+
+    params_shape = (2, 5)
+    params_dtype = jnp.dtype(jnp.float32)
+    params = jnp.array(jnp.ones(params_shape, dtype=params_dtype))
+    function_name = 'simple_add'
+
+    orbax_model_module = obm_module.ObmModule(
+        params=params,
+        apply_fn={function_name: apply_fn},
+        jax2obm_kwargs={
+            constants.CHECKPOINT_PATH: 'checkpoint_path',
+        },
+        serving_configs=[
+            osc.ServingConfig(
+                signature_key=function_name,
+                input_signature=jax.ShapeDtypeStruct((2, 5), jnp.float32),
+            )
+        ],
+    )
+
+    self.assertEqual(
+        getattr(
+            orbax_model_module.orbax_export_module(),
+            constants.DEFAULT_WEIGHTS_NAME,
+        ),
+        obm.ExternalValue(
+            data=obm.manifest_pb2.UnstructuredData(
+                file_system_location=obm.manifest_pb2.FileSystemLocation(
+                    string_path='checkpoint_path'
+                ),
+                mime_type=constants.ORBAX_CHECKPOINT_MIME_TYPE,
+            ),
+        ),
+    )
 
 
 if __name__ == '__main__':

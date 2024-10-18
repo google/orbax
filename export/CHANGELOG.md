@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one for Orbax.
 - Moves the TF dependent export logic out of JaxModule and into TensorFlowModule.
 - Wires up the Orbax Model export flow.
+- Adds a checkpoint path to the jax2obm_kwargs to allow specifying a checkpoing
+  to the Orbax export pathway.
 
 ## [0.0.4] - 2024-1-19
 

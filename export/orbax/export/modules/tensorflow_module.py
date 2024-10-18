@@ -94,11 +94,6 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
     allow_multi_axis_sharding_consolidation = kwargs.get(
         'allow_multi_axis_sharding_consolidation', None
     )
-    self._export_version = (
-        kwargs['export_version']
-        if 'export_version' in kwargs
-        else constants.ExportModelType.TF_SAVEDMODEL
-    )
 
     self._with_gradient = any(jax.tree_util.tree_leaves(trainable))
 
@@ -192,7 +187,7 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
     return self
 
   def export_version(self) -> constants.ExportModelType:
-    return self._export_version
+    return constants.ExportModelType.TF_SAVEDMODEL
 
   def _check_input_structure(
       self,

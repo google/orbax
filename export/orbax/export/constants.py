@@ -20,8 +20,8 @@ import enum
 class ExportModelType(enum.Enum):
   """Defines the export types available for serializing a JAX model through Orbax."""
 
-  TF_SAVEDMODEL = 'TF_SAVEDMODEL',
-  ORBAX_MODEL = 'ORBAX_MODEL',
+  TF_SAVEDMODEL = 'TF_SAVEDMODEL'
+  ORBAX_MODEL = 'ORBAX_MODEL'
 
 
 # Default dictionary key used for mapping from an apply fn provided during the
@@ -40,8 +40,37 @@ class OrbaxNativeSerializationType(enum.Enum):
   ROCM = ('rocm',)
   TPU = ('tpu',)
 
+
+################################################################################
 # Keyword args
+################################################################################
+
+# kwargs key for obtaining the jax2obm_kwargs.
 JAX2OBM_KWARGS = 'jax2obm_kwargs'
+
+# Jax2obm_kwargs key for the partition specs to use when converting the jax
+# function to an obm function.
 PSPECS = 'pspecs'
+
+# Jax2obm_kwargs key for the native serialization platform to use when
+# converting the jax function to an obm function.
 NATIVE_SERIALIZATION_PLATFORM = 'native_serialization_platform'
+
+# Jax2obm_kwargs key for whether to flatten the signature of the function
+# during conversion.
 FLATTEN_SIGNATURE = 'flatten_signature'
+
+# Jax2obm_kwargs key for the checkpoint path to use when setting the checkpoint
+# attribute on the OrbaxModule.
+CHECKPOINT_PATH = 'checkpoint_path'
+
+# Jax2obm_kwargs key for the weights name to use when setting the checkpoint
+# attribute on the OrbaxModule.
+WEIGHTS_NAME = 'weights_name'
+
+# Default weights name to use if a checkpoint path is provided but a weights_
+# name kwarg was not provided in the jax2obm_kwargs.
+DEFAULT_WEIGHTS_NAME = 'weights'
+
+# Orbax MIME types
+ORBAX_CHECKPOINT_MIME_TYPE = 'orbax-checkpoint'

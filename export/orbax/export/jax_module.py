@@ -113,10 +113,7 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
           params=params,
           apply_fn=apply_fn,
           serving_configs=serving_configs,
-          pspecs=pspecs,
           jax2obm_kwargs=jax2obm_kwargs,
-          export_version=export_version,
-          flatten_signature=flatten_signature,
       )
     else:
       self._export_module = tensorflow_module.TensorFlowModule(

@@ -15,6 +15,7 @@
 """Wraps JAX functions and parameters into a tf.Module."""
 
 from collections.abc import Callable, Mapping, Sequence
+import logging
 from typing import Any, Union
 from jax import export as jax_export
 from orbax.export import constants
@@ -35,7 +36,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       params: PyTree,
       apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
       serving_configs: Sequence[osc.ServingConfig],
-      **kwargs: Any,
+      jax2obm_kwargs: Union[Mapping[str, Any], None] = None,
   ):
     """Data container for Orbax Model export.
 
@@ -43,17 +44,17 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       params: The model parameters.
       apply_fn: The apply_fn for the model.
       serving_configs: The serving configs for the model.
-      **kwargs: Additional arguments. Accepted arguments are 'pspecs' and
-        'jax2obm_kwargs'.
+      jax2obm_kwargs: A dictionary of kwargs to pass to the jax2obm conversion
+        library. Accepted arguments to jax2obm_kwargs are
+        'native_serialization_platform', 'flatten_signature', 'weights_name'and
+        'checkpoint_path'.
     """
     self._params = params
     self._orbax_model_module = obm.Module()
-    self._psepcs = kwargs.get(constants.PSPECS, {})
 
-    self._jax2obm_kwargs = kwargs.get(constants.JAX2OBM_KWARGS, {})
     # It is possible for jax2obm_kwargs to be None if the key is present.
-    if not self._jax2obm_kwargs:
-      self._jax2obm_kwargs = {}
+    if not jax2obm_kwargs:
+      jax2obm_kwargs = {}
 
     self._apply_fn_map = self._normalize_apply_fn_map(
         self._normalize_apply_fn_map(apply_fn)
@@ -63,13 +64,13 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     signature_key = serving_configs[0].signature_key
 
     native_serialization_platform = (
-        self._jax2obm_kwargs[constants.NATIVE_SERIALIZATION_PLATFORM]
-        if constants.NATIVE_SERIALIZATION_PLATFORM in self._jax2obm_kwargs
+        jax2obm_kwargs[constants.NATIVE_SERIALIZATION_PLATFORM]
+        if constants.NATIVE_SERIALIZATION_PLATFORM in jax2obm_kwargs
         else None
     )
     flatten_signature = (
-        kwargs[constants.FLATTEN_SIGNATURE]
-        if constants.FLATTEN_SIGNATURE in kwargs
+        jax2obm_kwargs[constants.FLATTEN_SIGNATURE]
+        if constants.FLATTEN_SIGNATURE in jax2obm_kwargs
         else False
     )
 
@@ -80,6 +81,9 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         signature_key=signature_key,
         flatten_signature=flatten_signature,
     )
+
+    # Set the Orbax checkpoint path if provided in the jax2obm_kwargs.
+    self._maybe_set_orbax_checkpoint_path(jax2obm_kwargs)
 
   def _normalize_apply_fn_map(
       self, apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]]
@@ -130,6 +134,18 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       )
 
     # Currently there will only ever be a single item in the mapping.
+
+  def _maybe_set_orbax_checkpoint_path(self, jax2obm_kwargs):
+    if constants.CHECKPOINT_PATH not in jax2obm_kwargs:
+      return
+
+    # TODO: b/374195447 - Add a version check for the Orbax checkpointer.
+    checkpoint_path = jax2obm_kwargs[constants.CHECKPOINT_PATH]
+    weights_name = (
+        jax2obm_kwargs[constants.WEIGHTS_NAME]
+        if constants.WEIGHTS_NAME in jax2obm_kwargs
+        else constants.DEFAULT_WEIGHTS_NAME
+    )
 
   def export_module(
       self,
