@@ -25,6 +25,7 @@ from jax import numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
+import tensorstore as ts
 
 
 DEFAULT_DRIVER = 'file'
@@ -42,6 +43,23 @@ _GCS_PATH_RE = r'^gs://([^/]*)/(.*)$'
 JsonSpec: TypeAlias = dict[str, Any]
 Shape: TypeAlias = types.Shape
 DType: TypeAlias = jnp.dtype | np.dtype
+
+_BASE_TS_CONTEXT = {
+    'file_io_concurrency': {'limit': 128},
+}
+_DEFAULT_OCDBT_TS_CONTEXT = {
+    **_BASE_TS_CONTEXT,
+    # Provide cache pool for B-tree nodes to avoid repeated reads.
+    # 100MB limit.
+    **{'cache_pool#ocdbt': {'total_bytes_limit': 100000000}},
+}
+
+
+def get_ts_context(*, use_ocdbt: bool = True) -> ts.Context:
+  if use_ocdbt:
+    return ts.Context(_DEFAULT_OCDBT_TS_CONTEXT)
+  else:
+    return ts.Context(_BASE_TS_CONTEXT)
 
 
 ### Building KvStore specs.
