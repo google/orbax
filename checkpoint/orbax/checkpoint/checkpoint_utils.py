@@ -27,7 +27,7 @@ from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step as step_lib
-
+from orbax.checkpoint.path import utils as path_utils
 
 PyTree = Any
 STANDARD_ARRAY_TYPES = (int, float, np.ndarray, jax.Array)
@@ -49,7 +49,7 @@ def _lock_checkpoint(
     step: int,
     step_name_format: step_lib.NameFormat[step_lib.Metadata],
 ) -> bool:
-  """Locks a checkpoint by writing a LOCKED directory."""
+  """Creates a snapshot for CNS and a LOCKED file for non-CNS paths."""
   logging.info('Locking step: %d before gaining control.', step)
   step_dir = step_name_format.find_step(checkpoint_dir, step).path
   if not step_dir.exists():
@@ -73,7 +73,7 @@ def _unlock_checkpoint(
     step: int,
     step_name_format: step_lib.NameFormat[step_lib.Metadata],
 ):
-  """Removes a LOCKED directory to indicate unlocking."""
+  """Deletes a snapshot for CNS and removes a LOCKED directory for non-CNS."""
   if multihost.process_index() == 0:
     logging.info('Unlocking existing step: %d.', step)
     step_dir = step_name_format.find_step(checkpoint_dir, step).path

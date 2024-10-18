@@ -15,6 +15,8 @@
 """Tests for checkpoint_utils."""
 
 import functools
+from unittest import mock
+from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -296,6 +298,13 @@ class EvalUtilsTest(parameterized.TestCase):
     )
     self.assertTrue(utils.is_locked(self.directory / str(0)))
     self.assertFalse(utils.is_locked(self.directory / str(1)))
+    checkpoint_utils._unlock_checkpoint(
+        self.directory,
+        step=0,
+        step_name_format=step_lib.standard_name_format(
+            step_prefix=None, step_format_fixed_length=None
+        ),
+    )
 
     for _ in checkpoint_utils.checkpoints_iterator(self.directory):
       break
