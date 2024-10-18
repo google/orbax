@@ -1060,6 +1060,11 @@ class ArrayRestoreArgs(RestoreArgs):
     greater than that of the saved array, 0's will be appended. If the
     global_shape is shorter than that of the saved array, excess elements will
     be dropped from the end of the array.
+  strict:
+    True by default. If True, enforces that the target global shape and the
+    origin global shape (as recorded by the saved array) are the same. If False,
+    the returned array will be silently truncated or padded to fit the target
+    global shape as necessary.
   """
 
   restore_type: Optional[Any] = jax.Array
@@ -1067,6 +1072,7 @@ class ArrayRestoreArgs(RestoreArgs):
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
   sharding: Optional[Union[jax.sharding.Sharding, ShardingMetadata]] = None
   global_shape: Optional[Tuple[int, ...]] = None
+  strict: bool = True
 
 
 @dataclasses.dataclass
@@ -1436,6 +1442,7 @@ class ArrayHandler(TypeHandler):
               else None,
               byte_limiter=info.byte_limiter,
               context=info.ts_context,
+              strict=arg.strict if hasattr(arg, 'strict') else True,
           )
       ]
     ret = await asyncio.gather(*deserialize_ops)
