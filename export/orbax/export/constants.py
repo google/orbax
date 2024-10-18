@@ -73,4 +73,4 @@ WEIGHTS_NAME = 'weights_name'
 DEFAULT_WEIGHTS_NAME = 'weights'
 
 # Orbax MIME types
-ORBAX_CHECKPOINT_MIME_TYPE = 'orbax-checkpoint'
+ORBAX_CHECKPOINT_MIME_TYPE = 'orbax_checkpoint'
