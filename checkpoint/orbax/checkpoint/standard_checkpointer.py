@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shorthand for `Checkpointer(StandardCheckpointHandler())`."""
+"""Shorthand for `AsyncCheckpointer(StandardCheckpointHandler())`."""
 
 from typing import Any, Optional, Type
 from etils import epath
@@ -36,21 +36,23 @@ class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
 
   Note that this `Checkpointer` saves asynchronously.
 
-  Instead of::
+  Initialization::
+
+    # Instead of: 
     with AsyncCheckpointer(StandardCheckpointHandler()) as ckptr:
       ...
-
-  we can use::
+    # We can use:
     with StandardCheckpointer() as ckptr:
       ...
 
   This class is convenient because `ocp.args` does not need to specified when
-  saving and restoring. For example, instead of::
+  saving and restoring. Saving/restoring::
+
+    # Instead of:
     with AsyncCheckpointer(StandardCheckpointHandler()) as ckptr:
       ckptr.save(directory, args=StandardSave(state, save_args))
       ckptr.restore(directory, args=StandardRestore(abstract_target))
-
-  we can use::
+    # We can use:
     with StandardCheckpointer() as ckptr:
       ckptr.save(directory, state, save_args=save_args)
       ckptr.restore(directory, abstract_target)
@@ -113,7 +115,11 @@ class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
     super().save(directory, args=StandardSave(state, save_args), force=force)
 
   def restore(
-      self, directory: epath.PathLike, target: Optional[PyTree] = None
+      self,
+      directory: epath.PathLike,
+      target: Optional[PyTree] = None,
+      *,
+      strict: bool = True,
   ) -> Any:
     """Restores a checkpoint.
 
@@ -128,8 +134,13 @@ class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
         class, the tree will be restored with the same structure as provided. If
         not provided, restores as a serialized nested dict representation of the
         custom class.
+      strict: if False, restoration allows silent truncating/padding of arrays
+        if the stored array shape does not match the target shape. Otherwise,
+        raises an error.
 
     Returns:
       The restored checkpoint.
     """
-    return super().restore(directory, args=StandardRestore(target))
+    return super().restore(
+        directory, args=StandardRestore(target, strict=strict)
+    )
