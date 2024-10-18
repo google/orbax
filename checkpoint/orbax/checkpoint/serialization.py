@@ -545,8 +545,15 @@ async def _read_array_index_callback(
     new_shard_shape: Sequence[int],
     dtype: jnp.dtype,
     byte_limiter: ByteLimiter,
+    strict: bool,
 ) -> jax.Array:
   """Callback that reads an array index and places on device."""
+  if strict and t.shape != shape:
+    raise ValueError(
+        f'Requested shape: {shape} is not compatible with the stored shape:'
+        f' {t.shape}. Truncating/padding is disabled by setting of'
+        ' `strict=True`.'
+    )
   requested_domain = ts.IndexTransform(input_shape=shape)[index].domain
   restricted_domain = t.domain.intersect(requested_domain)
   requested_bytes = estimate_read_memory_footprint(t, restricted_domain)
@@ -571,6 +578,7 @@ async def async_deserialize(
     byte_limiter: Optional[ByteLimiter] = None,
     context: ts.Context = TS_CONTEXT,
     assume_metadata: bool = False,
+    strict: bool = True,
 ) -> jax.Array:
   """Reads an array using TensorStore."""
   byte_limiter = byte_limiter or get_byte_limiter()
@@ -597,5 +605,6 @@ async def async_deserialize(
           new_shard_shape=new_shard_shape,
           dtype=dtype,
           byte_limiter=byte_limiter,
+          strict=strict,
       ),
   )
