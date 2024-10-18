@@ -31,10 +31,10 @@ import humanize
 import jax
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint import multihost
 from orbax.checkpoint._src.arrays import fragments
 from orbax.checkpoint._src.arrays import numpy_utils
 from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
 

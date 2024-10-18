@@ -43,15 +43,16 @@ import numpy as np
 from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
-from orbax.checkpoint import multihost
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.multihost import counters
+from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint.experimental.emergency import multihost as emergency_multihost
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import standard_logger
 from orbax.checkpoint.logging import step_statistics
-from orbax.checkpoint.multihost import multislice
 from orbax.checkpoint.path import step as step_lib
 from typing_extensions import Self  # for Python version < 3.11
 
@@ -60,7 +61,7 @@ PyTree = checkpoint_manager.PyTree
 CheckpointHandler = checkpoint_manager.CheckpointHandler
 P = jax.sharding.PartitionSpec
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
-unique_barrier_key = multihost.utils._unique_barrier_key  # pylint: disable=protected-access
+unique_barrier_key = multihost._unique_barrier_key  # pylint: disable=protected-access
 
 _PROCESS_METADATA_FOLDER = 'process_metadata'
 _PROCESS_METADATA_FILE_NAME = 'process_metadata.json'
@@ -275,11 +276,11 @@ class _BarrierIdentifier(enum.Enum):
 
   def get_counter(self) -> str:
     if self.name == self.GLOBAL_MAX.name:
-      return multihost.counters.global_max_broadcast_counter()
+      return counters.global_max_broadcast_counter()
     elif self.name == self.LOCAL_ALL_STEPS.name:
-      return multihost.counters.local_all_steps_broadcast_counter()
+      return counters.local_all_steps_broadcast_counter()
     elif self.name == self.FIND_COMPLETE_SLICE.name:
-      return multihost.counters.find_complete_slice_broadcast_counter()
+      return counters.find_complete_slice_broadcast_counter()
     else:
       raise ValueError(f'Unknown barrier identifier: {self.name}')
 
@@ -361,7 +362,7 @@ def _process_local_to_global(
   barrier_name = (
       f'{barrier_id.name}_{slice_id}' if slice_id else barrier_id.name
   )
-  client = multihost.utils._get_jax_distributed_client()  # pylint: disable=protected-access
+  client = multihost._get_jax_distributed_client()  # pylint: disable=protected-access
   broadcast_dir_key = f'broadcast_{barrier_name}/{barrier_id.get_counter()}/'
   broadcast_dir_key = unique_barrier_key(broadcast_dir_key) + '/'
   broadcast_key = broadcast_dir_key + str(multihost.process_index())
@@ -1054,10 +1055,8 @@ class CheckpointManager(
           restore_single_slice_shardings,
           self._abstract_state,
       )
-      restore_directory = (
-          self._local_checkpoint_manager._get_read_step_directory(  # pylint: disable=protected-access
-              step, epath.Path(directory or self._local_directory)
-          )
+      restore_directory = self._local_checkpoint_manager._get_read_step_directory(  # pylint: disable=protected-access
+          step, epath.Path(directory or self._local_directory)
       )
       step_stats.directory = str(restore_directory)
 

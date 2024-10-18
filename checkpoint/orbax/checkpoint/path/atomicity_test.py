@@ -12,14 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for atomicity.py."""
-
 import unittest
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
-from orbax.checkpoint import multihost
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.path import atomicity
 from orbax.checkpoint.path import step as step_lib
 

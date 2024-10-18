@@ -18,6 +18,7 @@ customize this on a per-array level.
 
 ### Changed
 - Rename `CheckpointManager._single_item` to `CheckpointManager._default_item`.
+- Move `multihost` implementations to `_src`. Commonly used symbols are still exported in the same way.
 - Use `Fragments` for serialization.
 - Set `AsyncOptions.timeout_secs` default value to 10 minutes.
 

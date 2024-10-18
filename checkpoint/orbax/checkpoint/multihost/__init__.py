@@ -16,26 +16,18 @@
 
 # pylint: disable=g-importing-member, g-bad-import-order
 
-from orbax.checkpoint.multihost.utils import broadcast_one_to_all
-from orbax.checkpoint.multihost.utils import is_primary_host
-from orbax.checkpoint.multihost.utils import reached_preemption
-from orbax.checkpoint.multihost.utils import sync_global_processes
-from orbax.checkpoint.multihost.utils import process_index
+from orbax.checkpoint._src.multihost.multihost import broadcast_one_to_all
+from orbax.checkpoint._src.multihost.multihost import is_primary_host
+from orbax.checkpoint._src.multihost.multihost import reached_preemption
+from orbax.checkpoint._src.multihost.multihost import sync_global_processes
+from orbax.checkpoint._src.multihost.multihost import process_index
 
-from orbax.checkpoint.multihost.utils import BarrierSyncFn
-from orbax.checkpoint.multihost.utils import get_barrier_sync_fn
-from orbax.checkpoint.multihost.utils import unique_barrier_key
+from orbax.checkpoint._src.multihost.multihost import BarrierSyncFn
+from orbax.checkpoint._src.multihost.multihost import get_barrier_sync_fn
 
-# EXPERIMENTAL
-from orbax.checkpoint.multihost.utils import unique_processes_from_devices
-from orbax.checkpoint.multihost.utils import is_runtime_to_distributed_ids_initialized
-from orbax.checkpoint.multihost.utils import runtime_to_distributed_process_id
-from orbax.checkpoint.multihost.utils import initialize_runtime_to_distributed_ids
-# END EXPERIMENTAL
+# TODO(cpgaffney) Export multislice symbols.
 
-
-from orbax.checkpoint.multihost.utils import DIRECTORY_CREATION_TIMEOUT
-from orbax.checkpoint.multihost.utils import DIRECTORY_DELETION_TIMEOUT
-
-from orbax.checkpoint.multihost import multislice_utils as multislice
-from orbax.checkpoint.multihost import counters
+# The following symbols are temporary workarounds and WILL be removed in the
+# future. Please do not use.
+from orbax.checkpoint._src.multihost.multihost import is_runtime_to_distributed_ids_initialized
+from orbax.checkpoint._src.multihost.multihost import initialize_runtime_to_distributed_ids

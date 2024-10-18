@@ -14,6 +14,8 @@
 
 """Defines exported symbols for the namespace package `orbax.checkpoint`."""
 
+# pylint: disable=g-importing-member
+
 import contextlib
 import functools
 
@@ -23,7 +25,6 @@ from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import logging
 from orbax.checkpoint import metadata
 from orbax.checkpoint import msgpack_utils
-from orbax.checkpoint import multihost
 from orbax.checkpoint import options
 from orbax.checkpoint import path
 from orbax.checkpoint import serialization
@@ -32,33 +33,28 @@ from orbax.checkpoint import transform_utils
 from orbax.checkpoint import tree
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
-from orbax.checkpoint.path import step
-
-# pylint: disable=g-importing-member, g-bad-import-order
+from orbax.checkpoint import version
+from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import RestoreArgs
+from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import SaveArgs
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
 from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
-
 from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
 from orbax.checkpoint.checkpoint_manager import AsyncOptions
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
 from orbax.checkpoint.checkpointer import Checkpointer
 from orbax.checkpoint.future import Future
+from orbax.checkpoint.handlers import *
+from orbax.checkpoint.path import step
 from orbax.checkpoint.pytree_checkpointer import PyTreeCheckpointer
 from orbax.checkpoint.standard_checkpointer import StandardCheckpointer
 from orbax.checkpoint.transform_utils import apply_transformations
 from orbax.checkpoint.transform_utils import merge_trees
 from orbax.checkpoint.transform_utils import RestoreTransform
 from orbax.checkpoint.transform_utils import Transform
-from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import RestoreArgs
-from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import SaveArgs
 
-from orbax.checkpoint.handlers import *
-# pylint: enable=g-importing-member, g-bad-import-order
 
-# pylint: disable=g-bad-import-order, g-import-not-at-top
-from orbax.checkpoint import version
 # A new PyPI release will be pushed everytime `__version__` is increased.
 __version__ = version.__version__
 del version
-# pylint: enable=g-bad-import-order, g-import-not-at-top

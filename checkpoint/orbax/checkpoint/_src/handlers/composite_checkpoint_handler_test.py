@@ -12,15 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for CompositeHandler."""
-
 from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 from jax import numpy as jnp
 from orbax.checkpoint import args as args_lib
-from orbax.checkpoint import multihost
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
@@ -28,6 +25,7 @@ from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step
 
@@ -591,9 +589,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
           CompositeArgs(),
       )
     with self.assertRaisesRegex(KeyError, 'could not be restored'):
-      restore_handler_without_registry.restore(
-          self.directory
-      )
+      restore_handler_without_registry.restore(self.directory)
 
     restore_handler_with_registry = CompositeCheckpointHandler(
         handler_registry=handler_registry,

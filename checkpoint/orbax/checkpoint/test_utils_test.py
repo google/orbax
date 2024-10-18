@@ -17,8 +17,9 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
-from orbax.checkpoint import multihost
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.multihost import counters
+from orbax.checkpoint._src.multihost import multihost
 
 
 @test_utils.barrier_compatible_test
@@ -32,22 +33,22 @@ class BarrierCompatibleTest(parameterized.TestCase):
     expected_key = 'BarrierCompatibleTest.test_unique_barrier_key'
     self.assertIn(
         expected_key,
-        multihost.utils._unique_barrier_key('foo'),
+        multihost._unique_barrier_key('foo'),
     )
     self.assertIn(
         'foo',
-        multihost.utils._unique_barrier_key('footest_path_permission_mode'),
+        multihost._unique_barrier_key('footest_path_permission_mode'),
     )
 
   def test_unique_counter_primary(self):
     expected_key = 'BarrierCompatibleTest.test_unique_counter_primary'
-    self.assertIn(f'{expected_key}_0', multihost.counters.async_save_counter())
-    self.assertIn(f'{expected_key}_1', multihost.counters.async_save_counter())
+    self.assertIn(f'{expected_key}_0', counters.async_save_counter())
+    self.assertIn(f'{expected_key}_1', counters.async_save_counter())
 
   def test_unique_counter_secondary(self):
     expected_key = 'BarrierCompatibleTest.test_unique_counter_secondary'
-    self.assertIn(f'{expected_key}_0', multihost.counters.async_save_counter())
-    self.assertIn(f'{expected_key}_1', multihost.counters.async_save_counter())
+    self.assertIn(f'{expected_key}_0', counters.async_save_counter())
+    self.assertIn(f'{expected_key}_1', counters.async_save_counter())
 
 
 if __name__ == '__main__':
