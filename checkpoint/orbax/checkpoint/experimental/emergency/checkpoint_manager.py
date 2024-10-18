@@ -161,6 +161,52 @@ def local_checkpoint_handler() -> PyTreeCheckpointHandler:
   )
 
 
+def _local_checkpoint_handler(
+    multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
+) -> PyTreeCheckpointHandler:
+  """Create a PyTreeCheckpointHandler for local checkpoints."""
+  if multiprocessing_options.primary_host is not None:
+    raise ValueError(
+        'multiprocessing_options.primary_host must be set to None for local'
+        ' checkpoints.'
+    )
+  local_registry = type_handlers.create_type_handler_registry(
+      (
+          jax.Array,
+          type_handlers.ArrayHandler(primary_host=None, replica_id=None),
+      ),
+  )
+  return PyTreeCheckpointHandler(
+      use_ocdbt=True,
+      use_zarr3=True,
+      multiprocessing_options=multiprocessing_options,
+      type_handler_registry=local_registry,
+  )
+
+
+def _persistent_checkpoint_handler(
+    multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
+) -> PyTreeCheckpointHandler:
+  """Create a PyTreeCheckpointHandler for local checkpoints."""
+  # TODO(b/372291557) Selection of replica_id=0 could be problematic if we can't
+  # guarantee that the primary slice (in which the primary process is present)
+  # always has the shard with shard.replica_id=0 for all available arrays.
+  registry = type_handlers.create_type_handler_registry(
+      (
+          jax.Array,
+          type_handlers.ArrayHandler(
+              primary_host=multiprocessing_options.primary_host, replica_id=0
+          ),
+      ),
+  )
+  return PyTreeCheckpointHandler(
+      use_ocdbt=True,
+      use_zarr3=True,
+      multiprocessing_options=multiprocessing_options,
+      type_handler_registry=registry,
+  )
+
+
 @dataclasses.dataclass
 class LocalCheckpointOptions:
   """Optional CheckpointManager arguments for saving local checkpoints.
@@ -260,7 +306,9 @@ class CheckpointManagerOptions:
 
   replica_axis_index: int = 0
 
-  step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None
+  step_name_format: step_lib.NameFormat[step_lib.Metadata] = (
+      step_lib.standard_name_format()
+  )
   cleanup_tmp_directories: bool = False
   enable_async_checkpointing: bool = True
   async_options: Optional[checkpoint_manager.AsyncOptions] = None
@@ -304,7 +352,9 @@ def _common_values_per_slice(
     processes in that slice. A value appearing in one process but not another
     in the same slice will not appear in the output.
   """
-  total_num_slices = global_mesh.devices.shape[replica_axis_index]
+  total_num_slices = multislice.slice_count(
+      global_mesh, replica_axis_index=replica_axis_index
+  )
   num_processes_per_slice = (
       global_mesh.devices.size // total_num_slices // jax.local_device_count()
   )
@@ -362,15 +412,23 @@ def _process_local_to_global(
   barrier_name = (
       f'{barrier_id.name}_{slice_id}' if slice_id else barrier_id.name
   )
+  # Need to include barrier processes because there can be identical calls, just
+  # with different participating processes.
+  barrier_processes_as_string = ''.join(str(p) for p in barrier_processes)
+  barrier_name_and_id = (
+      f'{barrier_name}_{barrier_id.get_counter()}_{barrier_processes_as_string}'
+  )
+
   client = multihost._get_jax_distributed_client()  # pylint: disable=protected-access
-  broadcast_dir_key = f'broadcast_{barrier_name}/{barrier_id.get_counter()}/'
+  broadcast_dir_key = f'broadcast_{barrier_name_and_id}/'
   broadcast_dir_key = unique_barrier_key(broadcast_dir_key) + '/'
   broadcast_key = broadcast_dir_key + str(multihost.process_index())
   client.key_value_set(broadcast_key, ','.join([str(s) for s in values]))
 
-  barrier_key = f'barrier_{barrier_name}_{barrier_id.get_counter()}'
+  barrier_key = f'barrier_{barrier_name_and_id}'
   barrier_key = unique_barrier_key(barrier_key)
-  logging.info(
+  logging.vlog(
+      1,
       '[process=%s] Waiting at barrier %s',
       multihost.process_index(),
       barrier_key,
@@ -409,6 +467,19 @@ def _global_max(value: int, *, timeout: int) -> int:
   return max(flattened_per_process_steps)
 
 
+def _all_devices_excepting_slice(
+    devices: np.ndarray,
+    *,
+    replica_id: int = 0,
+    replica_axis_index: int = 0,
+) -> np.ndarray:
+  if hasattr(jax.devices()[0], 'slice_index'):
+    get_slice_id = np.vectorize(lambda x: x.slice_index)
+    return devices[get_slice_id(devices) != replica_id]
+  else:
+    return np.delete(devices, replica_id, axis=replica_axis_index)
+
+
 class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
   """A checkpoint manager that checkpoints to local storage.
 
@@ -421,15 +492,15 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
 
   # TODO: b/330585086 - Allow configuration of global mesh describing slices.
   # Validate against global meshes used for arrays in state.
+  # TODO: b/330585086 - Support arbitrary items beyond state. We will have
+  # to evaluate whether arbitrary items can be a good fit for local
+  # checkpointing, given restore+broadcast requirements.
   def __init__(
       self,
       directory: epath.PathLike,
-      # TODO: b/330585086 - Support arbitrary items beyond state. We will have
-      # to evaluate whether arbitrary items can be a good fit for local
-      # checkpointing, given restore+broadcast requirements.
-      state_handler: CheckpointHandler,
       global_mesh: jax.sharding.Mesh,
       *,
+      primary_replica_id: int = _PRIMARY_REPLICA_ID,
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[dict[str, Any]] = None,
       logger: Optional[abstract_logger.AbstractLogger] = None,
@@ -442,11 +513,18 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     devices = np.asarray(self._global_mesh.devices)
     # Select all devices except those belonging to the primary replica.
     if not options.local.debug_use_full_global_mesh:
-      devices = np.delete(
-          devices, _PRIMARY_REPLICA_ID, axis=self._replica_axis_index
+      devices = _all_devices_excepting_slice(
+          devices,
+          replica_id=primary_replica_id,
+          replica_axis_index=self._replica_axis_index,
       )
 
     self._active_processes = multihost.unique_processes_from_devices(devices)
+    multiprocessing_options = checkpoint_manager.MultiprocessingOptions(
+        primary_host=None,
+        active_processes=self._active_processes,
+        barrier_sync_key_prefix='local',
+    )
     local_options = checkpoint_manager.CheckpointManagerOptions(
         save_interval_steps=options.local.save_interval_steps,
         max_to_keep=options.local.max_to_keep,
@@ -455,11 +533,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         create=False,
         cleanup_tmp_directories=options.cleanup_tmp_directories,
         async_options=options.async_options,
-        multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
-            primary_host=None,
-            active_processes=self._active_processes,
-            barrier_sync_key_prefix='local',
-        ),
+        multiprocessing_options=multiprocessing_options,
         enable_async_checkpointing=options.enable_async_checkpointing,
         read_only=options.local.read_only,
         single_host_load_and_broadcast=False,
@@ -474,12 +548,9 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         directory,
         options=local_options,
         metadata=metadata,
-        item_handlers=state_handler,
+        item_handlers=_local_checkpoint_handler(multiprocessing_options),
         logger=self._logger,
     )
-    self._max_to_keep = options.local.max_to_keep
-    self._local_options = options.local
-    self._steps = None
 
     # Remove steps that might be left over from previous runs.
     steps_to_remove = self._get_old_steps_to_remove()
@@ -487,6 +558,11 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         info for info in self._checkpoints if info.step not in steps_to_remove
     ]
     self._checkpoint_deleter.delete_steps(steps_to_remove)
+
+    # Set additional properties.
+    self._max_to_keep = options.local.max_to_keep
+    self._local_options = options.local
+    self._steps = list(self.all_steps(read=True))
 
   def local_host_steps(self, read: bool) -> Sequence[int]:
     """Returns steps known to local host."""
@@ -510,7 +586,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
   def all_steps(self, read: bool = False) -> Sequence[int]:
     """Returns all steps tracked by the manager.
 
-    Includes steps located in local as well as persistent storage.
+    Includes steps located in local storage.
 
     Args:
       read: If True, forces a read directly from the storage location.
@@ -519,7 +595,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     Returns:
       A sequence of steps (integers)
     """
-    if self._steps is None:
+    if read:
       local_steps = set(self.local_host_steps(read))
       # Per-process mapping of the local steps that each process knows about.
       per_process_steps = _process_local_to_global(
@@ -555,9 +631,6 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     Returns:
       A step (int) or None if no steps are present.
     """
-    if self._steps is None:
-      self._steps = list(self.all_steps())
-
     return max(self._steps) if self._steps else None
 
   def save(
@@ -570,14 +643,8 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     """Saves the checkpoint at the given step."""
     saved = super().save(step, args=args, metrics=metrics, force=force)
     if saved:
-      # the assumption is that super.save() calls latest_step() and the steps
-      # cache is updated
-      if self._steps is None:
-        logging.info('the steps cache should not be empty after save()')
-        self._steps = list(self.all_steps())
       self._steps.append(step)
       self._steps = self._steps[-self._max_to_keep :]
-
     return saved
 
   def reload(self):
@@ -586,7 +653,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     refreshes the cached list of globally available local checkpointed steps.
     """
     super().reload()
-    self._steps = None
+    self._steps = list(self.all_steps(read=True))
 
 
 class CheckpointManager(
@@ -617,22 +684,20 @@ class CheckpointManager(
         global_mesh=global_mesh,
         abstract_state=abstract_state,
         options=options,
-        local_state_handler=local_checkpoint_handler(),
     )
   """
 
   # TODO: b/330585086 - Allow configuration of global mesh describing slices.
   # Validate against global meshes used for arrays in state.
+  # TODO: b/330585086 - Support arbitrary items beyond state. We will have
+  # to evaluate whether arbitrary items can be a good fit for local
+  # checkpointing, given restore+broadcast requirements.
   def __init__(
       self,
       local_directory: epath.PathLike,
       persistent_directory: epath.PathLike,
       global_mesh: jax.sharding.Mesh,
       abstract_state: PyTree,  # a single PyTree describing the state structure
-      # TODO: b/330585086 - Support arbitrary items beyond state. We will have
-      # to evaluate whether arbitrary items can be a good fit for local
-      # checkpointing, given restore+broadcast requirements.
-      local_state_handler: CheckpointHandler,
       *,
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[dict[str, Any]] = None,
@@ -645,6 +710,12 @@ class CheckpointManager(
     options = options or CheckpointManagerOptions()
     self._replica_axis_index = options.replica_axis_index
     self._global_mesh = global_mesh
+    logging.info(
+        'Configured emergency.CheckpointManager with replica_axis_index=%d,'
+        ' corresponding to "%s" in the global mesh.',
+        self._replica_axis_index,
+        self._global_mesh.axis_names[self._replica_axis_index],
+    )
     _maybe_save_process_metadata(self._persistent_directory, self._global_mesh)
 
     self._abstract_state = abstract_state
@@ -653,42 +724,50 @@ class CheckpointManager(
         self._global_mesh,
         replica_axis_index=self._replica_axis_index,
     )
-    self._local_state_handler = local_state_handler
     self._options = options
     self._metadata = metadata
+
+    self._persistent_max_to_keep = self._options.persistent.max_to_keep
+    self._local_max_to_keep = self._options.local.max_to_keep
+    self._coordination_timeout_secs = (
+        options.multiprocessing_options or MultiprocessingOptions()
+    ).coordination_timeout_secs
 
     if len(global_mesh.devices.shape) <= self._replica_axis_index:
       raise AssertionError(
           f'replica_axis_index {self._replica_axis_index} is out of bound for'
           f' global_mesh.devices.shape {global_mesh.devices.shape}'
       )
-    if global_mesh.devices.shape[self._replica_axis_index] <= 1:
+    if (
+        multislice.slice_count(
+            global_mesh, replica_axis_index=self._replica_axis_index
+        )
+        <= 1
+    ):
       raise AssertionError(
           'To use this CheckpointManager, at least 2 data-parallel replicas are'
           ' needed.'
       )
 
+    primary_replica_id = _PRIMARY_REPLICA_ID
+    secondary_replica_id = _SECONDARY_REPLICA_ID
+
     self._persistent_primary_host = multislice.primary_process_in_slice(
         self._global_mesh,
         replica_axis_index=self._replica_axis_index,
-        replica_id=_PRIMARY_REPLICA_ID,
+        replica_id=primary_replica_id,
     )
     self._local_primary_host = multislice.primary_process_in_slice(
         self._global_mesh,
         replica_axis_index=self._replica_axis_index,
-        replica_id=_SECONDARY_REPLICA_ID,
+        replica_id=secondary_replica_id,
     )
     self.in_primary_slice = multislice.in_slice(
         multihost.process_index(),
         global_mesh,
         replica_axis_index=self._replica_axis_index,
-        replica_id=_PRIMARY_REPLICA_ID,
+        replica_id=primary_replica_id,
     )
-    self._persistent_max_to_keep = self._options.persistent.max_to_keep
-    self._local_max_to_keep = self._options.local.max_to_keep
-    self._coordination_timeout_secs = (
-        options.multiprocessing_options or MultiprocessingOptions()
-    ).coordination_timeout_secs
 
     if self.in_primary_slice:
       persistent_multiprocessing_options = (
@@ -698,7 +777,7 @@ class CheckpointManager(
                   multislice.slice_devices(
                       self._global_mesh,
                       replica_axis_index=self._replica_axis_index,
-                      replica_id=_PRIMARY_REPLICA_ID,
+                      replica_id=primary_replica_id,
                   )
               ),
               barrier_sync_key_prefix='persistent',
@@ -710,7 +789,14 @@ class CheckpointManager(
           )
       )
     else:
-      self._local_checkpoint_manager = self._make_local_checkpoint_manager()
+      self._local_checkpoint_manager = self._make_local_checkpoint_manager(
+          primary_replica_id
+      )
+
+    self._local_steps = []
+    self._persistent_steps = []
+    # Initialize step cache.
+    self.all_steps(read=True)
 
     logging.info(
         'Created emergency.CheckpointManager with slice_id=%d,'
@@ -739,19 +825,19 @@ class CheckpointManager(
         self._persistent_directory,
         options=persistent_options,
         metadata=self._metadata,
-        item_handlers=PyTreeCheckpointHandler(
-            use_ocdbt=True,
-            use_zarr3=True,
-            multiprocessing_options=persistent_multiprocessing_options,
+        item_handlers=_persistent_checkpoint_handler(
+            persistent_multiprocessing_options
         ),
         logger=self._logger,
     )
 
-  def _make_local_checkpoint_manager(self) -> _LocalCheckpointManager:
+  def _make_local_checkpoint_manager(
+      self, primary_replica_id: int = _PRIMARY_REPLICA_ID
+  ) -> _LocalCheckpointManager:
     return _LocalCheckpointManager(
         self._local_directory,
-        self._local_state_handler,
         global_mesh=self._global_mesh,
+        primary_replica_id=primary_replica_id,
         options=self._options,
         metadata=self._metadata,
         logger=self._logger,
@@ -778,50 +864,13 @@ class CheckpointManager(
       A sequence of steps (integers)
     """
     logging.info('Retrieving all steps.')
-    local_steps = [-1] * self._local_max_to_keep
-    persistent_steps = [-1] * self._persistent_max_to_keep
-    if self.in_primary_slice:
-      persistent_steps = list(
-          self._persistent_checkpoint_manager.all_steps(read=read)
+    if read:
+      per_slice_local_steps = self._get_per_slice_local_steps()
+      self._local_steps = list(set.union(*per_slice_local_steps.values()))
+      self._persistent_steps = step_lib.checkpoint_steps(
+          self._persistent_directory
       )
-      if len(persistent_steps) > self._persistent_max_to_keep:
-        # TODO: b/330585086 - for now we assume that
-        # persistent_checkpoint_manager.all_steps returns an array with length
-        # smaller than max_to_keep
-        logging.error(
-            'persistent_step on host %d exceeded `max_to_keep` %d',
-            multihost.process_index(),
-            self._persistent_max_to_keep,
-        )
-      persistent_steps = _pad_steps(
-          persistent_steps, self._persistent_max_to_keep
-      )
-    else:
-      local_steps = _pad_steps(
-          list(self._local_checkpoint_manager.all_steps(read)),
-          self._local_max_to_keep,
-      )
-
-    local_steps = np.asarray(
-        multihost.broadcast_one_to_all(
-            local_steps,
-            is_source=multihost.process_index() == self._local_primary_host,
-        )
-    )
-
-    persistent_steps = np.asarray(
-        multihost.broadcast_one_to_all(
-            persistent_steps,
-            is_source=multihost.process_index()
-            == self._persistent_primary_host,
-        )
-    )
-
-    return [
-        x
-        for x in set(np.concatenate((local_steps, persistent_steps)))
-        if x != -1
-    ]
+    return list(set(self._local_steps) | set(self._persistent_steps))
 
   def latest_step(self) -> Optional[int]:
     """Returns the latest step saved.
@@ -834,16 +883,8 @@ class CheckpointManager(
       A step (int) or None if no steps are present.
     """
     logging.info('Retrieving latest step.')
-    if self.in_primary_slice:
-      latest_step = self._persistent_checkpoint_manager.latest_step()
-    else:
-      latest_step = self._local_checkpoint_manager.latest_step()
-
-    if latest_step is None:
-      latest_step = -1
-
-    latest_step = self._global_max(latest_step)
-    return latest_step if latest_step != -1 else None
+    all_steps = self.all_steps()
+    return max(all_steps) if all_steps else None
 
   def best_step(self) -> Optional[int]:
     """Returns the best step saved, as defined by `options.best_fn`.
@@ -907,29 +948,43 @@ class CheckpointManager(
   ) -> bool:
     """Returns True no matter if a checkpoint is saved or not."""
     # TODO: b/330608746 - implement save op on different slices
+    persistent_saved = False
+    local_saved = False
     if self.in_primary_slice:
       logging.info('Maybe saving at step %d (persistent).', step)
-      _ = self._persistent_checkpoint_manager.save(
+      persistent_saved = self._persistent_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
       )
     else:
       logging.info('Maybe saving at step %d (local).', step)
-      _ = self._local_checkpoint_manager.save(
+      local_saved = self._local_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
       )
 
-    # global_max is costing a lot and it's not worth it to keep return value
-    # correct across processes. directly returning true.
-    # return bool(self._global_max(int(saved)))
-    return True
+    start = time.time()
+    persistent_saved = bool(self._global_max(int(persistent_saved)))
+    local_saved = bool(self._global_max(int(local_saved)))
+    logging.info('Broadcast `saved` bool in %d seconds.', time.time() - start)
 
-  def _find_slice_with_complete_checkpoint(self, step: int) -> int:
-    """Return the slice id which has the step."""
-    if self.in_primary_slice:
-      # No steps can be found in local storage, since this is the primary slice.
-      local_steps = set()
-    else:
-      local_steps = set(self._local_checkpoint_manager.local_host_steps(True))
+    if persistent_saved:
+      self._persistent_steps.append(step)
+      if self._persistent_max_to_keep is not None:
+        self._persistent_steps = self._persistent_steps[
+            -self._persistent_max_to_keep :
+        ]
+    if local_saved:
+      self._local_steps.append(step)
+      self._local_steps = self._local_steps[-self._local_max_to_keep :]
+
+    return persistent_saved or local_saved
+
+  def _get_per_slice_local_steps(self) -> Dict[int, Set[int]]:
+    local_steps = set(step_lib.checkpoint_steps(self._local_directory))
+    logging.info(
+        'Found steps: %s in local host storage: %s.',
+        local_steps,
+        self._local_directory,
+    )
 
     # The steps that each process actually has in local storage.
     per_process_steps = _process_local_to_global(
@@ -945,6 +1000,11 @@ class CheckpointManager(
         replica_axis_index=self._replica_axis_index,
     )
     logging.vlog(1, 'per_slice_steps=%s', per_slice_steps)
+    return per_slice_steps
+
+  def _find_slice_with_complete_local_checkpoint(self, step: int) -> int:
+    """Return the slice id which has the step."""
+    per_slice_steps = self._get_per_slice_local_steps()
 
     for slice_id, steps in per_slice_steps.items():
       if step in steps:
@@ -1038,6 +1098,21 @@ class CheckpointManager(
         restore_mesh = _consistent_restore_mesh_from_metadata(
             self._persistent_directory, self._global_mesh
         )
+
+      restoring_processes = multihost.unique_processes_from_devices(
+          multislice.slice_devices(
+              restore_mesh,
+              replica_id=self._slice_id,
+              replica_axis_index=self._replica_axis_index,
+          )
+      )
+      multiprocessing_options = checkpoint_manager.MultiprocessingOptions(
+          primary_host=None,
+          active_processes=restoring_processes,
+          barrier_sync_key_prefix='local_restoring_slice',
+      )
+      local_state_handler = _local_checkpoint_handler(multiprocessing_options)
+
       restore_single_slice_shardings = jax.tree.map(
           lambda arr: _get_single_slice_sharding(
               mesh=restore_mesh,
@@ -1055,9 +1130,9 @@ class CheckpointManager(
           restore_single_slice_shardings,
           self._abstract_state,
       )
-      restore_directory = self._local_checkpoint_manager._get_read_step_directory(  # pylint: disable=protected-access
-          step, epath.Path(directory or self._local_directory)
-      )
+      restore_directory = self._options.step_name_format.find_step(
+          epath.Path(directory or self._local_directory), step
+      ).path
       step_stats.directory = str(restore_directory)
 
       # Directly use CheckpointHandler to restore. This is undesirable, but
@@ -1071,7 +1146,7 @@ class CheckpointManager(
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
       )
       step_stats.checkpointer_start_time = time.time()
-      single_slice_pytree = self._local_state_handler.restore(
+      single_slice_pytree = local_state_handler.restore(
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
           args=dataclasses.replace(args, restore_args=restore_args),
       )
@@ -1194,7 +1269,13 @@ class CheckpointManager(
             use_zarr3=True,
         ),
     ) as pcm:
-      return pcm.restore(step, args=args, directory=directory)
+      try:
+        return pcm.restore(step, args=args, directory=directory)
+      except FileNotFoundError as e:
+        raise FileNotFoundError(
+            'No steps found in either local or persistent storage when'
+            f' requesting restoration of step {step}.'
+        ) from e
 
   def restore(
       self,
@@ -1205,7 +1286,7 @@ class CheckpointManager(
     if step is None:
       raise ValueError('Step must be provided for restore. Found None.')
     logging.info('Restoring at step %d.', step)
-    restoring_slice_id = self._find_slice_with_complete_checkpoint(step)
+    restoring_slice_id = self._find_slice_with_complete_local_checkpoint(step)
     if restoring_slice_id > -1:
       # restore from LCM
       return self._restore_from_local(
@@ -1265,6 +1346,7 @@ class CheckpointManager(
   def close(self):
     """Waits for outstanding operations to finish and closes Checkpointers."""
     logging.info('Closing CheckpointManager.')
+    self.wait_until_finished()
     if self.in_primary_slice:
       self._persistent_checkpoint_manager.close()
     else:
