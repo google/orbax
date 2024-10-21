@@ -1,5 +1,11 @@
 # Announcements
 
+## 2024-10-21
+A new option, `strict` will be added to `ArrayRestoreArgs` within the next week
+or so, before the next version release. This option will default to True. This
+enforces that loaded `jax.Array`s must not change shape by silently padding or
+truncating. To re-enable padding/truncating, simply enable `strict=False`.
+
 ## 2024-04-02
 The `checkpoint_manager_context(...)` function is deprecated. To ensure proper 
 resource handling, please update your code to use either 
