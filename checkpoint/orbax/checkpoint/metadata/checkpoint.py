@@ -22,6 +22,7 @@ import threading
 from typing import Any, Optional, Protocol
 from absl import logging
 from etils import epath
+from orbax.checkpoint._src.logging import utils as logging_utils
 
 _METADATA_FILENAME = '_CHECKPOINT_METADATA'
 
@@ -403,8 +404,9 @@ class _NonBlockingCheckpointMetadataStore(CheckpointMetadataStore):
     """Closes the store after cleaning up resources if any."""
     if self.enable_write:
       with self._write_lock:
-        self._single_thread_executor.shutdown()
-        logging.info('Closing %s', self)
+        logging_utils.shutdown_and_log(
+            self._single_thread_executor, self.__class__.__name__
+        )
 
 
 _CHECKPOINT_METADATA_STORE_FOR_WRITES = _BlockingCheckpointMetadataStore(

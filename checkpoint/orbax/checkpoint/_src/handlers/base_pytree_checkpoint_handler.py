@@ -44,6 +44,7 @@ from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.logging import utils as logging_utils
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.metadata import tree as tree_metadata
 from orbax.checkpoint.path import format_utils
@@ -817,7 +818,7 @@ class BasePyTreeCheckpointHandler(
 
   def close(self):
     """Closes the handler. Called automatically by Checkpointer."""
-    self._thread_pool.shutdown()
+    logging_utils.shutdown_and_log(self._thread_pool, self.__class__.__name__)
 
 
 @register_with_handler(BasePyTreeCheckpointHandler, for_save=True)
