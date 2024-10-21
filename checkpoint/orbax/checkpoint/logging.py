@@ -14,17 +14,15 @@
 
 """Defines exported symbols for package orbax.checkpoint.logging."""
 
-# pylint: disable=g-importing-member, g-bad-import-order, g-import-not-at-top
+# pylint: disable=g-importing-member, g-bad-import-order, g-import-not-at-top, unused-import
 
-from orbax.checkpoint.logging import composite_logger
-from orbax.checkpoint.logging import abstract_logger
-from orbax.checkpoint.logging import standard_logger
-from orbax.checkpoint.logging import step_statistics
+
+from orbax.checkpoint._src.logging import composite_logger
+from orbax.checkpoint._src.logging import abstract_logger
+from orbax.checkpoint._src.logging import standard_logger
+from orbax.checkpoint._src.logging import step_statistics
 
 try:
-  from orbax.checkpoint.logging import cloud_logger
+  from orbax.checkpoint._src.logging import cloud_logger
 except ImportError:
   pass
-
-
-

@@ -18,7 +18,7 @@ import dataclasses
 from typing import Any, Optional
 
 import google.cloud.logging as google_cloud_logging
-from orbax.checkpoint.logging import abstract_logger
+from orbax.checkpoint._src.logging import abstract_logger
 
 _JOB_NAME = 'checkpoint_job'
 _LOGGER_NAME = 'checkpoint_logger'

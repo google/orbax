@@ -13,22 +13,29 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from orbax.checkpoint.logging import standard_logger
+import google.cloud.logging as google_cloud_logging
+import mock
+from orbax.checkpoint._src.logging import cloud_logger
 
 
-class StandardLoggerTest(absltest.TestCase):
+class CloudLoggerTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.logger = standard_logger.StandardLogger()
+    mock_gcloud_client = mock.create_autospec(google_cloud_logging.Client)
+    options = cloud_logger.CloudLoggerOptions()
+    options.client = mock_gcloud_client
+    self.cloud_logger = cloud_logger.CloudLogger(options)
 
   def test_log_entry(self):
-    with self.assertLogs(level='INFO') as log_output:
+    with mock.patch.object(
+        self.cloud_logger,
+        'log_entry',
+        autospec=True,
+    ) as mock_log_entry:
       entry = {'test-step': 'test-log-entry'}
-      expected_message = str(entry)
-      self.logger.log_entry(entry)
-      self.assertEqual(log_output[0][0].message, expected_message)
-      self.assertEqual(log_output[0][0].levelname, 'INFO')
+      self.cloud_logger.log_entry(entry)
+      mock_log_entry.assert_called_once_with(entry)
 
 if __name__ == '__main__':
   absltest.main()

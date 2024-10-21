@@ -17,7 +17,7 @@
 from typing import Any
 
 from absl import logging
-from orbax.checkpoint.logging import abstract_logger
+from orbax.checkpoint._src.logging import abstract_logger
 
 
 class StandardLogger(abstract_logger.AbstractLogger):

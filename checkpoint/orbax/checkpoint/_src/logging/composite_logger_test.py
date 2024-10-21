@@ -16,10 +16,10 @@ from absl import logging
 from absl.testing import absltest
 import google.cloud.logging as google_cloud_logging
 import mock
-from orbax.checkpoint.logging import abstract_logger
-from orbax.checkpoint.logging import cloud_logger
-from orbax.checkpoint.logging import composite_logger
-from orbax.checkpoint.logging import standard_logger
+from orbax.checkpoint._src.logging import abstract_logger
+from orbax.checkpoint._src.logging import cloud_logger
+from orbax.checkpoint._src.logging import composite_logger
+from orbax.checkpoint._src.logging import standard_logger
 
 
 _PROJECT = 'test-project'
