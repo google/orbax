@@ -309,7 +309,7 @@ class CheckpointManagerOptions:
   step_name_format: step_lib.NameFormat[step_lib.Metadata] = (
       step_lib.standard_name_format()
   )
-  cleanup_tmp_directories: bool = False
+  cleanup_tmp_directories: bool = True
   enable_async_checkpointing: bool = True
   async_options: Optional[checkpoint_manager.AsyncOptions] = None
   multiprocessing_options: Optional[MultiprocessingOptions] = None
