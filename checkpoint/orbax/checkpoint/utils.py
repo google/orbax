@@ -56,7 +56,7 @@ async_write_bytes = async_utils.async_write_bytes
 async_exists = async_utils.async_exists
 lockdir = path_utils.lockdir
 is_locked = path_utils.is_locked
-are_locked = path_utils.are_locked
+
 
 is_gcs_path = step_lib.is_gcs_path
 checkpoint_steps = step_lib.checkpoint_steps

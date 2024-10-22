@@ -39,8 +39,10 @@ def recursively_copy_files(src: str, dst: str):
   src_path = epath.Path(src)
   dst_path = epath.Path(dst)
   for root, _, files in os.walk(src_path):
-    dst_path.mkdir(parents=True, exist_ok=True)
+    relative_path = str(root)[len(str(src_path)) :].lstrip(os.sep)
+    dst_root = dst_path / relative_path
+    dst_root.mkdir(parents=True, exist_ok=True)
     for file in files:
       src_file = epath.Path(root) / file
-      dst_file = epath.Path(dst_path) / file
+      dst_file = epath.Path(dst_root) / file
       src_file.copy(dst_file)

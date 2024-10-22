@@ -35,7 +35,7 @@ class Snapshot(abc.ABC):
     pass
 
   @classmethod
-  def release_snapshot(cls, path: str) -> bool:
+  def release_snapshot(cls, path: str):
     """Deletes a snapshot of the checkpoint."""
     pass
 
