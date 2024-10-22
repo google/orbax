@@ -14,7 +14,7 @@
 
 """Defines exported symbols for the namespace package `orbax.checkpoint`."""
 
-# pylint: disable=g-importing-member
+# pylint: disable=g-importing-member, g-bad-import-order
 
 import contextlib
 import functools
@@ -34,26 +34,49 @@ from orbax.checkpoint import tree
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint import version
-from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import RestoreArgs
-from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import SaveArgs
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
-from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
-from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
-from orbax.checkpoint.checkpoint_manager import AsyncOptions
-from orbax.checkpoint.checkpoint_manager import CheckpointManager
-from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
-from orbax.checkpoint.checkpointer import Checkpointer
-from orbax.checkpoint.future import Future
-from orbax.checkpoint.handlers import *
 from orbax.checkpoint.path import step
-from orbax.checkpoint.pytree_checkpointer import PyTreeCheckpointer
-from orbax.checkpoint.standard_checkpointer import StandardCheckpointer
+
+from orbax.checkpoint.future import Future
+
 from orbax.checkpoint.transform_utils import apply_transformations
 from orbax.checkpoint.transform_utils import merge_trees
 from orbax.checkpoint.transform_utils import RestoreTransform
 from orbax.checkpoint.transform_utils import Transform
 
+from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
+from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
+from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
+from orbax.checkpoint.checkpointer import Checkpointer
+from orbax.checkpoint.pytree_checkpointer import PyTreeCheckpointer
+from orbax.checkpoint.standard_checkpointer import StandardCheckpointer
+from orbax.checkpoint.checkpoint_manager import CheckpointManager
+from orbax.checkpoint.checkpoint_manager import AsyncOptions
+from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
+
+from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import RestoreArgs
+from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import ArrayRestoreArgs
+from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import SaveArgs
+
+# Important handlers.
+from orbax.checkpoint._src.handlers.checkpoint_handler import CheckpointHandler
+from orbax.checkpoint._src.handlers.async_checkpoint_handler import AsyncCheckpointHandler
+
+from orbax.checkpoint._src.handlers.array_checkpoint_handler import ArrayCheckpointHandler
+from orbax.checkpoint._src.handlers.composite_checkpoint_handler import CompositeCheckpointHandler
+from orbax.checkpoint._src.handlers.json_checkpoint_handler import JsonCheckpointHandler
+from orbax.checkpoint._src.handlers.proto_checkpoint_handler import ProtoCheckpointHandler
+from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import PyTreeCheckpointHandler
+from orbax.checkpoint._src.handlers.random_key_checkpoint_handler import JaxRandomKeyCheckpointHandler
+from orbax.checkpoint._src.handlers.random_key_checkpoint_handler import NumpyRandomKeyCheckpointHandler
+from orbax.checkpoint._src.handlers.standard_checkpoint_handler import StandardCheckpointHandler
+
+from orbax.checkpoint._src.handlers.handler_registration import CheckpointHandlerRegistry
+from orbax.checkpoint._src.handlers.handler_registration import DefaultCheckpointHandlerRegistry
+
+# This class should be regarded as internal-only, and may be removed without
+# warning.
+from orbax.checkpoint._src.handlers.base_pytree_checkpoint_handler import BasePyTreeCheckpointHandler
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
 __version__ = version.__version__

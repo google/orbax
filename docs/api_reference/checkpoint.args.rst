@@ -10,12 +10,9 @@ CheckpointArgs
 .. autoclass:: CheckpointArgs
   :members:
 
-Array
+Composite
 ------------------------------
-.. autoclass:: ArraySave
-  :members:
-
-.. autoclass:: ArrayRestore
+.. autoclass:: Composite
   :members:
 
 Standard PyTree
@@ -34,9 +31,12 @@ Generic PyTree
 .. autoclass:: PyTreeRestore
   :members:
 
-Composite
+Array
 ------------------------------
-.. autoclass:: Composite
+.. autoclass:: ArraySave
+  :members:
+
+.. autoclass:: ArrayRestore
   :members:
 
 JSON

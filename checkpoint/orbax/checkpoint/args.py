@@ -12,11 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Exported symbols under `orbax.checkpoint.args`."""
-# pylint: disable=g-importing-member, g-bad-import-order, unused-import
+"""Defines exported :py:class:`CheckpointArgs` classes.
 
-# TODO(b/301325921): Since these are being added to the public API, make sure
-# that these Args are all documented.
+:py:class:`CheckpointHandler` subclasses define logic used to save and restore
+an object to and from a checkpoint. Each :py:class:`CheckpointHandler`
+has corresponding :py:class:`SaveArgs` and :py:class:`RestoreArgs`
+classes that define the arguments used to call the handler.
+
+The `ocp.args` module provides a complete definition of these classes. Refer to
+`ocp.handlers` for more information on the handlers themselves.
+"""
+
+# pylint: disable=g-importing-member, g-bad-import-order, unused-import
 
 # Built-in CheckpointArgs.
 from orbax.checkpoint._src.handlers.array_checkpoint_handler import ArrayRestoreArgs as ArrayRestore

@@ -27,40 +27,45 @@ CheckpointHandler = checkpoint_handler.CheckpointHandler
 class CheckpointArgs:
   """Base class for all checkpoint argument dataclasses.
 
-  Subclass this dataclass to define the arguments for your custom
-  CheckpointHandler.
-  When users use the CheckpointHandler, they will use this `CheckpointArgs` to
-  see how to
+  All :py:class:`CheckpointHandler` implementations should have corresponding
+  :py:class:`CheckpointArgs` dataclasses, typically one for save and one for
+  restore.
 
-  Example subclass:
-  ```
-  import ocp.checkpoint as ocp
+  Use one of the subclasses of :py:class:`CheckpointArgs` for your use case to
+  specify how an object should be saved or restored.
 
-  @ocp.args.register_with_handler(MyCheckpointHandler, for_save=True)
-  @dataclasses.dataclass
-  class MyCheckpointSave(ocp.args.CheckpointArgs):
-    item: Any
-    options: Any
+  Typical usage::
 
-  @ocp.args.register_with_handler(MyCheckpointHandler, for_restore=True)
-  @dataclasses.dataclass
-  class MyCheckpointRestore(ocp.args.CheckpointArgs):
-    options: Any
-  ```
+    with ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler()) as ckptr:
+      ckptr.save(
+          path,
+          args=ocp.args.StandardSave(train_state)
+      )
 
-  Example usage:
-  ```
-  ckptr.save(
-      path,
-      custom_state=MyCheckpointSave(item=..., options=...)
-  )
+  Example subclass::
 
+    @ocp.args.register_with_handler(MyCheckpointHandler, for_save=True)
+    @dataclasses.dataclass
+    class MyCheckpointSave(ocp.args.CheckpointArgs):
+      item: Any
+      options: Any
 
-  ckptr.save(
-      path,
-      custom_state=MyCheckpointRestore(options=...)
-  )
-  ```
+    @ocp.args.register_with_handler(MyCheckpointHandler, for_restore=True)
+    @dataclasses.dataclass
+    class MyCheckpointRestore(ocp.args.CheckpointArgs):
+      options: Any
+
+  Example usage::
+
+    ckptr.save(
+        path,
+        custom_state=MyCheckpointSave(item=..., options=...)
+    )
+
+    ckptr.save(
+        path,
+        custom_state=MyCheckpointRestore(options=...)
+    )
   """
 
   pass
@@ -77,10 +82,11 @@ def register_with_handler(
     for_save: bool = False,
     for_restore: bool = False,
 ):
-  """Registers a CheckpointArg subclass with a specific handler.
+  """Registers a :py:class:`CheckpointArgs` subclass with a specific handler.
 
   This registration is necessary so that when the user passes uses this
-  CheckpointArg class with `CompositeCheckpointHandler`, we can automatically
+  :py:class:`CheckpointArgs` class with :py:class:`CompositeCheckpointHandler`,
+  we can automatically
   find the correct Handler to use to save this class.
 
   Note, `for_save` and `for_restore` may both be true, but cannot both be false.
@@ -115,7 +121,7 @@ def register_with_handler(
 def get_registered_handler_cls(
     arg: Union[Type[CheckpointArgs], CheckpointArgs]
 ) -> Type[CheckpointHandler]:
-  """Returns the registered CheckpointHandler."""
+  """Returns the registered :py:class:`CheckpointHandler`."""
   if not inspect.isclass(arg):
     arg = type(arg)
   if not issubclass(arg, CheckpointArgs):

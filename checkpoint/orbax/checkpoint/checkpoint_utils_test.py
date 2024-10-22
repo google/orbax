@@ -12,32 +12,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for checkpoint_utils."""
-
 import functools
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 import jax
 import numpy as np
-import orbax.checkpoint as ocp
+from orbax.checkpoint import args
+from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpoint_utils
+from orbax.checkpoint import pytree_checkpointer
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step as step_lib
+
+
+RestoreArgs = pytree_checkpoint_handler.RestoreArgs
+ArrayRestoreArgs = pytree_checkpoint_handler.ArrayRestoreArgs
+PyTreeCheckpointer = pytree_checkpointer.PyTreeCheckpointer
 
 
 class RestoreArgsTest(absltest.TestCase):
 
   def _check_restore_args(self, expected, actual):
-    self.assertIsInstance(actual, ocp.RestoreArgs)
+    self.assertIsInstance(actual, RestoreArgs)
     self.assertEqual(expected.restore_type, actual.restore_type)
     if hasattr(expected, 'dtype'):
       self.assertEqual(expected.dtype, actual.dtype)
 
   def _check_array_restore_args(self, expected, actual):
-    self.assertIsInstance(actual, ocp.ArrayRestoreArgs)
+    self.assertIsInstance(actual, ArrayRestoreArgs)
     self.assertEqual(expected.restore_type, jax.Array)
     self.assertEqual(expected.sharding.mesh, actual.sharding.mesh)
     self.assertEqual(expected.sharding.spec, actual.sharding.spec)
@@ -72,7 +79,7 @@ class RestoreArgsTest(absltest.TestCase):
     }
 
     expected_restore_args = {
-        'a': ocp.ArrayRestoreArgs(
+        'a': ArrayRestoreArgs(
             restore_type=jax.Array,
             sharding=jax.sharding.NamedSharding(
                 mesh,
@@ -83,9 +90,9 @@ class RestoreArgsTest(absltest.TestCase):
             global_shape=(16,),
             dtype=np.int32,
         ),
-        'x': ocp.RestoreArgs(restore_type=np.ndarray, dtype=np.float64),
-        'y': ocp.RestoreArgs(restore_type=int),
-        'z': ocp.RestoreArgs(restore_type=str),
+        'x': RestoreArgs(restore_type=np.ndarray, dtype=np.float64),
+        'y': RestoreArgs(restore_type=int),
+        'z': RestoreArgs(restore_type=str),
     }
     restore_args = checkpoint_utils.construct_restore_args(
         pytree, sharding_tree
@@ -129,9 +136,9 @@ class RestoreArgsTest(absltest.TestCase):
     }
 
     expected_restore_args = {
-        'a': ocp.RestoreArgs(restore_type=int, dtype=np.int32),
-        'b': ocp.RestoreArgs(restore_type=np.ndarray, dtype=np.float64),
-        'c': ocp.ArrayRestoreArgs(
+        'a': RestoreArgs(restore_type=int, dtype=np.int32),
+        'b': RestoreArgs(restore_type=np.ndarray, dtype=np.float64),
+        'c': ArrayRestoreArgs(
             restore_type=jax.Array,
             sharding=jax.sharding.NamedSharding(
                 mesh,
@@ -142,7 +149,7 @@ class RestoreArgsTest(absltest.TestCase):
             global_shape=(2, 4),
             dtype=np.float64,
         ),
-        'd': ocp.RestoreArgs(restore_type=str),
+        'd': RestoreArgs(restore_type=str),
     }
     restore_args = checkpoint_utils.construct_restore_args(pytree)
 
@@ -165,8 +172,8 @@ class EvalUtilsTest(parameterized.TestCase):
     self.directory = epath.Path(
         self.create_tempdir(name='checkpointing_test').full_path
     )
-    self.manager = ocp.CheckpointManager(
-        self.directory, {'params': ocp.PyTreeCheckpointer()}
+    self.manager = checkpoint_manager.CheckpointManager(
+        self.directory, {'params': PyTreeCheckpointer()}
     )
     self.items = {'params': {'a': 1, 'b': 2}}
 
@@ -197,13 +204,13 @@ class EvalUtilsTest(parameterized.TestCase):
       ('checkpoint', 8),
   )
   def test_checkpoints_iterator(self, step_prefix, step_format_fixed_length):
-    options = ocp.CheckpointManagerOptions(
+    options = checkpoint_manager.CheckpointManagerOptions(
         step_prefix=step_prefix,
         step_format_fixed_length=step_format_fixed_length,
     )
-    with ocp.CheckpointManager(
+    with checkpoint_manager.CheckpointManager(
         self.directory,
-        {'params': ocp.PyTreeCheckpointer()},
+        {'params': PyTreeCheckpointer()},
         options=options,
     ) as manager:
       for i in range(2):
@@ -251,12 +258,12 @@ class EvalUtilsTest(parameterized.TestCase):
     self.assertEqual(5, timeout_fn_calls[0])
 
   def test_checkpoints_iterator_last_checkpoint(self):
-    with ocp.CheckpointManager(self.directory) as manager:
+    with checkpoint_manager.CheckpointManager(self.directory) as manager:
       for i in range(2):
-        manager.save(i, args=ocp.args.StandardSave(self.items))
+        manager.save(i, args=args.StandardSave(self.items))
         manager.wait_until_finished()
         self.check_saved_steps(i)
-      manager.save(2, args=ocp.args.StandardSave(self.items))
+      manager.save(2, args=args.StandardSave(self.items))
 
     # Even though timeout_fn always returns true, we still have the
     # opportunity to evaluate on step 2.
@@ -309,13 +316,13 @@ class EvalUtilsTest(parameterized.TestCase):
       ('checkpoint', 8),
   )
   def test_wait_for_new_checkpoint(self, step_prefix, step_format_fixed_length):
-    options = ocp.CheckpointManagerOptions(
+    options = checkpoint_manager.CheckpointManagerOptions(
         step_prefix=step_prefix,
         step_format_fixed_length=step_format_fixed_length,
     )
-    manager = ocp.CheckpointManager(
+    manager = checkpoint_manager.CheckpointManager(
         self.directory,
-        {'params': ocp.PyTreeCheckpointer()},
+        {'params': PyTreeCheckpointer()},
         options=options,
     )
 
@@ -378,8 +385,8 @@ class EvalUtilsTest(parameterized.TestCase):
     with checkpoint_utils.wait_for_new_checkpoint(directory, timeout=1) as step:
       self.assertEqual(step, -1)
     directory.mkdir()
-    manager = ocp.CheckpointManager(
-        directory, {'params': ocp.PyTreeCheckpointer()}
+    manager = checkpoint_manager.CheckpointManager(
+        directory, {'params': PyTreeCheckpointer()}
     )
     manager.save(0, self.items)
     with checkpoint_utils.wait_for_new_checkpoint(directory, timeout=1) as step:
