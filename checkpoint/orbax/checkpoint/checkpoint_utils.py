@@ -99,8 +99,9 @@ def _release_snapshot(
   """Releases snapshot by deleting the snapshot of the checkpoint."""
   if multihost.process_index() == 0:
     logging.info('Releasing snapshot at step: %d.', step)
-    step_dir = step_name_format.find_step(checkpoint_dir, step).path
-    snapshot_path = get_snapshot_dir_from_step_dir(step_dir, snapshot_dir)
+    if snapshot_dir is None:
+      snapshot_dir = checkpoint_dir / _SNAPSHOTS
+    snapshot_path = snapshot_dir / step_name_format.build_name(step)
     snapshot_impl = snapshot_lib.create_instance(str(snapshot_path))
     snapshot_impl.release_snapshot(str(snapshot_path))
 
