@@ -45,6 +45,7 @@ from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.metadata import tree as tree_metadata
 from orbax.checkpoint.path import format_utils
 import tensorstore as ts
@@ -361,7 +362,7 @@ class BasePyTreeCheckpointHandler(
     if use_zarr3 is None:
       use_zarr3 = self._use_zarr3
     names = self.get_param_names(item)
-    ts_context = type_handlers.get_ts_context()
+    ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
 
     def _param_info(name, value):
       skip_deserialize = False
@@ -801,7 +802,7 @@ class BasePyTreeCheckpointHandler(
       directory: Path where the checkpoint is located.
     """
     merge_start_time = time.time()
-    ts_context = type_handlers.get_ts_context()
+    ts_context = ts_utils.get_ts_context(use_ocdbt=True)
     asyncio_utils.run_sync(
         type_handlers.merge_ocdbt_per_process_files(
             directory,

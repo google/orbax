@@ -352,7 +352,7 @@ async def _write_fragment(
 async def async_serialize(
     arr_inp: jax.Array,
     tensorstore_spec: Dict[str, Any],
-    context: ts.Context = TS_CONTEXT,
+    context: Optional[ts.Context] = None,
     primary_host: Optional[int] = 0,
     replica_id: int = 0,
     transaction: Optional[ts.Transaction] = None,
@@ -404,7 +404,7 @@ async def async_serialize_fragments(
     shards: fragments.Fragments,
     tensorstore_spec: Dict[str, Any],
     *,
-    context: ts.Context = TS_CONTEXT,
+    context: Optional[ts.Context] = None,
     primary_host: Optional[int] = 0,
     transaction: Optional[ts.Transaction] = None,
     byte_limiter: Optional[ByteLimiter] = None,
@@ -434,6 +434,7 @@ async def async_serialize_fragments(
   # Set dtype if it's not in spec
   if 'dtype' not in tensorstore_spec:
     raise KeyError('`dtype` not found in tensorstore spec.')
+  context = context or ts_utils.get_ts_context(use_ocdbt=False)
 
   # If primary_host is None, all hosts will checkpoint. This is used
   # for checkpointing to local filesystem.
@@ -569,11 +570,12 @@ async def async_deserialize(
     global_shape: Optional[Sequence[int]] = None,
     dtype: Optional[jnp.dtype] = None,
     byte_limiter: Optional[ByteLimiter] = None,
-    context: ts.Context = TS_CONTEXT,
+    context: Optional[ts.Context] = None,
     assume_metadata: bool = False,
 ) -> jax.Array:
   """Reads an array using TensorStore."""
   byte_limiter = byte_limiter or get_byte_limiter()
+  context = context or ts_utils.get_ts_context(use_ocdbt=False)
   in_sharding = user_in_sharding
   if not isinstance(in_sharding, jax.sharding.Sharding):
     raise ValueError(

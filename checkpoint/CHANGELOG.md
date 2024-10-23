@@ -21,6 +21,7 @@ customize this on a per-array level.
 - Move `multihost` implementations to `_src`. Commonly used symbols are still exported in the same way.
 - Use `Fragments` for serialization.
 - Set `AsyncOptions.timeout_secs` default value to 10 minutes.
+- De-duplicate `get_ts_context` usages and move to ts_utils.
 - Move `logging` to `_src`.
 
 ## [0.7.0] - 2024-10-07

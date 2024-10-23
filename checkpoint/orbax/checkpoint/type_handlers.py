@@ -60,16 +60,6 @@ ShardingMetadata = sharding_metadata.ShardingMetadata
 LimitInFlightBytes = serialization.LimitInFlightBytes
 is_ocdbt_checkpoint = format_utils.is_ocdbt_checkpoint
 
-_BASE_TS_CONTEXT = {
-    'file_io_concurrency': {'limit': 128},
-}
-_DEFAULT_OCDBT_TS_CONTEXT = {
-    **_BASE_TS_CONTEXT,
-    # Provide cache pool for B-tree nodes to avoid repeated reads.
-    # 100MB limit.
-    **{'cache_pool#ocdbt': {'total_bytes_limit': 100000000}},
-}
-
 RESTORE_TYPE_NONE = 'None'
 RESTORE_TYPE_DICT = 'Dict'
 RESTORE_TYPE_LIST = 'List'
@@ -736,8 +726,12 @@ def get_process_index_for_subdir(
 
 
 def get_ts_context(use_ocdbt: bool = True) -> ts.Context:
+  logging.error(
+      'type_handlers.get_ts_context is deprecated. Use ts_utils.get_ts_context'
+      ' instead.'
+  )
   del use_ocdbt
-  return ts.Context(_DEFAULT_OCDBT_TS_CONTEXT)
+  return ts_utils.get_ts_context(use_ocdbt=True)
 
 
 def get_cast_tspec_serialize(tspec, value, args):
@@ -1704,7 +1698,7 @@ class StringHandler(TypeHandler):
       filename: Optional[str] = None,
   ):
     self._filename = filename or '_strings.json'
-    self._ts_context = serialization.TS_CONTEXT
+    self._ts_context = ts_utils.get_ts_context(use_ocdbt=False)
 
   def _get_json_tspec(
       self,

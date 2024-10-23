@@ -29,6 +29,8 @@ from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
@@ -36,6 +38,7 @@ register_with_handler = checkpoint_args.register_with_handler
 ArrayType = Union[int, float, np.number, np.ndarray, jax.Array]
 
 _ELEMENT_KEY = 'ELEMENT'
+_USE_OCDBT_FOR_SAVE = False
 
 
 # TODO: b/362285520 - Refactor to delegate to PytreeCheckpointHandler.
@@ -90,7 +93,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         name=self._checkpoint_name,
         path=directory / self._checkpoint_name,
         parent_dir=directory,
-        is_ocdbt_checkpoint=False,
+        is_ocdbt_checkpoint=_USE_OCDBT_FOR_SAVE,
         value_typestr=type_handler.typestr(),
     )
     futures = await type_handler.serialize([item], [info], args=[save_args])
@@ -165,7 +168,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     return result
 
   def finalize(self, directory: epath.Path):
-    ts_context = type_handlers.get_ts_context()
+    ts_context = ts_utils.get_ts_context(use_ocdbt=_USE_OCDBT_FOR_SAVE)
     asyncio_utils.run_sync(
         type_handlers.merge_ocdbt_per_process_files(
             directory,
