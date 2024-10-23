@@ -14,7 +14,7 @@
 
 """Various utilities for working with NumPy arrays and fragments."""
 
-from typing import Sequence, Union
+from typing import Sequence
 
 from orbax.checkpoint._src.arrays import types
 
@@ -126,7 +126,7 @@ def _pretty_slice(s: slice) -> str:
   return f'{start}:{stop}{step}'
 
 
-def pretty_nd_slice(idx: Union[Sequence[slice], type(Ellipsis)]) -> str:
+def pretty_nd_slice(idx: Sequence[slice] | type(Ellipsis)) -> str:
   """Returns a pretty-printed string representation of a NdSlice."""
   idx_str = (
       '...'

@@ -17,7 +17,6 @@
 import dataclasses
 import itertools
 import math
-from typing import Optional, Union
 
 from absl import logging
 import jax
@@ -46,8 +45,8 @@ def _find_divisors(size: int):
 def choose_chunk_shape(
     global_shape: Shape,
     write_shape: Shape,
-    dtype: Union[jnp.dtype, np.dtype],
-    target_byte_size: Optional[int],
+    dtype: jnp.dtype | np.dtype,
+    target_byte_size: int | None,
     *,
     shard_axes: tuple[int, ...] = (),
 ) -> Shape:

@@ -18,10 +18,8 @@ A fragment is a lot like a shard but its shape is not constrained by any
 relationship to a mesh of devices, or to other fragments.
 """
 
-from __future__ import annotations
-
 import dataclasses
-from typing import Optional, Sequence, Union
+from typing import Sequence
 
 import jax
 import numpy as np
@@ -57,14 +55,14 @@ class Fragment:
   """
 
   np_index: np.ndarray  # shape=[{rank}, 3], dtype=int
-  value: Optional[np.ndarray] = None
+  value: np.ndarray | None = None
 
   def __init__(
       self,
       *,
-      index: Optional[Index] = None,
-      np_index: Optional[np.ndarray] = None,
-      value: Optional[np.ndarray] = None,
+      index: Index | None = None,
+      np_index: np.ndarray | None = None,
+      value: np.ndarray | None = None,
   ):
     if value is not None and not isinstance(value, np.ndarray):
       raise TypeError(
@@ -114,7 +112,7 @@ class Fragment:
   def size(self) -> int:
     return np.prod(self.shape)
 
-  def __eq__(self, other: Fragment):
+  def __eq__(self, other: 'Fragment'):
     if not isinstance(other, Fragment):
       return False
     if not np.array_equal(self.np_index, other.np_index):
@@ -157,7 +155,7 @@ class Fragment:
   def nbytes_astype(self, dtype: np.dtype) -> int:
     return np.prod([dtype.itemsize, *self.shape])
 
-  def offset_by(self, delta: np.ndarray) -> Fragment:
+  def offset_by(self, delta: np.ndarray) -> 'Fragment':
     out_idx = self.np_index.copy()
     out_idx[:, :2] += np.expand_dims(delta, axis=1)
     return Fragment(np_index=out_idx, value=self.value)
@@ -245,9 +243,8 @@ def _normalize(idx: Index, shape: Shape) -> Index:
   )
 
 
-def addressable_shards(
-    x: Union[jax.Array, jax.ShapeDtypeStruct],
-) -> list[Index]:
+def addressable_shards(x: jax.Array | jax.ShapeDtypeStruct) -> list[Index]:
+  """Computes list of fragment indices for addressable shards of a JAX array."""
   sharding = getattr(x, 'sharding', None)
   shape = x.shape
   if not sharding:
@@ -259,8 +256,9 @@ def addressable_shards(
 
 
 def abstract_fragments(
-    x: Union[jax.Array, jax.ShapeDtypeStruct, Fragments],
+    x: jax.Array | jax.ShapeDtypeStruct | Fragments,
 ) -> Fragments:
+  """Returns abstract fragments matching the given array."""
   if isinstance(x, Fragments):
     return x
   return Fragments(
@@ -288,7 +286,7 @@ def validate_fragments_can_be_stacked(fragments: Fragments) -> None:
     )
 
 
-def stack_fragments(fragments: Optional[Fragments]) -> Optional[np.ndarray]:
+def stack_fragments(fragments: Fragments | None) -> np.ndarray | None:
   """Stacks the given fragments, which must all have the same shape."""
   if fragments is None:
     return fragments
