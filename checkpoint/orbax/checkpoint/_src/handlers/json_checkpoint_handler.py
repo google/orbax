@@ -31,6 +31,8 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.logging import utils as logging_utils
+
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
@@ -132,7 +134,7 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     return json.loads(path.read_text())
 
   def close(self):
-    self._executor.shutdown()
+    logging_utils.shutdown_and_log(self._executor, self.__class__.__name__)
 
 
 @register_with_handler(JsonCheckpointHandler, for_save=True)
