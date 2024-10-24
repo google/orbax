@@ -468,6 +468,109 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     self.assertDictEqual(restored.state, state)
 
+  def test_save_and_restore_with_handler_registry_with_default_registry_fallback(
+      self,
+  ):
+    handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    handler_registry.add(
+        'state',
+        args_lib.StandardSave,
+    )
+    handler_registry.add(
+        'state',
+        args_lib.StandardRestore,
+    )
+    save_handler = CompositeCheckpointHandler(handler_registry=handler_registry)
+
+    state = {'a': 1, 'b': 2}
+
+    self.save(
+        save_handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+        ),
+    )
+
+    restore_handler = CompositeCheckpointHandler(
+        handler_registry=handler_registry,
+    )
+    restored = restore_handler.restore(
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardRestore(state),
+        ),
+    )
+    self.assertDictEqual(restored.state, state)
+
+  def test_save_and_restore_with_handler_registry_with_different_handlers(
+      self,
+  ):
+    handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    handler1 = standard_checkpoint_handler.StandardCheckpointHandler()
+    handler2 = standard_checkpoint_handler.StandardCheckpointHandler()
+    handler_registry.add(
+        'state',
+        args_lib.StandardSave,
+        handler1,
+    )
+    handler_registry.add(
+        'state',
+        args_lib.StandardRestore,
+        handler2,
+    )
+    save_handler = CompositeCheckpointHandler(handler_registry=handler_registry)
+
+    state = {'a': 1, 'b': 2}
+
+    self.save(
+        save_handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+        ),
+    )
+
+    restore_handler = CompositeCheckpointHandler(
+        handler_registry=handler_registry,
+    )
+    restored = restore_handler.restore(
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardRestore(state),
+        ),
+    )
+    self.assertDictEqual(restored.state, state)
+
+  def test_save_and_restore_with_handler_registry_with_different_handlers_close(
+      self,
+  ):
+    handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    handler1 = standard_checkpoint_handler.StandardCheckpointHandler()
+    handler2 = standard_checkpoint_handler.StandardCheckpointHandler()
+    handler_registry.add(
+        'state',
+        args_lib.StandardSave,
+        handler1,
+    )
+    handler_registry.add(
+        'state',
+        args_lib.StandardRestore,
+        handler2,
+    )
+    save_handler = CompositeCheckpointHandler(handler_registry=handler_registry)
+
+    state = {'a': 1, 'b': 2}
+
+    self.save(
+        save_handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+        ),
+    )
+    save_handler.close()
+
   def test_no_restore_args_partial_save(self):
     handler = CompositeCheckpointHandler(
         'state', metadata=JsonCheckpointHandler()

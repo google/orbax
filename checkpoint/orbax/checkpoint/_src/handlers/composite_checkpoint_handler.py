@@ -866,6 +866,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       handler.finalize(tmp_dir.get())
       tmp_dir.finalize()
 
+      # Remove the temporary path once it has been finalized.
+      self._current_temporary_paths.pop(item_name)
+
   def close(self):
     for _, handler in _get_unique_registered_items_and_handlers(
         self._handler_registry
