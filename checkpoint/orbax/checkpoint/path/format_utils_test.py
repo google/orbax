@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for atomicity.py."""
-
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -23,7 +21,7 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
-from orbax.checkpoint.metadata import checkpoint as checkpoint_metadata
+from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint.path import format_utils
 
 

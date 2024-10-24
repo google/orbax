@@ -26,7 +26,7 @@ from orbax.checkpoint import pytree_checkpointer
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
-from orbax.checkpoint.metadata import value as value_metadata
+from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint.path import step as step_lib
 
 

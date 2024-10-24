@@ -28,9 +28,9 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint.metadata import checkpoint
 from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import atomicity
 

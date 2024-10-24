@@ -35,7 +35,7 @@ from orbax.checkpoint import tree
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint import version
-from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint import multihost
 from orbax.checkpoint.path import step
 
 from orbax.checkpoint.future import Future
