@@ -531,14 +531,15 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         step_name_format=options.step_name_format,
         should_save_fn=options.local.should_save_fn,
         create=False,
-        cleanup_tmp_directories=options.cleanup_tmp_directories,
+        # we always clean up local tmp directories explicitly
+        cleanup_tmp_directories=False,
         async_options=options.async_options,
         multiprocessing_options=multiprocessing_options,
         enable_async_checkpointing=options.enable_async_checkpointing,
         read_only=options.local.read_only,
         single_host_load_and_broadcast=False,
         # enable_background_delete set to False to ensure gc is done before save
-        enable_background_delete=False
+        enable_background_delete=False,
     )
     self._logger = logger or standard_logger.StandardLogger()
     self._coordination_timeout_secs = (
@@ -795,6 +796,9 @@ class CheckpointManager(
 
     self._local_steps = []
     self._persistent_steps = []
+    # clean up tmp directories in ram
+    self._cleanup_local_tmp_directories()
+
     # Initialize step cache.
     self.all_steps(read=True)
 
@@ -805,6 +809,16 @@ class CheckpointManager(
         multihost.process_index(),
         jax.process_index(),
     )
+
+  def _cleanup_local_tmp_directories(self):
+    logging.info(
+        'Cleaning up existing temporary directories at %s.',
+        self._local_directory,
+    )
+    tmp_files = step_lib.tmp_checkpoints(self._local_directory)
+    for tmp_file in tmp_files:
+      logging.info('Deleting temporary checkpoint: %s.', tmp_file)
+      (self._local_directory / tmp_file).rmtree()
 
   def _make_persistent_checkpoint_manager(
       self,
