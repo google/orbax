@@ -22,6 +22,7 @@ import functools
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import args
 from orbax.checkpoint import checkpoint_utils
+from orbax.checkpoint import handlers
 from orbax.checkpoint import logging
 from orbax.checkpoint import metadata
 from orbax.checkpoint import msgpack_utils

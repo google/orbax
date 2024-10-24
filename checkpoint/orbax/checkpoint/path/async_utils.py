@@ -43,6 +43,10 @@ def async_exists(path: epath.Path):
   return asyncio_utils.as_async_function(path.exists)()
 
 
+def async_stat(path: epath.Path):
+  return asyncio_utils.as_async_function(path.stat)()
+
+
 def async_rmtree(path: epath.Path):
   return asyncio_utils.as_async_function(path.rmtree)()
 
