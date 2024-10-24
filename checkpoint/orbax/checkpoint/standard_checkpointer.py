@@ -19,7 +19,7 @@ from etils import epath
 from orbax.checkpoint import async_checkpointer
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
-from orbax.checkpoint.metadata import checkpoint
+from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint.path import atomicity
 
 

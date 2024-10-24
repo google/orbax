@@ -36,12 +36,12 @@ from jax.experimental import pjit
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import metadata as metadata_lib
 from orbax.checkpoint import serialization
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
@@ -97,7 +97,7 @@ def create_tmp_directory(
     barrier_sync_key_prefix: Optional[str] = None,
     path_permission_mode: int = step_lib.WORLD_READABLE_MODE,
     checkpoint_metadata_store: Optional[
-        metadata_lib.CheckpointMetadataStore
+        checkpoint_metadata.CheckpointMetadataStore
     ] = None,
 ) -> epath.Path:
   """Creates a non-deterministic tmp directory for saving for given `final_dir`.
@@ -154,7 +154,7 @@ def create_tmp_directory(
     if checkpoint_metadata_store is not None:
       checkpoint_metadata_store.write(
           checkpoint_path=tmp_dir,
-          checkpoint_metadata=metadata_lib.StepMetadata(
+          checkpoint_metadata=checkpoint_metadata.StepMetadata(
               init_timestamp_nsecs=time.time_ns()
           ),
       )
@@ -604,7 +604,7 @@ def ensure_atomic_save(
     temp_ckpt_dir: epath.Path,
     final_ckpt_dir: epath.Path,
     checkpoint_metadata_store: Optional[
-        metadata_lib.CheckpointMetadataStore
+        checkpoint_metadata.CheckpointMetadataStore
     ] = None,
 ):
   """Wrapper around TemporaryPath.finalize for testing."""

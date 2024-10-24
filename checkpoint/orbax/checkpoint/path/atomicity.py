@@ -60,8 +60,8 @@ from typing import Optional, Protocol, Sequence, Type
 from absl import logging
 from etils import epath
 import jax
-from orbax.checkpoint import metadata
 from orbax.checkpoint import options as options_lib
+from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import utils
@@ -89,7 +89,7 @@ class TemporaryPath(Protocol):
       final_path: epath.Path,
       *,
       checkpoint_metadata_store: Optional[
-          metadata.CheckpointMetadataStore
+          checkpoint_metadata.CheckpointMetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
       multiprocessing_options: Optional[
@@ -138,7 +138,7 @@ async def _create_tmp_directory(
     primary_host: Optional[int] = 0,
     path_permission_mode: int = step_lib.WORLD_READABLE_MODE,
     checkpoint_metadata_store: Optional[
-        metadata.CheckpointMetadataStore
+        checkpoint_metadata.CheckpointMetadataStore
     ] = None,
 ) -> epath.Path:
   """Creates a non-deterministic tmp directory for saving for given `final_dir`.
@@ -185,7 +185,7 @@ async def _create_tmp_directory(
     if checkpoint_metadata_store is not None:
       checkpoint_metadata_store.write(
           checkpoint_path=tmp_dir,
-          checkpoint_metadata=metadata.StepMetadata(
+          checkpoint_metadata=checkpoint_metadata.StepMetadata(
               init_timestamp_nsecs=time.time_ns()
           ),
       )
@@ -218,7 +218,7 @@ class AtomicRenameTemporaryPath(TemporaryPath):
       final_path: epath.Path,
       *,
       checkpoint_metadata_store: Optional[
-          metadata.CheckpointMetadataStore
+          checkpoint_metadata.CheckpointMetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
       multiprocessing_options: Optional[
@@ -246,7 +246,7 @@ class AtomicRenameTemporaryPath(TemporaryPath):
       final_path: epath.Path,
       *,
       checkpoint_metadata_store: Optional[
-          metadata.CheckpointMetadataStore
+          checkpoint_metadata.CheckpointMetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
       multiprocessing_options: Optional[
@@ -341,7 +341,7 @@ class CommitFileTemporaryPath(TemporaryPath):
       final_path: epath.Path,
       *,
       checkpoint_metadata_store: Optional[
-          metadata.CheckpointMetadataStore
+          checkpoint_metadata.CheckpointMetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
       multiprocessing_options: Optional[
@@ -369,7 +369,7 @@ class CommitFileTemporaryPath(TemporaryPath):
       final_path: epath.Path,
       *,
       checkpoint_metadata_store: Optional[
-          metadata.CheckpointMetadataStore
+          checkpoint_metadata.CheckpointMetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
       multiprocessing_options: Optional[

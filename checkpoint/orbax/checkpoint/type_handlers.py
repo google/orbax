@@ -39,11 +39,11 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.arrays import fragments
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.metadata import sharding as sharding_metadata
+from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
-from orbax.checkpoint.metadata import sharding as sharding_metadata
-from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import async_utils
 from orbax.checkpoint.path import format_utils
 import tensorstore as ts
