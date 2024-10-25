@@ -207,6 +207,16 @@ class StandardCheckpointHandler(
       restore_args = checkpoint_utils.construct_restore_args(
           self.metadata(directory)
       )
+
+    def _replace_strict(
+        arg: pytree_checkpoint_handler.RestoreArgs,
+    ) -> pytree_checkpoint_handler.RestoreArgs:
+      if hasattr(arg, 'strict'):
+        return dataclasses.replace(arg, strict=False)
+      return arg
+
+    if not args.strict:
+      restore_args = jax.tree.map(_replace_strict, restore_args)
     return self._impl.restore(
         directory,
         args=pytree_checkpoint_handler.PyTreeRestoreArgs(
@@ -259,6 +269,10 @@ class StandardRestoreArgs(CheckpointArgs):
         `item` is a custom PyTree class, the tree will be restored with the
         same structure as provided. If not provided, restores as a serialized
         nested dict representation of the custom class.
+    strict: if False, restoration allows silent truncating/padding of arrays if
+        the stored array shape does not match the target shape. Otherwise,
+        raises an error.
   """
 
   item: Optional[PyTree] = None
+  strict: bool = True

@@ -1,10 +1,16 @@
 # Announcements
 
-## 2024-10-21
-A new option, `strict` will be added to `ArrayRestoreArgs` within the next week
-or so, before the next version release. This option will default to True. This
+## 2024-10-25
+A new option, `strict` has been added to `ArrayRestoreArgs` (and will be
+present in the next version release). The option defaults to True. This
 enforces that loaded `jax.Array`s must not change shape by silently padding or
 truncating. To re-enable padding/truncating, simply enable `strict=False`.
+
+## 2024-10-01
+Many Orbax implementations are being refactored into a private `_src` directory,
+to better delineate internal and external APIs. Most users should be unaffected
+but some lightly-used public APIs may become private. Please reach out if you
+feel that a particular API should remain public.
 
 ## 2024-04-02
 The `checkpoint_manager_context(...)` function is deprecated. To ensure proper 

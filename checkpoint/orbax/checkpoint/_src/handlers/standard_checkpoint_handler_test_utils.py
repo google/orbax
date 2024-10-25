@@ -136,6 +136,41 @@ class StandardCheckpointHandlerTestBase:
       )
       test_utils.assert_tree_equal(self, self.mixed_pytree, restored)
 
+    @parameterized.parameters((True,), (False,))
+    def test_change_shape(self, strict: bool):
+      """Test case."""
+      if not hasattr(self.restore_args_cls, 'strict'):
+        self.skipTest('strict option not supported for this handler')
+      mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
+      axes = jax.sharding.PartitionSpec(None)
+      pytree = {'x': test_utils.create_sharded_array(np.arange(8), mesh, axes)}
+      self.handler.save(self.directory, args=self.save_args_cls(pytree))
+
+      mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
+      axes = jax.sharding.PartitionSpec(None)
+      expected_pytree = {
+          'x': test_utils.create_sharded_array(np.arange(4), mesh, axes)
+      }
+
+      if strict:
+        with self.assertRaises(BaseException):
+          self.handler.restore(
+              self.directory,
+              args=self.restore_args_cls(
+                  jax.tree.map(utils.to_shape_dtype_struct, expected_pytree),
+                  strict=strict,
+              ),
+          )
+      else:
+        restored = self.handler.restore(
+            self.directory,
+            args=self.restore_args_cls(
+                jax.tree.map(utils.to_shape_dtype_struct, expected_pytree),
+                strict=strict,
+            ),
+        )
+        test_utils.assert_tree_equal(self, expected_pytree, restored)
+
     def test_save_unsupported_type(self):
       pytree = {'str_key': 'str_value', **self.pytree}
       with self.assertRaisesRegex(ValueError, 'Unsupported type'):
