@@ -12,109 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Metadata describing PyTree values.""" ''
+"""Defines exported symbols for package orbax.checkpoint.metadata.value."""
 
-from __future__ import annotations
+# pylint: disable=g-importing-member, g-bad-import-order, unused-import
 
-import dataclasses
-from typing import Optional
-
-from etils import epath
-import jax
-from jax import numpy as jnp
-from orbax.checkpoint.metadata import sharding as sharding_metadata
-
-
-@dataclasses.dataclass
-class Metadata:
-  """Metadata describing PyTree values.
-
-  name:
-    A string representing the original name of the parameter.
-  directory:
-    The directory where the parameter can be found, after taking `name` into
-    account.
-  """
-
-  name: str
-  directory: Optional[epath.Path]
-
-  def __eq__(self, other: Metadata) -> bool:
-    return isinstance(other, Metadata)
-
-
-@dataclasses.dataclass(frozen=True)
-class StorageMetadata:
-  """Metadata describing how arrays are stored in a checkpoint."""
-
-  chunk_shape: Optional[tuple[int, ...]]
-
-
-@dataclasses.dataclass
-class ArrayMetadata(Metadata):
-  """Metadata describing an array.
-
-  shape:
-    Tuple of integers describing the array shape.
-  sharding:
-    ShardingMetadata to indicate how the array is sharded. ShardingMetadata is
-    an orbax representation of `jax.sharding.Sharding` which stores the same
-    properties but not require accessing real devices.
-  dtype:
-    Dtype of array elements.
-  storage:
-    Optional metadata describing how the array is stored in a checkpoint.
-  """
-
-  shape: tuple[int, ...]
-  sharding: Optional[sharding_metadata.ShardingMetadata]
-  dtype: Optional[jnp.dtype]
-  storage: Optional[StorageMetadata] = None
-
-  def __eq__(self, other: Metadata) -> bool:
-    return (
-        isinstance(other, ArrayMetadata)
-        and self.shape == other.shape
-        and self.sharding == other.sharding
-        and self.dtype == other.dtype
-        and self.storage == other.storage
-    )
-
-  @classmethod
-  def from_shape_dtype_struct(
-      cls,
-      s: jax.ShapeDtypeStruct,
-      name: Optional[str] = None,
-      directory: Optional[epath.Path] = None,
-  ) -> ArrayMetadata:
-    return cls(
-        name=name,
-        directory=directory,
-        shape=s.shape,
-        sharding=s.sharding,
-        dtype=s.dtype,
-    )
-
-
-@dataclasses.dataclass
-class ScalarMetadata(ArrayMetadata):
-  """Metadata describing a scalar value.
-
-  dtype:
-    Scalar dtype.
-  """
-
-  shape: tuple[int, ...] = tuple([])
-  sharding: Optional[sharding_metadata.ShardingMetadata] = None
-  dtype: Optional[jnp.dtype] = None
-
-  def __eq__(self, other: Metadata) -> bool:
-    return isinstance(other, ScalarMetadata) and self.dtype == other.dtype
-
-
-@dataclasses.dataclass
-class StringMetadata(Metadata):
-  """Metadata describing a string value."""
-
-  def __eq__(self, other: Metadata) -> bool:
-    return isinstance(other, StringMetadata)
+from orbax.checkpoint._src.metadata.value import Metadata
+from orbax.checkpoint._src.metadata.value import ArrayMetadata
+from orbax.checkpoint._src.metadata.value import StringMetadata
+from orbax.checkpoint._src.metadata.value import ScalarMetadata
+from orbax.checkpoint._src.metadata.value import StorageMetadata

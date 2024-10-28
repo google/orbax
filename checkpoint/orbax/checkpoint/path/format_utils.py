@@ -16,7 +16,7 @@
 
 from typing import List
 from etils import epath
-from orbax.checkpoint.metadata import checkpoint as checkpoint_metadata
+from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 
 _OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
 PYTREE_METADATA_FILE = '_METADATA'

@@ -18,8 +18,8 @@ from typing import Any, Callable, Optional, Tuple, Type, Union
 import jax
 from jax import numpy as jnp
 import numpy as np
-from orbax.checkpoint.metadata import sharding as sharding_metadata
-from orbax.checkpoint.metadata import value as value_metadata
+from orbax.checkpoint._src.metadata import sharding as sharding_metadata
+from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint.tree import types as tree_types
 
 PyTree = tree_types.PyTree

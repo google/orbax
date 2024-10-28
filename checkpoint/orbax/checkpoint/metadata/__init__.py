@@ -16,21 +16,21 @@
 
 # pylint: disable=g-importing-member, g-bad-import-order
 
-from orbax.checkpoint.metadata.checkpoint import StepMetadata
-from orbax.checkpoint.metadata.checkpoint import CheckpointMetadataStore
-from orbax.checkpoint.metadata.checkpoint import checkpoint_metadata_store
+from orbax.checkpoint._src.metadata.checkpoint import StepMetadata
+from orbax.checkpoint._src.metadata.checkpoint import CheckpointMetadataStore
+from orbax.checkpoint._src.metadata.checkpoint import checkpoint_metadata_store
 
-from orbax.checkpoint.metadata.sharding import ShardingMetadata
-from orbax.checkpoint.metadata.sharding import NamedShardingMetadata
-from orbax.checkpoint.metadata.sharding import SingleDeviceShardingMetadata
-from orbax.checkpoint.metadata.sharding import GSPMDShardingMetadata
-from orbax.checkpoint.metadata.sharding import PositionalShardingMetadata
-from orbax.checkpoint.metadata.sharding import from_jax_sharding
-from orbax.checkpoint.metadata.sharding import from_serialized_string
-from orbax.checkpoint.metadata.sharding import get_sharding_or_none
-from orbax.checkpoint.metadata.sharding import ShardingTypes
+from orbax.checkpoint._src.metadata.sharding import ShardingMetadata
+from orbax.checkpoint._src.metadata.sharding import NamedShardingMetadata
+from orbax.checkpoint._src.metadata.sharding import SingleDeviceShardingMetadata
+from orbax.checkpoint._src.metadata.sharding import GSPMDShardingMetadata
+from orbax.checkpoint._src.metadata.sharding import PositionalShardingMetadata
 
-from orbax.checkpoint.metadata.value import Metadata
+from orbax.checkpoint.metadata import value
+from orbax.checkpoint.metadata import tree
+
+# Prefer to use metadata.value instead of the following symbols.
 from orbax.checkpoint.metadata.value import ArrayMetadata
 from orbax.checkpoint.metadata.value import StringMetadata
 from orbax.checkpoint.metadata.value import ScalarMetadata
+from orbax.checkpoint.metadata.value import StorageMetadata

@@ -12,14 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for orbax.checkpoint.metadata.checkpoint.py."""
-
 import pickle
 import time
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
-from orbax.checkpoint.metadata import checkpoint
+from orbax.checkpoint._src.metadata import checkpoint
 
 
 class CheckpointMetadataStoreTest(parameterized.TestCase):
@@ -226,9 +224,7 @@ class CheckpointMetadataStoreTest(parameterized.TestCase):
     # setup some data with blocking store.
     self.write_metadata_store(blocking_write=True).write(
         checkpoint_path=self.directory,
-        checkpoint_metadata=checkpoint.StepMetadata(
-            init_timestamp_nsecs=1
-        ),
+        checkpoint_metadata=checkpoint.StepMetadata(init_timestamp_nsecs=1),
     )
 
     self.assertEqual(

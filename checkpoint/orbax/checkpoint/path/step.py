@@ -27,8 +27,8 @@ from absl import logging
 from etils import epath
 import jax
 import numpy as np
+from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint.metadata import checkpoint
 
 
 _GCS_PATH_PREFIX = ('gs://',)

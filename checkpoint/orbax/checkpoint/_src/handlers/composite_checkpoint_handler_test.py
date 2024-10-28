@@ -25,8 +25,8 @@ from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
+from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint.metadata import value as value_metadata
 from orbax.checkpoint.path import step
 
 CompositeArgs = composite_checkpoint_handler.CompositeArgs
