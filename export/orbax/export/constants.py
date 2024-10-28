@@ -72,5 +72,11 @@ WEIGHTS_NAME = 'weights_name'
 # name kwarg was not provided in the jax2obm_kwargs.
 DEFAULT_WEIGHTS_NAME = 'weights'
 
+DEFAULT_PRE_PROCESSOR_NAME = 'pre_processor'
+
+DEFAULT_POST_PROCESSOR_NAME = 'post_processor'
+
+DEFAULT_SUPPLEMENTAL_FILENAME = 'orchestration.pb'
+
 # Orbax MIME types
 ORBAX_CHECKPOINT_MIME_TYPE = 'orbax_checkpoint'

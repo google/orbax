@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+from typing import cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -24,8 +25,17 @@ from orbax.export import constants
 from orbax.export import jax_module
 from orbax.export import obm_export
 from orbax.export import serving_config as osc
+from orbax.export.modules import obm_module
+import tensorflow as tf
 
 os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
+
+
+# TODO(b/363033166): Remove this function once TF isolation is done.
+def _package_jax_module(m: jax_module.JaxModule):
+  result = tf.Module()
+  result.computation_module = m
+  return result
 
 
 class ObmExportTest(parameterized.TestCase):

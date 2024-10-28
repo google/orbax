@@ -26,93 +26,83 @@ JaxModule = obx_export.JaxModule
 
 class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
 
-  # TODO(bdwalker): Fix these tests once we have finished the obm_module
-  # implementation.
-  # def test_jax_module_orbax_model_unimplemented_methods(self):
-  #   @jax.jit
-  #   def linear(
-  #       weights: jnp.ndarray, bias: jnp.ndarray, x: jnp.ndarray
-  #   ) -> jnp.ndarray:
-  #     return jnp.dot(weights, x) + bias
+  def test_jax_module_orbax_model_unimplemented_methods(self):
+    @jax.jit
+    def linear(
+        weights: jnp.ndarray, bias: jnp.ndarray, x: jnp.ndarray
+    ) -> jnp.ndarray:
+      return jnp.dot(weights, x) + bias
 
-  #   key_w, key_b = jax.random.split(jax.random.PRNGKey(1234), 2)
-  #   params = {
-  #       'weights': jax.random.normal(key_w, shape=(8, 8)),
-  #       'bias': jax.random.normal(key_b, shape=(8, 1)),
-  #   }
+    params_spec = {
+        'weights': jax.ShapeDtypeStruct(shape=(8, 8), dtype=jnp.float32),
+        'bias': jax.ShapeDtypeStruct(shape=(8, 1), dtype=jnp.float32),
+    }
 
-  #   j_module = JaxModule(
-  #       params=params,
-  #       apply_fn={'linear': linear},
-  #       export_version=constants.ExportModelType.ORBAX_MODEL,
-  #       serving_configs=[
-  #           osc.ServingConfig(
-  #               signature_key='linear',
-  #               input_signature=[{
-  #                   'x': jax.ShapeDtypeStruct(
-  #                       shape=(8, 8),
-  #                       dtype=jnp.float32,
-  #                   ),
-  #               }],
-  #           )
-  #       ],
-  #   )
+    j_module = JaxModule(
+        params=params_spec,
+        apply_fn={'linear': linear},
+        export_version=constants.ExportModelType.ORBAX_MODEL,
+    )
 
-  #   self.assertEqual(
-  #       j_module._export_version,
-  #       constants.ExportModelType.ORBAX_MODEL,
-  #   )
+    self.assertEqual(
+        j_module._export_version,
+        constants.ExportModelType.ORBAX_MODEL,
+    )
 
-  #  # None of the obm_module methods are implemnted. When the export version is
-  #  # ORBAX_MODEL, the obm_module methods should raise a NotImplementedError.
-  #   with self.assertRaises(NotImplementedError):
-  #     j_module.apply_fn_map  # pylint: disable=pointless-statement
+    # TODO(bdwalker): Fix these tests once we have finished the obm_module
+    # implementation.
 
-  #   with self.assertRaises(NotImplementedError):
-  #     j_module.model_params  # pylint: disable=pointless-statement
+    # Some of the obm_module methods are not implemented. When the
+    # export version is ORBAX_MODEL, those obm_module methods should
+    # raise a NotImplementedError.
 
-  #   with self.assertRaises(NotImplementedError):
-  #     j_module.methods  # pylint: disable=pointless-statement
+    # with self.assertRaises(NotImplementedError):
+    #   j_module.apply_fn_map  # pylint: disable=pointless-statement
 
-  #   with self.assertRaises(TypeError):
-  #     j_module.with_gradient  # pylint: disable=pointless-statement
+    # with self.assertRaises(NotImplementedError):
+    #   j_module.model_params  # pylint: disable=pointless-statement
 
-  #   with self.assertRaises(TypeError):
-  #     j_module.obm_module_to_jax_exported_map({'x': [1, 2, 3]})
+    # with self.assertRaises(NotImplementedError):
+    #   j_module.methods  # pylint: disable=pointless-statement
 
-  # # Several functions are not supported for ORBAX_MODEL export.
-  # # This test ensures that the JaxModule raises a TypeError when these
-  # # functions are called.
-  # def test_jax_module_orbax_model_unsupported_methods(self):
-  #   def linear(params, x):
-  #     return params['w'] @ x + params['b']
+    # with self.assertRaises(TypeError):
+    #   j_module.with_gradient  # pylint: disable=pointless-statement
 
-  #   key_w, key_b = jax.random.split(jax.random.PRNGKey(1234), 2)
-  #   params = {
-  #       'w': jax.random.normal(key_w, shape=(8, 8)),
-  #       'b': jax.random.normal(key_b, shape=(8, 1)),
-  #   }
-  #   j_module = JaxModule(
-  #       params=params,
-  #       apply_fn={'linear': linear},
-  #       export_version=constants.ExportModelType.ORBAX_MODEL,
-  #   )
+    # with self.assertRaises(TypeError):
+    #   j_module.obm_module_to_jax_exported_map({'x': [1, 2, 3]})
 
-  #   self.assertEqual(
-  #       j_module._export_version,
-  #       constants.ExportModelType.ORBAX_MODEL,
-  #   )
+  # Several functions are not supported for ORBAX_MODEL export.
+  # This test ensures that the JaxModule raises a TypeError when these
+  # functions are called.
+  def test_jax_module_orbax_model_unsupported_methods(self):
+    def linear(params, x):
+      return params['w'] @ x + params['b']
 
-  #   with self.assertRaises(TypeError):
-  #     j_module.update_variables(
-  #         {'w': jax.random.normal(key_w, shape=(8, 8), dtype=jnp.float32)}
-  #     )
+    params_spec = {
+        'w': jax.ShapeDtypeStruct(shape=(8, 8), dtype=jnp.float32),
+        'b': jax.ShapeDtypeStruct(shape=(8, 1), dtype=jnp.float32),
+    }
+    j_module = JaxModule(
+        params=params_spec,
+        apply_fn={'linear': linear},
+        export_version=constants.ExportModelType.ORBAX_MODEL,
+    )
 
-  #   with self.assertRaises(TypeError):
-  #     j_module.jax2tf_kwargs_map  # pylint: disable=pointless-statement
+    self.assertEqual(
+        j_module._export_version,
+        constants.ExportModelType.ORBAX_MODEL,
+    )
 
-  #   with self.assertRaises(TypeError):
-  #     j_module.input_polymorphic_shape_map  # pylint: disable=pointless-statement
+    with self.assertRaises(TypeError):
+      j_module.update_variables(
+          {'w': jnp.ones(shape=(8, 8), dtype=jnp.float32)}
+      )
+
+    with self.assertRaises(TypeError):
+      j_module.jax2tf_kwargs_map  # pylint: disable=pointless-statement
+
+    with self.assertRaises(TypeError):
+      j_module.input_polymorphic_shape_map  # pylint: disable=pointless-statement
 
   def test_jax_module_default_export_version(self):
     j_module = JaxModule(

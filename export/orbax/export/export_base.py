@@ -27,6 +27,7 @@ class ExportBase(abc.ABC):
   @abc.abstractmethod
   def save(
       self,
+      # TODO(b/363033166): Change this annotation once TF isolation is done.
       jax_module: tf.Module,
       model_path: str,
       **kwargs: Any,

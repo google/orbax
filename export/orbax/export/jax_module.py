@@ -14,12 +14,11 @@
 
 """Wraps JAX functions and parameters into a tf.Module."""
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from typing import Any, Optional, Union, cast
 
 from jax import export as jax_export
 from orbax.export import constants
-from orbax.export import serving_config as osc
 from orbax.export import typing as orbax_export_typing
 from orbax.export.modules import obm_module
 from orbax.export.modules import orbax_module_base
@@ -50,13 +49,13 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
       pspecs: Optional[PyTree] = None,
       allow_multi_axis_sharding_consolidation: Optional[bool] = None,
       export_version: constants.ExportModelType = constants.ExportModelType.TF_SAVEDMODEL,
-      serving_configs: Optional[Sequence[osc.ServingConfig]] = None,
       flatten_signature: bool = False,
   ):
     """JaxModule constructor.
 
     Args:
-      params: a pytree of JAX parameters.
+      params: a pytree of JAX parameters or parameter specs (e.g.
+        `jax.ShapeDtypeStruct`s).
       apply_fn: A JAX ``ApplyFn`` (i.e. of signature ``apply_fn(params, x)``),
         or a mapping of method key to ``ApplyFn``. If it is an ``ApplyFn``, it
         will be assigned a key ``constants.DEFAULT_METHOD_KEY`` automatically,
@@ -101,8 +100,6 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
         This is only relevant for TF SavedModel export.
       export_version: The model export version. Either TF_SAVEDMODEL or
         ORBAX_MODEL.
-      serving_configs: The serving configs for the model. Should be an instance
-        of orbax.export.ServingConfig.
       flatten_signature: Whether to flatten the signature of the apply_fn when
         exporting using ORBAX_MODEL.
     """
@@ -112,7 +109,6 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
       self._export_module = obm_module.ObmModule(
           params=params,
           apply_fn=apply_fn,
-          serving_configs=serving_configs,
           jax2obm_kwargs=jax2obm_kwargs,
       )
     else:
@@ -125,7 +121,6 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
           pspecs=pspecs,
           allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
           jax2tf_kwargs=jax2tf_kwargs,
-          serving_configs=serving_configs,
           export_version=export_version,
       )
 

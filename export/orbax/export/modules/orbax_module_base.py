@@ -16,9 +16,8 @@
 
 import abc
 from collections.abc import Mapping
-from typing import Any, Callable, Sequence, Union
+from typing import Any, Callable, Union
 from orbax.export import constants
-from orbax.export import serving_config as osc
 from orbax.export import typing as orbax_export_typing
 import tensorflow as tf
 from typing_extensions import Self
@@ -36,7 +35,6 @@ class OrbaxModuleBase(abc.ABC):
       self,
       params: PyTree,
       apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
-      serving_configs: Sequence[osc.ServingConfig],
       **kwargs: Any,
   ):
     """Constructor for creating an expofrt Module."""
