@@ -669,7 +669,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     metadata = handler.metadata(self.directory)
     self.assertDictEqual(
-        metadata.state,
+        metadata.state.tree,
         {
             'a': value_metadata.ScalarMetadata(
                 name='a', directory=self.directory / 'state', dtype=jnp.int64
@@ -709,7 +709,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     metadata = handler.metadata(self.directory)
     self.assertDictEqual(
-        metadata.state,
+        metadata.state.tree,
         {
             'a': value_metadata.ScalarMetadata(
                 name='a', directory=self.directory / 'state', dtype=jnp.int64

@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix namedtuple empty value typestr when experimental support_rich_types is
  disabled again after enabling it.
 
+### Changed
+- Add user-facing `TreeMetadata` object returned by
+`PyTreeCheckpointHandler.metadata`. This object mimics an ordinary PyTree to
+make the change unnoticeable to most users, but also has additional accessible
+properties not included in any tree mapping operations.
+
 
 ## [0.10.1] - 2024-11-22
 

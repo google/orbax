@@ -31,6 +31,7 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.tree import utils as tree_utils
+from orbax.checkpoint._src.metadata import tree as tree_metadata
 
 
 PyTree = Any
@@ -230,7 +231,7 @@ class StandardCheckpointHandler(
         ),
     )
 
-  def metadata(self, directory: epath.Path) -> PyTree:
+  def metadata(self, directory: epath.Path) -> tree_metadata.TreeMetadata:
     """Returns metadata about the saved item."""
     return self._impl.metadata(directory)
 
@@ -258,6 +259,12 @@ class StandardSaveArgs(CheckpointArgs):
   item: PyTree
   save_args: Optional[PyTree] = None
 
+  def __post_init__(self):
+    if isinstance(self.item, tree_metadata.TreeMetadata):
+      self.item = self.item.tree
+    if isinstance(self.save_args, tree_metadata.TreeMetadata):
+      self.save_args = self.save_args.tree
+
 
 @register_with_handler(StandardCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
@@ -282,3 +289,7 @@ class StandardRestoreArgs(CheckpointArgs):
 
   item: Optional[PyTree] = None
   strict: bool = True
+
+  def __post_init__(self):
+    if isinstance(self.item, tree_metadata.TreeMetadata):
+      self.item = self.item.tree
