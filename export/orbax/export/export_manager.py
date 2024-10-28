@@ -25,6 +25,7 @@ from orbax.export import obm_export
 from orbax.export import serving_config as osc
 from orbax.export import tensorflow_export
 from orbax.export import utils
+from orbax.export.modules import obm_module
 import tensorflow as tf
 
 
@@ -50,19 +51,36 @@ class ExportManager:
       version: the version of the export format to use. Defaults to
         TF_SAVEDMODEL.
     """
+    if version != module.export_version():
+      raise ValueError(
+          '`version` and `module.export_version()`'
+          f' must be the same. The former is {version}. The latter is '
+          f'{module.export_version()}.'
+      )
+    # TODO(b/363033166): Skip this step for OBM once TF isolation is done.
     self._module = tf.Module()
     self._module.computation_module = module
     self._serving_signatures = {}
-    self.serialization_functions = tensorflow_export.TensorFlowExport()
     if version == constants.ExportModelType.ORBAX_MODEL:
       self.serialization_functions = obm_export.ObmExport()
-
-    process_serving_configs(
-        serving_configs,
-        obx_export_config.obx_export_tf_preprocess_only,  # pytype: disable=attribute-error
-        self._module,
-        self._serving_signatures,
-    )
+      obm_module_ = module.orbax_module()
+      if not isinstance(obm_module_, obm_module.ObmModule):
+        raise ValueError(
+            'module.orbax_module() must return an `ObmModule`. '
+            f'Got type: {type(obm_module_)}'
+        )
+      # TODO(bdwalker): Let `ObmExport.__init__() do this `build()` step.
+      obm_module_.build(serving_configs)
+    else:
+      self.serialization_functions = tensorflow_export.TensorFlowExport()
+      # TODO(bdwalker): Let `TensorFlowExport.__init__() do this
+      #   `process_serving_configs()` step.
+      process_serving_configs(
+          serving_configs,
+          obx_export_config.obx_export_tf_preprocess_only,  # pytype: disable=attribute-error
+          self._module,
+          self._serving_signatures,
+      )
 
   @property
   def tf_module(self) -> tf.Module:
