@@ -73,7 +73,7 @@ def _get_key_metadata_type(key: Any) -> KeyType:
 
 
 def _keypath_from_key_type(key_name: str, key_type: KeyType) -> Any:
-  """Converts from Key in TreeMetadata to JAX keypath class."""
+  """Converts from Key in InternalTreeMetadata to JAX keypath class."""
   if key_type == KeyType.SEQUENCE:
     return jax.tree_util.SequenceKey(int(key_name))
   elif key_type == KeyType.DICT:
@@ -173,7 +173,7 @@ class ValueMetadataEntry:
 
 
 @dataclasses.dataclass
-class TreeMetadataEntry:
+class InternalTreeMetadataEntry:
   """Represents metadata for a named key/value pair in a tree."""
 
   keypath: str
@@ -191,8 +191,8 @@ class TreeMetadataEntry:
   @classmethod
   def from_json(
       cls, keypath: str, json_dict: Dict[str, Any]
-  ) -> TreeMetadataEntry:
-    return TreeMetadataEntry(
+  ) -> InternalTreeMetadataEntry:
+    return InternalTreeMetadataEntry(
         keypath,
         KeyMetadataEntry.from_json(json_dict[_KEY_METADATA_KEY]),
         ValueMetadataEntry.from_json(json_dict[_VALUE_METADATA_KEY]),
@@ -204,11 +204,11 @@ class TreeMetadataEntry:
       keypath: KeyPath,
       info: type_handlers.ParamInfo,
       save_arg: type_handlers.SaveArgs,
-  ) -> TreeMetadataEntry:
-    """Builds a TreeMetadataEntry."""
+  ) -> InternalTreeMetadataEntry:
+    """Builds a InternalTreeMetadataEntry."""
     key_metadata_entry = KeyMetadataEntry.build(keypath)
     value_metadata_entry = ValueMetadataEntry.build(info, save_arg)
-    return TreeMetadataEntry(
+    return InternalTreeMetadataEntry(
         str(tuple([str(tree_utils.get_key_name(k)) for k in keypath])),
         key_metadata_entry,
         value_metadata_entry,
@@ -224,10 +224,10 @@ class TreeMetadataEntry:
 
 
 @dataclasses.dataclass
-class TreeMetadata:
+class InternalTreeMetadata:
   """Metadata representation of a PyTree."""
 
-  tree_metadata_entries: List[TreeMetadataEntry]
+  tree_metadata_entries: List[InternalTreeMetadataEntry]
   use_zarr3: bool
 
   @classmethod
@@ -237,7 +237,7 @@ class TreeMetadata:
       *,
       save_args: Optional[PyTree] = None,
       use_zarr3: bool = False,
-  ) -> TreeMetadata:
+  ) -> InternalTreeMetadata:
     """Builds the tree metadata."""
     if save_args is None:
       save_args = jax.tree.map(
@@ -256,9 +256,9 @@ class TreeMetadata:
         flat_info_with_keys, flat_save_args_with_keys
     ):
       tree_metadata_entries.append(
-          TreeMetadataEntry.build(keypath, info, save_arg)
+          InternalTreeMetadataEntry.build(keypath, info, save_arg)
       )
-    return TreeMetadata(tree_metadata_entries, use_zarr3)
+    return InternalTreeMetadata(tree_metadata_entries, use_zarr3)
 
   def to_json(self) -> Dict[str, Any]:
     """Returns a JSON representation of the metadata.
@@ -290,8 +290,8 @@ class TreeMetadata:
     }
 
   @classmethod
-  def from_json(cls, json_dict: Dict[str, Any]) -> TreeMetadata:
-    """Convert the TreeMetadata from a JSON representation."""
+  def from_json(cls, json_dict: Dict[str, Any]) -> InternalTreeMetadata:
+    """Convert the InternalTreeMetadata from a JSON representation."""
     use_zarr3 = False
     if _USE_ZARR3 in json_dict:
       use_zarr3 = json_dict[_USE_ZARR3]
@@ -301,9 +301,9 @@ class TreeMetadata:
         _TREE_METADATA_KEY
     ].items():
       tree_metadata_entries.append(
-          TreeMetadataEntry.from_json(keypath, json_tree_metadata_entry)
+          InternalTreeMetadataEntry.from_json(keypath, json_tree_metadata_entry)
       )
-    return TreeMetadata(
+    return InternalTreeMetadata(
         tree_metadata_entries,
         use_zarr3=use_zarr3,
     )

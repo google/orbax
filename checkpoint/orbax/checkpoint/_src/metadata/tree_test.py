@@ -98,7 +98,7 @@ class CustomWithNestedAttributes:
     self._mu_nu = mu_nu
 
 
-class TreeMetadataTest(parameterized.TestCase):
+class InternalTreeMetadataTest(parameterized.TestCase):
 
   def _to_param_infos(self, tree: Any):
     return jax.tree.map(
@@ -765,14 +765,14 @@ class TreeMetadataTest(parameterized.TestCase):
         'tree_metadata': expected_tree_json,
         'use_zarr3': True,
     }
-    metadata = tree_metadata.TreeMetadata.build(
+    metadata = tree_metadata.InternalTreeMetadata.build(
         self._to_param_infos(tree),
         use_zarr3=True,
     )
 
     self.assertDictEqual(expected_tree_json, metadata.to_json())
     self.assertCountEqual(
-        tree_metadata.TreeMetadata.from_json(
+        tree_metadata.InternalTreeMetadata.from_json(
             expected_tree_json
         ).tree_metadata_entries,
         metadata.tree_metadata_entries,

@@ -724,7 +724,7 @@ class BasePyTreeCheckpointHandler(
       if utils.is_primary_host(self._primary_host):
         metadata_write_start_time = time.time()
         path = directory / PYTREE_METADATA_FILE
-        metadata_content = tree_metadata.TreeMetadata.build(
+        metadata_content = tree_metadata.InternalTreeMetadata.build(
             param_infos,
             save_args=save_args,
             use_zarr3=use_zarr3,
@@ -740,14 +740,14 @@ class BasePyTreeCheckpointHandler(
 
   def _read_metadata_file(
       self, directory: epath.Path
-  ) -> tree_metadata.TreeMetadata:
+  ) -> tree_metadata.InternalTreeMetadata:
     """Reads metadata file and returns a tree of restore types.
 
     Args:
       directory: directory
 
     Returns:
-      orbax.checkpoint.metadata.TreeMetadata
+      orbax.checkpoint.metadata.InternalTreeMetadata
 
     Raises:
       FileNotFoundError: if the metadata file is not found.
@@ -758,7 +758,9 @@ class BasePyTreeCheckpointHandler(
           f'Metadata file (named {PYTREE_METADATA_FILE}) does not exist at'
           f' {directory}.'
       )
-    return tree_metadata.TreeMetadata.from_json(json.loads(path.read_text()))
+    return tree_metadata.InternalTreeMetadata.from_json(
+        json.loads(path.read_text())
+    )
 
   def metadata(self, directory: epath.Path) -> Optional[PyTree]:
     """Returns tree metadata.
