@@ -450,7 +450,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     IMPORTANT: `CheckpointManager` has been refactored to provide a new API.
     Please ensure you have migrated all existing use cases to the newer style by
     August 1st, 2024. Please see
-    https://orbax.readthedocs.io/en/latest/api_refactor.html
+    https://orbax.readthedocs.io/en/latest/guides/checkpoint/api_refactor.html
     for technical details.
 
     The `CheckpointManager` is ultimately backed by a single `Checkpointer`, to
