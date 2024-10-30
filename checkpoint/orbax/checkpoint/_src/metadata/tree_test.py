@@ -13,13 +13,14 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from absl.testing import absltest
 from absl.testing import parameterized
 import chex
 import jax
 from jax import numpy as jnp
 import numpy as np
+from orbax.checkpoint import test_utils
 from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.metadata import tree as tree_metadata
@@ -42,22 +43,6 @@ class CustomDataClassWithNestedAttributes:
   nested_dict: Optional[Dict[str, jax.Array]] = None
   nested_list: Optional[List[np.ndarray]] = None
   nested_empty_data_class: Optional[TransformByLrAndWdScheduleState] = None
-
-
-class MuNu(NamedTuple):
-  mu: Optional[jax.Array]
-  nu: Optional[np.ndarray]
-
-
-class EmptyNamedTuple(NamedTuple):
-  pass
-
-
-class NamedTupleWithNestedAttributes(NamedTuple):
-  nested_mu_nu: Optional[MuNu] = None
-  nested_dict: Optional[Dict[str, jax.Array]] = None
-  nested_tuple: Optional[Tuple[str, np.ndarray]] = None
-  nested_empty_named_tuple: Optional[EmptyNamedTuple] = None
 
 
 class NoAttributeCustom:
@@ -90,7 +75,7 @@ class CustomWithNestedAttributes:
       no_attribute_custom: Optional[NoAttributeCustom] = None,
       custom: Optional[Custom] = None,
       custom_data_class: Optional[CustomDataClass] = None,
-      mu_nu: Optional[MuNu] = None,
+      mu_nu: Optional[test_utils.MuNu] = None,
   ):
     self._no_attribute_custom = no_attribute_custom
     self._custom = custom
@@ -261,7 +246,9 @@ class InternalTreeMetadataTest(parameterized.TestCase):
       },
       {
           'tree_provider': lambda: {
-              'named_tuple_param': MuNu(nu=np.arange(8), mu=jnp.arange(8))
+              'named_tuple_param': test_utils.MuNu(
+                  nu=np.arange(8), mu=jnp.arange(8)
+              )
           },
           'expected_tree_json': {
               "('named_tuple_param', 'mu')": {
@@ -314,7 +301,9 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           },
       },
       {
-          'tree_provider': lambda: {'empty_named_tuple': EmptyNamedTuple()},
+          'tree_provider': lambda: {
+              'empty_named_tuple': test_utils.EmptyNamedTuple()
+          },
           'expected_tree_json': {
               "('empty_named_tuple',)": {
                   'key_metadata': (
@@ -583,7 +572,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
       },
       {
           'tree_provider': lambda: {
-              'custom_named_tuple': NamedTupleWithNestedAttributes()
+              'custom_named_tuple': test_utils.NamedTupleWithNestedAttributes()
           },
           'expected_tree_json': {
               "('custom_named_tuple', 'nested_mu_nu')": {
@@ -630,11 +619,13 @@ class InternalTreeMetadataTest(parameterized.TestCase):
       },
       {
           'tree_provider': lambda: {
-              'custom_named_tuple': NamedTupleWithNestedAttributes(
-                  nested_mu_nu=MuNu(mu=jnp.arange(8), nu=np.arange(8)),
+              'custom_named_tuple': test_utils.NamedTupleWithNestedAttributes(
+                  nested_mu_nu=test_utils.MuNu(
+                      mu=jnp.arange(8), nu=np.arange(8)
+                  ),
                   nested_dict={'a': jnp.arange(8), 'b': np.arange(8)},
                   nested_tuple=('np_array', np.arange(8)),
-                  nested_empty_named_tuple=EmptyNamedTuple(),
+                  nested_empty_named_tuple=test_utils.EmptyNamedTuple(),
               )
           },
           'expected_tree_json': {
@@ -739,7 +730,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
                   custom_data_class=CustomDataClass(
                       jax_array=jnp.arange(8), np_array=np.arange(8)
                   ),
-                  mu_nu=MuNu(mu=jnp.arange(8), nu=np.arange(8)),
+                  mu_nu=test_utils.MuNu(mu=jnp.arange(8), nu=np.arange(8)),
               )
           },
           'expected_tree_json': {
