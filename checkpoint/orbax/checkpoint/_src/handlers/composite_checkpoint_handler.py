@@ -46,10 +46,9 @@ Usage example::
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Collection, KeysView
 import concurrent.futures
 import dataclasses
-from typing import AbstractSet, Any, Coroutine, Dict, List, Mapping, MutableSet, Optional, Tuple, Type
+from typing import Any, Coroutine, Dict, List, Mapping, MutableSet, Optional, Tuple, Type
 import uuid
 
 from absl import logging
@@ -59,6 +58,7 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src import composite
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
@@ -76,6 +76,7 @@ ProtoCheckpointHandler = proto_checkpoint_handler.ProtoCheckpointHandler
 ProtoSaveArgs = proto_checkpoint_handler.ProtoSaveArgs
 ProtoRestoreArgs = proto_checkpoint_handler.ProtoRestoreArgs
 AsyncSaveCoroutine = Coroutine[Any, Any, Optional[List[Future]]]
+Composite = composite.Composite
 
 
 _CONCURRENT_WORKERS = 3
@@ -880,103 +881,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 @register_with_handler(
     CompositeCheckpointHandler, for_save=True, for_restore=True
 )
-class CompositeArgs(CheckpointArgs):
-  """Args for wrapping multiple checkpoint items together.
-
-  For simplicity, this object is immutable (although objects attached to it
-  may be mutable).
-
-  Generally, this object can be treated as a key-value store similar to a dict.
-
-  Usage examples::
-
-    CompositeArgs(
-        state=my_train_state,
-        dataset=my_dataset,
-        metadata=json_metadata,
-    )
-
-    CompositeArgs(
-        **{
-            'state': my_train_state,
-            'dataset': my_dataset,
-            'metadata': json_metadata,
-          }
-    )
-
-    args = CompositeArgs(...)
-    args.state
-    args['state']
-    'state' in args
-
-    for key, value in args.items():
-      ...
-  """
-
-  __items__: Mapping[str, CheckpointArgs]
-
-  def __init__(self, **items: CheckpointArgs):
-    super().__setattr__('__items__', items)
-
-    reserved_keys = set(dir(self))
-
-    for key, value in items.items():
-      # Reserve and prevent users from setting keys that start with '__'. These
-      # may be used later to define options for CompositeCheckpointManager.
-      if key.startswith('__'):
-        raise ValueError(f'Composite keys cannot start with "__". Got: {key}')
-      if key not in reserved_keys:
-        # We do not raise an error if the user specifies a key that matches an
-        # existing attribute (like 'keys', 'values', 'items'). These can be
-        # accessed through self[key], but not self.key.
-        super().__setattr__(key, value)
-
-  def __getitem__(self, key: str) -> CheckpointArgs:
-    if key not in self.__items__:
-      raise KeyError(
-          f'Unknown key: {key}. Available keys: {self.__items__.keys()}'
-      )
-    return self.__items__[key]
-
-  def __contains__(self, key: str) -> bool:
-    return key in self.__items__
-
-  def __setattr__(self, key: str, value: Any):
-    del key
-    del value
-    raise ValueError('CompositeArgs is immutable after initialization.')
-
-  def __len__(self) -> int:
-    return len(self.__items__)
-
-  def keys(self) -> KeysView[str]:
-    return self.__items__.keys()
-
-  def values(self) -> Collection[CheckpointArgs]:
-    return self.__items__.values()
-
-  def items(self) -> AbstractSet[Tuple[str, CheckpointArgs]]:
-    return self.__items__.items()
-
-  def get(self, key: str, default=None) -> Optional[CheckpointArgs]:
-    try:
-      return self.__getitem__(key)
-    except KeyError:
-      return default
-
-  def __and__(self, other: CompositeArgs) -> CompositeArgs:
-    if isinstance(other, dict):
-      other = CompositeArgs(**other)
-    return CompositeArgs(**(self.__items__ & other.__items__))
-
-  def __or__(self, other: CompositeArgs) -> CompositeArgs:
-    if isinstance(other, dict):
-      other = CompositeArgs(**other)
-    return CompositeArgs(**(self.__items__ | other.__items__))
-
-  def __repr__(self):
-    return f'CompositeArgs({repr(self.__items__)})'
-
+class CompositeArgs(Composite, CheckpointArgs):
+  """Args for wrapping multiple checkpoint items together."""
+  ...
 
 # Returned object of CompositeCheckpointHandler is an alias of CompositeArgs.
 CompositeResults = CompositeArgs
