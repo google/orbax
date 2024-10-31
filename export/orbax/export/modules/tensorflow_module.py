@@ -314,7 +314,7 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
     if pspecs is None:
       pspecs = jax.tree_util.tree_map(lambda x: None, params)
     logging.info('pspecs: %s', pspecs)
-    logging.info('params: %s', params)
+    logging.info('params shape: %s', jax.tree.map(lambda x: x.shape, params))
     logging.info('names: %s', names)
     logging.info('trainable: %s', trainable)
     return jax.tree_util.tree_map(
