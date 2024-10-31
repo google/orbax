@@ -935,15 +935,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """See superclass documentation."""
     return self._directory
 
-  def all_steps(self, read: bool = False) -> Sequence[int]:
+  def all_steps(self) -> Sequence[int]:
     """See superclass documentation."""
-    if read:
-      logging.warning(
-          '`read` option is deprecated. Use `reload` to read from disk.'
-      )
-      return utils.checkpoint_steps(
-          self.directory, self._options.single_host_load_and_broadcast
-      )
     return [ckpt.step for ckpt in self._checkpoints]
 
   def latest_step(self) -> Optional[int]:
