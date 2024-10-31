@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import concurrent.futures
 import dataclasses
 import datetime
 import threading
@@ -1428,29 +1427,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       a list of CheckpointInfo, sorted by increasing step.
     """
     start = time.time()
-    steps = utils.checkpoint_steps(
-        self.directory, self._options.single_host_load_and_broadcast
-    )
-    steps.sort()  # Prefer in-place sort.
-
-    if not steps:
-      checkpoint_infos = []
-    else:
-
-      def build_checkpoint_info(step: int) -> CheckpointInfo:
-        step_metadata = self._step_name_format.find_step(self.directory, step)
-        return CheckpointInfo(
-            step=step,
+    # TODO(niketkb): Parallelize NameFormat.find_all.
+    step_metadatas = self._step_name_format.find_all(self.directory)
+    checkpoint_infos = [
+        CheckpointInfo(
+            step=step_metadata.step,
             time=step_metadata.commit_timestamp,
-            metrics=self.metrics(step),
+            metrics=self.metrics(step_metadata.step),
         )
-
-      with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = {
-            step: executor.submit(build_checkpoint_info, step) for step in steps
-        }
-        checkpoint_infos = [futures[step].result() for step in steps]
-
+        for step_metadata in step_metadatas
+    ]
+    checkpoint_infos.sort(key=lambda x: x.step)  # Prefer in-place sort.
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/read/load_all_step_metadata_duration_secs',
         time.time() - start,
