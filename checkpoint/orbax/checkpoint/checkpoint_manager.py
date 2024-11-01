@@ -1426,6 +1426,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Returns:
       a list of CheckpointInfo, sorted by increasing step.
     """
+    if not self.directory.exists():
+      raise ValueError(
+          f'Checkpoint root directory {self.directory} does not exist.'
+      )
     start = time.time()
     # TODO(niketkb): Parallelize NameFormat.find_all.
     step_metadatas = self._step_name_format.find_all(self.directory)
