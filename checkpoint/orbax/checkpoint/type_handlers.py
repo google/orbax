@@ -1130,17 +1130,16 @@ class ArrayHandler(TypeHandler):
       self,
       info: ParamInfo,
       value: fragments.Fragments,
+      *,
+      sharding: jax.sharding.Sharding,
       use_ocdbt: bool,
       process_index: Optional[Union[int, str]] = None,
       arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
-    if value.is_degenerate():
-      local_shape = value.shape
-    else:
-      fragments.validate_fragments_can_be_stacked(value)
-      local_shape = value.fragments[0].shape
-
+    local_shape = sharding.shard_shape(value.shape)
+    if not value.is_degenerate():
+      assert local_shape == value.fragments[0].shape
     return _build_array_tspec_write(
         info=info,
         arg=arg,
@@ -1273,6 +1272,7 @@ class ArrayHandler(TypeHandler):
       tspec = self._get_json_tspec_write(
           info,
           value,
+          sharding=sharding,
           use_ocdbt=info.is_ocdbt_checkpoint,
           process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
           arg=arg,

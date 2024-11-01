@@ -257,6 +257,17 @@ def get_unique_shards(
     replica_id: int | None,
 ) -> list[jax.Shard]:
   """Returns the list of jax.Shard that should be transferred to host memory."""
+  shards_info = ', '.join([
+      f'Shard(index={shard.index}, replica_id={shard.replica_id})'
+      for shard in arr.addressable_shards
+  ])
+  logging.vlog(
+      1,
+      '[process=%d] array shards: replica_id=%d, %s',
+      multihost.process_index(),
+      replica_id,
+      shards_info,
+  )
   if replica_id is None:
     replica_id = arr.addressable_shards[0].replica_id
   return [
@@ -296,7 +307,7 @@ def shards_to_fragments(
     dtype: jnp.dtype,
 ) -> fragments.Fragments:
   """Converts a list of jax.Shard to a Fragments."""
-  return fragments.Fragments(
+  fragmentses = fragments.Fragments(
       shape=global_shape,
       dtype=dtype,
       fragments=[
@@ -308,6 +319,9 @@ def shards_to_fragments(
           for shard in shards
       ],
   )
+  if fragmentses.fragments:
+    fragments.validate_fragments_can_be_stacked(fragmentses)
+  return fragmentses
 
 
 def transfer_arrays_to_host(
