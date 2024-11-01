@@ -171,9 +171,14 @@ def build_step_metadatas(
   Yields:
     Step metadata.
   """
-  for step_path in step_paths:
-    if step_metadata := build_metadata(step_path):
-      yield step_metadata
+  with concurrent.futures.ThreadPoolExecutor() as executor:
+    metadata_futures = [
+        executor.submit(build_metadata, step_path) for step_path in step_paths
+    ]
+    for future in concurrent.futures.as_completed(metadata_futures):
+      metadata = future.result()
+      if metadata is not None:
+        yield metadata
 
 
 def step_prefix_with_underscore(step_prefix: Optional[str]) -> str:

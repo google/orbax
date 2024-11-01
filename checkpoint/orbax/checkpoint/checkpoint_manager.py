@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import concurrent
 import dataclasses
 import datetime
 import threading
@@ -941,9 +942,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       logging.warning(
           '`read` option is deprecated. Use `reload` to read from disk.'
       )
-      return utils.checkpoint_steps(
-          self.directory, self._options.single_host_load_and_broadcast
-      )
+      self._checkpoints = self._load_checkpoint_infos()
     return [ckpt.step for ckpt in self._checkpoints]
 
   def latest_step(self) -> Optional[int]:
@@ -1431,25 +1430,30 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           f'Checkpoint root directory {self.directory} does not exist.'
       )
     start = time.time()
-    # TODO(niketkb): Parallelize NameFormat.find_all.
     step_metadatas = self._step_name_format.find_all(self.directory)
-    checkpoint_infos = [
-        CheckpointInfo(
-            step=step_metadata.step,
-            time=step_metadata.commit_timestamp,
-            metrics=self.metrics(step_metadata.step),
-        )
-        for step_metadata in step_metadatas
-    ]
-    checkpoint_infos.sort(key=lambda x: x.step)  # Prefer in-place sort.
-    jax.monitoring.record_event_duration_secs(
-        '/jax/checkpoint/read/load_all_step_metadata_duration_secs',
-        time.time() - start,
-    )
-    logging.info(
-        'Found %d checkpoint steps in %s', len(checkpoint_infos), self.directory
-    )
-    return checkpoint_infos
+
+    def build_checkpoint_info(step_metadata):
+      return CheckpointInfo(
+          step=step_metadata.step,
+          time=step_metadata.commit_timestamp,
+          metrics=self.metrics(step_metadata.step),
+      )
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+      checkpoint_infos = list(
+          executor.map(build_checkpoint_info, step_metadatas)
+      )
+      checkpoint_infos.sort(key=lambda x: x.step)  # Prefer in-place sort.
+      jax.monitoring.record_event_duration_secs(
+          '/jax/checkpoint/read/load_all_step_metadata_duration_secs',
+          time.time() - start,
+      )
+      logging.info(
+          'Found %d checkpoint steps in %s',
+          len(checkpoint_infos),
+          self.directory,
+      )
+      return checkpoint_infos
 
   def _get_interval_preserved_checkpoints(
       self, checkpoints: List[CheckpointInfo]
