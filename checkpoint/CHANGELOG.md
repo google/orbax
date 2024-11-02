@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Create `Composite` class, which `CompositeArgs` now subclasses.
+- Make `NameFormat.find_all` impls concurrent.
+- Make `step.step_metadata_of_checkpoint_path()` concurrent to improve
+ performance.
+
 
 ## [0.8.0] - 2024-10-29
 
@@ -32,7 +36,6 @@ exported in the same way.
 - De-duplicate `get_ts_context` usages and move to ts_utils.
 - Move `logging` to `_src`.
 - Move `metadata` to `_src`.
-- Make `NameFormat.find_all` impls concurrent.
 
 ## [0.7.0] - 2024-10-07
 

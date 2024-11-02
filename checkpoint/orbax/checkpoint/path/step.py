@@ -204,18 +204,32 @@ def latest_step_metadata(
 def step_metadata_of_checkpoint_path(
     checkpoint_path: epath.PathLike, name_format: NameFormat[MetadataT]
 ) -> MetadataT:
-  """Returns step.MetadataT of given `checkpoint_path`."""
+  """Returns step.MetadataT of given finalized/committed `checkpoint_path`."""
   checkpoint_path = epath.Path(checkpoint_path)
-  all_step_metadata = list(name_format.find_all(checkpoint_path.parent))
-  for step_metadata in all_step_metadata:
-    if step_metadata.path.name == checkpoint_path.name:
-      return step_metadata
+  checkpoint_path_name = checkpoint_path.name
+  is_match_and_step_metadata = lambda step_metadata: (
+      (True, step_metadata)
+      if step_metadata.path.name == checkpoint_path_name
+      else (False, step_metadata)
+  )
+  all_step_metadata = []
+  with concurrent.futures.ThreadPoolExecutor() as executor:
+    futures = [
+        executor.submit(is_match_and_step_metadata, step_metadata)
+        for step_metadata in name_format.find_all(checkpoint_path.parent)
+    ]
+    for future in concurrent.futures.as_completed(futures):
+      matched, step_metadata = future.result()
+      if matched:
+        return step_metadata
+      all_step_metadata.append(step_metadata)
+
   raise ValueError(
       'Failed to resolve step metadata of checkpoint path with'
       f' NameFormat={name_format}, checkpoint path={checkpoint_path}, path'
       f' name({checkpoint_path.name}) did not match with available step names:'
       f' {[step_metadata.path.name for step_metadata in all_step_metadata]}.'
-      ' Please check if the given path is really a checkpoint path.'
+      ' Please check if given path is a finalized/committed checkpoint path.'
   )
 
 
