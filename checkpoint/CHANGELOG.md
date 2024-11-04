@@ -31,6 +31,7 @@ exported in the same way.
 - Set `AsyncOptions.timeout_secs` default value to 10 minutes.
 - De-duplicate `get_ts_context` usages and move to ts_utils.
 - Move `logging` to `_src`.
+- Move `tree` to `_src`.
 - Move `metadata` to `_src`.
 - Make `NameFormat.find_all` impls concurrent.
 

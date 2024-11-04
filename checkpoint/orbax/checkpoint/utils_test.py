@@ -23,7 +23,7 @@ import flax
 import jax
 import optax
 from orbax.checkpoint import test_utils
-from orbax.checkpoint import tree as tree_utils
+from orbax.checkpoint._src.tree import utils as tree_utils
 
 
 class EmptyNamedTuple(NamedTuple):

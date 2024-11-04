@@ -26,10 +26,10 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import future
 from orbax.checkpoint import options as options_lib
-from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.tree import utils as tree_utils
 
 
 PyTree = Any

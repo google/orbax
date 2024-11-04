@@ -22,8 +22,8 @@ from typing import Any, Optional
 from etils import epath
 from orbax.checkpoint import future as orbax_future
 from orbax.checkpoint import msgpack_utils
-from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.tree import utils as tree_utils
 
 PyTree = Any
 

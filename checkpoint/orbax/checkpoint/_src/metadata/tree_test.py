@@ -14,6 +14,7 @@
 
 from collections.abc import Callable
 from typing import Any, Dict, List, Optional
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import chex
@@ -21,9 +22,9 @@ import jax
 from jax import numpy as jnp
 import numpy as np
 from orbax.checkpoint import test_utils
-from orbax.checkpoint import tree as tree_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.tree import utils as tree_utils
 
 
 @chex.dataclass
