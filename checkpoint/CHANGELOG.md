@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Create `Composite` class, which `CompositeArgs` now subclasses.
+- Move `type_handlers` to `_src/serialization`
 
 ## [0.8.0] - 2024-10-29
 

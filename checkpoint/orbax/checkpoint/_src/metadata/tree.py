@@ -26,10 +26,10 @@ from typing import Any, Dict, Hashable, List, Optional, Tuple, TypeVar, Union
 
 from etils import epath
 import jax
-from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
 
 

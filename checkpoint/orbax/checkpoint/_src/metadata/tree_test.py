@@ -22,8 +22,8 @@ import jax
 from jax import numpy as jnp
 import numpy as np
 from orbax.checkpoint import test_utils
-from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
 
 

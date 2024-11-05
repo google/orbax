@@ -22,8 +22,8 @@ import jax.numpy as jnp
 import ml_dtypes
 import numpy as np
 from orbax.checkpoint import test_utils
-from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.serialization import type_handlers
 import tensorstore as ts
 
 

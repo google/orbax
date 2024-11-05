@@ -25,11 +25,11 @@ import numpy as np
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import future
-from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization import type_handlers
 
 
 CheckpointArgs = checkpoint_args.CheckpointArgs

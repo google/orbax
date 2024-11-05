@@ -26,10 +26,10 @@ from jax import numpy as jnp
 import numpy as np
 import optax
 from orbax.checkpoint import test_utils
-from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.serialization import type_handlers
 
 PyTree = Any
 SaveArgs = type_handlers.SaveArgs

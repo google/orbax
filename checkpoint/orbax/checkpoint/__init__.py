@@ -32,7 +32,7 @@ from orbax.checkpoint import serialization
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import tree
-from orbax.checkpoint import type_handlers
+from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint import version
 # TODO(cpgaffney): Import the public multihost API.

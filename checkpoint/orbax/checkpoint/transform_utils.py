@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 from absl import logging
 import jax.monitoring
-from orbax.checkpoint import type_handlers
+from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
 
 PyTree = Any
