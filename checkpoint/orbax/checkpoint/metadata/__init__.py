@@ -30,6 +30,7 @@ from orbax.checkpoint.metadata import value
 from orbax.checkpoint.metadata import tree
 
 # Prefer to use metadata.value instead of the following symbols.
+from orbax.checkpoint._src.metadata.value import Metadata
 from orbax.checkpoint.metadata.value import ArrayMetadata
 from orbax.checkpoint.metadata.value import StringMetadata
 from orbax.checkpoint.metadata.value import ScalarMetadata
