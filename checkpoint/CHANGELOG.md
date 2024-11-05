@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Create `Composite` class, which `CompositeArgs` now subclasses.
 - Move `type_handlers` to `_src/serialization`
+- Add notes to Barrier error `XlaRuntimeError(DEADLINE_EXCEEDED)` with
+ actionable info.
 
 ## [0.8.0] - 2024-10-29
 

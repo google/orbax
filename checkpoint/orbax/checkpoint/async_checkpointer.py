@@ -52,6 +52,15 @@ def _on_commit_callback(
   )
 
 
+def _add_deadline_exceeded_notes(e: jax.lib.xla_extension.XlaRuntimeError):
+  """Adds notes to the exception to help debug the deadline exceeded error."""
+  e.add_note('1. Make sure that the job and storage are colocated.')
+  e.add_note(
+      '2. Make sure that the job has enough compute resources allocated.'
+  )
+  e.add_note('3. Make sure that the storage has enough throughput quota.')
+
+
 class _AsyncManager:
   """Helper class for background checkpoint saving work orchestration."""
 
@@ -142,13 +151,18 @@ class _AsyncManager:
       if process_count > 1:
         # All processes will wait at the barrier. When all processes are at the
         # barrier, the barrier will be satisfied. If not, then it will timeout.
-        self._sync_fn(
-            multihost.unique_barrier_key(
-                'async_write_complete',
-                prefix=self._barrier_sync_key_prefix,
-                suffix=f'{directory.name}.{unique_operation_id}',
-            )
-        )
+        try:
+          self._sync_fn(
+              multihost.unique_barrier_key(
+                  'async_write_complete',
+                  prefix=self._barrier_sync_key_prefix,
+                  suffix=f'{directory.name}.{unique_operation_id}',
+              )
+          )
+        except jax.lib.xla_extension.XlaRuntimeError as e:
+          if 'DEADLINE_EXCEEDED' in str(e):
+            _add_deadline_exceeded_notes(e)
+          raise
 
       if utils.is_primary_host(self._primary_host):
         on_commit_callback()
