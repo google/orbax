@@ -101,7 +101,9 @@ def broadcast_one_to_all(in_tree, is_source: Optional[bool] = None):
   return multihost_utils.broadcast_one_to_all(in_tree, is_source=is_source)
 
 
-def should_skip_process_sync() -> bool:
+def should_skip_process_sync(processes: Optional[Set[int]] = None) -> bool:
+  if processes and len(processes) == 1 and process_index() in processes:
+    return True
   if jax.process_count() == 1:
     return True
   return False
@@ -236,7 +238,7 @@ def sync_global_processes(
     barrier_sync_fn: Used as the implementation for the synchronization. If not
       provided, a default implementation is used.
   """
-  if should_skip_process_sync():
+  if should_skip_process_sync(processes):
     logging.info(
         '[process=%s][thread=%s] Skipping global process sync, barrier'
         ' name: %s',
