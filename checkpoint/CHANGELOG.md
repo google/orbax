@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Create `Composite` class, which `CompositeArgs` now subclasses.
+- Move `tree` to `_src`.
+- Move `serialization` to `_src`.
 - Move `type_handlers` to `_src/serialization`
 - Add notes to Barrier error `XlaRuntimeError(DEADLINE_EXCEEDED)` with
  actionable info.
@@ -34,7 +36,6 @@ exported in the same way.
 - Set `AsyncOptions.timeout_secs` default value to 10 minutes.
 - De-duplicate `get_ts_context` usages and move to ts_utils.
 - Move `logging` to `_src`.
-- Move `tree` to `_src`.
 - Move `metadata` to `_src`.
 - Make `NameFormat.find_all` impls concurrent.
 
