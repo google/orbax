@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Path utility functions for Orbax."""
+"""Manages locking of checkpoint step dirs."""
 
 # TODO(b/337137764): Add unit tests.
 # TODO(b/337137764): If needed, export the functions from
@@ -24,8 +24,8 @@ from typing import List, Optional, Tuple
 
 from etils import epath
 from orbax.checkpoint._src import asyncio_utils
-from orbax.checkpoint.path import async_utils
-from orbax.checkpoint.path import step as step_lib
+from orbax.checkpoint._src.path import async_utils
+from orbax.checkpoint._src.path import step as step_lib
 
 
 _LOCK_ITEM_NAME = 'LOCKED'

@@ -64,9 +64,9 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import async_utils
+from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path import utils
-from orbax.checkpoint.path import async_utils
-from orbax.checkpoint.path import step as step_lib
 
 
 TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX

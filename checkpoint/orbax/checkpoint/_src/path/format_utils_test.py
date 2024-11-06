@@ -22,7 +22,7 @@ from orbax.checkpoint import checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
-from orbax.checkpoint.path import format_utils
+from orbax.checkpoint._src.path import format_utils
 
 
 

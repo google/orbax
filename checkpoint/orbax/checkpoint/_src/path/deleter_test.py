@@ -17,8 +17,8 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
-from orbax.checkpoint.path import deleter as deleter_lib
-from orbax.checkpoint.path import step as step_lib
+from orbax.checkpoint._src.path import deleter as deleter_lib
+from orbax.checkpoint._src.path import step as step_lib
 
 
 class CheckpointDeleterTest(parameterized.TestCase):

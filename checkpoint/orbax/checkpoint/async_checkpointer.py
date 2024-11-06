@@ -31,8 +31,8 @@ from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint.path import async_utils
-from orbax.checkpoint.path import atomicity
+from orbax.checkpoint._src.path import async_utils
+from orbax.checkpoint._src.path import atomicity
 
 
 BarrierSyncFn = multihost.BarrierSyncFn

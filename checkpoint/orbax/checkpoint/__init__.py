@@ -37,7 +37,7 @@ from orbax.checkpoint import utils
 from orbax.checkpoint import version
 # TODO(cpgaffney): Import the public multihost API.
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint.path import step
+from orbax.checkpoint._src.path import step
 
 from orbax.checkpoint.future import Future
 

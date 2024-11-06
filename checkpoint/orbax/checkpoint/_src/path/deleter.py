@@ -22,7 +22,7 @@ from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import utils
-from orbax.checkpoint.path import step as step_lib
+from orbax.checkpoint._src.path import step as step_lib
 
 _THREADED_DELETE_DURATION = (
     '/jax/orbax/checkpoint_manager/threaded_checkpoint_deleter/duration'

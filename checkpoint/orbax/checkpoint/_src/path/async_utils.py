@@ -18,7 +18,7 @@ from typing import Any
 
 from etils import epath
 from orbax.checkpoint._src import asyncio_utils
-from orbax.checkpoint.path import step as step_lib
+from orbax.checkpoint._src.path import step as step_lib
 
 
 # TODO(b/360190539): This functionality should be provided by either an external

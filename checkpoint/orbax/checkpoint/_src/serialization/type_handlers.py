@@ -42,10 +42,10 @@ from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
+from orbax.checkpoint._src.path import async_utils
+from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
-from orbax.checkpoint.path import async_utils
-from orbax.checkpoint.path import format_utils
 import tensorstore as ts
 
 

@@ -42,12 +42,12 @@ from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
+from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
-from orbax.checkpoint.path import atomicity
-from orbax.checkpoint.path import step as step_lib
 
 
 class MuNu(NamedTuple):

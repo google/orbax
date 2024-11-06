@@ -27,10 +27,10 @@ from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import async_utils
+from orbax.checkpoint._src.path import locking
+from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.tree import utils as tree_utils
-from orbax.checkpoint.path import async_utils
-from orbax.checkpoint.path import step as step_lib
-from orbax.checkpoint.path import utils as path_utils
 
 
 TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
@@ -54,8 +54,8 @@ is_primary_host = multihost.is_primary_host
 async_makedirs = async_utils.async_makedirs
 async_write_bytes = async_utils.async_write_bytes
 async_exists = async_utils.async_exists
-lockdir = path_utils.lockdir
-is_locked = path_utils.is_locked
+lockdir = locking.lockdir
+is_locked = locking.is_locked
 
 
 is_gcs_path = step_lib.is_gcs_path
@@ -115,9 +115,7 @@ def name_from_leaf_placeholder(placeholder: str) -> str:
 
 def all_leaves_are_placeholders(tree: PyTree) -> bool:
   """Determines if all leaves in `tree` are placeholders."""
-  return all(
-      leaf_is_placeholder(leaf) for leaf in jax.tree.leaves(tree)
-  )
+  return all(leaf_is_placeholder(leaf) for leaf in jax.tree.leaves(tree))
 
 
 def pytree_structure(directory: epath.PathLike) -> PyTree:

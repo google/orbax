@@ -21,8 +21,8 @@ from absl.testing import parameterized
 from etils import epath
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.metadata import checkpoint
-from orbax.checkpoint.path import atomicity
-from orbax.checkpoint.path import step as step_lib
+from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import step as step_lib
 
 
 class StandardNameFormatTest(parameterized.TestCase):

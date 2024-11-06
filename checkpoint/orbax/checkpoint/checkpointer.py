@@ -30,7 +30,7 @@ from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint.path import atomicity
+from orbax.checkpoint._src.path import atomicity
 from typing_extensions import Self  # for Python version < 3.11
 
 

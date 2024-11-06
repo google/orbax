@@ -63,8 +63,8 @@ from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
-from orbax.checkpoint.path import atomicity
-from orbax.checkpoint.path import utils as path_utils
+from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import locking
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 Future = future.Future
@@ -721,7 +721,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     return [
         p.name
         for p in directory.iterdir()
-        if p.is_dir() and p != path_utils.lockdir(directory)
+        if p.is_dir() and p != locking.lockdir(directory)
     ]
 
   def restore(
@@ -883,7 +883,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 )
 class CompositeArgs(Composite, CheckpointArgs):
   """Args for wrapping multiple checkpoint items together."""
+
   ...
+
 
 # Returned object of CompositeCheckpointHandler is an alias of CompositeArgs.
 CompositeResults = CompositeArgs

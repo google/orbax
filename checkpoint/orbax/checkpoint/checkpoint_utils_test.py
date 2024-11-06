@@ -27,7 +27,7 @@ from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import value as value_metadata
-from orbax.checkpoint.path import step as step_lib
+from orbax.checkpoint._src.path import step as step_lib
 
 
 RestoreArgs = pytree_checkpoint_handler.RestoreArgs
