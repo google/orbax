@@ -22,7 +22,9 @@ import jax.numpy as jnp
 import ml_dtypes
 import numpy as np
 from orbax.checkpoint import test_utils
+from orbax.checkpoint.args import StandardSave
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.handlers import standard_checkpoint_handler_test_utils
 from orbax.checkpoint._src.serialization import type_handlers
 import tensorstore as ts
 
@@ -62,6 +64,13 @@ class SingleHostTest(parameterized.TestCase):
 
     np.testing.assert_array_equal(x, restored_tree['x'])
     assert isinstance(restored_tree['x'], jax.Array)
+
+  @parameterized.parameters({'x': jnp.array([1, 2])}, {'x': 1})
+  def test_save_singular_array_with_standard_checkpoint_handler(self, x):
+    handler = standard_checkpoint_handler_test_utils.StandardCheckpointHandler()
+    with self.assertRaisesRegex(ValueError,
+                                '.*Use ArrayCheckpointHandler / ArraySave.*'):
+      handler.save(self.ckpt_dir, args=StandardSave(x))
 
   def test_save_and_restore_zarrv3_jax_array_default_chunk_size(self):
     handler = PyTreeCheckpointHandler(use_zarr3=True)
