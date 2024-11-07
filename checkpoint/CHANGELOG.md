@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make `NameFormat.find_all` impls concurrent.
 - Move `path` package under `_src` package.
 
+### Fixed
+- Emergency checkpoint: use JAX for global_max and combine multiple broadcasts
+into one for `saved` bool broadcast. This should alleviate concerns about
+broadcasting using the distributed system at large scale.
+
 ## [0.8.0] - 2024-10-29
 
 ### Fixed

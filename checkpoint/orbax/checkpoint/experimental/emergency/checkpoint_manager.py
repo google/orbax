@@ -453,18 +453,46 @@ def _process_local_to_global(
   return per_process_values
 
 
-def _global_max(value: int, *, timeout: int) -> int:
-  """Returns the global max of a local value across all processes as a scalar."""
-  per_process_values = _process_local_to_global(
-      {value},
-      set(range(jax.process_count())),
-      timeout=timeout,
-      barrier_id=_BarrierIdentifier.GLOBAL_MAX,
+def _global_max(values: list[int]) -> list[int]:
+  """Returns the global max of local values across all processes as a scalar.
+
+  Uses JAX-based broadcasting to ensure greater performance at scale.
+
+  Args:
+    values: A list of integers.
+
+  Args:
+    values: Max of the values across all processes.
+  """
+  num_hosts = multihost.process_count()
+  num_devices_per_host = jax.local_device_count()
+  slice_mesh = jax.sharding.Mesh(
+      np.asarray(jax.devices()).reshape(num_hosts, num_devices_per_host),
+      ['host', 'dev'],
   )
-  flattened_per_process_steps = functools.reduce(
-      operator.ior, per_process_values.values(), set()
+
+  sdas = []
+  for d in jax.local_devices():
+    sdas.append(
+        jax.device_put(np.asarray(values).reshape((1, 1, len(values))), d)
+    )
+  sharding = jax.sharding.NamedSharding(slice_mesh, P('host', 'dev'))
+  # TODO(cpgaffney): Use jax.make_array_from_process_local_data.
+  g_arr = jax.make_array_from_single_device_arrays(
+      (num_hosts, num_devices_per_host, len(values)), sharding, sdas
   )
-  return max(flattened_per_process_steps)
+  result_arr = jax.jit(
+      lambda x: x,
+      out_shardings=jax.sharding.NamedSharding(slice_mesh, P()),
+  )(g_arr)
+  result_arr = np.asarray(result_arr.addressable_data(0))
+
+  # Checks that for every host, values are equal across local devices.
+  assert (
+      np.sum(result_arr, axis=1) / num_devices_per_host == result_arr[:, 0, :]
+  ).all()
+  # Select values from first device and compute max for each value across hosts.
+  return list(np.max(result_arr[:, 0, :], axis=0).astype(int))
 
 
 def _all_devices_excepting_slice(
@@ -925,9 +953,9 @@ class CheckpointManager(
     """Returns True if a preemption sync point has been reached."""
     return utils.reached_preemption(step)
 
-  def _global_max(self, value: int) -> int:
-    """Returns the global max of a local value across all devices as a scalar."""
-    return _global_max(value, timeout=self._coordination_timeout_secs)
+  def _global_max(self, values: list[int]) -> list[int]:
+    """Returns the global max of local values across all devices."""
+    return _global_max(values)
 
   def should_save(self, step: int) -> bool:
     """Returns True if a checkpoint should be saved for the current step.
@@ -945,7 +973,7 @@ class CheckpointManager(
       should_save = self._persistent_checkpoint_manager.should_save(step)
     else:
       should_save = self._local_checkpoint_manager.should_save(step)
-    return bool(self._global_max(int(should_save)))
+    return bool(self._global_max([int(should_save)])[0])
 
   def delete(self, step: int):
     """Deletes a step checkpoint."""
@@ -976,9 +1004,12 @@ class CheckpointManager(
       )
 
     start = time.time()
-    persistent_saved = bool(self._global_max(int(persistent_saved)))
-    local_saved = bool(self._global_max(int(local_saved)))
-    logging.info('Broadcast `saved` bool in %d seconds.', time.time() - start)
+    saved = tuple(
+        bool(e)
+        for e in self._global_max([int(persistent_saved), int(local_saved)])
+    )
+    persistent_saved, local_saved = saved
+    logging.info('Broadcast `saved` bool in %f seconds.', time.time() - start)
 
     if persistent_saved:
       self._persistent_steps.append(step)

@@ -310,6 +310,10 @@ def is_primary_host(primary_host: Optional[int]):
   return False
 
 
+def process_count() -> int:
+  return jax.process_count()
+
+
 def process_index() -> int:
   """Customized logic for obtaining JAX process index."""
   try:
