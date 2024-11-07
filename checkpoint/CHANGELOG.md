@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Emergency checkpoint: use JAX for global_max and combine multiple broadcasts
 into one for `saved` bool broadcast. This should alleviate concerns about
 broadcasting using the distributed system at large scale.
+- Emergency checkpoint: compile broadcast function once at init.
 
 ## [0.8.0] - 2024-10-29
 
