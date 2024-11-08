@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2024-11-08
+
 ### Changed
 - Create `Composite` class, which `CompositeArgs` now subclasses.
 - Move `tree` to `_src`.
@@ -16,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  actionable info.
 - Make `NameFormat.find_all` impls concurrent.
 - Move `path` package under `_src` package.
+- Updated readthedoc
 
 ### Fixed
 - Emergency checkpoint: use JAX for global_max and combine multiple broadcasts

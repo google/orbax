@@ -5,16 +5,9 @@ Tree Utilities
 
 .. automodule:: orbax.checkpoint.tree
 
-.. autofunction:: deserialize_tree
-.. autofunction:: from_flat_dict
-.. autofunction:: from_flattened_with_keypath
-.. autofunction:: serialize_tree
-.. autofunction:: to_flat_dict
-.. autofunction:: is_sequence_key
-.. autofunction:: is_dict_key
-.. autofunction:: tuple_path_from_keypath
-.. autofunction:: get_key_name
-.. autofunction:: is_empty_node
-.. autofunction:: is_empty_or_leaf
-.. autofunction:: to_shape_dtype_struct
 .. autofunction:: get_param_names
+.. autofunction:: serialize_tree
+.. autofunction:: deserialize_tree
+.. autofunction:: to_flat_dict
+.. autofunction:: from_flat_dict
+.. autofunction:: to_shape_dtype_struct
