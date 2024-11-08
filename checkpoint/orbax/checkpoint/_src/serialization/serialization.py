@@ -252,6 +252,7 @@ async def async_serialize(
     context: Optional[ts.Context] = None,
     primary_host: Optional[int] = 0,
     replica_id: int = 0,
+    use_replica_parallel: bool = True,
     transaction: Optional[ts.Transaction] = None,
     byte_limiter: Optional[ByteLimiter] = None,
 ):
@@ -281,6 +282,7 @@ async def async_serialize(
   rslices = replica_slices.transfer_arrays_to_host(
       [arr_inp],
       replica_id,
+      use_replica_parallel,
   )[0]
 
   byte_limiter = byte_limiter or get_byte_limiter()

@@ -201,6 +201,33 @@ class SingleHostTest(parameterized.TestCase):
     np.testing.assert_array_equal(x, restored_tree['x'])
     self.assertIsInstance(restored_tree['x'], jax.Array)
 
+  def test_save_and_restore_with_replica_parallel(self):
+    assert len(jax.devices()) > 1
+    mesh = jax.sharding.Mesh(jax.devices(), ('x',))
+    replicated_spec = jax.sharding.PartitionSpec()
+    sharding = jax.sharding.NamedSharding(mesh, replicated_spec)
+
+    key = jax.random.PRNGKey(0)
+    state = jax.random.normal(key, (1024,1024))
+    state = jax.device_put(state, sharding)
+
+    pytree = {'state': state}
+    array_handler = type_handlers.ArrayHandler(
+      replica_id=0,
+      use_replica_parallel=True,
+    )
+    handler = PyTreeCheckpointHandler(
+        type_handler_registry=type_handlers.create_type_handler_registry(
+            (jax.Array, array_handler),
+        ),
+    )
+    handler.save(self.ckpt_dir, pytree)
+
+    restored_tree = handler.restore(self.ckpt_dir)
+
+    np.testing.assert_array_equal(state, restored_tree['state'])
+    self.assertIsInstance(restored_tree['state'], jax.Array)
+
 
 if __name__ == '__main__':
   absltest.main()

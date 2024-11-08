@@ -14,9 +14,10 @@
 
 """Handles replica slices of jax.Arrays and host transfers."""
 
+import collections
 import dataclasses
 import math
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 from absl import logging
 import jax
@@ -32,6 +33,13 @@ Index = types.Index
 
 
 @dataclasses.dataclass(frozen=True)
+class SliceArgs:
+  start_index: int
+  limit_index: int
+  axis: int
+
+
+@dataclasses.dataclass(frozen=True)
 class ReplicaSlice:
   """ReplicaSlice.
 
@@ -40,15 +48,36 @@ class ReplicaSlice:
   a single-sharding array) or on-host (backed by a numpy ndarray).
 
   With single-replica checkpointing the entirety of each jax.Shard is owned by
-  exactly one replica. (Currently the only option.)
+  exactly one replica. With replica-parallel checkpointing ownership of each
+  jax.Shard is split evenly across replicas, hence each of the R replicas will
+  be responsible for saving 1/R of each shard.
+
+  `unsliced_data` refers to the corresponding jax.Shard's single-device array.
+  The part of `unsliced_data` actually owned is given by `slice_args`.
   """
 
   index: Index
-  data: jax.Array | np.ndarray
+  unsliced_data: jax.Array | np.ndarray
+  slice_args: Optional[SliceArgs]
+
+  def __post_init__(self):
+    if self.is_on_host:
+      assert not self.slice_args, f'On-host {self!r} must not have slice args'
 
   @property
   def is_on_host(self):
-    return isinstance(self.data, np.ndarray)
+    return isinstance(self.unsliced_data, np.ndarray)
+
+  def data(self):
+    if self.slice_args is None:
+      return self.unsliced_data
+    else:
+      return jax.lax.slice_in_dim(
+          self.unsliced_data,
+          start_index=self.slice_args.start_index,
+          limit_index=self.slice_args.limit_index,
+          axis=self.slice_args.axis,
+      )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -65,7 +94,6 @@ class ReplicaSlices:
   dtype: np.dtype | jax.numpy.dtype
   is_on_host: bool
   replica_slices: list[ReplicaSlice]
-  replica_id: int
 
   def __post_init__(self):
     if not all(
@@ -89,7 +117,7 @@ class ReplicaSlices:
                 index=numpy_utils.resolve_slice(
                     rslice.index, self.global_shape
                 ),
-                value=rslice.data,
+                value=rslice.data(),
             )
             for rslice in self.replica_slices
         ],
@@ -101,9 +129,24 @@ class ReplicaSlices:
     return result
 
 
+def _get_replica_counts(arr: jax.Array) -> Callable[[jax.Shard], int]:
+  """Produces a mapping from addressable shards to global replication count."""
+
+  # slice objects are not hashable before python 3.12.
+  def hashable_slices(slices: list[slice]):
+    return tuple(((s.start, s.stop, s.step) for s in slices))
+
+  counts = collections.defaultdict(int)
+  for index in arr.sharding.devices_indices_map(arr.shape).values():
+    counts[hashable_slices(index)] += 1
+
+  return lambda shard: counts[hashable_slices(shard.index)]
+
+
 def get_replica_slices(
     arr: jax.Array,
     replica_id: Optional[int],
+    use_replica_parallel: bool,
 ) -> ReplicaSlices:
   """Returns the replica slices a given replica is responsible for.
 
@@ -120,20 +163,77 @@ def get_replica_slices(
     ReplicaSlices object.
   """
   Result = tuple[list[ReplicaSlice], Shape]
+  shard0 = arr.addressable_shards[0]
 
   # single-replica: a single replica saves an entire shard.
   def pick_single_replica() -> Result:
-    shard0 = arr.addressable_shards[0]
-    target_replica_id = replica_id or shard0.replica_id
+    target_replica_id = shard0.replica_id if replica_id is None else replica_id
     rslices = [
         ReplicaSlice(
             index=shard.index,
-            data=shard.data,
+            unsliced_data=shard.data,
+            slice_args=None,
         )
         for shard in arr.addressable_shards
         if shard.replica_id == target_replica_id
     ]
     local_shape = shard0.data.shape
+    return rslices, local_shape
+
+  # replica-parallel: every replica saves part of a shard.
+  # Logic based on axlearn: https://github.com/apple/axlearn/blob/226d27ab7569668f2c38a35cf32d5dc5190ebdbb/axlearn/common/array_serialization.py#L75
+  # TODO(gspschmid): Support replica-parallel in arrays without any evenly-
+  #   divisible dimension. The last replica would transfer a smaller slice.
+  def maybe_pick_replica_parallel() -> Optional[Result]:
+    if replica_id is None:
+      raise ArgumentError(
+          'use_replica_parallel is incompatible with local checkpointing'
+      )
+
+    # Check whether replica-parallel applies: we are dealing with non-empty
+    # shards, we have more than one replica, and some dimension of the shards
+    # is evenly divisible across replicas.
+    replica_counts = _get_replica_counts(arr)
+    replica_count = replica_counts(shard0)
+    if shard0.data.size == 0 or replica_count == 1:
+      return None
+    try:
+      axis = next(
+          axis_index
+          for axis_index, axis_size in enumerate(shard0.data.shape)
+          if axis_size % replica_count == 0
+      )
+    except StopIteration:
+      return None
+    local_shape = tuple(
+        axis_size // (replica_count if axis_index == axis else 1)
+        for axis_index, axis_size in enumerate(shard0.data.shape)
+    )
+
+    rslices: list[ReplicaSlice] = []
+    for shard in arr.addressable_shards:
+      # Sanity check that all shards have the same number of replicas and shape.
+      assert replica_counts(shard) == replica_count
+      assert shard.data.shape == shard0.data.shape
+
+      size = local_shape[axis]
+      slize = shard.index[axis]
+      start = slize.start or 0
+      assert slize.step is None
+      assert slize.stop is None or slize.stop == start + shard.data.shape[axis]
+
+      start_offset = shard.replica_id * size
+      end_offset = start_offset + size
+      new_slice = slice(start + start_offset, start + end_offset)
+
+      rslices.append(
+          ReplicaSlice(
+              index=shard.index[:axis] + (new_slice,) + shard.index[axis + 1 :],
+              unsliced_data=shard.data,
+              slice_args=SliceArgs(start_offset, end_offset, axis),
+          )
+      )
+
     return rslices, local_shape
 
   if logging.vlog_is_on(1):
@@ -151,7 +251,9 @@ def get_replica_slices(
   # In order for all processes to agree on the right serialization metadata
   # we want to compute the correct local shape regardless of whether there
   # are any replica slices to save locally.
-  rslices, local_shape = pick_single_replica()
+  rslices, local_shape = (
+      use_replica_parallel and maybe_pick_replica_parallel() or pick_single_replica()
+  )
   return ReplicaSlices(
       global_shape=arr.shape,
       local_shape=local_shape,
@@ -159,13 +261,13 @@ def get_replica_slices(
       dtype=arr.dtype,
       is_on_host=False,
       replica_slices=rslices,
-      replica_id=replica_id,
   )
 
 
 def transfer_arrays_to_host(
     arrays: Sequence[jax.Array],
     replica_id: Optional[int],
+    use_replica_parallel: bool,
     *,
     enable_pinned_host_transfer: bool = True,
 ) -> Sequence[ReplicaSlices]:
@@ -200,7 +302,7 @@ def transfer_arrays_to_host(
       rslice: ReplicaSlice,
   ) -> tuple[ReplicaSlice, jax.Array]:
     assert not rslice.is_on_host
-    data = rslice.data
+    data = rslice.data()
     assert isinstance(data, jax.Array)
     device = data.device
     # Start the asynchronous device-to-host copy
@@ -215,7 +317,9 @@ def transfer_arrays_to_host(
     return rslice, data
 
   # Gather the replica slices to be saved for each array.
-  rslices_per_array = [get_replica_slices(arr, replica_id) for arr in arrays]
+  rslices_per_array = [
+      get_replica_slices(arr, replica_id, use_replica_parallel) for arr in arrays
+  ]
   # Kick off transfers for all replica slices to be saved.
   transfers_per_array = [
       [async_transfer_slice(rslice) for rslice in rslices.replica_slices]
@@ -230,7 +334,8 @@ def transfer_arrays_to_host(
               dataclasses.replace(
                   rslice_on_device,
                   # Conversion to numpy arrays forces block_until_ready.
-                  data=np.asarray(data),
+                  unsliced_data=np.asarray(data),
+                  slice_args=None,
               )
               for rslice_on_device, data in transfers
           ],
