@@ -32,6 +32,9 @@ DIRECTORY_DELETION_TIMEOUT = 360
 # Used in unit tests with multiple parallel test cases.
 _TEST_CASE_INDEX = None
 
+# Map from distributed process index to device ids.
+_DISTRIBUTED_TO_DEVICE_IDS: List[List[int]] = None
+
 # Map from runtime process index to distributed process index.
 _RUNTIME_TO_DISTRIBUTED_ID: List[int] = None
 
@@ -49,6 +52,53 @@ def is_runtime_to_distributed_ids_initialized() -> bool:
   return _RUNTIME_TO_DISTRIBUTED_ID is not None
 
 
+def is_distributed_to_device_ids_initialized() -> bool:
+  return _DISTRIBUTED_TO_DEVICE_IDS is not None
+
+
+def distributed_to_device_ids() -> List[List[int]]:
+  if not is_distributed_to_device_ids_initialized():
+    initialize_distributed_to_device_ids()
+  return _DISTRIBUTED_TO_DEVICE_IDS
+
+
+def initialize_distributed_to_device_ids():
+  """Initializes the device index mapping."""
+  # Already initialized.
+  if is_distributed_to_device_ids_initialized():
+    return
+  global _DISTRIBUTED_TO_DEVICE_IDS
+
+  client = _get_jax_distributed_client()
+  own_distributed_id = jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
+  own_device_ids = [d.id for d in jax.local_devices()]
+  dir_key = 'orbax/distributed_to_device_ids/'
+  key = dir_key + str(own_distributed_id)
+  client.key_value_set(key, str(own_device_ids))
+  client.wait_at_barrier(
+      # 5 minutes.
+      'orbax_global_discovery_device_ids', timeout_in_ms=300 * 1000
+  )
+  ids = client.key_value_dir_get(dir_key)
+  results = [None for _ in range(jax.process_count())]
+  for key, device_ids in ids:
+    distributed_id = int(key.split('/')[-1])
+    # Remove the list brackets.
+    device_ids = device_ids[1 : len(device_ids) - 1]
+    results[distributed_id] = [
+        int(device_id) for device_id in device_ids.split(', ')
+    ]
+  assert None not in results
+  _DISTRIBUTED_TO_DEVICE_IDS = results
+  logging.info(
+      '[process=%s][thread=%s] distributed_to_device_ids: %s',
+      own_distributed_id,
+      threading.current_thread().name,
+      _DISTRIBUTED_TO_DEVICE_IDS,
+  )
+
+
+# TODO(cpgaffney): Delete this method.
 def initialize_runtime_to_distributed_ids():
   """Initializes the process index mapping.
 
