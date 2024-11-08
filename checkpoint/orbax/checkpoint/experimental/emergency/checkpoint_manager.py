@@ -419,7 +419,7 @@ def _process_local_to_global(
       f'{barrier_name}_{barrier_id.get_counter()}_{barrier_processes_as_string}'
   )
 
-  client = multihost._get_jax_distributed_client()  # pylint: disable=protected-access
+  client = multihost.get_jax_distributed_client()
   broadcast_dir_key = f'broadcast_{barrier_name_and_id}/'
   broadcast_dir_key = unique_barrier_key(broadcast_dir_key) + '/'
   broadcast_key = broadcast_dir_key + str(multihost.process_index())
