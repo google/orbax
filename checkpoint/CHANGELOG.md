@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.9.0] - 2024-11-08
+### Added
+- Introduce `CheckpointManagerOptions.should_keep_fn` as an alternative to Introduce `CheckpointManagerOptions.keep_period`.
 
+## [0.9.0] - 2024-11-08
 ### Changed
 - Create `Composite` class, which `CompositeArgs` now subclasses.
 - Move `tree` to `_src`.
