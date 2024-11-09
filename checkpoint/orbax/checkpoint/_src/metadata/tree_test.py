@@ -22,7 +22,7 @@ import jax
 from jax import numpy as jnp
 import numpy as np
 from orbax.checkpoint import test_utils
-from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.metadata import tree as tree_metadata_lib
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
 
@@ -103,7 +103,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
   @parameterized.parameters(
       {
           'tree_provider': lambda: {'scalar_param': 1},
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('scalar_param',)": {
                   'key_metadata': ({'key': 'scalar_param', 'key_type': 2},),
                   'value_metadata': {
@@ -117,7 +117,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           'tree_provider': lambda: {
               'b': {'string_param': 'hi', 'nested_scalar_param': 3.4}
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('b', 'string_param')": {
                   'key_metadata': (
                       {'key': 'b', 'key_type': 2},
@@ -144,7 +144,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           'tree_provider': lambda: {
               'list_of_arrays': [np.arange(8), jnp.arange(8)]
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('list_of_arrays', '0')": {
                   'key_metadata': (
                       {'key': 'list_of_arrays', 'key_type': 2},
@@ -169,7 +169,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
       },
       {
           'tree_provider': lambda: {'none_param': None},
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('none_param',)": {
                   'key_metadata': ({'key': 'none_param', 'key_type': 2},),
                   'value_metadata': {
@@ -181,7 +181,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
       },
       {
           'tree_provider': lambda: {'empty_dict': {}},
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('empty_dict',)": {
                   'key_metadata': ({'key': 'empty_dict', 'key_type': 2},),
                   'value_metadata': {
@@ -193,7 +193,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
       },
       {
           'tree_provider': lambda: {'empty_list': []},
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('empty_list',)": {
                   'key_metadata': ({'key': 'empty_list', 'key_type': 2},),
                   'value_metadata': {
@@ -205,7 +205,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
       },
       {
           'tree_provider': lambda: {'tuple_of_empty_list': ([],)},
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('tuple_of_empty_list', '0')": {
                   'key_metadata': (
                       {'key': 'tuple_of_empty_list', 'key_type': 2},
@@ -222,7 +222,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           'tree_provider': lambda: {
               'tuple_of_arrays': (np.arange(8), jnp.arange(8))
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('tuple_of_arrays', '0')": {
                   'key_metadata': (
                       {'key': 'tuple_of_arrays', 'key_type': 2},
@@ -251,7 +251,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
                   nu=np.arange(8), mu=jnp.arange(8)
               )
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('named_tuple_param', 'mu')": {
                   'key_metadata': (
                       {'key': 'named_tuple_param', 'key_type': 2},
@@ -276,7 +276,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
       },
       {
           'tree_provider': lambda: {'empty_tuple': tuple()},
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('empty_tuple',)": {
                   'key_metadata': ({'key': 'empty_tuple', 'key_type': 2},),
                   'value_metadata': {
@@ -288,7 +288,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
       },
       {
           'tree_provider': lambda: {'list_of_empty_tuple': [tuple()]},
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('list_of_empty_tuple', '0')": {
                   'key_metadata': (
                       {'key': 'list_of_empty_tuple', 'key_type': 2},
@@ -305,7 +305,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           'tree_provider': lambda: {
               'empty_named_tuple': test_utils.EmptyNamedTuple()
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('empty_named_tuple',)": {
                   'key_metadata': (
                       {'key': 'empty_named_tuple', 'key_type': 2},
@@ -322,7 +322,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           'tree_provider': lambda: {
               'no_attribute_chex_dataclass': TransformByLrAndWdScheduleState()
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('no_attribute_chex_dataclass',)": {
                   'key_metadata': (
                       {'key': 'no_attribute_chex_dataclass', 'key_type': 2},
@@ -338,7 +338,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           'tree_provider': lambda: {
               'default_chex_dataclass': CustomDataClass()
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('default_chex_dataclass', 'jax_array')": {
                   'key_metadata': (
                       {'key': 'default_chex_dataclass', 'key_type': 2},
@@ -367,7 +367,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
                   jax_array=jnp.arange(8), np_array=np.arange(8)
               )
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('chex_dataclass', 'jax_array')": {
                   'key_metadata': (
                       {'key': 'chex_dataclass', 'key_type': 2},
@@ -394,7 +394,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           'tree_provider': lambda: {
               'no_attribute_custom_object': NoAttributeCustom()
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('no_attribute_custom_object',)": {
                   'key_metadata': (
                       {'key': 'no_attribute_custom_object', 'key_type': 2},
@@ -408,7 +408,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
       },
       {
           'tree_provider': lambda: {'default_custom_object': Custom()},
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('default_custom_object',)": {
                   'key_metadata': (
                       {'key': 'default_custom_object', 'key_type': 2},
@@ -424,7 +424,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           'tree_provider': lambda: {
               'custom_object': Custom(a=jnp.arange(8), b=np.arange(8))
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('custom_object',)": {
                   'key_metadata': ({'key': 'custom_object', 'key_type': 2},),
                   'value_metadata': {
@@ -438,7 +438,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           'tree_provider': lambda: {
               'custom_data_class': CustomDataClassWithNestedAttributes()
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('custom_data_class', 'nested_data_class')": {
                   'key_metadata': (
                       {'key': 'custom_data_class', 'key_type': 2},
@@ -492,7 +492,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
                   nested_empty_data_class=TransformByLrAndWdScheduleState(),
               )
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('custom_data_class', 'nested_data_class', 'jax_array')": {
                   'key_metadata': (
                       {'key': 'custom_data_class', 'key_type': 2},
@@ -575,7 +575,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           'tree_provider': lambda: {
               'custom_named_tuple': test_utils.NamedTupleWithNestedAttributes()
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('custom_named_tuple', 'nested_mu_nu')": {
                   'key_metadata': (
                       {'key': 'custom_named_tuple', 'key_type': 2},
@@ -629,7 +629,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
                   nested_empty_named_tuple=test_utils.EmptyNamedTuple(),
               )
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('custom_named_tuple', 'nested_mu_nu', 'mu')": {
                   'key_metadata': (
                       {'key': 'custom_named_tuple', 'key_type': 2},
@@ -713,7 +713,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
           'tree_provider': lambda: {
               'custom_object': CustomWithNestedAttributes()
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('custom_object',)": {
                   'key_metadata': ({'key': 'custom_object', 'key_type': 2},),
                   'value_metadata': {
@@ -734,7 +734,7 @@ class InternalTreeMetadataTest(parameterized.TestCase):
                   mu_nu=test_utils.MuNu(mu=jnp.arange(8), nu=np.arange(8)),
               )
           },
-          'expected_tree_json': {
+          'expected_tree_metadata_key_json': {
               "('custom_object',)": {
                   'key_metadata': ({'key': 'custom_object', 'key_type': 2},),
                   'value_metadata': {
@@ -750,24 +750,29 @@ class InternalTreeMetadataTest(parameterized.TestCase):
       # Pass tree lazily via `tree_provider` to avoid error:
       # RuntimeError: Attempted call to JAX before absl.app.run() is called.
       tree_provider: Callable[[], Any],
-      expected_tree_json: Dict[str, Any],
+      expected_tree_metadata_key_json: Dict[str, Any],
   ):
     tree = tree_provider()
-    expected_tree_json = {
-        'tree_metadata': expected_tree_json,
-        'use_zarr3': True,
-    }
-    metadata = tree_metadata.InternalTreeMetadata.build(
+
+    internal_tree_metadata = tree_metadata_lib.InternalTreeMetadata.build(
         self._to_param_infos(tree),
-        use_zarr3=True,
+    )
+    internal_tree_metadata_json = internal_tree_metadata.to_json()
+
+    # Round trip check for json conversion.
+    self.assertCountEqual(
+        internal_tree_metadata.tree_metadata_entries,
+        (
+            tree_metadata_lib.InternalTreeMetadata.from_json(
+                internal_tree_metadata_json
+            )
+        ).tree_metadata_entries,
     )
 
-    self.assertDictEqual(expected_tree_json, metadata.to_json())
-    self.assertCountEqual(
-        tree_metadata.InternalTreeMetadata.from_json(
-            expected_tree_json
-        ).tree_metadata_entries,
-        metadata.tree_metadata_entries,
+    # Specifically check _TREE_METADATA_KEY.
+    self.assertDictEqual(
+        expected_tree_metadata_key_json,
+        internal_tree_metadata_json[tree_metadata_lib._TREE_METADATA_KEY],
     )
 
 
