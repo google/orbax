@@ -58,14 +58,25 @@ async def create_async_array_from_callback(
     inp_sharding: jax.sharding.Sharding,
     data_callback: Callable[[Index, jax.Device], Awaitable[jax.Array]],
 ) -> jax.Array:
+  """Docstring."""
   device_to_index_map = inp_sharding.devices_indices_map(global_shape)
   addressable_da = inp_sharding._addressable_device_assignment  # pylint: disable=protected-access
   future_arrays = [data_callback(device_to_index_map[d], d)
                    for d in addressable_da]
   dbs = await asyncio.gather(*future_arrays)
-  return jax.make_array_from_single_device_arrays(
+  result = jax.make_array_from_single_device_arrays(
       global_shape, inp_sharding, dbs
   )
+  logging.info(
+      '[process=%d] create_async_array_from_callback', multihost.process_index()
+  )
+  logging.info('global_shape: %s', global_shape)
+  logging.info('inp_sharding: %s', inp_sharding)
+  logging.info('addressable_da: %s', addressable_da)
+  logging.info(
+      'loading indices: %s', [device_to_index_map[d] for d in addressable_da]
+  )
+  return result
 
 
 def _get_metadata(arr):
@@ -524,6 +535,7 @@ def estimate_read_memory_footprint(t: ts.TensorStore,
 
 
 async def _read_and_device_put_shard(
+    index: Index,
     device: jax.Device,
     t: ts.TensorStore,
     new_shard_shape: Sequence[int],
@@ -549,6 +561,12 @@ async def _read_and_device_put_shard(
   # make this work.
   if out.dtype == jnp.int4:
     out = jnp.asarray(out)  # type: ignore
+  logging.info(
+      '_read_and_device_put_shard: (index, shard_shape, arr): %s, %s, %s',
+      index,
+      out.shape,
+      out,
+  )
   return jax.device_put(out, jax.sharding.SingleDeviceSharding(device))
 
 
@@ -577,6 +595,7 @@ async def _read_array_index_callback(
   # Limit the bytes read for every shard.
   async with reserved_bytes(byte_limiter, requested_bytes):
     result = await _read_and_device_put_shard(
+        index,
         device,
         t,
         new_shard_shape,

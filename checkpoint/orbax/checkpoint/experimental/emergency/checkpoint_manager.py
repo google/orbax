@@ -1074,6 +1074,7 @@ class CheckpointManager(
         step,
         restoring_slice_id,
     )
+    logging.info('jax.local_devices: %s', jax.local_devices())
     step_stats = step_statistics.EmergencyRestoreStepStatistics()
     step_stats.checkpoint_manager_start_time = time.time()
     step_stats.step = step
