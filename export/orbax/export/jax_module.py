@@ -30,6 +30,7 @@ PyTree = orbax_export_typing.PyTree
 ApplyFn = orbax_export_typing.ApplyFn
 
 
+# OrbaxModuleBase
 class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
   """An exportable module for JAX functions and parameters.
 
