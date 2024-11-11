@@ -667,32 +667,41 @@ class BasePyTreeCheckpointHandler(
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
       )
-    metadata = self._read_metadata_file(directory)
-    use_zarr3_metadata = metadata.use_zarr3
-    metadata = metadata.as_nested_tree(keep_empty_nodes=True)
+    # Get value metadata tree and use_zarr3 from serialized pytree metadata.
+    internal_tree_metadata = self._read_metadata_file(directory)
+    value_metadata_tree = internal_tree_metadata.as_nested_tree(
+        keep_empty_nodes=True
+    )
+    if not value_metadata_tree:
+      raise ValueError(
+          f'Found empty checkpoint PyTree metadata in directory={directory}.'
+      )
+    use_zarr3 = (
+        internal_tree_metadata.use_zarr3
+        if internal_tree_metadata.use_zarr3 is not None
+        else self._use_zarr3
+    )
+    del internal_tree_metadata
+    # Prep for restore.
     if item is None:
-      item = metadata
+      item = value_metadata_tree
     restore_args = _fill_missing_save_or_restore_args(
         item, restore_args, mode='restore'
     )
     restore_args = tree_utils.serialize_tree(
         restore_args, keep_empty_nodes=True
     )
-    use_zarr3 = (
-        use_zarr3_metadata
-        if use_zarr3_metadata is not None
-        else self._use_zarr3
-    )
-    if not metadata:
-      raise ValueError('Found empty metadata.')
     param_infos = self._get_param_infos(
-        metadata,
-        directory,
+        item=value_metadata_tree,
+        directory=directory,
         use_ocdbt=type_handlers.is_ocdbt_checkpoint(directory),
         use_zarr3=use_zarr3,
     )
+    # Begin restore.
     tree_memory_size, restored_item = asyncio_utils.run_sync(
-        self._maybe_deserialize(item, metadata, param_infos, restore_args)
+        self._maybe_deserialize(
+            item, value_metadata_tree, param_infos, restore_args
+        )
     )
 
     if logging.vlog_is_on(1):
