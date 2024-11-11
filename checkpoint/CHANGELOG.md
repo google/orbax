@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2024-11-11
 ### Added
 - Introduce `CheckpointManagerOptions.should_keep_fn` as an alternative to Introduce `CheckpointManagerOptions.keep_period`.
+
+### Fixed
+
+- Fix readthedoc build failures on source files in `_src`
 
 ## [0.9.0] - 2024-11-08
 ### Changed
