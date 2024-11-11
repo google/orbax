@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import dataclasses
+from numbers import Number
 from typing import Any, List, Optional
 
 from absl import logging
@@ -91,6 +92,11 @@ class StandardCheckpointHandler(
   ):
     if item is None:
       raise ValueError('Must provide item to save.')
+    if isinstance(item, jax.Array | Number):
+      raise ValueError(
+          'StandardCheckpointHandler / StandardSave does not support single '
+          'arrays or scalars. Use ArrayCheckpointHandler / ArraySave'
+      )
     if save_args is None:
       save_args = jax.tree.map(lambda x: None, item)
 
