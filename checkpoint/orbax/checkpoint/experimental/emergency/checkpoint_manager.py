@@ -32,7 +32,7 @@ import functools
 import json
 import operator
 import time
-from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set
 
 from absl import logging
 from etils import epath
@@ -72,17 +72,15 @@ _PRIMARY_REPLICA_ID = 0
 _SECONDARY_REPLICA_ID = 1
 
 
-def _write_process_metadata(path: epath.Path, mesh: jax.sharding.Mesh):
+def _write_process_metadata(path: epath.Path, mesh: jax.sharding.Mesh,
+                            distributed_to_device_ids: List[List[int]]):
   """Write process metadata to the given path."""
   logging.info('Saving process index metadata at %s', path)
 
   if multihost.process_index() == 0:
     path.mkdir(parents=False, exist_ok=False)
-    runtime_to_distributed_ids = (
-        emergency_multihost.runtime_to_distributed_ids()
-    )
     (path / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
-        json.dumps(runtime_to_distributed_ids)
+        json.dumps(distributed_to_device_ids)
     )
     (path / _MESH_METADATA_FILE_NAME).write_text(
         json.dumps([int(id) for id in mesh.device_ids.flatten()])
@@ -94,15 +92,16 @@ def _read_process_metadata(path: epath.Path):
   """Read process metadata from the given path."""
   logging.info('Loading process index metadata from %s', path)
 
-  runtime_to_distributed_ids = json.loads(
+  distributed_to_device_ids = json.loads(
       (path / _GLOBAL_PROCESS_METADATA_FILE_NAME).read_text()
   )
   device_ids = json.loads((path / _MESH_METADATA_FILE_NAME).read_text())
-  return runtime_to_distributed_ids, device_ids
+  return distributed_to_device_ids, device_ids
 
 
 def _maybe_save_process_metadata(
-    path: epath.Path, global_mesh: jax.sharding.Mesh
+    path: epath.Path, global_mesh: jax.sharding.Mesh,
+    distributed_to_device_ids: List[List[int]],
 ) -> bool:
   """Saves process metadata if it does not already exist."""
   metadata_folder = path / _PROCESS_METADATA_FOLDER
@@ -112,7 +111,8 @@ def _maybe_save_process_metadata(
   # primary process may create the folder from scratch before another
   # process has a chance to check it.
   multihost.sync_global_processes('check_process_metadata_folder')
-  _write_process_metadata(metadata_folder, global_mesh)
+  _write_process_metadata(metadata_folder, global_mesh,
+                          distributed_to_device_ids)
   return True
 
 
@@ -126,15 +126,17 @@ def _consistent_restore_mesh_from_metadata(
 ) -> jax.sharding.Mesh:
   """Create a mesh consistent with the saved metadata."""
   metadata_path = path / _PROCESS_METADATA_FOLDER
-  runtime_to_distributed_ids, device_ids = _read_process_metadata(metadata_path)
+  distributed_to_device_ids, device_ids = _read_process_metadata(metadata_path)
   assert isinstance(device_ids, list)
   logging.info(
-      'From process metadata, runtime_to_distributed_ids=%s',
-      runtime_to_distributed_ids,
+      'From process metadata, distributed_to_device_ids=%s',
+      distributed_to_device_ids,
   )
   logging.info('From process metadata, device_ids=%s', device_ids)
   consistent_mesh = emergency_multihost.consistent_restore_mesh(
-      global_mesh, device_ids, runtime_to_distributed_ids
+      global_mesh, device_ids,
+      previous_distributed_to_device_ids=distributed_to_device_ids,
+      current_distributed_to_device_ids=multihost.distributed_to_device_ids(),
   )
   logging.info(
       'Created consistent mesh with device_ids=%s',
@@ -703,7 +705,8 @@ class CheckpointManager(
         self._replica_axis_index,
         self._global_mesh.axis_names[self._replica_axis_index],
     )
-    _maybe_save_process_metadata(self._persistent_directory, self._global_mesh)
+    _maybe_save_process_metadata(self._persistent_directory, self._global_mesh,
+                                 multihost.distributed_to_device_ids())
 
     self._abstract_state = abstract_state
     self._slice_id = multislice.process_slice_id(
