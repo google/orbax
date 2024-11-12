@@ -878,16 +878,18 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """
     # Try reading metadata file.
     try:
-      metadata = self._handler_impl._read_metadata_file(directory)  # pylint: disable=protected-access
-      use_zarr3 = metadata.use_zarr3
-      metadata_tree = metadata.as_nested_tree(keep_empty_nodes=True)
-      flat_metadata = tree_utils.to_flat_dict(
-          metadata_tree, keep_empty_nodes=True
+      internal_tree_metadata = self._handler_impl._read_metadata_file(directory)  # pylint: disable=protected-access
+      use_zarr3 = internal_tree_metadata.use_zarr3
+      value_metadata_tree = internal_tree_metadata.as_nested_tree(
+          keep_empty_nodes=True
+      )
+      flat_value_metadatas = tree_utils.to_flat_dict(
+          value_metadata_tree, keep_empty_nodes=True
       )
     except FileNotFoundError:
       jax.monitoring.record_event('/jax/orbax/deprecation/missing_metadata')
-      metadata_tree = None
-      flat_metadata = None
+      value_metadata_tree = None
+      flat_value_metadatas = None
       use_zarr3 = None
     # Try reading aggregate file.
     try:
@@ -921,12 +923,12 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       return value_meta
 
     # Handle cases of missing metadata and/or aggregate files.
-    structure_tree = metadata_tree or aggregate_tree
-    if flat_metadata is None and flat_aggregate is None:
+    structure_tree = value_metadata_tree or aggregate_tree
+    if flat_value_metadatas is None and flat_aggregate is None:
       raise FileNotFoundError(
           f'No structure could be identified for the checkpoint at {directory}.'
       )
-    elif flat_metadata is None:
+    elif flat_value_metadatas is None:
       # Metadata file is missing. This is an older checkpoint.
       # TODO(b/353310784) Track usages.
       flat_structure = jax.tree_util.tree_map(
@@ -937,13 +939,13 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     elif flat_aggregate is None:
       # Aggregate file is missing, so we can just use the metadata_tree as the
       # structure. This is a newer checkpoint.
-      return metadata_tree, use_zarr3
+      return value_metadata_tree, use_zarr3
     else:
       # Avoid tree_map because input trees may be mismatched (due to empty
       # values missing from msgpack structure).
       flat_structure = {}
-      for tuple_key in flat_metadata.keys():
-        value_meta = flat_metadata[tuple_key]
+      for tuple_key in flat_value_metadatas.keys():
+        value_meta = flat_value_metadatas[tuple_key]
         if tuple_key in flat_aggregate:
           flat_structure[tuple_key] = _process_metadata_and_aggregate_leaves(
               value_meta, flat_aggregate[tuple_key]

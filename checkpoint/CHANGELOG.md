@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2024-11-11
+### Added
+- Introduce `CheckpointManagerOptions.should_keep_fn` as an alternative to Introduce `CheckpointManagerOptions.keep_period`.
+
+### Fixed
+
+- Fix readthedoc build failures on source files in `_src`
+
+## [0.9.0] - 2024-11-08
 ### Changed
 - Create `Composite` class, which `CompositeArgs` now subclasses.
 - Move `tree` to `_src`.
@@ -16,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  actionable info.
 - Make `NameFormat.find_all` impls concurrent.
 - Move `path` package under `_src` package.
+- Updated readthedoc
+
+### Fixed
+- Emergency checkpoint: use JAX for global_max and combine multiple broadcasts
+into one for `saved` bool broadcast. This should alleviate concerns about
+broadcasting using the distributed system at large scale.
+- Emergency checkpoint: compile broadcast function once at init.
 
 ## [0.8.0] - 2024-10-29
 

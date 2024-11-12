@@ -58,7 +58,7 @@ def initialize_runtime_to_distributed_ids():
   TODO(b/325293150): Remove once the bug is resolved.
   """
   global _RUNTIME_TO_DISTRIBUTED_ID
-  client = _get_jax_distributed_client()
+  client = get_jax_distributed_client()
 
   # Index is distributed id.
   # Value is runtime id.
@@ -109,7 +109,7 @@ def should_skip_process_sync(processes: Optional[Set[int]] = None) -> bool:
   return False
 
 
-def _get_jax_distributed_client():
+def get_jax_distributed_client():
   client = jax._src.distributed.global_state.client  # pylint: disable=protected-access
   if client is None:
     raise ValueError(
@@ -153,7 +153,7 @@ def get_barrier_sync_fn(
   if jax.process_count() == 1:
     return lambda **kwargs: None
 
-  client = _get_jax_distributed_client()
+  client = get_jax_distributed_client()
   barrier_processes = processes or set(range(jax.process_count()))
   if process_index() not in barrier_processes:
     raise ValueError(
@@ -308,6 +308,10 @@ def is_primary_host(primary_host: Optional[int]):
   if primary_host is None or primary_host == process_index():
     return True
   return False
+
+
+def process_count() -> int:
+  return jax.process_count()
 
 
 def process_index() -> int:

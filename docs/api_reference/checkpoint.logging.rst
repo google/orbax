@@ -8,30 +8,30 @@ Checkpoint logging
 
 AbstractLogger
 ------------------------
-.. autoclass:: AbstractLogger
+.. autoclass:: abstract_logger.AbstractLogger
   :members:
 
 CompositeLogger
 ------------------------
-.. autoclass:: CompositeLogger
+.. autoclass:: composite_logger.CompositeLogger
   :members:
 
 StandardLogger
 ------------------------
-.. autoclass:: StandardLogger
+.. autoclass:: standard_logger.StandardLogger
   :members:
 
 CloudLogger
 ------------------------
-.. autoclass:: CloudLogger
+.. autoclass:: cloud_logger.CloudLogger
   :members:
 
 CloudLoggerOptions
 ------------------------
-.. autoclass:: CloudLoggerOptions
+.. autoclass:: cloud_logger.CloudLoggerOptions
   :members:
 
 StepStatistics
 ------------------------
-.. autoclass:: StepStatistics
+.. autoclass:: step_statistics.StepStatistics
   :members:

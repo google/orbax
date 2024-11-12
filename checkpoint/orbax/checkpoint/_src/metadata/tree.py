@@ -238,7 +238,7 @@ class InternalTreeMetadata:
       save_args: Optional[PyTree] = None,
       use_zarr3: bool = False,
   ) -> InternalTreeMetadata:
-    """Builds the tree metadata."""
+    """Returns an InternalTreeMetadata instance."""
     if save_args is None:
       save_args = jax.tree.map(
           lambda _: type_handlers.SaveArgs(),
@@ -291,7 +291,7 @@ class InternalTreeMetadata:
 
   @classmethod
   def from_json(cls, json_dict: Dict[str, Any]) -> InternalTreeMetadata:
-    """Convert the InternalTreeMetadata from a JSON representation."""
+    """Returns an InternalTreeMetadata instance from its JSON representation."""
     use_zarr3 = False
     if _USE_ZARR3 in json_dict:
       use_zarr3 = json_dict[_USE_ZARR3]
@@ -309,7 +309,7 @@ class InternalTreeMetadata:
     )
 
   def as_nested_tree(self, *, keep_empty_nodes: bool) -> Dict[str, Any]:
-    """Converts to a nested tree, with values of ValueMetadataEntry."""
+    """Converts to a nested tree, with leaves of ValueMetadataEntry."""
 
     def _maybe_as_empty_value(value_metadata_entry: ValueMetadataEntry) -> Any:
       if not keep_empty_nodes and type_handlers.is_empty_typestr(
@@ -334,12 +334,26 @@ class InternalTreeMetadata:
       *,
       use_ocdbt: bool = True,
   ) -> PyTree:
-    """Delegates to TypeHandlers to create user-facing metadata."""
+    """Returns a user-facing PyTree with leaves of `ValueMetadataEntry`.
+
+    The returned PyTree conforms to the structure of `self` InternalTreeMetadata
+    but the `ValueMetadataEntry` leaves are derived from the checkpoints in
+    `directory`.
+
+    Args:
+      directory: The directory to read the checkpoint from.
+      type_handler_registry: `TypeHandlerRegistry` whose registered
+        TypeHandlers' metadata are used to build the `ValueMetadataEntry`
+        leaves. See `TypeHandler.metadata()`.
+      use_ocdbt: Whether to use OCDBT for reading the metadata from tensorstore.
+    """
     flat_param_infos = {}
     flat_restore_types = {}
-    metadata_tree = self.as_nested_tree(keep_empty_nodes=True)
+    reference_metadata_tree = self.as_nested_tree(keep_empty_nodes=True)
     ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
-    for keypath, value_meta in tree_utils.to_flat_dict(metadata_tree).items():
+    for keypath, value_meta in tree_utils.to_flat_dict(
+        reference_metadata_tree
+    ).items():
       param_name = '.'.join(keypath)
       flat_param_infos[keypath] = type_handlers.ParamInfo(
           name=param_name,
@@ -385,4 +399,6 @@ class InternalTreeMetadata:
     ):
       for keypath, value in zip(keypath_batch, metadata_batch):
         flat_metadatas[keypath] = value
-    return tree_utils.from_flat_dict(flat_metadatas, target=metadata_tree)
+    return tree_utils.from_flat_dict(
+        flat_metadatas, target=reference_metadata_tree
+    )

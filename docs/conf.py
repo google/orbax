@@ -133,7 +133,9 @@ def linkcode_resolve(domain, info):
 
   try:
     mod = sys.modules[info['module']]
-  except ImportError:
+  except (ImportError, KeyError):
+    # TODO(dnlng) - Add support for resolving source code links for
+    # modules that are in _src
     return None
 
   obj = mod

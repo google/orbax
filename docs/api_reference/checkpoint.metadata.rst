@@ -9,9 +9,6 @@ Metadata Utilities
 Tree Metadata
 ------------------------
 
-.. autoclass:: Metadata
-  :members:
-
 .. autoclass:: ArrayMetadata
   :members:
 
@@ -20,6 +17,10 @@ Tree Metadata
 
 .. autoclass:: StringMetadata
   :members:
+
+.. autoclass:: StorageMetadata
+  :members:
+
 
 Sharding Metadata
 ------------------------
@@ -38,10 +39,3 @@ Sharding Metadata
 
 .. autoclass:: PositionalShardingMetadata
   :members:
-
-.. autoclass:: ShardingTypes
-  :members:
-
-.. autofunction:: from_jax_sharding
-.. autofunction:: from_serialized_string
-.. autofunction:: get_sharding_or_none
