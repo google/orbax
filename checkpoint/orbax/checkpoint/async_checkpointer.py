@@ -14,6 +14,7 @@
 
 """AsyncCheckpointer."""
 
+import sys
 import threading
 import time
 from typing import Any, Callable, Optional, Sequence, Type
@@ -160,8 +161,9 @@ class _AsyncManager:
               )
           )
         except jax.lib.xla_extension.XlaRuntimeError as e:
-          if 'DEADLINE_EXCEEDED' in str(e):
-            _add_deadline_exceeded_notes(e)
+          if sys.version_info >= (3, 11):
+            if 'DEADLINE_EXCEEDED' in str(e):
+              _add_deadline_exceeded_notes(e)
           raise
 
       if utils.is_primary_host(self._primary_host):
