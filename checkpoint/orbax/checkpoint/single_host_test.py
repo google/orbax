@@ -22,7 +22,6 @@ import jax.numpy as jnp
 import ml_dtypes
 import numpy as np
 from orbax.checkpoint import test_utils
-from orbax.checkpoint.args import StandardSave
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler_test_utils
 from orbax.checkpoint._src.serialization import type_handlers
@@ -70,7 +69,7 @@ class SingleHostTest(parameterized.TestCase):
     handler = standard_checkpoint_handler_test_utils.StandardCheckpointHandler()
     with self.assertRaisesRegex(ValueError,
                                 '.*Use ArrayCheckpointHandler / ArraySave.*'):
-      handler.save(self.ckpt_dir, args=StandardSave(x))
+      handler.save(self.ckpt_dir, args=standard_checkpoint_handler_test_utils.StandardSaveArgs(x))
 
   def test_save_and_restore_zarrv3_jax_array_default_chunk_size(self):
     handler = PyTreeCheckpointHandler(use_zarr3=True)
