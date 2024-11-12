@@ -23,6 +23,7 @@ import ml_dtypes
 import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.handlers import standard_checkpoint_handler_test_utils
 from orbax.checkpoint._src.serialization import type_handlers
 import tensorstore as ts
 
@@ -146,6 +147,19 @@ class SingleHostTest(parameterized.TestCase):
     restored_tree = restore_handler.restore(self.ckpt_dir)
     np.testing.assert_array_equal(x, restored_tree['x'])
     assert isinstance(restored_tree['x'], jax.Array)
+
+  @parameterized.parameters({'x': [1, 2]}, {'x': 1})
+  def test_save_singular_array_with_standard_checkpoint_handler(self, x):
+    if isinstance(x, list):
+      x = jnp.array(x)
+    handler = standard_checkpoint_handler_test_utils.StandardCheckpointHandler()
+    with self.assertRaisesRegex(
+        ValueError, '.*Use ArrayCheckpointHandler / ArraySave.*'
+    ):
+      handler.save(
+          self.ckpt_dir,
+          args=standard_checkpoint_handler_test_utils.StandardSaveArgs(x),
+      )
 
   @parameterized.product(
       dtype=[
