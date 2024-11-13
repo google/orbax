@@ -44,6 +44,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import async_utils
 from orbax.checkpoint._src.path import format_utils
+from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
@@ -1129,22 +1130,18 @@ class ArrayHandler(TypeHandler):
   def _get_json_tspec_write(
       self,
       info: ParamInfo,
-      value: fragments.Fragments,
+      value: replica_slices.ReplicaSlices,
       *,
-      sharding: jax.sharding.Sharding,
       use_ocdbt: bool,
       process_index: Optional[Union[int, str]] = None,
       arg: Optional[SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
-    local_shape = sharding.shard_shape(value.shape)
-    if not value.is_degenerate():
-      assert local_shape == value.fragments[0].shape
     return _build_array_tspec_write(
         info=info,
         arg=arg,
-        global_shape=value.shape,
-        local_shape=local_shape,
+        global_shape=value.global_shape,
+        local_shape=value.local_shape,
         dtype=value.dtype,
         use_ocdbt=use_ocdbt,
         process_index=process_index,
@@ -1252,8 +1249,7 @@ class ArrayHandler(TypeHandler):
 
   async def _background_serialize(
       self,
-      values: Sequence[fragments.Fragments],
-      shardings: Sequence[jax.sharding.Sharding],
+      values: Sequence[replica_slices.ReplicaSlices],
       infos: Sequence[ParamInfo],
       args: Sequence[SaveArgs],
   ):
@@ -1261,7 +1257,7 @@ class ArrayHandler(TypeHandler):
     write_coros = []
     sharding_metadata_txn = ts.Transaction()
     ocdbt_transaction: Optional[ts.Transaction] = None
-    for value, sharding, info, arg in zip(values, shardings, infos, args):
+    for value, info, arg in zip(values, infos, args):
       # The byte_limiter can't be used with a transaction, because awaiting the
       # `write` only waits until the in-memory transaction state reflects the
       # write, but the memory will remain in use until the transaction is
@@ -1272,14 +1268,13 @@ class ArrayHandler(TypeHandler):
       tspec = self._get_json_tspec_write(
           info,
           value,
-          sharding=sharding,
           use_ocdbt=info.is_ocdbt_checkpoint,
           process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
           arg=arg,
       )
       ts_context = info.ts_context
       write_coros.append(
-          serialization.async_serialize_fragments(
+          serialization.async_serialize_from_host(
               value,
               tspec,
               primary_host=self._primary_host,
@@ -1288,9 +1283,9 @@ class ArrayHandler(TypeHandler):
               byte_limiter=info.byte_limiter,
           )
       )
-      if self._enable_write_sharding_file and sharding is not None:
+      if self._enable_write_sharding_file and value.sharding is not None:
         write_coros.append(
-            self._serialize_sharding(sharding, info, sharding_metadata_txn)
+            self._serialize_sharding(value.sharding, info, sharding_metadata_txn)
         )
 
     await asyncio.gather(*write_coros)
@@ -1326,7 +1321,7 @@ class ArrayHandler(TypeHandler):
     )
 
     # Complete D2H transfer in parallel for each array.
-    fragmentses = serialization.transfer_arrays_to_host(
+    values_on_host = replica_slices.transfer_arrays_to_host(
         values,
         self._replica_id,
         enable_pinned_host_transfer=infos[0].enable_pinned_host_transfer,
@@ -1334,9 +1329,7 @@ class ArrayHandler(TypeHandler):
 
     return [
         _CommitFuture(
-            self._background_serialize(
-                fragmentses, [arr.sharding for arr in values], infos, args
-            ),
+            self._background_serialize(values_on_host, infos, args),
             name='array_type_handler',
         )
     ]
@@ -1460,8 +1453,12 @@ class ArrayHandler(TypeHandler):
     read_sizes = []
     shard_size = lambda shard: shard.data.size * shard.data.dtype.itemsize
     for v in values:
-      write_shards = serialization.get_unique_shards(v, self._replica_id)
-      write_sizes.append(sum(shard_size(shard) for shard in write_shards))
+      write_sizes.append(
+          replica_slices.get_replica_slices(
+              v,
+              replica_id=self._replica_id,
+          ).nbytes
+      )
       read_sizes.append(
           sum(shard_size(shard) for shard in v.addressable_shards)
       )

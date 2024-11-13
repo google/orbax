@@ -36,6 +36,7 @@ from orbax.checkpoint._src.arrays import numpy_utils
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization import replica_slices
 import tensorstore as ts
 
 
@@ -68,8 +69,7 @@ async def create_async_array_from_callback(
   )
 
 
-def _get_metadata(arr):
-  local_shape = arr.addressable_data(0).shape
+def _get_metadata(arr: jax.Array, local_shape: Shape):
   return {
       'compressor': {'id': 'zstd'},
       'shape': arr.shape,
@@ -246,123 +246,6 @@ async def reserved_bytes(
     await byte_limiter.release_bytes(nbytes)
 
 
-@dataclasses.dataclass
-class _Shard:
-  index: Index
-  data: np.ndarray | jax.Array
-
-
-def get_unique_shards(
-    arr: jax.Array,
-    replica_id: int | None,
-) -> list[jax.Shard]:
-  """Returns the list of jax.Shard that should be transferred to host memory."""
-  shards_info = ', '.join([
-      f'Shard(index={shard.index}, replica_id={shard.replica_id})'
-      for shard in arr.addressable_shards
-  ])
-  logging.vlog(
-      1,
-      '[process=%d] array shards: replica_id=%d, %s',
-      multihost.process_index(),
-      replica_id,
-      shards_info,
-  )
-  if replica_id is None:
-    replica_id = arr.addressable_shards[0].replica_id
-  return [
-      shard
-      for shard in arr.addressable_shards
-      if shard.replica_id == replica_id
-  ]
-
-
-def _transfer_shard_to_host(
-    shard: jax.Shard,
-    enable_pinned_host_transfer: bool,
-) -> _Shard:
-  """Asynchronously transfers shard data to host memory. Does not block."""
-  data = shard.data
-  has_pinned_host = any(
-      m.kind == 'pinned_host' for m in shard.device.addressable_memories()
-  )
-  if (
-      enable_pinned_host_transfer
-      and has_pinned_host
-      and jax._src.config.enable_memories.value  # pylint: disable=protected-access
-  ):
-    # If available, transfer to pinned host memory
-    sharding = jax.sharding.SingleDeviceSharding(
-        shard.device, memory_kind='pinned_host'
-    )
-    data = jax.device_put(data, sharding)
-  else:
-    data.copy_to_host_async()
-  return _Shard(shard.index, data)
-
-
-def shards_to_fragments(
-    shards: list[jax.Shard | _Shard],
-    global_shape: Shape,
-    dtype: jnp.dtype,
-) -> fragments.Fragments:
-  """Converts a list of jax.Shard to a Fragments."""
-  fragmentses = fragments.Fragments(
-      shape=global_shape,
-      dtype=dtype,
-      fragments=[
-          fragments.Fragment(
-              index=numpy_utils.resolve_slice(shard.index, global_shape),
-              # Conversion to numpy array forces block_until_ready.
-              value=np.asarray(shard.data),
-          )
-          for shard in shards
-      ],
-  )
-  if fragmentses.fragments:
-    fragments.validate_fragments_can_be_stacked(fragmentses)
-  return fragmentses
-
-
-def transfer_arrays_to_host(
-    arrays: Sequence[jax.Array],
-    replica_id: int | None,
-    *,
-    enable_pinned_host_transfer: bool = True,
-) -> Sequence[fragments.Fragments]:
-  """Transfers a jax.Array to host memory. Blocks until completion."""
-  transferred_shards_per_array = []
-  for arr in arrays:
-    shards_to_transfer = get_unique_shards(arr, replica_id)
-    transferred_shards = [
-        _transfer_shard_to_host(shard, enable_pinned_host_transfer)
-        for shard in shards_to_transfer
-    ]
-    transferred_shards_per_array.append(transferred_shards)
-  return [
-      shards_to_fragments(transferred_shards, arr.shape, arr.dtype)
-      for arr, transferred_shards in zip(arrays, transferred_shards_per_array)
-  ]
-
-
-async def _write_fragment(
-    fragment: fragments.Fragment,
-    t: ts.TensorStore,
-    byte_limiter: ByteLimiter,
-):
-  """Writes a single array using TensorStore. No copy is performed."""
-  assert isinstance(fragment.value, np.ndarray)
-  requested_bytes = estimate_write_memory_footprint(fragment.value)
-  async with reserved_bytes(byte_limiter, requested_bytes):
-    await t[fragment.index].write(
-        fragment.value,
-        # Avoid additional copy of input array into the TensorStore chunk
-        # cache. The data array of a shard is guaranteed to be immutable and
-        # therefore it is safe to retain a reference indefinitely.
-        can_reference_source_data_indefinitely=True,
-    )
-
-
 async def async_serialize(
     arr_inp: jax.Array,
     tensorstore_spec: Dict[str, Any],
@@ -375,7 +258,7 @@ async def async_serialize(
   """Serialize an array using TensorStore.
 
   Performs a D2H transfer of the array. Prefer to use
-  `async_serialize_fragments`
+  `async_serialize_from_host`
   by separately performing a D2H transfer, and then starting the serialization
   in a background thread.
 
@@ -394,18 +277,22 @@ async def async_serialize(
       of bytes in flight when writing to TensorStore. If None, no limitation
       will be applied.
   """
+  # Start D2H transfer in parallel for each array.
+  rslices = replica_slices.transfer_arrays_to_host(
+      [arr_inp],
+      replica_id,
+  )[0]
+
   byte_limiter = byte_limiter or get_byte_limiter()
   # 'metadata' may not be present at the top level (for example, if we are using
   # a 'cast' driver).
   if not _spec_has_metadata(tensorstore_spec):
-    tensorstore_spec['metadata'] = _get_metadata(arr_inp)
+    tensorstore_spec['metadata'] = _get_metadata(arr_inp, rslices.local_shape)
   # Set dtype if it's not in spec
   if 'dtype' not in tensorstore_spec:
     tensorstore_spec['dtype'] = jnp.dtype(arr_inp.dtype).name
-  # Start D2H transfer in parallel for each array.
-  host_fragments = transfer_arrays_to_host([arr_inp], replica_id)[0]
-  await async_serialize_fragments(
-      host_fragments,
+  await async_serialize_from_host(
+      rslices,
       tensorstore_spec,
       context=context,
       primary_host=primary_host,
@@ -414,8 +301,8 @@ async def async_serialize(
   )
 
 
-async def async_serialize_fragments(
-    shards: fragments.Fragments,
+async def async_serialize_from_host(
+    rslices_on_host: replica_slices.ReplicaSlices,
     tensorstore_spec: Dict[str, Any],
     *,
     context: Optional[ts.Context] = None,
@@ -423,11 +310,10 @@ async def async_serialize_fragments(
     transaction: Optional[ts.Transaction] = None,
     byte_limiter: Optional[ByteLimiter] = None,
 ):
-  """Serialize a host-local shards using TensorStore.
+  """Serialize replica slices using TensorStore.
 
   Args:
-    shards: A fragments.Fragments object. Individual shards are expected to
-      be host-local.
+    rslices_on_host: Replica slices obtained via transfer_arrays_to_host.
     tensorstore_spec: The tensorstore spec to use.
     context: ts.Context instance.
     primary_host: Primary host, which indicates the host that will be treated as
@@ -442,6 +328,8 @@ async def async_serialize_fragments(
   Raises:
     KeyError: If `metadata` or `dtype` is not found in the tensorstore spec.
   """
+  if not rslices_on_host.is_on_host:
+    raise ArgumentError('replica slices have not been transferred to host')
   byte_limiter = byte_limiter or get_byte_limiter()
   if not _spec_has_metadata(tensorstore_spec):
     raise KeyError('`metadata` not found in tensorstore spec.')
@@ -474,15 +362,25 @@ async def async_serialize_fragments(
       context=context,
       transaction=transaction,
   )
-  write_shard_coros = jax.tree.map(
-      functools.partial(
-          _write_fragment,
-          t=t,
-          byte_limiter=byte_limiter,
-      ),
-      shards.fragments,
-  )
-  await asyncio.gather(*write_shard_coros)
+
+  async def write_fragment(fragment: fragments.Fragment):
+    """Writes a single fragment using TensorStore. No copy is performed."""
+    assert isinstance(fragment.value, np.ndarray)
+    requested_bytes = estimate_write_memory_footprint(fragment.value)
+    async with reserved_bytes(byte_limiter, requested_bytes):
+      await t[fragment.index].write(
+          fragment.value,
+          # Avoid additional copy of input array into the TensorStore chunk
+          # cache. The data array of a shard is guaranteed to be immutable and
+          # therefore it is safe to retain a reference indefinitely.
+          can_reference_source_data_indefinitely=True,
+      )
+
+  write_coros = [
+      write_fragment(fragment)
+      for fragment in rslices_on_host.to_fragments().fragments
+  ]
+  await asyncio.gather(*write_coros)
 
 
 def estimate_write_memory_footprint(arr: np.ndarray) -> int:
