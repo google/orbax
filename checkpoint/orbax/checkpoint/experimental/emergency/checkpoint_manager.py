@@ -72,61 +72,64 @@ _PRIMARY_REPLICA_ID = 0
 _SECONDARY_REPLICA_ID = 1
 
 
-def _write_process_metadata(path: epath.Path, mesh: jax.sharding.Mesh):
-  """Write process metadata to the given path."""
-  logging.info('Saving process index metadata at %s', path)
-
-  if multihost.process_index() == 0:
-    path.mkdir(parents=False, exist_ok=False)
-    runtime_to_distributed_ids = (
-        emergency_multihost.runtime_to_distributed_ids()
-    )
-    (path / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
-        json.dumps(runtime_to_distributed_ids)
-    )
-    (path / _MESH_METADATA_FILE_NAME).write_text(
-        json.dumps([int(id) for id in mesh.device_ids.flatten()])
-    )
-  multihost.sync_global_processes('create_process_metadata')
+def _process_metadata_folder(
+    directory: epath.Path, step: int | None = None
+) -> epath.Path:
+  if step is None:
+    return directory / _PROCESS_METADATA_FOLDER
+  else:
+    return directory / _PROCESS_METADATA_FOLDER / str(step)
 
 
-def _read_process_metadata(path: epath.Path):
+def _read_process_metadata(directory: epath.Path, step: int):
   """Read process metadata from the given path."""
-  logging.info('Loading process index metadata from %s', path)
+  metadata_folder = _process_metadata_folder(directory, step)
+  if not metadata_folder.exists():
+    raise FileNotFoundError(
+        f'Process metadata folder does not exist at {metadata_folder}. The'
+        ' local checkpoint cannot be restored.'
+    )
+  logging.info('Loading process index metadata from %s', metadata_folder)
 
   runtime_to_distributed_ids = json.loads(
-      (path / _GLOBAL_PROCESS_METADATA_FILE_NAME).read_text()
+      (metadata_folder / _GLOBAL_PROCESS_METADATA_FILE_NAME).read_text()
   )
-  device_ids = json.loads((path / _MESH_METADATA_FILE_NAME).read_text())
+  device_ids = json.loads(
+      (metadata_folder / _MESH_METADATA_FILE_NAME).read_text()
+  )
   return runtime_to_distributed_ids, device_ids
 
 
-def _maybe_save_process_metadata(
-    path: epath.Path, global_mesh: jax.sharding.Mesh
-) -> bool:
-  """Saves process metadata if it does not already exist."""
-  metadata_folder = path / _PROCESS_METADATA_FOLDER
+def _save_process_metadata(
+    directory: epath.Path, step: int, global_mesh: jax.sharding.Mesh
+):
+  """Saves process metadata to local storage. Runs on every process."""
+  metadata_folder = _process_metadata_folder(directory, step)
   if metadata_folder.exists():
-    return False
-  # All processes must check the folder before proceeding. Otherwise the
-  # primary process may create the folder from scratch before another
-  # process has a chance to check it.
-  multihost.sync_global_processes('check_process_metadata_folder')
-  _write_process_metadata(metadata_folder, global_mesh)
-  return True
+    logging.warning(
+        'Process metadata folder already exists at %s. Overwriting.',
+        metadata_folder,
+    )
+    metadata_folder.rmtree()
+  metadata_folder.mkdir(parents=True, exist_ok=False)
 
-
-def _should_restore_mesh_from_metadata(path: epath.Path) -> bool:
-  metadata_path = path / _PROCESS_METADATA_FOLDER
-  return metadata_path.exists()
+  logging.info('Saving process index metadata at %s', metadata_folder)
+  runtime_to_distributed_ids = emergency_multihost.runtime_to_distributed_ids()
+  (metadata_folder / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
+      json.dumps(runtime_to_distributed_ids)
+  )
+  (metadata_folder / _MESH_METADATA_FILE_NAME).write_text(
+      json.dumps([int(id) for id in global_mesh.device_ids.flatten()])
+  )
 
 
 def _consistent_restore_mesh_from_metadata(
-    path: epath.Path, global_mesh: jax.sharding.Mesh
+    directory: epath.Path, step: int, global_mesh: jax.sharding.Mesh
 ) -> jax.sharding.Mesh:
   """Create a mesh consistent with the saved metadata."""
-  metadata_path = path / _PROCESS_METADATA_FOLDER
-  runtime_to_distributed_ids, device_ids = _read_process_metadata(metadata_path)
+  runtime_to_distributed_ids, device_ids = _read_process_metadata(
+      directory, step
+  )
   assert isinstance(device_ids, list)
   logging.info(
       'From process metadata, runtime_to_distributed_ids=%s',
@@ -538,18 +541,29 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         item_handlers=_local_checkpoint_handler(multiprocessing_options),
         logger=self._logger,
     )
+    self._run_initial_garbage_collection()
+    # Set additional properties.
+    self._max_to_keep = options.local.max_to_keep
+    self._local_options = options.local
+    self._steps = list(self.all_steps(read=True))
 
-    # Remove steps that might be left over from previous runs.
+  def _run_initial_garbage_collection(self):
+    """Remove steps that might be left over from previous runs."""
     steps_to_remove = self._get_old_steps_to_remove()
     self._checkpoints = [
         info for info in self._checkpoints if info.step not in steps_to_remove
     ]
     self._checkpoint_deleter.delete_steps(steps_to_remove)
 
-    # Set additional properties.
-    self._max_to_keep = options.local.max_to_keep
-    self._local_options = options.local
-    self._steps = list(self.all_steps(read=True))
+    checkpoint_steps_set = set([info.step for info in self._checkpoints])
+    if _process_metadata_folder(self.directory).exists():
+      metadata_paths_to_remove = [
+          p
+          for p in _process_metadata_folder(self.directory).iterdir()
+          if int(p.name) not in checkpoint_steps_set
+      ]
+      for p in metadata_paths_to_remove:
+        p.rmtree()
 
   def local_host_steps(self, read: bool) -> Sequence[int]:
     """Returns steps known to local host."""
@@ -632,6 +646,8 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     if saved:
       self._steps.append(step)
       self._steps = self._steps[-self._max_to_keep :]
+      # TODO(cpgaffney) make this asynchronous.
+      _save_process_metadata(self.directory, step, self._global_mesh)
     return saved
 
   def reload(self):
@@ -703,7 +719,6 @@ class CheckpointManager(
         self._replica_axis_index,
         self._global_mesh.axis_names[self._replica_axis_index],
     )
-    _maybe_save_process_metadata(self._persistent_directory, self._global_mesh)
 
     self._abstract_state = abstract_state
     self._slice_id = multislice.process_slice_id(
@@ -1140,14 +1155,9 @@ class CheckpointManager(
       #    before restart, that may not follow the current software ids.
       # 5. Thus, we shuffle the device order within the mesh by checking how
       #    each device's software ids changed across restarts.
-      restore_mesh = self._global_mesh
-      if _should_restore_mesh_from_metadata(self._persistent_directory):
-        logging.info(
-            'Found consistent_restore_mesh, using it for local restoration'
-        )
-        restore_mesh = _consistent_restore_mesh_from_metadata(
-            self._persistent_directory, self._global_mesh
-        )
+      restore_mesh = _consistent_restore_mesh_from_metadata(
+          self._local_directory, step, self._global_mesh
+      )
 
       restoring_processes = multihost.unique_processes_from_devices(
           multislice.slice_devices(

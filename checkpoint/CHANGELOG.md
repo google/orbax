@@ -33,6 +33,13 @@ into one for `saved` bool broadcast. This should alleviate concerns about
 broadcasting using the distributed system at large scale.
 - Emergency checkpoint: compile broadcast function once at init.
 
+### Fixed
+- Fix emergency checkpointing issue arising when repeatedly restoring from a
+local checkpoint. Process ID remapping may happen in different ways on
+subsequent times, so we need to ensure new process metadata is saved with every
+checkpoint, so we can recover the process ID mapping used to save that
+checkpoint.
+
 ## [0.8.0] - 2024-10-29
 
 ### Fixed

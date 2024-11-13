@@ -68,7 +68,7 @@ def initialize_runtime_to_distributed_ids():
   dir_key = 'jax/process_id/'
   key = dir_key + str(own_runtime_id)
   client.key_value_set(key, str(own_distributed_id))
-  client.wait_at_barrier('orbax_global_discovery', timeout_in_ms=5000)
+  client.wait_at_barrier('orbax_global_discovery', timeout_in_ms=5 * 60 * 1000)
   ids = client.key_value_dir_get(dir_key)
   for key, distributed_id in ids:
     runtime_id = int(key.split('/')[-1])
