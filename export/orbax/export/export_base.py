@@ -15,27 +15,35 @@
 """Abstract base class for different export classes."""
 
 import abc
-from typing import Any
-
-import tensorflow as tf
+from typing import Any, Callable, Mapping, Sequence
+from orbax.export import jax_module
+from orbax.export import serving_config as osc
 
 
 class ExportBase(abc.ABC):
   """Abstract base class for different export classes."""
 
-  # TODO: b/363033166 - Remove dependencies on TF in the base class.
+  def __init__(
+      self,
+      module: jax_module.JaxModule,
+      serving_configs: Sequence[osc.ServingConfig],
+  ):
+    self._module = module
+    self._serving_configs = serving_configs
+
+  @abc.abstractmethod
+  def serving_signatures(self) -> Mapping[str, Callable[..., Any]]:
+    """Returns a map of signature keys to serving functions."""
+
   @abc.abstractmethod
   def save(
       self,
-      # TODO(b/363033166): Change this annotation once TF isolation is done.
-      jax_module: tf.Module,
       model_path: str,
       **kwargs: Any,
   ):
     """Saves the model.
 
     Args:
-      jax_module: The `JaxModule` to be exported.
       model_path: The path to save the model.
       **kwargs: Additional arguments to pass to the `save` method. Accepted
         arguments are `save_options` and `serving_signatures`.
