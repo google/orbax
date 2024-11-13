@@ -14,6 +14,11 @@
 
 """Basic type definitions for working with arrays and fragments."""
 
+import dataclasses
+
+import numpy as np
+
+
 Shape = tuple[int, ...]
 
 # Indexing an np.ndarray with an empty tuple gives an array of the same shape,
@@ -24,3 +29,10 @@ Shape = tuple[int, ...]
 NdSlice = tuple[slice, ...] | type(Ellipsis)
 
 Index = tuple[slice, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class NumpyShapeDtypeStruct:
+  """Abstract representation of a Numpy array."""
+  shape: Shape
+  dtype: np.dtype
