@@ -153,7 +153,7 @@ def get_device_memory() -> int:
       'TPU v4': int(32e9),  # one megacore per chip with 32 GB HBM
       'TPU v5 lite': int(16e9),  # one core per chip with 16 GB HBM
       'TPU v5': int(96e9),  # one megacore per chip with 96 GB HBM
-      'TPU trillium': int(32e9),  # one core per chip with 32 GB HBM
+      'TPU v6 lite': int(32e9),  # one core per chip with 32 GB HBM
   }
   memory = hbm_memory.get(device.device_kind, None)
   if memory is None:
