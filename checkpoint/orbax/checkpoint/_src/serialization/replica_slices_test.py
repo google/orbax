@@ -48,7 +48,6 @@ def make_multi_device_array(shape, partitioned):
     num_replicas = num_devices
   sharding = jax.sharding.NamedSharding(mesh, spec)
 
-  key = jax.random.PRNGKey(0)
   x = jax.random.normal(jax.random.PRNGKey(0), shape)
   data = jax.device_put(x, sharding)
 
@@ -59,6 +58,8 @@ def make_multi_device_array(shape, partitioned):
 class ReplicaSlicesTest(parameterized.TestCase):
 
   def test_get_replica_slices_single_replica(self, partitioned):
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test.')
     arr, num_partitions, num_replicas = make_multi_device_array(
         (64, 64),
         partitioned=partitioned,
@@ -66,50 +67,41 @@ class ReplicaSlicesTest(parameterized.TestCase):
 
     # Using an addressable replica_id yields that replica.
     for replica_id in range(num_replicas):
-      rslices = replica_slices.get_replica_slices(
-          arr,
-          replica_id=replica_id
-      ).replica_slices
-      self.assertEqual(len(rslices), num_partitions)
-      for rslice in rslices:
-        self.assertEqual(rslice.replica_id, replica_id)
+      rslices = replica_slices.get_replica_slices(arr, replica_id=replica_id)
+      self.assertLen(rslices.replica_slices, num_partitions)
+      self.assertEqual(rslices.replica_id, replica_id)
 
     # Omitting replica_id yields _some_ replica.
     rslices = replica_slices.get_replica_slices(
-        arr,
-        replica_id=None
-    ).replica_slices
-    self.assertEqual(len(rslices), num_partitions)
-    for rslice in rslices:
-      self.assertEqual(rslice.replica_id, rslices[0].replica_id)
+        arr, replica_id=None
+    )
+    self.assertLen(rslices.replica_slices, num_partitions)
+    self.assertIsNone(rslices.replica_id)
 
     # Using an unaddressable replica_id yields nothing.
     rslices = replica_slices.get_replica_slices(
         arr,
         replica_id=-1,
     ).replica_slices
-    self.assertEqual(len(rslices), 0)
+    self.assertEmpty(rslices)
 
   def test_transfer(self, partitioned):
-    arr, num_partitions, num_replicas = make_multi_device_array(
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test.')
+    arr, num_partitions, _ = make_multi_device_array(
         (64, 64),
         partitioned=partitioned,
     )
     replica0_shards = [
-        shard
-        for shard in arr.addressable_shards
-        if shard.replica_id == 0
+        shard for shard in arr.addressable_shards if shard.replica_id == 0
     ]
 
-    rslices = replica_slices.transfer_arrays_to_host(
-        [arr],
-        replica_id=0
-    )[0].replica_slices
-    self.assertEqual(len(rslices), num_partitions)
-    self.assertEqual(len(rslices), len(replica0_shards))
+    rslices = replica_slices.transfer_arrays_to_host([arr], replica_id=0)[0]
+    self.assertLen(rslices.replica_slices, num_partitions)
+    self.assertEqual(len(rslices.replica_slices), len(replica0_shards))
 
     index_start = lambda x: x.index[0].start or 0
-    rslices = sorted(rslices, key=index_start)
+    rslices = sorted(rslices.replica_slices, key=index_start)
     replica0_shards = sorted(replica0_shards, key=index_start)
 
     for rslice, replica0_shard in zip(rslices, replica0_shards):

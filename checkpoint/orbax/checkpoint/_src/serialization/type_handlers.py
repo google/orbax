@@ -35,7 +35,6 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import future
 from orbax.checkpoint._src import asyncio_utils
-from orbax.checkpoint._src.arrays import fragments
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
@@ -1285,7 +1284,9 @@ class ArrayHandler(TypeHandler):
       )
       if self._enable_write_sharding_file and value.sharding is not None:
         write_coros.append(
-            self._serialize_sharding(value.sharding, info, sharding_metadata_txn)
+            self._serialize_sharding(
+                value.sharding, info, sharding_metadata_txn
+            )
         )
 
     await asyncio.gather(*write_coros)

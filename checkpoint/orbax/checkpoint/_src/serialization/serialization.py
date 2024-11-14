@@ -20,7 +20,6 @@ TODO(b/348434669): De-fork when possible.
 import asyncio
 from collections.abc import Awaitable
 import contextlib
-import dataclasses
 import functools
 import os
 import re
@@ -32,11 +31,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.arrays import fragments
-from orbax.checkpoint._src.arrays import numpy_utils
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import replica_slices
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
 
 
@@ -329,7 +327,7 @@ async def async_serialize_from_host(
     KeyError: If `metadata` or `dtype` is not found in the tensorstore spec.
   """
   if not rslices_on_host.is_on_host:
-    raise ArgumentError('replica slices have not been transferred to host')
+    raise ValueError('Replica slices have not been transferred to host.')
   byte_limiter = byte_limiter or get_byte_limiter()
   if not _spec_has_metadata(tensorstore_spec):
     raise KeyError('`metadata` not found in tensorstore spec.')

@@ -13,6 +13,8 @@ interface with checkpoint metadata at various levels.
 - Add `root_metadata_serialization`, and `step_metadata_serialization` modules
 that contain utilities to perform de/serialization for `RootMetadata` and
 `StepMetadata`.
+- `ReplicaSlice`/`ReplicaSlices` construct to facilitate saving replicated
+arrays.
 
 ### Changed
 - Refactor metadata/tree_test.py and move common test types to
