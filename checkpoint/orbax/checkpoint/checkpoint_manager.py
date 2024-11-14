@@ -43,7 +43,6 @@ from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
-from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import deleter
@@ -610,12 +609,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
 
     # For async_checkpointer.
-    self._non_blocking_metadata_store = (
-        checkpoint.metadata_store(enable_write=True)
+    self._non_blocking_checkpoint_metadata_store = (
+        checkpoint.checkpoint_metadata_store(enable_write=True)
     )
     # For metadata checkpointer and regular checkpointer.
-    self._blocking_metadata_store = (
-        checkpoint.metadata_store(enable_write=True, blocking_write=True)
+    self._blocking_checkpoint_metadata_store = (
+        checkpoint.checkpoint_metadata_store(
+            enable_write=True, blocking_write=True
+        )
     )
 
     if checkpointers is not None:
@@ -699,24 +700,21 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._checkpoints = self._load_checkpoint_infos()
 
-    self._metadata_dir = self.directory / METADATA_ITEM_NAME
-    if self._options.read_only and not self._metadata_dir.exists():
+    self._metadata_checkpointer = Checkpointer(
+        JsonCheckpointHandler(
+            multiprocessing_options=self._multiprocessing_options
+        ),
+        multiprocessing_options=self._options.multiprocessing_options,
+        file_options=self._options.file_options,
+        checkpoint_metadata_store=self._blocking_checkpoint_metadata_store,
+        temporary_path_class=self._options.temporary_path_class,
+    )
+    if self._options.read_only and not self._metadata_path().exists():
       self._metadata = {} if metadata is None else metadata
     else:
       self._metadata = None
-    if (metadata is not None and
-        not self._options.read_only and
-        utils.is_primary_host(self._multiprocessing_options.primary_host)):
+    if metadata is not None and not self._options.read_only:
       self._save_metadata(metadata)
-
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'CheckpointManager:save_metadata',
-            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-            suffix=self._metadata_save_counter(),
-        ),
-        processes=self._multiprocessing_options.active_processes,
-    )
 
     # TODO: b/359854428 - Move Finalize biz logic to a separate class/module.
     self._finalize_thread_lock = threading.Lock()
@@ -778,7 +776,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           multiprocessing_options=options.multiprocessing_options,
           async_options=options.async_options or AsyncOptions(),
           file_options=options.file_options,
-          checkpoint_metadata_store=self._non_blocking_metadata_store,
+          checkpoint_metadata_store=self._non_blocking_checkpoint_metadata_store,
           temporary_path_class=options.temporary_path_class,
       )
     else:
@@ -786,7 +784,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           handler,
           multiprocessing_options=options.multiprocessing_options,
           file_options=options.file_options,
-          checkpoint_metadata_store=self._blocking_metadata_store,
+          checkpoint_metadata_store=self._blocking_checkpoint_metadata_store,
           temporary_path_class=options.temporary_path_class,
       )
 
@@ -1497,31 +1495,31 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
     )
 
-  def _metadata_save_counter(self) -> str:
-    return counters.root_metadata_save_counter()
-
-  def _metadata_file_path(self) -> epath.Path:
-    if not self._metadata_dir.exists():
-      raise ValueError('Metadata directory is not initialized.')
-    return checkpoint.root_metadata_file_path(self._metadata_dir)
+  def _metadata_path(self) -> epath.Path:
+    return self.directory / METADATA_ITEM_NAME
 
   def _save_metadata(self, metadata: Mapping[str, Any]):
     """Saves CheckpointManager level metadata, skips if already present."""
-    self._metadata_dir.mkdir(parents=True, exist_ok=True)
-    file_path = self._metadata_file_path()
-    if not file_path.exists():  # May have been created by a previous run.
-      self._blocking_metadata_store.write(file_path, dict(metadata))
+    path = self._metadata_path()
+    path_exists = path.exists()
+    # Ensure that we check across all processes before potentially saving.
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'CheckpointManager:check_metadata_existence',
+            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+            suffix=self.directory.name,
+        ),
+        processes=self._multiprocessing_options.active_processes,
+    )
+    if not path_exists:  # May have been created by a previous run.
+      self._metadata_checkpointer.save(path, metadata)
 
   def metadata(self) -> Mapping[str, Any]:
     """See superclass documentation."""
     if self._metadata is None:
-      if self._metadata_dir.exists():
-        file_path = self._metadata_file_path()
-        self._metadata = self._blocking_metadata_store.read(file_path)
-        if self._metadata is None:
-          raise ValueError(
-              f'Failed to read metadata from {file_path}.'
-          )
+      path = self._metadata_path()
+      if path.exists():
+        self._metadata = self._metadata_checkpointer.restore(path)
       else:
         self._metadata = {}
     return self._metadata
@@ -1792,7 +1790,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   def _finalize(self, step: int, steps_to_remove: List[int]):
     """Finalizes individual items and starts garbage collection."""
     process_index = multihost.process_index()
-    self._non_blocking_metadata_store.wait_until_finished()
+    self._non_blocking_checkpoint_metadata_store.wait_until_finished()
     self._wait_for_checkpointers()
     # If an error is encountered while waiting for commit futures to complete,
     # we will not proceed past this point.
@@ -1831,8 +1829,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self.wait_until_finished()
     self._checkpointer.close()
     # Call after checkpointer.close().
-    self._non_blocking_metadata_store.close()
-    self._blocking_metadata_store.close()
+    self._non_blocking_checkpoint_metadata_store.close()
+    self._blocking_checkpoint_metadata_store.close()
     self._checkpoint_deleter.close()
 
   def __contextmanager__(

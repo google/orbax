@@ -93,7 +93,9 @@ def is_orbax_checkpoint(path: epath.PathLike) -> bool:
     raise FileNotFoundError(f'Checkpoint path {path} does not exist.')
   if not path.is_dir():
     raise NotADirectoryError(f'Checkpoint path {path} is not a directory.')
-  metadata_store = checkpoint_metadata.metadata_store(enable_write=False)
+  metadata_store = checkpoint_metadata.checkpoint_metadata_store(
+      enable_write=False
+  )
   # Path points to a single step checkpoint with valid metadata.
   if metadata_store.read(path) is not None:
     return True

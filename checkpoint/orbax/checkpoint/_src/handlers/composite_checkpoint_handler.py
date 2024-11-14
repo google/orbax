@@ -806,6 +806,11 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
             f' items: {existing_items}'
         )
       handler = self._get_or_set_handler(item_name, arg)
+      logging.info('[ADAMDEBUG] item_name: %s', item_name)
+      logging.info('[ADAMDEBUG] handler: %s', handler)
+      logging.info('[ADAMDEBUG] arg: %s', arg)
+      logging.info('[ADAMDEBUG] directory: %s', directory)
+      logging.info('[ADAMDEBUG] directory dirs: %s', list(directory.iterdir()))
       restored[item_name] = handler.restore(
           self._get_item_directory(directory, item_name), args=arg
       )

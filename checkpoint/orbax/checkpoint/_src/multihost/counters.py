@@ -24,7 +24,6 @@ _async_save_counter = itertools.count()
 _composite_save_counter = itertools.count()
 _tmp_directory_counter = itertools.count()
 _model_surgery_loading_counter = itertools.count()
-_root_metadata_save_counter = itertools.count()
 
 _global_max_broadcast_counter = itertools.count()
 _local_all_steps_broadcast_counter = itertools.count()
@@ -45,10 +44,6 @@ def tmp_directory_counter() -> str:
 
 def model_surgery_loading_counter() -> str:
   return str(next(_model_surgery_loading_counter))
-
-
-def root_metadata_save_counter() -> str:
-  return str(next(_root_metadata_save_counter))
 
 
 # Emergency checkpointing counters.

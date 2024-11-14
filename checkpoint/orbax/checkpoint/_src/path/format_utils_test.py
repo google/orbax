@@ -69,7 +69,7 @@ class FormatUtilsTest(parameterized.TestCase):
     with CheckpointManager(self.directory) as mngr:
       self.assertTrue(mngr.save(0, args=StandardSave(self.pytree)))
     if not with_checkpoint_metadata:
-      checkpoint_metadata.step_metadata_file_path(self.directory / '0').unlink(
+      checkpoint_metadata.metadata_file_path(self.directory / '0').unlink(
           missing_ok=False
       )
 
@@ -93,7 +93,7 @@ class FormatUtilsTest(parameterized.TestCase):
           )
       )
     if not with_checkpoint_metadata:
-      checkpoint_metadata.step_metadata_file_path(self.directory / '0').unlink(
+      checkpoint_metadata.metadata_file_path(self.directory / '0').unlink(
           missing_ok=False
       )
 

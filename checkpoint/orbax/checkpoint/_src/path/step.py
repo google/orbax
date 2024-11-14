@@ -28,7 +28,6 @@ from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint._src.metadata import checkpoint
-from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 
 
@@ -62,12 +61,8 @@ class Metadata:
   @functools.cached_property
   def _checkpoint_metadata(self) -> Optional[checkpoint.StepMetadata]:
     """Returns checkpoint metadata of this step."""
-    metadata_dict = checkpoint.metadata_store(enable_write=False).read(
-        file_path=checkpoint.step_metadata_file_path(self.path)
-    )
-    if metadata_dict is None:
-      return None
-    return step_metadata_serialization.deserialize(metadata_dict)
+    store = checkpoint.checkpoint_metadata_store(enable_write=False)
+    return store.read(self.path)
 
   @property
   def init_timestamp_nsecs(self) -> Optional[int]:

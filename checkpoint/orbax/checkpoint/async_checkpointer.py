@@ -283,7 +283,9 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       async_options: options_lib.AsyncOptions = options_lib.AsyncOptions(),
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
-      checkpoint_metadata_store: Optional[checkpoint.MetadataStore] = None,
+      checkpoint_metadata_store: Optional[
+          checkpoint.CheckpointMetadataStore
+      ] = None,
       temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None,
   ):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
@@ -310,10 +312,9 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
     self._barrier_sync_key_prefix = barrier_sync_key_prefix
     self._file_options = file_options
-    self._metadata_store = (
-        checkpoint_metadata_store or checkpoint.metadata_store(
-            enable_write=True
-        )
+    self._checkpoint_metadata_store = (
+        checkpoint_metadata_store
+        or checkpoint.checkpoint_metadata_store(enable_write=True)
     )
     self._temporary_path_class = temporary_path_class
     timeout_secs = timeout_secs or async_options.timeout_secs
@@ -446,18 +447,18 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   def check_for_errors(self):
     """Surfaces any errors from the background commit operations."""
     self._async_manager.check_for_errors()
-    self._metadata_store.wait_until_finished()
+    self._checkpoint_metadata_store.wait_until_finished()
 
   def wait_until_finished(self):
     """Waits for any outstanding operations to finish."""
     self._async_manager.wait_until_finished()
-    self._metadata_store.wait_until_finished()
+    self._checkpoint_metadata_store.wait_until_finished()
 
   def close(self):
     """Waits to finish any outstanding operations before closing."""
     self.wait_until_finished()
     super().close()
-    self._metadata_store.close()
+    self._checkpoint_metadata_store.close()
 
   @property
   def handler(self) -> async_checkpoint_handler.AsyncCheckpointHandler:

@@ -12,90 +12,56 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Manages metadata of checkpoints at root and step level (not item level)."""
+"""Manages metadata of checkpoints at step level (not item level)."""
 
 from __future__ import annotations
 import concurrent.futures
 import dataclasses
 import json
 import threading
-from typing import Any, Protocol, TypeVar
-
+from typing import Any, Optional, Protocol
 from absl import logging
 from etils import epath
-from orbax.checkpoint._src import composite
-from orbax.checkpoint._src.logging import step_statistics
 
-_STEP_METADATA_FILENAME = '_CHECKPOINT_METADATA'
-_ROOT_METADATA_FILENAME = '_ROOT_METADATA'
-
-ItemMetadata = composite.Composite
-StepStatistics = step_statistics.SaveStepStatistics
-SerializedMetadata = TypeVar('SerializedMetadata', bound=dict[str, Any])
+_METADATA_FILENAME = '_CHECKPOINT_METADATA'
 
 
-def step_metadata_file_path(path: epath.PathLike) -> epath.Path:
-  """The path to step metadata file for a given checkpoint directory."""
-  path = epath.Path(path)
-  if not path.is_dir():
-    raise ValueError(f'Path is not a directory: {path}')
-  return path / _STEP_METADATA_FILENAME
-
-
-def root_metadata_file_path(path: epath.PathLike) -> epath.Path:
-  """The path to root metadata file for a given checkpoint directory."""
-  path = epath.Path(path)
-  if not path.is_dir():
-    raise ValueError(f'Path is not a directory: {path}')
-  return path / _ROOT_METADATA_FILENAME
+def metadata_file_path(path: epath.PathLike) -> epath.Path:
+  """Returns the path to metadata file for a given checkpoint directory."""
+  return epath.Path(path) / _METADATA_FILENAME
 
 
 @dataclasses.dataclass
 class StepMetadata:
   """Metadata of a checkpoint at step level (not per item).
 
+  NOTE: Internal class. Please reach out to Orbax team if you want to use it in
+  your codebase.
+
   Attributes:
-    format: The checkpoint file format. Users should specify the format
-      explicitly when using something non-standard.
-    item_handlers: Map of item name to its checkpoint handler.
-    item_metadata: Map of item name to its metadata.
-    metrics: User-provided metrics (accuracy, loss, etc.)
-    performance_metrics: Performance metrics (time, memory, etc.)
     init_timestamp_nsecs: timestamp when uncommitted checkpoint was initialized.
       Specified as nano seconds since epoch. default=None.
     commit_timestamp_nsecs: commit timestamp of a checkpoint, specified as nano
       seconds since epoch. default=None.
-    custom: User-provided custom metadata.
   """
 
-  format: str | None = None
-  item_handlers: dict[str, str] = dataclasses.field(default_factory=dict)
-  item_metadata: ItemMetadata | None = None
-  metrics: dict[str, Any] = dataclasses.field(default_factory=dict)
-  performance_metrics: StepStatistics = dataclasses.field(
-      default_factory=StepStatistics
-  )
-  init_timestamp_nsecs: int | None = None
-  commit_timestamp_nsecs: int | None = None
-  custom: dict[str, Any] = dataclasses.field(default_factory=dict)
+  init_timestamp_nsecs: Optional[int] = None
+  commit_timestamp_nsecs: Optional[int] = None
+
+  @classmethod
+  def from_dict(cls, dict_data: Any) -> StepMetadata:
+    validated_dict = {}
+    if 'init_timestamp_nsecs' in dict_data:
+      validated_dict['init_timestamp_nsecs'] = dict_data['init_timestamp_nsecs']
+    if 'commit_timestamp_nsecs' in dict_data:
+      validated_dict['commit_timestamp_nsecs'] = dict_data[
+          'commit_timestamp_nsecs'
+      ]
+    return StepMetadata(**validated_dict)
 
 
-@dataclasses.dataclass
-class RootMetadata:
-  """Metadata of a checkpoint at root level (contains all steps).
-
-  Attributes:
-    format: The checkpoint file format. Users should specify the format
-      explicitly when using something non-standard.
-    custom: User-provided custom metadata.
-  """
-
-  format: str | None = None
-  custom: dict[str, Any] = dataclasses.field(default_factory=dict)
-
-
-class MetadataStore(Protocol):
-  """Manages storage of `SerializedMetadata`."""
+class CheckpointMetadataStore(Protocol):
+  """Manages storage of `CheckpointMetadata`."""
 
   def is_blocking_writer(self) -> bool:
     """Returns True if the store performs blocking writes, otherwise False."""
@@ -103,32 +69,32 @@ class MetadataStore(Protocol):
 
   def write(
       self,
-      file_path: epath.PathLike,
-      metadata: SerializedMetadata,
+      checkpoint_path: epath.PathLike,
+      checkpoint_metadata: StepMetadata,
   ) -> None:
-    """[Over]Writes `metadata` to `file`."""
+    """[Over]Writes `checkpoint_metadata` to `checkpoint_path`/*metadata_file*."""
     ...
 
   def read(
-      self, file_path: epath.PathLike
-  ) -> SerializedMetadata | None:
-    """Reads `file` and returns `SerializedMetadata`."""
+      self, checkpoint_path: epath.PathLike
+  ) -> Optional[StepMetadata]:
+    """Reads `checkpoint_path`/*metadata_file* and returns `CheckpointMetadata`."""
     ...
 
   def update(
       self,
-      file_path: epath.PathLike,
+      checkpoint_path: epath.PathLike,
       **kwargs,
   ) -> None:
-    """Safely updates `SerializedMetadata` at `file`.
+    """Safely updates CheckpointMetadata at `checkpoint_path`/*metadata_file*.
 
-    If no updatable `SerializedMetadata` is found at `file`, then it creates a
-    new one with `kwargs` attributes.
+    If no updatable CheckpointMetadata is found at
+    `checkpoint_path`/*metadata_file*, then it creates a new one with `kwargs`
+    attributes.
 
     Args:
-      file_path: path to metadata file in checkpoint dir (for
-        `RootMetadata`) or step dir (for `StepMetadata`).
-      **kwargs: Attributes of `SerializedMetadata` in kwargs format.
+      checkpoint_path: path to checkpoint dir (step dir).
+      **kwargs: Attributes of CheckpointMetadata is kwargs format.
     """
     ...
 
@@ -141,8 +107,8 @@ class MetadataStore(Protocol):
     ...
 
 
-class _MetadataStoreImpl(MetadataStore):
-  """Basic internal reusable impl of `SerializedMetadata` storage.
+class _CheckpointMetadataStoreImpl(CheckpointMetadataStore):
+  """Basic internal reusable impl of `CheckpointMetadata` storage.
 
   It is neither thread safe, nor does it check for read/write capabilities.
   """
@@ -152,42 +118,42 @@ class _MetadataStoreImpl(MetadataStore):
 
   def write(
       self,
-      file_path: epath.PathLike,
-      metadata: SerializedMetadata,
+      checkpoint_path: epath.PathLike,
+      checkpoint_metadata: StepMetadata,
   ) -> None:
-    metadata_file = epath.Path(file_path)
-    if not metadata_file.parent.name or not metadata_file.parent.exists():
-      raise ValueError(f'Metadata path does not exist: {metadata_file.parent}')
-    json_data = json.dumps(metadata)
-    bytes_written = metadata_file.write_text(json_data)
+    checkpoint_path = epath.Path(checkpoint_path)
+    if not checkpoint_path.exists():
+      raise ValueError(f'Checkpoint path does not exist: {checkpoint_path}')
+    json_data = json.dumps(dataclasses.asdict(checkpoint_metadata))
+    bytes_written = metadata_file_path(checkpoint_path).write_text(json_data)
     if bytes_written == 0:
       raise ValueError(
-          f'Failed to write Metadata={metadata},'
-          f' json={json_data} to {metadata_file}'
+          f'Failed to write CheckpointMetadata={checkpoint_metadata},'
+          f' json={json_data} to {checkpoint_path}'
       )
     logging.log_every_n(
         logging.INFO,
-        'Wrote Metadata=%s, json=%s to %s',
+        'Wrote CheckpointMetadata=%s, json=%s to %s',
         100,
-        metadata,
+        checkpoint_metadata,
         json_data,
-        metadata_file,
+        checkpoint_path,
     )
 
   def read(
-      self, file_path: epath.PathLike
-  ) -> SerializedMetadata | None:
-    metadata_file = epath.Path(file_path)
+      self, checkpoint_path: epath.PathLike
+  ) -> Optional[StepMetadata]:
+    metadata_file = metadata_file_path(checkpoint_path)
     if not metadata_file.exists():
       logging.warning(
-          'Metadata file does not exist: %s', metadata_file
+          'CheckpointMetadata file does not exist: %s', metadata_file
       )
       return None
     try:
       raw_data = metadata_file.read_text()
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.error(
-          'Failed to read Metadata file: %s, error: %s',
+          'Failed to read CheckpointMetadata file: %s, error: %s',
           metadata_file,
           e,
       )
@@ -197,45 +163,43 @@ class _MetadataStoreImpl(MetadataStore):
     except json.decoder.JSONDecodeError as e:
       # TODO(b/340287956): Found empty metadata files, how is it possible.
       logging.error(
-          'Failed to json parse Metadata file: %s, '
-          'file content: %s, '
-          'error: %s',
+          'Failed to json parse CheckpointMetadata file: %s, file content: %s,'
+          ' error: %s',
           metadata_file,
           raw_data,
           e,
       )
       return None
+    result = StepMetadata.from_dict(json_data)
     logging.log_every_n(
         logging.INFO,
-        'Read Metadata=%s from %s',
+        'Read CheckpointMetadata=%s from %s',
         500,
-        json_data,
-        metadata_file,
+        result,
+        checkpoint_path,
     )
-    return json_data
+    return result
 
   def update(
       self,
-      file_path: epath.PathLike,
+      checkpoint_path: epath.PathLike,
       **kwargs,
   ) -> None:
-    metadata_file = epath.Path(file_path)
-    metadata = dict(self.read(metadata_file) or {})
-    for k, v in kwargs.items():
-      metadata[k] = v
-    self.write(metadata_file, metadata)
+    metadata = self.read(checkpoint_path) or StepMetadata()
+    updated = dataclasses.replace(metadata, **kwargs)
+    self.write(checkpoint_path, updated)
     logging.log_every_n(
         logging.INFO,
-        'Updated Metadata=%s to %s',
+        'Updated CheckpointMetadata=%s to %s',
         100,
-        metadata,
-        metadata_file,
+        updated,
+        checkpoint_path,
     )
 
 
 @dataclasses.dataclass
-class _BlockingMetadataStore(MetadataStore):
-  """Manages storage of `SerializedMetadata` with blocking writes.
+class _BlockingCheckpointMetadataStore(CheckpointMetadataStore):
+  """Manages storage of `CheckpointMetadata` with blocking writes.
 
   Write operations are thread safe: within a process multiple threads write
   without corrupting data.
@@ -251,12 +215,12 @@ class _BlockingMetadataStore(MetadataStore):
   """
 
   enable_write: bool
-  # TODO(niketkb): Support locking per path.
+  # TODO(niketkb): Support locking per checkpoint path.
   _write_lock: threading.RLock = dataclasses.field(init=False)
-  _store_impl: _MetadataStoreImpl = dataclasses.field(init=False)
+  _store_impl: _CheckpointMetadataStoreImpl = dataclasses.field(init=False)
 
   def __post_init__(self):
-    self._store_impl = _MetadataStoreImpl()
+    self._store_impl = _CheckpointMetadataStoreImpl()
     if self.enable_write:
       self._write_lock = threading.RLock()
 
@@ -265,44 +229,44 @@ class _BlockingMetadataStore(MetadataStore):
 
   def write(
       self,
-      file_path: epath.PathLike,
-      metadata: SerializedMetadata,
+      checkpoint_path: epath.PathLike,
+      checkpoint_metadata: StepMetadata,
   ) -> None:
     if not self.enable_write:
       return
     with self._write_lock:
-      self._store_impl.write(file_path, metadata)
+      self._store_impl.write(checkpoint_path, checkpoint_metadata)
 
   def read(
-      self, file_path: epath.PathLike
-  ) -> SerializedMetadata | None:
-    return self._store_impl.read(file_path)
+      self, checkpoint_path: epath.PathLike
+  ) -> Optional[StepMetadata]:
+    return self._store_impl.read(checkpoint_path)
 
   def update(
       self,
-      file_path: epath.PathLike,
+      checkpoint_path: epath.PathLike,
       **kwargs,
   ) -> None:
     if not self.enable_write:
       return
     with self._write_lock:
-      self._store_impl.update(file_path, **kwargs)
+      self._store_impl.update(checkpoint_path, **kwargs)
 
 
 @dataclasses.dataclass
-class _NonBlockingMetadataStore(MetadataStore):
-  """Manages storage of `SerializedMetadata` with non blocking writes.
+class _NonBlockingCheckpointMetadataStore(CheckpointMetadataStore):
+  """Manages storage of `CheckpointMetadata` with non blocking writes.
 
-  By default it behaves like a read only `MetadataStore`. But the
-  same instance is reused if user requests for a write-enabled instance in the
-  same process.
+  By default it behaves like a read only `CheckpointMetadataStore`. But the same
+  instance is reused if user requests for a write-enabled instance in the same
+  process.
 
   The writes are non blocking. Read responses don't reflect in progress writes.
   """
 
   enable_write: bool
   _write_lock: threading.RLock = dataclasses.field(init=False)
-  _store_impl: _MetadataStoreImpl = dataclasses.field(init=False)
+  _store_impl: _CheckpointMetadataStoreImpl = dataclasses.field(init=False)
   # We need to make sure that only one thread writes/updates to a given path.
   # A single threaded executor is a simple solution. We can improve it by
   # introducing a multi threaded executor but setting up tasks such that all
@@ -317,7 +281,7 @@ class _NonBlockingMetadataStore(MetadataStore):
   )
 
   def __post_init__(self):
-    self._store_impl = _MetadataStoreImpl()
+    self._store_impl = _CheckpointMetadataStoreImpl()
     if self.enable_write:
       self._write_lock = threading.RLock()
       self._single_thread_executor = concurrent.futures.ThreadPoolExecutor(
@@ -339,86 +303,90 @@ class _NonBlockingMetadataStore(MetadataStore):
 
   def _write_and_log(
       self,
-      file_path: epath.PathLike,
-      metadata: SerializedMetadata,
+      checkpoint_path: epath.PathLike,
+      checkpoint_metadata: StepMetadata,
   ) -> None:
-    """Writes `metadata` and logs error if any."""
+    """Writes `checkpoint_metadata` and logs error if any."""
     try:
-      self._store_impl.write(file_path, metadata)
+      self._store_impl.write(checkpoint_path, checkpoint_metadata)
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.exception(
           'Failed to write metadata=%s path=%s: %s',
-          metadata,
-          file_path,
+          checkpoint_metadata,
+          checkpoint_path,
           e,
       )
       raise
 
   def write(
       self,
-      file_path: epath.PathLike,
-      metadata: SerializedMetadata,
+      checkpoint_path: epath.PathLike,
+      checkpoint_metadata: StepMetadata,
   ) -> None:
-    """[Over]Writes `metadata` in non blocking manner."""
+    """[Over]Writes `checkpoint_metadata` in non blocking manner."""
     if not self.enable_write:
       logging.warning(
-          'Write requested but enable_write=false, metadata=%s'
-          ' path=%s',
-          metadata,
-          file_path,
+          'Write requested but enable_write=false, checkpoint_metadata=%s'
+          ' checkpoint_path=%s',
+          checkpoint_metadata,
+          checkpoint_path,
       )
       return
     with self._write_lock:
       future = self._single_thread_executor.submit(
-          self._write_and_log, file_path, metadata
+          self._write_and_log, checkpoint_path, checkpoint_metadata
       )
       self._add_to_write_futures(future)
 
   def read(
-      self, file_path: epath.PathLike
-  ) -> SerializedMetadata | None:
-    """Reads metadata from `file_path` and returns a `SerializedMetadata`."""
-    return self._store_impl.read(file_path)
+      self, checkpoint_path: epath.PathLike
+  ) -> Optional[StepMetadata]:
+    """Reads `checkpoint_path`/*metadata_file* and returns `CheckpointMetadata`."""
+    return self._store_impl.read(checkpoint_path)
 
-  def _update_and_log(self, file: epath.PathLike, **kwargs) -> None:
-    """Updates metadata attributes and logs error if any."""
+  def _update_and_log(self, checkpoint_path: epath.PathLike, **kwargs) -> None:
+    """Updates checkpoint metadata attributes and logs error if any."""
     try:
-      self._store_impl.update(file, **kwargs)
+      self._store_impl.update(checkpoint_path, **kwargs)
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.exception(
           'Failed to update metadata=%s path=%s: %s',
           kwargs,
-          file,
+          checkpoint_path,
           e,
       )
       raise
 
+  def _validate_kwargs(self, **kwargs) -> None:
+    _ = StepMetadata(**kwargs)
+
   def update(
       self,
-      file_path: epath.PathLike,
+      checkpoint_path: epath.PathLike,
       **kwargs,
   ) -> None:
-    """Updates `SerializedMetadata` in non blocking manner.
+    """Updates CheckpointMetadata in non blocking manner.
 
-    If no updatable `SerializedMetadata` is found at `file_path`, then it
-    creates a new one with `kwargs` attributes.
+    If no updatable CheckpointMetadata is found at
+    `checkpoint_path`/*metadata_file*, then it creates a new one with `kwargs`
+    attributes.
 
     Args:
-      file_path: path to the metadata file in checkpoint dir (for
-        `RootMetadata`) or step dir (for `StepMetadata`).
-      **kwargs: Attributes of `SerializedMetadata` is kwargs format.
+      checkpoint_path: path to checkpoint dir (step dir).
+      **kwargs: Attributes of CheckpointMetadata is kwargs format.
     """
     if not self.enable_write:
       logging.warning(
           'Update requested but enable_write=false, kwargs=%s'
-          ' file=%s',
+          ' checkpoint_path=%s',
           kwargs,
-          file_path,
+          checkpoint_path,
       )
       return
     with self._write_lock:
+      self._validate_kwargs(**kwargs)
       future = self._single_thread_executor.submit(
-          self._update_and_log, file_path, **kwargs
+          self._update_and_log, checkpoint_path, **kwargs
       )
       self._add_to_write_futures(future)
 
@@ -439,19 +407,23 @@ class _NonBlockingMetadataStore(MetadataStore):
         logging.info('Closing %s', self)
 
 
-_METADATA_STORE_FOR_WRITES = _BlockingMetadataStore(enable_write=True)
-_METADATA_STORE_FOR_READS = _BlockingMetadataStore(enable_write=False)
-_METADATA_STORE_NON_BLOCKING_FOR_READS = (
-    _NonBlockingMetadataStore(enable_write=False)
+_CHECKPOINT_METADATA_STORE_FOR_WRITES = _BlockingCheckpointMetadataStore(
+    enable_write=True
+)
+_CHECKPOINT_METADATA_STORE_FOR_READS = _BlockingCheckpointMetadataStore(
+    enable_write=False
+)
+_CHECKPOINT_METADATA_STORE_NON_BLOCKING_FOR_READS = (
+    _NonBlockingCheckpointMetadataStore(enable_write=False)
 )
 
 
-def metadata_store(
+def checkpoint_metadata_store(
     *,
     enable_write: bool,
     blocking_write: bool = False,
-) -> MetadataStore:
-  """Returns `MetadataStore` instance based on `enable_write` value.
+) -> CheckpointMetadataStore:
+  """Returns `CheckpointMetadataStore` instance based on `enable_write` value.
 
   Write operations are thread safe: within a process multiple threads write
   without corrupting data.
@@ -461,8 +433,8 @@ def metadata_store(
 
   Read operations are inherently thread safe and *process safe* too.
 
-  NOTE: `MetadataStore` instance created with `enable_write=True`
-  and `blocking_write=False` must be closed with `.close()` to release thread
+  NOTE: `CheckpointMetadataStore` instance created with `enable_write=True` and
+  `blocking_write=False` must be closed with `.close()` to release thread
   resources. Prefer to reuse an instance created for this scenario.
 
   Args:
@@ -473,9 +445,9 @@ def metadata_store(
   """
   if not blocking_write:
     if enable_write:
-      return _NonBlockingMetadataStore(enable_write=True)
-    return _METADATA_STORE_NON_BLOCKING_FOR_READS
+      return _NonBlockingCheckpointMetadataStore(enable_write=True)
+    return _CHECKPOINT_METADATA_STORE_NON_BLOCKING_FOR_READS
 
   if enable_write:
-    return _METADATA_STORE_FOR_WRITES
-  return _METADATA_STORE_FOR_READS
+    return _CHECKPOINT_METADATA_STORE_FOR_WRITES
+  return _CHECKPOINT_METADATA_STORE_FOR_READS

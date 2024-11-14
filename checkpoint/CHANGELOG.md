@@ -8,11 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Add `RootMetadata` and `StepMetadata` classes as ways for the user to
-interface with checkpoint metadata at various levels.
-- Add `root_metadata_serialization`, and `step_metadata_serialization` modules
-that contain utilities to perform de/serialization for `RootMetadata` and
-`StepMetadata`.
 - `ReplicaSlice`/`ReplicaSlices` construct to facilitate saving replicated
 arrays.
 
@@ -21,8 +16,6 @@ arrays.
  `test_tree_utils.py` for better reusability.
 - [emergency checkpoint] Break out mesh construction and process ID metadata
 utils into a separate file.
-- Rename `CheckpointMetadataStore` to `MetadataStore`, and change methods to
-accept and return metadata as dictionaries.
 
 ## [0.9.1] - 2024-11-11
 
@@ -34,7 +27,6 @@ accept and return metadata as dictionaries.
 - Fix readthedoc build failures on source files in `_src`
 
 ## [0.9.0] - 2024-11-08
-
 ### Changed
 - Create `Composite` class, which `CompositeArgs` now subclasses.
 - Move `tree` to `_src`.

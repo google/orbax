@@ -16,10 +16,9 @@
 
 # pylint: disable=g-importing-member, g-bad-import-order
 
-from orbax.checkpoint._src.metadata.checkpoint import RootMetadata
 from orbax.checkpoint._src.metadata.checkpoint import StepMetadata
-from orbax.checkpoint._src.metadata.checkpoint import MetadataStore
-from orbax.checkpoint._src.metadata.checkpoint import metadata_store
+from orbax.checkpoint._src.metadata.checkpoint import CheckpointMetadataStore
+from orbax.checkpoint._src.metadata.checkpoint import checkpoint_metadata_store
 
 from orbax.checkpoint._src.metadata.sharding import ShardingMetadata
 from orbax.checkpoint._src.metadata.sharding import NamedShardingMetadata
