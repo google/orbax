@@ -29,7 +29,6 @@ import collections
 import dataclasses
 import enum
 import functools
-import json
 import operator
 import time
 from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set
@@ -50,7 +49,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.serialization import type_handlers
-from orbax.checkpoint.experimental.emergency import multihost as emergency_multihost
+from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import standard_logger
 from orbax.checkpoint.logging import step_statistics
@@ -63,87 +62,8 @@ P = jax.sharding.PartitionSpec
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
 unique_barrier_key = multihost._unique_barrier_key  # pylint: disable=protected-access
 
-_PROCESS_METADATA_FOLDER = 'process_metadata'
-_PROCESS_METADATA_FILE_NAME = 'process_metadata.json'
-_GLOBAL_PROCESS_METADATA_FILE_NAME = 'global_process_metadata.json'
-_MESH_METADATA_FILE_NAME = 'mesh_metadata.json'
-
 _PRIMARY_REPLICA_ID = 0
 _SECONDARY_REPLICA_ID = 1
-
-
-def _process_metadata_folder(
-    directory: epath.Path, step: int | None = None
-) -> epath.Path:
-  if step is None:
-    return directory / _PROCESS_METADATA_FOLDER
-  else:
-    return directory / _PROCESS_METADATA_FOLDER / str(step)
-
-
-def _read_process_metadata(directory: epath.Path, step: int):
-  """Read process metadata from the given path."""
-  metadata_folder = _process_metadata_folder(directory, step)
-  if not metadata_folder.exists():
-    raise FileNotFoundError(
-        f'Process metadata folder does not exist at {metadata_folder}. The'
-        ' local checkpoint cannot be restored.'
-    )
-  logging.info('Loading process index metadata from %s', metadata_folder)
-
-  runtime_to_distributed_ids = json.loads(
-      (metadata_folder / _GLOBAL_PROCESS_METADATA_FILE_NAME).read_text()
-  )
-  device_ids = json.loads(
-      (metadata_folder / _MESH_METADATA_FILE_NAME).read_text()
-  )
-  return runtime_to_distributed_ids, device_ids
-
-
-def _save_process_metadata(
-    directory: epath.Path, step: int, global_mesh: jax.sharding.Mesh
-):
-  """Saves process metadata to local storage. Runs on every process."""
-  metadata_folder = _process_metadata_folder(directory, step)
-  if metadata_folder.exists():
-    logging.warning(
-        'Process metadata folder already exists at %s. Overwriting.',
-        metadata_folder,
-    )
-    metadata_folder.rmtree()
-  metadata_folder.mkdir(parents=True, exist_ok=False)
-
-  logging.info('Saving process index metadata at %s', metadata_folder)
-  runtime_to_distributed_ids = emergency_multihost.runtime_to_distributed_ids()
-  (metadata_folder / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
-      json.dumps(runtime_to_distributed_ids)
-  )
-  (metadata_folder / _MESH_METADATA_FILE_NAME).write_text(
-      json.dumps([int(id) for id in global_mesh.device_ids.flatten()])
-  )
-
-
-def _consistent_restore_mesh_from_metadata(
-    directory: epath.Path, step: int, global_mesh: jax.sharding.Mesh
-) -> jax.sharding.Mesh:
-  """Create a mesh consistent with the saved metadata."""
-  runtime_to_distributed_ids, device_ids = _read_process_metadata(
-      directory, step
-  )
-  assert isinstance(device_ids, list)
-  logging.info(
-      'From process metadata, runtime_to_distributed_ids=%s',
-      runtime_to_distributed_ids,
-  )
-  logging.info('From process metadata, device_ids=%s', device_ids)
-  consistent_mesh = emergency_multihost.consistent_restore_mesh(
-      global_mesh, device_ids, runtime_to_distributed_ids
-  )
-  logging.info(
-      'Created consistent mesh with device_ids=%s',
-      consistent_mesh.device_ids.flatten(),
-  )
-  return consistent_mesh
 
 
 def local_checkpoint_handler() -> PyTreeCheckpointHandler:
@@ -556,10 +476,12 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     self._checkpoint_deleter.delete_steps(steps_to_remove)
 
     checkpoint_steps_set = set([info.step for info in self._checkpoints])
-    if _process_metadata_folder(self.directory).exists():
+    if mesh_consistency.process_metadata_folder(self.directory).exists():
       metadata_paths_to_remove = [
           p
-          for p in _process_metadata_folder(self.directory).iterdir()
+          for p in mesh_consistency.process_metadata_folder(
+              self.directory
+          ).iterdir()
           if int(p.name) not in checkpoint_steps_set
       ]
       for p in metadata_paths_to_remove:
@@ -647,7 +569,9 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
       self._steps.append(step)
       self._steps = self._steps[-self._max_to_keep :]
       # TODO(cpgaffney) make this asynchronous.
-      _save_process_metadata(self.directory, step, self._global_mesh)
+      mesh_consistency.save_process_metadata(
+          self.directory, step, self._global_mesh
+      )
     return saved
 
   def reload(self):
@@ -1155,7 +1079,7 @@ class CheckpointManager(
       #    before restart, that may not follow the current software ids.
       # 5. Thus, we shuffle the device order within the mesh by checking how
       #    each device's software ids changed across restarts.
-      restore_mesh = _consistent_restore_mesh_from_metadata(
+      restore_mesh = mesh_consistency.consistent_restore_mesh_from_metadata(
           self._local_directory, step, self._global_mesh
       )
 
@@ -1222,7 +1146,7 @@ class CheckpointManager(
         # available shard correctly. This may cause performance issues.
 
         # Thus, we re-shard the array to follow the original mesh and layout.
-        in_tree = self._consistent_restore_mesh_to_global_mesh(
+        in_tree = mesh_consistency.consistent_restore_mesh_to_global_mesh(
             in_tree, original_single_slice_shardings_tuple
         )
     else:
@@ -1269,31 +1193,6 @@ class CheckpointManager(
     logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
 
     return jax.tree.unflatten(tree_defs, shared_states)
-
-  def _consistent_restore_mesh_to_global_mesh(
-      self,
-      original_state: PyTree,
-      desired_slice_shardings,
-  ) -> Any:
-    """Transfers from consistent restore mesh to global mesh."""
-    logging.info('Transferring from consistent restore mesh to global mesh')
-
-    start_transfer = time.time()
-    resharded_state = jax.device_put(
-        original_state, desired_slice_shardings, donate=True
-    )
-    transfer_elapsed_s = time.time() - start_transfer
-    logging.info(
-        'Finished transferring from consistent restore mesh to global mesh'
-        ' in %.2fs',
-        transfer_elapsed_s,
-    )
-    jax.monitoring.record_event_duration_secs(
-        '/orbax/emergency/checkpoint/read/transfer_global_shard_duration_secs',
-        transfer_elapsed_s,
-    )
-
-    return resharded_state
 
   def _restore_from_persistent(
       self,

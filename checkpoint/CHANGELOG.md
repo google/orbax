@@ -10,14 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Refactor metadata/tree_test.py and move common test types to
  `test_tree_utils.py` for better reusability.
+- [emergency checkpoint] Break out mesh construction and process ID metadata
+utils into a separate file.
 
 ## [0.9.1] - 2024-11-11
+
 ### Added
 - Introduce `CheckpointManagerOptions.should_keep_fn` as an alternative to
  `CheckpointManagerOptions.keep_period`.
 
 ### Fixed
-
 - Fix readthedoc build failures on source files in `_src`
 
 ## [0.9.0] - 2024-11-08
