@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Refactor metadata/tree_test.py and move common test types to
+ `test_tree_utils.py` for better reusability.
+
 ## [0.9.1] - 2024-11-11
 ### Added
-- Introduce `CheckpointManagerOptions.should_keep_fn` as an alternative to Introduce `CheckpointManagerOptions.keep_period`.
+- Introduce `CheckpointManagerOptions.should_keep_fn` as an alternative to
+ `CheckpointManagerOptions.keep_period`.
 
 ### Fixed
 

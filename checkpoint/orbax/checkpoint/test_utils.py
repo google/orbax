@@ -26,7 +26,7 @@ import inspect
 import itertools
 import time
 import typing
-from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
+from typing import Any, List, Optional, Set
 from unittest import mock
 
 from absl import logging
@@ -48,22 +48,6 @@ from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
-
-
-class MuNu(NamedTuple):
-  mu: jax.Array | None
-  nu: np.ndarray | None
-
-
-class EmptyNamedTuple(NamedTuple):
-  pass
-
-
-class NamedTupleWithNestedAttributes(NamedTuple):
-  nested_mu_nu: MuNu | None = None
-  nested_dict: Dict[str, jax.Array] | None = None
-  nested_tuple: Tuple[str, np.ndarray] | None = None
-  nested_empty_named_tuple: EmptyNamedTuple | None = None
 
 
 def sync_global_processes(name: str):

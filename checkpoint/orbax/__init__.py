@@ -29,7 +29,6 @@ from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import options
 from orbax.checkpoint import path
 from orbax.checkpoint import serialization
-from orbax.checkpoint import test_utils
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import tree
 from orbax.checkpoint._src.serialization import type_handlers
@@ -79,6 +78,10 @@ from orbax.checkpoint._src.handlers.handler_registration import DefaultCheckpoin
 # This class should be regarded as internal-only, and may be removed without
 # warning.
 from orbax.checkpoint._src.handlers.base_pytree_checkpoint_handler import BasePyTreeCheckpointHandler
+
+# Test utils.
+from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.testing import test_tree_utils
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
 __version__ = version.__version__
