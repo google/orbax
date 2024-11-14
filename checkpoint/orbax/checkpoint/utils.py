@@ -28,7 +28,6 @@ import jax
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_utils
-from orbax.checkpoint._src.path import locking
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.tree import utils as tree_utils
 
@@ -54,9 +53,6 @@ is_primary_host = multihost.is_primary_host
 async_makedirs = async_utils.async_makedirs
 async_write_bytes = async_utils.async_write_bytes
 async_exists = async_utils.async_exists
-lockdir = locking.lockdir
-is_locked = locking.is_locked
-
 
 is_gcs_path = step_lib.is_gcs_path
 checkpoint_steps = step_lib.checkpoint_steps

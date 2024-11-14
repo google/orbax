@@ -64,7 +64,6 @@ from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.path import atomicity
-from orbax.checkpoint._src.path import locking
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 Future = future.Future
@@ -716,12 +715,10 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     }
 
   def _existing_items(self, directory: epath.Path) -> List[str]:
-    # TODO(b/310948423) Lockdir usage should unnecessary once snapshotting is
-    # fully enabled.
     return [
         p.name
         for p in directory.iterdir()
-        if p.is_dir() and p != locking.lockdir(directory)
+        if p.is_dir()
     ]
 
   def restore(
