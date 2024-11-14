@@ -39,6 +39,7 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
+from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
@@ -96,9 +97,7 @@ def create_tmp_directory(
     active_processes: Optional[Set[int]] = None,
     barrier_sync_key_prefix: Optional[str] = None,
     path_permission_mode: int = step_lib.WORLD_READABLE_MODE,
-    checkpoint_metadata_store: Optional[
-        checkpoint_metadata.CheckpointMetadataStore
-    ] = None,
+    metadata_store: Optional[checkpoint_metadata.MetadataStore] = None,
 ) -> epath.Path:
   """Creates a non-deterministic tmp directory for saving for given `final_dir`.
 
@@ -114,9 +113,8 @@ def create_tmp_directory(
       0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
         path is supported.
-    checkpoint_metadata_store: optional `CheckpointMetadataStore` instance. If
-      present then it is used to create `CheckpointMetadata` with current
-      timestamp.
+    metadata_store: optional `MetadataStore` instance. If present then it is
+      used to create `StepMetadata` with current timestamp.
 
   Returns:
     The tmp directory.
@@ -151,12 +149,13 @@ def create_tmp_directory(
         )
     logging.info('Creating tmp directory %s', tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=False, mode=path_permission_mode)
-    if checkpoint_metadata_store is not None:
-      checkpoint_metadata_store.write(
-          checkpoint_path=tmp_dir,
-          checkpoint_metadata=checkpoint_metadata.StepMetadata(
-              init_timestamp_nsecs=time.time_ns()
-          ),
+    if metadata_store is not None:
+      metadata = checkpoint_metadata.StepMetadata(
+          init_timestamp_nsecs=time.time_ns(),
+      )
+      metadata_store.write(
+          file_path=checkpoint_metadata.step_metadata_file_path(tmp_dir),
+          metadata=step_metadata_serialization.serialize(metadata),
       )
 
   multihost.sync_global_processes(
@@ -603,22 +602,20 @@ def barrier_compatible_test(cls):
 def ensure_atomic_save(
     temp_ckpt_dir: epath.Path,
     final_ckpt_dir: epath.Path,
-    checkpoint_metadata_store: Optional[
-        checkpoint_metadata.CheckpointMetadataStore
-    ] = None,
+    metadata_store: Optional[checkpoint_metadata.MetadataStore] = None,
 ):
   """Wrapper around TemporaryPath.finalize for testing."""
   if temp_ckpt_dir == final_ckpt_dir:
     atomicity.CommitFileTemporaryPath(
         temp_ckpt_dir,
         final_ckpt_dir,
-        checkpoint_metadata_store=checkpoint_metadata_store,
+        checkpoint_metadata_store=metadata_store,
     ).finalize()
   else:
     atomicity.AtomicRenameTemporaryPath(
         temp_ckpt_dir,
         final_ckpt_dir,
-        checkpoint_metadata_store=checkpoint_metadata_store,
+        checkpoint_metadata_store=metadata_store,
     ).finalize()
 
 

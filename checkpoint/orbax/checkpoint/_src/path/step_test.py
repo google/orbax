@@ -21,6 +21,7 @@ from absl.testing import parameterized
 from etils import epath
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.metadata import checkpoint
+from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import step as step_lib
 
@@ -377,13 +378,13 @@ class MetadataTest(parameterized.TestCase):
   def test_checkpoint_metadata_based_fields(self):
     step_path = self.directory / 'step_1'
     step_path.mkdir(parents=True, exist_ok=True)
-    checkpoint.checkpoint_metadata_store(
-        enable_write=True, blocking_write=True
-    ).write(
-        step_path,
-        checkpoint.StepMetadata(
-            init_timestamp_nsecs=1, commit_timestamp_nsecs=2
-        ),
+    metadata = checkpoint.StepMetadata(
+        init_timestamp_nsecs=1,
+        commit_timestamp_nsecs=2,
+    )
+    checkpoint.metadata_store(enable_write=True, blocking_write=True).write(
+        file_path=checkpoint.step_metadata_file_path(step_path),
+        metadata=step_metadata_serialization.serialize(metadata),
     )
 
     metadata = step_lib.Metadata(step=1, path=step_path)

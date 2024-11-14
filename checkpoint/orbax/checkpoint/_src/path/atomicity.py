@@ -62,6 +62,7 @@ from etils import epath
 import jax
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
+from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_utils
@@ -89,7 +90,7 @@ class TemporaryPath(Protocol):
       final_path: epath.Path,
       *,
       checkpoint_metadata_store: Optional[
-          checkpoint_metadata.CheckpointMetadataStore
+          checkpoint_metadata.MetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
       multiprocessing_options: Optional[
@@ -138,7 +139,7 @@ async def _create_tmp_directory(
     primary_host: Optional[int] = 0,
     path_permission_mode: int = step_lib.WORLD_READABLE_MODE,
     checkpoint_metadata_store: Optional[
-        checkpoint_metadata.CheckpointMetadataStore
+        checkpoint_metadata.MetadataStore
     ] = None,
 ) -> epath.Path:
   """Creates a non-deterministic tmp directory for saving for given `final_dir`.
@@ -184,9 +185,11 @@ async def _create_tmp_directory(
     )
     if checkpoint_metadata_store is not None:
       checkpoint_metadata_store.write(
-          checkpoint_path=tmp_dir,
-          checkpoint_metadata=checkpoint_metadata.StepMetadata(
-              init_timestamp_nsecs=time.time_ns()
+          file_path=checkpoint_metadata.step_metadata_file_path(tmp_dir),
+          metadata=step_metadata_serialization.serialize(
+              checkpoint_metadata.StepMetadata(
+                  init_timestamp_nsecs=time.time_ns()
+              )
           ),
       )
 
@@ -218,7 +221,7 @@ class AtomicRenameTemporaryPath(TemporaryPath):
       final_path: epath.Path,
       *,
       checkpoint_metadata_store: Optional[
-          checkpoint_metadata.CheckpointMetadataStore
+          checkpoint_metadata.MetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
       multiprocessing_options: Optional[
@@ -246,7 +249,7 @@ class AtomicRenameTemporaryPath(TemporaryPath):
       final_path: epath.Path,
       *,
       checkpoint_metadata_store: Optional[
-          checkpoint_metadata.CheckpointMetadataStore
+          checkpoint_metadata.MetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
       multiprocessing_options: Optional[
@@ -318,7 +321,7 @@ class AtomicRenameTemporaryPath(TemporaryPath):
     if self._checkpoint_metadata_store:
       self._checkpoint_metadata_store.wait_until_finished()
       self._checkpoint_metadata_store.update(
-          checkpoint_path=self._tmp_path,
+          file_path=checkpoint_metadata.step_metadata_file_path(self._tmp_path),
           commit_timestamp_nsecs=time.time_ns(),
       )
       self._checkpoint_metadata_store.wait_until_finished()
@@ -341,7 +344,7 @@ class CommitFileTemporaryPath(TemporaryPath):
       final_path: epath.Path,
       *,
       checkpoint_metadata_store: Optional[
-          checkpoint_metadata.CheckpointMetadataStore
+          checkpoint_metadata.MetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
       multiprocessing_options: Optional[
@@ -369,7 +372,7 @@ class CommitFileTemporaryPath(TemporaryPath):
       final_path: epath.Path,
       *,
       checkpoint_metadata_store: Optional[
-          checkpoint_metadata.CheckpointMetadataStore
+          checkpoint_metadata.MetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
       multiprocessing_options: Optional[
@@ -439,7 +442,7 @@ class CommitFileTemporaryPath(TemporaryPath):
     if self._checkpoint_metadata_store:
       self._checkpoint_metadata_store.wait_until_finished()
       self._checkpoint_metadata_store.update(
-          checkpoint_path=self._tmp_path,
+          file_path=checkpoint_metadata.step_metadata_file_path(self._tmp_path),
           commit_timestamp_nsecs=time.time_ns(),
       )
       self._checkpoint_metadata_store.wait_until_finished()

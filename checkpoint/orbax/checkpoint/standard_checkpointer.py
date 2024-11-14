@@ -64,9 +64,7 @@ class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
       async_options: options_lib.AsyncOptions = options_lib.AsyncOptions(),
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
-      checkpoint_metadata_store: Optional[
-          checkpoint.CheckpointMetadataStore
-      ] = None,
+      checkpoint_metadata_store: Optional[checkpoint.MetadataStore] = None,
       temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None,
       **kwargs,
   ):

@@ -105,9 +105,7 @@ class Checkpointer(
       *,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
-      checkpoint_metadata_store: Optional[
-          checkpoint.CheckpointMetadataStore
-      ] = None,
+      checkpoint_metadata_store: Optional[checkpoint.MetadataStore] = None,
       temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None,
   ):
     if not checkpoint_args.has_registered_args(handler):
@@ -126,13 +124,11 @@ class Checkpointer(
     self._temporary_path_class = temporary_path_class
 
     # If not provided then use checkpoint_metadata_store with blocking writes.
-    self._checkpoint_metadata_store = (
+    self._metadata_store = (
         checkpoint_metadata_store
-        or checkpoint.checkpoint_metadata_store(
-            enable_write=True, blocking_write=True
-        )
+        or checkpoint.metadata_store(enable_write=True, blocking_write=True)
     )
-    if not self._checkpoint_metadata_store.is_blocking_writer():
+    if not self._metadata_store.is_blocking_writer():
       raise ValueError('Checkpoint metadata store must be blocking writer.')
 
     jax.monitoring.record_event('/jax/orbax/checkpointer/init')
@@ -151,7 +147,7 @@ class Checkpointer(
     )
     tmpdir = temporary_path_class.from_final(
         directory,
-        checkpoint_metadata_store=self._checkpoint_metadata_store,
+        checkpoint_metadata_store=self._metadata_store,
         multiprocessing_options=multiprocessing_options,
         file_options=self._file_options,
     )
@@ -256,7 +252,7 @@ class Checkpointer(
   def close(self):
     """Closes the underlying CheckpointHandler."""
     self._handler.close()
-    self._checkpoint_metadata_store.close()
+    self._metadata_store.close()
 
   @property
   def handler(self) -> checkpoint_handler.CheckpointHandler:
