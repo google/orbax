@@ -50,5 +50,6 @@ testing = [
     'mock',
     'flax',
     'pytest',
-    'pytest-xdist'
+    'pytest-xdist',
+    'chex',
 ]
