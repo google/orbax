@@ -32,6 +32,18 @@ import tensorflow as tf
 ApplyFn = orbax_export_typing.ApplyFn
 
 
+def _to_jax_dtype(t):
+  if isinstance(t, tf.DType):
+    return t.as_numpy_dtype()
+  return t
+
+
+def _to_jax_spec(tree: PyTree) -> PyTree:
+  return jax.tree_util.tree_map(
+      lambda x: jax.ShapeDtypeStruct(x.shape, _to_jax_dtype(x.dtype)), tree
+  )
+
+
 def _to_sequence(a):
   if isinstance(a, Sequence):
     return a
@@ -76,6 +88,8 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         if constants.FLATTEN_SIGNATURE in jax2obm_kwargs
         else False
     )
+
+    self._params_args_spec = _to_jax_spec(params)
 
     # Set the Orbax checkpoint path if provided in the jax2obm_kwargs.
     self._maybe_set_orbax_checkpoint_path(jax2obm_kwargs)

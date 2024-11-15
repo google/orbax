@@ -25,11 +25,11 @@ from orbax.export.modules import orbax_module_base
 from orbax.export.modules import tensorflow_module
 import tensorflow as tf
 
-
 PyTree = orbax_export_typing.PyTree
 ApplyFn = orbax_export_typing.ApplyFn
 
 
+# TODO(bdwalker): Remove tf.Module base class.
 class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
   """An exportable module for JAX functions and parameters.
 
@@ -44,12 +44,12 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
       trainable: Optional[Union[bool, PyTree]] = None,
       input_polymorphic_shape: Union[PyTree, Mapping[str, PyTree], None] = None,
       jax2tf_kwargs: Optional[Mapping[str, Any]] = None,
-      jax2obm_kwargs: Optional[Mapping[str, Any]] = None,
       jit_compile: Union[bool, Mapping[str, bool]] = True,
       pspecs: Optional[PyTree] = None,
       allow_multi_axis_sharding_consolidation: Optional[bool] = None,
       export_version: constants.ExportModelType = constants.ExportModelType.TF_SAVEDMODEL,
       flatten_signature: bool = False,
+      jax2obm_kwargs: Optional[Mapping[str, Any]] = None,
   ):
     """JaxModule constructor.
 

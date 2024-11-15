@@ -17,8 +17,8 @@
 from collections.abc import Callable, Mapping
 import dataclasses
 from typing import Any, Optional, Sequence, Union
-
 from absl import logging
+from etils.epy import reraise_utils
 import jax
 from jax import export as jax_export
 from jax.experimental import jax2tf
@@ -34,6 +34,7 @@ from tensorflow.experimental import dtensor
 PyTree = orbax_export_typing.PyTree
 ApplyFn = orbax_export_typing.ApplyFn
 obx_export_config = config.config
+maybe_reraise = reraise_utils.maybe_reraise
 
 
 def _same_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
@@ -73,7 +74,7 @@ class _NonTrackableMetadata:
   allow_multi_axis_sharding_consolidation: Optional[bool]
 
 
-class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
+class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
   """An exportable module for JAX functions and parameters.
 
   Holds tf.Variables converted from JAX parameters, as well as TF functions
@@ -83,7 +84,7 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
   def __init__(
       self,
       params: PyTree,
-      apply_fn: Union[Callable[..., Any], Mapping[str, ApplyFn]],
+      apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
       **kwargs: Any,
   ):
     jax2tf_kwargs = kwargs.get('jax2tf_kwargs', None)
@@ -313,10 +314,7 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
     names = export_utils.get_param_names(params)
     if pspecs is None:
       pspecs = jax.tree_util.tree_map(lambda x: None, params)
-    logging.info('pspecs: %s', pspecs)
-    logging.info('params shape: %s', jax.tree.map(lambda x: x.shape, params))
-    logging.info('names: %s', names)
-    logging.info('trainable: %s', trainable)
+      
     return jax.tree_util.tree_map(
         _to_tf_variable, params, names, trainable, pspecs
     )
@@ -357,6 +355,7 @@ class TensorFlowModule(orbax_module_base.OrbaxModuleBase, tf.Module):
       logging.vlog(3, 'jax2tf_kwargs=%s', jax2tf_kwargs)
 
     apply_fn_tf = jax2tf.convert(apply_fn, **jax2tf_kwargs)
+
     return tf.function(
         lambda x: apply_fn_tf(
             export_utils.get_variable_tree(
