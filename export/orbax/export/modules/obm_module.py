@@ -14,24 +14,22 @@
 
 """Wraps JAX functions and parameters into a tf.Module."""
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
+import copy
 import logging
-from typing import Any, Tuple, Union
+from typing import Any, Optional, Union
 
 import jax
-from jax import export as jax_export
 from orbax.export import constants
-from orbax.export import serving_config as osc
 from orbax.export import typing as orbax_export_typing
-# from orbax.export import utils
 from orbax.export.modules import orbax_module_base
 from orbax.export.typing import PyTree
 import tensorflow as tf
 
-
 ApplyFn = orbax_export_typing.ApplyFn
 
 
+# TODO(bdwalker): Remove this function and just check for Jax data types.
 def _to_jax_dtype(t):
   if isinstance(t, tf.DType):
     return t.as_numpy_dtype()
@@ -42,12 +40,6 @@ def _to_jax_spec(tree: PyTree) -> PyTree:
   return jax.tree_util.tree_map(
       lambda x: jax.ShapeDtypeStruct(x.shape, _to_jax_dtype(x.dtype)), tree
   )
-
-
-def _to_sequence(a):
-  if isinstance(a, Sequence):
-    return a
-  return (a,)
 
 
 class ObmModule(orbax_module_base.OrbaxModuleBase):
@@ -69,7 +61,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         'native_serialization_platform', 'flatten_signature', 'weights_name'and
         'checkpoint_path'.
     """
-    self._params = params
 
     # It is possible for jax2obm_kwargs to be None if the key is present.
     if not jax2obm_kwargs:
@@ -78,11 +69,30 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     self._apply_fn_map = self._normalize_apply_fn_map(
         self._normalize_apply_fn_map(apply_fn)
     )
+
+    if len(self._apply_fn_map) != 1:
+      raise NotImplementedError(
+          'ObmModule: Currently the ObmExport only supports a single method'
+          f' for export. Received: {self._apply_fn_map}'
+      )
+
     self._native_serialization_platform = (
         jax2obm_kwargs[constants.NATIVE_SERIALIZATION_PLATFORM]
         if constants.NATIVE_SERIALIZATION_PLATFORM in jax2obm_kwargs
         else None
     )
+    supported_platforms = [
+        platform.name for platform in constants.OrbaxNativeSerializationType
+    ]
+    if (
+        self._native_serialization_platform is not None
+        and self._native_serialization_platform not in supported_platforms
+    ):
+      raise ValueError(
+          'native_serialization_platforms must be a sequence containing a'
+          f' subset of: {supported_platforms}'
+      )
+
     self._flatten_signature = (
         jax2obm_kwargs[constants.FLATTEN_SIGNATURE]
         if constants.FLATTEN_SIGNATURE in jax2obm_kwargs
@@ -96,42 +106,9 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
 
     self._params_args_spec = _to_jax_spec(params)
 
+    self._checkpoint_path: str = None
     # Set the Orbax checkpoint path if provided in the jax2obm_kwargs.
     self._maybe_set_orbax_checkpoint_path(jax2obm_kwargs)
-
-    self.built = False
-
-  def build(
-      self,
-      serving_configs: Sequence[osc.ServingConfig],
-  ) -> None:
-    if self.built:
-      raise ValueError(
-          'The `build` method has already been called.'
-          ' It can only be called once.'
-      )
-    self._verify_serving_configs(serving_configs)
-
-    # Currently there will only ever be a single item in the mapping.
-    if len(self._apply_fn_map) != 1:
-      raise NotImplementedError(
-          'ObmModule: Currently the ObmExport only supports a single method'
-          f' for export. Received: {self._apply_fn_map}'
-      )
-
-    model_function_name, jax_fn = next(iter(self._apply_fn_map.items()))
-
-    self._convert_jax_functions_to_obm_functions(
-        jax_fn=jax_fn,
-        jax_fn_name=model_function_name,
-        params_args_spec=self._params_args_spec,
-        serving_config=serving_configs[0],
-        native_serialization_platform=self._native_serialization_platform,
-        flatten_signature=self._flatten_signature,
-        support_tf_resources=self._support_tf_resources,
-    )
-
-    self.built = True
 
   def _normalize_apply_fn_map(
       self, apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]]
@@ -147,56 +124,13 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       apply_fn_map = apply_fn
     return apply_fn_map
 
-  def _verify_serving_configs(
-      self, serving_configs: Sequence[osc.ServingConfig]
-  ):
-    if not serving_configs or len(serving_configs) != 1:
-      raise ValueError(
-          'ObmModule: A single serving_config must be provided for Orbax'
-          ' Model export.'
-      )
-
-    if not serving_configs[0].input_signature:
-      # TODO(wangpeng): Infer input_signature from tf_preprocessor.
-      raise ValueError(
-          'ObmModule: The serving_config must have an input_signature set.'
-      )
-
-    if not serving_configs[0].signature_key:
-      raise ValueError(
-          'ObmModule: The serving_config must have a signature_key set.'
-      )
-
-  def _convert_jax_functions_to_obm_functions(
-      self,
-      *,
-      jax_fn,
-      jax_fn_name: str,
-      params_args_spec: PyTree,
-      serving_config: osc.ServingConfig,
-      native_serialization_platform,
-      flatten_signature: bool,
-      support_tf_resources: bool,
-  ):
-    """Converts the JAX functions to OrbaxModel functions."""
-    if serving_config.input_signature is None:
-      raise ValueError('serving_config.input_signature is required.')
-    if (
-        not support_tf_resources
-        and serving_config.extra_trackable_resources is not None
-    ):
-      raise ValueError(
-          'serving_config.extra_trackable_resources can only be set when'
-          ' support_tf_resources is True.'
-      )
-
   def _maybe_set_orbax_checkpoint_path(self, jax2obm_kwargs):
     if constants.CHECKPOINT_PATH not in jax2obm_kwargs:
       return
 
     # TODO: b/374195447 - Add a version check for the Orbax checkpointer.
-    checkpoint_path = jax2obm_kwargs[constants.CHECKPOINT_PATH]
-    weights_name = (
+    self._checkpoint_path = jax2obm_kwargs[constants.CHECKPOINT_PATH]
+    self._weights_name = (
         jax2obm_kwargs[constants.WEIGHTS_NAME]
         if constants.WEIGHTS_NAME in jax2obm_kwargs
         else constants.DEFAULT_WEIGHTS_NAME
@@ -213,19 +147,33 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     return self._apply_fn_map
 
   @property
+  def native_serialization_platform(self) -> Optional[str]:
+    """Returns the native serialization platform."""
+    return self._native_serialization_platform
+
+  @property
+  def flatten_signature(self) -> bool:
+    """Returns the flatten signature."""
+    return self._flatten_signature
+
+  @property
   def export_version(self) -> constants.ExportModelType:
     """Returns the export version."""
     return constants.ExportModelType.ORBAX_MODEL
 
+  def support_tf_resources(self) -> bool:
+    """Returns True if the model supports TF resources."""
+    return self._support_tf_resources
+
   @property
   def model_params(self) -> PyTree:
     """Returns the model parameter specs."""
-    return self._params
+    return self._params_args_spec
 
   def obm_module_to_jax_exported_map(
       self,
       model_inputs: PyTree,
-  ) -> Mapping[str, jax_export.Exported]:
+  ) -> Mapping[str, jax.export.Exported]:
     """Converts the OrbaxModel to jax_export.Exported."""
     raise NotImplementedError(
         'ObmModule.methods not implemented yet. See b/363061755.'

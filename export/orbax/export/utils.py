@@ -491,3 +491,5 @@ def make_e2e_inference_fn(
   return with_default_args(
       infer_step_func_map[signature_key], serving_config.get_input_signature()
   )
+
+

@@ -134,6 +134,7 @@ class JaxModule(tf.Module, orbax_module_base.OrbaxModuleBase):
     """Returns the model parameters."""
     return self._export_module.model_params
 
+  @property
   def export_version(self) -> constants.ExportModelType:
     """Returns the export version."""
     return self._export_version
