@@ -25,7 +25,6 @@ import jax
 from jax import export as jax_export
 from jax import tree_util
 import jaxtyping
-from orbax.export import serving_config as osc
 import tensorflow as tf
 
 ConfigProto = Any
@@ -471,23 +470,3 @@ def get_variable_tree(
   """Returns the PyTree of the tf.Variables or obm.Variables associated with the var_treedef."""
   return jax.tree_util.tree_unflatten(var_treedef, var_leaves)
 
-
-def make_e2e_inference_fn(
-    model_fn: Callable[..., Any],
-    serving_config: osc.ServingConfig,
-) -> Callable[..., Any]:
-  """Creates an concrete end-to-end inference tf.function.
-
-  Args:
-    model_fn: a callable in TF context for the numeric computation.
-    serving_config: a ServingConfig that defines the input sigature,
-      pre-processor and post-processor of the inference function.
-
-  Returns:
-    A tf.function for end-to-end inference.
-  """
-  infer_step_func_map = serving_config.bind(model_fn, require_numpy=False)
-  signature_key = serving_config.get_signature_keys()[0]
-  return with_default_args(
-      infer_step_func_map[signature_key], serving_config.get_input_signature()
-  )
