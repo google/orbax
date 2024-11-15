@@ -333,20 +333,14 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps matching with name_format attributes."""
-    base_path = epath.Path(base_path)
-    if not base_path.exists():
-      raise ValueError(f'Checkpoint root directory {base_path} does not exist.')
     # <step_prefix>_?<0 padding>?*
-    step_paths = base_path.glob(
+    step_paths = epath.Path(base_path).glob(
         f'{step_prefix_with_underscore(self.step_prefix)}*'
     )
     return build_step_metadatas(step_paths, self._build_metadata)
 
   def find_step(self, base_path: epath.PathLike, step: int) -> Metadata:
     """Returns the metadata for `step` or raises ValueError."""
-    base_path = epath.Path(base_path)
-    if not base_path.exists():
-      raise ValueError(f'Checkpoint root directory {base_path} does not exist.')
     step_path = build_step_path(base_path, self, step)
     metadata = self._build_metadata(step_path, step=step)
     if metadata is not None:
