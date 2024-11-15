@@ -28,6 +28,7 @@ from typing import Any, AsyncIterator, Callable, Dict, Optional, Protocol, Seque
 from absl import logging
 import humanize
 import jax
+from jax.experimental import layout
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.arrays import fragments
@@ -48,8 +49,9 @@ _REMOTE_DRIVER_VALIDATIONS = [
 ]
 
 
-Shape = types.Shape
 Index = types.Index
+Layout = layout.Layout
+Shape = types.Shape
 
 
 async def create_async_array_from_callback(
@@ -426,6 +428,7 @@ async def _read_and_device_put_shard(
     dtype: jnp.dtype,
     requested_domain: ts.IndexDomain,
     restricted_domain: ts.IndexDomain,
+    dll: Optional[layout.DeviceLocalLayout],
 ) -> jax.Array:
   """Reads a single shard from TensorStore and places it on device."""
   # This maybe needed because the shape the array was saved with is smaller
@@ -445,7 +448,9 @@ async def _read_and_device_put_shard(
   # make this work.
   if out.dtype == jnp.int4:
     out = jnp.asarray(out)  # type: ignore
-  return jax.device_put(out, jax.sharding.SingleDeviceSharding(device))
+  return jax.device_put(
+      out, Layout(dll, jax.sharding.SingleDeviceSharding(device))
+  )
 
 
 async def _read_array_index_callback(
@@ -457,6 +462,7 @@ async def _read_array_index_callback(
     dtype: jnp.dtype,
     byte_limiter: ByteLimiter,
     strict: bool,
+    ddl: Optional[layout.DeviceLocalLayout],
 ) -> jax.Array:
   """Callback that reads an array index and places on device."""
   if strict and t.shape != shape:
@@ -479,12 +485,13 @@ async def _read_array_index_callback(
         dtype,
         requested_domain,
         restricted_domain,
+        ddl,
     )
   return result
 
 
 async def async_deserialize(
-    user_in_sharding: jax.sharding.Sharding,
+    user_in_sharding: jax.sharding.Sharding | Layout,
     tensorstore_spec: Union[ts.Spec, Dict[str, Any]],
     global_shape: Optional[Sequence[int]] = None,
     dtype: Optional[jnp.dtype] = None,
@@ -496,11 +503,20 @@ async def async_deserialize(
   """Reads an array using TensorStore."""
   byte_limiter = byte_limiter or get_byte_limiter()
   context = context or ts_utils.get_ts_context(use_ocdbt=False)
-  in_sharding = user_in_sharding
+  in_sharding = (
+      user_in_sharding.sharding
+      if isinstance(user_in_sharding, Layout)
+      else user_in_sharding
+  )
   if not isinstance(in_sharding, jax.sharding.Sharding):
     raise ValueError(
         'sharding passed to deserialization should be specified, concrete and'
         f' an instance of `jax.sharding.Sharding`. Got {in_sharding}')
+  dll = (
+      user_in_sharding.device_local_layout
+      if isinstance(user_in_sharding, Layout)
+      else None
+  )
   t = await ts.open(
       tensorstore_spec,
       open=True,
@@ -520,5 +536,6 @@ async def async_deserialize(
           dtype=dtype,
           byte_limiter=byte_limiter,
           strict=strict,
+          ddl=dll,
       ),
   )

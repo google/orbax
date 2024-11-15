@@ -25,6 +25,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import jax
 from jax import dtypes as _dtypes
+from jax.experimental import layout
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import future
@@ -38,6 +39,8 @@ import tensorstore as ts
 GSPMDSharding = jax.sharding.GSPMDSharding
 NamedSharding = jax.sharding.NamedSharding
 P = jax.sharding.PartitionSpec
+DLL = layout.DeviceLocalLayout
+Layout = layout.Layout
 
 jax.config.update('jax_enable_x64', True)
 
@@ -597,6 +600,40 @@ class CheckpointTest(parameterized.TestCase):
     (restored,) = deserialize([sharding], tspecs, [global_shape])
     for i, shard in enumerate(restored.addressable_shards):
       self.assertArraysEqual(np.asarray(shard.data), np.arange(4) + (i * 4))
+
+  def test_load_with_layout(self):
+    mesh = create_global_mesh((4, 2), ('x', 'y'))
+    np_inp = np.arange(32).reshape(8, 4)
+    s = NamedSharding(mesh, P('x', 'y'))
+    arr = jax.device_put(np_inp, s)
+
+    out_layout = (
+        jax.jit(lambda x: x.T, out_shardings=Layout(DLL.AUTO))
+        .lower(arr)
+        .compile()
+        .output_layouts
+    )
+    self.assertEqual(
+        arr.layout.device_local_layout.major_to_minor,
+        out_layout.device_local_layout.major_to_minor[::-1],
+    )
+
+    ckpt_dir = pathlib.Path(self.create_tempdir('ckpt').full_path)
+    ckpt_path = pathlib.Path(self.create_tempdir(f'{ckpt_dir}/first').full_path)
+    tspecs = jax.tree.map(serialization.get_tensorstore_spec, [ckpt_path])
+
+    serialize(
+        [arr],
+        tspecs,
+    )
+
+    (out,) = deserialize([out_layout], tspecs)
+
+    self.assertEqual(out.layout, out_layout)
+    self.assertIsInstance(out, jax.Array)
+    self.assertArraysEqual(out, np_inp)
+    for s in out.addressable_shards:
+      self.assertArraysEqual(s.data, np_inp[s.index])
 
 
 if __name__ == '__main__':

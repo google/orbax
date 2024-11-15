@@ -15,6 +15,7 @@ that contain utilities to perform de/serialization for `RootMetadata` and
 `StepMetadata`.
 - `ReplicaSlice`/`ReplicaSlices` construct to facilitate saving replicated
 arrays.
+- Added restoring with custom jax.experimental.layout.Layout support
 
 ### Changed
 - Refactor metadata/tree_test.py and move common test types to

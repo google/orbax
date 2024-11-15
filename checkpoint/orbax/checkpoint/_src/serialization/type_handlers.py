@@ -31,6 +31,7 @@ import warnings
 from absl import logging
 from etils import epath
 import jax
+from jax.experimental import layout
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import future
@@ -49,6 +50,7 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
 
 
+Layout = layout.Layout
 Shape = types.Shape
 Scalar = Union[int, float, np.number]
 Metadata = value_metadata.Metadata
@@ -1041,13 +1043,12 @@ class ArrayRestoreArgs(RestoreArgs):
   mesh_axes:
     The mesh_axes that the array should be restored as. Cannot be None.
   sharding:
-   `jax.sharding.Sharding` object which takes precedence over mesh and
-    mesh_axes if provided. Otherwise, mesh and mesh_axes will be used to
-    construct a NamedSharding object OR `ShardingMetadata` which is an orbax
-    representation of `jax.sharding.Sharding` that stores the same properties
-    but does not require accessing real devices.
-  global_shape:
-    The global shape that the array should be restored into. If not
+   `jax.sharding.Sharding`, `ShardingMetadata`, or `Layout` object which takes
+   precedence over mesh and mesh_axes if provided. Otherwise, mesh and mesh_axes
+   will be used to construct a NamedSharding object OR `ShardingMetadata` which
+   is an orbax representation of `jax.sharding.Sharding` that stores the same
+   properties but does not require accessing real devices.
+  global_shape: The global shape that the array should be restored into. If not
     provided, the shape will be restored as written. Presently, arbitrary shape
     transformations are not supported (for example, reshaping to different
     dimensions). Padding and truncating are supported. When the global_shape is
@@ -1064,7 +1065,9 @@ class ArrayRestoreArgs(RestoreArgs):
   restore_type: Optional[Any] = jax.Array
   mesh: Optional[jax.sharding.Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
-  sharding: Optional[Union[jax.sharding.Sharding, ShardingMetadata]] = None
+  sharding: Optional[Union[jax.sharding.Sharding, ShardingMetadata, Layout]] = (
+      None
+  )
   global_shape: Optional[Tuple[int, ...]] = None
   strict: bool = True
 
