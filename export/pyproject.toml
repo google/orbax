@@ -7,7 +7,7 @@ name = "orbax-export"
 description = "Orbax Export"
 readme = 'README.md'
 license = {file = 'LICENSE'}
-requires-python = '>=3.9'
+requires-python = '>=3.10'
 authors = [{name = 'Orbax Authors', email='orbax-dev@google.com'}]
 classifiers=[
     'Development Status :: 4 - Beta',
@@ -22,12 +22,13 @@ keywords = ["JAX machine learning", "serialization", "export"]
 
 dependencies = [
     'absl-py',
-    'etils',
-    'jax >= 0.4.30',
-    'jaxlib',
-    'numpy',
     'dataclasses-json',
+    'etils',
+    'jax >= 0.4.34',
+    'jaxlib',
     'jaxtyping',
+    'numpy',
+    "orbax-checkpoint >=0.9.0"
 ]
 
 dynamic = ['version']

@@ -75,7 +75,7 @@ jobs:
         working-directory: export
     strategy:
       matrix:
-        python-version: ["3.9"]
+        python-version: ["3.10"]
         jax-version: ["newest", "0.4.30"]  # keep in sync with minimum version in export/pyproject.toml
     steps:
     - name: Cancel previous
