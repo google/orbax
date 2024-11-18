@@ -669,9 +669,7 @@ class BasePyTreeCheckpointHandler(
       )
     # Get value metadata tree and use_zarr3 from serialized pytree metadata.
     internal_tree_metadata = self._read_metadata_file(directory)
-    value_metadata_tree = internal_tree_metadata.as_nested_tree(
-        keep_empty_nodes=True
-    )
+    value_metadata_tree = internal_tree_metadata.as_nested_tree()
     if not value_metadata_tree:
       raise ValueError(
           f'Found empty checkpoint PyTree metadata in directory={directory}.'

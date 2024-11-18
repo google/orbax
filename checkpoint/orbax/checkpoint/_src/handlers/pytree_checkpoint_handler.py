@@ -880,9 +880,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     try:
       internal_tree_metadata = self._handler_impl._read_metadata_file(directory)  # pylint: disable=protected-access
       use_zarr3 = internal_tree_metadata.use_zarr3
-      value_metadata_tree = internal_tree_metadata.as_nested_tree(
-          keep_empty_nodes=True
-      )
+      value_metadata_tree = internal_tree_metadata.as_nested_tree()
       flat_value_metadatas = tree_utils.to_flat_dict(
           value_metadata_tree, keep_empty_nodes=True
       )

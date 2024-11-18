@@ -308,22 +308,10 @@ class InternalTreeMetadata:
         use_zarr3=use_zarr3,
     )
 
-  def as_nested_tree(self, *, keep_empty_nodes: bool) -> Dict[str, Any]:
+  def as_nested_tree(self) -> Dict[str, Any]:
     """Converts to a nested tree, with leaves of ValueMetadataEntry."""
-
-    def _maybe_as_empty_value(value_metadata_entry: ValueMetadataEntry) -> Any:
-      if not keep_empty_nodes and type_handlers.is_empty_typestr(
-          value_metadata_entry.value_type
-      ):
-        # Return node as the empty value itself rather than as
-        # a dataclass representation.
-        return type_handlers.get_empty_value_from_typestr(
-            value_metadata_entry.value_type
-        )
-      return value_metadata_entry
-
     return tree_utils.from_flattened_with_keypath([
-        (entry.jax_keypath(), _maybe_as_empty_value(entry.value_metadata))
+        (entry.jax_keypath(), entry.value_metadata)
         for entry in self.tree_metadata_entries
     ])
 
@@ -349,7 +337,7 @@ class InternalTreeMetadata:
     """
     flat_param_infos = {}
     flat_restore_types = {}
-    reference_metadata_tree = self.as_nested_tree(keep_empty_nodes=True)
+    reference_metadata_tree = self.as_nested_tree()
     ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
     for keypath, value_meta in tree_utils.to_flat_dict(
         reference_metadata_tree
