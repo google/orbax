@@ -20,6 +20,8 @@ arrays.
  checkpoint metadata.
 - Create a separate namespace package `orbax.checkpoint.testing` for exporting
  test objects.
+- [Experimental Feature] Support `NamedTuple` and `Tuple` nodes in PyTree
+ metadata.
 
 ### Changed
 - Refactor metadata/tree_test.py and move common test types to

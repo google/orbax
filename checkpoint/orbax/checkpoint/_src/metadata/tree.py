@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utilities for working with Orbax metadata."""
+"""Main module for PyTree checkpoint metadata storage."""
 
 from __future__ import annotations
 
@@ -22,78 +22,34 @@ import dataclasses
 import enum
 import functools
 import operator
-from typing import Any, Dict, Hashable, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Dict, Hashable, List, Optional, Tuple, TypeAlias, TypeVar, Union
 
 from etils import epath
 import jax
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.metadata import tree_base
+from orbax.checkpoint._src.metadata import tree_rich_types
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
 
+ValueMetadataEntry: TypeAlias = tree_base.ValueMetadataEntry
+PyTreeMetadataOptions: TypeAlias = tree_base.PyTreeMetadataOptions
+PyTree: TypeAlias = Any
+KeyEntry = TypeVar('KeyEntry', bound=Hashable)
+KeyPath: TypeAlias = tuple[KeyEntry, ...]
+
+PYTREE_METADATA_OPTIONS = tree_base.PYTREE_METADATA_OPTIONS
+serialize_tree = tree_base.serialize_tree
 
 _KEY_NAME = 'key'
 _KEY_TYPE = 'key_type'
-_VALUE_TYPE = 'value_type'
-_SKIP_DESERIALIZE = 'skip_deserialize'
-
 _TREE_METADATA_KEY = 'tree_metadata'
 _KEY_METADATA_KEY = 'key_metadata'
 _VALUE_METADATA_KEY = 'value_metadata'
 _USE_ZARR3 = 'use_zarr3'
-
-PyTree = Any
-KeyEntry = TypeVar('KeyEntry', bound=Hashable)
-KeyPath = tuple[KeyEntry, ...]
-
-
-@dataclasses.dataclass(kw_only=True)
-class PyTreeMetadataOptions:
-  """Options for managing PyTree metadata.
-
-  Attributes:
-    support_rich_types: If True, supports NamedTuple and Tuple types in the
-      metadata.
-  """
-
-  support_rich_types: bool
-
-
-PYTREE_METADATA_OPTIONS = PyTreeMetadataOptions(support_rich_types=False)
-
-
-def serialize_tree(
-    tree: PyTree, pytree_metadata_options: PyTreeMetadataOptions
-) -> PyTree:
-  """Transforms a PyTree to a serializable format.
-
-  IMPORTANT: If `pytree_metadata_options.support_rich_types` is false, the
-  returned tree replaces tuple container nodes with list nodes.
-
-  IMPORTANT: If `pytree_metadata_options.support_rich_types` is false, the
-  returned tree replaces NamedTuple container nodes with dict
-  nodes.
-
-  If `pytree_metadata_options.support_rich_types` is true, then the returned
-  tree is the same as the input tree retaining empty nodes as leafs.
-
-  Args:
-    tree: The tree to serialize.
-    pytree_metadata_options: `PyTreeMetadataOptions` for managing PyTree
-      metadata.
-
-  Returns:
-    The serialized PyTree.
-  """
-  if pytree_metadata_options.support_rich_types:
-    return jax.tree_util.tree_map(
-        lambda x: x,
-        tree,
-        is_leaf=tree_utils.is_empty_or_leaf,
-    )
-
-  return tree_utils.serialize_tree(tree, keep_empty_nodes=True)
+_VALUE_METADATA_TREE = 'value_metadata_tree'
 
 
 class KeyType(enum.Enum):
@@ -183,44 +139,6 @@ class KeyMetadataEntry:
 
 
 @dataclasses.dataclass
-class ValueMetadataEntry:
-  """Represents metadata for a leaf in a tree."""
-
-  value_type: str
-  skip_deserialize: bool = False
-
-  def to_json(self) -> Dict[str, Any]:
-    return {
-        _VALUE_TYPE: self.value_type,
-        _SKIP_DESERIALIZE: self.skip_deserialize,
-    }
-
-  @classmethod
-  def from_json(cls, json_dict: Dict[str, Any]) -> ValueMetadataEntry:
-    return ValueMetadataEntry(
-        value_type=json_dict[_VALUE_TYPE],
-        skip_deserialize=json_dict[_SKIP_DESERIALIZE],
-    )
-
-  @classmethod
-  def build(
-      cls,
-      info: type_handlers.ParamInfo,
-      save_arg: type_handlers.SaveArgs,
-  ) -> ValueMetadataEntry:
-    """Builds a ValueMetadataEntry."""
-    del save_arg
-    if info.value_typestr is None:
-      raise AssertionError(
-          'Must set `value_typestr` in `ParamInfo` when saving.'
-      )
-    skip_deserialize = type_handlers.is_empty_typestr(info.value_typestr)
-    return ValueMetadataEntry(
-        value_type=info.value_typestr, skip_deserialize=skip_deserialize
-    )
-
-
-@dataclasses.dataclass
 class InternalTreeMetadataEntry:
   """Represents metadata for a named key/value pair in a tree."""
 
@@ -277,6 +195,8 @@ class InternalTreeMetadata:
 
   tree_metadata_entries: List[InternalTreeMetadataEntry]
   use_zarr3: bool
+  pytree_metadata_options: tree_base.PyTreeMetadataOptions
+  value_metadata_tree: PyTree | None = None
 
   @classmethod
   def build(
@@ -285,6 +205,9 @@ class InternalTreeMetadata:
       *,
       save_args: Optional[PyTree] = None,
       use_zarr3: bool = False,
+      pytree_metadata_options: tree_base.PyTreeMetadataOptions = (
+          PYTREE_METADATA_OPTIONS
+      ),
   ) -> InternalTreeMetadata:
     """Returns an InternalTreeMetadata instance."""
     if save_args is None:
@@ -306,7 +229,20 @@ class InternalTreeMetadata:
       tree_metadata_entries.append(
           InternalTreeMetadataEntry.build(keypath, info, save_arg)
       )
-    return InternalTreeMetadata(tree_metadata_entries, use_zarr3)
+    value_metadata_tree = None
+    if pytree_metadata_options.support_rich_types:
+      value_metadata_tree = jax.tree_util.tree_map(
+          ValueMetadataEntry.build,
+          param_infos,
+          save_args,
+          is_leaf=tree_utils.is_empty_or_leaf,
+      )
+    return InternalTreeMetadata(
+        tree_metadata_entries,
+        use_zarr3,
+        pytree_metadata_options,
+        value_metadata_tree,
+    )
 
   def to_json(self) -> Dict[str, Any]:
     """Returns a JSON representation of the metadata.
@@ -328,7 +264,7 @@ class InternalTreeMetadata:
         }
       }
     """
-    return {
+    json_object = {
         _TREE_METADATA_KEY: functools.reduce(
             operator.ior,
             [entry.to_json() for entry in self.tree_metadata_entries],
@@ -336,9 +272,26 @@ class InternalTreeMetadata:
         ),
         _USE_ZARR3: self.use_zarr3,
     }
+    # TODO: b/365169723 - Support versioned evolution of metadata storage.
+    if (
+        self.pytree_metadata_options.support_rich_types
+        and self.value_metadata_tree is not None
+    ):
+      json_object[_VALUE_METADATA_TREE] = (
+          tree_rich_types.value_metadata_tree_to_json_str(
+              self.value_metadata_tree
+          )
+      )
+    return json_object
 
   @classmethod
-  def from_json(cls, json_dict: Dict[str, Any]) -> InternalTreeMetadata:
+  def from_json(
+      cls,
+      json_dict: Dict[str, Any],
+      pytree_metadata_options: tree_base.PyTreeMetadataOptions = (
+          PYTREE_METADATA_OPTIONS
+      ),
+  ) -> InternalTreeMetadata:
     """Returns an InternalTreeMetadata instance from its JSON representation."""
     use_zarr3 = False
     if _USE_ZARR3 in json_dict:
@@ -351,13 +304,31 @@ class InternalTreeMetadata:
       tree_metadata_entries.append(
           InternalTreeMetadataEntry.from_json(keypath, json_tree_metadata_entry)
       )
+    # TODO: b/365169723 - Support versioned evolution of metadata storage.
+    value_metadata_tree = None
+    if (
+        pytree_metadata_options.support_rich_types
+        and _VALUE_METADATA_TREE in json_dict
+    ):
+      value_metadata_tree = tree_rich_types.value_metadata_tree_from_json_str(
+          json_dict[_VALUE_METADATA_TREE]
+      )
     return InternalTreeMetadata(
         tree_metadata_entries,
         use_zarr3=use_zarr3,
+        pytree_metadata_options=pytree_metadata_options,
+        value_metadata_tree=value_metadata_tree,
     )
 
   def as_nested_tree(self) -> Dict[str, Any]:
     """Converts to a nested tree, with leaves of ValueMetadataEntry."""
+    # TODO: b/365169723 - Support versioned evolution of metadata storage.
+    if (
+        self.pytree_metadata_options.support_rich_types
+        and self.value_metadata_tree is not None
+    ):
+      return self.value_metadata_tree
+
     return tree_utils.from_flattened_with_keypath([
         (entry.jax_keypath(), entry.value_metadata)
         for entry in self.tree_metadata_entries

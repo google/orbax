@@ -67,7 +67,6 @@ RESTORE_TYPE_DICT = 'Dict'
 RESTORE_TYPE_LIST = 'List'
 RESTORE_TYPE_TUPLE = 'Tuple'
 RESTORE_TYPE_UNKNOWN = 'Unknown'
-# TODO: b/365169723 - Handle empty NamedTuple.
 
 _SHARDING = '_sharding'
 _SHARDING_SUFFIX_RE = r'/\d+(\.\d+)*$'  # /0, /0.0, /1.0.1, etc.
@@ -103,9 +102,8 @@ def isinstance_of_namedtuple(value: Any) -> bool:
 def is_supported_empty_value(value: Any) -> bool:
   """Determines if the *empty* `value` is supported without custom TypeHandler."""
   # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
-  # TODO: b/365169723 - Handle empty NamedTuple.
   if isinstance_of_namedtuple(value):
-    return False
+    return False  # check and return early to avoid matching with `tuple`.
   return (
       isinstance(value, (dict, list, tuple, type(None), Mapping)) and not value
   )
@@ -119,7 +117,6 @@ def is_supported_type(value: Any) -> bool:
   ) or is_supported_empty_value(value)
 
 
-# TODO: b/365169723 - Handle empty NamedTuple.
 def get_empty_value_typestr(value: Any) -> str:
   """Returns the typestr constant for the empty value."""
   if not is_supported_empty_value(value):
@@ -135,7 +132,6 @@ def get_empty_value_typestr(value: Any) -> str:
   raise ValueError(f'Unrecognized empty type: {value}.')
 
 
-# TODO: b/365169723 - Handle empty NamedTuple.
 def is_empty_typestr(typestr: str) -> bool:
   return (
       typestr == RESTORE_TYPE_LIST
@@ -145,7 +141,6 @@ def is_empty_typestr(typestr: str) -> bool:
   )
 
 
-# TODO: b/365169723 - Handle empty NamedTuple.
 def get_empty_value_from_typestr(typestr: str) -> Any:
   if typestr == RESTORE_TYPE_LIST:
     return []
