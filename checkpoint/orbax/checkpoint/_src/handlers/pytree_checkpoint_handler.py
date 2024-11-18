@@ -184,6 +184,7 @@ def _get_restore_parameters(
     param_names: Optional[PyTree],
     transforms: Optional[PyTree],
     restore_args: Optional[PyTree],
+    pytree_metadata_options: tree_metadata.PyTreeMetadataOptions,
     byte_limiter: Optional[LimitInFlightBytes] = None,
     transforms_default_to_original: bool = True,
     use_zarr3: bool = False,
@@ -221,6 +222,7 @@ def _get_restore_parameters(
     restore_args: User-provided restoration arguments. If None, they were not
       provided. Otherwise, the tree has the same structure as the desired output
       tree.
+    pytree_metadata_options: `PyTreeMetadataOptions` to manage metadata.
     byte_limiter: A LimitInFlightBytes object.
     transforms_default_to_original: See transform_utils.apply_transformations.
     use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
@@ -268,9 +270,8 @@ def _get_restore_parameters(
   if transforms is None:
     for key, meta in flat_structure.items():
       flat_param_infos[key] = _get_param_info(flat_param_names[key], meta)
-    restore_args = tree_utils.serialize_tree(
-        restore_args,
-        keep_empty_nodes=True,
+    restore_args = tree_metadata.serialize_tree(
+        restore_args, pytree_metadata_options
     )
   else:
     if item is None:
@@ -465,6 +466,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
       handler_impl: Optional[BasePyTreeCheckpointHandler] = None,
+      pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
+          tree_metadata.PYTREE_METADATA_OPTIONS
+      ),
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -485,9 +489,11 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
         specified, the global type handler registry will be used.
       handler_impl: Allows overriding the internal implementation.
+      pytree_metadata_options: `PyTreeMetadataOptions` to manage metadata.
     """
     self._aggregate_handler = MsgpackHandler(
-        primary_host=multiprocessing_options.primary_host
+        primary_host=multiprocessing_options.primary_host,
+        pytree_metadata_options=pytree_metadata_options,
     )
     if aggregate_filename is None:
       aggregate_filename = _CHECKPOINT_FILE
@@ -505,7 +511,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         use_zarr3=use_zarr3,
         multiprocessing_options=multiprocessing_options,
         type_handler_registry=type_handler_registry,
+        pytree_metadata_options=pytree_metadata_options,
     )
+    self._pytree_metadata_options = pytree_metadata_options
 
   async def async_save(
       self,
@@ -784,6 +792,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         self._handler_impl.get_param_names(structure),
         transforms,
         restore_args,
+        self._pytree_metadata_options,
         transforms_default_to_original=transforms_default_to_original,
         use_zarr3=use_zarr3_metadata
         if use_zarr3_metadata is not None

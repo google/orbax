@@ -16,6 +16,8 @@ that contain utilities to perform de/serialization for `RootMetadata` and
 - `ReplicaSlice`/`ReplicaSlices` construct to facilitate saving replicated
 arrays.
 - Added restoring with custom jax.experimental.layout.Layout support
+- Add experimental `PyTreeMetadataOptions` to manage rich types in pytree
+ checkpoint metadata.
 
 ### Changed
 - Refactor metadata/tree_test.py and move common test types to

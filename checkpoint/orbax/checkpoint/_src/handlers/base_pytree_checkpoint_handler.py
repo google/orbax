@@ -290,6 +290,9 @@ class BasePyTreeCheckpointHandler(
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
       enable_post_merge_validation: bool = True,
+      pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
+          tree_metadata.PYTREE_METADATA_OPTIONS
+      ),
   ):
     """Creates BasePyTreeCheckpointHandler.
 
@@ -308,6 +311,7 @@ class BasePyTreeCheckpointHandler(
       enable_descriptor: If True, logs a Descriptor proto that contains lineage
       enable_post_merge_validation: If True, enables validation of the
         parameters after the finalize step.
+      pytree_metadata_options: `PyTreeMetadataOptions` to manage metadata.
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
@@ -316,6 +320,7 @@ class BasePyTreeCheckpointHandler(
     self._primary_host = multiprocessing_options.primary_host
     self._type_handler_registry = type_handler_registry
     self._enable_post_merge_validation = enable_post_merge_validation
+    self._pytree_metadata_options = pytree_metadata_options
 
 
     jax.monitoring.record_event(
@@ -686,8 +691,8 @@ class BasePyTreeCheckpointHandler(
     restore_args = _fill_missing_save_or_restore_args(
         item, restore_args, mode='restore'
     )
-    restore_args = tree_utils.serialize_tree(
-        restore_args, keep_empty_nodes=True
+    restore_args = tree_metadata.serialize_tree(
+        restore_args, self._pytree_metadata_options
     )
     param_infos = self._get_param_infos(
         item=value_metadata_tree,

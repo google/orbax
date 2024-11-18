@@ -30,47 +30,13 @@ class EmptyNamedTuple(NamedTuple):
   pass
 
 
-class UtilsTest(parameterized.TestCase):
+# TODO: b/365169723 - Add tests: PyTreeMetadataOptions.support_rich_types=True.
+class SerializeTreeTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
     self.directory = epath.Path(
-        self.create_tempdir(name='checkpointing_test').full_path
-    )
-
-  @parameterized.parameters(
-      ({'a': 1, 'b': {'c': {}, 'd': 2}}, {('a',): 1, ('b', 'd'): 2}),
-      ({'x': ['foo', 'bar']}, {('x', '0'): 'foo', ('x', '1'): 'bar'}),
-  )
-  def test_to_flat_dict(self, tree, expected):
-    self.assertDictEqual(expected, tree_utils.to_flat_dict(tree))
-
-  @parameterized.parameters(
-      ({'a': 1, 'b': {'d': 2}}, {('a',): 1, ('b', 'd'): 2}),
-      ({'x': ['foo', 'bar']}, {('x', '0'): 'foo', ('x', '1'): 'bar'}),
-      ({'a': 1, 'b': 2}, {('b',): 2, ('a',): 1}),
-  )
-  def test_from_flat_dict(self, expected, flat_dict):
-    empty = jax.tree.map(lambda _: 0, expected)
-    self.assertDictEqual(
-        expected, tree_utils.from_flat_dict(flat_dict, target=empty)
-    )
-
-  @parameterized.parameters(
-      ({'a': 1, 'b': {'d': 2}}, {('a',): 1, ('b', 'd'): 2}),
-      ({'a': 1, 'b': 2}, {('b',): 2, ('a',): 1}),
-  )
-  def test_from_flat_dict_without_target(self, expected, flat_dict):
-    self.assertDictEqual(expected, tree_utils.from_flat_dict(flat_dict))
-
-  @parameterized.parameters(
-      ({'a': 1, 'b': {'d': 2}}, {'a': 1, 'b/d': 2}),
-      ({'a': 1, 'b': 2}, {'b': 2, 'a': 1}),
-      ({'a': {'b': {'c': 1}}}, {'a/b/c': 1}),
-  )
-  def test_from_flat_dict_with_sep(self, expected, flat_dict):
-    self.assertDictEqual(
-        expected, tree_utils.from_flat_dict(flat_dict, sep='/')
+        self.create_tempdir(name='serialize_tree_test').full_path
     )
 
   def test_serialize(self):
@@ -163,6 +129,50 @@ class UtilsTest(parameterized.TestCase):
         'y': {'z': dict(a=2)},
     }
     self.assertDictEqual(expected, serialized)
+
+
+class UtilsTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.directory = epath.Path(
+        self.create_tempdir(name='checkpointing_test').full_path
+    )
+
+  @parameterized.parameters(
+      ({'a': 1, 'b': {'c': {}, 'd': 2}}, {('a',): 1, ('b', 'd'): 2}),
+      ({'x': ['foo', 'bar']}, {('x', '0'): 'foo', ('x', '1'): 'bar'}),
+  )
+  def test_to_flat_dict(self, tree, expected):
+    self.assertDictEqual(expected, tree_utils.to_flat_dict(tree))
+
+  @parameterized.parameters(
+      ({'a': 1, 'b': {'d': 2}}, {('a',): 1, ('b', 'd'): 2}),
+      ({'x': ['foo', 'bar']}, {('x', '0'): 'foo', ('x', '1'): 'bar'}),
+      ({'a': 1, 'b': 2}, {('b',): 2, ('a',): 1}),
+  )
+  def test_from_flat_dict(self, expected, flat_dict):
+    empty = jax.tree.map(lambda _: 0, expected)
+    self.assertDictEqual(
+        expected, tree_utils.from_flat_dict(flat_dict, target=empty)
+    )
+
+  @parameterized.parameters(
+      ({'a': 1, 'b': {'d': 2}}, {('a',): 1, ('b', 'd'): 2}),
+      ({'a': 1, 'b': 2}, {('b',): 2, ('a',): 1}),
+  )
+  def test_from_flat_dict_without_target(self, expected, flat_dict):
+    self.assertDictEqual(expected, tree_utils.from_flat_dict(flat_dict))
+
+  @parameterized.parameters(
+      ({'a': 1, 'b': {'d': 2}}, {'a': 1, 'b/d': 2}),
+      ({'a': 1, 'b': 2}, {'b': 2, 'a': 1}),
+      ({'a': {'b': {'c': 1}}}, {'a/b/c': 1}),
+  )
+  def test_from_flat_dict_with_sep(self, expected, flat_dict):
+    self.assertDictEqual(
+        expected, tree_utils.from_flat_dict(flat_dict, sep='/')
+    )
 
   @parameterized.parameters(
       (1, True),

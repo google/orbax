@@ -87,7 +87,17 @@ def _extend_list(ls, idx, nextvalue):
 def from_flattened_with_keypath(
     flat_with_keys: list[tuple[tuple[Any, ...], Any]],
 ) -> PyTree:
-  """Reconstructs a tree given the a flat dict with keypaths."""
+  """Returns a tree for the given list of (KeyPath, value) pairs.
+
+  IMPORTANT: The returned tree replaces tuple container nodes with list nodes,
+  even though the input KeyPath had originated from a tuple.
+
+  IMPORTANT: The returned tree replaces NamedTuple container nodes with dict
+  nodes, even though the input KeyPath had originated from a NamedTuple.
+
+  Args:
+    flat_with_keys: A list of pair of Keypath and values.
+  """
   if not flat_with_keys:
     raise ValueError(
         'Unable to uniquely reconstruct tree from empty flattened list '
@@ -151,6 +161,12 @@ def from_flattened_with_keypath(
 
 def serialize_tree(tree: PyTree, keep_empty_nodes: bool = False) -> PyTree:
   """Transforms a PyTree to a serializable format.
+
+  IMPORTANT: The returned tree replaces tuple container nodes with list nodes.
+
+  IMPORTANT: The returned tree replaces NamedTuple container nodes with dict
+  nodes.
+
 
   Args:
     tree: The tree to serialize, if tree is empty and keep_empty_nodes is False,

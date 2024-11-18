@@ -68,6 +68,7 @@ checkpoint_steps_paths = step_lib.checkpoint_steps_paths
 
 deserialize_tree = tree_utils.deserialize_tree
 from_flat_dict = tree_utils.from_flat_dict
+# TODO: b/365169723 - Remove public access to this function.
 from_flattened_with_keypath = tree_utils.from_flattened_with_keypath
 serialize_tree = tree_utils.serialize_tree
 to_flat_dict = tree_utils.to_flat_dict

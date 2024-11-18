@@ -23,7 +23,7 @@ from etils import epath
 from orbax.checkpoint import future as orbax_future
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import utils
-from orbax.checkpoint._src.tree import utils as tree_utils
+from orbax.checkpoint._src.metadata import tree as tree_metadata
 
 PyTree = Any
 
@@ -58,12 +58,18 @@ class AggregateHandler(abc.ABC):
 
 
 class MsgpackHandler(AggregateHandler):
-  """An implementation of AggregateHandler that uses msgpack to store the tree.
-  """
+  """An implementation of AggregateHandler that uses msgpack to store the tree."""
 
-  def __init__(self, primary_host: Optional[int] = 0):
+  def __init__(
+      self,
+      primary_host: Optional[int] = 0,
+      pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
+          tree_metadata.PYTREE_METADATA_OPTIONS
+      ),
+  ):
     self._executor = futures.ThreadPoolExecutor(max_workers=1)
     self._primary_host = primary_host
+    self._pytree_metadata_options = pytree_metadata_options
 
   async def serialize(
       self, path: epath.Path, item: PyTree
@@ -72,7 +78,15 @@ class MsgpackHandler(AggregateHandler):
 
     def _serialize_fn(x):
       if utils.is_primary_host(self._primary_host):
-        serializable_dict = tree_utils.serialize_tree(x, keep_empty_nodes=True)
+        if self._pytree_metadata_options.support_rich_types:
+          raise NotImplementedError(
+              'Orbax does not support rich typed metadata in legacy msgpack'
+              ' checkpoint format. Please set'
+              ' PyTreeMetadataOptions.support_rich_types to False.'
+          )
+        serializable_dict = tree_metadata.serialize_tree(
+            x, self._pytree_metadata_options
+        )
         msgpack = msgpack_utils.msgpack_serialize(serializable_dict)
         # Explicit "copy" phase is not needed because msgpack only contains
         # basic types and numpy arrays.
