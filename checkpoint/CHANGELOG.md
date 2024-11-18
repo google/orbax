@@ -18,6 +18,8 @@ arrays.
 - Added restoring with custom jax.experimental.layout.Layout support
 - Add experimental `PyTreeMetadataOptions` to manage rich types in pytree
  checkpoint metadata.
+- Create a separate namespace package `orbax.checkpoint.testing` for exporting
+ test objects.
 
 ### Changed
 - Refactor metadata/tree_test.py and move common test types to

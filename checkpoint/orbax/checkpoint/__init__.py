@@ -81,7 +81,6 @@ from orbax.checkpoint._src.handlers.base_pytree_checkpoint_handler import BasePy
 
 # Test utils.
 from orbax.checkpoint import test_utils
-from orbax.checkpoint._src.testing import test_tree_utils
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
 __version__ = version.__version__
