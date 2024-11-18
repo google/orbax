@@ -1500,10 +1500,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   def _metadata_save_counter(self) -> str:
     return counters.root_metadata_save_counter()
 
-  def _metadata_file_path(self) -> epath.Path:
+  def _metadata_file_path(self, legacy: bool = False) -> epath.Path:
     if not self._metadata_dir.exists():
       raise ValueError('Metadata directory is not initialized.')
-    return checkpoint.root_metadata_file_path(self._metadata_dir)
+    return checkpoint.root_metadata_file_path(
+        self._metadata_dir, legacy=legacy
+    )
 
   def _save_metadata(self, metadata: Mapping[str, Any]):
     """Saves CheckpointManager level metadata, skips if already present."""
@@ -1517,9 +1519,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if self._metadata is None:
       if self._metadata_dir.exists():
         file_path = self._metadata_file_path()
+        if not file_path.exists():
+          logging.warning('New metadata file not found in directory: %s. '
+                          'Will try to read legacy metadata file.',
+                          self._metadata_dir)
+          file_path = self._metadata_file_path(legacy=True)
         self._metadata = self._blocking_metadata_store.read(file_path)
         if self._metadata is None:
-          raise ValueError(
+          raise FileNotFoundError(
               f'Failed to read metadata from {file_path}.'
           )
       else:

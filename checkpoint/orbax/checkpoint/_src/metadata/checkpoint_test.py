@@ -156,6 +156,12 @@ class CheckpointMetadataTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'Path is not a directory'):
       file_path_fn('unknown_metadata_path')
 
+  def test_legacy_root_metadata_file_path(self):
+    self.assertEqual(
+        checkpoint.root_metadata_file_path(self.directory, legacy=True),
+        self.directory / checkpoint._LEGACY_ROOT_METADATA_FILENAME,
+    )
+
   @parameterized.parameters(
       itertools.product(
           [True, False],

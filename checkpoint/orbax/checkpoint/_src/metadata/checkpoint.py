@@ -28,6 +28,7 @@ from orbax.checkpoint._src.logging import step_statistics
 
 _STEP_METADATA_FILENAME = '_CHECKPOINT_METADATA'
 _ROOT_METADATA_FILENAME = '_ROOT_METADATA'
+_LEGACY_ROOT_METADATA_FILENAME = 'metadata'
 
 ItemMetadata = composite.Composite
 StepStatistics = step_statistics.SaveStepStatistics
@@ -42,12 +43,17 @@ def step_metadata_file_path(path: epath.PathLike) -> epath.Path:
   return path / _STEP_METADATA_FILENAME
 
 
-def root_metadata_file_path(path: epath.PathLike) -> epath.Path:
+def root_metadata_file_path(
+    path: epath.PathLike, *, legacy: bool = False
+) -> epath.Path:
   """The path to root metadata file for a given checkpoint directory."""
   path = epath.Path(path)
   if not path.is_dir():
     raise ValueError(f'Path is not a directory: {path}')
-  return path / _ROOT_METADATA_FILENAME
+  filename = (
+      _LEGACY_ROOT_METADATA_FILENAME if legacy else _ROOT_METADATA_FILENAME
+  )
+  return path / filename
 
 
 @dataclasses.dataclass
