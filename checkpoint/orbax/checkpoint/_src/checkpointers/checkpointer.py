@@ -22,11 +22,11 @@ from absl import logging
 from etils import epath
 from etils import epy
 import jax
-from orbax.checkpoint import abstract_checkpointer
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint

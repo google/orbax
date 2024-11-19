@@ -22,9 +22,9 @@ import numpy as np
 from orbax.checkpoint import args
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpoint_utils
-from orbax.checkpoint import pytree_checkpointer
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.checkpointers import pytree_checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.path import step as step_lib

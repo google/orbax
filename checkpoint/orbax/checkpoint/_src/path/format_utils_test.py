@@ -18,7 +18,7 @@ from etils import epath
 import numpy as np
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
-from orbax.checkpoint import checkpointer
+from orbax.checkpoint._src.checkpointers import checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata

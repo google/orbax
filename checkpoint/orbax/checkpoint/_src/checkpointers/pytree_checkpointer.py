@@ -15,8 +15,8 @@
 """Shorthand for `Checkpointer(PyTreeCheckpointHandler())`."""
 
 from typing import Optional
-from orbax.checkpoint import checkpointer
 from orbax.checkpoint import options as options_lib
+from orbax.checkpoint._src.checkpointers import checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 
 

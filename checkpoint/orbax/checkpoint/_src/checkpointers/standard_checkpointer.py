@@ -16,8 +16,8 @@
 
 from typing import Any, Optional, Type
 from etils import epath
-from orbax.checkpoint import async_checkpointer
 from orbax.checkpoint import options as options_lib
+from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.path import atomicity

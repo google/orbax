@@ -30,13 +30,13 @@ from etils import epy
 import jax
 from jax.experimental.array_serialization import serialization as jax_serialization
 from orbax.checkpoint import abstract_checkpoint_manager
-from orbax.checkpoint import abstract_checkpointer
 from orbax.checkpoint import args as args_lib
-from orbax.checkpoint import async_checkpointer
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import checkpointer as checkpointer_lib
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.checkpointers import abstract_checkpointer
+from orbax.checkpoint._src.checkpointers import async_checkpointer
+from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration

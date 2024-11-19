@@ -22,6 +22,7 @@ import functools
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import args
 from orbax.checkpoint import checkpoint_utils
+from orbax.checkpoint import checkpointers
 from orbax.checkpoint import handlers
 from orbax.checkpoint import logging
 from orbax.checkpoint import metadata
@@ -46,11 +47,7 @@ from orbax.checkpoint.transform_utils import RestoreTransform
 from orbax.checkpoint.transform_utils import Transform
 
 from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
-from orbax.checkpoint.abstract_checkpointer import AbstractCheckpointer
-from orbax.checkpoint.async_checkpointer import AsyncCheckpointer
-from orbax.checkpoint.checkpointer import Checkpointer
-from orbax.checkpoint.pytree_checkpointer import PyTreeCheckpointer
-from orbax.checkpoint.standard_checkpointer import StandardCheckpointer
+from orbax.checkpoint.checkpointers import *
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
 from orbax.checkpoint.checkpoint_manager import AsyncOptions
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
