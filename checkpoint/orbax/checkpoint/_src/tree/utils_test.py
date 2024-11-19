@@ -14,20 +14,18 @@
 
 """Test for utils module."""
 
-from typing import Mapping, NamedTuple, Sequence
+from typing import Any, Mapping, Sequence
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 import flax
 import jax
+import numpy as np
 import optax
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.testing import test_tree_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
-
-
-class EmptyNamedTuple(NamedTuple):
-  pass
 
 
 # TODO: b/365169723 - Add tests: PyTreeMetadataOptions.support_rich_types=True.
@@ -175,28 +173,53 @@ class UtilsTest(parameterized.TestCase):
     )
 
   @parameterized.parameters(
-      (1, True),
-      (dict(), True),
-      ({}, True),
-      ({'a': {}}, False),
-      ([], True),
-      ([[]], False),
-      ([tuple()], False),
-      ([dict()], False),
-      ([{}], False),
-      ([1], False),
-      (tuple(), True),
-      ((tuple(),), False),
-      (([],), False),
-      (({},), False),
-      ((dict(),), False),
-      ((1,), False),
-      (None, True),
-      ((1, 2), False),
-      (EmptyNamedTuple(), True),
+      (1, True, False),
+      (dict(), True, True),
+      ({}, True, True),
+      ({'a': {}}, False, False),
+      ([], True, True),
+      ([[]], False, False),
+      ([tuple()], False, False),
+      ([dict()], False, False),
+      ([{}], False, False),
+      ([1], False, False),
+      (tuple(), True, True),
+      ((tuple(),), False, False),
+      (([],), False, False),
+      (({},), False, False),
+      ((dict(),), False, False),
+      ((1,), False, False),
+      (None, True, True),
+      ((1, 2), False, False),
+      (test_tree_utils.EmptyNamedTuple(), True, True),
+      (test_tree_utils.MuNu(mu=None, nu=None), False, False),
+      (test_tree_utils.MyEmptyClass(), True, False),
+      (test_tree_utils.MyClass(), True, False),
+      (test_tree_utils.MyClass(a=None, b=None), True, False),
+      (test_tree_utils.MyClass(a=None, b=np.zeros(1)), True, False),
+      (test_tree_utils.MyEmptyChex(), True, True),
+      (test_tree_utils.MyChex(), False, False),
+      (
+          test_tree_utils.MyChex(my_jax_array=None, my_np_array=None),
+          False,
+          False,
+      ),
+      (
+          test_tree_utils.MyChex(my_jax_array=None, my_np_array=np.zeros(1)),
+          False,
+          False,
+      ),
   )
-  def test_is_empty_or_leaf(self, value, expected):
-    self.assertEqual(expected, tree_utils.is_empty_or_leaf(value))
+  def test_is_empty_or_leaf(
+      self,
+      value: Any,
+      expected_is_empty_or_leaf: bool,
+      expected_is_empty_node: bool,
+  ):
+    self.assertEqual(
+        expected_is_empty_or_leaf, tree_utils.is_empty_or_leaf(value)
+    )
+    self.assertEqual(expected_is_empty_node, tree_utils.is_empty_node(value))
 
 
 if __name__ == '__main__':

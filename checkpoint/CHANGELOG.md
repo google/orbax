@@ -28,6 +28,7 @@ arrays.
 utils into a separate file.
 - Rename `CheckpointMetadataStore` to `MetadataStore`, and change methods to
 accept and return metadata as dictionaries.
+- Add/Update tests for `is_empty_or_leaf` and `is_empty_node`.
 
 ## [0.9.1] - 2024-11-11
 
