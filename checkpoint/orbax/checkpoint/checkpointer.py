@@ -17,6 +17,7 @@
 import time
 from typing import Any, Iterable, Optional, Type
 
+from absl import flags
 from absl import logging
 from etils import epath
 from etils import epy
@@ -232,7 +233,7 @@ class Checkpointer(
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
     logging.info('Restoring checkpoint from %s.', directory)
     ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
-    restored = self._handler.restore(directory, args=ckpt_args)
+    restored = self._restore(directory, args=ckpt_args)
     logging.info('Finished restoring checkpoint from %s.', directory)
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
@@ -243,6 +244,11 @@ class Checkpointer(
         processes=self._active_processes,
     )
     return restored
+
+  def _restore(
+      self, directory: epath.PathLike, args: checkpoint_args.CheckpointArgs
+  ) -> Any:
+    return self._handler.restore(directory, args=args)
 
   def metadata(self, directory: epath.PathLike) -> Optional[Any]:
     """See superclass documentation."""
