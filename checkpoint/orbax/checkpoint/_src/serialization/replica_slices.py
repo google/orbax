@@ -21,6 +21,7 @@ from typing import Callable, Optional, Sequence
 
 from absl import logging
 import jax
+from jax._src import op_shardings
 import numpy as np
 from orbax.checkpoint._src.arrays import fragments
 from orbax.checkpoint._src.arrays import numpy_utils
@@ -137,20 +138,19 @@ class ReplicaSlices:
     return result
 
 
-def _hashable_slices(slices: Index) -> tuple[HashableSlice, ...]:
-  return tuple([(s.start, s.stop, s.step) for s in slices])
-
-
-def _create_replica_counts_builder(
-    arr: jax.Array,
-) -> Callable[[jax.Shard], int]:
-  """Produces a mapping from addressable shards to global replication count."""
-
-  counts = collections.defaultdict(int)
-  for index in arr.sharding.devices_indices_map(arr.shape).values():
-    counts[_hashable_slices(index)] += 1
-
-  return lambda shard: counts[_hashable_slices(shard.index)]
+def _sharding_num_replicas(
+    sharding: jax.sharding.Sharding,
+    global_shape: Shape
+) -> int:
+  # The implementation below mirrors jax.sharding.Sharding#devices_indices_map,
+  # but takes care _not_ to materialize data for every device in the mesh, so
+  # that its runtime does not grow with the size of the mesh.
+  sharding.shard_shape(global_shape)  # raises a good error message
+  hlo_sharding = sharding._to_xla_hlo_sharding(len(global_shape))
+  if op_shardings.is_op_sharding_replicated(hlo_sharding):
+    return len(sharding._device_assignment)
+  _, num_replicas = op_shardings.get_num_ways_dim_sharded(hlo_sharding)
+  return num_replicas
 
 
 def calculate_replica_parallel_axis_and_local_shape(
@@ -231,8 +231,7 @@ def get_replica_slices(
     # Check whether replica-parallel applies: we are dealing with non-empty
     # shards, we have more than one replica, and some dimension of the shards
     # is evenly divisible across replicas.
-    get_replica_counts = _create_replica_counts_builder(arr)
-    replica_count = get_replica_counts(shard0)
+    replica_count = _sharding_num_replicas(arr.sharding, arr.shape)
     axis, local_shape = calculate_replica_parallel_axis_and_local_shape(
         arr, replica_count
     )
@@ -241,8 +240,7 @@ def get_replica_slices(
 
     rslices: list[ReplicaSlice] = []
     for shard in arr.addressable_shards:
-      # Sanity check that all shards have the same number of replicas and shape.
-      assert get_replica_counts(shard) == replica_count
+      # Sanity check that all shards have the same shape.
       assert shard.data.shape == shard0.data.shape
 
       size = local_shape[axis]
