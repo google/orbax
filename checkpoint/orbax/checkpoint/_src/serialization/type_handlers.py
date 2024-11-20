@@ -14,7 +14,8 @@
 
 """Provides utils for PytreeCheckpointHandler."""
 
-import abc
+from __future__ import annotations
+
 import asyncio
 import base64
 import copy
@@ -25,7 +26,7 @@ import re
 import sys
 import threading
 import time
-from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Set, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, TypeAlias, Union, cast
 import warnings
 
 from absl import logging
@@ -37,7 +38,8 @@ import numpy as np
 from orbax.checkpoint import future
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.arrays import subchunking
-from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.arrays import types as arrays_types
+from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
@@ -47,13 +49,18 @@ from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization import types
 import tensorstore as ts
 
+ParamInfo: TypeAlias = types.ParamInfo
+SaveArgs: TypeAlias = types.SaveArgs
+RestoreArgs: TypeAlias = types.RestoreArgs
+TypeHandler: TypeAlias = types.TypeHandler
+TypeHandlerRegistry: TypeAlias = types.TypeHandlerRegistry
 
 Layout = layout.Layout
-Shape = types.Shape
+Shape = arrays_types.Shape
 Scalar = Union[int, float, np.number]
-Metadata = value_metadata.Metadata
 NamedSharding = jax.sharding.NamedSharding
 ScalarMetadata = value_metadata.ScalarMetadata
 ArrayMetadata = value_metadata.ArrayMetadata
@@ -61,13 +68,9 @@ StringMetadata = value_metadata.StringMetadata
 ShardingMetadata = sharding_metadata.ShardingMetadata
 LimitInFlightBytes = serialization.LimitInFlightBytes
 is_ocdbt_checkpoint = format_utils.is_ocdbt_checkpoint
+is_supported_empty_value = empty_values.is_supported_empty_value
+is_supported_type = types.is_supported_type
 
-RESTORE_TYPE_NONE = 'None'
-RESTORE_TYPE_DICT = 'Dict'
-RESTORE_TYPE_LIST = 'List'
-RESTORE_TYPE_TUPLE = 'Tuple'
-RESTORE_TYPE_UNKNOWN = 'Unknown'
-# TODO: b/365169723 - Handle empty NamedTuple.
 
 _SHARDING = '_sharding'
 _SHARDING_SUFFIX_RE = r'/\d+(\.\d+)*$'  # /0, /0.0, /1.0.1, etc.
@@ -95,185 +98,10 @@ async def _assert_parameter_files_exist(
     )
 
 
-def isinstance_of_namedtuple(value: Any) -> bool:
-  """Determines if the `value` is a NamedTuple."""
-  return isinstance(value, tuple) and hasattr(value, '_fields')
-
-
-def is_supported_empty_value(value: Any) -> bool:
-  """Determines if the *empty* `value` is supported without custom TypeHandler."""
-  # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
-  # TODO: b/365169723 - Handle empty NamedTuple.
-  if isinstance_of_namedtuple(value):
-    return False
-  return (
-      isinstance(value, (dict, list, tuple, type(None), Mapping)) and not value
-  )
-
-
-def is_supported_type(value: Any) -> bool:
-  """Determines if the `value` is supported without custom TypeHandler."""
-  return isinstance(
-      value,
-      (str, int, float, np.number, np.ndarray, bytes, jax.Array),
-  ) or is_supported_empty_value(value)
-
-
-# TODO: b/365169723 - Handle empty NamedTuple.
-def get_empty_value_typestr(value: Any) -> str:
-  """Returns the typestr constant for the empty value."""
-  if not is_supported_empty_value(value):
-    raise ValueError(f'{value} is not a supported empty type.')
-  if isinstance(value, list):
-    return RESTORE_TYPE_LIST
-  if isinstance(value, tuple):
-    return RESTORE_TYPE_TUPLE
-  if isinstance(value, (dict, Mapping)):
-    return RESTORE_TYPE_DICT
-  if value is None:
-    return RESTORE_TYPE_NONE
-  raise ValueError(f'Unrecognized empty type: {value}.')
-
-
-# TODO: b/365169723 - Handle empty NamedTuple.
-def is_empty_typestr(typestr: str) -> bool:
-  return (
-      typestr == RESTORE_TYPE_LIST
-      or typestr == RESTORE_TYPE_TUPLE
-      or typestr == RESTORE_TYPE_DICT
-      or typestr == RESTORE_TYPE_NONE
-  )
-
-
-# TODO: b/365169723 - Handle empty NamedTuple.
-def get_empty_value_from_typestr(typestr: str) -> Any:
-  if typestr == RESTORE_TYPE_LIST:
-    return []
-  if typestr == RESTORE_TYPE_TUPLE:
-    return tuple()
-  if typestr == RESTORE_TYPE_DICT:
-    return {}
-  if typestr == RESTORE_TYPE_NONE:
-    return None
-  raise ValueError(f'Unrecognized typestr: {typestr}.')
-
-
-@dataclasses.dataclass
-class ParamInfo:
-  """Information describing a parameter in a PyTree.
-
-  Note that ParamInfo is distinct from SaveArgs and RestoreArgs in that in
-  represents information not provided by a user, and should be computed
-  internally.
-
-  name:
-    Name of the parameter.
-  path:
-    A path providing a location where file(s) should be saved. The path is
-    assumed to be a directory.
-  parent_dir:
-    A path providing location where all files under the same checkpoint should
-    be saved under. All `ParamInfo` provided to a given TypeHandler should have
-    the same `parent_dir`. The parent_dir is assumed to be a directory.
-  skip_deserialize:
-    If specified, skips deserialization of the given parameter using the
-    TypeHandler. This may be for multiple different reasons, including that the
-    parameter may have been aggregated, or it will be unneeded after
-    transformations. Note: this parameter is handled by PyTreeCheckpointHandler,
-    so it is unnecessary for TypeHandler implementations to deal with it.
-  byte_limiter:
-    Object to limit the number of bytes that can be read in
-    parallel.
-  is_ocdbt_checkpoint:
-    Indicates whether the checkpoint path uses OCDBT format
-    or not. Only used for restoration.
-  use_zarr3:
-    If True, use Zarr ver3 otherwise ver2.
-  ocdbt_target_data_file_size:
-    Specifies the target size (in bytes) of each OCDBT data file. If set to 0,
-    data file size is not limited. If omitted (None), the TensorStore default
-    is used.
-  ts_context:
-    Tensorstore context to use for reading/writing.
-  value_typestr: stores the original value's typestr (from TypeHandler).
-    Only required when saving.
-  enable_pinned_host_transfer:
-    True by default. If False, disables transfer to pinned host when copying
-    from device to host, regardless of the presence of pinned host memory.
-  """
-
-  name: Optional[str] = None
-  path: Optional[epath.Path] = None
-  parent_dir: Optional[epath.Path] = None
-  skip_deserialize: Optional[bool] = None
-  byte_limiter: Optional[serialization.LimitInFlightBytes] = None
-  is_ocdbt_checkpoint: Optional[bool] = None
-  use_zarr3: Optional[bool] = False
-  ocdbt_target_data_file_size: Optional[int] = None
-  ts_context: Optional[ts.Context] = None
-  value_typestr: Optional[str] = None
-  enable_pinned_host_transfer: bool = True
-
-
-@dataclasses.dataclass
-class SaveArgs:
-  """Extra arguments that can be provided for saving.
-
-  aggregate:
-    Deprecated, please use custom TypeHandler
-    (https://orbax.readthedocs.io/en/latest/custom_handlers.html#typehandler) or
-    contact Orbax team to migrate before August 1st, 2024. If true, saves the
-    given
-    parameter in an aggregated tree format rather than individually. See
-    AggregateHandler.
-  dtype:
-    If provided, casts the parameter to the given dtype before saving.
-    Note that the parameter must be compatible with the given type (e.g.
-    jnp.bfloat16 is not compatible with np.ndarray).
-  chunk_byte_size:
-    This is an experimental feature that automatically chooses the largest chunk
-    shape possible, while keeping the chunk byte size less than or equal to the
-    specified chunk_byte_size. Both the write_chunk_shape and read_chunk_shape
-    are automatically set to the chosen shape. This uses a greedy algorithm that
-    prioritizes splitting the largest dimensions first.
-  """
-
-  aggregate: bool = False
-  dtype: Optional[jnp.dtype] = None
-  chunk_byte_size: Optional[int] = None
-
-  def __post_init__(self):
-    if self.aggregate:
-      jax.monitoring.record_event('/jax/orbax/deprecation/aggregate')
-      logging.log_every_n_seconds(
-          logging.WARNING,
-          'The `aggregate` option is deprecated and will be ignored.',
-          n_seconds=12 * 60 * 60,  # once every 12 hours
-      )
-
-
-@dataclasses.dataclass
-class RestoreArgs:
-  """Extra arguments that can be provided for restoration.
-
-  restore_type:
-    Specifies the object type of the restored parameter. The type
-    must have a corresponding TypeHandler for restoration. Ignored if the
-    parameter is restored from an aggregated checkpoint file.
-  dtype:
-    If provided, casts the parameter to the given dtype after restoring.
-    Note that the parameter must be compatible with the given type (e.g.
-    jnp.bfloat16 is not compatible with np.ndarray).
-  """
-
-  restore_type: Optional[Any] = None
-  dtype: Optional[jnp.dtype] = None
-
-
 # TS functions
 # TODO(b/336658919) refractor TS functions to a separate file
 def _get_json_tspec(
-    info: ParamInfo,
+    info: types.ParamInfo,
     use_ocdbt: bool,
     process_index: Optional[Union[int, str]] = None,
     metadata_key: Optional[str] = None,
@@ -305,7 +133,7 @@ def _get_json_tspec(
 # TODO: b/354139177 - Rename this to `build_array_tspec_read`.
 # Keep the existing name for backward compatibility but mark as deprecated.
 def get_json_tspec_read(
-    info: ParamInfo,
+    info: types.ParamInfo,
     use_ocdbt: bool,
     metadata_key: Optional[str] = None,
 ):
@@ -320,14 +148,14 @@ def get_json_tspec_read(
 # TODO: b/354139177 - Replace usages of this with `build_array_tspec_write`
 # and remove it.
 def get_json_tspec_write(
-    info: ParamInfo,
+    info: types.ParamInfo,
     use_ocdbt: bool,
     global_shape: tuple[int, ...],
     local_shape: tuple[int, ...],
     dtype: Union[jnp.dtype, np.dtype],
     process_index: Optional[Union[int, str]] = None,
     metadata_key: Optional[str] = None,
-    arg: Optional[SaveArgs] = None,
+    arg: Optional[types.SaveArgs] = None,
 ):
   """Gets Tensorstore spec for writing."""
   tspec = _get_json_tspec(
@@ -369,11 +197,11 @@ def get_json_tspec_write(
 
 
 def _build_array_tspec_write(
-    info: ParamInfo,
-    arg: Optional[SaveArgs] = None,
+    info: types.ParamInfo,
+    arg: Optional[types.SaveArgs] = None,
     *,
-    global_shape: types.Shape,
-    local_shape: types.Shape,
+    global_shape: arrays_types.Shape,
+    local_shape: arrays_types.Shape,
     dtype: Union[jnp.dtype, np.dtype],
     use_ocdbt: bool,
     process_index: Optional[Union[int, str]] = None,
@@ -400,112 +228,6 @@ def _build_array_tspec_write(
       ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
       metadata_key=metadata_key,
   ).json
-
-
-class TypeHandler(abc.ABC):
-  """Interface for reading and writing a PyTree leaf."""
-
-  @abc.abstractmethod
-  def typestr(self) -> str:
-    """A string representation of the type.
-
-    Cannot conflict with other types.
-
-    Returns:
-      The type as a string.
-    """
-    pass
-
-  @abc.abstractmethod
-  async def metadata(self, infos: Sequence[ParamInfo]) -> Sequence[Metadata]:
-    """Constructs object metadata from a stored parameter location.
-
-    Args:
-      infos: sequence of ParamInfo
-
-    Returns:
-      Sequence of Metadata for each provided ParamInfo.
-    """
-    pass
-
-  @abc.abstractmethod
-  async def serialize(
-      self,
-      values: Sequence[Any],
-      infos: Sequence[ParamInfo],
-      args: Optional[Sequence[SaveArgs]] = None,
-  ) -> Sequence[future.Future]:
-    """Writes the parameter to a storage location.
-
-    This method is responsible for copying the parameter from a remote device in
-    a synchronous fashion (if applicable). It should then return a list of
-    futures which can be later awaited to complete the final commit operation
-    to a storage location.
-
-    The function can be used in a multihost setting, but should not implement
-    extra logic to ensure atomicity.
-
-    Args:
-      values: a sequence of parameters to save.
-      infos: a sequence of ParamInfo containing relevant information for
-        serialization of each value.
-      args: a sequence of additional arguments for serialization, provided by
-        the user.
-
-    Returns:
-      Sequence of commit futures which can be awaited to complete the save
-      operation.
-    """
-    pass
-
-  @abc.abstractmethod
-  async def deserialize(
-      self,
-      infos: Sequence[ParamInfo],
-      args: Optional[Sequence[RestoreArgs]] = None,
-  ) -> Sequence[Any]:
-    """Reads the parameter from a storage location.
-
-    Args:
-      infos: Sequence of ParamInfo for deserialization.
-      args: Sequence of user-provided restoration information.
-
-    Returns:
-      The deserialized parameters.
-    """
-    pass
-
-  def finalize(self, directory: epath.Path):
-    """Performs any logic to finalize parameter files written by this class.
-
-    By default, does nothing.
-
-    Args:
-      directory: A path to the location of the checkpoint. This corresponds to
-        `param_info.parent_dir`.
-    """
-    pass
-
-  def memory_size(self, values: Sequence[Any]) -> Sequence[Tuple[int, int]]:
-    """For a batch of values, returns the size of each value in bytes.
-
-    Note that the default implementation uses `sys.getsizeof`, which is not
-    likely to be accurate for many types.
-
-    The value returned is intended to be per-host.
-
-    Args:
-      values: A batch of values.
-
-    Returns:
-      A sequence of elements corresponding to `values`. Each element is a tuple
-      of [write_size, read_size]. In many cases these values may be the same.
-
-    Raises:
-      NotImplementedError: Raises error by default since we will rely on a
-        backup implementation.
-    """
-    raise NotImplementedError()
 
 
 class _CommitFuture(future.Future):
@@ -796,7 +518,7 @@ def _print_ts_debug_data(key, infos):
   return json.dumps(ts_metrics)
 
 
-class NumpyHandler(TypeHandler):
+class NumpyHandler(types.TypeHandler):
   """Provides an implementation of TypeHandler for replicated numpy arrays."""
 
   def __init__(self, metadata_key: Optional[str] = None):
@@ -814,11 +536,11 @@ class NumpyHandler(TypeHandler):
 
   def _get_json_tspec_write(
       self,
-      info: ParamInfo,
+      info: types.ParamInfo,
       value: np.ndarray,
       use_ocdbt: bool,
       process_index: Optional[Union[int, str]] = None,
-      arg: Optional[SaveArgs] = None,
+      arg: Optional[types.SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
     return _build_array_tspec_write(
@@ -834,7 +556,7 @@ class NumpyHandler(TypeHandler):
 
   def _get_json_tspec_read(
       self,
-      info: ParamInfo,
+      info: types.ParamInfo,
       use_ocdbt: bool,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
@@ -846,7 +568,7 @@ class NumpyHandler(TypeHandler):
     return 'np.ndarray'
 
   async def metadata(
-      self, infos: Sequence[ParamInfo]
+      self, infos: Sequence[types.ParamInfo]
   ) -> Sequence[ArrayMetadata]:
     open_ops = []
     for info in infos:
@@ -875,8 +597,8 @@ class NumpyHandler(TypeHandler):
   async def _background_serialize(
       self,
       values: Sequence[np.ndarray],
-      infos: Sequence[ParamInfo],
-      args: Optional[Sequence[SaveArgs]] = None,
+      infos: Sequence[types.ParamInfo],
+      args: Optional[Sequence[types.SaveArgs]] = None,
   ):
     """Serializes numpy arrays in a background thread."""
     write_coros = []
@@ -903,11 +625,11 @@ class NumpyHandler(TypeHandler):
   async def serialize(
       self,
       values: Sequence[np.ndarray],
-      infos: Sequence[ParamInfo],
-      args: Optional[Sequence[SaveArgs]] = None,
+      infos: Sequence[types.ParamInfo],
+      args: Optional[Sequence[types.SaveArgs]] = None,
   ) -> Sequence[future.Future]:
     """Uses Tensorstore to serialize a numpy array."""
-    args = args or [SaveArgs()] * len(values)
+    args = args or [types.SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
     if logging.vlog_is_on(1):
       _print_ts_debug_data(self._metadata_key, infos)
@@ -921,7 +643,7 @@ class NumpyHandler(TypeHandler):
 
   async def deserialize(
       self,
-      infos: Sequence[ParamInfo],
+      infos: Sequence[types.ParamInfo],
       args: Optional[Sequence[RestoreArgs]] = None,
   ) -> Sequence[np.ndarray]:
     """Deserializes the array using Tensorstore."""
@@ -977,7 +699,7 @@ class ScalarHandler(NumpyHandler):
     return 'scalar'
 
   async def metadata(
-      self, infos: Sequence[ParamInfo]
+      self, infos: Sequence[types.ParamInfo]
   ) -> Sequence[ScalarMetadata]:
     metadatas = await super().metadata(infos)
     return [
@@ -988,8 +710,8 @@ class ScalarHandler(NumpyHandler):
   async def serialize(
       self,
       values: Sequence[Scalar],  # pytype: disable=signature-mismatch
-      infos: Sequence[ParamInfo],
-      args: Optional[Sequence[SaveArgs]] = None,
+      infos: Sequence[types.ParamInfo],
+      args: Optional[Sequence[types.SaveArgs]] = None,
   ) -> Sequence[future.Future]:
     """See superclass documentation."""
     values = [np.asarray(v) for v in values]
@@ -997,7 +719,7 @@ class ScalarHandler(NumpyHandler):
 
   async def deserialize(
       self,
-      infos: Sequence[ParamInfo],
+      infos: Sequence[types.ParamInfo],
       args: Optional[Sequence[RestoreArgs]] = None,
   ) -> Sequence[Scalar]:  # pytype: disable=signature-mismatch
     """See superclass documentation."""
@@ -1090,7 +812,7 @@ class SingleReplicaArrayRestoreArgs(ArrayRestoreArgs):
   single_replica_sharding: Optional[jax.sharding.NamedSharding] = None
 
 
-class ArrayHandler(TypeHandler):
+class ArrayHandler(types.TypeHandler):
   """An implementation of TypeHandler for jax.Array."""
 
   def __init__(
@@ -1131,12 +853,12 @@ class ArrayHandler(TypeHandler):
 
   def _get_json_tspec_write(
       self,
-      info: ParamInfo,
+      info: types.ParamInfo,
       value: replica_slices.ReplicaSlices,
       *,
       use_ocdbt: bool,
       process_index: Optional[Union[int, str]] = None,
-      arg: Optional[SaveArgs] = None,
+      arg: Optional[types.SaveArgs] = None,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for writing."""
     return _build_array_tspec_write(
@@ -1152,7 +874,7 @@ class ArrayHandler(TypeHandler):
 
   def _get_json_tspec_read(
       self,
-      info: ParamInfo,
+      info: types.ParamInfo,
       use_ocdbt: bool,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
@@ -1164,7 +886,7 @@ class ArrayHandler(TypeHandler):
     return 'jax.Array'
 
   async def metadata(
-      self, infos: Sequence[ParamInfo]
+      self, infos: Sequence[types.ParamInfo]
   ) -> Sequence[ArrayMetadata]:
     open_ops = []
     sharding_open_ops = []
@@ -1223,7 +945,7 @@ class ArrayHandler(TypeHandler):
   async def _serialize_sharding(
       self,
       sharding: jax.sharding.Sharding,
-      info: ParamInfo,
+      info: types.ParamInfo,
       sharding_metadata_txn: ts.Transaction,
   ):
     """Serializes sharding metadata."""
@@ -1252,8 +974,8 @@ class ArrayHandler(TypeHandler):
   async def _background_serialize(
       self,
       values: Sequence[replica_slices.ReplicaSlices],
-      infos: Sequence[ParamInfo],
-      args: Sequence[SaveArgs],
+      infos: Sequence[types.ParamInfo],
+      args: Sequence[types.SaveArgs],
   ):
     """Runs serialization in a background thread."""
     write_coros = []
@@ -1300,8 +1022,8 @@ class ArrayHandler(TypeHandler):
   async def serialize(
       self,
       values: Sequence[jax.Array],
-      infos: Sequence[ParamInfo],
-      args: Optional[Sequence[SaveArgs]] = None,
+      infos: Sequence[types.ParamInfo],
+      args: Optional[Sequence[types.SaveArgs]] = None,
   ) -> Sequence[future.Future]:
     """See superclass documentation."""
     for v in values:
@@ -1317,7 +1039,7 @@ class ArrayHandler(TypeHandler):
             ' orbax/checkpoint/utils.py to convert your arrays into'
             ' serializable objects.'
         )
-    args = args or [SaveArgs()] * len(values)
+    args = args or [types.SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
 
     assert all([info.enable_pinned_host_transfer for info in infos]) or all(
@@ -1340,7 +1062,7 @@ class ArrayHandler(TypeHandler):
 
   async def deserialize(
       self,
-      infos: Sequence[ParamInfo],
+      infos: Sequence[types.ParamInfo],
       args: Optional[Sequence[RestoreArgs]] = None,
   ) -> Sequence[jax.Array]:
     """See superclass documentation.
@@ -1577,7 +1299,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
 
   async def deserialize(
       self,
-      infos: Sequence[ParamInfo],
+      infos: Sequence[types.ParamInfo],
       args: Optional[
           Sequence[SingleReplicaArrayRestoreArgs]
       ] = None,  # pytype: disable=signature-mismatch
@@ -1698,7 +1420,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
     return super().memory_size(values)
 
 
-class StringHandler(TypeHandler):
+class StringHandler(types.TypeHandler):
   """TypeHandler for strings."""
 
   def __init__(
@@ -1710,7 +1432,7 @@ class StringHandler(TypeHandler):
 
   def _get_json_tspec(
       self,
-      info: ParamInfo,
+      info: types.ParamInfo,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec in JSON format."""
     if info.path is None:
@@ -1728,7 +1450,7 @@ class StringHandler(TypeHandler):
     return 'string'
 
   async def metadata(
-      self, infos: Sequence[ParamInfo]
+      self, infos: Sequence[types.ParamInfo]
   ) -> Sequence[StringMetadata]:
     return [
         StringMetadata(name=info.name, directory=info.parent_dir)
@@ -1742,7 +1464,7 @@ class StringHandler(TypeHandler):
   async def _background_serialize(
       self,
       values: Sequence[str],
-      infos: Sequence[ParamInfo],
+      infos: Sequence[types.ParamInfo],
   ):
     """Writes strings using Tensorstore in the background thread."""
     check_input_arguments(values, infos)
@@ -1766,8 +1488,8 @@ class StringHandler(TypeHandler):
   async def serialize(
       self,
       values: Sequence[str],
-      infos: Sequence[ParamInfo],
-      args: Optional[Sequence[SaveArgs]] = None,
+      infos: Sequence[types.ParamInfo],
+      args: Optional[Sequence[types.SaveArgs]] = None,
   ) -> Sequence[future.Future]:
     """See superclass documentation."""
     del args
@@ -1781,7 +1503,7 @@ class StringHandler(TypeHandler):
 
   async def deserialize(
       self,
-      infos: Sequence[ParamInfo],
+      infos: Sequence[types.ParamInfo],
       args: Optional[Sequence[RestoreArgs]] = None,
   ) -> Sequence[Optional[str]]:
     """See superclass documentation."""
@@ -1811,78 +1533,19 @@ class StringHandler(TypeHandler):
     return list(zip(write_sizes, read_sizes))
 
 
-class TypeHandlerRegistry(Protocol):
-  """A registry for TypeHandlers.
-
-  This internal base class is used for the global registry which serves as a
-  default for any type not found in a local registry. It is also accessed
-  through the module function get/set/has_type_handler.
-  """
-
-  def add(
-      self,
-      ty: Any,
-      handler: TypeHandler,
-      func: Optional[Callable[[Any], bool]] = None,
-      override: bool = False,
-  ):
-    """Registers a type for serialization/deserialization with a given handler.
-
-    Note that it is possible for a type to match multiple different entries in
-    the registry, each with a different handler. In this case, only the first
-    match is used.
-
-    Args:
-      ty: A type to register.
-      handler: a TypeHandler capable of reading and writing parameters of type
-        `ty`.
-      func: A function that accepts a type and returns True if the type should
-        be handled by the provided TypeHandler. If this parameter is not
-        specified, defaults to `lambda t: issubclass(t, ty)`.
-      override: if True, will override an existing mapping of type to handler.
-
-    Raises:
-      ValueError if a type is already registered and override is False.
-    """
-    ...
-
-  def get(self, ty: Any) -> TypeHandler:
-    """Returns the handler registered for a given type, if available.
-
-    Args:
-      ty: an object type (or string representation of the type.)
-
-    Returns:
-      The TypeHandler that is registered for the given type.
-
-    Raises:
-      ValueError if the given type has no registered handler.
-    """
-    ...
-
-  def has(self, ty: Any) -> bool:
-    """Checks if a type is registered.
-
-    Args:
-      ty: an object type (or string representation of the type.)
-
-    Returns:
-      A boolean indicating if ty is registered.
-    """
-    ...
-
-
-class _TypeHandlerRegistryImpl(TypeHandlerRegistry):
+class _TypeHandlerRegistryImpl(types.TypeHandlerRegistry):
   """The implementation for TypeHandlerRegistry."""
 
-  def __init__(self, *handlers: Tuple[Any, TypeHandler]):
+  def __init__(self, *handlers: Tuple[Any, types.TypeHandler]):
     """Create a type registry.
 
     Args:
       *handlers: an optional list of handlers to initialize with.
     """
-    self._type_registry: List[Tuple[Callable[[Any], bool], TypeHandler]] = []
-    self._typestr_registry: Dict[str, TypeHandler] = {}
+    self._type_registry: List[
+        Tuple[Callable[[Any], bool], types.TypeHandler]
+    ] = []
+    self._typestr_registry: Dict[str, types.TypeHandler] = {}
     if handlers:
       for ty, h in handlers:
         self.add(ty, h, override=True, ignore_warnings=True)
@@ -1890,7 +1553,7 @@ class _TypeHandlerRegistryImpl(TypeHandlerRegistry):
   def add(
       self,
       ty: Any,
-      handler: TypeHandler,
+      handler: types.TypeHandler,
       func: Optional[Callable[[Any], bool]] = None,
       override: bool = False,
       ignore_warnings: bool = False,
@@ -1934,7 +1597,7 @@ class _TypeHandlerRegistryImpl(TypeHandlerRegistry):
     else:
       raise ValueError(f'A TypeHandler for "{ty}" is already registered.')
 
-  def get(self, ty: Any) -> TypeHandler:
+  def get(self, ty: Any) -> types.TypeHandler:
     if isinstance(ty, str):
       if ty in self._typestr_registry:
         return self._typestr_registry[ty]
@@ -1964,8 +1627,8 @@ GLOBAL_TYPE_HANDLER_REGISTRY = _TypeHandlerRegistryImpl(
 
 
 def create_type_handler_registry(
-    *handlers: Tuple[Any, TypeHandler]
-) -> TypeHandlerRegistry:
+    *handlers: Tuple[Any, types.TypeHandler]
+) -> types.TypeHandlerRegistry:
   """Create a type registry.
 
   Args:
@@ -1980,7 +1643,7 @@ def create_type_handler_registry(
 
 def register_type_handler(
     ty: Any,
-    handler: TypeHandler,
+    handler: types.TypeHandler,
     func: Optional[Callable[[Any], bool]] = None,
     override: bool = False,
 ):
@@ -2005,7 +1668,7 @@ def register_type_handler(
   GLOBAL_TYPE_HANDLER_REGISTRY.add(ty, handler, func, override)
 
 
-def get_type_handler(ty: Any) -> TypeHandler:
+def get_type_handler(ty: Any) -> types.TypeHandler:
   """Returns the handler registered for a given type, if available."""
   return GLOBAL_TYPE_HANDLER_REGISTRY.get(ty)
 
@@ -2053,20 +1716,3 @@ def default_restore_type(args: RestoreArgs) -> Any:
     return np.ndarray
   else:
     raise ValueError(f'Unsupported restore_args type: {type(args)}')
-
-
-def get_param_typestr(value: Any, registry: TypeHandlerRegistry) -> str:
-  """Retrieves the typestr for a given value."""
-  if is_supported_empty_value(value):
-    typestr = get_empty_value_typestr(value)
-  else:
-    try:
-      handler = registry.get(type(value))
-      typestr = handler.typestr()
-    except ValueError:
-      # Not an error because users' training states often have a bunch of
-      # random unserializable objects in them (empty states, optimizer
-      # objects, etc.). An error occurring due to a missing TypeHandler
-      # will be surfaced elsewhere.
-      typestr = RESTORE_TYPE_NONE
-  return typestr

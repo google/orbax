@@ -28,21 +28,24 @@ from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint._src import asyncio_utils
-from orbax.checkpoint._src.metadata import tree_common
+from orbax.checkpoint._src.metadata import empty_values
+from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import tree_rich_types
 from orbax.checkpoint._src.metadata import value as value_metadata
+from orbax.checkpoint._src.metadata import value_metadata_entry
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
-from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.tree import utils as tree_utils
 
-ValueMetadataEntry: TypeAlias = tree_common.ValueMetadataEntry
-PyTreeMetadataOptions: TypeAlias = tree_common.PyTreeMetadataOptions
+ValueMetadataEntry: TypeAlias = value_metadata_entry.ValueMetadataEntry
+PyTreeMetadataOptions: TypeAlias = (
+    pytree_metadata_options_lib.PyTreeMetadataOptions
+)
 PyTree: TypeAlias = Any
 KeyEntry = TypeVar('KeyEntry', bound=Hashable)
 KeyPath: TypeAlias = tuple[KeyEntry, ...]
 
-PYTREE_METADATA_OPTIONS = tree_common.PYTREE_METADATA_OPTIONS
-serialize_tree = tree_common.serialize_tree
+PYTREE_METADATA_OPTIONS = pytree_metadata_options_lib.PYTREE_METADATA_OPTIONS
 
 _KEY_NAME = 'key'
 _KEY_TYPE = 'key_type'
@@ -169,16 +172,14 @@ class InternalTreeMetadataEntry:
   def build(
       cls,
       keypath: KeyPath,
-      info: type_handlers.ParamInfo,
-      save_arg: type_handlers.SaveArgs,
+      info: types.ParamInfo,
+      save_arg: types.SaveArgs,
   ) -> InternalTreeMetadataEntry:
     """Builds a InternalTreeMetadataEntry."""
-    key_metadata_entry = KeyMetadataEntry.build(keypath)
-    value_metadata_entry = ValueMetadataEntry.build(info, save_arg)
     return InternalTreeMetadataEntry(
-        str(tuple([str(tree_utils.get_key_name(k)) for k in keypath])),
-        key_metadata_entry,
-        value_metadata_entry,
+        keypath=str(tuple([str(tree_utils.get_key_name(k)) for k in keypath])),
+        key_metadata=KeyMetadataEntry.build(keypath),
+        value_metadata=ValueMetadataEntry.build(info, save_arg),
     )
 
   def jax_keypath(self) -> KeyPath:
@@ -196,7 +197,7 @@ class InternalTreeMetadata:
 
   tree_metadata_entries: List[InternalTreeMetadataEntry]
   use_zarr3: bool
-  pytree_metadata_options: tree_common.PyTreeMetadataOptions
+  pytree_metadata_options: PyTreeMetadataOptions
   value_metadata_tree: PyTree | None = None
 
   def __post_init__(self):
@@ -212,14 +213,14 @@ class InternalTreeMetadata:
       *,
       save_args: Optional[PyTree] = None,
       use_zarr3: bool = False,
-      pytree_metadata_options: tree_common.PyTreeMetadataOptions = (
+      pytree_metadata_options: PyTreeMetadataOptions = (
           PYTREE_METADATA_OPTIONS
       ),
   ) -> InternalTreeMetadata:
     """Returns an InternalTreeMetadata instance."""
     if save_args is None:
       save_args = jax.tree.map(
-          lambda _: type_handlers.SaveArgs(),
+          lambda _: types.SaveArgs(),
           param_infos,
           is_leaf=tree_utils.is_empty_or_leaf,
       )
@@ -345,7 +346,7 @@ class InternalTreeMetadata:
   def from_json(
       cls,
       json_dict: Dict[str, Any],
-      pytree_metadata_options: tree_common.PyTreeMetadataOptions = (
+      pytree_metadata_options: PyTreeMetadataOptions = (
           PYTREE_METADATA_OPTIONS
       ),
   ) -> InternalTreeMetadata:
@@ -394,7 +395,7 @@ class InternalTreeMetadata:
   def as_user_metadata(
       self,
       directory: epath.Path,
-      type_handler_registry: type_handlers.TypeHandlerRegistry,
+      type_handler_registry: types.TypeHandlerRegistry,
       *,
       use_ocdbt: bool = True,
   ) -> PyTree:
@@ -419,7 +420,7 @@ class InternalTreeMetadata:
         reference_metadata_tree
     ).items():
       param_name = '.'.join(keypath)
-      flat_param_infos[keypath] = type_handlers.ParamInfo(
+      flat_param_infos[keypath] = types.ParamInfo(
           name=param_name,
           path=directory / param_name,
           parent_dir=directory,
@@ -437,8 +438,8 @@ class InternalTreeMetadata:
       param_info = flat_param_infos[keypath]
       restore_type = flat_restore_types[keypath]
       if param_info.skip_deserialize:
-        if type_handlers.is_empty_typestr(restore_type):
-          flat_metadatas[keypath] = type_handlers.get_empty_value_from_typestr(
+        if empty_values.is_empty_typestr(restore_type):
+          flat_metadatas[keypath] = empty_values.get_empty_value_from_typestr(
               restore_type
           )
         else:
@@ -466,3 +467,37 @@ class InternalTreeMetadata:
     return tree_utils.from_flat_dict(
         flat_metadatas, target=reference_metadata_tree
     )
+
+
+def serialize_tree(
+    tree: PyTree,
+    pytree_metadata_options: PyTreeMetadataOptions,
+) -> PyTree:
+  """Transforms a PyTree to a serializable format.
+
+  IMPORTANT: If `pytree_metadata_options.support_rich_types` is false, the
+  returned tree replaces tuple container nodes with list nodes.
+
+  IMPORTANT: If `pytree_metadata_options.support_rich_types` is false, the
+  returned tree replaces NamedTuple container nodes with dict
+  nodes.
+
+  If `pytree_metadata_options.support_rich_types` is true, then the returned
+  tree is the same as the input tree retaining empty nodes as leafs.
+
+  Args:
+    tree: The tree to serialize.
+    pytree_metadata_options: `PyTreeMetadataOptions` for managing PyTree
+      metadata.
+
+  Returns:
+    The serialized PyTree.
+  """
+  if pytree_metadata_options.support_rich_types:
+    return jax.tree_util.tree_map(
+        lambda x: x,
+        tree,
+        is_leaf=tree_utils.is_empty_or_leaf,
+    )
+
+  return tree_utils.serialize_tree(tree, keep_empty_nodes=True)

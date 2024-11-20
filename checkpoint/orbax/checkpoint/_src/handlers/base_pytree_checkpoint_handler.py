@@ -41,12 +41,14 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
 
@@ -187,7 +189,7 @@ def batched_serialization_requests(
       requested_restore_type = arg.restore_type or metadata_restore_type
       # TODO(cpgaffney): Add a warning message if the requested_restore_type
       # is not the same as the metadata_restore_type.
-      if type_handlers.is_empty_typestr(requested_restore_type):
+      if empty_values.is_empty_typestr(requested_restore_type):
         # Skip deserialization of empty node using TypeHandler.
         return
       type_for_registry_lookup = requested_restore_type
@@ -384,7 +386,7 @@ class BasePyTreeCheckpointHandler(
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
           byte_limiter=byte_limiter,
           ts_context=ts_context,
-          value_typestr=type_handlers.get_param_typestr(
+          value_typestr=types.get_param_typestr(
               value, self._type_handler_registry
           ),
       )
@@ -565,7 +567,7 @@ class BasePyTreeCheckpointHandler(
     # Add in empty nodes from the metadata tree.
     for key in flat_metadata.keys():
       if key not in flat_restored:
-        flat_restored[key] = type_handlers.get_empty_value_from_typestr(
+        flat_restored[key] = empty_values.get_empty_value_from_typestr(
             flat_metadata[key].value_type
         )
     # Restore using `item` as the target structure. If there are any custom

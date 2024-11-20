@@ -21,8 +21,8 @@ import dataclasses
 import functools
 from typing import Any, Iterable, Mapping, Sequence, Type, TypeAlias
 
-from orbax.checkpoint._src.metadata import tree_common
-from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.metadata import value_metadata_entry
+from orbax.checkpoint._src.tree import utils as tree_utils
 import simplejson
 
 PyTree: TypeAlias = Any
@@ -79,7 +79,7 @@ def _module_and_class_name(cls) -> tuple[str, str]:
 
 _VALUE_METADATA_ENTRY_CLAZZ = 'ValueMetadataEntry'
 _VALUE_METADATA_ENTRY_MODULE_AND_CLASS = _module_and_class_name(
-    tree_common.ValueMetadataEntry
+    value_metadata_entry.ValueMetadataEntry
 )
 
 
@@ -98,7 +98,7 @@ def _value_metadata_tree_for_json_dumps(obj: Any) -> Any:
       )
 
   # Check namedtuple first and then tuple.
-  if type_handlers.isinstance_of_namedtuple(obj):
+  if tree_utils.isinstance_of_namedtuple(obj):
     module_name, class_name = _module_and_class_name(obj.__class__)
     return dict(
         category='namedtuple',
@@ -134,7 +134,7 @@ def _value_metadata_tree_for_json_loads(obj):
   if 'category' in obj:
     if obj['category'] == 'custom':
       if obj['clazz'] == _VALUE_METADATA_ENTRY_CLAZZ:
-        return tree_common.ValueMetadataEntry.from_json(obj['data'])
+        return value_metadata_entry.ValueMetadataEntry.from_json(obj['data'])
       if obj['clazz'] == 'tuple':
         return tuple(
             [(_value_metadata_tree_for_json_loads(v)) for v in obj['entries']]

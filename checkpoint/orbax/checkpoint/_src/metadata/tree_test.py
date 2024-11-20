@@ -20,6 +20,7 @@ from absl.testing import parameterized
 import jax
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.testing import test_tree_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
 
@@ -27,8 +28,8 @@ from orbax.checkpoint._src.tree import utils as tree_utils
 def _to_param_infos(tree: Any):
   return jax.tree.map(
       # Other properties are not relevant.
-      lambda x: type_handlers.ParamInfo(
-          value_typestr=type_handlers.get_param_typestr(
+      lambda x: types.ParamInfo(
+          value_typestr=types.get_param_typestr(
               x, type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY
           )
       ),

@@ -41,6 +41,7 @@ from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
+from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
@@ -248,7 +249,7 @@ def _get_restore_parameters(
       name: str,
       meta_or_value: Union[Any, tree_metadata.ValueMetadataEntry],
   ) -> Union[ParamInfo, Any]:
-    if type_handlers.is_supported_empty_value(meta_or_value):
+    if empty_values.is_supported_empty_value(meta_or_value):
       # Empty node, ParamInfo should not be returned.
       return meta_or_value
     elif not isinstance(meta_or_value, tree_metadata.ValueMetadataEntry):
@@ -818,7 +819,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       if (
           isinstance(value_meta, tree_metadata.ValueMetadataEntry)
           and not value_meta.skip_deserialize
-          and value_meta.value_type == type_handlers.RESTORE_TYPE_UNKNOWN
+          and value_meta.value_type == empty_values.RESTORE_TYPE_UNKNOWN
       ):
         return dataclasses.replace(
             value_meta, value_type=type_handlers.default_restore_type(arg)
@@ -915,7 +916,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       flat_aggregate = None
 
     def _is_empty_value(value):
-      return type_handlers.is_supported_empty_value(
+      return empty_values.is_supported_empty_value(
           value
       ) or not utils.leaf_is_placeholder(value)
 
@@ -923,15 +924,15 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       if _is_empty_value(value):
         return value
       return tree_metadata.ValueMetadataEntry(
-          value_type=type_handlers.RESTORE_TYPE_UNKNOWN,
+          value_type=empty_values.RESTORE_TYPE_UNKNOWN,
           skip_deserialize=False,
       )
 
     def _process_metadata_and_aggregate_leaves(value_meta, value):
       if _is_empty_value(value):
         return value
-      if type_handlers.is_empty_typestr(value_meta.value_type):
-        return type_handlers.get_empty_value_from_typestr(value_meta.value_type)
+      if empty_values.is_empty_typestr(value_meta.value_type):
+        return empty_values.get_empty_value_from_typestr(value_meta.value_type)
       return value_meta
 
     # Handle cases of missing metadata and/or aggregate files.
@@ -963,11 +964,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
               value_meta, flat_aggregate[tuple_key]
           )
         else:
-          if type_handlers.is_empty_typestr(value_meta.value_type):
+          if empty_values.is_empty_typestr(value_meta.value_type):
             flat_structure[tuple_key] = (
-                type_handlers.get_empty_value_from_typestr(
-                    value_meta.value_type
-                )
+                empty_values.get_empty_value_from_typestr(value_meta.value_type)
             )
           else:
             flat_structure[tuple_key] = value_meta

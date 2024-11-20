@@ -28,6 +28,11 @@ PyTree = tree_types.PyTree
 ScalarType = Union[Type[float], Type[int]]
 
 
+def isinstance_of_namedtuple(value: Any) -> bool:
+  """Determines if the `value` is a NamedTuple."""
+  return isinstance(value, tuple) and hasattr(value, '_fields')
+
+
 def is_empty_node(x: Any) -> bool:
   try:
     children, _ = jax._src.tree_util.flatten_one_level(x)  # pylint: disable=protected-access

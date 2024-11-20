@@ -32,6 +32,8 @@ utils into a separate file.
 accept and return metadata as dictionaries.
 - Move `Checkpointer` implementations to `_src`.
 - Add/Update tests for `is_empty_or_leaf` and `is_empty_node`.
+- Refactor and restructure constructs from `type_handlers.py` and `metadata`
+ package to avoid circular dependencies.
 
 ## [0.9.1] - 2024-11-11
 
