@@ -731,6 +731,11 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       ValueError: `transforms` is provided without `item`.
       ValueError: `transforms` contains elements with `multi_value_fn`.
     """
+    if self._pytree_metadata_options.support_rich_types:
+      raise NotImplementedError(
+          'Restore is not supported for rich typed metadata yet. Please set'
+          ' PyTreeMetadataOptions.support_rich_types=False.'
+      )
     if not directory.exists():
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}.'

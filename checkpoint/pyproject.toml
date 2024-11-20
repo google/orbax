@@ -33,6 +33,7 @@ dependencies = [
     'nest_asyncio',
     'protobuf',
     'humanize',
+    'simplejson >= 3.16.0',
 ]
 
 dynamic = ['version']
