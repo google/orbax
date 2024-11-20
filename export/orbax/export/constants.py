@@ -58,7 +58,14 @@ NATIVE_SERIALIZATION_PLATFORM = 'native_serialization_platform'
 
 # Jax2obm_kwargs key for whether to flatten the signature of the function
 # during conversion.
+# TODO(wangpeng): Remove this flag by fixing it to False.
 FLATTEN_SIGNATURE = 'flatten_signature'
+
+# Jax2obm_kwargs key for whether the Orbax Model path should support TF
+# resources (e.g. `tf.Variable`, `tf.lookup.StaticHashTable`, vocabulary tables,
+# embedding tables, etc).
+# TODO(wangpeng): Remove this flag by fixing it to True.
+OBM_SUPPORT_TF_RESOURCES = 'support_tf_resources'
 
 # Jax2obm_kwargs key for the checkpoint path to use when setting the checkpoint
 # attribute on the OrbaxModule.

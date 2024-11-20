@@ -26,6 +26,7 @@ from orbax.export import constants
 from orbax.export import export_manager
 from orbax.export import jax_module
 from orbax.export import serving_config as osc
+import tensorflow as tf
 
 os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
 
@@ -36,7 +37,14 @@ _VERSIONS = (
 )
 
 
-class ExportManagerObmTest(parameterized.TestCase):
+def _get_expected_tf_function_body(name: str, support_tf_resources: bool):
+  if support_tf_resources:
+    return f'inlined_string: "{name}"'
+  else:
+    return 'file_system_location { string_path: "%s.pb" }' % name
+
+
+class ExportManagerObmTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.named_parameters(
       (f'_{idx}', jax_module_version, export_manager_version)

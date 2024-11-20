@@ -88,6 +88,11 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         if constants.FLATTEN_SIGNATURE in jax2obm_kwargs
         else False
     )
+    self._support_tf_resources = jax2obm_kwargs.get(
+        constants.OBM_SUPPORT_TF_RESOURCES, None
+    )
+    if self._support_tf_resources is None:
+      self._support_tf_resources = False
 
     self._params_args_spec = _to_jax_spec(params)
 
@@ -123,6 +128,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         serving_config=serving_configs[0],
         native_serialization_platform=self._native_serialization_platform,
         flatten_signature=self._flatten_signature,
+        support_tf_resources=self._support_tf_resources,
     )
 
     self.built = True
@@ -163,12 +169,14 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
 
   def _convert_jax_functions_to_obm_functions(
       self,
+      *,
       jax_fn,
-      jax_fn_name,
+      jax_fn_name: str,
       params_args_spec: PyTree,
       serving_config: osc.ServingConfig,
       native_serialization_platform,
-      flatten_signature,
+      flatten_signature: bool,
+      support_tf_resources: bool,
   ):
     """Converts the JAX functions to OrbaxModel functions."""
     if serving_config.input_signature is None:
