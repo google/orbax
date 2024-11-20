@@ -50,6 +50,7 @@ class RestoreArgsTest(absltest.TestCase):
     self.assertEqual(expected.sharding.spec, actual.sharding.spec)
     self.assertEqual(expected.global_shape, actual.global_shape)
     self.assertEqual(expected.dtype, actual.dtype)
+    self.fail()
 
   def test_construct_restore_args(self):
     devices = np.asarray(jax.devices())

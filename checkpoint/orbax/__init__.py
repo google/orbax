@@ -16,6 +16,7 @@
 
 # pylint: disable=g-importing-member, g-bad-import-order
 
+
 import contextlib
 import functools
 
@@ -82,3 +83,6 @@ from orbax.checkpoint import test_utils
 # A new PyPI release will be pushed everytime `__version__` is increased.
 __version__ = version.__version__
 del version
+
+
+raise RuntimeError
