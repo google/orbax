@@ -1,0 +1,16 @@
+# Requirements for the Orbax development environment.
+#
+# Note: There is bug in `pip` when multiple packages use the compatible release
+# operator `~=` to specify a version and one of those versions ends in `0`. See
+# https://github.com/pypa/pip/issues/9613 for more information. In this case,
+# use the equivalent clause `>=x.0,==x.*` instead of `~=x.0`.
+#
+# This assumes that the packages follows Semantic Versioning, see
+# https://semver.org/. If a package follows a different versioning scheme or
+# requires unique handling, we use a different version specifier and comment the
+# versioning scheme or reasoning.
+
+jax>=0.4.34
+jaxlib>=0.4.34
+portpicker~=1.6
+
