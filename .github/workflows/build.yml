@@ -1,6 +1,10 @@
 name: build
 
 on:
+  # continuous
+  schedule:
+    # Run every hour
+    - cron: "0 * * * *"
   push:
     branches:
       - main
