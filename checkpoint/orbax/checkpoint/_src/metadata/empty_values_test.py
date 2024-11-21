@@ -17,27 +17,51 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.checkpoint._src.metadata import empty_values
+from orbax.checkpoint._src.metadata import pytree_metadata_options
 from orbax.checkpoint._src.testing import test_tree_utils
 
 
 class EmptyValuesTest(parameterized.TestCase):
 
   @parameterized.parameters(
-      (1, False),
-      (dict(), True),
-      ({}, True),
-      ({"a": {}}, False),
-      ([], True),
-      ([[]], False),
-      (None, True),
-      ((1, 2), False),
-      (test_tree_utils.EmptyNamedTuple(), False),
-      (test_tree_utils.MuNu(mu=None, nu=None), False),
-      (test_tree_utils.NamedTupleWithNestedAttributes(), False),
-      (test_tree_utils.NamedTupleWithNestedAttributes(nested_dict={}), False),
+      (1, False, False),
+      (dict(), True, True),
+      ({}, True, True),
+      ({"a": {}}, False, False),
+      ([], True, True),
+      ([[]], False, False),
+      (None, True, True),
+      ((1, 2), False, False),
+      (test_tree_utils.EmptyNamedTuple(), False, True),
+      (test_tree_utils.MuNu(mu=None, nu=None), False, False),
+      (test_tree_utils.NamedTupleWithNestedAttributes(), False, False),
+      (
+          test_tree_utils.NamedTupleWithNestedAttributes(nested_dict={}),
+          False,
+          False,
+      ),
   )
-  def test_is_supported_empty_value(self, value, expected):
-    self.assertEqual(expected, empty_values.is_supported_empty_value(value))
+  def test_is_supported_empty_value(self, value, expected, expected_rich_type):
+    with self.subTest("legacy_metadata"):
+      self.assertEqual(
+          expected,
+          empty_values.is_supported_empty_value(
+              value,
+              pytree_metadata_options.PyTreeMetadataOptions(
+                  support_rich_types=False
+              ),
+          ),
+      )
+    with self.subTest("rich_typed_metadata"):
+      self.assertEqual(
+          expected_rich_type,
+          empty_values.is_supported_empty_value(
+              value,
+              pytree_metadata_options.PyTreeMetadataOptions(
+                  support_rich_types=True
+              ),
+          ),
+      )
 
 
 if __name__ == "__main__":
