@@ -67,28 +67,6 @@ _PRIMARY_REPLICA_ID = 0
 _SECONDARY_REPLICA_ID = 1
 
 
-def local_checkpoint_handler() -> PyTreeCheckpointHandler:
-  """Create a PyTreeCheckpointHandler for local checkpoints."""
-  local_registry = type_handlers.create_type_handler_registry(
-      (
-          jax.Array,
-          type_handlers.ArrayHandler(
-              primary_host=None,
-              replica_id=None,
-              use_replica_parallel=False,
-          ),
-      ),
-  )
-  return PyTreeCheckpointHandler(
-      use_ocdbt=True,
-      use_zarr3=True,
-      multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
-          primary_host=None,
-      ),
-      type_handler_registry=local_registry,
-  )
-
-
 def _local_checkpoint_handler(
     multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
 ) -> PyTreeCheckpointHandler:
@@ -127,7 +105,9 @@ def _persistent_checkpoint_handler(
       (
           jax.Array,
           type_handlers.ArrayHandler(
-              primary_host=multiprocessing_options.primary_host, replica_id=0
+              primary_host=multiprocessing_options.primary_host,
+              replica_id=0,
+              use_replica_parallel=False,
           ),
       ),
   )

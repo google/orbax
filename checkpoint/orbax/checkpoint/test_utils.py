@@ -732,3 +732,19 @@ def assert_every_n_is_x_apart(testclass, values, n, x):
   assert len(values) % n == 0
   for i in range(n, len(values), n):
     testclass.assertGreaterEqual(values[i], values[i - 1] + x)
+
+
+def get_expected_chunk_shape(arr: jax.Array) -> tuple[int, ...]:
+  """Expected chunk shape for an array, accounting for replica-parallel."""
+  # TODO(cpgaffney): Enable once replica-parallel is enabled.
+  local_shape = None
+  # get_replica_counts = replica_slices._create_replica_counts_builder(arr)
+  # replica_count = get_replica_counts(arr.addressable_shards[0])
+  # _, local_shape = (
+  #     replica_slices.calculate_replica_parallel_axis_and_local_shape(
+  #         arr, replica_count
+  #     )
+  # )
+  if local_shape is None:
+    local_shape = arr.sharding.shard_shape(arr.shape)
+  return local_shape

@@ -820,7 +820,7 @@ class ArrayHandler(types.TypeHandler):
       metadata_key: Optional[str] = None,
       primary_host: Optional[int] = 0,
       replica_id: Optional[int] = 0,
-      use_replica_parallel: bool = True,
+      use_replica_parallel: bool = False,
       enable_write_sharding_file: bool = True,
   ):
     """Constructor.
@@ -844,7 +844,8 @@ class ArrayHandler(types.TypeHandler):
     self._use_replica_parallel = use_replica_parallel
 
     logging.info(
-        'Created `ArrayHandler` with primary_host=%s, replica_id=%s, use_replica_parallel=%s',
+        'Created `ArrayHandler` with primary_host=%s, replica_id=%s,'
+        ' use_replica_parallel=%s',
         self._primary_host,
         self._replica_id,
         self._use_replica_parallel,

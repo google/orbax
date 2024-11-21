@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""To test Orbax in single-host setup."""
-
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -202,19 +200,20 @@ class SingleHostTest(parameterized.TestCase):
     self.assertIsInstance(restored_tree['x'], jax.Array)
 
   def test_save_and_restore_with_replica_parallel(self):
-    assert len(jax.devices()) > 1
+    if len(jax.devices()) <= 1:
+      self.skipTest('Test requires multiple devices.')
     mesh = jax.sharding.Mesh(jax.devices(), ('x',))
     replicated_spec = jax.sharding.PartitionSpec()
     sharding = jax.sharding.NamedSharding(mesh, replicated_spec)
 
     key = jax.random.PRNGKey(0)
-    state = jax.random.normal(key, (1024,1024))
+    state = jax.random.normal(key, (1024, 1024))
     state = jax.device_put(state, sharding)
 
     pytree = {'state': state}
     array_handler = type_handlers.ArrayHandler(
-      replica_id=0,
-      use_replica_parallel=True,
+        replica_id=0,
+        use_replica_parallel=True,
     )
     handler = PyTreeCheckpointHandler(
         type_handler_registry=type_handlers.create_type_handler_registry(

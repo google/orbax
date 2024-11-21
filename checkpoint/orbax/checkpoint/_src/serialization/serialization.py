@@ -272,6 +272,9 @@ async def async_serialize(
       unless you are sure you know what you are doing.
     replica_id: Allows overriding the shard replica id that will be saved. DO
       NOT USE unless you are sure you know what you are doing.
+    use_replica_parallel: Whether to use replica-parallel serialization to allow
+      arrays with replicated shards to be written cooperatively by different
+      hosts.
     transaction: TensorStore transaction to use for opening and writing the
       array.  If not specified, a non-transactional write will be used.
     byte_limiter: A ByteLimiter instance that will be used to limit the number

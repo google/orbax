@@ -20,6 +20,8 @@ arrays.
  checkpoint metadata.
 - Create a separate namespace package `orbax.checkpoint.testing` for exporting
  test objects.
+- `replica_parallel` saving that allows arrays with replicated shards to be
+saved cooperatively by multiple hosts.
 - [Experimental Feature] Support `NamedTuple` and `Tuple` nodes in PyTree
  metadata.
 

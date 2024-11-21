@@ -30,10 +30,18 @@ from orbax.checkpoint._src.multihost import multihost
 
 Shape = types.Shape
 Index = types.Index
+OptionalAxisAndShape = tuple[int | None, Shape| None]
+# Slice objects are not hashable before python 3.12.
+HashableSlice = tuple[int | None, int | None, int | None]
 
 
 @dataclasses.dataclass(frozen=True)
 class SliceArgs:
+  """Arguments for slicing a jax.Array.
+
+  Intended to be passed to `ReplicaSlice` in order to select a slice of
+  the `unsliced_data` array.
+  """
   start_index: int
   limit_index: int
   axis: int
@@ -129,18 +137,44 @@ class ReplicaSlices:
     return result
 
 
-def _get_replica_counts(arr: jax.Array) -> Callable[[jax.Shard], int]:
-  """Produces a mapping from addressable shards to global replication count."""
+def _hashable_slices(slices: Index) -> tuple[HashableSlice, ...]:
+  return tuple([(s.start, s.stop, s.step) for s in slices])
 
-  # slice objects are not hashable before python 3.12.
-  def hashable_slices(slices: list[slice]):
-    return tuple(((s.start, s.stop, s.step) for s in slices))
+
+def _create_replica_counts_builder(
+    arr: jax.Array,
+) -> Callable[[jax.Shard], int]:
+  """Produces a mapping from addressable shards to global replication count."""
 
   counts = collections.defaultdict(int)
   for index in arr.sharding.devices_indices_map(arr.shape).values():
-    counts[hashable_slices(index)] += 1
+    counts[_hashable_slices(index)] += 1
 
-  return lambda shard: counts[hashable_slices(shard.index)]
+  return lambda shard: counts[_hashable_slices(shard.index)]
+
+
+def calculate_replica_parallel_axis_and_local_shape(
+    arr: jax.Array, replica_count: int
+) -> OptionalAxisAndShape:
+  """Calculates a local shape for replica-parallel serialization."""
+  shard0 = arr.addressable_shards[0]
+  if shard0.data.size == 0 or replica_count == 1:
+    return None, None
+  if replica_count < 1:
+    return None, None
+  try:
+    axis = next(
+        axis_index
+        for axis_index, axis_size in enumerate(shard0.data.shape)
+        if axis_size % replica_count == 0
+    )
+  except StopIteration:
+    return None, None
+  local_shape = tuple(
+      axis_size // (replica_count if axis_index == axis else 1)
+      for axis_index, axis_size in enumerate(shard0.data.shape)
+  )
+  return axis, local_shape
 
 
 def get_replica_slices(
@@ -158,6 +192,9 @@ def get_replica_slices(
       first addressable shard's replica id so that the process writes each of
       its addressable shards exactly once. (This is the desired behavior for
       local checkpointing.)
+    use_replica_parallel: Whether to use replica-parallel serialization to allow
+      arrays with replicated shards to be written cooperatively by different
+      hosts.
 
   Returns:
     ReplicaSlices object.
@@ -181,39 +218,31 @@ def get_replica_slices(
     return rslices, local_shape
 
   # replica-parallel: every replica saves part of a shard.
-  # Logic based on axlearn: https://github.com/apple/axlearn/blob/226d27ab7569668f2c38a35cf32d5dc5190ebdbb/axlearn/common/array_serialization.py#L75
+  # Logic based on axlearn:
+  # https://github.com/apple/axlearn/blob/226d27ab7569668f2c38a35cf32d5dc5190ebdbb/axlearn/common/array_serialization.py#L75
   # TODO(gspschmid): Support replica-parallel in arrays without any evenly-
-  #   divisible dimension. The last replica would transfer a smaller slice.
+  # divisible dimension. The last replica would transfer a smaller slice.
   def maybe_pick_replica_parallel() -> Optional[Result]:
     if replica_id is None:
-      raise ArgumentError(
-          'use_replica_parallel is incompatible with local checkpointing'
+      raise ValueError(
+          '`use_replica_parallel` is incompatible with local checkpointing'
       )
 
     # Check whether replica-parallel applies: we are dealing with non-empty
     # shards, we have more than one replica, and some dimension of the shards
     # is evenly divisible across replicas.
-    replica_counts = _get_replica_counts(arr)
-    replica_count = replica_counts(shard0)
-    if shard0.data.size == 0 or replica_count == 1:
-      return None
-    try:
-      axis = next(
-          axis_index
-          for axis_index, axis_size in enumerate(shard0.data.shape)
-          if axis_size % replica_count == 0
-      )
-    except StopIteration:
-      return None
-    local_shape = tuple(
-        axis_size // (replica_count if axis_index == axis else 1)
-        for axis_index, axis_size in enumerate(shard0.data.shape)
+    get_replica_counts = _create_replica_counts_builder(arr)
+    replica_count = get_replica_counts(shard0)
+    axis, local_shape = calculate_replica_parallel_axis_and_local_shape(
+        arr, replica_count
     )
+    if axis is None or local_shape is None:
+      return None
 
     rslices: list[ReplicaSlice] = []
     for shard in arr.addressable_shards:
       # Sanity check that all shards have the same number of replicas and shape.
-      assert replica_counts(shard) == replica_count
+      assert get_replica_counts(shard) == replica_count
       assert shard.data.shape == shard0.data.shape
 
       size = local_shape[axis]
@@ -252,7 +281,9 @@ def get_replica_slices(
   # we want to compute the correct local shape regardless of whether there
   # are any replica slices to save locally.
   rslices, local_shape = (
-      use_replica_parallel and maybe_pick_replica_parallel() or pick_single_replica()
+      use_replica_parallel
+      and maybe_pick_replica_parallel()
+      or pick_single_replica()
   )
   return ReplicaSlices(
       global_shape=arr.shape,
@@ -280,9 +311,11 @@ def transfer_arrays_to_host(
   Args:
     arrays: The jax.Arrays to transfer.
     replica_id: Configured replica_id.
+    use_replica_parallel: Whether to use replica-parallel serialization to allow
+      arrays with replicated shards to be written cooperatively by different
+      hosts.
     enable_pinned_host_transfer: Whether to allow transfer to pinned host
       memory. Pinned memory is closely associated with a TPU device and can
-      speed up D2H transfer times. 
 
   Returns:
     ReplicaSlices objects, in host memory.
@@ -318,7 +351,8 @@ def transfer_arrays_to_host(
 
   # Gather the replica slices to be saved for each array.
   rslices_per_array = [
-      get_replica_slices(arr, replica_id, use_replica_parallel) for arr in arrays
+      get_replica_slices(arr, replica_id, use_replica_parallel)
+      for arr in arrays
   ]
   # Kick off transfers for all replica slices to be saved.
   transfers_per_array = [

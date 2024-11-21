@@ -30,7 +30,6 @@ def is_pow_of_two(n):
 def make_multi_device_array(shape, partitioned):
   """Creates a partially- or fully-replicated array."""
   num_devices = len(jax.devices())
-  assert num_devices >= 4
   assert is_pow_of_two(num_devices)
   mesh = jax.sharding.Mesh(
       np.asarray(jax.devices()).reshape((2, num_devices // 2)),
@@ -68,33 +67,37 @@ class ReplicaSlicesTest(parameterized.TestCase):
     # Using an addressable replica_id yields that replica.
     for replica_id in range(num_replicas):
       rslices = replica_slices.get_replica_slices(
-          arr, replica_id=replica_id, use_replica_parallel=False,
+          arr,
+          replica_id=replica_id,
+          use_replica_parallel=False,
       )
       self.assertLen(rslices.replica_slices, num_partitions)
 
     # Omitting replica_id yields _some_ replica.
     rslices = replica_slices.get_replica_slices(
-        arr, replica_id=None, use_replica_parallel=False,
+        arr,
+        replica_id=None,
+        use_replica_parallel=False,
     )
     self.assertLen(rslices.replica_slices, num_partitions)
 
     # Using an unaddressable replica_id yields nothing.
     rslices = replica_slices.get_replica_slices(
-        arr, replica_id=-1, use_replica_parallel=False,
+        arr,
+        replica_id=-1,
+        use_replica_parallel=False,
     ).replica_slices
     self.assertEmpty(rslices)
 
-  @parameterized.parameters(
-      [
-          ((64, 64), 0),
-          ((13, 64), 1),
-          ((13, 11), None),
-      ]
-  )
+  @parameterized.parameters([
+      ((64, 64), 0),
+      ((13, 64), 1),
+      ((13, 11), None),
+  ])
   def test_get_replica_slices_replica_parallel(self, shape, expected_axis):
-    arr, _, num_replicas = make_multi_device_array(
-        shape, partitioned=False
-    )
+    if len(jax.devices()) < 4:
+      self.skipTest('Test requires multiple devices.')
+    arr, _, num_replicas = make_multi_device_array(shape, partitioned=False)
 
     rslices = replica_slices.get_replica_slices(
         arr, replica_id=0, use_replica_parallel=True
@@ -102,12 +105,12 @@ class ReplicaSlicesTest(parameterized.TestCase):
     if expected_axis is None:
       # Replica-parallel expected to fail. Fall back to a single replica owning
       # the entire shard.
-      self.assertEqual(len(rslices), 1)
+      self.assertLen(rslices, 1)
       self.assertIsNone(rslices[0].slice_args)
     else:
       # Replica-parallel expected to succeed. Every replica owns some data.
       # We're running on a single host, so all replicas' shards are addressable.
-      self.assertEqual(len(rslices), num_replicas)
+      self.assertLen(rslices, num_replicas)
       for rslice in rslices:
         self.assertTrue(rslice.slice_args)
         self.assertEqual(rslice.slice_args.axis, expected_axis)
@@ -120,11 +123,14 @@ class ReplicaSlicesTest(parameterized.TestCase):
     if jax.device_count() < 4:
       self.skipTest('Not enough devices to test.')
     arr, num_partitions, num_replicas = make_multi_device_array(
-        (64, 64), partitioned=partitioned,
+        (64, 64),
+        partitioned=partitioned,
     )
 
     rslices = replica_slices.transfer_arrays_to_host(
-        [arr], replica_id=0, use_replica_parallel=use_replica_parallel,
+        [arr],
+        replica_id=0,
+        use_replica_parallel=use_replica_parallel,
     )[0]
 
     # Replica slices cover every element of the original array exactly once, and

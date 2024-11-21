@@ -42,6 +42,13 @@ class Metadata:
   def __eq__(self, other: Metadata) -> bool:
     return isinstance(other, Metadata)
 
+  def __repr__(self) -> str:
+    return (
+        f'{self.__class__.__name__} :'
+        f'  name={self.name},'
+        f'  directory={self.directory},'
+    )
+
 
 @dataclasses.dataclass(frozen=True)
 class StorageMetadata:
@@ -93,6 +100,14 @@ class ArrayMetadata(Metadata):
         shape=s.shape,
         sharding=s.sharding,
         dtype=s.dtype,
+    )
+
+  def __repr__(self) -> str:
+    return super().__repr__() + (
+        f'  shape={self.shape},'
+        f'  sharding={self.sharding},'
+        f'  dtype={self.dtype},'
+        f'  storage={self.storage},'
     )
 
 
