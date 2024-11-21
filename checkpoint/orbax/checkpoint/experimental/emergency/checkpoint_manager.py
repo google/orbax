@@ -49,6 +49,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.tree import utils as tree_utils
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import standard_logger
@@ -128,6 +129,19 @@ def _persistent_checkpoint_handler(
       multiprocessing_options=multiprocessing_options,
       type_handler_registry=registry,
   )
+
+
+def _print_indices_for_loading(keypath, restore_args):
+  keypath = tree_utils.tuple_path_from_keypath(keypath)
+  sharding = restore_args.sharding
+  shape = restore_args.global_shape
+  assert isinstance(sharding, jax.sharding.NamedSharding)
+  assert shape is not None
+  devices_indices_map = sharding.devices_indices_map(shape)
+  logging.vlog(1, 'Device -> index map for %s.', keypath)
+  logging.vlog(1, 'Using local devices: %s', jax.local_devices())
+  for d, idx in devices_indices_map.items():
+    logging.vlog(1, '  %s -> %s', d, idx)
 
 
 @dataclasses.dataclass
@@ -1107,8 +1121,8 @@ class CheckpointManager(
           self._abstract_state,
       )
       restore_args = jax.tree.map(
-          lambda restore_shard, arr: type_handlers.ArrayRestoreArgs(
-              sharding=restore_shard,
+          lambda s, arr: type_handlers.ArrayRestoreArgs(
+              sharding=s,
               global_shape=arr.shape,  # single-slice sharding
           ),
           restore_single_slice_shardings,
@@ -1129,6 +1143,10 @@ class CheckpointManager(
           'Restoring from %s',
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
       )
+      if logging.vlog_is_on(1):
+        jax.tree_util.tree_map_with_path(
+            _print_indices_for_loading, restore_args
+        )
       step_stats.checkpointer_start_time = time.time()
       single_slice_pytree = local_state_handler.restore(
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
