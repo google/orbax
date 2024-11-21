@@ -387,7 +387,7 @@ class BasePyTreeCheckpointHandler(
           byte_limiter=byte_limiter,
           ts_context=ts_context,
           value_typestr=types.get_param_typestr(
-              value, self._type_handler_registry
+              value, self._type_handler_registry, self._pytree_metadata_options
           ),
       )
 

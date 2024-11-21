@@ -147,30 +147,37 @@ class TestPyTree:
   Attributes:
     unique_name: unique name for the test.
     provide_tree: function to provide the pytree.
-    expected_tree_metadata_key_json: expected tree metadata key json dict.
     expected_save_response: expected save response. Can be a BaseException or
       None. None implies that save should succeed.
     expected_restore_response: expected restore response. Can be a
       BaseException, a function to provide the pytree or None. None implies that
       expected restored tree should be the same as the tree returned by
       `provide_tree` function.
+    expected_nested_tree_metadata: PyTree of ValueMetadataEntry as returned by
+      `InternalTreeMetadata.as_nested_tree` with
+      `PyTreeMetadataOptions.support_rich_types=false`.
     expected_nested_tree_metadata_with_rich_types: PyTree of ValueMetadataEntry
       as returned by `InternalTreeMetadata.as_nested_tree` with
-      `PyTreeMetadataOptions.support_rich_types=true`.
+      `PyTreeMetadataOptions.support_rich_types=true`. If not provided,
+      `expected_nested_tree_metadata` will be used.
   """
 
   unique_name: str
   # Provide tree lazily via `tree_provider` to avoid error:
   # RuntimeError: Attempted call to JAX before absl.app.run() is called.
   provide_tree: Callable[[], PyTree]
-  expected_tree_metadata_key_json: Dict[str, Any]
   expected_save_response: BaseException | None = None
   expected_restore_response: BaseException | Callable[[], PyTree] | None = None
+  expected_nested_tree_metadata: PyTree | None = None
   expected_nested_tree_metadata_with_rich_types: PyTree | None = None
 
   def __post_init__(self):
     self.expected_restore_response = (
         self.expected_restore_response or self.provide_tree
+    )
+    self.expected_nested_tree_metadata_with_rich_types = (
+        self.expected_nested_tree_metadata_with_rich_types
+        or self.expected_nested_tree_metadata
     )
 
   def __str__(self):
@@ -184,18 +191,9 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='empty_pytree',
         provide_tree=lambda: {},
-        expected_tree_metadata_key_json={
-            '()': {
-                'key_metadata': (),
-                'value_metadata': {
-                    'value_type': 'Dict',
-                    'skip_deserialize': True,
-                },
-            }
-        },
         expected_save_response=ValueError(),
         expected_restore_response=ValueError(),
-        expected_nested_tree_metadata_with_rich_types=(
+        expected_nested_tree_metadata=(
             tree_metadata.ValueMetadataEntry(
                 value_type='Dict',
                 skip_deserialize=True,
@@ -205,16 +203,7 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='empty_dict',
         provide_tree=lambda: {'empty_dict': {}},
-        expected_tree_metadata_key_json={
-            "('empty_dict',)": {
-                'key_metadata': ({'key': 'empty_dict', 'key_type': 2},),
-                'value_metadata': {
-                    'value_type': 'Dict',
-                    'skip_deserialize': True,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'empty_dict': tree_metadata.ValueMetadataEntry(
                 value_type='Dict',
                 skip_deserialize=True,
@@ -224,16 +213,7 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='empty_list',
         provide_tree=lambda: {'empty_list': []},
-        expected_tree_metadata_key_json={
-            "('empty_list',)": {
-                'key_metadata': ({'key': 'empty_list', 'key_type': 2},),
-                'value_metadata': {
-                    'value_type': 'List',
-                    'skip_deserialize': True,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'empty_list': tree_metadata.ValueMetadataEntry(
                 value_type='List',
                 skip_deserialize=True,
@@ -243,16 +223,7 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='empty_tuple',
         provide_tree=lambda: {'empty_tuple': tuple()},
-        expected_tree_metadata_key_json={
-            "('empty_tuple',)": {
-                'key_metadata': ({'key': 'empty_tuple', 'key_type': 2},),
-                'value_metadata': {
-                    'value_type': 'Tuple',
-                    'skip_deserialize': True,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'empty_tuple': tree_metadata.ValueMetadataEntry(
                 value_type='Tuple',
                 skip_deserialize=True,
@@ -262,19 +233,15 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='empty_named_tuple',
         provide_tree=lambda: {'empty_named_tuple': EmptyNamedTuple()},
-        expected_tree_metadata_key_json={
-            "('empty_named_tuple',)": {
-                'key_metadata': ({'key': 'empty_named_tuple', 'key_type': 2},),
-                'value_metadata': {
-                    # TODO: b/365169723 - Handle empty NamedTuple.
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
+        expected_nested_tree_metadata={
+            'empty_named_tuple': tree_metadata.ValueMetadataEntry(
+                value_type='None',
+                skip_deserialize=True,
+            )
         },
         expected_nested_tree_metadata_with_rich_types={
             'empty_named_tuple': tree_metadata.ValueMetadataEntry(
-                value_type='None',
+                value_type='NamedTuple',
                 skip_deserialize=True,
             )
         },
@@ -282,17 +249,13 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='tuple_of_empty_list',
         provide_tree=lambda: {'tuple_of_empty_list': ([],)},
-        expected_tree_metadata_key_json={
-            "('tuple_of_empty_list', '0')": {
-                'key_metadata': (
-                    {'key': 'tuple_of_empty_list', 'key_type': 2},
-                    {'key': '0', 'key_type': 1},
+        expected_nested_tree_metadata={
+            'tuple_of_empty_list': [
+                tree_metadata.ValueMetadataEntry(
+                    value_type='List',
+                    skip_deserialize=True,
                 ),
-                'value_metadata': {
-                    'value_type': 'List',
-                    'skip_deserialize': True,
-                },
-            },
+            ]
         },
         expected_nested_tree_metadata_with_rich_types={
             'tuple_of_empty_list': tuple([
@@ -306,19 +269,7 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='list_of_empty_tuple',
         provide_tree=lambda: {'list_of_empty_tuple': [tuple()]},
-        expected_tree_metadata_key_json={
-            "('list_of_empty_tuple', '0')": {
-                'key_metadata': (
-                    {'key': 'list_of_empty_tuple', 'key_type': 2},
-                    {'key': '0', 'key_type': 1},
-                ),
-                'value_metadata': {
-                    'value_type': 'Tuple',
-                    'skip_deserialize': True,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'list_of_empty_tuple': [
                 tree_metadata.ValueMetadataEntry(
                     value_type='Tuple',
@@ -330,16 +281,7 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='none_param',
         provide_tree=lambda: {'none_param': None},
-        expected_tree_metadata_key_json={
-            "('none_param',)": {
-                'key_metadata': ({'key': 'none_param', 'key_type': 2},),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'none_param': tree_metadata.ValueMetadataEntry(
                 value_type='None',
                 skip_deserialize=True,
@@ -349,16 +291,7 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='scalar_param',
         provide_tree=lambda: {'scalar_param': 1},
-        expected_tree_metadata_key_json={
-            "('scalar_param',)": {
-                'key_metadata': ({'key': 'scalar_param', 'key_type': 2},),
-                'value_metadata': {
-                    'value_type': 'scalar',
-                    'skip_deserialize': False,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'scalar_param': tree_metadata.ValueMetadataEntry(
                 value_type='scalar',
                 skip_deserialize=False,
@@ -370,29 +303,7 @@ TEST_PYTREES = [
         provide_tree=lambda: {
             'b': {'scalar_param': 1, 'nested_scalar_param': 3.4}
         },
-        expected_tree_metadata_key_json={
-            "('b', 'scalar_param')": {
-                'key_metadata': (
-                    {'key': 'b', 'key_type': 2},
-                    {'key': 'scalar_param', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'scalar',
-                    'skip_deserialize': False,
-                },
-            },
-            "('b', 'nested_scalar_param')": {
-                'key_metadata': (
-                    {'key': 'b', 'key_type': 2},
-                    {'key': 'nested_scalar_param', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'scalar',
-                    'skip_deserialize': False,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'b': {
                 'scalar_param': tree_metadata.ValueMetadataEntry(
                     value_type='scalar',
@@ -408,29 +319,7 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='list_of_arrays',
         provide_tree=lambda: {'list_of_arrays': [np.arange(8), jnp.arange(8)]},
-        expected_tree_metadata_key_json={
-            "('list_of_arrays', '0')": {
-                'key_metadata': (
-                    {'key': 'list_of_arrays', 'key_type': 2},
-                    {'key': '0', 'key_type': 1},
-                ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
-            "('list_of_arrays', '1')": {
-                'key_metadata': (
-                    {'key': 'list_of_arrays', 'key_type': 2},
-                    {'key': '1', 'key_type': 1},
-                ),
-                'value_metadata': {
-                    'value_type': 'jax.Array',
-                    'skip_deserialize': False,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'list_of_arrays': [
                 tree_metadata.ValueMetadataEntry(
                     value_type='np.ndarray',
@@ -455,82 +344,49 @@ TEST_PYTREES = [
                 ],
             ],
         },
-        expected_tree_metadata_key_json={
-            "('x', 'a')": {
-                'key_metadata': (
-                    {'key': 'x', 'key_type': 2},
-                    {'key': 'a', 'key_type': 2},
+        expected_nested_tree_metadata={
+            'x': {
+                'a': tree_metadata.ValueMetadataEntry(
+                    value_type='np.ndarray',
+                    skip_deserialize=False,
                 ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
-            "('x', 'b')": {
-                'key_metadata': (
-                    {'key': 'x', 'key_type': 2},
-                    {'key': 'b', 'key_type': 2},
+                'b': tree_metadata.ValueMetadataEntry(
+                    value_type='None',
+                    skip_deserialize=True,
                 ),
-                'value_metadata': {
-                    'value_type': 'Dict',
-                    'skip_deserialize': True,
-                },
             },
-            "('y', '0')": {
-                'key_metadata': (
-                    {'key': 'y', 'key_type': 2},
-                    {'key': '0', 'key_type': 1},
+            'y': [
+                tree_metadata.ValueMetadataEntry(
+                    value_type='np.ndarray',
+                    skip_deserialize=False,
                 ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
+                {
+                    'my_jax_array': tree_metadata.ValueMetadataEntry(
+                        value_type='None',
+                        skip_deserialize=True,
+                    ),
+                    'my_np_array': tree_metadata.ValueMetadataEntry(
+                        value_type='np.ndarray',
+                        skip_deserialize=False,
+                    ),
                 },
-            },
-            "('y', '1', 'my_jax_array')": {
-                'key_metadata': (
-                    {'key': 'y', 'key_type': 2},
-                    {'key': '1', 'key_type': 1},
-                    {'key': 'my_jax_array', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
+            ],
+            'z': [
+                {
+                    'c': tree_metadata.ValueMetadataEntry(
+                        value_type='np.ndarray',
+                        skip_deserialize=False,
+                    )
                 },
-            },
-            "('y', '1', 'my_np_array')": {
-                'key_metadata': (
-                    {'key': 'y', 'key_type': 2},
-                    {'key': '1', 'key_type': 1},
-                    {'key': 'my_np_array', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
-            "('z', '0', 'c')": {
-                'key_metadata': (
-                    {'key': 'z', 'key_type': 2},
-                    {'key': '0', 'key_type': 1},
-                    {'key': 'c', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
-            "('z', '1', '0', '0')": {
-                'key_metadata': (
-                    {'key': 'z', 'key_type': 2},
-                    {'key': '1', 'key_type': 1},
-                    {'key': '0', 'key_type': 1},
-                    {'key': '0', 'key_type': 1},
-                ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
+                [
+                    [
+                        tree_metadata.ValueMetadataEntry(
+                            value_type='np.ndarray',
+                            skip_deserialize=False,
+                        ),
+                    ],
+                ],
+            ],
         },
         expected_nested_tree_metadata_with_rich_types={
             'x': {
@@ -580,27 +436,17 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='tuple_of_arrays',
         provide_tree=lambda: {'tuple_of_arrays': (np.arange(8), jnp.arange(8))},
-        expected_tree_metadata_key_json={
-            "('tuple_of_arrays', '0')": {
-                'key_metadata': (
-                    {'key': 'tuple_of_arrays', 'key_type': 2},
-                    {'key': '0', 'key_type': 1},
+        expected_nested_tree_metadata={
+            'tuple_of_arrays': [
+                tree_metadata.ValueMetadataEntry(
+                    value_type='np.ndarray',
+                    skip_deserialize=False,
                 ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
-            "('tuple_of_arrays', '1')": {
-                'key_metadata': (
-                    {'key': 'tuple_of_arrays', 'key_type': 2},
-                    {'key': '1', 'key_type': 1},
+                tree_metadata.ValueMetadataEntry(
+                    value_type='jax.Array',
+                    skip_deserialize=False,
                 ),
-                'value_metadata': {
-                    'value_type': 'jax.Array',
-                    'skip_deserialize': False,
-                },
-            },
+            ]
         },
         expected_nested_tree_metadata_with_rich_types={
             'tuple_of_arrays': tuple([
@@ -618,27 +464,17 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='mu_nu',
         provide_tree=lambda: {'mu_nu': MuNu(mu=jnp.arange(8), nu=np.arange(8))},
-        expected_tree_metadata_key_json={
-            "('mu_nu', 'mu')": {
-                'key_metadata': (
-                    {'key': 'mu_nu', 'key_type': 2},
-                    {'key': 'mu', 'key_type': 2},
+        expected_nested_tree_metadata={
+            'mu_nu': {
+                'mu': tree_metadata.ValueMetadataEntry(
+                    value_type='jax.Array',
+                    skip_deserialize=False,
                 ),
-                'value_metadata': {
-                    'value_type': 'jax.Array',
-                    'skip_deserialize': False,
-                },
-            },
-            "('mu_nu', 'nu')": {
-                'key_metadata': (
-                    {'key': 'mu_nu', 'key_type': 2},
-                    {'key': 'nu', 'key_type': 2},
+                'nu': tree_metadata.ValueMetadataEntry(
+                    value_type='np.ndarray',
+                    skip_deserialize=False,
                 ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
+            }
         },
         expected_nested_tree_metadata_with_rich_types={
             'mu_nu': _build_namedtuple(
@@ -665,16 +501,7 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='my_empty_chex',
         provide_tree=lambda: {'my_empty_chex': MyEmptyChex()},
-        expected_tree_metadata_key_json={
-            "('my_empty_chex',)": {
-                'key_metadata': ({'key': 'my_empty_chex', 'key_type': 2},),
-                'value_metadata': {
-                    'value_type': 'Dict',
-                    'skip_deserialize': True,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'my_empty_chex': tree_metadata.ValueMetadataEntry(
                 value_type='Dict',
                 skip_deserialize=True,
@@ -684,29 +511,7 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='default_my_chex',
         provide_tree=lambda: {'default_my_chex': MyChex()},
-        expected_tree_metadata_key_json={
-            "('default_my_chex', 'my_jax_array')": {
-                'key_metadata': (
-                    {'key': 'default_my_chex', 'key_type': 2},
-                    {'key': 'my_jax_array', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-            "('default_my_chex', 'my_np_array')": {
-                'key_metadata': (
-                    {'key': 'default_my_chex', 'key_type': 2},
-                    {'key': 'my_np_array', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'default_my_chex': {
                 'my_jax_array': tree_metadata.ValueMetadataEntry(
                     value_type='None',
@@ -727,29 +532,7 @@ TEST_PYTREES = [
                 my_np_array=np.arange(8),
             )
         },
-        expected_tree_metadata_key_json={
-            "('my_chex', 'my_jax_array')": {
-                'key_metadata': (
-                    {'key': 'my_chex', 'key_type': 2},
-                    {'key': 'my_jax_array', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'jax.Array',
-                    'skip_deserialize': False,
-                },
-            },
-            "('my_chex', 'my_np_array')": {
-                'key_metadata': (
-                    {'key': 'my_chex', 'key_type': 2},
-                    {'key': 'my_np_array', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'my_chex': {
                 'my_jax_array': tree_metadata.ValueMetadataEntry(
                     value_type='jax.Array',
@@ -767,49 +550,7 @@ TEST_PYTREES = [
         provide_tree=lambda: {
             'default_my_chex_with_nested_attrs': MyChexWithNestedAttributes()
         },
-        expected_tree_metadata_key_json={
-            "('default_my_chex_with_nested_attrs', 'my_chex')": {
-                'key_metadata': (
-                    {'key': 'default_my_chex_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_chex', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-            "('default_my_chex_with_nested_attrs', 'my_dict')": {
-                'key_metadata': (
-                    {'key': 'default_my_chex_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_dict', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-            "('default_my_chex_with_nested_attrs', 'my_empty_chex')": {
-                'key_metadata': (
-                    {'key': 'default_my_chex_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_empty_chex', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-            "('default_my_chex_with_nested_attrs', 'my_list')": {
-                'key_metadata': (
-                    {'key': 'default_my_chex_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_list', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'default_my_chex_with_nested_attrs': {
                 'my_chex': tree_metadata.ValueMetadataEntry(
                     value_type='None',
@@ -842,85 +583,7 @@ TEST_PYTREES = [
                 my_empty_chex=MyEmptyChex(),
             )
         },
-        expected_tree_metadata_key_json={
-            "('my_chex_with_nested_attrs', 'my_chex', 'my_jax_array')": {
-                'key_metadata': (
-                    {'key': 'my_chex_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_chex', 'key_type': 2},
-                    {'key': 'my_jax_array', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'jax.Array',
-                    'skip_deserialize': False,
-                },
-            },
-            "('my_chex_with_nested_attrs', 'my_chex', 'my_np_array')": {
-                'key_metadata': (
-                    {'key': 'my_chex_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_chex', 'key_type': 2},
-                    {'key': 'my_np_array', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
-            "('my_chex_with_nested_attrs', 'my_dict', 'a')": {
-                'key_metadata': (
-                    {'key': 'my_chex_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_dict', 'key_type': 2},
-                    {'key': 'a', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'jax.Array',
-                    'skip_deserialize': False,
-                },
-            },
-            "('my_chex_with_nested_attrs', 'my_dict', 'b')": {
-                'key_metadata': (
-                    {'key': 'my_chex_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_dict', 'key_type': 2},
-                    {'key': 'b', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
-            "('my_chex_with_nested_attrs', 'my_empty_chex')": {
-                'key_metadata': (
-                    {'key': 'my_chex_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_empty_chex', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'Dict',
-                    'skip_deserialize': True,
-                },
-            },
-            "('my_chex_with_nested_attrs', 'my_list', '0')": {
-                'key_metadata': (
-                    {'key': 'my_chex_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_list', 'key_type': 2},
-                    {'key': '0', 'key_type': 1},
-                ),
-                'value_metadata': {
-                    'value_type': 'jax.Array',
-                    'skip_deserialize': False,
-                },
-            },
-            "('my_chex_with_nested_attrs', 'my_list', '1')": {
-                'key_metadata': (
-                    {'key': 'my_chex_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_list', 'key_type': 2},
-                    {'key': '1', 'key_type': 1},
-                ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
-        },
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'my_chex_with_nested_attrs': {
                 'my_chex': {
                     'my_jax_array': tree_metadata.ValueMetadataEntry(
@@ -962,18 +625,9 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='my_empty_dataclass',
         provide_tree=lambda: {'my_empty_dataclass': MyEmptyDataClass()},
-        expected_tree_metadata_key_json={
-            "('my_empty_dataclass',)": {
-                'key_metadata': ({'key': 'my_empty_dataclass', 'key_type': 2},),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-        },
         expected_save_response=ValueError(),
         expected_restore_response=ValueError(),
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'my_empty_dataclass': tree_metadata.ValueMetadataEntry(
                 value_type='None',
                 skip_deserialize=True,
@@ -983,20 +637,9 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='default_my_dataclass',
         provide_tree=lambda: {'default_my_dataclass': MyDataClass()},
-        expected_tree_metadata_key_json={
-            "('default_my_dataclass',)": {
-                'key_metadata': (
-                    {'key': 'default_my_dataclass', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-        },
         expected_save_response=ValueError(),
         expected_restore_response=ValueError(),
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'default_my_dataclass': tree_metadata.ValueMetadataEntry(
                 value_type='None',
                 skip_deserialize=True,
@@ -1016,18 +659,9 @@ TEST_PYTREES = [
                 ),
             )
         },
-        expected_tree_metadata_key_json={
-            "('my_dataclass',)": {
-                'key_metadata': ({'key': 'my_dataclass', 'key_type': 2},),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-        },
         expected_save_response=ValueError(),
         expected_restore_response=ValueError(),
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'my_dataclass': tree_metadata.ValueMetadataEntry(
                 value_type='None',
                 skip_deserialize=True,
@@ -1037,18 +671,9 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='my_empty_class',
         provide_tree=lambda: {'my_empty_class': MyEmptyClass()},
-        expected_tree_metadata_key_json={
-            "('my_empty_class',)": {
-                'key_metadata': ({'key': 'my_empty_class', 'key_type': 2},),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-        },
         expected_save_response=ValueError(),
         expected_restore_response=ValueError(),
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'my_empty_class': tree_metadata.ValueMetadataEntry(
                 value_type='None',
                 skip_deserialize=True,
@@ -1058,18 +683,9 @@ TEST_PYTREES = [
     TestPyTree(
         unique_name='default_my_class',
         provide_tree=lambda: {'default_my_class': MyClass()},
-        expected_tree_metadata_key_json={
-            "('default_my_class',)": {
-                'key_metadata': ({'key': 'default_my_class', 'key_type': 2},),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-        },
         expected_save_response=ValueError(),
         expected_restore_response=ValueError(),
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'default_my_class': tree_metadata.ValueMetadataEntry(
                 value_type='None',
                 skip_deserialize=True,
@@ -1081,18 +697,9 @@ TEST_PYTREES = [
         provide_tree=lambda: {
             'my_class': MyClass(a=jnp.arange(8), b=np.arange(8))
         },
-        expected_tree_metadata_key_json={
-            "('my_class',)": {
-                'key_metadata': ({'key': 'my_class', 'key_type': 2},),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-        },
         expected_save_response=ValueError(),
         expected_restore_response=ValueError(),
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'my_class': tree_metadata.ValueMetadataEntry(
                 value_type='None',
                 skip_deserialize=True,
@@ -1104,23 +711,9 @@ TEST_PYTREES = [
         provide_tree=lambda: {
             'default_my_class_with_nested_attrs': MyClassWithNestedAttributes()
         },
-        expected_tree_metadata_key_json={
-            "('default_my_class_with_nested_attrs',)": {
-                'key_metadata': (
-                    {
-                        'key': 'default_my_class_with_nested_attrs',
-                        'key_type': 2,
-                    },
-                ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            }
-        },
         expected_save_response=ValueError(),
         expected_restore_response=ValueError(),
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'default_my_class_with_nested_attrs': (
                 tree_metadata.ValueMetadataEntry(
                     value_type='None',
@@ -1141,20 +734,9 @@ TEST_PYTREES = [
                 mu_nu=MuNu(mu=jnp.arange(8), nu=np.arange(8)),
             )
         },
-        expected_tree_metadata_key_json={
-            "('my_class_with_nested_attrs',)": {
-                'key_metadata': (
-                    {'key': 'my_class_with_nested_attrs', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            }
-        },
         expected_save_response=ValueError(),
         expected_restore_response=ValueError(),
-        expected_nested_tree_metadata_with_rich_types={
+        expected_nested_tree_metadata={
             'my_class_with_nested_attrs': tree_metadata.ValueMetadataEntry(
                 value_type='None',
                 skip_deserialize=True,
@@ -1168,72 +750,29 @@ TEST_PYTREES = [
                 NamedTupleWithNestedAttributes()
             )
         },
-        expected_tree_metadata_key_json={
-            "('default_named_tuple_with_nested_attrs', 'my_empty_chex')": {
-                'key_metadata': (
-                    {
-                        'key': 'default_named_tuple_with_nested_attrs',
-                        'key_type': 2,
-                    },
-                    {'key': 'my_empty_chex', 'key_type': 2},
+        expected_nested_tree_metadata={
+            'default_named_tuple_with_nested_attrs': {
+                'nested_mu_nu': tree_metadata.ValueMetadataEntry(
+                    value_type='None',
+                    skip_deserialize=True,
                 ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-            "('default_named_tuple_with_nested_attrs', 'nested_dict')": {
-                'key_metadata': (
-                    {
-                        'key': 'default_named_tuple_with_nested_attrs',
-                        'key_type': 2,
-                    },
-                    {'key': 'nested_dict', 'key_type': 2},
+                'nested_dict': tree_metadata.ValueMetadataEntry(
+                    value_type='None',
+                    skip_deserialize=True,
                 ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-            "('default_named_tuple_with_nested_attrs', 'nested_empty_named_tuple')": {
-                'key_metadata': (
-                    {
-                        'key': 'default_named_tuple_with_nested_attrs',
-                        'key_type': 2,
-                    },
-                    {'key': 'nested_empty_named_tuple', 'key_type': 2},
+                'nested_tuple': tree_metadata.ValueMetadataEntry(
+                    value_type='None',
+                    skip_deserialize=True,
                 ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-            "('default_named_tuple_with_nested_attrs', 'nested_mu_nu')": {
-                'key_metadata': (
-                    {
-                        'key': 'default_named_tuple_with_nested_attrs',
-                        'key_type': 2,
-                    },
-                    {'key': 'nested_mu_nu', 'key_type': 2},
+                'nested_empty_named_tuple': tree_metadata.ValueMetadataEntry(
+                    value_type='None',
+                    skip_deserialize=True,
                 ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-            "('default_named_tuple_with_nested_attrs', 'nested_tuple')": {
-                'key_metadata': (
-                    {
-                        'key': 'default_named_tuple_with_nested_attrs',
-                        'key_type': 2,
-                    },
-                    {'key': 'nested_tuple', 'key_type': 2},
+                'my_empty_chex': tree_metadata.ValueMetadataEntry(
+                    value_type='None',
+                    skip_deserialize=True,
                 ),
-                'value_metadata': {
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
+            }
         },
         expected_nested_tree_metadata_with_rich_types={
             'default_named_tuple_with_nested_attrs': _build_namedtuple(
@@ -1289,94 +828,47 @@ TEST_PYTREES = [
                 my_empty_chex=MyEmptyChex(),
             )
         },
-        expected_tree_metadata_key_json={
-            "('named_tuple_with_nested_attrs', 'nested_mu_nu', 'mu')": {
-                'key_metadata': (
-                    {'key': 'named_tuple_with_nested_attrs', 'key_type': 2},
-                    {'key': 'nested_mu_nu', 'key_type': 2},
-                    {'key': 'mu', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'jax.Array',
-                    'skip_deserialize': False,
+        expected_nested_tree_metadata={
+            'named_tuple_with_nested_attrs': {
+                'nested_mu_nu': {
+                    'mu': tree_metadata.ValueMetadataEntry(
+                        value_type='jax.Array',
+                        skip_deserialize=False,
+                    ),
+                    'nu': tree_metadata.ValueMetadataEntry(
+                        value_type='np.ndarray',
+                        skip_deserialize=False,
+                    ),
                 },
-            },
-            "('named_tuple_with_nested_attrs', 'nested_mu_nu', 'nu')": {
-                'key_metadata': (
-                    {'key': 'named_tuple_with_nested_attrs', 'key_type': 2},
-                    {'key': 'nested_mu_nu', 'key_type': 2},
-                    {'key': 'nu', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
+                'nested_dict': {
+                    'a': tree_metadata.ValueMetadataEntry(
+                        value_type='jax.Array',
+                        skip_deserialize=False,
+                    ),
+                    'b': tree_metadata.ValueMetadataEntry(
+                        value_type='np.ndarray',
+                        skip_deserialize=False,
+                    ),
                 },
-            },
-            "('named_tuple_with_nested_attrs', 'nested_dict', 'a')": {
-                'key_metadata': (
-                    {'key': 'named_tuple_with_nested_attrs', 'key_type': 2},
-                    {'key': 'nested_dict', 'key_type': 2},
-                    {'key': 'a', 'key_type': 2},
+                'nested_tuple': [
+                    tree_metadata.ValueMetadataEntry(
+                        value_type='jax.Array',
+                        skip_deserialize=False,
+                    ),
+                    tree_metadata.ValueMetadataEntry(
+                        value_type='np.ndarray',
+                        skip_deserialize=False,
+                    ),
+                ],
+                'nested_empty_named_tuple': tree_metadata.ValueMetadataEntry(
+                    value_type='None',
+                    skip_deserialize=True,
                 ),
-                'value_metadata': {
-                    'value_type': 'jax.Array',
-                    'skip_deserialize': False,
-                },
-            },
-            "('named_tuple_with_nested_attrs', 'nested_dict', 'b')": {
-                'key_metadata': (
-                    {'key': 'named_tuple_with_nested_attrs', 'key_type': 2},
-                    {'key': 'nested_dict', 'key_type': 2},
-                    {'key': 'b', 'key_type': 2},
+                'my_empty_chex': tree_metadata.ValueMetadataEntry(
+                    value_type='Dict',
+                    skip_deserialize=True,
                 ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
-            "('named_tuple_with_nested_attrs', 'nested_tuple', '0')": {
-                'key_metadata': (
-                    {'key': 'named_tuple_with_nested_attrs', 'key_type': 2},
-                    {'key': 'nested_tuple', 'key_type': 2},
-                    {'key': '0', 'key_type': 1},
-                ),
-                'value_metadata': {
-                    'value_type': 'jax.Array',
-                    'skip_deserialize': False,
-                },
-            },
-            "('named_tuple_with_nested_attrs', 'nested_tuple', '1')": {
-                'key_metadata': (
-                    {'key': 'named_tuple_with_nested_attrs', 'key_type': 2},
-                    {'key': 'nested_tuple', 'key_type': 2},
-                    {'key': '1', 'key_type': 1},
-                ),
-                'value_metadata': {
-                    'value_type': 'np.ndarray',
-                    'skip_deserialize': False,
-                },
-            },
-            "('named_tuple_with_nested_attrs', 'nested_empty_named_tuple')": {
-                'key_metadata': (
-                    {'key': 'named_tuple_with_nested_attrs', 'key_type': 2},
-                    {'key': 'nested_empty_named_tuple', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    # TODO: b/365169723 - Handle empty NamedTuple.
-                    'value_type': 'None',
-                    'skip_deserialize': True,
-                },
-            },
-            "('named_tuple_with_nested_attrs', 'my_empty_chex')": {
-                'key_metadata': (
-                    {'key': 'named_tuple_with_nested_attrs', 'key_type': 2},
-                    {'key': 'my_empty_chex', 'key_type': 2},
-                ),
-                'value_metadata': {
-                    'value_type': 'Dict',
-                    'skip_deserialize': True,
-                },
-            },
+            }
         },
         expected_nested_tree_metadata_with_rich_types={
             'named_tuple_with_nested_attrs': _build_namedtuple(
@@ -1433,7 +925,7 @@ TEST_PYTREES = [
                     (
                         'nested_empty_named_tuple',
                         tree_metadata.ValueMetadataEntry(
-                            value_type='None',
+                            value_type='NamedTuple',
                             skip_deserialize=True,
                         ),
                     ),

@@ -14,35 +14,48 @@
 
 """Handles empty values in the checkpoint PyTree."""
 
+import collections
 from typing import Any, Mapping
+from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.tree import utils as tree_utils
+
+PyTreeMetadataOptions = pytree_metadata_options_lib.PyTreeMetadataOptions
 
 RESTORE_TYPE_NONE = 'None'
 RESTORE_TYPE_DICT = 'Dict'
 RESTORE_TYPE_LIST = 'List'
 RESTORE_TYPE_TUPLE = 'Tuple'
+RESTORE_TYPE_NAMED_TUPLE = 'NamedTuple'
 RESTORE_TYPE_UNKNOWN = 'Unknown'
-# TODO: b/365169723 - Handle empty NamedTuple.
 
 
-# TODO: b/365169723 - Handle empty NamedTuple.
-def is_supported_empty_value(value: Any) -> bool:
+def is_supported_empty_value(
+    value: Any,
+    pytree_metadata_options: PyTreeMetadataOptions = (
+        pytree_metadata_options_lib.PYTREE_METADATA_OPTIONS
+    ),
+) -> bool:
   """Determines if the *empty* `value` is supported without custom TypeHandler."""
   # Check isinstance first to avoid `not` checks on jax.Arrays (raises error).
   if tree_utils.isinstance_of_namedtuple(value):
+    if pytree_metadata_options.support_rich_types and not value:
+      return True
     return False
   return (
       isinstance(value, (dict, list, tuple, type(None), Mapping)) and not value
   )
 
 
-# TODO: b/365169723 - Handle empty NamedTuple.
-def get_empty_value_typestr(value: Any) -> str:
+def get_empty_value_typestr(
+    value: Any, pytree_metadata_options: PyTreeMetadataOptions
+) -> str:
   """Returns the typestr constant for the empty value."""
-  if not is_supported_empty_value(value):
+  if not is_supported_empty_value(value, pytree_metadata_options):
     raise ValueError(f'{value} is not a supported empty type.')
   if isinstance(value, list):
     return RESTORE_TYPE_LIST
+  if tree_utils.isinstance_of_namedtuple(value):  # Call before tuple check.
+    return RESTORE_TYPE_NAMED_TUPLE
   if isinstance(value, tuple):
     return RESTORE_TYPE_TUPLE
   if isinstance(value, (dict, Mapping)):
@@ -52,20 +65,25 @@ def get_empty_value_typestr(value: Any) -> str:
   raise ValueError(f'Unrecognized empty type: {value}.')
 
 
-# TODO: b/365169723 - Handle empty NamedTuple.
 def is_empty_typestr(typestr: str) -> bool:
   return (
       typestr == RESTORE_TYPE_LIST
+      or typestr == RESTORE_TYPE_NAMED_TUPLE
       or typestr == RESTORE_TYPE_TUPLE
       or typestr == RESTORE_TYPE_DICT
       or typestr == RESTORE_TYPE_NONE
   )
 
 
-# TODO: b/365169723 - Handle empty NamedTuple.
+class OrbaxEmptyNamedTuple(collections.namedtuple('OrbaxEmptyNamedTuple', ())):
+  pass
+
+
 def get_empty_value_from_typestr(typestr: str) -> Any:
   if typestr == RESTORE_TYPE_LIST:
     return []
+  if typestr == RESTORE_TYPE_NAMED_TUPLE:
+    return OrbaxEmptyNamedTuple()
   if typestr == RESTORE_TYPE_TUPLE:
     return tuple()
   if typestr == RESTORE_TYPE_DICT:
