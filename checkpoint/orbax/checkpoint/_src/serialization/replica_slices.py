@@ -16,12 +16,12 @@
 
 import collections
 import dataclasses
+import functools
 import math
 from typing import Callable, Optional, Sequence
 
 from absl import logging
 import jax
-from jax._src import op_shardings
 import numpy as np
 from orbax.checkpoint._src.arrays import fragments
 from orbax.checkpoint._src.arrays import numpy_utils
@@ -138,29 +138,30 @@ class ReplicaSlices:
     return result
 
 
+def _hashable_slices(slices: Index) -> tuple[HashableSlice, ...]:
+  return tuple([(s.start, s.stop, s.step) for s in slices])
+
+
+@functools.lru_cache(maxsize=4096)
 def _sharding_num_replicas(
     sharding: jax.sharding.Sharding,
     global_shape: Shape
 ) -> int:
-  # The implementation below mirrors jax.sharding.Sharding#devices_indices_map,
-  # but takes care _not_ to materialize data for every device in the mesh, so
-  # that its runtime does not grow with the size of the mesh.
-  sharding.shard_shape(global_shape)  # raises a good error message
-  hlo_sharding = sharding._to_xla_hlo_sharding(len(global_shape))
-  if op_shardings.is_op_sharding_replicated(hlo_sharding):
-    return len(sharding._device_assignment)
-  _, num_replicas = op_shardings.get_num_ways_dim_sharded(hlo_sharding)
+  counts = collections.defaultdict(int)
+  for index in sharding.devices_indices_map(global_shape).values():
+    counts[_hashable_slices(index)] += 1
+  num_replicas = next(iter(counts.values()))
+  assert all(count == num_replicas for count in counts.values())
   return num_replicas
 
 
 def calculate_replica_parallel_axis_and_local_shape(
-    arr: jax.Array, replica_count: int
+    arr: jax.Array
 ) -> OptionalAxisAndShape:
   """Calculates a local shape for replica-parallel serialization."""
   shard0 = arr.addressable_shards[0]
-  if shard0.data.size == 0 or replica_count == 1:
-    return None, None
-  if replica_count < 1:
+  replica_count = _sharding_num_replicas(arr.sharding, arr.shape)
+  if shard0.data.size == 0 or replica_count <= 1:
     return None, None
   try:
     axis = next(
@@ -231,10 +232,7 @@ def get_replica_slices(
     # Check whether replica-parallel applies: we are dealing with non-empty
     # shards, we have more than one replica, and some dimension of the shards
     # is evenly divisible across replicas.
-    replica_count = _sharding_num_replicas(arr.sharding, arr.shape)
-    axis, local_shape = calculate_replica_parallel_axis_and_local_shape(
-        arr, replica_count
-    )
+    axis, local_shape = calculate_replica_parallel_axis_and_local_shape(arr)
     if axis is None or local_shape is None:
       return None
 

@@ -820,7 +820,7 @@ class ArrayHandler(types.TypeHandler):
       metadata_key: Optional[str] = None,
       primary_host: Optional[int] = 0,
       replica_id: Optional[int] = 0,
-      use_replica_parallel: bool = False,
+      use_replica_parallel: bool = True,
       enable_write_sharding_file: bool = True,
   ):
     """Constructor.
