@@ -53,7 +53,7 @@ def _on_commit_callback(
   )
 
 
-def _add_deadline_exceeded_notes(e: jax.lib.xla_extension.XlaRuntimeError):
+def _add_deadline_exceeded_notes(e: jax.errors.JaxRuntimeError):
   """Adds notes to the exception to help debug the deadline exceeded error."""
   e.add_note('1. Make sure that the job and storage are colocated.')
   e.add_note(
@@ -160,7 +160,7 @@ class _AsyncManager:
                   suffix=f'{directory.name}.{unique_operation_id}',
               )
           )
-        except jax.lib.xla_extension.XlaRuntimeError as e:
+        except jax.errors.JaxRuntimeError as e:
           if sys.version_info >= (3, 11):
             if 'DEADLINE_EXCEEDED' in str(e):
               _add_deadline_exceeded_notes(e)
