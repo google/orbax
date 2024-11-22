@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2024-11-22
+
 ### Added
 - [emergency checkpoint] Add ReplicatorCheckpointManager implementation for
 interoperating with replicator service provided by GKE (or theoretically,
