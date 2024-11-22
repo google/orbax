@@ -1,5 +1,11 @@
-package(default_visibility = ["//visibility:private"])
+package(default_visibility = ["//visibility:public"])
 
-licenses(["notice"])
+licenses(
+    ["notice"],
+    default_visibility = ["//visibility:public"],
+)
 
-exports_files(["LICENSE"])
+exports_files(
+    ["LICENSE"],
+    default_visibility = ["//visibility:public"],
+)
