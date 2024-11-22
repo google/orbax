@@ -37,8 +37,26 @@ class AbstractArrayLike(Protocol):
   sharding: jax.sharding.Sharding | sharding_metadata.ShardingMetadata | None
 
 
+class AbstractArrayLikeGlobalShape(Protocol):
+  """Same as above, but with `global_shape` property instead."""
+
+  global_shape: types.Shape
+  dtype: jnp.dtype | None
+  sharding: jax.sharding.Sharding | sharding_metadata.ShardingMetadata | None
+
+
 def _is_scalar(x):
   return isinstance(x, (int, float, np.number))
+
+
+def _get_shape(
+    x: AbstractArrayLike | AbstractArrayLikeGlobalShape,
+) -> types.Shape:
+  if hasattr(x, 'shape'):
+    return x.shape
+  if hasattr(x, 'global_shape'):
+    return x.global_shape
+  raise ValueError(f'Object does not have a `shape` property: {x}')
 
 
 def to_shape_dtype_struct(
@@ -47,15 +65,15 @@ def to_shape_dtype_struct(
     scalar_dtype: ScalarType | None = None,
 ):
   """Get ShapeDtypeStruct from array."""
-  if isinstance(x, np.ndarray):
-    dtype = dtype or x.dtype
-    return jax.ShapeDtypeStruct(x.shape, dtype)
-  elif _is_scalar(x):
+  if _is_scalar(x):
     if scalar_dtype is not None:
       return scalar_dtype(x)
     return x
+  elif isinstance(x, np.ndarray):
+    dtype = dtype or x.dtype
+    return jax.ShapeDtypeStruct(_get_shape(x), dtype)
   else:
-    shape = x.shape
+    shape = _get_shape(x)
     dtype = dtype or x.dtype
     sharding = x.sharding
     if isinstance(sharding, sharding_metadata.ShardingMetadata):
