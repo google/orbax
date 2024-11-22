@@ -181,6 +181,14 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     """Converts the JAX functions to OrbaxModel functions."""
     if serving_config.input_signature is None:
       raise ValueError('serving_config.input_signature is required.')
+    if (
+        not support_tf_resources
+        and serving_config.extra_trackable_resources is not None
+    ):
+      raise ValueError(
+          'serving_config.extra_trackable_resources can only be set when'
+          ' support_tf_resources is True.'
+      )
 
   def _maybe_set_orbax_checkpoint_path(self, jax2obm_kwargs):
     if constants.CHECKPOINT_PATH not in jax2obm_kwargs:

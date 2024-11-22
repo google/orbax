@@ -19,6 +19,7 @@ import jax.numpy as jnp
 from orbax.export import constants
 from orbax.export import serving_config as osc
 from orbax.export.modules import obm_module
+import tensorflow as tf
 
 
 class ObmModuleTest(parameterized.TestCase):
