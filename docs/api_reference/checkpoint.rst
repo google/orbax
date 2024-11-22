@@ -14,7 +14,6 @@ orbax.checkpoint API Reference
    checkpoint.path.step
    checkpoint.path.deleter
    checkpoint.checkpoint_utils
-   checkpoint.utils
    checkpoint.transform_utils
    checkpoint.msgpack_utils
    checkpoint.multihost
@@ -23,3 +22,4 @@ orbax.checkpoint API Reference
    checkpoint.logging
    checkpoint.options
    checkpoint.handlers.handler_registration
+   checkpoint.arrays

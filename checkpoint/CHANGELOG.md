@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Tests and documentation for `abstract_arrays`.
+
 ## [0.10.1] - 2024-11-22
 
 ### Added

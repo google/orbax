@@ -19,6 +19,7 @@
 import contextlib
 import functools
 
+from orbax.checkpoint import arrays
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import args
 from orbax.checkpoint import checkpoint_utils

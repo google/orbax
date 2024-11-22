@@ -14,15 +14,12 @@
 
 """Utilities for dealing with abstract arrays."""
 
-from typing import Protocol, Type
+from typing import Protocol
 import jax
 from jax import numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
-
-
-ScalarType = Type[float] | Type[int]
 
 
 class AbstractArrayLike(Protocol):
@@ -45,37 +42,55 @@ class AbstractArrayLikeGlobalShape(Protocol):
   sharding: jax.sharding.Sharding | sharding_metadata.ShardingMetadata | None
 
 
-def _is_scalar(x):
-  return isinstance(x, (int, float, np.number))
+def _is_scalar(arr):
+  return isinstance(arr, (ScalarType, np.number))
 
 
 def _get_shape(
-    x: AbstractArrayLike | AbstractArrayLikeGlobalShape,
+    arr: AbstractArrayLike | AbstractArrayLikeGlobalShape,
 ) -> types.Shape:
-  if hasattr(x, 'shape'):
-    return x.shape
-  if hasattr(x, 'global_shape'):
-    return x.global_shape
-  raise ValueError(f'Object does not have a `shape` property: {x}')
+  if hasattr(arr, 'shape'):
+    return arr.shape
+  if hasattr(arr, 'global_shape'):
+    return arr.global_shape
+  raise ValueError(f'Object does not have a `shape` property: {arr}')
+
+
+ArrayLike = AbstractArrayLike | AbstractArrayLikeGlobalShape | np.ndarray
+
+ScalarType = int | float
 
 
 def to_shape_dtype_struct(
-    x: AbstractArrayLike | np.ndarray,
+    arr: ArrayLike,
     dtype: jnp.dtype | None = None,
     scalar_dtype: ScalarType | None = None,
-):
-  """Get ShapeDtypeStruct from array."""
-  if _is_scalar(x):
+) -> jax.ShapeDtypeStruct | ScalarType:
+  """Get ShapeDtypeStruct from array-like object.
+
+  Args:
+    arr: Array-like object. This can include jax.Array, jax.ShapeDtypeStruct,
+      ArrayRestoreArgs, value_metadata.ArrayMetadata - anything that has
+      `shape`/`global_shape`, `dtype`, and `sharding` properties. It may also be
+      a numpy array or a scalar value.
+    dtype: Optional dtype that overrides the dtype of `arr` in the result.
+    scalar_dtype: Optional dtype to use for scalars. Useful for converting to
+      Python scalar types.
+
+  Returns:
+    jax.ShapeDtypeStruct or scalar value.
+  """
+  if _is_scalar(arr):
     if scalar_dtype is not None:
-      return scalar_dtype(x)
-    return x
-  elif isinstance(x, np.ndarray):
-    dtype = dtype or x.dtype
-    return jax.ShapeDtypeStruct(_get_shape(x), dtype)
+      return scalar_dtype(arr)
+    return arr
+  elif isinstance(arr, np.ndarray):
+    dtype = dtype or arr.dtype
+    return jax.ShapeDtypeStruct(_get_shape(arr), dtype)
   else:
-    shape = _get_shape(x)
-    dtype = dtype or x.dtype
-    sharding = x.sharding
+    shape = _get_shape(arr)
+    dtype = dtype or arr.dtype
+    sharding = arr.sharding
     if isinstance(sharding, sharding_metadata.ShardingMetadata):
       sharding = sharding.to_jax_sharding()
     return jax.ShapeDtypeStruct(shape, dtype, sharding=sharding)
