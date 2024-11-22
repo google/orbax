@@ -498,6 +498,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         single_host_load_and_broadcast=False,
         # enable_background_delete set to False to ensure gc is done before save
         enable_background_delete=False,
+        save_root_metadata=False,
     )
     self._logger = logger or standard_logger.StandardLogger()
     self._coordination_timeout_secs = (
@@ -821,6 +822,7 @@ class CheckpointManager(
         multiprocessing_options=persistent_multiprocessing_options,
         enable_async_checkpointing=self._options.enable_async_checkpointing,
         should_save_fn=self._options.persistent.should_save_fn,
+        save_root_metadata=False,
     )
     return checkpoint_manager.CheckpointManager(
         self._persistent_directory,

@@ -43,6 +43,7 @@ from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
+from orbax.checkpoint._src.metadata import root_metadata_serialization
 from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
@@ -75,6 +76,8 @@ CheckpointHandler = checkpoint_handler.CheckpointHandler
 CheckpointArgs = checkpoint_args.CheckpointArgs
 CheckpointHandlersDict = Mapping[str, CheckpointHandler]
 CheckpointHandlerRegistry = handler_registration.CheckpointHandlerRegistry
+serialize_root_metadata = root_metadata_serialization.serialize
+deserialize_root_metadata = root_metadata_serialization.deserialize
 
 AsyncOptions = options_lib.AsyncOptions
 MultiprocessingOptions = options_lib.MultiprocessingOptions
@@ -257,6 +260,8 @@ class CheckpointManagerOptions:
     ignored.
   file_options: Options to configure checkpoint directories and files.
     default=FileOptions().
+  save_root_metadata: If True, saves root-level metadata about checkpoints.
+    This metadata is not step-specific and is written only once.
   """
 
   save_interval_steps: int = 1
@@ -284,6 +289,7 @@ class CheckpointManagerOptions:
   )
   should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
   file_options: FileOptions = dataclasses.field(default_factory=FileOptions)
+  save_root_metadata: bool = True
   temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None
 
   def __post_init__(self):
@@ -704,19 +710,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       self._metadata = {} if metadata is None else metadata
     else:
       self._metadata = None
-    if (metadata is not None and
-        not self._options.read_only and
-        utils.is_primary_host(self._multiprocessing_options.primary_host)):
-      self._save_metadata(metadata)
 
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'CheckpointManager:save_metadata',
-            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-            suffix=self._metadata_save_counter(),
-        ),
-        processes=self._multiprocessing_options.active_processes,
-    )
+    self._maybe_save_metadata(metadata)
 
     # TODO: b/359854428 - Move Finalize biz logic to a separate class/module.
     self._finalize_thread_lock = threading.Lock()
@@ -1509,12 +1504,34 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self._metadata_dir, legacy=legacy
     )
 
-  def _save_metadata(self, metadata: Mapping[str, Any]):
+  def _maybe_save_metadata(self, metadata: Mapping[str, Any]):
     """Saves CheckpointManager level metadata, skips if already present."""
-    self._metadata_dir.mkdir(parents=True, exist_ok=True)
-    file_path = self._metadata_file_path()
-    if not file_path.exists():  # May have been created by a previous run.
-      self._blocking_metadata_store.write(file_path, dict(metadata))
+    if self._options.save_root_metadata:
+      logging.info('Saving root metadata')
+      if (metadata is not None and
+          not self._options.read_only and
+          utils.is_primary_host(self._multiprocessing_options.primary_host)):
+        logging.info('Creating metadata directory')
+        self._metadata_dir.mkdir(parents=True, exist_ok=True)
+        file_path = self._metadata_file_path()
+        if not file_path.exists():  # May have been created by a previous run.
+          logging.info('Writing root metadata')
+          metadata_to_save = checkpoint.RootMetadata(
+              format=None,
+              custom=dict(metadata),
+          )
+          self._blocking_metadata_store.write(
+              file_path, serialize_root_metadata(metadata_to_save)
+          )
+
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'CheckpointManager:save_metadata',
+              prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+              suffix=self._metadata_save_counter(),
+          ),
+          processes=self._multiprocessing_options.active_processes,
+      )
 
   def metadata(self) -> Mapping[str, Any]:
     """See superclass documentation."""
@@ -1526,7 +1543,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
                           'Will try to read legacy metadata file.',
                           self._metadata_dir)
           file_path = self._metadata_file_path(legacy=True)
-        self._metadata = self._blocking_metadata_store.read(file_path)
+        serialized_metadata = self._blocking_metadata_store.read(file_path)
+        self._metadata = deserialize_root_metadata(serialized_metadata).custom
         if self._metadata is None:
           raise FileNotFoundError(
               f'Failed to read metadata from {file_path}.'
