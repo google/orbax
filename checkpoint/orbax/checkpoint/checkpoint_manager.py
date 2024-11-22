@@ -262,6 +262,9 @@ class CheckpointManagerOptions:
     default=FileOptions().
   save_root_metadata: If True, saves root-level metadata about checkpoints.
     This metadata is not step-specific and is written only once.
+  temporary_path_class:
+    Optional. The concrete `atomicity.TemporaryPath` class to be used by the
+    underlying `Checkpointer`.
   """
 
   save_interval_steps: int = 1
