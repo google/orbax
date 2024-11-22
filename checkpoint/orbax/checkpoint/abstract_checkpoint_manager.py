@@ -181,7 +181,7 @@ class AbstractCheckpointManager(Protocol):
   @abc.abstractmethod
   def restore(
       self,
-      step: int,
+      step: Optional[int],
       items: Optional[Union[Any, Mapping[str, Any]]] = None,
       restore_kwargs: Optional[
           Union[RestoreParams, Mapping[str, RestoreParams]]

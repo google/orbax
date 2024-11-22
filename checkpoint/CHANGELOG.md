@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Add logging to detect missing chunks to emergency checkpointing to facilitate
 local checkpoint debugging.
+- [emergency checkpoint] Add ReplicatorCheckpointManager implementation for
+interoperating with replicator service provided by GKE (or theoretically,
+any other similar service).
 
 ## [0.10.0] - 2024-11-21
 

@@ -14,7 +14,7 @@
 
 """Composite key-value store for checkpointing."""
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, KeysView, Mapping, ValuesView
 from typing import Any
 
 
@@ -102,3 +102,12 @@ class Composite(Mapping):
 
   def __repr__(self):
     return f'Composite({repr(self._items)})'
+
+  def keys(self) -> KeysView[str]:
+    return self._items.keys()
+
+  def values(self) -> ValuesView[Any]:
+    return self._items.values()
+
+  def __contains__(self, key: str) -> bool:
+    return key in self._items

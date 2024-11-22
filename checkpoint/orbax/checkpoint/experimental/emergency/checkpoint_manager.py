@@ -15,7 +15,7 @@
 """A class providing emergency checkpoint management.
 
 
-This class is experimental; do not use without specific approval.
+WARNING: This class is experimental; do not use without specific approval.
 
 NOTE: All classes within this module should be called across all *relevant*
 processes. CheckpointManager is designed to be created and called across
@@ -1297,12 +1297,16 @@ class CheckpointManager(
 
   def restore(
       self,
-      step: int,
+      step: Optional[int],
       args: Optional[args_lib.CheckpointArgs] = None,
       directory: Optional[epath.PathLike] = None,
   ) -> Any:
     if step is None:
-      raise ValueError('Step must be provided for restore. Found None.')
+      step = self.latest_step()
+      if step is None:
+        raise FileNotFoundError(
+            'No steps found in persistent or local storage.'
+        )
     logging.info('Restoring at step %d.', step)
     restoring_slice_id = self._find_slice_with_complete_local_checkpoint(step)
     if restoring_slice_id > -1:

@@ -431,7 +431,7 @@ def _create_root_directory(
   )
 
 
-def _determine_default_item_mode_from_args(
+def determine_default_item_mode_from_args(
     args: args_lib.CheckpointArgs,
 ) -> bool:
   if isinstance(args, args_lib.Composite):
@@ -1121,7 +1121,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')
     if self._default_item is None:
-      self._default_item = _determine_default_item_mode_from_args(args)
+      self._default_item = determine_default_item_mode_from_args(args)
     self._validate_args(items, args)
     if not force and not self.should_save(step):
       return False
@@ -1326,6 +1326,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """See superclass documentation."""
     if step is None:
       step = self.latest_step()
+      if step is None:
+        raise FileNotFoundError(f'No steps found in {self.directory}.')
     directory = directory or self.directory
     directory = epath.Path(directory)
     step_stats = step_statistics.RestoreStepStatistics()

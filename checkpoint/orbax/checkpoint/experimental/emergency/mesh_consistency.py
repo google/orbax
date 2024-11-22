@@ -14,13 +14,17 @@
 
 """Utils for ensuring mesh consistency in emergency checkpoint restoration."""
 
+import asyncio
 import json
 import time
 from typing import Any
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint.experimental.emergency import multihost as emergency_multihost
+from orbax.checkpoint.path import atomicity
+from orbax.checkpoint.path import step as step_lib
 
 
 _PROCESS_METADATA_FOLDER = 'process_metadata'
@@ -51,6 +55,11 @@ def read_process_metadata(directory: epath.Path, step: int):
         f'Process metadata folder does not exist at {metadata_folder}. The'
         ' local checkpoint cannot be restored.'
     )
+  if step_lib.is_tmp_checkpoint(metadata_folder):
+    raise ValueError(
+        f'Process metadata folder was not finalized at {metadata_folder}.'
+        ' The local checkpoint cannot be restored.'
+    )
   logging.info('Loading process index metadata from %s', metadata_folder)
 
   runtime_to_distributed_ids = json.loads(
@@ -67,22 +76,30 @@ def save_process_metadata(
 ):
   """Saves process metadata to local storage. Runs on every process."""
   metadata_folder = process_metadata_folder(directory, step)
+  logging.info('Saving process index metadata at %s', metadata_folder)
   if metadata_folder.exists():
     logging.warning(
         'Process metadata folder already exists at %s. Overwriting.',
         metadata_folder,
     )
     metadata_folder.rmtree()
-  metadata_folder.mkdir(parents=True, exist_ok=False)
 
-  logging.info('Saving process index metadata at %s', metadata_folder)
+  multiprocessing_options = options_lib.MultiprocessingOptions(
+      primary_host=None
+  )
+  tmp_path = atomicity.get_default_temporary_path_class(
+      metadata_folder
+  ).from_final(metadata_folder, multiprocessing_options=multiprocessing_options)
+  asyncio.run(tmp_path.create())
+
   runtime_to_distributed_ids = emergency_multihost.runtime_to_distributed_ids()
-  (metadata_folder / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
+  (tmp_path.get() / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
       json.dumps(runtime_to_distributed_ids)
   )
-  (metadata_folder / _MESH_METADATA_FILE_NAME).write_text(
+  (tmp_path.get() / _MESH_METADATA_FILE_NAME).write_text(
       json.dumps([int(id) for id in global_mesh.device_ids.flatten()])
   )
+  tmp_path.finalize()
 
 
 def consistent_restore_mesh_from_metadata(

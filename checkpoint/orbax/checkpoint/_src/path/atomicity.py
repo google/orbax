@@ -71,6 +71,7 @@ from orbax.checkpoint._src.path import utils
 
 
 TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
+COMMIT_SUCCESS_FILE = step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
 
 
 class TemporaryPath(Protocol):
@@ -446,7 +447,7 @@ class CommitFileTemporaryPath(TemporaryPath):
           commit_timestamp_nsecs=time.time_ns(),
       )
       self._checkpoint_metadata_store.wait_until_finished()
-    commit_success_file = self._final_path / step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
+    commit_success_file = self._final_path / COMMIT_SUCCESS_FILE
     commit_success_file.write_text(
         f'Checkpoint commit was successful to {self._final_path}'
     )
