@@ -8,11 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Add logging to detect missing chunks to emergency checkpointing to facilitate
-local checkpoint debugging.
 - [emergency checkpoint] Add ReplicatorCheckpointManager implementation for
 interoperating with replicator service provided by GKE (or theoretically,
 any other similar service).
+
+### Fixed
+- Correct issue where emergency checkpoint debug logging was not OSS-ed.
 
 ## [0.10.0] - 2024-11-21
 
@@ -35,6 +36,8 @@ saved cooperatively by multiple hosts.
  metadata.
 - Add validation to prevent loading an array index that was never written to.
 - Add Layout support to args.StandardRestore
+- Add logging to detect missing chunks to emergency checkpointing to facilitate
+local checkpoint debugging.
 
 ### Changed
 - Refactor metadata/tree_test.py and move common test types to
