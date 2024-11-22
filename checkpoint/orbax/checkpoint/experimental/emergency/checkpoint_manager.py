@@ -25,6 +25,7 @@ intended to work only with the persistent checkpoint on the primary slice should
 always be called across all processes within the primary slice.
 """
 
+import asyncio
 import collections
 import dataclasses
 import enum
@@ -42,7 +43,7 @@ import numpy as np
 from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
-from orbax.checkpoint import utils
+from orbax.checkpoint._src.arrays import abstract_arrays
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
@@ -50,6 +51,7 @@ from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
+from orbax.checkpoint.experimental.emergency import local_checkpoint_data_debugging
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import standard_logger
@@ -62,6 +64,10 @@ CheckpointHandler = checkpoint_manager.CheckpointHandler
 P = jax.sharding.PartitionSpec
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
 unique_barrier_key = multihost._unique_barrier_key  # pylint: disable=protected-access
+ChunkId = local_checkpoint_data_debugging.ChunkId
+get_present_and_missing_chunks = (
+    local_checkpoint_data_debugging.get_present_and_missing_chunks
+)
 
 _PRIMARY_REPLICA_ID = 0
 _SECONDARY_REPLICA_ID = 1
@@ -119,17 +125,58 @@ def _persistent_checkpoint_handler(
   )
 
 
-def _print_indices_for_loading(keypath, restore_args):
-  keypath = tree_utils.tuple_path_from_keypath(keypath)
-  sharding = restore_args.sharding
-  shape = restore_args.global_shape
-  assert isinstance(sharding, jax.sharding.NamedSharding)
-  assert shape is not None
-  devices_indices_map = sharding.devices_indices_map(shape)
-  logging.vlog(1, 'Device -> index map for %s.', keypath)
-  logging.vlog(1, 'Using local devices: %s', jax.local_devices())
-  for d, idx in devices_indices_map.items():
-    logging.vlog(1, '  %s -> %s', d, idx)
+async def _print_restoration_debug_info(
+    directory: epath.Path,
+    restore_args: PyTree,
+):
+  """Prints debug info before restoring the parameter."""
+  arrays = jax.tree.map(abstract_arrays.to_shape_dtype_struct, restore_args)
+  param_names = tree_utils.get_param_names(arrays)
+  flat_arrays, _ = jax.tree.flatten(arrays)
+  flat_param_names, _ = jax.tree.flatten(param_names)
+  assert len(flat_arrays) == len(flat_param_names)
+
+  chunk_infos = await asyncio.gather(*[
+      get_present_and_missing_chunks(
+          directory, n, a, use_ocdbt=True, use_zarr3=True
+      )
+      for n, a in zip(flat_param_names, flat_arrays)
+  ])
+
+  for arr, param_name, chunk_info in zip(
+      flat_arrays, flat_param_names, chunk_infos
+  ):
+    present_chunk_ids, missing_chunk_ids = chunk_info
+    shard_shape = arr.sharding.shard_shape(arr.shape)
+
+    logging.vlog(1, 'Logging present and missing chunks for %s.', param_name)
+    if present_chunk_ids:
+      logging.info('Present chunks:')
+      for chunk_id in present_chunk_ids:
+        logging.vlog(
+            1,
+            '  index: %s -- chunk ID: %s',
+            local_checkpoint_data_debugging.chunk_id_to_index(
+                chunk_id, shard_shape
+            ),
+            chunk_id,
+        )
+    if missing_chunk_ids:
+      logging.vlog(1, 'Missing chunks:')
+      for chunk_id in missing_chunk_ids:
+        logging.vlog(
+            1,
+            '  index: %s -- chunk ID: %s',
+            local_checkpoint_data_debugging.chunk_id_to_index(
+                chunk_id, shard_shape
+            ),
+            chunk_id,
+        )
+
+    devices_indices_map = arr.sharding.devices_indices_map(arr.shape)
+    logging.vlog(1, 'Device -> index map for %s.', param_name)
+    for d, idx in devices_indices_map.items():
+      logging.vlog(1, '  %s -> %s', d, idx)
 
 
 @dataclasses.dataclass
@@ -748,6 +795,7 @@ class CheckpointManager(
         multihost.process_index(),
         jax.process_index(),
     )
+    logging.vlog(1, 'Local devices: %s', jax.local_devices())
 
   def _cleanup_local_tmp_directories(self):
     logging.info(
@@ -862,7 +910,7 @@ class CheckpointManager(
 
   def reached_preemption(self, step: int) -> bool:
     """Returns True if a preemption sync point has been reached."""
-    return utils.reached_preemption(step)
+    return multihost.reached_preemption(step)
 
   def _global_max(self, values: list[int]) -> list[int]:
     """Returns the global max of local values across all processes as a scalar.
@@ -1112,6 +1160,7 @@ class CheckpointManager(
           lambda s, arr: type_handlers.ArrayRestoreArgs(
               sharding=s,
               global_shape=arr.shape,  # single-slice sharding
+              dtype=arr.dtype,
           ),
           restore_single_slice_shardings,
           self._abstract_state,
@@ -1132,9 +1181,13 @@ class CheckpointManager(
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
       )
       if logging.vlog_is_on(1):
-        jax.tree_util.tree_map_with_path(
-            _print_indices_for_loading, restore_args
+        asyncio.run(
+            _print_restoration_debug_info(
+                restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
+                restore_args,
+            )
         )
+
       step_stats.checkpointer_start_time = time.time()
       single_slice_pytree = local_state_handler.restore(
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,

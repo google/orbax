@@ -14,18 +14,16 @@
 
 """Tree utilities."""
 
-from typing import Any, Callable, Optional, Tuple, Type, Union
+from typing import Any, Callable, Optional, Tuple, Union
 
 import jax
-from jax import numpy as jnp
-import numpy as np
-from orbax.checkpoint._src.metadata import sharding as sharding_metadata
-from orbax.checkpoint._src.metadata import value as value_metadata
+from orbax.checkpoint._src.arrays import abstract_arrays
 from orbax.checkpoint._src.tree import types as tree_types
 
 
 PyTree = tree_types.PyTree
-ScalarType = Union[Type[float], Type[int]]
+
+to_shape_dtype_struct = abstract_arrays.to_shape_dtype_struct
 
 
 def isinstance_of_namedtuple(value: Any) -> bool:
@@ -292,49 +290,6 @@ def from_flat_dict(
     # Necessary for later unflattening.
     flat_dict = {k: flat_dict[k] for k in flat_structure.keys()}
     return jax.tree.unflatten(jax.tree.structure(target), flat_dict.values())
-
-
-def _is_scalar(x):
-  return isinstance(x, (int, float, np.number))
-
-
-def to_shape_dtype_struct(
-    x: Any,
-    dtype: Optional[jnp.dtype] = None,
-    scalar_dtype: Optional[ScalarType] = None,
-):
-  """Get ShapeDtypeStruct from array."""
-  if isinstance(x, jax.ShapeDtypeStruct):
-    return jax.ShapeDtypeStruct(
-        shape=x.shape,
-        dtype=dtype if dtype is not None else x.dtype,
-        sharding=x.sharding
-        if isinstance(x.sharding, jax.sharding.Sharding)
-        else x.sharding.to_jax_sharding(),
-    )
-  elif isinstance(x, jax.Array):
-    dtype = dtype or x.dtype
-    return jax.ShapeDtypeStruct(x.shape, dtype, sharding=x.sharding)
-  elif isinstance(x, np.ndarray):
-    dtype = dtype or x.dtype
-    return jax.ShapeDtypeStruct(x.shape, dtype)
-  elif _is_scalar(x):
-    if scalar_dtype is not None:
-      return scalar_dtype(x)
-    return x
-  elif isinstance(x, value_metadata.Metadata):
-    if not isinstance(x, value_metadata.ArrayMetadata):
-      raise ValueError(f'Unexpected Metadata type: {type(x)}.')
-    dtype = dtype or x.dtype
-    return jax.ShapeDtypeStruct(
-        shape=x.shape,
-        dtype=dtype,
-        sharding=x.sharding.to_jax_sharding()
-        if isinstance(x.sharding, sharding_metadata.ShardingMetadata)
-        else x.sharding,
-    )
-  else:
-    raise ValueError(f'Unexpected type: {type(x)}.')
 
 
 def get_param_names(item: PyTree) -> PyTree:
