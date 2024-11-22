@@ -29,7 +29,7 @@ dependencies = [
     'jax >= 0.4.34',
     'numpy',
     'pyyaml',
-    'tensorstore >= 0.1.60',
+    'tensorstore >= 0.1.68',
     'nest_asyncio',
     'protobuf',
     'humanize',

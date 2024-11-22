@@ -53,6 +53,7 @@ _TREE_METADATA_KEY = 'tree_metadata'
 _KEY_METADATA_KEY = 'key_metadata'
 _VALUE_METADATA_KEY = 'value_metadata'
 _USE_ZARR3 = 'use_zarr3'
+_STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE = 'store_array_data_equal_to_fill_value'
 _VALUE_METADATA_TREE = 'value_metadata_tree'
 
 
@@ -197,6 +198,7 @@ class InternalTreeMetadata:
 
   tree_metadata_entries: List[InternalTreeMetadataEntry]
   use_zarr3: bool
+  store_array_data_equal_to_fill_value: bool
   pytree_metadata_options: PyTreeMetadataOptions
   value_metadata_tree: PyTree | None = None
 
@@ -248,6 +250,7 @@ class InternalTreeMetadata:
     return InternalTreeMetadata(
         tree_metadata_entries,
         use_zarr3,
+        ts_utils.STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE,
         pytree_metadata_options,
         value_metadata_tree,
     )
@@ -274,6 +277,7 @@ class InternalTreeMetadata:
             ...
           },
           _USE_ZARR3: True/False,
+          _STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE: True,
           _VALUE_METADATA_TREE: '{
             "mu_nu": {
               "category": "namedtuple",
@@ -329,6 +333,9 @@ class InternalTreeMetadata:
             {},
         ),
         _USE_ZARR3: self.use_zarr3,
+        _STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE: (
+            self.store_array_data_equal_to_fill_value
+        ),
     }
     # TODO: b/365169723 - Support versioned evolution of metadata storage.
     if (
@@ -351,9 +358,10 @@ class InternalTreeMetadata:
       ),
   ) -> InternalTreeMetadata:
     """Returns an InternalTreeMetadata instance from its JSON representation."""
-    use_zarr3 = False
-    if _USE_ZARR3 in json_dict:
-      use_zarr3 = json_dict[_USE_ZARR3]
+    use_zarr3 = json_dict.get(_USE_ZARR3, False)
+    store_array_data_equal_to_fill_value = json_dict.get(
+        _STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE, False
+    )
 
     tree_metadata_entries = []
     for keypath, json_tree_metadata_entry in json_dict[
@@ -376,6 +384,7 @@ class InternalTreeMetadata:
         use_zarr3=use_zarr3,
         pytree_metadata_options=pytree_metadata_options,
         value_metadata_tree=value_metadata_tree,
+        store_array_data_equal_to_fill_value=store_array_data_equal_to_fill_value,
     )
 
   def as_nested_tree(self) -> Dict[str, Any]:

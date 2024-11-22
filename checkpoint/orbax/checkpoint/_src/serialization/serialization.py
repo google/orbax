@@ -12,13 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Array serialization and deserialization.
-
-TODO(b/348434669): De-fork when possible.
-"""
+"""Array serialization and deserialization."""
 
 import asyncio
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Mapping
 import contextlib
 import functools
 import os
@@ -54,19 +51,23 @@ Layout = layout.Layout
 Shape = types.Shape
 
 
+def _get_device_to_index_map(
+    global_shape: Shape, sharding: jax.sharding.Sharding
+) -> Mapping[jax.Device, Index]:
+  return sharding.devices_indices_map(global_shape)
+
+
 async def create_async_array_from_callback(
     global_shape: Shape,
-    inp_sharding: jax.sharding.Sharding,
+    sharding: jax.sharding.Sharding,
     data_callback: Callable[[Index, jax.Device], Awaitable[jax.Array]],
 ) -> jax.Array:
-  device_to_index_map = inp_sharding.devices_indices_map(global_shape)
-  addressable_da = inp_sharding._addressable_device_assignment  # pylint: disable=protected-access
+  device_to_index_map = _get_device_to_index_map(global_shape, sharding)
+  addressable_da = sharding._addressable_device_assignment  # pylint: disable=protected-access
   future_arrays = [data_callback(device_to_index_map[d], d)
                    for d in addressable_da]
   dbs = await asyncio.gather(*future_arrays)
-  return jax.make_array_from_single_device_arrays(
-      global_shape, inp_sharding, dbs
-  )
+  return jax.make_array_from_single_device_arrays(global_shape, sharding, dbs)
 
 
 def _get_metadata(arr: jax.Array, local_shape: Shape):
@@ -462,44 +463,65 @@ async def _read_array_index_callback(
     index: Index,
     device: jax.Device,
     t: ts.TensorStore,
-    shape: Sequence[int],
-    new_shard_shape: Sequence[int],
+    shape: Shape,
+    new_shard_shape: Shape,
     dtype: jnp.dtype,
     byte_limiter: ByteLimiter,
     strict: bool,
     ddl: Optional[layout.DeviceLocalLayout],
 ) -> jax.Array:
   """Callback that reads an array index and places on device."""
-  if strict and t.shape != shape:
-    raise ValueError(
-        f'Requested shape: {shape} is not compatible with the stored shape:'
-        f' {t.shape}. Truncating/padding is disabled by setting of'
-        ' `strict=True`. When using standard Orbax APIs, this behavior can be'
-        ' modified by specifying `strict=False` in `ArrayRestoreArgs` for any'
-        ' array in which padding/truncation is desired.'
-    )
-  requested_domain = ts.IndexTransform(input_shape=shape)[index].domain
-  restricted_domain = t.domain.intersect(requested_domain)
+  for sl in index:
+    if sl.step is not None and sl.step != 1:
+      raise ValueError(
+          f'Non-contiguous domain for index: {index} not supported. Found:'
+          f' {sl.step}'
+      )
+
+  if strict:
+    if t.shape == shape:
+      domain = ts.IndexDomain(shape=shape)[ts.d[:][index]]
+      requested_domain = domain
+      restricted_domain = domain
+    else:
+      raise ValueError(
+          f'Requested shape: {shape} is not compatible with the stored shape:'
+          f' {t.shape}. Truncating/padding is disabled by setting of'
+          ' `strict=True`. When using standard Orbax APIs, this behavior can be'
+          ' modified by specifying `strict=False` in `ArrayRestoreArgs` for any'
+          ' array in which padding/truncation is desired.'
+      )
+  else:
+    requested_domain = ts.IndexTransform(input_shape=shape)[index].domain
+    restricted_domain = t.domain.intersect(requested_domain)
+
   requested_bytes = estimate_read_memory_footprint(t, restricted_domain)
   # Limit the bytes read for every shard.
   async with reserved_bytes(byte_limiter, requested_bytes):
-    result = await _read_and_device_put_shard(
-        device,
-        t,
-        new_shard_shape,
-        dtype,
-        requested_domain,
-        restricted_domain,
-        ddl,
-    )
+    try:
+      result = await _read_and_device_put_shard(
+          device,
+          t,
+          new_shard_shape,
+          dtype,
+          requested_domain,
+          restricted_domain,
+          ddl,
+      )
+    except BaseException as e:
+      raise Exception(  # pylint: disable=broad-exception-raised
+          f'Encountered error while reading array index: {index}. See full'
+          f' TensorStore details: {t.spec}.'
+      ) from e
   return result
 
 
 async def async_deserialize(
     user_in_sharding: jax.sharding.Sharding | Layout,
     tensorstore_spec: Union[ts.Spec, Dict[str, Any]],
-    global_shape: Optional[Sequence[int]] = None,
+    global_shape: Optional[Shape] = None,
     dtype: Optional[jnp.dtype] = None,
+    *,
     byte_limiter: Optional[ByteLimiter] = None,
     context: Optional[ts.Context] = None,
     assume_metadata: bool = False,

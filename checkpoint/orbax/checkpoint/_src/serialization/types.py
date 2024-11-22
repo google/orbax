@@ -99,6 +99,9 @@ class ParamInfo:
   enable_pinned_host_transfer:
     True by default. If False, disables transfer to pinned host when copying
     from device to host, regardless of the presence of pinned host memory.
+  raise_array_data_missing_error:
+    Only used for restoring. See documentation in `tensorstore_utils.py`. Comes
+    from tree metadata and should be the same across all parameters.
   """
 
   name: Optional[str] = None
@@ -112,6 +115,7 @@ class ParamInfo:
   ts_context: Optional[ts.Context] = None
   value_typestr: Optional[str] = None
   enable_pinned_host_transfer: bool = True
+  raise_array_data_missing_error: bool = True
 
 
 @dataclasses.dataclass

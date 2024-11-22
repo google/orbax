@@ -103,8 +103,10 @@ async def _assert_parameter_files_exist(
 def _get_json_tspec(
     info: types.ParamInfo,
     use_ocdbt: bool,
+    *,
     process_index: Optional[Union[int, str]] = None,
     metadata_key: Optional[str] = None,
+    raise_array_data_missing_error: bool = True,
 ) -> Dict[str, Any]:
   """Gets Tensorstore spec in JSON format."""
   if info.path is None:
@@ -124,6 +126,8 @@ def _get_json_tspec(
       'kvstore': kvstore_tspec,
       'recheck_cached_data': False,
       'recheck_cached_metadata': False,
+      # Raise error if data is missing.
+      'fill_missing_data_reads': not raise_array_data_missing_error,
   }
   if metadata_key is not None:
     tspec['metadata_key'] = metadata_key
@@ -136,12 +140,14 @@ def get_json_tspec_read(
     info: types.ParamInfo,
     use_ocdbt: bool,
     metadata_key: Optional[str] = None,
+    raise_array_data_missing_error: bool = True,
 ):
   """Gets Tensorstore spec for reading."""
   return _get_json_tspec(
       info,
       use_ocdbt=use_ocdbt,
       metadata_key=metadata_key,
+      raise_array_data_missing_error=raise_array_data_missing_error,
   )
 
 
@@ -561,7 +567,10 @@ class NumpyHandler(types.TypeHandler):
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
     return get_json_tspec_read(
-        info, use_ocdbt=use_ocdbt, metadata_key=self._metadata_key
+        info,
+        use_ocdbt=use_ocdbt,
+        metadata_key=self._metadata_key,
+        raise_array_data_missing_error=info.raise_array_data_missing_error,
     )
 
   def typestr(self) -> str:
@@ -884,7 +893,10 @@ class ArrayHandler(types.TypeHandler):
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
     return get_json_tspec_read(
-        info, use_ocdbt=use_ocdbt, metadata_key=self._metadata_key
+        info,
+        use_ocdbt=use_ocdbt,
+        metadata_key=self._metadata_key,
+        raise_array_data_missing_error=info.raise_array_data_missing_error,
     )
 
   def typestr(self) -> str:

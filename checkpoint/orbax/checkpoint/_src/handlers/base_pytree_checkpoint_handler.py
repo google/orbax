@@ -347,6 +347,7 @@ class BasePyTreeCheckpointHandler(
       ocdbt_target_data_file_size: Optional[int] = None,
       enable_pinned_host_transfer: bool = True,
       byte_limiter: Optional[serialization.ByteLimiter] = None,
+      raise_array_data_missing_error: bool = True,
   ) -> PyTree:
     """Returns parameter information for elements in `item`.
 
@@ -362,6 +363,7 @@ class BasePyTreeCheckpointHandler(
         OCDBT data file.
       enable_pinned_host_transfer: See ParamInfo docs.
       byte_limiter: ByteLimiter object.
+      raise_array_data_missing_error: See documentation in ParamInfo.
 
     Returns:
       A PyTree matching `item` of ParamInfo.
@@ -389,6 +391,7 @@ class BasePyTreeCheckpointHandler(
           value_typestr=types.get_param_typestr(
               value, self._type_handler_registry
           ),
+          raise_array_data_missing_error=raise_array_data_missing_error,
       )
 
     return jax.tree.map(
@@ -686,6 +689,9 @@ class BasePyTreeCheckpointHandler(
         if internal_tree_metadata.use_zarr3 is not None
         else self._use_zarr3
     )
+    raise_array_data_missing_error = (
+        internal_tree_metadata.store_array_data_equal_to_fill_value
+    )
     del internal_tree_metadata
     # Prep for restore.
     if item is None:
@@ -701,6 +707,7 @@ class BasePyTreeCheckpointHandler(
         directory=directory,
         use_ocdbt=type_handlers.is_ocdbt_checkpoint(directory),
         use_zarr3=use_zarr3,
+        raise_array_data_missing_error=raise_array_data_missing_error,
     )
     # Begin restore.
     tree_memory_size, restored_item = asyncio_utils.run_sync(

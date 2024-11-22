@@ -635,6 +635,33 @@ class CheckpointTest(parameterized.TestCase):
     for s in out.addressable_shards:
       self.assertArraysEqual(s.data, np_inp[s.index])
 
+  def test_incomplete_write(self):
+    data = np.arange(8)
+    chunk_len = 4
+    global_mesh = create_global_mesh((8,), 'x')
+    sharding = NamedSharding(global_mesh, P(None))
+    tspec = ts_utils.ArrayWriteSpec(
+        self.ckpt_dir.as_posix(),
+        'a',
+        global_shape=data.shape,
+        write_shape=(chunk_len,),
+        dtype=data.dtype,
+        use_ocdbt=False,
+    ).json
+    t = ts.open(
+        ts.Spec(tspec),
+        create=True,
+        open=True,
+    ).result()
+    t[:chunk_len].write(data[:chunk_len]).result()
+
+    # Enable raising error for incomplete chunk.
+    tspec['fill_missing_data_reads'] = False
+    with self.assertRaisesRegex(
+        Exception, 'Encountered error while reading array index'
+    ):
+      deserialize([sharding], [tspec])
+
 
 if __name__ == '__main__':
   absltest.main()

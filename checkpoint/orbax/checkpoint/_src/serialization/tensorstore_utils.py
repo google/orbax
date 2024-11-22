@@ -39,6 +39,14 @@ ZARR_VER3 = 'zarr3'
 
 _GCS_PATH_RE = r'^gs://([^/]*)/(.*)$'
 
+# Even if the data is equal to the fill value, we still want to write it
+# to the checkpoint. This results in unnecessary writes in some edge
+# cases, but it allows us to verify that data was actually written when
+# later restoring.
+# Must match `store_data_equal_to_fill_value` property in Orbax
+# metadata.
+STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE = True
+
 
 JsonSpec: TypeAlias = dict[str, Any]
 Shape: TypeAlias = types.Shape
@@ -344,6 +352,7 @@ class ArrayWriteSpec:
         'kvstore': kvstore_tspec,
         'recheck_cached_data': False,
         'recheck_cached_metadata': False,
+        'store_data_equal_to_fill_value': STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE,
     }
     if metadata_key is not None:
       tspec['metadata_key'] = metadata_key

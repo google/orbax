@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2024-11-22
+
 ### Added
 - Add `RootMetadata` and `StepMetadata` classes as ways for the user to
 interface with checkpoint metadata at various levels.
@@ -24,6 +26,7 @@ arrays.
 saved cooperatively by multiple hosts.
 - [Experimental Feature] Support `NamedTuple` and `Tuple` nodes in PyTree
  metadata.
+- Add validation to prevent loading an array index that was never written to.
 
 ### Changed
 - Refactor metadata/tree_test.py and move common test types to
