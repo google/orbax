@@ -23,6 +23,7 @@ import flax
 import flax.training.train_state
 import jax
 from jax import numpy as jnp
+from jax.experimental import layout
 import numpy as np
 import optax
 from orbax.checkpoint import test_utils
@@ -31,10 +32,12 @@ from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handlers
 
+DLL = layout.DeviceLocalLayout
+Layout = layout.Layout
 PyTree = Any
 SaveArgs = type_handlers.SaveArgs
-StandardSaveArgs = standard_checkpoint_handler.StandardSaveArgs
 StandardRestoreArgs = standard_checkpoint_handler.StandardRestoreArgs
+StandardSaveArgs = standard_checkpoint_handler.StandardSaveArgs
 
 
 class StandardCheckpointHandler(
@@ -135,6 +138,58 @@ class StandardCheckpointHandlerTestBase:
           ),
       )
       test_utils.assert_tree_equal(self, self.mixed_pytree, restored)
+
+    def test_custom_layout(self):
+      """Test custom layout at restoration."""
+      inp = np.arange(32).reshape(8, 4)
+      mesh = jax.sharding.Mesh(
+          np.asarray(jax.devices()).reshape(4, 2), ('x', 'y')
+      )
+      pspec = jax.sharding.PartitionSpec('x', 'y')
+      arr = test_utils.create_sharded_array(inp, mesh, pspec)
+      pytree = {'x': arr}
+
+      self.handler.save(self.directory, args=self.save_args_cls(pytree))
+      restored_regular = self.handler.restore(
+          self.directory, args=self.restore_args_cls(item=pytree)
+      )
+      test_utils.assert_tree_equal(self, pytree, restored_regular)
+
+      # create a custom layout
+      custom_layout = Layout(
+          device_local_layout=DLL(
+              major_to_minor=arr.layout.device_local_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
+              _tiling=arr.layout.device_local_layout._tiling,  # pylint: disable=protected-access  # pytype: disable=attribute-error
+          ),
+          sharding=arr.sharding,
+      )
+      arr_new_layout = jax.device_put(arr, custom_layout)
+      self.assertNotEqual(arr_new_layout.layout, arr.layout)
+
+      # use a pytree example
+      pytree_new_layout = {'x': arr_new_layout}
+      restored_new_layout = self.handler.restore(
+          self.directory,
+          args=self.restore_args_cls(item=pytree_new_layout),
+      )
+      test_utils.assert_tree_equal(self, pytree_new_layout, restored_new_layout)
+
+      # use shape_dtype_struct with custom layout
+      shape_dtypes = jax.tree.map(utils.to_shape_dtype_struct, pytree)
+      shape_dtypes = jax.tree.map(
+          lambda x: jax.ShapeDtypeStruct(
+              x.shape, x.dtype, sharding=custom_layout
+          ),
+          shape_dtypes,
+      )
+
+      restored_shape_dtypes = self.handler.restore(
+          self.directory,
+          args=self.restore_args_cls(item=shape_dtypes),
+      )
+      test_utils.assert_tree_equal(
+          self, pytree_new_layout, restored_shape_dtypes
+      )
 
     @parameterized.parameters((True,), (False,))
     def test_change_shape(self, strict: bool):

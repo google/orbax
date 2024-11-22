@@ -31,6 +31,7 @@ saved cooperatively by multiple hosts.
 - [Experimental Feature] Support `NamedTuple` and `Tuple` nodes in PyTree
  metadata.
 - Add validation to prevent loading an array index that was never written to.
+- Add Layout support to args.StandardRestore
 
 ### Changed
 - Refactor metadata/tree_test.py and move common test types to
