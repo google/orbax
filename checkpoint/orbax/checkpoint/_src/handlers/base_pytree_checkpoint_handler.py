@@ -376,7 +376,7 @@ class BasePyTreeCheckpointHandler(
           byte_limiter=byte_limiter,
           ts_context=ts_context,
           value_typestr=types.get_param_typestr(
-              value, self._type_handler_registry
+              value, self._type_handler_registry, self._pytree_metadata_options
           ),
           raise_array_data_missing_error=raise_array_data_missing_error,
       )
@@ -558,7 +558,7 @@ class BasePyTreeCheckpointHandler(
     for key in flat_metadata.keys():
       if key not in flat_restored:
         flat_restored[key] = empty_values.get_empty_value_from_typestr(
-            flat_metadata[key].value_type
+            flat_metadata[key].value_type, self._pytree_metadata_options
         )
     # Restore using `item` as the target structure. If there are any custom
     # nodes (e.g. optax.EmptyState), these will replace None values in

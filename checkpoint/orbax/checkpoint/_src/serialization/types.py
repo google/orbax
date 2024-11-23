@@ -27,23 +27,37 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import future
 from orbax.checkpoint._src.metadata import empty_values
+from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import serialization
 import tensorstore as ts
 
+PyTreeMetadataOptions = pytree_metadata_options_lib.PyTreeMetadataOptions
 
-def is_supported_type(value: Any) -> bool:
+
+def is_supported_type(
+    value: Any,
+    pytree_metadata_options: PyTreeMetadataOptions = (
+        pytree_metadata_options_lib.PYTREE_METADATA_OPTIONS
+    ),
+) -> bool:
   """Determines if the `value` is supported without custom TypeHandler."""
   return isinstance(
       value,
       (str, int, float, np.number, np.ndarray, bytes, jax.Array),
-  ) or empty_values.is_supported_empty_value(value)
+  ) or empty_values.is_supported_empty_value(value, pytree_metadata_options)
 
 
-def get_param_typestr(value: Any, registry: TypeHandlerRegistry) -> str:
+def get_param_typestr(
+    value: Any,
+    registry: TypeHandlerRegistry,
+    pytree_metadata_options: PyTreeMetadataOptions,
+) -> str:
   """Retrieves the typestr for a given value."""
-  if empty_values.is_supported_empty_value(value):
-    typestr = empty_values.get_empty_value_typestr(value)
+  if empty_values.is_supported_empty_value(value, pytree_metadata_options):
+    typestr = empty_values.get_empty_value_typestr(
+        value, pytree_metadata_options
+    )
   else:
     try:
       handler = registry.get(type(value))

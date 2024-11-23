@@ -249,7 +249,9 @@ def _get_restore_parameters(
       name: str,
       meta_or_value: Union[Any, tree_metadata.ValueMetadataEntry],
   ) -> Union[ParamInfo, Any]:
-    if empty_values.is_supported_empty_value(meta_or_value):
+    if empty_values.is_supported_empty_value(
+        meta_or_value, pytree_metadata_options
+    ):
       # Empty node, ParamInfo should not be returned.
       return meta_or_value
     elif not isinstance(meta_or_value, tree_metadata.ValueMetadataEntry):
@@ -917,7 +919,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     def _is_empty_value(value):
       return empty_values.is_supported_empty_value(
-          value
+          value, self._pytree_metadata_options
       ) or not utils.leaf_is_placeholder(value)
 
     def _process_aggregate_leaf(value):
@@ -932,7 +934,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       if _is_empty_value(value):
         return value
       if empty_values.is_empty_typestr(value_meta.value_type):
-        return empty_values.get_empty_value_from_typestr(value_meta.value_type)
+        return empty_values.get_empty_value_from_typestr(
+            value_meta.value_type, self._pytree_metadata_options
+        )
       return value_meta
 
     # Handle cases of missing metadata and/or aggregate files.
@@ -966,7 +970,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         else:
           if empty_values.is_empty_typestr(value_meta.value_type):
             flat_structure[tuple_key] = (
-                empty_values.get_empty_value_from_typestr(value_meta.value_type)
+                empty_values.get_empty_value_from_typestr(
+                    value_meta.value_type, self._pytree_metadata_options
+                )
             )
           else:
             flat_structure[tuple_key] = value_meta

@@ -449,7 +449,7 @@ class InternalTreeMetadata:
       if param_info.skip_deserialize:
         if empty_values.is_empty_typestr(restore_type):
           flat_metadatas[keypath] = empty_values.get_empty_value_from_typestr(
-              restore_type
+              restore_type, self.pytree_metadata_options
           )
         else:
           flat_metadatas[keypath] = value_metadata.Metadata(

@@ -14,7 +14,6 @@
 
 from typing import Any
 
-from absl import logging
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
@@ -25,12 +24,17 @@ from orbax.checkpoint._src.testing import test_tree_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
 
 
-def _to_param_infos(tree: Any):
+def _to_param_infos(
+    tree: Any,
+    pytree_metadata_options: tree_metadata.PyTreeMetadataOptions,
+):
   return jax.tree.map(
       # Other properties are not relevant.
       lambda x: types.ParamInfo(
           value_typestr=types.get_param_typestr(
-              x, type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY
+              x,
+              type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
+              pytree_metadata_options,
           )
       ),
       tree,
@@ -40,38 +44,10 @@ def _to_param_infos(tree: Any):
 
 class InternalTreeMetadataEntryTest(parameterized.TestCase):
 
-  @parameterized.named_parameters(
-      test_tree_utils.TEST_PYTREES_FOR_NAMED_PARAMETERS
-  )
-  def test_json_conversion(self, test_pytree: test_tree_utils.TestPyTree):
-    tree = test_pytree.provide_tree()
-    param_infos_tree = _to_param_infos(tree)
-    internal_tree_metadata = tree_metadata.InternalTreeMetadata.build(
-        param_infos_tree
-    )
-    internal_tree_metadata_json = internal_tree_metadata.to_json()
-
-    # Round trip check for json conversion.
-    self.assertCountEqual(
-        internal_tree_metadata.tree_metadata_entries,
-        (
-            tree_metadata.InternalTreeMetadata.from_json(
-                internal_tree_metadata_json
-            )
-        ).tree_metadata_entries,
-    )
-
-    # Specifically check _TREE_METADATA_KEY.
-    self.assertDictEqual(
-        test_pytree.expected_tree_metadata_key_json,
-        internal_tree_metadata_json[tree_metadata._TREE_METADATA_KEY],
-    )
-
   @parameterized.product(
       test_pytree=test_tree_utils.TEST_PYTREES,
       pytree_metadata_options=[
-          # TODO: b/365169723 - Re-enable if needed at all.
-          # tree_metadata.PyTreeMetadataOptions(support_rich_types=False),
+          tree_metadata.PyTreeMetadataOptions(support_rich_types=False),
           tree_metadata.PyTreeMetadataOptions(support_rich_types=True),
       ],
   )
@@ -82,7 +58,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
   ):
     tree = test_pytree.provide_tree()
     original_internal_tree_metadata = tree_metadata.InternalTreeMetadata.build(
-        param_infos=_to_param_infos(tree),
+        param_infos=_to_param_infos(tree, pytree_metadata_options),
         pytree_metadata_options=pytree_metadata_options,
     )
     json_object = original_internal_tree_metadata.to_json()
@@ -97,10 +73,65 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
           test_pytree.expected_nested_tree_metadata_with_rich_types
       )
     else:
-      raise NotImplementedError('Test to be added for non-rich types.')
+      expected_tree_metadata = test_pytree.expected_nested_tree_metadata
     restored_tree_metadata = restored_internal_tree_metadata.as_nested_tree()
-    logging.info('expected_tree_metadata: \n%s', expected_tree_metadata)
-    logging.info('restored_tree_metadata: \n%s', restored_tree_metadata)
+    self.assertEqual(
+        jax.tree.structure(
+            expected_tree_metadata, is_leaf=tree_utils.is_empty_or_leaf
+        ),
+        jax.tree.structure(
+            restored_tree_metadata, is_leaf=tree_utils.is_empty_or_leaf
+        ),
+    )
+
+  @parameterized.product(
+      test_pytree=test_tree_utils.TEST_PYTREES,
+      pytree_metadata_options_switch=[
+          (
+              tree_metadata.PyTreeMetadataOptions(support_rich_types=False),
+              tree_metadata.PyTreeMetadataOptions(support_rich_types=True),
+          ),
+          (
+              tree_metadata.PyTreeMetadataOptions(support_rich_types=True),
+              tree_metadata.PyTreeMetadataOptions(support_rich_types=False),
+          ),
+      ],
+  )
+  def test_switching_between_support_rich_types(
+      self,
+      test_pytree: test_tree_utils.TestPyTree,
+      pytree_metadata_options_switch: tuple[
+          tree_metadata.PyTreeMetadataOptions,
+          tree_metadata.PyTreeMetadataOptions,
+      ],
+  ):
+    write_pytree_metadata_options, read_pytree_metadata_options = (
+        pytree_metadata_options_switch
+    )
+    if (
+        write_pytree_metadata_options.support_rich_types
+        == read_pytree_metadata_options.support_rich_types
+    ):
+      self.fail(
+          'This test is only meant for scenarios when support_rich_types will'
+          ' be different between write and read.'
+      )
+    else:
+      expected_tree_metadata = test_pytree.expected_nested_tree_metadata
+    tree = test_pytree.provide_tree()
+
+    original_internal_tree_metadata = tree_metadata.InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree, write_pytree_metadata_options),
+        pytree_metadata_options=write_pytree_metadata_options,
+    )
+    json_object = original_internal_tree_metadata.to_json()
+    restored_internal_tree_metadata = (
+        tree_metadata.InternalTreeMetadata.from_json(
+            json_object, read_pytree_metadata_options
+        )
+    )
+
+    restored_tree_metadata = restored_internal_tree_metadata.as_nested_tree()
     self.assertEqual(
         jax.tree.structure(
             expected_tree_metadata, is_leaf=tree_utils.is_empty_or_leaf

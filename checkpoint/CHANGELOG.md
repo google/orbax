@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Tests and documentation for `abstract_arrays`.
+- [Experimental Feature] Support `empty NamedTuple` leaf when
+ `PyTreeMetadataOptions.support_rich_types=true`.
+
 
 ## [0.10.1] - 2024-11-22
 
@@ -53,7 +56,8 @@ utils into a separate file.
 accept and return metadata as dictionaries.
 - Move `Checkpointer` implementations to `_src`.
 - Add/Update tests for `is_empty_or_leaf` and `is_empty_node`.
-- Refactor and restructure constructs from `type_handlers.py` and `metadata` package to avoid circular dependencies.
+- Refactor and restructure constructs from `type_handlers.py` and `metadata`
+ package to avoid circular dependencies.
 
 ## [0.9.1] - 2024-11-11
 
