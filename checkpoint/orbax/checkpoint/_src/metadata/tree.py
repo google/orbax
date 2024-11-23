@@ -22,6 +22,7 @@ import dataclasses
 import enum
 import functools
 import operator
+import pprint
 from typing import Any, Dict, Hashable, List, Optional, Tuple, TypeAlias, TypeVar, Union
 
 from absl import logging
@@ -231,8 +232,12 @@ class InternalTreeMetadata:
           param_infos,
           is_leaf=tree_utils.is_empty_or_leaf,
       )
-    flat_info_with_keys, _ = jax.tree_util.tree_flatten_with_path(
+    flat_info_with_keys, unused = jax.tree_util.tree_flatten_with_path(
         param_infos, is_leaf=tree_utils.is_empty_or_leaf
+    )
+    logging.info(
+        'yikes InternalTreeMetadata.build pytree_def: \n%s',
+        pprint.pformat(unused),
     )
     flat_save_args_with_keys, _ = jax.tree_util.tree_flatten_with_path(
         save_args, is_leaf=tree_utils.is_empty_or_leaf
@@ -352,6 +357,9 @@ class InternalTreeMetadata:
               self.value_metadata_tree
           )
       )
+    logging.info(
+        'yikes InternalTreeMetadata.to_json: \n%s', pprint.pformat(json_object)
+    )
     return json_object
 
   @classmethod
@@ -394,6 +402,9 @@ class InternalTreeMetadata:
 
   def as_nested_tree(self) -> Dict[str, Any]:
     """Converts to a nested tree, with leaves of ValueMetadataEntry."""
+    logging.info(
+        'yikes InternalTreeMetadata.as_nested_tree: \n%s', pprint.pformat(self)
+    )
     # TODO: b/365169723 - Support versioned evolution of metadata storage.
     if (
         self.pytree_metadata_options.support_rich_types

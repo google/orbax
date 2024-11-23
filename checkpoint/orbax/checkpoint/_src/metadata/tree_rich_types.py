@@ -17,10 +17,10 @@
 from __future__ import annotations
 
 import collections
-import dataclasses
 import functools
 from typing import Any, Iterable, Mapping, Sequence, Type, TypeAlias
 
+import jax
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import value_metadata_entry
 from orbax.checkpoint._src.tree import utils as tree_utils
@@ -87,7 +87,7 @@ _VALUE_METADATA_ENTRY_MODULE_AND_CLASS = _module_and_class_name(
 def _value_metadata_tree_for_json_dumps(obj: Any) -> Any:
   """Callback for `simplejson.dumps` to convert a PyTree to JSON object."""
   # Handle ValueMetadataEntry instances.
-  if dataclasses.is_dataclass(obj):
+  if tree_utils.is_empty_or_leaf(obj):
     if (
         _module_and_class_name(obj.__class__)
         == _VALUE_METADATA_ENTRY_MODULE_AND_CLASS
@@ -97,6 +97,9 @@ def _value_metadata_tree_for_json_dumps(obj: Any) -> Any:
           clazz=_VALUE_METADATA_ENTRY_CLAZZ,
           data=obj.to_json(),
       )
+    raise ValueError(
+        f'Expected ValueMetadataEntry, got metadata pytree leaf: {obj}'
+    )
 
   # Check namedtuple first and then tuple.
   if tree_utils.isinstance_of_namedtuple(obj):
@@ -124,7 +127,24 @@ def _value_metadata_tree_for_json_dumps(obj: Any) -> Any:
   if isinstance(obj, list):
     return [_value_metadata_tree_for_json_dumps(e) for e in obj]
 
-  raise ValueError(f'Unsupported object in JSON serialization: {obj}')
+  # Handle objects that are registered as Jax container nodes.
+  key_leafs, _ = jax.tree_util.tree_flatten_with_path(
+      obj,
+      is_leaf=lambda x: x is not obj,  # flatten just one level.
+  )
+  module_name, class_name = _module_and_class_name(obj.__class__)
+  return dict(
+      category='namedtuple',
+      module=module_name,
+      clazz=class_name,
+      entries=[
+          dict(
+              key=tree_utils.get_key_name(keypath[0]),
+              value=_value_metadata_tree_for_json_dumps(leaf),
+          )
+          for keypath, leaf in key_leafs
+      ],
+  )
 
 
 def _value_metadata_tree_for_json_loads(obj):

@@ -30,6 +30,7 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.tree import utils as tree_utils
 
 
@@ -68,6 +69,9 @@ class StandardCheckpointHandler(
       save_concurrent_gb: int = 96,
       restore_concurrent_gb: int = 96,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
+      pytree_metadata_options: pytree_metadata_options_lib.PyTreeMetadataOptions = (
+          pytree_metadata_options_lib.PYTREE_METADATA_OPTIONS
+      ),
   ):
     """Creates StandardCheckpointHandler.
 
@@ -79,12 +83,15 @@ class StandardCheckpointHandler(
         Can help to reduce the possibility of OOM's when large checkpoints are
         restored.
       multiprocessing_options: See orbax.checkpoint.options.
+      pytree_metadata_options: Options to control types like tuple and
+        namedtuple in pytree metadata.
     """
     self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
     self._impl = pytree_checkpoint_handler.PyTreeCheckpointHandler(
         save_concurrent_gb=save_concurrent_gb,
         restore_concurrent_gb=restore_concurrent_gb,
         multiprocessing_options=multiprocessing_options,
+        pytree_metadata_options=pytree_metadata_options,
     )
 
   def _validate_save_state(

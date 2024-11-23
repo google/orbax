@@ -17,12 +17,14 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Callable, Dict, List, NamedTuple, Tuple
+from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Sequence, Tuple
 
 import chex
+import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.metadata import tree_rich_types
 
@@ -51,7 +53,7 @@ class EmptyNamedTuple(NamedTuple):
 class NamedTupleWithNestedAttributes(NamedTuple):
   nested_mu_nu: MuNu | None = None
   nested_dict: Dict[str, jax.Array] | None = None
-  nested_tuple: Tuple[jax.Array, np.ndarray] | None = None
+  nested_tuple: Tuple[jax.Array, jax.Array] | None = None
   nested_empty_named_tuple: EmptyNamedTuple | None = None
   my_empty_chex: MyEmptyChex | None = None
 
@@ -73,6 +75,18 @@ class MyChexWithNestedAttributes:
   my_dict: Dict[str, jax.Array] | None = None
   my_list: List[np.ndarray] | None = None
   my_empty_chex: MyEmptyChex | None = None
+
+
+@flax.struct.dataclass
+class MyEmptyFlax(flax.struct.PyTreeNode):
+  pass
+
+
+@flax.struct.dataclass
+class MyFlax(flax.struct.PyTreeNode):
+  my_jax_array: jax.Array | None = None
+  my_nested_mapping: Mapping[str, Any] | None = None
+  my_sequence: Sequence[Any] | None = None
 
 
 @dataclasses.dataclass
@@ -823,7 +837,7 @@ TEST_PYTREES = [
             'named_tuple_with_nested_attrs': NamedTupleWithNestedAttributes(
                 nested_mu_nu=MuNu(mu=jnp.arange(8), nu=np.arange(8)),
                 nested_dict={'a': jnp.arange(8), 'b': np.arange(8)},
-                nested_tuple=(jnp.arange(8), np.arange(8)),
+                nested_tuple=(jnp.arange(8), jnp.arange(8)),
                 nested_empty_named_tuple=EmptyNamedTuple(),
                 my_empty_chex=MyEmptyChex(),
             )
@@ -856,7 +870,7 @@ TEST_PYTREES = [
                         skip_deserialize=False,
                     ),
                     tree_metadata.ValueMetadataEntry(
-                        value_type='np.ndarray',
+                        value_type='jax.Array',
                         skip_deserialize=False,
                     ),
                 ],
@@ -917,7 +931,7 @@ TEST_PYTREES = [
                                 skip_deserialize=False,
                             ),
                             tree_metadata.ValueMetadataEntry(
-                                value_type='np.ndarray',
+                                value_type='jax.Array',
                                 skip_deserialize=False,
                             ),
                         ),
@@ -934,6 +948,286 @@ TEST_PYTREES = [
                         tree_metadata.ValueMetadataEntry(
                             value_type='Dict',
                             skip_deserialize=True,
+                        ),
+                    ),
+                ],
+            )
+        },
+    ),
+    TestPyTree(
+        unique_name='my_empty_flax',
+        provide_tree=lambda: {'my_empty_flax': MyEmptyFlax()},
+        expected_nested_tree_metadata={
+            'my_empty_flax': tree_metadata.ValueMetadataEntry(
+                value_type='None',  # TODO: b/378905913 - Should be Dict.
+                skip_deserialize=True,
+            )
+        },
+    ),
+    TestPyTree(
+        unique_name='default_my_flax',
+        provide_tree=lambda: {'default_my_flax': MyFlax()},
+        expected_nested_tree_metadata={
+            'default_my_flax': {
+                'my_jax_array': tree_metadata.ValueMetadataEntry(
+                    value_type='None',
+                    skip_deserialize=True,
+                ),
+                'my_nested_mapping': tree_metadata.ValueMetadataEntry(
+                    value_type='None',
+                    skip_deserialize=True,
+                ),
+                'my_sequence': tree_metadata.ValueMetadataEntry(
+                    value_type='None',
+                    skip_deserialize=True,
+                ),
+            }
+        },
+        expected_nested_tree_metadata_with_rich_types={
+            'default_my_flax': _build_namedtuple(
+                MyFlax,
+                [
+                    (
+                        'my_jax_array',
+                        tree_metadata.ValueMetadataEntry(
+                            value_type='None',
+                            skip_deserialize=True,
+                        ),
+                    ),
+                    (
+                        'my_nested_mapping',
+                        tree_metadata.ValueMetadataEntry(
+                            value_type='None',
+                            skip_deserialize=True,
+                        ),
+                    ),
+                    (
+                        'my_sequence',
+                        tree_metadata.ValueMetadataEntry(
+                            value_type='None',
+                            skip_deserialize=True,
+                        ),
+                    ),
+                ],
+            )
+        },
+    ),
+    TestPyTree(
+        unique_name='my_flax',
+        provide_tree=lambda: {
+            'my_flax': MyFlax(
+                my_jax_array=jnp.arange(8),
+                my_nested_mapping={
+                    'a': None,
+                    'b': jnp.arange(8),
+                    'c': MyFlax(),
+                    'd': MyFlax(
+                        my_nested_mapping={
+                            'e': MyEmptyChex(),
+                        },
+                        my_sequence=[
+                            MyChex(my_jax_array=jnp.arange(8)),
+                        ],
+                    ),
+                },
+                my_sequence=(
+                    None,
+                    optax.EmptyState(),
+                    MyEmptyFlax(),
+                    MyEmptyChex(),
+                    EmptyNamedTuple(),
+                ),
+            )
+        },
+        expected_nested_tree_metadata={
+            'my_flax': {
+                'my_jax_array': tree_metadata.ValueMetadataEntry(
+                    value_type='jax.Array',
+                    skip_deserialize=False,
+                ),
+                'my_nested_mapping': {
+                    'a': tree_metadata.ValueMetadataEntry(
+                        value_type='None',
+                        skip_deserialize=True,
+                    ),
+                    'b': tree_metadata.ValueMetadataEntry(
+                        value_type='jax.Array',
+                        skip_deserialize=False,
+                    ),
+                    'c': {
+                        'my_jax_array': tree_metadata.ValueMetadataEntry(
+                            value_type='None',
+                            skip_deserialize=True,
+                        ),
+                        'my_nested_mapping': tree_metadata.ValueMetadataEntry(
+                            value_type='None',
+                            skip_deserialize=True,
+                        ),
+                        'my_sequence': tree_metadata.ValueMetadataEntry(
+                            value_type='None',
+                            skip_deserialize=True,
+                        ),
+                    },
+                    'd': {
+                        'my_jax_array': tree_metadata.ValueMetadataEntry(
+                            value_type='None',
+                            skip_deserialize=True,
+                        ),
+                        'my_nested_mapping': {
+                            'e': tree_metadata.ValueMetadataEntry(
+                                value_type='Dict',
+                                skip_deserialize=True,
+                            ),
+                        },
+                        'my_sequence': [
+                            {
+                                'my_jax_array': (
+                                    tree_metadata.ValueMetadataEntry(
+                                        value_type='jax.Array',
+                                        skip_deserialize=False,
+                                    )
+                                ),
+                                'my_np_array': tree_metadata.ValueMetadataEntry(
+                                    value_type='None',
+                                    skip_deserialize=True,
+                                ),
+                            },
+                        ],
+                    },
+                },
+                'my_sequence': [
+                    tree_metadata.ValueMetadataEntry(
+                        value_type='None',
+                        skip_deserialize=True,
+                    ),
+                    tree_metadata.ValueMetadataEntry(
+                        value_type='None',
+                        skip_deserialize=True,
+                    ),
+                    tree_metadata.ValueMetadataEntry(
+                        value_type='None',
+                        skip_deserialize=True,
+                    ),
+                    tree_metadata.ValueMetadataEntry(
+                        value_type='Dict',
+                        skip_deserialize=True,
+                    ),
+                    tree_metadata.ValueMetadataEntry(
+                        value_type='None',
+                        skip_deserialize=True,
+                    ),
+                ],
+            }
+        },
+        expected_nested_tree_metadata_with_rich_types={
+            'my_flax': _build_namedtuple(
+                MyFlax,
+                [
+                    (
+                        'my_jax_array',
+                        tree_metadata.ValueMetadataEntry(
+                            value_type='jax.Array',
+                            skip_deserialize=False,
+                        ),
+                    ),
+                    (
+                        'my_nested_mapping',
+                        {
+                            'a': tree_metadata.ValueMetadataEntry(
+                                value_type='None',
+                                skip_deserialize=True,
+                            ),
+                            'b': tree_metadata.ValueMetadataEntry(
+                                value_type='jax.Array',
+                                skip_deserialize=False,
+                            ),
+                            'c': _build_namedtuple(
+                                MyFlax,
+                                [
+                                    (
+                                        'my_jax_array',
+                                        tree_metadata.ValueMetadataEntry(
+                                            value_type='None',
+                                            skip_deserialize=True,
+                                        ),
+                                    ),
+                                    (
+                                        'my_nested_mapping',
+                                        tree_metadata.ValueMetadataEntry(
+                                            value_type='None',
+                                            skip_deserialize=True,
+                                        ),
+                                    ),
+                                    (
+                                        'my_sequence',
+                                        tree_metadata.ValueMetadataEntry(
+                                            value_type='None',
+                                            skip_deserialize=True,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            'd': _build_namedtuple(
+                                MyFlax,
+                                [
+                                    (
+                                        'my_jax_array',
+                                        tree_metadata.ValueMetadataEntry(
+                                            value_type='None',
+                                            skip_deserialize=True,
+                                        ),
+                                    ),
+                                    (
+                                        'my_nested_mapping',
+                                        {
+                                            'e': tree_metadata.ValueMetadataEntry(
+                                                value_type='Dict',
+                                                skip_deserialize=True,
+                                            )
+                                        },
+                                    ),
+                                    (
+                                        'my_sequence',
+                                        [
+                                            {
+                                                'my_jax_array': tree_metadata.ValueMetadataEntry(
+                                                    value_type='jax.Array',
+                                                    skip_deserialize=False,
+                                                ),
+                                                'my_np_array': tree_metadata.ValueMetadataEntry(
+                                                    value_type='None',
+                                                    skip_deserialize=True,
+                                                ),
+                                            },
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        },
+                    ),
+                    (
+                        'my_sequence',
+                        (
+                            tree_metadata.ValueMetadataEntry(
+                                value_type='None',
+                                skip_deserialize=True,
+                            ),
+                            tree_metadata.ValueMetadataEntry(
+                                value_type='NamedTuple',
+                                skip_deserialize=True,
+                            ),
+                            tree_metadata.ValueMetadataEntry(
+                                value_type='None',
+                                skip_deserialize=True,
+                            ),
+                            tree_metadata.ValueMetadataEntry(
+                                value_type='Dict',
+                                skip_deserialize=True,
+                            ),
+                            tree_metadata.ValueMetadataEntry(
+                                value_type='NamedTuple',
+                                skip_deserialize=True,
+                            ),
                         ),
                     ),
                 ],
