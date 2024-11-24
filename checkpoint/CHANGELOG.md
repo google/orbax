@@ -43,7 +43,6 @@ saved cooperatively by multiple hosts.
 - [Experimental Feature] Support `NamedTuple` and `Tuple` nodes in PyTree
  metadata.
 - Add validation to prevent loading an array index that was never written to.
-- Add Layout support to args.StandardRestore
 - Add logging to detect missing chunks to emergency checkpointing to facilitate
 local checkpoint debugging.
 
