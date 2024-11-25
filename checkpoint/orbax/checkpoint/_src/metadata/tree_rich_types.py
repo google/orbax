@@ -47,10 +47,10 @@ def _new_namedtuple_type(
   """
   # TODO: b/365169723 - Return concrete NamedTuple if available in given module.
   # Fix module name to be prefixed to the class name.
-  fixed_module_name = module_name.replace('.', '_')
   arity = len(fields)
-  unique_class_name = f'{fixed_module_name}_{class_name}_{arity}'
-  return collections.namedtuple(unique_class_name, fields)
+  unique_class_name = f'{module_name}_{class_name}_{arity}'
+  valid_class_name = unique_class_name.replace('.', '_')
+  return collections.namedtuple(valid_class_name, fields)
 
 
 def _create_namedtuple(
