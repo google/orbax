@@ -51,7 +51,7 @@ class EmptyNamedTuple(NamedTuple):
 class NamedTupleWithNestedAttributes(NamedTuple):
   nested_mu_nu: MuNu | None = None
   nested_dict: Dict[str, jax.Array] | None = None
-  nested_tuple: Tuple[jax.Array, np.ndarray] | None = None
+  nested_tuple: Tuple[jax.Array, jax.Array] | None = None
   nested_empty_named_tuple: EmptyNamedTuple | None = None
   my_empty_chex: MyEmptyChex | None = None
 
@@ -823,7 +823,7 @@ TEST_PYTREES = [
             'named_tuple_with_nested_attrs': NamedTupleWithNestedAttributes(
                 nested_mu_nu=MuNu(mu=jnp.arange(8), nu=np.arange(8)),
                 nested_dict={'a': jnp.arange(8), 'b': np.arange(8)},
-                nested_tuple=(jnp.arange(8), np.arange(8)),
+                nested_tuple=(jnp.arange(8), jnp.arange(8)),
                 nested_empty_named_tuple=EmptyNamedTuple(),
                 my_empty_chex=MyEmptyChex(),
             )
@@ -856,7 +856,7 @@ TEST_PYTREES = [
                         skip_deserialize=False,
                     ),
                     tree_metadata.ValueMetadataEntry(
-                        value_type='np.ndarray',
+                        value_type='jax.Array',
                         skip_deserialize=False,
                     ),
                 ],
@@ -917,7 +917,7 @@ TEST_PYTREES = [
                                 skip_deserialize=False,
                             ),
                             tree_metadata.ValueMetadataEntry(
-                                value_type='np.ndarray',
+                                value_type='jax.Array',
                                 skip_deserialize=False,
                             ),
                         ),
