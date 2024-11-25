@@ -25,9 +25,12 @@ from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
+from orbax.checkpoint._src.metadata import checkpoint
+from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import step
+from orbax.checkpoint.logging import step_statistics
 
 CompositeArgs = composite_checkpoint_handler.CompositeArgs
 JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
@@ -654,11 +657,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     handler = CompositeCheckpointHandler(
         'extra',
         state=StandardCheckpointHandler(),
-        metadata=JsonCheckpointHandler(),
     )
-    metadata = handler.metadata(self.directory)
-    self.assertEmpty(metadata.keys())
-
     state = {'a': 1, 'b': 2}
     self.save(
         handler,
@@ -667,9 +666,9 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
             state=args_lib.StandardSave(state),
         ),
     )
-    metadata = handler.metadata(self.directory)
+    step_metadata = handler.metadata(self.directory)
     self.assertDictEqual(
-        metadata.state,
+        step_metadata.item_metadata.state,
         {
             'a': value_metadata.ScalarMetadata(
                 name='a', directory=self.directory / 'state', dtype=jnp.int64
@@ -679,25 +678,185 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
             ),
         },
     )
+    self.assertDictEqual(
+        step_metadata.item_handlers,
+        {
+            'state': StandardCheckpointHandler().typestr,
+        }
+    )
     expected_elements = ['state']
-    self.assertSameElements(metadata.keys(), expected_elements)
+    self.assertSameElements(
+        step_metadata.item_metadata.keys(), expected_elements
+    )
+
+    handler_without_registry = CompositeCheckpointHandler()
+    step_metadata = handler_without_registry.metadata(self.directory)
+    self.assertDictEqual(
+        dict(step_metadata.item_metadata),
+        {
+            'state': None,
+        }
+    )
+    self.assertDictEqual(
+        step_metadata.item_handlers,
+        {
+            'state': None,
+        }
+    )
+
+  @parameterized.parameters(True, False)
+  def test_metadata_no_save(self, use_handler_registry):
+    if use_handler_registry:
+      handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+      state_handler = StandardCheckpointHandler()
+      handler_registry.add('state', args_lib.StandardSave, state_handler)
+      handler_registry.add('state', args_lib.StandardRestore, state_handler)
+      handler = CompositeCheckpointHandler(
+          handler_registry=handler_registry,
+      )
+    else:
+      handler = CompositeCheckpointHandler(
+          'extra',
+          state=StandardCheckpointHandler(),
+      )
+    step_metadata = handler.metadata(self.directory)
+    self.assertIsNone(step_metadata.format)
+    self.assertEmpty(step_metadata.item_handlers)
+    self.assertEmpty(step_metadata.item_metadata)
+    self.assertEmpty(step_metadata.metrics)
+    self.assertEqual(
+        step_metadata.performance_metrics, step_statistics.SaveStepStatistics()
+    )
+    self.assertIsNone(step_metadata.init_timestamp_nsecs)
+    self.assertIsNone(step_metadata.commit_timestamp_nsecs)
+    self.assertEmpty(step_metadata.custom)
 
   def test_metadata_handler_registry(self):
     registry = handler_registration.DefaultCheckpointHandlerRegistry()
     state_handler = StandardCheckpointHandler()
-    metadata_handler = JsonCheckpointHandler()
     registry.add('state', args_lib.StandardSave, state_handler)
     registry.add('state', args_lib.StandardRestore, state_handler)
-    registry.add(
-        'metadata',
-        args_lib.JsonSave,
-        metadata_handler,
-    )
-    registry.add('metadata', args_lib.JsonRestore, metadata_handler)
 
     handler = CompositeCheckpointHandler(handler_registry=registry)
-    metadata = handler.metadata(self.directory)
-    self.assertEmpty(metadata.keys())
+    state = {'a': 1, 'b': 2}
+    self.save(
+        handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+        ),
+    )
+    step_metadata = handler.metadata(self.directory)
+    self.assertIsNone(step_metadata.format)
+    self.assertEqual(
+        step_metadata.item_handlers,
+        {
+            'state': StandardCheckpointHandler().typestr,
+        }
+    )
+    self.assertDictEqual(
+        dict(step_metadata.item_metadata),
+        {
+            'state': {
+                'a': value_metadata.ScalarMetadata(
+                    name='a',
+                    directory=self.directory / 'state',
+                    dtype=jnp.int64,
+                ),
+                'b': value_metadata.ScalarMetadata(
+                    name='b',
+                    directory=self.directory / 'state',
+                    dtype=jnp.int64,
+                ),
+            },
+        }
+    )
+    self.assertEmpty(step_metadata.metrics)
+    self.assertEqual(
+        step_metadata.performance_metrics, step_statistics.SaveStepStatistics()
+    )
+    self.assertIsNone(step_metadata.init_timestamp_nsecs)
+    self.assertIsNone(step_metadata.commit_timestamp_nsecs)
+    self.assertEmpty(step_metadata.custom)
+
+  def test_metadata_after_step_metadata_write(self):
+    handler = CompositeCheckpointHandler(
+        'extra',
+        state=StandardCheckpointHandler(),
+    )
+    step_metadata = handler.metadata(self.directory)
+    self.assertIsNone(step_metadata.format)
+    self.assertEmpty(step_metadata.item_handlers)
+    self.assertEmpty(step_metadata.item_metadata)
+    self.assertEmpty(step_metadata.metrics)
+    self.assertEqual(
+        step_metadata.performance_metrics, step_statistics.SaveStepStatistics()
+    )
+    self.assertIsNone(step_metadata.init_timestamp_nsecs)
+    self.assertIsNone(step_metadata.commit_timestamp_nsecs)
+    self.assertEmpty(step_metadata.custom)
+
+    metadata_to_write = checkpoint.StepMetadata(
+        format='orbax',
+        item_handlers={
+            'state': StandardCheckpointHandler().typestr,
+        },
+        item_metadata={
+            'state': 123,
+        },
+        metrics={
+            'loss': 1.0,
+            'accuracy': 0.5,
+        },
+        performance_metrics=step_statistics.SaveStepStatistics(
+            preemption_received_at=1.0,
+        ),
+        init_timestamp_nsecs=1000,
+        commit_timestamp_nsecs=2000,
+        custom={
+            'custom_key': 'custom_value',
+        },
+    )
+    checkpoint.metadata_store(enable_write=True, blocking_write=True).write(
+        checkpoint.step_metadata_file_path(self.directory),
+        step_metadata_serialization.serialize(metadata_to_write)
+    )
+
+    step_metadata = handler.metadata(self.directory)
+    self.assertEqual(step_metadata.format, 'orbax')
+    self.assertDictEqual(
+        step_metadata.item_handlers,
+        {'state': StandardCheckpointHandler().typestr}
+    )
+    self.assertDictEqual(dict(step_metadata.item_metadata), {'state': None})
+    self.assertDictEqual(step_metadata.metrics, {'loss': 1.0, 'accuracy': 0.5})
+    self.assertEqual(
+        step_metadata.performance_metrics,
+        step_statistics.SaveStepStatistics(
+            preemption_received_at=1.0,
+        )
+    )
+    self.assertEqual(step_metadata.init_timestamp_nsecs, 1000)
+    self.assertEqual(step_metadata.commit_timestamp_nsecs, 2000)
+    self.assertEqual(step_metadata.custom, {'custom_key': 'custom_value'})
+
+  def test_metadata_existing_items_updates_step_metadata(self):
+    handler = CompositeCheckpointHandler(
+        'extra',
+        state=StandardCheckpointHandler(),
+    )
+    metadata_to_write = checkpoint.StepMetadata(
+        item_handlers={
+            'state': StandardCheckpointHandler().typestr,
+        },
+        item_metadata={
+            'state': 123,
+        },
+    )
+    checkpoint.metadata_store(enable_write=True, blocking_write=True).write(
+        checkpoint.step_metadata_file_path(self.directory),
+        step_metadata_serialization.serialize(metadata_to_write)
+    )
 
     state = {'a': 1, 'b': 2}
     self.save(
@@ -707,20 +866,21 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
             state=args_lib.StandardSave(state),
         ),
     )
-    metadata = handler.metadata(self.directory)
+
+    step_metadata = handler.metadata(self.directory)
     self.assertDictEqual(
-        metadata.state,
+        step_metadata.item_handlers,
         {
-            'a': value_metadata.ScalarMetadata(
-                name='a', directory=self.directory / 'state', dtype=jnp.int64
-            ),
-            'b': value_metadata.ScalarMetadata(
-                name='b', directory=self.directory / 'state', dtype=jnp.int64
-            ),
-        },
+            'state': StandardCheckpointHandler().typestr,
+        }
     )
-    expected_elements = ['state']
-    self.assertSameElements(metadata.keys(), expected_elements)
+    self.assertSameElements(
+        step_metadata.item_metadata.keys(),
+        [
+            'state',
+        ]
+    )
+    self.assertIsNotNone(step_metadata.item_metadata['state'])
 
   def test_finalize(self):
     state_handler = mock.create_autospec(StandardCheckpointHandler)
