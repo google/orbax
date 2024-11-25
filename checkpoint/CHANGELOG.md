@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests and documentation for `abstract_arrays`.
 - [Experimental Feature] Support `empty NamedTuple` leaf when
  `PyTreeMetadataOptions.support_rich_types=true`.
+ - Enable `replica_parallel` saving. Uses cache to avoid recomputing
+`devices_indices_map` for arrays with identical shape/sharding.
 
 ### Fixed
 - Fix namedtuple empty value typestr when experimental support_rich_types is

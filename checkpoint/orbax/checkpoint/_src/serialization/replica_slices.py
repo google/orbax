@@ -16,8 +16,9 @@
 
 import collections
 import dataclasses
+import functools
 import math
-from typing import Callable, Optional, Sequence
+from typing import Optional, Sequence
 
 from absl import logging
 import jax
@@ -141,26 +142,51 @@ def _hashable_slices(slices: Index) -> tuple[HashableSlice, ...]:
   return tuple([(s.start, s.stop, s.step) for s in slices])
 
 
-def _create_replica_counts_builder(
-    arr: jax.Array,
-) -> Callable[[jax.Shard], int]:
-  """Produces a mapping from addressable shards to global replication count."""
+@functools.lru_cache(maxsize=4096)
+def _sharding_num_replicas(
+    sharding: jax.sharding.Sharding, global_shape: Shape
+) -> int:
+  """Get the number of unique replicas for a sharding/shape.
 
+  Uses the devices_indices_map to get the mapping of devices to the slice of the
+  global array. This gives us the domains of every shard, which may be
+  non-unique. For any index (domain), we increment the count by one. When `n`
+  devices have the same index, this results in the replica count for that index
+  being `n`. We can assert that the number of replicas for each index should be
+  the same.
+
+  We can cache results because we typically expect `save` to be called
+  repeatedly on the same model (with changing array values).
+  The model shardings and shapes do not change during the course of a typical
+  training run.
+
+  Training typically occurs with stacked layers, so we expect the number of
+  model parameters to be significantly less than the cache size. Checkpoints
+  with unstacked layers may have thousands of parameters, but these are
+  typically used for inference, so saving is less relevant.
+
+  Args:
+    sharding: Array sharding.
+    global_shape: The global shape of the array.
+
+  Returns:
+    The number of unique replicas for the sharding/shape.
+  """
   counts = collections.defaultdict(int)
-  for index in arr.sharding.devices_indices_map(arr.shape).values():
+  for index in sharding.devices_indices_map(global_shape).values():
     counts[_hashable_slices(index)] += 1
-
-  return lambda shard: counts[_hashable_slices(shard.index)]
+  num_replicas = next(iter(counts.values()))
+  assert all(count == num_replicas for count in counts.values())
+  return num_replicas
 
 
 def calculate_replica_parallel_axis_and_local_shape(
-    arr: jax.Array, replica_count: int
+    arr: jax.Array,
 ) -> OptionalAxisAndShape:
   """Calculates a local shape for replica-parallel serialization."""
   shard0 = arr.addressable_shards[0]
-  if shard0.data.size == 0 or replica_count == 1:
-    return None, None
-  if replica_count < 1:
+  replica_count = _sharding_num_replicas(arr.sharding, arr.shape)
+  if shard0.data.size == 0 or replica_count <= 1:
     return None, None
   try:
     axis = next(
@@ -231,18 +257,13 @@ def get_replica_slices(
     # Check whether replica-parallel applies: we are dealing with non-empty
     # shards, we have more than one replica, and some dimension of the shards
     # is evenly divisible across replicas.
-    get_replica_counts = _create_replica_counts_builder(arr)
-    replica_count = get_replica_counts(shard0)
-    axis, local_shape = calculate_replica_parallel_axis_and_local_shape(
-        arr, replica_count
-    )
+    axis, local_shape = calculate_replica_parallel_axis_and_local_shape(arr)
     if axis is None or local_shape is None:
       return None
 
     rslices: list[ReplicaSlice] = []
     for shard in arr.addressable_shards:
-      # Sanity check that all shards have the same number of replicas and shape.
-      assert get_replica_counts(shard) == replica_count
+      # Sanity check that all shards have the same shape.
       assert shard.data.shape == shard0.data.shape
 
       size = local_shape[axis]
