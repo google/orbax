@@ -166,7 +166,12 @@ class InternalTreeMetadataEntry:
     return InternalTreeMetadataEntry(
         keypath,
         KeyMetadataEntry.from_json(json_dict[_KEY_METADATA_KEY]),
-        ValueMetadataEntry.from_json(json_dict[_VALUE_METADATA_KEY]),
+        ValueMetadataEntry.from_json(
+            json_dict[_VALUE_METADATA_KEY],
+            pytree_metadata_options=PyTreeMetadataOptions(
+                support_rich_types=False  # Always in legacy mode.
+            ),
+        ),
     )
 
   @classmethod

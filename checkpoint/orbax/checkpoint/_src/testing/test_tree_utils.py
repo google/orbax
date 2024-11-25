@@ -351,7 +351,7 @@ TEST_PYTREES = [
                     skip_deserialize=False,
                 ),
                 'b': tree_metadata.ValueMetadataEntry(
-                    value_type='None',
+                    value_type='Dict',
                     skip_deserialize=True,
                 ),
             },
@@ -395,7 +395,7 @@ TEST_PYTREES = [
                     skip_deserialize=False,
                 ),
                 'b': tree_metadata.ValueMetadataEntry(
-                    value_type='None',
+                    value_type='Dict',
                     skip_deserialize=True,
                 ),
             },

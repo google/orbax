@@ -21,6 +21,7 @@ import dataclasses
 import functools
 from typing import Any, Iterable, Mapping, Sequence, Type, TypeAlias
 
+from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import value_metadata_entry
 from orbax.checkpoint._src.tree import utils as tree_utils
 import simplejson
@@ -134,7 +135,12 @@ def _value_metadata_tree_for_json_loads(obj):
   if 'category' in obj:
     if obj['category'] == 'custom':
       if obj['clazz'] == _VALUE_METADATA_ENTRY_CLAZZ:
-        return value_metadata_entry.ValueMetadataEntry.from_json(obj['data'])
+        return value_metadata_entry.ValueMetadataEntry.from_json(
+            obj['data'],
+            pytree_metadata_options_lib.PyTreeMetadataOptions(
+                support_rich_types=True,  # Always in rich types mode.
+            ),
+        )
       if obj['clazz'] == 'tuple':
         return tuple(
             [(_value_metadata_tree_for_json_loads(v)) for v in obj['entries']]

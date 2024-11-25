@@ -20,6 +20,7 @@ import dataclasses
 from typing import Any, Dict
 
 from orbax.checkpoint._src.metadata import empty_values
+from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.serialization import types
 
 
@@ -48,9 +49,16 @@ class ValueMetadataEntry:
     }
 
   @classmethod
-  def from_json(cls, json_dict: Dict[str, Any]) -> ValueMetadataEntry:
+  def from_json(
+      cls,
+      json_dict: Dict[str, Any],
+      pytree_metadata_options: pytree_metadata_options_lib.PyTreeMetadataOptions,
+  ) -> ValueMetadataEntry:
     return ValueMetadataEntry(
-        value_type=json_dict[_VALUE_TYPE],
+        value_type=empty_values.override_empty_value_typestr(
+            json_dict[_VALUE_TYPE],
+            pytree_metadata_options,
+        ),
         skip_deserialize=json_dict[_SKIP_DESERIALIZE],
     )
 

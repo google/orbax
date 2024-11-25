@@ -16,6 +16,7 @@ from typing import Any
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import chex
 import jax
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.serialization import type_handlers
@@ -75,14 +76,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
     else:
       expected_tree_metadata = test_pytree.expected_nested_tree_metadata
     restored_tree_metadata = restored_internal_tree_metadata.as_nested_tree()
-    self.assertEqual(
-        jax.tree.structure(
-            expected_tree_metadata, is_leaf=tree_utils.is_empty_or_leaf
-        ),
-        jax.tree.structure(
-            restored_tree_metadata, is_leaf=tree_utils.is_empty_or_leaf
-        ),
-    )
+    chex.assert_trees_all_equal(restored_tree_metadata, expected_tree_metadata)
 
   @parameterized.product(
       test_pytree=test_tree_utils.TEST_PYTREES,
@@ -132,14 +126,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
     )
 
     restored_tree_metadata = restored_internal_tree_metadata.as_nested_tree()
-    self.assertEqual(
-        jax.tree.structure(
-            expected_tree_metadata, is_leaf=tree_utils.is_empty_or_leaf
-        ),
-        jax.tree.structure(
-            restored_tree_metadata, is_leaf=tree_utils.is_empty_or_leaf
-        ),
-    )
+    chex.assert_trees_all_equal(restored_tree_metadata, expected_tree_metadata)
 
 
 if __name__ == '__main__':
