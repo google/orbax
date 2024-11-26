@@ -17,6 +17,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
+import optax
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import pytree_metadata_options
 from orbax.checkpoint._src.testing import test_tree_utils
@@ -26,6 +27,7 @@ class EmptyValuesTest(parameterized.TestCase):
 
   @parameterized.parameters(
       (1, False, False),
+      (np.zeros(0), False, False),
       (dict(), True, True),
       ({}, True, True),
       ({"a": {}}, False, False),
@@ -36,6 +38,7 @@ class EmptyValuesTest(parameterized.TestCase):
       (None, True, True),
       ((1, 2), False, False),
       (test_tree_utils.EmptyNamedTuple(), False, True),
+      (optax.EmptyState(), False, True),
       (test_tree_utils.MuNu(mu=None, nu=None), False, False),
       (test_tree_utils.NamedTupleWithNestedAttributes(), False, False),
       (
@@ -46,6 +49,32 @@ class EmptyValuesTest(parameterized.TestCase):
       (test_tree_utils.MyEmptyChex(), True, True),
       (test_tree_utils.MyChex(), False, False),
       (test_tree_utils.MyChex(my_np_array=np.array([])), False, False),
+      (test_tree_utils.MyEmptyClass(), False, False),
+      (test_tree_utils.MyClass(), False, False),
+      (test_tree_utils.MyClass(a=None, b=None), False, False),
+      (test_tree_utils.MyClass(a=None, b=np.zeros(1)), False, False),
+      (test_tree_utils.MyEmptyFlax(), False, False),  # TODO: b/378905913 - fix
+      (test_tree_utils.MyFlax(), False, False),
+      (
+          test_tree_utils.MyFlax(
+              my_jax_array=None, my_nested_mapping=None, my_sequence=None
+          ),
+          False,
+          False,
+      ),
+      (test_tree_utils.MyFlax(my_nested_mapping={"a": 1}), False, False),
+      (test_tree_utils.MyEmptyDataClass(), False, False),
+      (test_tree_utils.MyDataClass(), False, False),
+      (
+          test_tree_utils.MyDataClass(
+              my_jax_array=None,
+              my_np_array=None,
+              my_empty_dataclass=None,
+              my_chex=None,
+          ),
+          False,
+          False,
+      ),
   )
   def test_is_supported_empty_value(self, value, expected, expected_rich_type):
     with self.subTest("legacy_metadata"):
@@ -71,6 +100,7 @@ class EmptyValuesTest(parameterized.TestCase):
 
   @parameterized.parameters(
       (1, ValueError(), ValueError()),
+      (np.zeros(0), ValueError(), ValueError()),
       (dict(), empty_values.RESTORE_TYPE_DICT, empty_values.RESTORE_TYPE_DICT),
       ({}, empty_values.RESTORE_TYPE_DICT, empty_values.RESTORE_TYPE_DICT),
       ({"a": {}}, ValueError(), ValueError()),
@@ -89,6 +119,7 @@ class EmptyValuesTest(parameterized.TestCase):
           ValueError(),
           empty_values.RESTORE_TYPE_NAMED_TUPLE,
       ),
+      (optax.EmptyState(), ValueError(), empty_values.RESTORE_TYPE_NAMED_TUPLE),
       (test_tree_utils.MuNu(mu=None, nu=None), ValueError(), ValueError()),
       (
           test_tree_utils.NamedTupleWithNestedAttributes(),
@@ -108,6 +139,44 @@ class EmptyValuesTest(parameterized.TestCase):
       (test_tree_utils.MyChex(), ValueError(), ValueError()),
       (
           test_tree_utils.MyChex(my_np_array=np.array([])),
+          ValueError(),
+          ValueError(),
+      ),
+      (test_tree_utils.MyEmptyClass(), ValueError(), ValueError()),
+      (test_tree_utils.MyClass(), ValueError(), ValueError()),
+      (test_tree_utils.MyClass(a=None, b=None), ValueError(), ValueError()),
+      (
+          test_tree_utils.MyClass(a=None, b=np.zeros(1)),
+          ValueError(),
+          ValueError(),
+      ),
+      (
+          test_tree_utils.MyEmptyFlax(),  # TODO: b/378905913 - fix
+          ValueError(),
+          ValueError(),
+      ),
+      (test_tree_utils.MyFlax(), ValueError(), ValueError()),
+      (
+          test_tree_utils.MyFlax(
+              my_jax_array=None, my_nested_mapping=None, my_sequence=None
+          ),
+          ValueError(),
+          ValueError(),
+      ),
+      (
+          test_tree_utils.MyFlax(my_nested_mapping={"a": 1}),
+          ValueError(),
+          ValueError(),
+      ),
+      (test_tree_utils.MyEmptyDataClass(), ValueError(), ValueError()),
+      (test_tree_utils.MyDataClass(), ValueError(), ValueError()),
+      (
+          test_tree_utils.MyDataClass(
+              my_jax_array=None,
+              my_np_array=None,
+              my_empty_dataclass=None,
+              my_chex=None,
+          ),
           ValueError(),
           ValueError(),
       ),

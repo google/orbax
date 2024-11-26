@@ -736,6 +736,7 @@ class BasePyTreeCheckpointHandler(
             param_infos,
             save_args=save_args,
             use_zarr3=use_zarr3,
+            pytree_metadata_options=self._pytree_metadata_options,
         )
         path.write_text(json.dumps(metadata_content.to_json()))
         jax.monitoring.record_event_duration_secs(
@@ -767,7 +768,8 @@ class BasePyTreeCheckpointHandler(
           f' {directory}.'
       )
     return tree_metadata.InternalTreeMetadata.from_json(
-        json.loads(path.read_text())
+        json.loads(path.read_text()),
+        pytree_metadata_options=self._pytree_metadata_options,
     )
 
   def metadata(self, directory: epath.Path) -> Optional[PyTree]:

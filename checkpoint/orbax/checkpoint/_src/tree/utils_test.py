@@ -174,6 +174,7 @@ class UtilsTest(parameterized.TestCase):
 
   @parameterized.parameters(
       (1, True, False),
+      (np.zeros(1), True, False),
       (dict(), True, True),
       ({}, True, True),
       ({'a': {}}, False, False),
@@ -192,6 +193,7 @@ class UtilsTest(parameterized.TestCase):
       (None, True, True),
       ((1, 2), False, False),
       (test_tree_utils.EmptyNamedTuple(), True, True),
+      (optax.EmptyState(), True, True),
       (test_tree_utils.MuNu(mu=None, nu=None), False, False),
       (test_tree_utils.MyEmptyClass(), True, False),
       (test_tree_utils.MyClass(), True, False),
@@ -207,6 +209,28 @@ class UtilsTest(parameterized.TestCase):
       (
           test_tree_utils.MyChex(my_jax_array=None, my_np_array=np.zeros(1)),
           False,
+          False,
+      ),
+      (test_tree_utils.MyEmptyFlax(), True, True),
+      (test_tree_utils.MyFlax(), False, False),
+      (
+          test_tree_utils.MyFlax(
+              my_jax_array=None, my_nested_mapping=None, my_sequence=None
+          ),
+          False,
+          False,
+      ),
+      (test_tree_utils.MyFlax(my_nested_mapping={'a': 1}), False, False),
+      (test_tree_utils.MyEmptyDataClass(), True, False),
+      (test_tree_utils.MyDataClass(), True, False),
+      (
+          test_tree_utils.MyDataClass(
+              my_jax_array=None,
+              my_np_array=None,
+              my_empty_dataclass=None,
+              my_chex=None,
+          ),
+          True,
           False,
       ),
   )
