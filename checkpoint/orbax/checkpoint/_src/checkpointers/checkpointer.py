@@ -109,6 +109,7 @@ class Checkpointer(
       checkpoint_metadata_store: Optional[checkpoint.MetadataStore] = None,
       temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None,
   ):
+    logging.info('test')
     if not checkpoint_args.has_registered_args(handler):
       logging.warning(
           'No registered CheckpointArgs found for handler type: %s',
