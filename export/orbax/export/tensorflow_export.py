@@ -14,6 +14,9 @@
 
 """Export class that implements the save and load abstract class defined in Export Base for use with the TensorFlow SavedModel export format."""
 
+# TODO: b/379692910 - remove `jax_module` and `tensorflow_module` inherit the
+# tf.Module.
+
 from typing import Any, Callable, Dict, Mapping, Sequence
 from absl import logging
 from etils.epy import reraise_utils
@@ -38,7 +41,7 @@ class TensorFlowExport(export_base.ExportBase):
       serving_configs: Sequence[osc.ServingConfig],
   ):
     self._tf_module = tf.Module()
-    self._tf_module.computation_module = module
+    self._computation_module = module
     self._serving_signatures = {}
     self._process_serving_configs(
         serving_configs,
@@ -70,7 +73,7 @@ class TensorFlowExport(export_base.ExportBase):
           f'{type(save_options)}'
       )
     save_options.experimental_custom_gradients = (
-        self._tf_module.computation_module.with_gradient
+        self._computation_module.with_gradient
     )
 
     serving_signatures = dict(self._serving_signatures)
@@ -147,7 +150,7 @@ class TensorFlowExport(export_base.ExportBase):
           )
           inference_fn = preprocessor
         else:
-          method = sc.get_infer_step(self._tf_module.computation_module.methods)
+          method = sc.get_infer_step(self._computation_module.methods)
           inference_fn = utils.make_e2e_inference_fn(method, sc)
 
         if isinstance(sc.signature_key, str):
@@ -171,4 +174,8 @@ class TensorFlowExport(export_base.ExportBase):
         # contrast, signatures will flatten the TensorSpecs of the to kwargs.
         self._tf_module.__call__ = inference_fn
 
+    # Use a single tf.Module to track all the trackable resources.
     self._tf_module.tf_trackable_resources = tf_trackable_resources
+    self._tf_module.tf_var_leaves = getattr(
+        self._computation_module.export_module(), '_tf_var_leaves'
+    )

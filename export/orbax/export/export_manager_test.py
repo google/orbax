@@ -79,7 +79,6 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
     )
     self.assertEqual(type(em.tf_module), tf.Module)
     self.assertIsNotNone(em.tf_module.__call__)
-    self.assertTrue(isinstance(em.tf_module.computation_module, tf.Module))
 
   def test_get_tf_module_orbax_model_export(self):
     serving_config = (
