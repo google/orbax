@@ -191,6 +191,7 @@ class Checkpointer(
         multihost.process_index(),
         directory,
     )
+    logging.info('test')
 
     if directory.exists():
       if force:
