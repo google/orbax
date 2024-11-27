@@ -19,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix namedtuple empty value typestr when experimental support_rich_types is
  disabled again after enabling it.
 - Fix metadata ser/deser of jax registered container nodes like flax.struct.
-
+- [emergency checkpoint] Fix local restore by re-mapping device ids directly
+instead of inferring them from how process indexes changed across restarts
+with some false assumptions.
 
 ## [0.10.1] - 2024-11-22
 

@@ -786,6 +786,7 @@ class ArrayRestoreArgs(RestoreArgs):
     greater than that of the saved array, 0's will be appended. If the
     global_shape is shorter than that of the saved array, excess elements will
     be dropped from the end of the array.
+  shape: Interchangeable with global_shape.
   strict:
     True by default. If True, enforces that the target global shape and the
     origin global shape (as recorded by the saved array) are the same. If False,
@@ -800,7 +801,19 @@ class ArrayRestoreArgs(RestoreArgs):
       None
   )
   global_shape: Optional[Tuple[int, ...]] = None
+  shape: Optional[Tuple[int, ...]] = None
   strict: bool = True
+
+  def __post_init__(self):
+    if self.shape is not None and self.global_shape is not None:
+      if self.shape != self.global_shape:
+        raise ValueError(
+            'If `shape` and `global_shape` are both provided, they must match.'
+        )
+    elif self.shape is None:
+      self.shape = self.global_shape
+    elif self.global_shape is None:
+      self.global_shape = self.shape
 
 
 @dataclasses.dataclass

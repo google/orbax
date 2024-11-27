@@ -17,7 +17,7 @@
 import asyncio
 import json
 import time
-from typing import Any
+from typing import Any, List
 from absl import logging
 from etils import epath
 import jax
@@ -62,17 +62,20 @@ def read_process_metadata(directory: epath.Path, step: int):
     )
   logging.info('Loading process index metadata from %s', metadata_folder)
 
-  runtime_to_distributed_ids = json.loads(
+  distributed_to_device_ids = json.loads(
       (metadata_folder / _GLOBAL_PROCESS_METADATA_FILE_NAME).read_text()
   )
   device_ids = json.loads(
       (metadata_folder / _MESH_METADATA_FILE_NAME).read_text()
   )
-  return runtime_to_distributed_ids, device_ids
+  return distributed_to_device_ids, device_ids
 
 
 def save_process_metadata(
-    directory: epath.Path, step: int, global_mesh: jax.sharding.Mesh
+    directory: epath.Path,
+    step: int,
+    global_mesh: jax.sharding.Mesh,
+    distributed_to_device_ids: List[List[int]],
 ):
   """Saves process metadata to local storage. Runs on every process."""
   metadata_folder = process_metadata_folder(directory, step)
@@ -92,9 +95,8 @@ def save_process_metadata(
   ).from_final(metadata_folder, multiprocessing_options=multiprocessing_options)
   asyncio.run(tmp_path.create())
 
-  runtime_to_distributed_ids = emergency_multihost.runtime_to_distributed_ids()
   (tmp_path.get() / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
-      json.dumps(runtime_to_distributed_ids)
+      json.dumps(distributed_to_device_ids)
   )
   (tmp_path.get() / _MESH_METADATA_FILE_NAME).write_text(
       json.dumps([int(id) for id in global_mesh.device_ids.flatten()])
@@ -103,20 +105,57 @@ def save_process_metadata(
 
 
 def consistent_restore_mesh_from_metadata(
-    directory: epath.Path, step: int, global_mesh: jax.sharding.Mesh
+    directory: epath.Path,
+    step: int,
+    global_mesh: jax.sharding.Mesh,
+    current_distributed_to_device_ids: List[List[int]],
 ) -> jax.sharding.Mesh:
-  """Create a mesh consistent with the saved metadata."""
-  runtime_to_distributed_ids, device_ids = read_process_metadata(
-      directory, step
+  """Create a mesh consistent with the saved metadata.
+
+  Each device has its own specific local shard.
+  Naive example:
+    Before restart: device X (with id 0) saves shard 0.
+    After restart:  device X (with new id 1) reads shard 0.
+  To ensure the same device X (with different software ids) reads the
+  same locally available shard and represent it in the correct index
+  within the global jax.Array, we use the `restore_mesh`.
+
+  More context on `restore_mesh`:
+  1. We can think of mesh as being backed by a list of devices.
+  2. Default mesh follows the default device id order [0, ..., n-1]. Or
+      the user may permute it according to their needs.
+  3. After restart, the user will construct the same software mesh as (2).
+  4. But a given hardware device may change its id because of scheduler
+      or runtime quirks.
+  5. Goal: construct the mesh with the same hardware device order as
+      before restart, that may not follow the current software ids.
+  5. Thus, we shuffle the device order within the mesh by checking how
+      each device's software ids changed across restarts.
+
+  Args:
+    directory: The directory of the local checkpoint.
+    step: The step of the local checkpoint.
+    global_mesh: The global mesh, provided by the user.
+    current_distributed_to_device_ids: The distributed id to range of device ids
+      mapping of the current incarnation.
+
+  Returns:
+    A mesh that is the same as the mesh used to save the local checkpoint.
+  """
+  previous_distributed_to_device_ids, previous_device_ids = (
+      read_process_metadata(directory, step)
   )
-  assert isinstance(device_ids, list)
+  assert isinstance(previous_device_ids, list)
   logging.info(
-      'From process metadata, runtime_to_distributed_ids=%s',
-      runtime_to_distributed_ids,
+      'From process metadata, distributed_to_device_ids=%s',
+      previous_distributed_to_device_ids,
   )
-  logging.info('From process metadata, device_ids=%s', device_ids)
+  logging.info('From process metadata, device_ids=%s', previous_device_ids)
   consistent_mesh = emergency_multihost.consistent_restore_mesh(
-      global_mesh, device_ids, runtime_to_distributed_ids
+      global_mesh,
+      previous_device_ids,
+      previous_distributed_to_device_ids=previous_distributed_to_device_ids,
+      current_distributed_to_device_ids=current_distributed_to_device_ids,
   )
   logging.info(
       'Created consistent mesh with device_ids=%s',

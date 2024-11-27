@@ -43,6 +43,7 @@ import numpy as np
 from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint._src.arrays import abstract_arrays
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import counters
@@ -131,9 +132,11 @@ async def _print_restoration_debug_info(
 ):
   """Prints debug info before restoring the parameter."""
   arrays = jax.tree.map(abstract_arrays.to_shape_dtype_struct, restore_args)
-  param_names = tree_utils.get_param_names(arrays)
+  param_names = tree_utils.get_param_names(arrays, include_empty_nodes=False)
   flat_arrays, _ = jax.tree.flatten(arrays)
   flat_param_names, _ = jax.tree.flatten(param_names)
+  logging.vlog(1, 'Found %d arrays.', len(flat_arrays))
+  logging.vlog(1, 'Param names to check: %s', flat_param_names)
   assert len(flat_arrays) == len(flat_param_names)
 
   chunk_infos = await asyncio.gather(*[
@@ -155,7 +158,7 @@ async def _print_restoration_debug_info(
       for chunk_id in present_chunk_ids:
         logging.vlog(
             1,
-            '  index: %s -- chunk ID: %s',
+            '  [present] index: %s -- chunk ID: %s',
             local_checkpoint_data_debugging.chunk_id_to_index(
                 chunk_id, shard_shape
             ),
@@ -166,7 +169,7 @@ async def _print_restoration_debug_info(
       for chunk_id in missing_chunk_ids:
         logging.vlog(
             1,
-            '  index: %s -- chunk ID: %s',
+            '  [missing] index: %s -- chunk ID: %s',
             local_checkpoint_data_debugging.chunk_id_to_index(
                 chunk_id, shard_shape
             ),
@@ -618,9 +621,13 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     if saved:
       self._steps.append(step)
       self._steps = self._steps[-self._max_to_keep :]
-      # TODO(cpgaffney) make this asynchronous.
+      # TODO(cpgaffney) make this asynchronous. Not a priority because the write
+      # happens to local storage, so it should be fast.
       mesh_consistency.save_process_metadata(
-          self.directory, step, self._global_mesh
+          self.directory,
+          step,
+          self._global_mesh,
+          multihost.distributed_to_device_ids(),
       )
     return saved
 
@@ -1056,7 +1063,6 @@ class CheckpointManager(
       self,
       step: int,
       restoring_slice_id: int,
-      args: Optional[args_lib.CheckpointArgs] = None,
       directory: Optional[epath.PathLike] = None,
   ) -> Any:
     logging.info(
@@ -1112,27 +1118,11 @@ class CheckpointManager(
       logging.vlog(
           1, 'emergency.CheckpointManager: restoring from local checkpoint.'
       )
-      # Each device has its own specific local shard.
-      # Naive example:
-      #  Before restart: device X (with id 0) saves shard 0.
-      #  After restart:  device X (with new id 1) reads shard 0.
-      # To ensure the same device X (with different software ids) reads the
-      # same locally available shard and represent it in the correct index
-      # within the global jax.Array, we use the `restore_mesh`.
-
-      # More context on `restore_mesh`:
-      # 1. We can think of mesh as being backed by a list of devices.
-      # 2. Default mesh follows the default device id order [0, ..., n-1]. Or
-      #    the user may permute it according to their needs.
-      # 3. After restart, the user will construct the same software mesh as (2).
-      # 4. But a given hardware device may change its id because of scheduler
-      #    or runtime quirks.
-      # 5. Goal: construct the mesh with the same hardware device order as
-      #    before restart, that may not follow the current software ids.
-      # 5. Thus, we shuffle the device order within the mesh by checking how
-      #    each device's software ids changed across restarts.
       restore_mesh = mesh_consistency.consistent_restore_mesh_from_metadata(
-          self._local_directory, step, self._global_mesh
+          self._local_directory,
+          step,
+          self._global_mesh,
+          multihost.distributed_to_device_ids(),
       )
 
       restoring_processes = multihost.unique_processes_from_devices(
@@ -1191,6 +1181,12 @@ class CheckpointManager(
         )
 
       step_stats.checkpointer_start_time = time.time()
+      args = args_lib.PyTreeRestore(
+          item=self._abstract_state,
+          restore_args=checkpoint_utils.construct_restore_args(
+              self._abstract_state
+          ),
+      )
       single_slice_pytree = local_state_handler.restore(
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
           args=dataclasses.replace(args, restore_args=restore_args),
@@ -1258,7 +1254,6 @@ class CheckpointManager(
   def _restore_from_persistent(
       self,
       step: int,
-      args: Optional[args_lib.CheckpointArgs] = None,
       directory: Optional[epath.PathLike] = None,
   ) -> Any:
     logging.info(
@@ -1266,6 +1261,12 @@ class CheckpointManager(
         ' checkpoint in directory=%s',
         step,
         directory or self._persistent_directory,
+    )
+    args = args_lib.PyTreeRestore(
+        item=self._abstract_state,
+        restore_args=checkpoint_utils.construct_restore_args(
+            self._abstract_state
+        ),
     )
 
     # Create a temporarily read-only PersistentCheckpointManager that will
@@ -1303,6 +1304,7 @@ class CheckpointManager(
       args: Optional[args_lib.CheckpointArgs] = None,
       directory: Optional[epath.PathLike] = None,
   ) -> Any:
+    del args
     if step is None:
       step = self.latest_step()
       if step is None:
@@ -1316,13 +1318,10 @@ class CheckpointManager(
       return self._restore_from_local(
           step=step,
           restoring_slice_id=restoring_slice_id,
-          args=args,
           directory=directory,
       )
 
-    return self._restore_from_persistent(
-        step=step, args=args, directory=directory
-    )
+    return self._restore_from_persistent(step=step, directory=directory)
 
   def item_metadata(self, step: int) -> Any:
     raise NotImplementedError(
