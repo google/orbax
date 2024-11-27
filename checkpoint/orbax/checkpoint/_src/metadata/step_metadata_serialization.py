@@ -45,16 +45,27 @@ def serialize(metadata: StepMetadata) -> SerializedMetadata:
       if isinstance(val, float)
   }
 
-  return {
-      'format': metadata.format,
-      'item_handlers': metadata.item_handlers,
-      'item_metadata': just_item_names,
-      'metrics': metadata.metrics,
-      'performance_metrics': float_metrics,
-      'init_timestamp_nsecs': metadata.init_timestamp_nsecs,
-      'commit_timestamp_nsecs': metadata.commit_timestamp_nsecs,
-      'custom': metadata.custom,
-  }
+  serialized_metadata = {}
+  if metadata.format is not None:
+    serialized_metadata['format'] = metadata.format
+  if metadata.item_handlers:
+    serialized_metadata['item_handlers'] = metadata.item_handlers
+  if just_item_names is not None:
+    serialized_metadata['item_metadata'] = just_item_names
+  if metadata.metrics:
+    serialized_metadata['metrics'] = metadata.metrics
+  if float_metrics:
+    serialized_metadata['performance_metrics'] = float_metrics
+  if metadata.init_timestamp_nsecs is not None:
+    serialized_metadata['init_timestamp_nsecs'] = metadata.init_timestamp_nsecs
+  if metadata.commit_timestamp_nsecs is not None:
+    serialized_metadata['commit_timestamp_nsecs'] = (
+        metadata.commit_timestamp_nsecs
+    )
+  if metadata.custom:
+    serialized_metadata['custom'] = metadata.custom
+
+  return serialized_metadata
 
 
 def deserialize(
@@ -70,7 +81,7 @@ def deserialize(
 
   utils.validate_field(metadata_dict, 'item_handlers', dict)
   for k in metadata_dict.get('item_handlers', {}) or {}:
-    utils.validate_dict_entry(metadata_dict, 'item_handlers', k, str, str)
+    utils.validate_dict_entry(metadata_dict, 'item_handlers', k, str)
   validated_metadata_dict['item_handlers'] = metadata_dict.get(
       'item_handlers', {}
   )

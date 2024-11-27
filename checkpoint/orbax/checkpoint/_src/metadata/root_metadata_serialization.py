@@ -24,10 +24,12 @@ RootMetadata = checkpoint.RootMetadata
 
 def serialize(metadata: RootMetadata) -> SerializedMetadata:
   """Serializes `metadata` to a dictionary."""
-  return {
-      'format': metadata.format,
-      'custom': metadata.custom,
-  }
+  serialized_metadata = {}
+  if metadata.format is not None:
+    serialized_metadata['format'] = metadata.format
+  if metadata.custom:
+    serialized_metadata['custom'] = metadata.custom
+  return serialized_metadata
 
 
 def deserialize(metadata_dict: SerializedMetadata) -> RootMetadata:
@@ -40,7 +42,7 @@ def deserialize(metadata_dict: SerializedMetadata) -> RootMetadata:
 
   if 'custom' in metadata_dict:
     utils.validate_field(metadata_dict, 'custom', dict)
-    for k in metadata_dict['custom']:
+    for k in metadata_dict.get('custom', {}) or {}:
       utils.validate_dict_entry(metadata_dict, 'custom', k, str)
   validated_metadata_dict['custom'] = metadata_dict.get('custom', {})
 

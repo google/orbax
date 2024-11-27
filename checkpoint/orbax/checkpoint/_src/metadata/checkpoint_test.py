@@ -150,11 +150,11 @@ class CheckpointMetadataTest(parameterized.TestCase):
       checkpoint.step_metadata_file_path,
       checkpoint.root_metadata_file_path,
   )
-  def test_unkown_metadata_path(
+  def test_metadata_path_does_not_exist(
       self, file_path_fn: Callable[[epath.PathLike], epath.Path]
   ):
-    with self.assertRaisesRegex(ValueError, 'Path is not a directory'):
-      file_path_fn('unknown_metadata_path')
+    with self.assertRaisesRegex(FileNotFoundError, 'Path does not exist'):
+      file_path_fn('non_existent_metadata_path')
 
   def test_legacy_root_metadata_file_path(self):
     self.assertEqual(
@@ -475,7 +475,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
         self.directory / self.get_metadata_filename(metadata_class),
     )
 
-    with self.assertRaisesRegex(ValueError, 'Path is not a directory'):
+    with self.assertRaisesRegex(IOError, 'Path does not exist'):
       self.get_metadata_file_path(metadata_class, path=self.directory / '0')
 
     metadata_file = self.get_metadata_file_path(metadata_class)
@@ -483,7 +483,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
         file_path=metadata_file,
         metadata=self.serialize_metadata(self.get_metadata(metadata_class)),
     )
-    with self.assertRaisesRegex(ValueError, 'Path is not a directory'):
+    with self.assertRaisesRegex(IOError, 'Path is not a directory'):
       self.get_metadata_file_path(metadata_class, path=metadata_file)
 
   @parameterized.parameters(True, False)
@@ -491,6 +491,70 @@ class CheckpointMetadataTest(parameterized.TestCase):
     with self.assertRaisesRegex(TypeError, 'cannot pickle'):
       _ = pickle.dumps(self.write_metadata_store(blocking_write))
     _ = pickle.dumps(self.read_metadata_store(blocking_write))
+
+  @parameterized.parameters(
+      ({'format': int()},),
+      ({'custom': list()},),
+      ({'custom': {int(): None}},),
+  )
+  def test_deserialize_wrong_types_root_metadata(
+      self, wrong_metadata: checkpoint.SerializedMetadata
+  ):
+    with self.assertRaises(ValueError):
+      self.deserialize_metadata(RootMetadata, wrong_metadata)
+
+  @parameterized.parameters(
+      ({'format': int()},),
+      ({'item_handlers': list()},),
+      ({'item_handlers': {int(): None}},),
+      ({'item_metadata': list()},),
+      ({'item_metadata': {int(): None}},),
+      ({'metrics': list()},),
+      ({'metrics': {int(): None}},),
+      ({'performance_metrics': list()},),
+      ({'performance_metrics': {int(): float()}},),
+      ({'performance_metrics': {str(): int()}},),
+      ({'init_timestamp_nsecs': float()},),
+      ({'commit_timestamp_nsecs': float()},),
+      ({'custom': list()},),
+      ({'custom': {int(): None}},),
+  )
+  def test_deserialize_wrong_types_step_metadata(
+      self, wrong_metadata: checkpoint.SerializedMetadata
+  ):
+    with self.assertRaises(ValueError):
+      self.deserialize_metadata(StepMetadata, wrong_metadata)
+
+  @parameterized.parameters(
+      (
+          RootMetadata(custom={'a': None}),
+          {'custom': {'a': None}}
+      ),
+      (
+          RootMetadata(format=_SAMPLE_FORMAT),
+          {'format': _SAMPLE_FORMAT}
+      ),
+      (
+          StepMetadata(format=_SAMPLE_FORMAT),
+          {'format': _SAMPLE_FORMAT},
+      ),
+      (
+          StepMetadata(item_handlers={'a': 'a_handler'}),
+          {'item_handlers': {'a': 'a_handler'}},
+      ),
+      (
+          StepMetadata(custom={'blah': 123}),
+          {'custom': {'blah': 123}},
+      ),
+  )
+  def test_only_serialize_non_default_metadata_values(
+      self,
+      metadata: StepMetadata | RootMetadata,
+      expected_serialized_metadata: dict[str, Any],
+  ):
+    self.assertEqual(
+        self.serialize_metadata(metadata), expected_serialized_metadata
+    )
 
 
 if __name__ == '__main__':

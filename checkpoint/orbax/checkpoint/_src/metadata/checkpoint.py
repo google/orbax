@@ -35,25 +35,29 @@ StepStatistics = step_statistics.SaveStepStatistics
 SerializedMetadata = TypeVar('SerializedMetadata', bound=dict[str, Any])
 
 
+def _sanitize_metadata_path(path: epath.PathLike) -> epath.Path:
+  """Sanitizes the path and returns it as an `epath.Path`."""
+  path = epath.Path(path)
+  if not path.exists():
+    raise FileNotFoundError(f'Path does not exist: {path}')
+  if not path.is_dir():
+    raise NotADirectoryError(f'Path is not a directory: {path}')
+  return path
+
+
 def step_metadata_file_path(path: epath.PathLike) -> epath.Path:
   """The path to step metadata file for a given checkpoint directory."""
-  path = epath.Path(path)
-  if not path.is_dir():
-    raise ValueError(f'Path is not a directory: {path}')
-  return path / _STEP_METADATA_FILENAME
+  return _sanitize_metadata_path(path) / _STEP_METADATA_FILENAME
 
 
 def root_metadata_file_path(
     path: epath.PathLike, *, legacy: bool = False
 ) -> epath.Path:
   """The path to root metadata file for a given checkpoint directory."""
-  path = epath.Path(path)
-  if not path.is_dir():
-    raise ValueError(f'Path is not a directory: {path}')
   filename = (
       _LEGACY_ROOT_METADATA_FILENAME if legacy else _ROOT_METADATA_FILENAME
   )
-  return path / filename
+  return _sanitize_metadata_path(path) / filename
 
 
 @dataclasses.dataclass
@@ -97,7 +101,7 @@ class RootMetadata:
   """
 
   format: str | None = None
-  custom: dict[str, Any] = dataclasses.field(default_factory=dict)
+  custom: dict[str, Any] | None = dataclasses.field(default_factory=dict)
 
 
 class MetadataStore(Protocol):
