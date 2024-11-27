@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  `PyTreeMetadataOptions.support_rich_types=true`.
  - Enable `replica_parallel` saving. Uses cache to avoid recomputing
 `devices_indices_map` for arrays with identical shape/sharding.
+- Add Layout support to args.StandardRestore
 
 ### Fixed
 - Fix namedtuple empty value typestr when experimental support_rich_types is

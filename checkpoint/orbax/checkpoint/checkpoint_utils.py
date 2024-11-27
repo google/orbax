@@ -21,6 +21,7 @@ from typing import Any, Callable, Iterator, Optional
 from absl import logging
 from etils import epath
 import jax
+from jax.experimental import layout
 import numpy as np
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.metadata import value as value_metadata
@@ -33,6 +34,7 @@ from orbax.checkpoint._src.serialization import type_handlers
 PyTree = Any
 STANDARD_ARRAY_TYPES = (int, float, np.ndarray, jax.Array)
 _SNAPSHOTS = '_SNAPSHOTS'
+Layout = layout.Layout
 
 
 def _init_step_name_format(
@@ -369,6 +371,7 @@ def construct_restore_args(
     target: PyTree,
     sharding_tree: Optional[PyTree] = None,
     set_global_shape: bool = True,
+    support_layout: bool = False,
 ) -> PyTree:
   """Creates restore_args given a target PyTree.
 
@@ -409,6 +412,8 @@ def construct_restore_args(
       restoration sharding. If not provided, sharding will default to the
       shardings specified by `target`.
     set_global_shape: If true, set the `global_shape` field of ArrayRestoreArgs.
+    support_layout: If true, layout is extracted from jax.Array or
+      jax.ShapeDtypeStruct.
 
   Returns:
     A PyTree matching target of RestoreArgs (or ArrayRestoreArgs) objects.
@@ -416,7 +421,7 @@ def construct_restore_args(
 
   def _array_restore_args(
       value: Any,
-      sharding: Optional[jax.sharding.Sharding],
+      sharding: Optional[jax.sharding.Sharding | Layout],
       dtype: Optional[np.dtype] = None,
   ) -> type_handlers.ArrayRestoreArgs:
     return type_handlers.ArrayRestoreArgs(
@@ -461,8 +466,20 @@ def construct_restore_args(
     else:
       raise ValueError(f'Unsupported type: {type(value)}')
 
+  def _get_sharding_or_layout(value):
+    if hasattr(value, 'sharding'):
+      if (
+          support_layout
+          and hasattr(value, 'layout')
+          and value.layout.device_local_layout
+      ):
+        # value is a jax.Array or a jax.ShapeDtypeStruct.
+        return value.layout
+      else:
+        return value.sharding
+    else:
+      return None
+
   if sharding_tree is None:
-    sharding_tree = jax.tree.map(
-        lambda x: x.sharding if hasattr(x, 'sharding') else None, target
-    )
+    sharding_tree = jax.tree.map(_get_sharding_or_layout, target)
   return jax.tree.map(_restore_args, target, sharding_tree)

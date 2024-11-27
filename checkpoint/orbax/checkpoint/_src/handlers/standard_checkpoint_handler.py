@@ -278,7 +278,9 @@ class StandardRestoreArgs(CheckpointArgs):
     strict: if False, restoration allows silent truncating/padding of arrays if
         the stored array shape does not match the target shape. Otherwise,
         raises an error.
+    support_layout: if True, restores with the layouts in `item`.
   """
 
   item: Optional[PyTree] = None
   strict: bool = True
+  support_layout: bool = False
