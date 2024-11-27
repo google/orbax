@@ -368,6 +368,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
         self.deserialize_metadata(metadata_class, serialized_metadata),
         metadata_class(
             format=_SAMPLE_FORMAT,
+            custom={'blah': 2},
         ),
     )
 
@@ -555,6 +556,21 @@ class CheckpointMetadataTest(parameterized.TestCase):
     self.assertEqual(
         self.serialize_metadata(metadata), expected_serialized_metadata
     )
+
+  @parameterized.parameters(StepMetadata, RootMetadata)
+  def test_unknown_key_in_metadata(
+      self, metadata_class: type[StepMetadata] | type[RootMetadata],
+  ):
+    metadata = metadata_class(
+        format=_SAMPLE_FORMAT,
+        custom={'a': 1},
+    )
+    serialized_metadata = self.serialize_metadata(metadata)
+    serialized_metadata['blah'] = 2
+    with self.assertRaisesRegex(
+        ValueError, 'Provided metadata contains unknown key blah'
+    ):
+      self.deserialize_metadata(metadata_class, serialized_metadata)
 
 
 if __name__ == '__main__':

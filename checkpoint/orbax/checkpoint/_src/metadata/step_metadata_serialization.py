@@ -136,8 +136,14 @@ def deserialize(
 
   for k in metadata_dict:
     if k not in validated_metadata_dict:
+      if 'custom' in metadata_dict and metadata_dict['custom']:
+        raise ValueError(
+            'Provided metadata contains unknown key %s, and the custom field '
+            'is already defined.' % k
+        )
       logging.warning(
-          'Provided metadata contains unknown key %s, ignoring.', k
+          'Provided metadata contains unknown key %s. Adding it to custom.', k
       )
+      validated_metadata_dict['custom'][k] = metadata_dict[k]
 
   return StepMetadata(**validated_metadata_dict)
