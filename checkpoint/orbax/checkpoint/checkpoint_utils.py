@@ -28,6 +28,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.metadata import tree as tree_metadata
 
 
 PyTree = Any
@@ -465,4 +466,10 @@ def construct_restore_args(
     sharding_tree = jax.tree.map(
         lambda x: x.sharding if hasattr(x, 'sharding') else None, target
     )
-  return jax.tree.map(_restore_args, target, sharding_tree)
+  if isinstance(target, tree_metadata.TreeMetadata):
+    return tree_metadata.TreeMetadata(
+        tree=jax.tree.map(_restore_args, target.tree, sharding_tree.tree),
+        **target.properties(include_tree=False),
+    )
+  else:
+    return jax.tree.map(_restore_args, target, sharding_tree)

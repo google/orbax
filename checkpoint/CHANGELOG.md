@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  disabled again after enabling it.
 - Fix metadata ser/deser of jax registered container nodes like flax.struct.
 
+### Changed
+- Add user-facing `TreeMetadata` object returned by
+`PyTreeCheckpointHandler.metadata`. This object mimics an ordinary PyTree to
+make the change unnoticeable to most users, but also has additional accessible
+properties not included in any tree mapping operations.
+
 
 ## [0.10.1] - 2024-11-22
 

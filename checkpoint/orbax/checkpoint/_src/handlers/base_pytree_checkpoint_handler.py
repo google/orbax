@@ -42,7 +42,6 @@ from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.metadata import empty_values
-from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.serialization import serialization
@@ -50,6 +49,7 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.tree import utils as tree_utils
+from orbax.checkpoint._src.metadata import tree as tree_metadata
 import tensorstore as ts
 
 
@@ -772,7 +772,8 @@ class BasePyTreeCheckpointHandler(
         pytree_metadata_options=self._pytree_metadata_options,
     )
 
-  def metadata(self, directory: epath.Path) -> Optional[PyTree]:
+
+  def metadata(self, directory: epath.Path) -> tree_metadata.TreeMetadata:
     """Returns tree metadata.
 
     The result will be a PyTree matching the structure of the saved checkpoint.
@@ -799,8 +800,11 @@ class BasePyTreeCheckpointHandler(
       tree containing metadata.
     """
     is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
-    return self._read_metadata_file(directory).as_user_metadata(
-        directory, self._type_handler_registry, use_ocdbt=is_ocdbt_checkpoint
+    return tree_metadata.TreeMetadata.build(
+        self._read_metadata_file(directory),
+        directory=directory,
+        type_handler_registry=self._type_handler_registry,
+        use_ocdbt=is_ocdbt_checkpoint,
     )
 
   def finalize(self, directory: epath.Path) -> None:

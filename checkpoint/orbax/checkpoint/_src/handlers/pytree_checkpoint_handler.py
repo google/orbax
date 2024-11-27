@@ -42,11 +42,11 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import empty_values
-from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
+from orbax.checkpoint._src.metadata import tree as tree_metadata
 import tensorstore as ts
 
 
@@ -982,7 +982,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         use_zarr3,
     )
 
-  def metadata(self, directory: epath.Path) -> Optional[PyTree]:
+  def metadata(self, directory: epath.Path) -> tree_metadata.TreeMetadata:
     """Returns tree metadata.
 
     The result will be a PyTree matching the structure of the saved checkpoint.
@@ -1053,6 +1053,12 @@ class PyTreeSaveArgs(CheckpointArgs):
   ocdbt_target_data_file_size: Optional[int] = None
   enable_pinned_host_transfer: bool = True
 
+  def __post_init__(self):
+    if isinstance(self.item, tree_metadata.TreeMetadata):
+      self.item = self.item.tree
+    if isinstance(self.save_args, tree_metadata.TreeMetadata):
+      self.save_args = self.save_args.tree
+
 
 @register_with_handler(PyTreeCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
@@ -1090,3 +1096,11 @@ class PyTreeRestoreArgs(CheckpointArgs):
   transforms: Optional[PyTree] = None
   transforms_default_to_original: bool = True
   legacy_transform_fn: Optional[LegacyTransformFn] = None
+
+  def __post_init__(self):
+    if isinstance(self.item, tree_metadata.TreeMetadata):
+      self.item = self.item.tree
+    if isinstance(self.restore_args, tree_metadata.TreeMetadata):
+      self.restore_args = self.restore_args.tree
+    if isinstance(self.transforms, tree_metadata.TreeMetadata):
+      self.transforms = self.transforms.tree
