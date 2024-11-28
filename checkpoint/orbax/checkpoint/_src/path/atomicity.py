@@ -52,6 +52,7 @@ Configuration can be done in the following way::
 from __future__ import annotations
 
 import asyncio
+import itertools
 import re
 import threading
 import time
@@ -63,7 +64,6 @@ import jax
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
-from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_utils
 from orbax.checkpoint._src.path import step as step_lib
@@ -72,6 +72,9 @@ from orbax.checkpoint._src.path import utils
 
 TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
 COMMIT_SUCCESS_FILE = step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
+
+
+_module_unique_count = itertools.count()
 
 
 class TemporaryPath(Protocol):
@@ -201,7 +204,7 @@ def _get_tmp_directory(final_path: epath.Path) -> epath.Path:
   # Path may not be completely unique if a preemption occurs. We rely on the
   # existing tmp directory being deleted elsewhere.
   return epath.Path(final_path.parent) / (
-      final_path.name + TMP_DIR_SUFFIX + str(counters.tmp_directory_counter())
+      final_path.name + TMP_DIR_SUFFIX + str(next(_module_unique_count))
   )
 
 
@@ -462,7 +465,6 @@ async def create_all(
 ):
   """Creates all temporary paths in parallel."""
   start = time.time()
-  final_dir = paths[0].get_final()
   multiprocessing_options = (
       multiprocessing_options or options_lib.MultiprocessingOptions()
   )
@@ -474,7 +476,6 @@ async def create_all(
       multihost.unique_barrier_key(
           'create_tmp_directory:pre',
           prefix=barrier_sync_key_prefix,
-          suffix=f'{final_dir.name}.{counters.tmp_directory_counter()}',
       ),
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,
@@ -484,7 +485,6 @@ async def create_all(
       multihost.unique_barrier_key(
           'create_tmp_directory:post',
           prefix=barrier_sync_key_prefix,
-          suffix=f'{final_dir.name}.{counters.tmp_directory_counter()}',
       ),
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,

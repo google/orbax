@@ -202,7 +202,6 @@ class Checkpointer(
         multihost.unique_barrier_key(
             'Checkpointer:save',
             prefix=self._barrier_sync_key_prefix,
-            suffix=directory.name,
         ),
         processes=self._active_processes,
     )
@@ -218,7 +217,7 @@ class Checkpointer(
         multihost.unique_barrier_key(
             'Checkpointer:finalize',
             prefix=self._barrier_sync_key_prefix,
-            suffix=directory.name,
+            # suffix=directory.name,
         ),
         processes=self._active_processes,
     )
@@ -238,7 +237,6 @@ class Checkpointer(
         multihost.unique_barrier_key(
             'Checkpointer:restore',
             prefix=self._barrier_sync_key_prefix,
-            suffix=directory.name,
         ),
         processes=self._active_processes,
     )

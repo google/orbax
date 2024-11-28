@@ -592,7 +592,6 @@ def cleanup_tmp_directories(
       multihost.unique_barrier_key(
           'cleanup_tmp_dirs',
           prefix=barrier_sync_key_prefix,
-          suffix=directory.name,
       ),
       timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
       processes=active_processes,

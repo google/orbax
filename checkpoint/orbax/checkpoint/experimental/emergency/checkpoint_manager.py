@@ -30,6 +30,7 @@ import collections
 import dataclasses
 import enum
 import functools
+import itertools
 import operator
 import time
 from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set
@@ -46,7 +47,6 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint._src.arrays import abstract_arrays
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
-from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import step as step_lib
@@ -72,6 +72,10 @@ get_present_and_missing_chunks = (
 
 _PRIMARY_REPLICA_ID = 0
 _SECONDARY_REPLICA_ID = 1
+
+
+local_all_steps_broadcast_counter = itertools.count()
+find_complete_slice_broadcast_counter = itertools.count()
 
 
 def _local_checkpoint_handler(
@@ -293,17 +297,14 @@ class CheckpointManagerOptions:
 class _BarrierIdentifier(enum.Enum):
   """Identifies the barrier being run."""
 
-  GLOBAL_MAX = 'global_max'
   LOCAL_ALL_STEPS = 'local_all_steps'
   FIND_COMPLETE_SLICE = 'find_complete_slice'
 
   def get_counter(self) -> str:
-    if self.name == self.GLOBAL_MAX.name:
-      return counters.global_max_broadcast_counter()
-    elif self.name == self.LOCAL_ALL_STEPS.name:
-      return counters.local_all_steps_broadcast_counter()
+    if self.name == self.LOCAL_ALL_STEPS.name:
+      return str(next(local_all_steps_broadcast_counter))
     elif self.name == self.FIND_COMPLETE_SLICE.name:
-      return counters.find_complete_slice_broadcast_counter()
+      return str(next(find_complete_slice_broadcast_counter))
     else:
       raise ValueError(f'Unknown barrier identifier: {self.name}')
 

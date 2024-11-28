@@ -21,9 +21,7 @@ from __future__ import annotations
 import asyncio
 from concurrent import futures
 import contextlib
-import functools
 import inspect
-import itertools
 import time
 import typing
 from typing import Any, List, Optional, Set
@@ -40,7 +38,6 @@ from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
-from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import atomicity
@@ -129,7 +126,7 @@ def create_tmp_directory(
       multihost.unique_barrier_key(
           'create_tmp_directory:pre',
           prefix=barrier_sync_key_prefix,
-          suffix=f'{final_dir.name}.{counters.tmp_directory_counter()}',
+          suffix=f'{final_dir.name}',
       ),
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,
@@ -163,7 +160,7 @@ def create_tmp_directory(
       multihost.unique_barrier_key(
           'create_tmp_directory:post',
           prefix=barrier_sync_key_prefix,
-          suffix=f'{final_dir.name}.{counters.tmp_directory_counter()}',
+          suffix=f'{final_dir.name}',
       ),
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,
@@ -543,32 +540,12 @@ def _get_test_wrapper_function(test_func):
     def _get_unique_barrier_key(key: str) -> str:
       return f'{key}.{self.id()}'
 
-    def _patched_save_counter(test_counter) -> str:
-      return f'{self.id()}_{next(test_counter)}'
-
-    test_counters = {}
-    patched_counters = {}
-    for name, _ in inspect.getmembers(counters, predicate=inspect.isfunction):
-      test_counters[name] = itertools.count()
-      patched_counters[name] = functools.partial(
-          _patched_save_counter, test_counters[name]
-      )
-
     with mock.patch.object(
         multihost,
         '_unique_barrier_key',
         new=_get_unique_barrier_key,
     ):
-      with contextlib.ExitStack() as stack:
-        for name, patched_counter in patched_counters.items():
-          stack.enter_context(
-              mock.patch.object(
-                  counters,
-                  name,
-                  new=patched_counter,
-              )
-          )
-        return test_func(self, *args, **kwargs)
+      return test_func(self, *args, **kwargs)
 
   return test_wrapper
 

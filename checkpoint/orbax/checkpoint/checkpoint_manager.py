@@ -44,7 +44,6 @@ from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import root_metadata_serialization
-from orbax.checkpoint._src.multihost import counters
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import deleter
@@ -433,7 +432,7 @@ def _create_root_directory(
       multihost.unique_barrier_key(
           'CheckpointManager:create_directory',
           prefix=multiprocessing_options.barrier_sync_key_prefix,
-          suffix=None,
+          # suffix=None,
       ),
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=multiprocessing_options.active_processes,
@@ -1062,7 +1061,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         multihost.unique_barrier_key(
             'CheckpointManager:deleted_step',
             prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-            suffix=str(step),
+            # suffix=str(step),
         ),
         timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
         processes=self._multiprocessing_options.active_processes,
@@ -1223,7 +1222,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           multihost.unique_barrier_key(
               'CheckpointManager:delete_unfinalized_step_gcs',
               prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-              suffix=str(step),
           ),
           timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
           processes=self._multiprocessing_options.active_processes,
@@ -1259,7 +1257,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         multihost.unique_barrier_key(
             'CheckpointManager:old_steps_to_remove',
             prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-            suffix=str(step),
+            # suffix=str(step),
         ),
         processes=self._multiprocessing_options.active_processes,
     )
@@ -1497,9 +1495,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
     )
 
-  def _metadata_save_counter(self) -> str:
-    return counters.root_metadata_save_counter()
-
   def _metadata_file_path(self, legacy: bool = False) -> epath.Path:
     if not self._metadata_dir.exists():
       raise ValueError('Metadata directory is not initialized.')
@@ -1531,7 +1526,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           multihost.unique_barrier_key(
               'CheckpointManager:save_metadata',
               prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-              suffix=self._metadata_save_counter(),
           ),
           processes=self._multiprocessing_options.active_processes,
       )

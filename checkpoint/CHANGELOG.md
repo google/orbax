@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 instead of inferring them from how process indexes changed across restarts
 with some false assumptions.
 
+### Changed
+- Coordination service now supports barrier reuse - eliminate some barrier name
+complexity, including counters.
+
+
 ## [0.10.1] - 2024-11-22
 
 ### Added
