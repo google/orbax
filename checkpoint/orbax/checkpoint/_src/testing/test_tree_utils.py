@@ -31,10 +31,11 @@ from orbax.checkpoint._src.metadata import tree_rich_types
 PyTree = Any
 
 
-def _build_namedtuple(
+def create_namedtuple(
     cls,
     field_value_tuples: list[tuple[str, tree_metadata.ValueMetadataEntry]],
-):
+) -> type[tuple[Any, ...]]:
+  """Returns instance of a new namedtuple type structurally identical to `cls`."""
   fields, values = zip(*field_value_tuples)
   module_name, class_name = tree_rich_types._module_and_class_name(cls)  # pylint: disable=protected-access
   new_type = tree_rich_types._new_namedtuple_type(module_name, class_name, fields)  # pylint: disable=protected-access
@@ -491,7 +492,7 @@ TEST_PYTREES = [
             }
         },
         expected_nested_tree_metadata_with_rich_types={
-            'mu_nu': _build_namedtuple(
+            'mu_nu': create_namedtuple(
                 MuNu,
                 [
                     (
@@ -789,7 +790,7 @@ TEST_PYTREES = [
             }
         },
         expected_nested_tree_metadata_with_rich_types={
-            'default_named_tuple_with_nested_attrs': _build_namedtuple(
+            'default_named_tuple_with_nested_attrs': create_namedtuple(
                 NamedTupleWithNestedAttributes,
                 [
                     (
@@ -885,12 +886,12 @@ TEST_PYTREES = [
             }
         },
         expected_nested_tree_metadata_with_rich_types={
-            'named_tuple_with_nested_attrs': _build_namedtuple(
+            'named_tuple_with_nested_attrs': create_namedtuple(
                 NamedTupleWithNestedAttributes,
                 [
                     (
                         'nested_mu_nu',
-                        _build_namedtuple(
+                        create_namedtuple(
                             MuNu,
                             [
                                 (
