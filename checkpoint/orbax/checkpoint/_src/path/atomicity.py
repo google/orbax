@@ -14,7 +14,7 @@
 
 """Utils for creating and finalizing temporary paths.
 
-TODO(b/326119183): Note that the configurability provided by this feature does
+Note that the configurability provided by this feature does
 not leave users free to define their own temporary path structure. The current
 implementation is mainly a refactoring of old logic that separately created
 temp directories and finalized them. It does not touch other logic that detects
@@ -77,6 +77,8 @@ COMMIT_SUCCESS_FILE = step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected
 _module_unique_count = itertools.count()
 
 
+# TODO(b/326119183) Support configuration of temporary path detection
+# (currently handled by `tmp_checkpoints` util methods).
 class TemporaryPath(Protocol):
   """Class that represents a temporary path.
 
