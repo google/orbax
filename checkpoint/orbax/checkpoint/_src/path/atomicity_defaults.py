@@ -12,13 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Defines exported symbols from orbax.checkpoint.path package."""
+"""Utilities for interacting with the atomicity module.
 
-# pylint: disable=unused-import
+Mainly provides helper functions like `get_default_temporary_path_class` that
+help interacting with the `atomicity` module, but can have larger dependencies
+than we would want to introduce into the base `atomicity` module.
+"""
 
-from orbax.checkpoint._src.path import async_utils
+from typing import Type
+from etils import epath
 from orbax.checkpoint._src.path import atomicity
-from orbax.checkpoint._src.path import atomicity_defaults
-from orbax.checkpoint._src.path import deleter
-from orbax.checkpoint._src.path import format_utils
-from orbax.checkpoint._src.path import step
+from orbax.checkpoint._src.path import step as step_lib
+
+
+def get_default_temporary_path_class(
+    final_path: epath.Path,
+) -> Type[atomicity.TemporaryPath]:
+  if step_lib.is_gcs_path(final_path):
+    return atomicity.CommitFileTemporaryPath
+  else:
+    return atomicity.AtomicRenameTemporaryPath

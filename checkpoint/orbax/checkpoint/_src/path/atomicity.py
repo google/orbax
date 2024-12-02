@@ -56,7 +56,7 @@ import itertools
 import re
 import threading
 import time
-from typing import Optional, Protocol, Sequence, Type
+from typing import Optional, Protocol, Sequence
 
 from absl import logging
 from etils import epath
@@ -494,15 +494,6 @@ async def create_all(
   jax.monitoring.record_event_duration_secs(
       '/jax/orbax/write/directory_creation_secs', time.time() - start
   )
-
-
-def get_default_temporary_path_class(
-    final_path: epath.Path,
-) -> Type[TemporaryPath]:
-  if step_lib.is_gcs_path(final_path):
-    return CommitFileTemporaryPath
-  else:
-    return AtomicRenameTemporaryPath
 
 
 def on_commit_callback(

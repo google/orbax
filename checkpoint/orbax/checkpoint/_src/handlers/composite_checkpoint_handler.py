@@ -64,6 +64,7 @@ from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import atomicity_defaults
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 Future = future.Future
@@ -627,7 +628,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   ) -> atomicity.TemporaryPath:
     temporary_path_class = (
         self._temporary_path_class
-        or atomicity.get_default_temporary_path_class(directory)
+        or atomicity_defaults.get_default_temporary_path_class(directory)
     )
     tmp_item_dir = temporary_path_class.from_final(
         self._get_item_directory(directory, item_name),

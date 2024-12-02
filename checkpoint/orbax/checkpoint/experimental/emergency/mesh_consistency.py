@@ -23,7 +23,7 @@ from etils import epath
 import jax
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint.experimental.emergency import multihost as emergency_multihost
-from orbax.checkpoint.path import atomicity
+from orbax.checkpoint.path import atomicity_defaults
 from orbax.checkpoint.path import step as step_lib
 
 
@@ -90,7 +90,7 @@ def save_process_metadata(
   multiprocessing_options = options_lib.MultiprocessingOptions(
       primary_host=None
   )
-  tmp_path = atomicity.get_default_temporary_path_class(
+  tmp_path = atomicity_defaults.get_default_temporary_path_class(
       metadata_folder
   ).from_final(metadata_folder, multiprocessing_options=multiprocessing_options)
   asyncio.run(tmp_path.create())

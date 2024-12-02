@@ -31,6 +31,7 @@ from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import atomicity_defaults
 from typing_extensions import Self  # for Python version < 3.11
 
 
@@ -138,7 +139,7 @@ class Checkpointer(
   ) -> atomicity.TemporaryPath:
     temporary_path_class = (
         self._temporary_path_class
-        or atomicity.get_default_temporary_path_class(directory)
+        or atomicity_defaults.get_default_temporary_path_class(directory)
     )
     multiprocessing_options = options_lib.MultiprocessingOptions(
         primary_host=self._primary_host,

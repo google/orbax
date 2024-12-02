@@ -22,5 +22,4 @@ CommitFileTemporaryPath
 
 Helper functions
 -----------------------
-.. autofunction:: get_default_temporary_path_class
 .. autofunction:: on_commit_callback
