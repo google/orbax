@@ -319,6 +319,10 @@ class BasePyTreeCheckpointHandler(
     self._thread_pool = futures.ThreadPoolExecutor(
         max_workers=2, thread_name_prefix='base_pytree_ch'
     )
+    logging.info(
+        'Created BasePyTreeCheckpointHandler: pytree_metadata_options=%s',
+        self._pytree_metadata_options,
+    )
 
   def get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
@@ -738,6 +742,12 @@ class BasePyTreeCheckpointHandler(
             use_zarr3=use_zarr3,
             pytree_metadata_options=self._pytree_metadata_options,
         )
+        logging.vlog(
+            1,
+            'Writing pytree metadata file: %s with pytree_metadata_options: %s',
+            path,
+            self._pytree_metadata_options,
+        )
         path.write_text(json.dumps(metadata_content.to_json()))
         jax.monitoring.record_event_duration_secs(
             '/jax/checkpoint/write/async/metadata_write_duration_secs',
@@ -767,6 +777,12 @@ class BasePyTreeCheckpointHandler(
           f'Metadata file (named {PYTREE_METADATA_FILE}) does not exist at'
           f' {directory}.'
       )
+    logging.vlog(
+        1,
+        'Reading pytree metadata file: %s with pytree_metadata_options: %s',
+        path,
+        self._pytree_metadata_options,
+    )
     return tree_metadata.InternalTreeMetadata.from_json(
         json.loads(path.read_text()),
         pytree_metadata_options=self._pytree_metadata_options,

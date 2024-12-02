@@ -208,9 +208,13 @@ class InternalTreeMetadata:
   value_metadata_tree: PyTree | None = None
 
   def __post_init__(self):
-    logging.info(
-        'Created InternalTreeMetadata with pytree_metadata_options= %s',
+    logging.vlog(
+        1,
+        'Created InternalTreeMetadata with pytree_metadata_options=%s, has'
+        ' tree_metadata_entries=%s, has rich typed value_metadata_tree=%s',
         self.pytree_metadata_options,
+        len(self.tree_metadata_entries),
+        self.value_metadata_tree is not None,
     )
 
   @classmethod
@@ -252,12 +256,17 @@ class InternalTreeMetadata:
           save_args,
           is_leaf=tree_utils.is_empty_or_leaf,
       )
+      logging.vlog(
+          1,
+          'Created rich typed value_metadata_tree from param_infos and'
+          ' save_args.',
+      )
     return InternalTreeMetadata(
-        tree_metadata_entries,
-        use_zarr3,
-        ts_utils.STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE,
-        pytree_metadata_options,
-        value_metadata_tree,
+        tree_metadata_entries=tree_metadata_entries,
+        use_zarr3=use_zarr3,
+        store_array_data_equal_to_fill_value=ts_utils.STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE,
+        pytree_metadata_options=pytree_metadata_options,
+        value_metadata_tree=value_metadata_tree,
     )
 
   def to_json(self) -> Dict[str, Any]:
@@ -352,6 +361,9 @@ class InternalTreeMetadata:
               self.value_metadata_tree
           )
       )
+      logging.vlog(
+          1, 'Serialized rich typed value_metadata_tree to json_object.'
+      )
     return json_object
 
   @classmethod
@@ -384,8 +396,11 @@ class InternalTreeMetadata:
       value_metadata_tree = tree_rich_types.value_metadata_tree_from_json_str(
           json_dict[_VALUE_METADATA_TREE]
       )
+      logging.info(
+          'Deserialized rich typed value_metadata_tree from json_dict.'
+      )
     return InternalTreeMetadata(
-        tree_metadata_entries,
+        tree_metadata_entries=tree_metadata_entries,
         use_zarr3=use_zarr3,
         pytree_metadata_options=pytree_metadata_options,
         value_metadata_tree=value_metadata_tree,
@@ -399,6 +414,9 @@ class InternalTreeMetadata:
         self.pytree_metadata_options.support_rich_types
         and self.value_metadata_tree is not None
     ):
+      logging.info(
+          'Returning rich typed value_metadata_tree from InternalTreeMetadata.'
+      )
       return self.value_metadata_tree
 
     return tree_utils.from_flattened_with_keypath([
