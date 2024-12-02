@@ -690,6 +690,17 @@ class CheckpointManager(
   ):
     self._local_directory = epath.Path(local_directory)
     self._persistent_directory = epath.Path(persistent_directory)
+    if not self._local_directory.exists():
+      raise FileNotFoundError(
+          f'Local directory {self._local_directory} must be created by the'
+          ' caller.'
+      )
+    if not self._persistent_directory.exists():
+      raise FileNotFoundError(
+          f'Persistent directory {self._persistent_directory} must be created'
+          ' by the caller.'
+      )
+
     self._logger = logger or standard_logger.StandardLogger()
     # TODO: b/330585086 - Fully support options.
     options = options or CheckpointManagerOptions()
