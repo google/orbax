@@ -31,7 +31,6 @@ import tensorflow as tf
 obx_export_config = config.config
 maybe_reraise = reraise_utils.maybe_reraise
 
-
 class ExportManager:
   """Exports a JAXModule with pre- and post-processors."""
 
@@ -50,11 +49,11 @@ class ExportManager:
       version: the version of the export format to use. Defaults to
         TF_SAVEDMODEL.
     """
-    if version != module.export_version():
+    if version != module.export_version:
       raise ValueError(
           '`version` and `module.export_version()`'
           f' must be the same. The former is {version}. The latter is '
-          f'{module.export_version()}.'
+          f'{module.export_version}.'
       )
     self._version = version
     self._jax_module = module
@@ -62,14 +61,6 @@ class ExportManager:
       self._serialization_functions = obm_export.ObmExport(
           self._jax_module, serving_configs
       )
-      obm_module_ = module.orbax_module()
-      if not isinstance(obm_module_, obm_module.ObmModule):
-        raise ValueError(
-            'module.orbax_module() must return an `ObmModule`. '
-            f'Got type: {type(obm_module_)}'
-        )
-      # TODO(bdwalker): Let `ObmExport.__init__() do this `build()` step.
-      obm_module_.build(serving_configs)
     else:
       self._serialization_functions = tensorflow_export.TensorFlowExport(
           self._jax_module, serving_configs

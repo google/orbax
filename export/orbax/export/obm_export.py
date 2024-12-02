@@ -14,16 +14,43 @@
 
 """Export class that implements the save and load abstract class defined in Export Base for use with the Orbax Model export format."""
 
-from typing import Any, Callable, Mapping, cast
+from typing import Any, Callable, Dict, Mapping, Sequence, Tuple, cast
 
 from absl import logging
+import jax
 from orbax.export import constants
 from orbax.export import export_base
+from orbax.export import jax_module
+from orbax.export import serving_config as osc
+from orbax.export import utils
 from orbax.export.modules import obm_module
+from orbax.export.typing import PyTree
+import tensorflow as tf
+
+
+def _to_sequence(a):
+  if isinstance(a, Sequence):
+    return a
+  return (a,)
 
 
 class ObmExport(export_base.ExportBase):
   """Defines the save and load methods for exporting a model using Orbax Model export."""
+
+  def __init__(
+      self,
+      module: jax_module.JaxModule,
+      serving_configs: Sequence[osc.ServingConfig],
+  ):
+    """Initializes the ObmExport class."""
+    if module.export_version != constants.ExportModelType.ORBAX_MODEL:
+      raise ValueError(
+          "JaxModule export version is not of type ORBAX_MODEL. Please use the"
+          " correct export_version. Expected ORBAX_MODEL, got"
+          f" {module.export_version}"
+      )
+
+    obm_model_module = module.export_module()
 
   def save(
       self,
@@ -38,17 +65,11 @@ class ObmExport(export_base.ExportBase):
         arguments are `save_options` and `serving_signatures`.
     """
 
-    if self._module.export_version() != constants.ExportModelType.ORBAX_MODEL:
-      raise ValueError(
-          "JaxModule is not of type ORBAX_MODEL. Please use the correct"
-          " export_version. Expected ORBAX_MODEL, got"
-          f" {self._module.export_version()}"
-      )
-
   def load(self, model_path: str, **kwargs: Any):
     """Loads the model previously saved in the Orbax Model export format."""
     logging.info("Loading model using Orbax Export Model.")
     raise NotImplementedError("ObmExport.load not implemented yet.")
+
 
   @property
   def serving_signatures(self) -> Mapping[str, Callable[..., Any]]:
