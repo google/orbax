@@ -56,7 +56,7 @@ import itertools
 import re
 import threading
 import time
-from typing import Optional, Sequence
+from typing import Awaitable, Optional, Protocol, Sequence
 
 from absl import logging
 from etils import epath
@@ -78,7 +78,22 @@ COMMIT_SUCCESS_FILE = step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected
 _module_unique_count = itertools.count()
 
 
+class AsyncMakeDirFunc(Protocol):
+
+  def __call__(
+      self,
+      path: epath.Path,
+      parents: bool = False,
+      exist_ok: bool = False,
+      mode: int = step_lib.WORLD_READABLE_MODE,
+      **kwargs,
+  ) -> Awaitable[None]:
+    """Creates the directory at path."""
+    pass
+
+
 async def _create_tmp_directory(
+    async_makedir_func: AsyncMakeDirFunc,
     tmp_dir: epath.Path,
     *,
     primary_host: Optional[int] = 0,
@@ -86,12 +101,14 @@ async def _create_tmp_directory(
     checkpoint_metadata_store: Optional[
         checkpoint_metadata.MetadataStore
     ] = None,
+    **kwargs,
 ) -> epath.Path:
   """Creates a non-deterministic tmp directory for saving for given `final_dir`.
 
   Also writes checkpoint metadata in the tmp directory.
 
   Args:
+    async_makedir_func: An implementation of AsyncMakeDirFunc to call.
     tmp_dir: The temporary directory path.
     primary_host: primary host id, default=0.
     path_permission_mode: Path permission mode for the temp directory. e.g.
@@ -100,6 +117,7 @@ async def _create_tmp_directory(
         path is supported.
     checkpoint_metadata_store: optional `CheckpointMetadataStore` instance. If
       present then it is used to create `StepMetadata` with current timestamp.
+    **kwargs: Optional. Additional kwargs to pass to `async_makedir_func`
 
   Returns:
     The tmp directory.
@@ -122,11 +140,12 @@ async def _create_tmp_directory(
             ' exists but appears a non-temporary checkpoint.'
         )
     logging.info('Creating tmp directory %s', tmp_dir)
-    await async_utils.async_makedirs(
+    await async_makedir_func(
         tmp_dir,
         parents=True,
         exist_ok=False,
         mode=path_permission_mode,
+        **kwargs,
     )
     if checkpoint_metadata_store is not None:
       checkpoint_metadata_store.write(
@@ -251,6 +270,7 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
         file_options.path_permission_mode or self._path_permission_mode or mode
     )
     return await _create_tmp_directory(
+        async_utils.async_makedirs,
         self._tmp_path,
         primary_host=self._primary_host,
         path_permission_mode=mode,
@@ -372,6 +392,7 @@ class CommitFileTemporaryPath(atomicity_types.TemporaryPath):
         file_options.path_permission_mode or self._path_permission_mode or mode
     )
     return await _create_tmp_directory(
+        async_utils.async_makedirs,
         self._tmp_path,
         primary_host=self._primary_host,
         path_permission_mode=mode,
