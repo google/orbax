@@ -32,8 +32,9 @@ from orbax.checkpoint._src.multihost import multihost
 Shape = types.Shape
 Index = types.Index
 OptionalAxisAndShape = tuple[int | None, Shape| None]
-# Slice objects are not hashable before python 3.12.
-HashableSlice = tuple[int | None, int | None, int | None]
+
+HashableIndex = types.HashableIndex
+HashableSlice = types.HashableSlice
 
 
 @dataclasses.dataclass(frozen=True)
@@ -138,10 +139,6 @@ class ReplicaSlices:
     return result
 
 
-def _hashable_slices(slices: Index) -> tuple[HashableSlice, ...]:
-  return tuple([(s.start, s.stop, s.step) for s in slices])
-
-
 @functools.lru_cache(maxsize=4096)
 def _sharding_num_replicas(
     sharding: jax.sharding.Sharding, global_shape: Shape
@@ -174,7 +171,7 @@ def _sharding_num_replicas(
   """
   counts = collections.defaultdict(int)
   for index in sharding.devices_indices_map(global_shape).values():
-    counts[_hashable_slices(index)] += 1
+    counts[numpy_utils.to_hashable_index(index, shape=global_shape)] += 1
   num_replicas = next(iter(counts.values()))
   assert all(count == num_replicas for count in counts.values())
   return num_replicas

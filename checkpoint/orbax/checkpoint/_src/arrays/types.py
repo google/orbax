@@ -36,3 +36,8 @@ class NumpyShapeDtypeStruct:
   """Abstract representation of a Numpy array."""
   shape: Shape
   dtype: np.dtype
+
+
+# Slice objects are not hashable before python 3.12.
+HashableSlice = tuple[int, int, int]
+HashableIndex = tuple[HashableSlice, ...]

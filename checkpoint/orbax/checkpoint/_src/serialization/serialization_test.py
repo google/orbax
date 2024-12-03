@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import asyncio
-import logging
 import math
 import os
 import pathlib
@@ -187,24 +186,26 @@ class CheckpointTest(parameterized.TestCase):
       r.block_until_ready()
 
     tm.start()
+    _, start_memory_usage = tm.get_traced_memory()
     asyncio_utils.run_sync(deserialize_with_byte_limit())
-    unused_current, peak = tm.get_traced_memory()
+    _, peak_memory_usage = tm.get_traced_memory()
     # NB: some padding + tensorstore overhead. It should always be
     # less than array size (2048 * 4096 * 4 = 32M)
-    self.assertLess(peak, 10_000_000)
+    self.assertLess(peak_memory_usage - start_memory_usage, 10_000_000)
     deserialize_wo_limit = serialization.async_deserialize(
         sharding, tspec, inp_shape
     )
     tm.clear_traces()
+    _, start_memory_usage = tm.get_traced_memory()
     # NB: call block_until_ready() is important here and above
     # because otherwise this leads to racing condition and segfault with
     # tensorstore attempting to dealloc using tracemalloc which is already
     # destroyed.
     asyncio_utils.run_sync(deserialize_wo_limit).block_until_ready()
 
-    unused_current, peak = tm.get_traced_memory()
+    _, peak_memory_usage = tm.get_traced_memory()
     # We load entire array in memory here.
-    self.assertGreater(peak, 30_000_000)
+    self.assertGreater(peak_memory_usage - start_memory_usage, 30_000_000)
     tm.stop()
 
   def test_checkpointing_jax_array(self):
@@ -259,9 +260,6 @@ class CheckpointTest(parameterized.TestCase):
         tspecs,
     )
 
-    logging.info(m1.addressable_shards)
-    logging.info(m2.addressable_shards)
-    logging.info(m3.addressable_shards)
     self.assertIsInstance(m1, jax.Array)
     self.assertArraysEqual(
         np.asarray(m1.addressable_shards[0].data),
@@ -661,6 +659,32 @@ class CheckpointTest(parameterized.TestCase):
         Exception, 'Encountered error while reading array index'
     ):
       deserialize([sharding], [tspec])
+
+  @parameterized.named_parameters(
+      dict(testcase_name='fully_replicated', pspec=(None, None)),
+      dict(testcase_name='partially_replicated', pspec=('x', None)),
+      dict(testcase_name='fully_sharded', pspec=('x', 'y')),
+  )
+  def test_dedup_loading(self, pspec):
+    data = np.arange(2_048 * 4_096, dtype=np.float32).reshape(2_048, 4_096)
+    global_shape = data.shape
+    global_mesh = create_global_mesh((2, 2), ('x', 'y'))
+    sharding = NamedSharding(global_mesh, P(*pspec))
+    array = jax.make_array_from_callback(
+        global_shape, sharding, lambda idx: data[idx]
+    )
+    ckpt_paths = [str(self.ckpt_dir)]
+    tspecs = jax.tree.map(serialization.get_tensorstore_spec, ckpt_paths)
+    serialize([array], tspecs)
+
+    tm.start()
+    _, start_memory_usage = tm.get_traced_memory()
+    deserialize([sharding], tspecs, [global_shape])
+    _, peak_memory_usage = tm.get_traced_memory()
+    tm.clear_traces()
+    # Array size (2048 * 4096 * 4 = 32M)
+    delta = 2_000_000  # Empirically chosen wiggle room.
+    self.assertLess(peak_memory_usage - start_memory_usage, 32_000_000 + delta)
 
 
 if __name__ == '__main__':

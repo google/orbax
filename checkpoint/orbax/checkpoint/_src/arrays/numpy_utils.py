@@ -22,12 +22,16 @@ Shape = types.Shape
 NdSlice = types.NdSlice
 Index = types.Index
 
+HashableSlice = types.HashableSlice
+HashableIndex = types.HashableIndex
+
 
 def int_tuple_from_slice(s: slice) -> tuple[int, ...]:
   """Represents a slice as a tuple of integers."""
-  ints = s.start, s.stop, s.step
+  start, stop, step = s.start, s.stop, s.step
+  step = step or 1
   try:
-    return tuple(int(x) for x in ints)
+    return (int(start), int(stop), int(step))
   except:
     raise ValueError(f'Slice {s} is not concrete.') from None
 
@@ -50,6 +54,30 @@ def resolve_slice(xs: NdSlice, shape: Shape) -> NdSlice:
       slice(x.start or 0, x.stop if x.stop is not None else n, x.step or 1)
       if isinstance(x, slice) else slice(x, x+1, 1)
       for x, n in zip(() if xs is Ellipsis else xs, shape))
+
+
+def to_hashable_index(
+    idx: Index, *, shape: Shape | None = None
+) -> HashableIndex:
+  """Converts an Index into a hashable form.
+
+  Optionally resolves the slices to a concrete index if the shape is provided.
+  If not, conversion may fail if the slices are not concrete.
+
+  Args:
+    idx: The index to convert.
+    shape: Global array shape.
+
+  Returns:
+    A hashable index.
+  """
+  idx = resolve_slice(idx, shape) if shape else idx
+
+  return tuple([int_tuple_from_slice(s) for s in idx])
+
+
+def from_hashable_index(idx: HashableIndex) -> Index:
+  return tuple([slice(s[0], s[1], s[2]) for s in idx])
 
 
 def dissolve_slice(

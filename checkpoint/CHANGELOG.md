@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [emergency checkpoint] Fix local restore by re-mapping device ids directly
 instead of inferring them from how process indexes changed across restarts
 with some false assumptions.
+- Avoid duplicate reads of the same index when loading.
 
 ### Changed
 - Coordination service now supports barrier reuse - eliminate some barrier name
