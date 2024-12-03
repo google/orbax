@@ -33,13 +33,14 @@ from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_utils
 from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import atomicity_types
 
 
 BarrierSyncFn = multihost.BarrierSyncFn
 
 
 def _on_commit_callback(
-    tmpdir: atomicity.TemporaryPath,
+    tmpdir: atomicity_types.TemporaryPath,
     checkpoint_start_time: float,
 ):
   """Finalize atomic save and record checkpoint save metrics."""
@@ -275,7 +276,9 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
       checkpoint_metadata_store: Optional[checkpoint.MetadataStore] = None,
-      temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None,
+      temporary_path_class: Optional[
+          Type[atomicity_types.TemporaryPath]
+      ] = None,
   ):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
     if not checkpoint_args.has_registered_args(handler):

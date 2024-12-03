@@ -45,7 +45,7 @@ from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import root_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import deleter
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path import utils as path_utils
@@ -262,8 +262,8 @@ class CheckpointManagerOptions:
   save_root_metadata: If True, saves root-level metadata about checkpoints.
     This metadata is not step-specific and is written only once.
   temporary_path_class:
-    Optional. The concrete `atomicity.TemporaryPath` class to be used by the
-    underlying `Checkpointer`.
+    Optional. The concrete `atomicity_types.TemporaryPath` class to be used by
+    the underlying `Checkpointer`.
   """
 
   save_interval_steps: int = 1
@@ -292,7 +292,7 @@ class CheckpointManagerOptions:
   should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
   file_options: FileOptions = dataclasses.field(default_factory=FileOptions)
   save_root_metadata: bool = True
-  temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None
+  temporary_path_class: Optional[Type[atomicity_types.TemporaryPath]] = None
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):

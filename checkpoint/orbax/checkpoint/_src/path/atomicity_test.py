@@ -19,6 +19,7 @@ from etils import epath
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import step as step_lib
 
 AtomicRenameTemporaryPath = atomicity.AtomicRenameTemporaryPath

@@ -20,7 +20,7 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
-from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import atomicity_types
 
 
 StandardCheckpointHandler = (
@@ -65,7 +65,9 @@ class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
       checkpoint_metadata_store: Optional[checkpoint.MetadataStore] = None,
-      temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None,
+      temporary_path_class: Optional[
+          Type[atomicity_types.TemporaryPath]
+      ] = None,
       **kwargs,
   ):
     """Constructor.

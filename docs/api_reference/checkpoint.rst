@@ -11,6 +11,7 @@ orbax.checkpoint API Reference
    checkpoint.args
    checkpoint.type_handlers
    checkpoint.path.atomicity
+   checkpoint.path.atomicity_types
    checkpoint.path.step
    checkpoint.path.deleter
    checkpoint.checkpoint_utils

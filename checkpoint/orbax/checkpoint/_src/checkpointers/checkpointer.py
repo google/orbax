@@ -32,6 +32,7 @@ from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
+from orbax.checkpoint._src.path import atomicity_types
 from typing_extensions import Self  # for Python version < 3.11
 
 
@@ -107,7 +108,9 @@ class Checkpointer(
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
       checkpoint_metadata_store: Optional[checkpoint.MetadataStore] = None,
-      temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None,
+      temporary_path_class: Optional[
+          Type[atomicity_types.TemporaryPath]
+      ] = None,
   ):
     if not checkpoint_args.has_registered_args(handler):
       logging.warning(
@@ -136,7 +139,7 @@ class Checkpointer(
 
   async def create_temporary_path(
       self, directory: epath.Path
-  ) -> atomicity.TemporaryPath:
+  ) -> atomicity_types.TemporaryPath:
     temporary_path_class = (
         self._temporary_path_class
         or atomicity_defaults.get_default_temporary_path_class(directory)

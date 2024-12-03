@@ -22,12 +22,13 @@ than we would want to introduce into the base `atomicity` module.
 from typing import Type
 from etils import epath
 from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import step as step_lib
 
 
 def get_default_temporary_path_class(
     final_path: epath.Path,
-) -> Type[atomicity.TemporaryPath]:
+) -> Type[atomicity_types.TemporaryPath]:
   if step_lib.is_gcs_path(final_path):
     return atomicity.CommitFileTemporaryPath
   else:

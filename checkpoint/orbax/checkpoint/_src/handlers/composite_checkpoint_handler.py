@@ -65,6 +65,7 @@ from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
+from orbax.checkpoint._src.path import atomicity_types
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 Future = future.Future
@@ -189,7 +190,7 @@ class CompositeOptions:
   multiprocessing_options: options_lib.MultiprocessingOptions = (
       dataclasses.field(default_factory=options_lib.MultiprocessingOptions)
   )
-  temporary_path_class: Optional[Type[atomicity.TemporaryPath]] = None
+  temporary_path_class: Optional[Type[atomicity_types.TemporaryPath]] = None
   file_options: Optional[options_lib.FileOptions] = None
 
 
@@ -359,7 +360,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     restored.other_param ... # None.
   """
 
-  _current_temporary_paths: Dict[str, atomicity.TemporaryPath] = {}
+  _current_temporary_paths: Dict[str, atomicity_types.TemporaryPath] = {}
   # Items that do not have a registered handler. This is set to `None` if the
   # user provided a `handler_registry` at initialization. If the user provided
   # `item_names` and `items_and_handlers` at initialization, this is set to a
@@ -625,7 +626,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
   def _get_item_temporary_directory(
       self, directory: epath.Path, item_name: str
-  ) -> atomicity.TemporaryPath:
+  ) -> atomicity_types.TemporaryPath:
     temporary_path_class = (
         self._temporary_path_class
         or atomicity_defaults.get_default_temporary_path_class(directory)
@@ -639,7 +640,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
   def _get_item_temporary_paths(
       self, directory: epath.Path, args: CompositeArgs
-  ) -> Dict[str, atomicity.TemporaryPath]:
+  ) -> Dict[str, atomicity_types.TemporaryPath]:
     # Sort keys to maintain consistent ordering across processes, otherwise
     # we may hit timeouts if processes wait at different barriers in per-item
     # handlers.
