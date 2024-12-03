@@ -14,10 +14,7 @@
 
 """Export class that implements the save and load abstract class defined in Export Base for use with the TensorFlow SavedModel export format."""
 
-# TODO: b/379692910 - remove `jax_module` and `tensorflow_module` inherit the
-# tf.Module.
-
-from typing import Any, Callable, Dict, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 from absl import logging
 from etils.epy import reraise_utils
 from orbax.export import config
