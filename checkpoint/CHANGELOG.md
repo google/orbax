@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2024-12-04
+
 ### Added
 - Tests and documentation for `abstract_arrays`.
 - [Experimental Feature] Support `empty NamedTuple` leaf when
