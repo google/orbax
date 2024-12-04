@@ -1175,8 +1175,9 @@ class ArrayHandler(types.TypeHandler):
       tspec = get_cast_tspec_deserialize(tspec, arg)
       if logging.vlog_is_on(1):
         logging.vlog(1, 'tspec = %s', tspec)
-        logging.vlog(1, 'infos = %s', infos)
-        logging.vlog(1, 'args = %s', args)
+        logging.vlog(1, 'info = %s', info)
+        logging.vlog(1, 'arg = %s', arg)
+        logging.vlog(1, 'sharding = %s', sharding)
       deserialize_ops += [
           serialization.async_deserialize(
               sharding,
@@ -1195,9 +1196,11 @@ class ArrayHandler(types.TypeHandler):
       for a in ret:
         logging.vlog(
             1,
-            'restored jax.Array.shape = %s, jax.array.dtype = %s',
+            'restored jax.Array.shape = %s, jax.array.dtype = %s,'
+            ' jax.array.layout + %s',
             a.shape,
             a.dtype,
+            a.layout,
         )
       _print_ts_debug_data(self._metadata_key, infos)
 

@@ -569,7 +569,11 @@ async def async_deserialize(
         'sharding passed to deserialization should be specified, concrete and'
         f' an instance of `jax.sharding.Sharding`. Got {sharding}'
     )
-  dll = sharding.device_local_layout if isinstance(sharding, Layout) else None
+  dll = (
+      user_sharding.device_local_layout
+      if isinstance(user_sharding, Layout)
+      else None
+  )
   t = await ts.open(
       tensorstore_spec,
       open=True,

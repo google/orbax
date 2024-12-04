@@ -27,6 +27,7 @@ script.
 instead of inferring them from how process indexes changed across restarts
 with some false assumptions.
 - Avoid duplicate reads of the same index when loading.
+- Fixed a regression bug on restoration with custom Layout.
 
 ### Changed
 - Coordination service now supports barrier reuse - eliminate some barrier name
