@@ -14,17 +14,23 @@
 
 """Utils for debugging local checkpoints with missing chunks."""
 
+import asyncio
+from typing import Any
+from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint._src.arrays import abstract_arrays
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types as serialization_types
+from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
 
 
 Index = types.Index
 Shape = types.Shape
 ChunkId = tuple[int, ...]
+PyTree = Any
 
 
 def index_to_chunk_id(
@@ -131,3 +137,67 @@ async def get_present_and_missing_chunks(
     if chunk_id not in chunk_ids_set:
       missing_chunk_ids.append(chunk_id)
   return present_chunk_ids, missing_chunk_ids
+
+
+async def print_chunk_debug_info(
+    directory: epath.Path,
+    restore_args: PyTree | None = None,
+):
+  """Prints debug info before restoring the parameter."""
+  arrays = jax.tree.map(abstract_arrays.to_shape_dtype_struct, restore_args)
+  param_names = tree_utils.get_param_names(arrays, include_empty_nodes=False)
+  flat_arrays, _ = jax.tree.flatten(arrays)
+  flat_param_names, _ = jax.tree.flatten(param_names)
+  logging.vlog(1, 'Found %d arrays.', len(flat_arrays))
+  logging.vlog(1, 'Param names to check: %s', flat_param_names)
+  assert len(flat_arrays) == len(flat_param_names)
+
+  chunk_infos = await asyncio.gather(*[
+      get_present_and_missing_chunks(
+          directory, n, a, use_ocdbt=True, use_zarr3=True
+      )
+      for n, a in zip(flat_param_names, flat_arrays)
+  ])
+
+  for arr, param_name, chunk_info in zip(
+      flat_arrays, flat_param_names, chunk_infos
+  ):
+    present_chunk_ids, missing_chunk_ids = chunk_info
+    shard_shape = arr.sharding.shard_shape(arr.shape)
+
+    logging.vlog(1, 'Logging present and missing chunks for %s.', param_name)
+    if present_chunk_ids:
+      logging.info('Present chunks:')
+      for chunk_id in present_chunk_ids:
+        logging.vlog(
+            1,
+            '  [present] index: %s -- chunk ID: %s',
+            chunk_id_to_index(chunk_id, shard_shape),
+            chunk_id,
+        )
+    if missing_chunk_ids:
+      logging.vlog(1, 'Missing chunks:')
+      for chunk_id in missing_chunk_ids:
+        logging.vlog(
+            1,
+            '  [missing] index: %s -- chunk ID: %s',
+            chunk_id_to_index(chunk_id, shard_shape),
+            chunk_id,
+        )
+
+
+def print_devices_indices_debug_info(
+    restore_args: PyTree,
+):
+  """Prints debug info before restoring the parameter."""
+  arrays = jax.tree.map(abstract_arrays.to_shape_dtype_struct, restore_args)
+  param_names = tree_utils.get_param_names(arrays, include_empty_nodes=False)
+  flat_arrays, _ = jax.tree.flatten(arrays)
+  flat_param_names, _ = jax.tree.flatten(param_names)
+  assert len(flat_arrays) == len(flat_param_names)
+
+  for arr, param_name in zip(flat_arrays, flat_param_names):
+    devices_indices_map = arr.sharding.devices_indices_map(arr.shape)
+    logging.vlog(1, 'Device -> index map for %s.', param_name)
+    for d, idx in devices_indices_map.items():
+      logging.vlog(1, '  %s -> %s', d, idx)

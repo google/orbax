@@ -45,13 +45,11 @@ from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpoint_utils
-from orbax.checkpoint._src.arrays import abstract_arrays
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.serialization import type_handlers
-from orbax.checkpoint._src.tree import utils as tree_utils
 from orbax.checkpoint.experimental.emergency import local_checkpoint_data_debugging
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.logging import abstract_logger
@@ -128,62 +126,6 @@ def _persistent_checkpoint_handler(
       multiprocessing_options=multiprocessing_options,
       type_handler_registry=registry,
   )
-
-
-async def _print_restoration_debug_info(
-    directory: epath.Path,
-    restore_args: PyTree,
-):
-  """Prints debug info before restoring the parameter."""
-  arrays = jax.tree.map(abstract_arrays.to_shape_dtype_struct, restore_args)
-  param_names = tree_utils.get_param_names(arrays, include_empty_nodes=False)
-  flat_arrays, _ = jax.tree.flatten(arrays)
-  flat_param_names, _ = jax.tree.flatten(param_names)
-  logging.vlog(1, 'Found %d arrays.', len(flat_arrays))
-  logging.vlog(1, 'Param names to check: %s', flat_param_names)
-  assert len(flat_arrays) == len(flat_param_names)
-
-  chunk_infos = await asyncio.gather(*[
-      get_present_and_missing_chunks(
-          directory, n, a, use_ocdbt=True, use_zarr3=True
-      )
-      for n, a in zip(flat_param_names, flat_arrays)
-  ])
-
-  for arr, param_name, chunk_info in zip(
-      flat_arrays, flat_param_names, chunk_infos
-  ):
-    present_chunk_ids, missing_chunk_ids = chunk_info
-    shard_shape = arr.sharding.shard_shape(arr.shape)
-
-    logging.vlog(1, 'Logging present and missing chunks for %s.', param_name)
-    if present_chunk_ids:
-      logging.info('Present chunks:')
-      for chunk_id in present_chunk_ids:
-        logging.vlog(
-            1,
-            '  [present] index: %s -- chunk ID: %s',
-            local_checkpoint_data_debugging.chunk_id_to_index(
-                chunk_id, shard_shape
-            ),
-            chunk_id,
-        )
-    if missing_chunk_ids:
-      logging.vlog(1, 'Missing chunks:')
-      for chunk_id in missing_chunk_ids:
-        logging.vlog(
-            1,
-            '  [missing] index: %s -- chunk ID: %s',
-            local_checkpoint_data_debugging.chunk_id_to_index(
-                chunk_id, shard_shape
-            ),
-            chunk_id,
-        )
-
-    devices_indices_map = arr.sharding.devices_indices_map(arr.shape)
-    logging.vlog(1, 'Device -> index map for %s.', param_name)
-    for d, idx in devices_indices_map.items():
-      logging.vlog(1, '  %s -> %s', d, idx)
 
 
 @dataclasses.dataclass
@@ -641,6 +583,28 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     self._steps = list(self.all_steps(read=True))
 
 
+def _get_single_slice_sharding(
+    mesh: jax.sharding.Mesh,
+    pspec: jax.sharding.PartitionSpec,
+    replica_id: int,
+    replica_axis_index: int,
+):
+  """Get sharding for a single slice."""
+  slice_devices = multislice.slice_devices(
+      mesh,
+      replica_id=replica_id,
+      replica_axis_index=replica_axis_index,
+  )
+  single_slice_mesh_shape = [
+      1 if i == replica_axis_index else d
+      for i, d in enumerate(mesh.devices.shape)
+  ]
+  slice_mesh = jax.sharding.Mesh(
+      slice_devices.reshape(single_slice_mesh_shape), mesh.axis_names
+  )
+  return jax.sharding.NamedSharding(slice_mesh, pspec)
+
+
 class CheckpointManager(
     abstract_checkpoint_manager.AbstractCheckpointManager, epy.ContextManager
 ):
@@ -1086,33 +1050,11 @@ class CheckpointManager(
     step_stats = step_statistics.EmergencyRestoreStepStatistics()
     step_stats.checkpoint_manager_start_time = time.time()
     step_stats.step = step
-
     is_restoring_slice = restoring_slice_id == self._slice_id
     step_stats.is_restoring_slice = is_restoring_slice
     step_stats.in_primary_slice = self.in_primary_slice
 
     shape_dtypes, tree_defs = jax.tree.flatten(self._abstract_state)
-
-    def _get_single_slice_sharding(
-        mesh: jax.sharding.Mesh,
-        pspec: jax.sharding.PartitionSpec,
-        replica_id: int,
-        replica_axis_index: int,
-    ):
-      slice_devices = multislice.slice_devices(
-          mesh,
-          replica_id=replica_id,
-          replica_axis_index=replica_axis_index,
-      )
-      single_slice_mesh_shape = [
-          1 if i == replica_axis_index else d
-          for i, d in enumerate(mesh.devices.shape)
-      ]
-      slice_mesh = jax.sharding.Mesh(
-          slice_devices.reshape(single_slice_mesh_shape), mesh.axis_names
-      )
-      return jax.sharding.NamedSharding(slice_mesh, pspec)
-
     original_single_slice_shardings = jax.tree.map(
         lambda arr: _get_single_slice_sharding(
             mesh=arr.sharding.mesh,
@@ -1125,6 +1067,28 @@ class CheckpointManager(
     original_single_slice_shardings_tuple = tuple(
         jax.tree.flatten(original_single_slice_shardings)[0]
     )
+
+    # Debug logging for sharding information.
+    if logging.vlog_is_on(1):
+      logging.vlog(
+          1,
+          'Debugging global restore_args based on abstract state. This uses the'
+          ' user-provided mesh, and is not actually used for restoration.',
+      )
+      local_checkpoint_data_debugging.print_devices_indices_debug_info(
+          checkpoint_utils.construct_restore_args(self._abstract_state)
+      )
+      logging.vlog(
+          1,
+          'Debugging single-slice restore_args based on abstract state. This'
+          ' uses the user-provided mesh, and is not actually used for'
+          ' restoration.',
+      )
+      local_checkpoint_data_debugging.print_devices_indices_debug_info(
+          checkpoint_utils.construct_restore_args(
+              self._abstract_state, original_single_slice_shardings
+          )
+      )
 
     if is_restoring_slice:
       logging.vlog(
@@ -1160,14 +1124,8 @@ class CheckpointManager(
           ),
           self._abstract_state,
       )
-      restore_args = jax.tree.map(
-          lambda s, arr: type_handlers.ArrayRestoreArgs(
-              sharding=s,
-              global_shape=arr.shape,  # single-slice sharding
-              dtype=arr.dtype,
-          ),
-          restore_single_slice_shardings,
-          self._abstract_state,
+      single_slice_restore_args = checkpoint_utils.construct_restore_args(
+          self._abstract_state, restore_single_slice_shardings
       )
       restore_directory = self._options.step_name_format.find_step(
           epath.Path(directory or self._local_directory), step
@@ -1186,10 +1144,13 @@ class CheckpointManager(
       )
       if logging.vlog_is_on(1):
         asyncio.run(
-            _print_restoration_debug_info(
+            local_checkpoint_data_debugging.print_chunk_debug_info(
                 restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
-                restore_args,
+                single_slice_restore_args,
             )
+        )
+        local_checkpoint_data_debugging.print_devices_indices_debug_info(
+            single_slice_restore_args
         )
 
       step_stats.checkpointer_start_time = time.time()
@@ -1201,7 +1162,9 @@ class CheckpointManager(
       )
       single_slice_pytree = local_state_handler.restore(
           restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
-          args=dataclasses.replace(args, restore_args=restore_args),
+          args=dataclasses.replace(
+              args, restore_args=single_slice_restore_args
+          ),
       )
       step_stats.checkpointer_duration_secs = (
           time.time() - step_stats.checkpointer_start_time
