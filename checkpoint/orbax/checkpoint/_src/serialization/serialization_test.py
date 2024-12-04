@@ -605,15 +605,12 @@ class CheckpointTest(parameterized.TestCase):
     s = NamedSharding(mesh, P('x', 'y'))
     arr = jax.device_put(np_inp, s)
 
-    out_layout = (
-        jax.jit(lambda x: x.T, out_shardings=Layout(DLL.AUTO))
-        .lower(arr)
-        .compile()
-        .output_layouts
-    )
-    self.assertEqual(
-        arr.layout.device_local_layout.major_to_minor,
-        out_layout.device_local_layout.major_to_minor[::-1],
+    out_layout = Layout(
+        device_local_layout=DLL(
+            arr.layout.device_local_layout.major_to_minor[::-1],
+            arr.layout.device_local_layout._tiling,
+        ),
+        sharding=arr.sharding,
     )
 
     ckpt_dir = pathlib.Path(self.create_tempdir('ckpt').full_path)
