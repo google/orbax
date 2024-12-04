@@ -181,9 +181,13 @@ def build_step_metadatas(
         executor.submit(build_metadata, step_path) for step_path in step_paths
     ]
     for future in concurrent.futures.as_completed(metadata_futures):
-      metadata = future.result()
-      if metadata is not None:
-        yield metadata
+      try:
+        metadata = future.result()
+        if metadata is not None:
+          yield metadata
+      except FileNotFoundError as e:
+        logging.warning('Missing step path.')
+        logging.error(e)
 
 
 def step_prefix_with_underscore(step_prefix: Optional[str]) -> str:
@@ -306,8 +310,13 @@ class _StandardNameFormat(NameFormat[Metadata]):
     if not step_path.is_dir():
       return None
 
-    if not is_checkpoint_finalized(step_path):
-      return None
+    # Avoid crashing if the checkpoint was deleted before checking
+    # is_checkpoint_finalized. Just skip the checkpoint and carry on.
+    try:
+      if not is_checkpoint_finalized(step_path):
+        return None
+    except ValueError as e:
+      raise FileNotFoundError(f'Path {step_path} does not exist.') from e
 
     if step is not None:
       # step already known, just check exists.
