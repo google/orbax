@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Ignore not-exists and not-dir errors while building step metadata in
+ _StandardNameFormat.
+
 ## [0.10.2] - 2024-12-04
 
 ### Added
