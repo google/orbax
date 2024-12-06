@@ -28,6 +28,7 @@ from orbax.checkpoint import future
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.handlers import handler_type_registry
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 
@@ -42,6 +43,7 @@ _USE_OCDBT_FOR_SAVE = False
 
 
 # TODO: b/362285520 - Refactor to delegate to PytreeCheckpointHandler.
+@handler_type_registry.register_handler_type
 class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Handles saving and restoring individual arrays and scalars."""
 

@@ -41,6 +41,7 @@ from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
+from orbax.checkpoint._src.handlers import handler_type_registry
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.serialization import serialization
@@ -438,6 +439,7 @@ def _concurrent_bytes(concurrent_gb: Optional[int]) -> int:
     return concurrent_gb * 10**9
 
 
+@handler_type_registry.register_handler_type
 class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """A CheckpointHandler implementation for any PyTree structure.
 

@@ -31,6 +31,7 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.handlers import handler_type_registry
 
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
@@ -39,6 +40,7 @@ register_with_handler = checkpoint_args.register_with_handler
 _DEFAULT_FILENAME = "proto.pbtxt"
 
 
+@handler_type_registry.register_handler_type
 class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Serializes/deserializes protocol buffers."""
 

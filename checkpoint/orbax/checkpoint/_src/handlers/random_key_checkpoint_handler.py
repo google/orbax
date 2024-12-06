@@ -28,6 +28,7 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import array_checkpoint_handler
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
+from orbax.checkpoint._src.handlers import handler_type_registry
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.serialization import type_handlers
@@ -49,7 +50,7 @@ register_with_handler = checkpoint_args.register_with_handler
 
 
 class BaseRandomKeyCheckpointHandler(
-    async_checkpoint_handler.AsyncCheckpointHandler
+    async_checkpoint_handler.AsyncCheckpointHandler, abc.ABC
 ):
   """Base handle saving and restoring individual Jax random key in both typed and untyped format."""
 
@@ -170,6 +171,7 @@ class BaseRandomKeyCheckpointHandler(
     self._handler.close()
 
 
+@handler_type_registry.register_handler_type
 class JaxRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
   """Handles saving and restoring individual Jax random key in both typed and untyped format."""
 
@@ -239,6 +241,7 @@ class JaxRandomKeyRestoreArgs(CheckpointArgs):
   restore_args: Optional[type_handlers.RestoreArgs] = None
 
 
+@handler_type_registry.register_handler_type
 class NumpyRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
   """Saves Nnumpy random key in legacy or non-lagacy format."""
 

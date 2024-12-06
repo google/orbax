@@ -62,6 +62,7 @@ from orbax.checkpoint._src import composite
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
+from orbax.checkpoint._src.handlers import handler_type_registry
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
@@ -243,6 +244,7 @@ def _add_to_handler_registry_from_global_registry(
     registry.add(item_name, restore_args, registered_handler_for_args)
 
 
+@handler_type_registry.register_handler_type
 class CompositeCheckpointHandler(AsyncCheckpointHandler):
   """CheckpointHandler for saving multiple items.
 
