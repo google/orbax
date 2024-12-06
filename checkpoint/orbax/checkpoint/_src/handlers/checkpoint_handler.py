@@ -80,3 +80,8 @@ class CheckpointHandler(abc.ABC):
   def close(self):
     """Closes the CheckpointHandler."""
     pass
+
+  @classmethod
+  def typestr(cls) -> str:
+    """A unique identifier for the CheckpointHandler type."""
+    return f"{cls.__module__}.{cls.__qualname__}"
