@@ -29,6 +29,7 @@ from orbax.checkpoint import future
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.handlers import handler_type_registry
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.tree import utils as tree_utils
@@ -40,6 +41,7 @@ PyTreeMetadataOptions = pytree_metadata_options_lib.PyTreeMetadataOptions
 register_with_handler = checkpoint_args.register_with_handler
 
 
+@handler_type_registry.register_handler_type
 class StandardCheckpointHandler(
     async_checkpoint_handler.AsyncCheckpointHandler
 ):
