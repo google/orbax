@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 make the change unnoticeable to most users, but also has additional accessible
 properties not included in any tree mapping operations.
 
+### Added
+- User-provided custom PyTree metadata.
+
 
 ## [0.11.0] - 2024-12-30
 

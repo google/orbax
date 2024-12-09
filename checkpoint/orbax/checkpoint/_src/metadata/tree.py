@@ -22,6 +22,7 @@ import dataclasses
 import enum
 import functools
 import inspect
+import json
 import operator
 import typing
 from typing import Any, Dict, Hashable, List, Optional, Protocol, Tuple, TypeAlias, TypeVar, Union
@@ -37,6 +38,7 @@ from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.metadata import value_metadata_entry
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types
+from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 
 
@@ -58,6 +60,7 @@ _VALUE_METADATA_KEY = 'value_metadata'
 _USE_ZARR3 = 'use_zarr3'
 _STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE = 'store_array_data_equal_to_fill_value'
 _VALUE_METADATA_TREE = 'value_metadata_tree'
+_CUSTOM_FIELD = 'custom'
 
 
 class KeyType(enum.Enum):
@@ -200,12 +203,13 @@ class InternalTreeMetadataEntry:
     return tuple(keypath)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class InternalTreeMetadata:
   """Metadata representation of a PyTree."""
 
   tree_metadata_entries: List[InternalTreeMetadataEntry]
   use_zarr3: bool
+  custom: tree_types.JsonType | None
   store_array_data_equal_to_fill_value: bool
   pytree_metadata_options: PyTreeMetadataOptions
   value_metadata_tree: PyTree | None = None
@@ -219,6 +223,14 @@ class InternalTreeMetadata:
         len(self.tree_metadata_entries),
         self.value_metadata_tree is not None,
     )
+    # Validate JSON-serializability of custom metadata.
+    try:
+      json.dumps(self.custom)
+    except TypeError as e:
+      raise TypeError(
+          'Failed to encode `custom` metadata as JSON object. Please ensure'
+          ' your custom metadata is JSON-serializable.'
+      ) from e
 
   @classmethod
   def build(
@@ -227,6 +239,7 @@ class InternalTreeMetadata:
       *,
       save_args: Optional[PyTree] = None,
       use_zarr3: bool = False,
+      custom: tree_types.JsonType | None = None,
       pytree_metadata_options: PyTreeMetadataOptions = (
           PYTREE_METADATA_OPTIONS
       ),
@@ -267,6 +280,7 @@ class InternalTreeMetadata:
     return InternalTreeMetadata(
         tree_metadata_entries=tree_metadata_entries,
         use_zarr3=use_zarr3,
+        custom=custom,
         store_array_data_equal_to_fill_value=ts_utils.STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE,
         pytree_metadata_options=pytree_metadata_options,
         value_metadata_tree=value_metadata_tree,
@@ -295,6 +309,7 @@ class InternalTreeMetadata:
           },
           _USE_ZARR3: True/False,
           _STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE: True,
+          _CUSTOM_FIELD: ...,
           _VALUE_METADATA_TREE: '{
             "mu_nu": {
               "category": "namedtuple",
@@ -353,6 +368,7 @@ class InternalTreeMetadata:
         _STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE: (
             self.store_array_data_equal_to_fill_value
         ),
+        _CUSTOM_FIELD: self.custom,
     }
     # TODO: b/365169723 - Support versioned evolution of metadata storage.
     if (
@@ -379,6 +395,7 @@ class InternalTreeMetadata:
   ) -> InternalTreeMetadata:
     """Returns an InternalTreeMetadata instance from its JSON representation."""
     use_zarr3 = json_dict.get(_USE_ZARR3, False)
+    custom = json_dict.get(_CUSTOM_FIELD, None)
     store_array_data_equal_to_fill_value = json_dict.get(
         _STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE, False
     )
@@ -405,6 +422,7 @@ class InternalTreeMetadata:
     return InternalTreeMetadata(
         tree_metadata_entries=tree_metadata_entries,
         use_zarr3=use_zarr3,
+        custom=custom,
         pytree_metadata_options=pytree_metadata_options,
         value_metadata_tree=value_metadata_tree,
         store_array_data_equal_to_fill_value=store_array_data_equal_to_fill_value,
