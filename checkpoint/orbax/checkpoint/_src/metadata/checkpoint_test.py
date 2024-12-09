@@ -95,11 +95,11 @@ class CheckpointMetadataTest(parameterized.TestCase):
   def get_metadata(
       self,
       metadata_type: type[StepMetadata] | type[RootMetadata],
-      custom: dict[str, Any] = None,
+      user_metadata: dict[str, Any] = None,
   ) -> StepMetadata | RootMetadata:
     """Returns a sample metadata object of `metadata_class`."""
-    if custom is None:
-      custom = {'a': 1}
+    if user_metadata is None:
+      user_metadata = {'a': 1}
     if metadata_type == StepMetadata:
       return StepMetadata(
           format=_SAMPLE_FORMAT,
@@ -114,12 +114,12 @@ class CheckpointMetadataTest(parameterized.TestCase):
           ),
           init_timestamp_nsecs=1,
           commit_timestamp_nsecs=1,
-          custom=custom,
+          user_metadata=user_metadata,
       )
     elif metadata_type == RootMetadata:
       return RootMetadata(
           format=_SAMPLE_FORMAT,
-          custom=custom,
+          user_metadata=user_metadata,
       )
 
   def get_metadata_filename(
@@ -288,7 +288,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
     self.write_metadata_store(blocking_write).update(
         file_path=self.get_metadata_file_path(metadata_class),
         format=_SAMPLE_FORMAT,
-        custom={'a': 1},
+        user_metadata={'a': 1},
     )
 
     self.write_metadata_store(blocking_write).wait_until_finished()
@@ -300,7 +300,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
         self.deserialize_metadata(metadata_class, serialized_metadata),
         metadata_class(
             format=_SAMPLE_FORMAT,
-            custom={'a': 1},
+            user_metadata={'a': 1},
         ),
     )
 
@@ -323,7 +323,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
 
     self.write_metadata_store(blocking_write).update(
         file_path=self.get_metadata_file_path(metadata_class),
-        custom={'a': 1},
+        user_metadata={'a': 1},
     )
 
     self.write_metadata_store(blocking_write).wait_until_finished()
@@ -335,7 +335,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
         self.deserialize_metadata(metadata_class, serialized_metadata),
         metadata_class(
             format=_SAMPLE_FORMAT,
-            custom={'a': 1},
+            user_metadata={'a': 1},
         ),
     )
 
@@ -370,7 +370,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
         self.deserialize_metadata(metadata_class, serialized_metadata),
         metadata_class(
             format=_SAMPLE_FORMAT,
-            custom={'blah': 2},
+            user_metadata={'blah': 2},
         ),
     )
 
@@ -424,7 +424,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
 
     # write validations
     serialized_metadata = self.serialize_metadata(
-        self.get_metadata(metadata_class, custom={'a': 2})
+        self.get_metadata(metadata_class, user_metadata={'a': 2})
     )
     self.write_metadata_store(blocking_write=False).write(
         file_path=self.get_metadata_file_path(metadata_class),
@@ -438,20 +438,20 @@ class CheckpointMetadataTest(parameterized.TestCase):
     )
     self.assertEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
-        self.get_metadata(metadata_class, custom={'a': 2}),
+        self.get_metadata(metadata_class, user_metadata={'a': 2}),
     )
     serialized_metadata = self.write_metadata_store(blocking_write=False).read(
         file_path=self.get_metadata_file_path(metadata_class)
     )
     self.assertEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
-        self.get_metadata(metadata_class, custom={'a': 2}),
+        self.get_metadata(metadata_class, user_metadata={'a': 2}),
     )
 
     # update validations
     self.write_metadata_store(blocking_write=False).update(
         file_path=self.get_metadata_file_path(metadata_class),
-        custom={'a': 3},
+        user_metadata={'a': 3},
     )
     self.write_metadata_store(blocking_write=False).wait_until_finished()
     serialized_metadata = self.read_metadata_store(blocking_write=False).read(
@@ -459,14 +459,14 @@ class CheckpointMetadataTest(parameterized.TestCase):
     )
     self.assertEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
-        self.get_metadata(metadata_class, custom={'a': 3}),
+        self.get_metadata(metadata_class, user_metadata={'a': 3}),
     )
     serialized_metadata = self.write_metadata_store(blocking_write=False).read(
         file_path=self.get_metadata_file_path(metadata_class)
     )
     self.assertEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
-        self.get_metadata(metadata_class, custom={'a': 3}),
+        self.get_metadata(metadata_class, user_metadata={'a': 3}),
     )
 
   @parameterized.parameters(StepMetadata, RootMetadata)
@@ -497,8 +497,8 @@ class CheckpointMetadataTest(parameterized.TestCase):
 
   @parameterized.parameters(
       ({'format': int()},),
-      ({'custom': list()},),
-      ({'custom': {int(): None}},),
+      ({'user_metadata': list()},),
+      ({'user_metadata': {int(): None}},),
   )
   def test_deserialize_wrong_types_root_metadata(
       self, wrong_metadata: checkpoint.SerializedMetadata
@@ -519,8 +519,8 @@ class CheckpointMetadataTest(parameterized.TestCase):
       ({'performance_metrics': {str(): int()}},),
       ({'init_timestamp_nsecs': float()},),
       ({'commit_timestamp_nsecs': float()},),
-      ({'custom': list()},),
-      ({'custom': {int(): None}},),
+      ({'user_metadata': list()},),
+      ({'user_metadata': {int(): None}},),
   )
   def test_deserialize_wrong_types_step_metadata(
       self, wrong_metadata: checkpoint.SerializedMetadata
@@ -529,14 +529,8 @@ class CheckpointMetadataTest(parameterized.TestCase):
       self.deserialize_metadata(StepMetadata, wrong_metadata)
 
   @parameterized.parameters(
-      (
-          RootMetadata(custom={'a': None}),
-          {'custom': {'a': None}}
-      ),
-      (
-          RootMetadata(format=_SAMPLE_FORMAT),
-          {'format': _SAMPLE_FORMAT}
-      ),
+      (RootMetadata(user_metadata={'a': None}), {'user_metadata': {'a': None}}),
+      (RootMetadata(format=_SAMPLE_FORMAT), {'format': _SAMPLE_FORMAT}),
       (
           StepMetadata(format=_SAMPLE_FORMAT),
           {'format': _SAMPLE_FORMAT},
@@ -546,8 +540,8 @@ class CheckpointMetadataTest(parameterized.TestCase):
           {'item_handlers': {'a': 'a_handler'}},
       ),
       (
-          StepMetadata(custom={'blah': 123}),
-          {'custom': {'blah': 123}},
+          StepMetadata(user_metadata={'blah': 123}),
+          {'user_metadata': {'blah': 123}},
       ),
   )
   def test_only_serialize_non_default_metadata_values(
@@ -565,7 +559,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
   ):
     metadata = metadata_class(
         format=_SAMPLE_FORMAT,
-        custom={'a': 1},
+        user_metadata={'a': 1},
     )
     serialized_metadata = self.serialize_metadata(metadata)
     serialized_metadata['blah'] = 2
@@ -650,7 +644,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
       ({'performance_metrics': 1}, 'performance_metrics', dict, int),
       ({'init_timestamp_nsecs': 'a'}, 'init_timestamp_nsecs', int, str),
       ({'commit_timestamp_nsecs': 'a'}, 'commit_timestamp_nsecs', int, str),
-      ({'custom': 1}, 'custom', dict, int),
+      ({'user_metadata': 1}, 'user_metadata', dict, int),
   )
   def test_validate_field_wrong_type(
       self, step_metadata, field_name, expected_field_type, wrong_field_type
@@ -687,7 +681,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
           str,
           int,
       ),
-      ({'custom': {1: 'a'}}, 'custom', str, int),
+      ({'user_metadata': {1: 'a'}}, 'user_metadata', str, int),
   )
   def test_validate_dict_entry_wrong_key_type(
       self, step_metadata, field_name, expected_key_type, wrong_key_type

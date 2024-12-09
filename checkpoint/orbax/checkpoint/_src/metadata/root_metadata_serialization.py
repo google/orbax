@@ -27,8 +27,8 @@ def serialize(metadata: RootMetadata) -> SerializedMetadata:
   serialized_metadata = {}
   if metadata.format is not None:
     serialized_metadata['format'] = metadata.format
-  if metadata.custom:
-    serialized_metadata['custom'] = metadata.custom
+  if metadata.user_metadata:
+    serialized_metadata['user_metadata'] = metadata.user_metadata
   return serialized_metadata
 
 
@@ -40,22 +40,24 @@ def deserialize(metadata_dict: SerializedMetadata) -> RootMetadata:
     utils.validate_field(metadata_dict, 'format', str)
   validated_metadata_dict['format'] = metadata_dict.get('format', None)
 
-  if 'custom' in metadata_dict:
-    utils.validate_field(metadata_dict, 'custom', dict)
-    for k in metadata_dict.get('custom', {}) or {}:
-      utils.validate_dict_entry(metadata_dict, 'custom', k, str)
-  validated_metadata_dict['custom'] = metadata_dict.get('custom', {})
+  if 'user_metadata' in metadata_dict:
+    utils.validate_field(metadata_dict, 'user_metadata', dict)
+    for k in metadata_dict.get('user_metadata', {}) or {}:
+      utils.validate_dict_entry(metadata_dict, 'user_metadata', k, str)
+  validated_metadata_dict['user_metadata'] = metadata_dict.get(
+      'user_metadata', {}
+  )
 
   for k in metadata_dict:
     if k not in validated_metadata_dict:
-      if 'custom' in metadata_dict and metadata_dict['custom']:
+      if 'user_metadata' in metadata_dict and metadata_dict['user_metadata']:
         raise ValueError(
-            'Provided metadata contains unknown key %s, and the custom field '
-            'is already defined.' % k
+            'Provided metadata contains unknown key %s, and the `user_metadata`'
+            ' field is already defined.' % k
         )
       logging.warning(
           'Provided metadata contains unknown key %s. Adding it to custom.', k
       )
-      validated_metadata_dict['custom'][k] = metadata_dict[k]
+      validated_metadata_dict['user_metadata'][k] = metadata_dict[k]
 
   return RootMetadata(**validated_metadata_dict)

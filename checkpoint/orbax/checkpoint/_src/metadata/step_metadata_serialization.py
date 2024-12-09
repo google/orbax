@@ -62,8 +62,8 @@ def serialize(metadata: StepMetadata) -> SerializedMetadata:
     serialized_metadata['commit_timestamp_nsecs'] = (
         metadata.commit_timestamp_nsecs
     )
-  if metadata.custom:
-    serialized_metadata['custom'] = metadata.custom
+  if metadata.user_metadata:
+    serialized_metadata['user_metadata'] = metadata.user_metadata
 
   return serialized_metadata
 
@@ -152,21 +152,25 @@ def deserialize(
       metadata_dict.get('commit_timestamp_nsecs', None)
   )
 
-  utils.validate_field(metadata_dict, 'custom', dict)
-  for k in metadata_dict.get('custom', {}) or {}:
-    utils.validate_dict_entry(metadata_dict, 'custom', k, str)
-  validated_metadata_dict['custom'] = metadata_dict.get('custom', {})
+  utils.validate_field(metadata_dict, 'user_metadata', dict)
+  for k in metadata_dict.get('user_metadata', {}) or {}:
+    utils.validate_dict_entry(metadata_dict, 'user_metadata', k, str)
+  validated_metadata_dict['user_metadata'] = metadata_dict.get(
+      'user_metadata', {}
+  )
 
   for k in metadata_dict:
     if k not in validated_metadata_dict:
-      if 'custom' in metadata_dict and metadata_dict['custom']:
+      if 'user_metadata' in metadata_dict and metadata_dict['user_metadata']:
         raise ValueError(
-            'Provided metadata contains unknown key %s, and the custom field '
-            'is already defined.' % k
+            'Provided metadata contains unknown key %s, and the user_metadata'
+            ' field is already defined.' % k
         )
       logging.warning(
-          'Provided metadata contains unknown key %s. Adding it to custom.', k
+          'Provided metadata contains unknown key %s. Adding it to'
+          ' user_metadata.',
+          k,
       )
-      validated_metadata_dict['custom'][k] = metadata_dict[k]
+      validated_metadata_dict['user_metadata'][k] = metadata_dict[k]
 
   return StepMetadata(**validated_metadata_dict)
