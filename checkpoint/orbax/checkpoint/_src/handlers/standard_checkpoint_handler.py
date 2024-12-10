@@ -212,7 +212,9 @@ class StandardCheckpointHandler(
       args = StandardRestoreArgs(item=item)
     if args.item is not None:
       self._validate_restore_state(args.item)
-      restore_args = checkpoint_utils.construct_restore_args(args.item)
+      restore_args = checkpoint_utils.construct_restore_args(
+          args.item, support_layout=args.support_layout
+      )
     else:
       logging.warning(
           '`StandardCheckpointHandler` expects a target tree to be provided for'
