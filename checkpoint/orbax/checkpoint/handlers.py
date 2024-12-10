@@ -57,3 +57,5 @@ from orbax.checkpoint._src.handlers.random_key_checkpoint_handler import NumpyRa
 from orbax.checkpoint._src.handlers.random_key_checkpoint_handler import NumpyRandomKeyRestoreArgs
 from orbax.checkpoint._src.handlers.standard_checkpoint_handler import StandardSaveArgs
 from orbax.checkpoint._src.handlers.standard_checkpoint_handler import StandardRestoreArgs
+
+from orbax.checkpoint._src.handlers.handler_type_registry import register_handler_type
