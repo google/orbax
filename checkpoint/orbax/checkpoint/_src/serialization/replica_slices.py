@@ -286,9 +286,9 @@ def get_replica_slices(
   if logging.vlog_is_on(1):
     logging.vlog(
         1,
-        '[process=%d] get_replica_slices: replica_id=%d, shards=[%s]',
+        '[process=%d] get_replica_slices: replica_id=%s, shards=[%s]',
         multihost.process_index(),
-        replica_id,
+        replica_id,  # note: may be None
         ', '.join([
             f'Shard(index={shard.index}, replica_id={shard.replica_id})'
             for shard in arr.addressable_shards
