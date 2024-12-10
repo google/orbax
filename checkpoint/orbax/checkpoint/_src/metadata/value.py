@@ -22,6 +22,7 @@ from typing import Optional
 from etils import epath
 import jax
 from jax import numpy as jnp
+from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 
 
@@ -55,6 +56,7 @@ class StorageMetadata:
   """Metadata describing how arrays are stored in a checkpoint."""
 
   chunk_shape: Optional[tuple[int, ...]]
+  write_shape: arrays_types.Shape | None = None
 
 
 @dataclasses.dataclass
