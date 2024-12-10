@@ -1398,6 +1398,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     read_step_directory = self._get_read_step_directory(step, self.directory)
 
     result = self._checkpointer.metadata(read_step_directory)
+    if isinstance(result, checkpoint.StepMetadata):
+      result = result.item_metadata
     if self._default_item is None:
       self._default_item = _determine_default_item_mode_from_directory(
           read_step_directory
