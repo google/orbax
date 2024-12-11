@@ -6,7 +6,6 @@ package(
 py_library(
     name = "snapshot",
     srcs = ["snapshot.py"],
-    default_visibility = ["//visibility:public"],
     srcs_version = "PY3",
     deps = ["//orbax/checkpoint/orbax/checkpoint/_src/path:utils"],
 )
@@ -14,7 +13,6 @@ py_library(
 py_test(
     name = "snapshot_test",
     srcs = ["snapshot_test.py"],
-    default_visibility = ["//visibility:public"],
     srcs_version = "PY3",
     deps = [
         ":snapshot",
