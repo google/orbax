@@ -83,10 +83,9 @@ MultiprocessingOptions = options_lib.MultiprocessingOptions
 FileOptions = options_lib.FileOptions
 
 DEFAULT_ITEM_NAME = 'default'
-DESCRIPTOR_ITEM_NAME = 'descriptor'
 METRIC_ITEM_NAME = 'metrics'
 METADATA_ITEM_NAME = 'metadata'
-RESERVED_ITEM_NAMES = [DESCRIPTOR_ITEM_NAME, METRIC_ITEM_NAME]
+RESERVED_ITEM_NAMES = [METRIC_ITEM_NAME]
 
 _INIT_TIME = datetime.datetime.now(tz=datetime.timezone.utc)
 
@@ -96,14 +95,6 @@ def _metrics_file_exists(metrics_item_path: epath.Path) -> bool:
   return (
       metrics_item_path.exists()
       and (metrics_item_path / METRIC_ITEM_NAME).exists()
-  )
-
-
-def _descriptor_file_exists(descriptor_item_path: epath.Path) -> bool:
-  """True if item directory AND actual file both exist."""
-  return (
-      descriptor_item_path.exists()
-      and (descriptor_item_path / f'{DESCRIPTOR_ITEM_NAME}.pbtxt').exists()
   )
 
 
