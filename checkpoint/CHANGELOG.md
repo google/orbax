@@ -7,12 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- `HandlerTypeRegistry` that globally tracks all handler types, which will allow
-`CompositeCheckpointHandler.metadata()` to retrieve item metadata by
-default-constructing `CheckpointHandler`s when they're listed in the saved
-`StepMetadata` but aren't found in the checkpoint.
-
 ### Fixed
 - Ignore not-exists and not-dir errors while building step metadata in
  _StandardNameFormat.

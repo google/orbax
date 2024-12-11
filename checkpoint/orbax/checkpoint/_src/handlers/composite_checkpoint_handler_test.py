@@ -681,7 +681,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertDictEqual(
         step_metadata.item_handlers,
         {
-            'state': StandardCheckpointHandler().typestr(),
+            'state': StandardCheckpointHandler().typestr,
         }
     )
     expected_elements = ['state']
@@ -751,7 +751,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertEqual(
         step_metadata.item_handlers,
         {
-            'state': StandardCheckpointHandler().typestr(),
+            'state': StandardCheckpointHandler().typestr,
         }
     )
     self.assertDictEqual(
@@ -799,7 +799,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     metadata_to_write = checkpoint.StepMetadata(
         format='orbax',
         item_handlers={
-            'state': StandardCheckpointHandler().typestr(),
+            'state': StandardCheckpointHandler().typestr,
         },
         item_metadata={
             'state': 123,
@@ -826,7 +826,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertEqual(step_metadata.format, 'orbax')
     self.assertDictEqual(
         step_metadata.item_handlers,
-        {'state': StandardCheckpointHandler().typestr()}
+        {'state': StandardCheckpointHandler().typestr}
     )
     self.assertDictEqual(dict(step_metadata.item_metadata), {'state': None})
     self.assertDictEqual(step_metadata.metrics, {'loss': 1.0, 'accuracy': 0.5})
@@ -847,7 +847,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     metadata_to_write = checkpoint.StepMetadata(
         item_handlers={
-            'state': StandardCheckpointHandler().typestr(),
+            'state': StandardCheckpointHandler().typestr,
         },
         item_metadata={
             'state': 123,
@@ -871,7 +871,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertDictEqual(
         step_metadata.item_handlers,
         {
-            'state': StandardCheckpointHandler().typestr(),
+            'state': StandardCheckpointHandler().typestr,
         }
     )
     self.assertSameElements(
