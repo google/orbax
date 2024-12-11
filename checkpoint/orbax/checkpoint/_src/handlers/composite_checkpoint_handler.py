@@ -882,7 +882,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       handler = items_to_handlers[item_name]
       assert handler is not None
       if item_handlers.get(item_name) is None:
-        item_handlers[item_name] = handler.typestr
+        item_handlers[item_name] = handler.typestr()
       if item_metadata.get(item_name) is None:
         item_metadata[item_name] = handler.metadata(
             self._get_item_directory(directory, item_name)
