@@ -7,7 +7,7 @@ py_library(
     name = "snapshot",
     srcs = ["snapshot.py"],
     srcs_version = "PY3",
-    deps = ["//orbax/checkpoint/orbax/checkpoint/_src/path:utils"],
+    deps = ["//checkpoint/orbax/checkpoint/_src/path:utils"],
 )
 
 py_test(
