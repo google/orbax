@@ -19,6 +19,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, Dict
 
+from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.serialization import types
@@ -26,6 +27,7 @@ from orbax.checkpoint._src.serialization import types
 
 _VALUE_TYPE = 'value_type'
 _SKIP_DESERIALIZE = 'skip_deserialize'
+_WRITE_SHAPE = 'write_shape'
 
 
 @dataclasses.dataclass
@@ -41,12 +43,16 @@ class ValueMetadataEntry:
 
   value_type: str
   skip_deserialize: bool = False
+  write_shape: arrays_types.Shape | None = None
 
   def to_json(self) -> Dict[str, Any]:
-    return {
+    json_dict = {
         _VALUE_TYPE: self.value_type,
         _SKIP_DESERIALIZE: self.skip_deserialize,
     }
+    if self.write_shape is not None:
+      json_dict[_WRITE_SHAPE] = self.write_shape
+    return json_dict
 
   @classmethod
   def from_json(
@@ -60,6 +66,11 @@ class ValueMetadataEntry:
             pytree_metadata_options,
         ),
         skip_deserialize=json_dict[_SKIP_DESERIALIZE],
+        write_shape=(
+            tuple(json_dict[_WRITE_SHAPE])
+            if _WRITE_SHAPE in json_dict
+            else None
+        ),
     )
 
   @classmethod
@@ -69,6 +80,7 @@ class ValueMetadataEntry:
       save_arg: types.SaveArgs,
   ) -> ValueMetadataEntry:
     """Builds a ValueMetadataEntry."""
+    # TODO(niket): Add support for `write_shape`.
     del save_arg
     if info.value_typestr is None:
       raise AssertionError(
