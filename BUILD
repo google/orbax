@@ -8,6 +8,7 @@ package(
 license(
     name = "package_license",
     package_name = "orbax",
+    license_kinds = ["@rules_license//licenses/spdx:Apache-2.0"],
 )
 
 licenses(["notice"])
