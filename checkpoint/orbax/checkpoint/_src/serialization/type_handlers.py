@@ -228,6 +228,7 @@ def _build_array_tspec_write(
       dtype=dtype,
       target_dtype=(arg.dtype if arg is not None else None),
       chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
+      shard_axes=(arg.shard_axes if arg is not None else None),
       use_zarr3=info.use_zarr3,
       use_ocdbt=use_ocdbt,
       process_id=process_index,
@@ -503,7 +504,8 @@ def _array_metadata_from_tensorstore(
       dtype=jnp.dtype(t.dtype.name),
       sharding=sharding,
       storage=value_metadata.StorageMetadata(
-          chunk_shape=t.chunk_layout.read_chunk_template.shape
+          chunk_shape=t.chunk_layout.read_chunk_template.shape,
+          write_shape=info.write_shape,
       ),
   )
 
