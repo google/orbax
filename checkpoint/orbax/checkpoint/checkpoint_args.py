@@ -19,6 +19,7 @@ import inspect
 from typing import Tuple, Type, Union
 
 from orbax.checkpoint._src.handlers import checkpoint_handler
+from orbax.checkpoint._src.handlers import handler_type_registry
 
 CheckpointHandler = checkpoint_handler.CheckpointHandler
 
@@ -113,6 +114,7 @@ def register_with_handler(
       _SAVE_ARG_TO_HANDLER[cls] = handler_cls
     if for_restore:
       _RESTORE_ARG_TO_HANDLER[cls] = handler_cls
+    handler_type_registry.register_handler_type(handler_cls)
     return cls
 
   return decorator

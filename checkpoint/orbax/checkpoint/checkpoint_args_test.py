@@ -18,6 +18,7 @@ import dataclasses
 from absl.testing import absltest
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint._src.handlers import checkpoint_handler
+from orbax.checkpoint._src.handlers import handler_type_registry
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 
 StandardCheckpointHandler = (
@@ -174,6 +175,14 @@ class CheckpointArgsTest(absltest.TestCase):
     )
     self.assertIsNot(save_args, Args2)
     self.assertIsNot(restore_args, Args2)
+
+  def test_type_registry(self):
+    self.assertEqual(
+        handler_type_registry.get_handler_type(
+            StandardCheckpointHandler.typestr()
+        ),
+        StandardCheckpointHandler,
+    )
 
 
 if __name__ == '__main__':
