@@ -152,6 +152,7 @@ def consistent_restore_mesh_from_metadata(
   )
   logging.info('From process metadata, device_ids=%s', previous_device_ids)
   consistent_mesh = emergency_multihost.consistent_restore_mesh(
+      jax.devices(),
       global_mesh,
       previous_device_ids,
       previous_distributed_to_device_ids=previous_distributed_to_device_ids,
