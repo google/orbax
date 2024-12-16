@@ -223,10 +223,27 @@ def validate_divisible_shapes(
 
 
 def chunk_fragment(fragment: Fragment, target_shape: Shape) -> list[Fragment]:
-  """Chunks (with zero-copy) the given fragment into the given target shape."""
-  if fragment.value is None:
-    raise ValueError(f"Can't chunk an abstract fragment: {fragment!r}")
+  """Chunks the given fragment into the given target shape.
 
+  Args:
+    fragment: The fragment to chunk. Fragment's shape must be divisible by the
+      target shape. If the fragment is concrete (has a value), the operation is
+      zero copy and the returned fragments will have the same underlying buffer.
+    target_shape: The shape to chunk the fragment into.
+
+  Returns:
+    A list of fragments that cover the entire original fragment, each of
+    target_shape shape.
+
+    The order of the returned fragments is deterministic: the index of the
+    innermost axis changes fastest. For example: a fragment with index
+    [0:4:2, 0:2:1] and target_shape [2, 1] will be split into fragments
+    with indices ordered as follows:
+      [[0:2:1, 0:1:1], [0:2:1, 1:2:1], [2:4:1, 0:1:1], [2:4:1, 1:2:1]]
+
+  Raises:
+    ValueError: If the fragment's shape is not divisible by the target shape.
+  """
   if fragment.shape == target_shape:
     return [fragment]
 
@@ -254,10 +271,12 @@ def chunk_fragment(fragment: Fragment, target_shape: Shape) -> list[Fragment]:
         slice(start_index[i], start_index[i] + target_shape[i], 1)
         for i in range(len(target_shape))
     )
-    value_index = Fragment(index=new_index).offset_by(-fragment.start).index
-    new_fragments.append(
-        Fragment(index=new_index, value=fragment.value[value_index])
-    )
+    if fragment.value is None:
+      value = None
+    else:
+      value_index = Fragment(index=new_index).offset_by(-fragment.start).index
+      value = fragment.value[value_index]
+    new_fragments.append(Fragment(index=new_index, value=value))
   return new_fragments
 
 

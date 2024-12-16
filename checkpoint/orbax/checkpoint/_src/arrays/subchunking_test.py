@@ -21,7 +21,6 @@ from absl.testing import parameterized
 from etils import epath
 import numpy as np
 from orbax.checkpoint._src.arrays import fragments as fragments_lib
-from orbax.checkpoint._src.arrays import numpy_utils as np_utils
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
 
@@ -425,13 +424,6 @@ class ChooseChunkShapeWithShardAxesTest(parameterized.TestCase):
 
 class ChunkFragmentTest(parameterized.TestCase):
 
-  def test_rejects_abstract_fragments(self):
-    with self.assertRaisesRegex(ValueError, 'abstract fragment'):
-      _ = subchunking.chunk_fragment(
-          fragment=Fragment(index=np.s_[0:4:1, 0:6:1]),
-          target_shape=(2, 3),
-      )
-
   @parameterized.named_parameters(
       dict(
           testcase_name='shorter_target_shape',
@@ -529,35 +521,42 @@ class ChunkFragmentTest(parameterized.TestCase):
       target_shape: Shape,
       expected_indices: list[slice],
   ):
-    global_array = np.arange(np.prod(global_shape), dtype=np.int32).reshape(
-        global_shape
-    )
-    fragment = Fragment(
-        index=fragment_index,
-        value=global_array[fragment_index],
-    )
-    assert fragment.value is not None  # Make type checker happy.
-    assert fragment.value.base is not None  # A view after reshaping.
-
-    chunks = subchunking.chunk_fragment(fragment, target_shape)
-    self.assertLen(chunks, len(expected_indices))
-
-    index_to_tuple = lambda x: tuple(
-        np_utils.int_tuple_from_slice(s) for s in x
-    )
-
-    expected_indices = set(index_to_tuple(idx) for idx in expected_indices)
-    for chunk in chunks:
-      chunk_index_as_tuple = index_to_tuple(chunk.index)
-      self.assertIn(chunk_index_as_tuple, expected_indices)
-      assert chunk.value is not None
-      self.assertIs(chunk.value.base, fragment.value.base)
-      np.testing.assert_array_equal(
-          chunk.value,
-          global_array[chunk.index],
+    with self.subTest('fragment_with_value'):
+      global_array = np.arange(np.prod(global_shape), dtype=np.int32).reshape(
+          global_shape
       )
-      expected_indices.remove(chunk_index_as_tuple)
-    self.assertEmpty(expected_indices)
+      fragment = Fragment(
+          index=fragment_index,
+          value=global_array[fragment_index],
+      )
+      assert fragment.value is not None  # Make type checker happy.
+      assert fragment.value.base is not None  # A view after reshaping.
+
+      chunks = subchunking.chunk_fragment(fragment, target_shape)
+      self.assertLen(chunks, len(expected_indices))
+
+      # Chunk indices are expected in such an order that the index of the
+      # innermost axis changes fastest.
+      for chunk, expected_index in zip(chunks, expected_indices, strict=True):
+        self.assertEqual(chunk.index, expected_index)
+        assert chunk.value is not None
+        # Resulting chunks should be views of the same underlying buffer.
+        self.assertIs(chunk.value.base, fragment.value.base)
+        np.testing.assert_array_equal(
+            chunk.value,
+            global_array[chunk.index],
+        )
+
+    with self.subTest('abstract_fragment'):
+      fragment = Fragment(index=fragment_index, value=None)
+      chunks = subchunking.chunk_fragment(fragment, target_shape)
+      self.assertLen(chunks, len(expected_indices))
+
+      # Chunk indices are expected in such an order that the index of the
+      # innermost axis changes fastest.
+      for chunk, expected_index in zip(chunks, expected_indices, strict=True):
+        self.assertEqual(chunk.index, expected_index)
+        self.assertIsNone(chunk.value)
 
 
 class ChunkFragmentsTest(parameterized.TestCase):
