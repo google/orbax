@@ -26,6 +26,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import future
+from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import value as value_metadata
@@ -116,6 +117,8 @@ class ParamInfo:
   raise_array_data_missing_error:
     Only used for restoring. See documentation in `tensorstore_utils.py`. Comes
     from tree metadata and should be the same across all parameters.
+  write_shape:
+    Shape of the array shard. Used in the subchunking context.
   """
 
   name: Optional[str] = None
@@ -130,6 +133,7 @@ class ParamInfo:
   value_typestr: Optional[str] = None
   enable_pinned_host_transfer: bool = True
   raise_array_data_missing_error: bool = True
+  write_shape: arrays_types.Shape | None = None
 
 
 @dataclasses.dataclass
