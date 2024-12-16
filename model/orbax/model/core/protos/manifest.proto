@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package orbax_model_manifest;
 
-import "tensorflow/compiler/xla/xla_data.proto";
+import "orbax/experimental/model/core/protos/type.proto";
 
 message Manifest {
   map<string, TopLevelObject> objects = 1;
@@ -58,7 +58,7 @@ message TopLevelObject {
 }
 
 message Function {
-  FunctionSignature signature = 1;
+  orbax_model_type.FunctionSignature signature = 1;
   FunctionBody body = 2;
   Visibility visibility = 3;
   optional string gradient_function_name = 4;
@@ -75,7 +75,7 @@ message Value {
 }
 
 message ExternalValue {
-  optional Type type = 1;
+  optional orbax_model_type.Type type = 1;
   UnstructuredData data = 2;
 }
 
@@ -95,79 +95,6 @@ message NamedTupleValue {
 enum Visibility {
   PRIVATE = 0;
   PUBLIC = 1;
-}
-
-message FunctionSignature {
-  Type input = 1;
-  Type output = 2;
-}
-
-message Type {
-  oneof type {
-    LeafType leaf = 1;
-    Tuple tuple = 2;
-    List list = 3;
-    NoneType none = 4;  // distinguished from empty tuple and empty list
-    OrderedDict ordered_dict = 5;
-    Dict dict = 6;
-  }
-}
-
-message Tuple {
-  repeated Type elements = 1;
-}
-
-message List {
-  // heterogeneous list, equivalent to `Tuple`. We added this type just
-  // to preserve the distinction between Python `tuple` and Python
-  // `list`.
-  repeated Type elements = 1;
-}
-
-message NoneType {}
-
-message OrderedDict {
-  repeated StringTypePair elements = 1;
-}
-
-message Dict {
-  map<string, Type> string_to_type = 1;
-}
-
-message StringTypePair {
-  string fst = 1;
-  Type snd = 2;
-}
-
-message LeafType {
-  oneof type {
-    TensorType tensor_type = 1;
-    TokenType token_type = 2;
-  }
-}
-
-message TokenType {}
-
-message TensorType {
-  Shape shape = 1;
-  DType dtype = 2;
-
-  // TODO(b/349877692): Replace proto message `xla.OpSharding`
-  // with a stable version.
-  optional xla.OpSharding sharding = 3;
-}
-
-message Shape {
-  optional ShapeWithKnownRank shape_with_known_rank =
-      1;  // Absence indicates unknown rank.
-}
-
-message ShapeWithKnownRank {
-  repeated DimensionSize dimension_sizes = 1;
-}
-
-message DimensionSize {
-  optional uint64 size = 1;  // Absence indicates unknown dimension size.
 }
 
 message FunctionBody {
@@ -213,36 +140,4 @@ message FileSystemLocation {
 
   // Absence means spanning to the end of the file.
   optional uint64 size_in_byte = 4;
-}
-
-// LINT: LEGACY_NAMES
-enum DType {
-  UNSPECIFIED = 0;
-
-  // Copied from `TensorElementType` of
-  // https://github.com/openxla/stablehlo/blob/main/docs/spec.md#types .
-  // The right-hand-side values are copied from
-  // /third_party/py/jax/experimental/export/serialization.fbs .
-  i1 = 1;  // bool
-  si8 = 2;
-  si16 = 3;
-  si32 = 4;
-  si64 = 5;
-  ui8 = 6;
-  ui16 = 7;
-  ui32 = 8;
-  ui64 = 9;
-  f16 = 10;
-  f32 = 11;
-  f64 = 12;
-  c64 = 13;
-  c128 = 14;
-  bf16 = 15;
-  si4 = 16;
-  ui4 = 17;
-  f8_e4m3b11fnuz = 18;
-  f8_e4m3fn = 19;
-  f8_e4m3fnuz = 20;
-  f8_e5m2 = 21;
-  f8_e5m2fnuz = 22;
 }

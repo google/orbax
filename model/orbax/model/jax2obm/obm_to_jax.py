@@ -237,7 +237,7 @@ def _shlo_tensor_spec_to_hlo_sharding(
 
 
 def _restore_spec(
-    manifest_signature: obm.manifest_pb2.FunctionSignature,
+    manifest_signature: obm.type_pb2.FunctionSignature,
     signature_field: str,
     supplemental: jax_supplemental_pb2.Function,
     supplemental_field: str,

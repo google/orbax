@@ -28,12 +28,6 @@ from orbax.export.typing import PyTree
 import tensorflow as tf
 
 
-def _to_sequence(a):
-  if isinstance(a, Sequence):
-    return a
-  return (a,)
-
-
 class ObmExport(export_base.ExportBase):
   """Defines the save and load methods for exporting a model using Orbax Model export."""
 

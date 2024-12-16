@@ -25,6 +25,8 @@ many ML frameworks such as TF, JAX and PyTorch.
 
 from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.protos import simple_orchestration_pb2
+from orbax.experimental.model.core.protos import type_pb2
+from orbax.experimental.model.core.python import simple_orchestration
 from orbax.experimental.model.core.python import tracing
 from orbax.experimental.model.core.python import tree_util
 from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
@@ -41,7 +43,6 @@ from orbax.experimental.model.core.python.function import ShloDType
 from orbax.experimental.model.core.python.function import ShloShape
 from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.manifest_constants import *
-from orbax.experimental.model.core.python.manifest_util import manifest_type_to_shlo_tensor_spec_pytree
 from orbax.experimental.model.core.python.module import Module
 from orbax.experimental.model.core.python.polymorphic_function import function
 from orbax.experimental.model.core.python.polymorphic_function import PolymorphicFunction
@@ -56,12 +57,15 @@ from orbax.experimental.model.core.python.signature import OpSharding
 from orbax.experimental.model.core.python.signature import Shape
 from orbax.experimental.model.core.python.signature import Signature
 from orbax.experimental.model.core.python.signature import TensorSpec
+# TODO(wangpeng): Don't expose individual symbols from
+#   simple_orchestration.py, because simple_orchestration.py will be
+#   moved out of model/core/ .
 from orbax.experimental.model.core.python.simple_orchestration import CURRENT_SIMPLE_ORCHESTRATION_MIME_TYPE
 from orbax.experimental.model.core.python.simple_orchestration import CURRENT_SIMPLE_ORCHESTRATION_VERSION
 from orbax.experimental.model.core.python.simple_orchestration import ORCHESTRATION_SUPPLEMENTAL_NAME
-from orbax.experimental.model.core.python.simple_orchestration import serialize_simple_orchestration_proto
-from orbax.experimental.model.core.python.simple_orchestration import simple_orchestration
 from orbax.experimental.model.core.python.tree_util import Tree
+from orbax.experimental.model.core.python.type_proto_util import manifest_type_to_shlo_tensor_spec_pytree
+from orbax.experimental.model.core.python.type_proto_util import to_function_signature_proto
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredData
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredDataWithExtName
 from orbax.experimental.model.core.python.value import ExternalValue

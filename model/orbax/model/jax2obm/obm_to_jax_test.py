@@ -298,7 +298,10 @@ class ObmToJaxTest(parameterized.TestCase):
         obm.SaveOptions(
             version=2,
             supplemental_info=obm.SupplementalInfo(
-                obm.simple_orchestration(
+                obm.simple_orchestration.create(
+                    signature=obm.simple_orchestration.calculate_signature(
+                        model_function_signature=obm_shlo_fn.signature
+                    ),
                     model_function_name=model_function_name,
                     weights_name=weights_name,
                 ),
@@ -449,7 +452,10 @@ class ObmToJaxTest(parameterized.TestCase):
         obm.SaveOptions(
             version=2,
             supplemental_info=obm.SupplementalInfo(
-                obm.simple_orchestration(
+                obm.simple_orchestration.create(
+                    signature=obm.simple_orchestration.calculate_signature(
+                        model_function_signature=obm_shlo_fn.signature
+                    ),
                     model_function_name=model_function_name,
                     weights_name=weights_name,
                 ),
