@@ -98,6 +98,7 @@ def process_index_from_device_id(device_id: int) -> int:
 
 
 def consistent_restore_mesh(
+    devices: List[jax.Device],
     user_mesh: jax.sharding.Mesh,
     previous_flattened_mesh_device_ids: List[int],
     previous_distributed_to_device_ids: List[List[int]],
@@ -120,6 +121,7 @@ def consistent_restore_mesh(
   even if software process and device ids have changed across restarts.
 
   Args:
+    devices: List of Jax devices (usually `jax.devices()`).
     user_mesh: The user mesh.
     previous_flattened_mesh_device_ids: The flattened device ids of the mesh.
     previous_distributed_to_device_ids: The distributed id to range of device
@@ -141,8 +143,8 @@ def consistent_restore_mesh(
       'device_id_across_restarts (key: previous_id, value: current_id): %s',
       device_id_across_restarts,
   )
-  # Key jax.devices() by device id.
-  jax_devices_by_id = {d.id: d for d in jax.devices()}
+  # Key devices by id.
+  jax_devices_by_id = {d.id: d for d in devices}
 
   new_flattened_mesh_devices = [
       # Convert old ids to current ids that correspond to the same physical
