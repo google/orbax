@@ -1,0 +1,248 @@
+syntax = "proto3";
+
+package orbax_model_manifest;
+
+import "third_party/tensorflow/compiler/xla/xla_data.proto";
+
+message Manifest {
+  map<string, TopLevelObject> objects = 1;
+  optional GlobalSupplemental supplemental_info = 2;
+  optional DeviceMesh device_mesh = 3;
+  optional DeviceAssignmentByCoords device_assignment_by_coords = 4;
+
+  // A list of paths frequently used in this manifest. Once a path is added to
+  // this list, use sites can refer to it by its index here instead of spelling
+  // out the full string.
+  repeated string frequent_paths = 5;
+}
+
+message GlobalSupplemental {
+  oneof case {
+    // TODO(wangpeng): Consider removing the `single` case.
+    UnstructuredData single = 1;
+    GlobalSupplementalMap multiple = 2;
+  }
+}
+
+message GlobalSupplementalMap {
+  map<string, UnstructuredData> map = 1;
+}
+
+message DeviceMesh {
+  message Axis {
+    string name = 1;
+    int32 size = 2;
+  }
+
+  repeated Axis axis = 1;
+}
+
+// Copied from /third_party/australis/google/ifrt/ifrt_australis.proto.
+// Represents a mapping between device ids and coords. This allows consistently
+// mapping between incompatible id spaces by aligning the coords.
+message DeviceAssignmentByCoords {
+  message Device {
+    int64 id = 1;
+    repeated int64 coords = 2;
+    optional int64 core_on_chip = 3;
+  }
+
+  repeated Device devices = 1;
+}
+
+message TopLevelObject {
+  oneof case {
+    Function function = 1;
+    Value value = 2;
+  }
+}
+
+message Function {
+  FunctionSignature signature = 1;
+  FunctionBody body = 2;
+  Visibility visibility = 3;
+  optional string gradient_function_name = 4;
+}
+
+message Value {
+  oneof case {
+    ExternalValue external = 1;
+    TupleValue tuple = 2;
+    NamedTupleValue named_tuple = 3;
+
+    // ...  list, dict, none
+  }
+}
+
+message ExternalValue {
+  optional Type type = 1;
+  UnstructuredData data = 2;
+}
+
+message TupleValue {
+  repeated string elements = 1;  // string is a name in Manifest.objects
+}
+
+message NamedTupleValue {
+  message Pair {
+    string name = 1;
+    string value = 2;
+  }
+
+  repeated Pair elements = 1;
+}
+
+enum Visibility {
+  PRIVATE = 0;
+  PUBLIC = 1;
+}
+
+message FunctionSignature {
+  optional Type input = 1;
+  optional Type output = 2;
+}
+
+message Type {
+  oneof type {
+    LeafType leaf = 1;
+    Tuple tuple = 2;
+    List list = 3;
+    NoneType none = 4;  // distinguished from empty tuple and empty list
+    OrderedDict ordered_dict = 5;
+    Dict dict = 6;
+  }
+}
+
+message Tuple {
+  repeated Type elements = 1;
+}
+
+message List {
+  // heterogeneous list, equivalent to `Tuple`. We added this type just
+  // to preserve the distinction between Python `tuple` and Python
+  // `list`.
+  repeated Type elements = 1;
+}
+
+message NoneType {}
+
+message OrderedDict {
+  repeated StringTypePair elements = 1;
+}
+
+message Dict {
+  map<string, Type> string_to_type = 1;
+}
+
+message StringTypePair {
+  string fst = 1;
+  Type snd = 2;
+}
+
+message LeafType {
+  oneof type {
+    TensorType tensor_type = 1;
+    TokenType token_type = 2;
+  }
+}
+
+message TokenType {}
+
+message TensorType {
+  Shape shape = 1;
+  DType dtype = 2;
+
+  // TODO(b/349877692): Replace proto message `xla.OpSharding`
+  // with a stable version.
+  optional xla.OpSharding sharding = 3;
+}
+
+message Shape {
+  optional ShapeWithKnownRank shape_with_known_rank =
+      1;  // Absence indicates unknown rank.
+}
+
+message ShapeWithKnownRank {
+  repeated DimensionSize dimension_sizes = 1;
+}
+
+message DimensionSize {
+  optional uint64 size = 1;  // Absence indicates unknown dimension size.
+}
+
+message FunctionBody {
+  oneof case {
+    StableHloFunctionBody stable_hlo_body = 1;
+    UnstructuredData other = 2;  // e.g. TF graph
+  }
+}
+
+message StableHloFunctionBody {
+  UnstructuredData stable_hlo = 1;
+
+  // some metadata
+  uint32 calling_convention_version = 2;
+  repeated string lowering_platforms = 3;
+  repeated uint32 module_kept_var_idx = 4;
+  optional UnstructuredData supplemental_info = 5;  // e.g. JAX-specific info
+}
+
+message UnstructuredData {
+  oneof data {
+    FileSystemLocation file_system_location = 1;
+    string inlined_string = 2;
+    bytes inlined_bytes = 3;
+  }
+
+  optional string mime_type = 4;  // e.g. “mlir_stablehlo”
+  optional string version = 5;
+}
+
+message FileSystemLocation {
+  oneof path {
+    // an absolute or relative path (as string)
+    string string_path = 1;
+
+    // an index into `Manifest.frequent_paths`
+    int32 frequent_path_idx = 2;
+  }
+
+  // Absence means 0 (i.e. start of the file).  Negative means counting from the
+  // end, i.e. real_offset_in_byte = offset_in_byte + file_length_in_byte .
+  optional int64 offset_in_byte = 3;
+
+  // Absence means spanning to the end of the file.
+  optional uint64 size_in_byte = 4;
+}
+
+// LINT: LEGACY_NAMES
+enum DType {
+  UNSPECIFIED = 0;
+
+  // Copied from `TensorElementType` of
+  // https://github.com/openxla/stablehlo/blob/main/docs/spec.md#types .
+  // The right-hand-side values are copied from
+  // /third_party/py/jax/experimental/export/serialization.fbs .
+  i1 = 1;  // bool
+  si8 = 2;
+  si16 = 3;
+  si32 = 4;
+  si64 = 5;
+  ui8 = 6;
+  ui16 = 7;
+  ui32 = 8;
+  ui64 = 9;
+  f16 = 10;
+  f32 = 11;
+  f64 = 12;
+  c64 = 13;
+  c128 = 14;
+  bf16 = 15;
+  si4 = 16;
+  ui4 = 17;
+  f8_e4m3b11fnuz = 18;
+  f8_e4m3fn = 19;
+  f8_e4m3fnuz = 20;
+  f8_e5m2 = 21;
+  f8_e5m2fnuz = 22;
+}
