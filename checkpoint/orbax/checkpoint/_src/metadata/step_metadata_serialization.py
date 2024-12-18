@@ -111,11 +111,11 @@ def serialize_for_update(**kwargs) -> SerializedMetadata:
         kwargs.get('commit_timestamp_nsecs', None)
     )
 
-  if 'user_metadata' in kwargs:
-    utils.validate_field(kwargs, 'user_metadata', dict)
-    for k in kwargs.get('user_metadata', {}) or {}:
-      utils.validate_dict_entry(kwargs, 'user_metadata', k, str)
-    validated_kwargs['user_metadata'] = kwargs.get('user_metadata', {})
+  if 'custom' in kwargs:
+    utils.validate_field(kwargs, 'custom', dict)
+    for k in kwargs.get('custom', {}) or {}:
+      utils.validate_dict_entry(kwargs, 'custom', k, str)
+    validated_kwargs['custom'] = kwargs.get('custom', {})
 
   for k in kwargs:
     if k not in validated_kwargs:
