@@ -29,6 +29,8 @@ StepMetadata = checkpoint.StepMetadata
 RootMetadata = checkpoint.RootMetadata
 MetadataStore = checkpoint.MetadataStore
 StepStatistics = step_statistics.SaveStepStatistics
+CompositeItemMetadata = checkpoint.CompositeItemMetadata
+SingleItemMetadata = checkpoint.SingleItemMetadata
 
 _SAMPLE_FORMAT = 'sample_format'
 
@@ -69,7 +71,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
       self,
       metadata_type: type[StepMetadata] | type[RootMetadata],
       metadata: checkpoint.SerializedMetadata,
-      item_metadata: checkpoint.ItemMetadata | None = None,
+      item_metadata: CompositeItemMetadata | SingleItemMetadata | None = None,
       metrics: dict[str, Any] | None = None,
   ) -> StepMetadata | RootMetadata:
     if metadata_type == StepMetadata:
@@ -102,7 +104,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
       return StepMetadata(
           format=_SAMPLE_FORMAT,
           item_handlers={'a': 'b'},
-          item_metadata={'a': None},
+          item_metadata=CompositeItemMetadata(a=None),
           metrics={'a': 1},
           performance_metrics=StepStatistics(
               step=None,
@@ -580,6 +582,55 @@ class CheckpointMetadataTest(parameterized.TestCase):
     serialized_metadata = {'item_handlers': item_handlers}
     metadata = self.deserialize_metadata(StepMetadata, serialized_metadata)
     self.assertEqual(metadata.item_handlers, item_handlers)
+
+  @parameterized.named_parameters(
+      ('single', 'a_metadata'),
+      ('composite', {'a': 'a_metadata'}),
+  )
+  def test_deserialize_item_metadata(self, item_metadata):
+    serialized_metadata = {'item_metadata': item_metadata}
+    metadata = self.deserialize_metadata(StepMetadata, serialized_metadata)
+    self.assertEqual(metadata.item_metadata, item_metadata)
+
+  @parameterized.named_parameters(
+      ('single_same_kwarg', 'a', 'a', 'a'),
+      ('single_different_kwarg', 'a', 'b', 'b'),
+      ('composite_same_kwarg', {'A': 'a'}, {'A': 'a'}, {'A': 'a'}),
+      ('composite_different_kwarg', {'A': 'a'}, {'A': 'b'}, {'A': 'b'}),
+      ('composite_new_kwarg', {'A': 'a'}, {'B': 'b'}, {'A': 'a', 'B': 'b'}),
+  )
+  def test_deserialize_item_metadata_with_item_metadata_kwarg(
+      self, item_metadata, item_metadata_kwarg, expected_item_metadata
+  ):
+    serialized_metadata = {'item_metadata': item_metadata}
+    metadata = self.deserialize_metadata(
+        StepMetadata,
+        serialized_metadata,
+        item_metadata=item_metadata_kwarg,
+    )
+    self.assertEqual(metadata.item_metadata, expected_item_metadata)
+
+  @parameterized.named_parameters(
+      ('single', 'a_metadata', {'a': 'a_metadata'}),
+      ('composite', {'a': 'a_metadata'}, 'a_metadata'),
+  )
+  def test_deserialize_item_metadata_with_item_metadata_kwarg_mismatch(
+      self, item_metadata, item_metadata_kwarg
+  ):
+    serialized_metadata = {'item_metadata': item_metadata}
+    with self.assertRaisesRegex(
+        ValueError,
+        'Provided item_metadata is of type {}, but the serialized '
+        'StepMetadata.item_metadata is of type {}. Cannot deserialize '
+        'mismatched types.'.format(
+            type(item_metadata_kwarg), type(item_metadata)
+        ),
+    ):
+      self.deserialize_metadata(
+          StepMetadata,
+          serialized_metadata,
+          item_metadata=item_metadata_kwarg,
+      )
 
 
 if __name__ == '__main__':

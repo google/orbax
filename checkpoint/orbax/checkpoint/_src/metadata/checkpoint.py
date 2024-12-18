@@ -30,9 +30,10 @@ _STEP_METADATA_FILENAME = '_CHECKPOINT_METADATA'
 _ROOT_METADATA_FILENAME = '_ROOT_METADATA'
 _LEGACY_ROOT_METADATA_FILENAME = 'metadata'
 
-ItemMetadata = composite.Composite
 CompositeCheckpointHandlerTypeStrs: TypeAlias = Mapping
 CheckpointHandlerTypeStr = str
+CompositeItemMetadata = composite.Composite
+SingleItemMetadata = Any
 StepStatistics = step_statistics.SaveStepStatistics
 SerializedMetadata = TypeVar('SerializedMetadata', bound=dict[str, Any])
 
@@ -71,7 +72,8 @@ class StepMetadata:
       explicitly when using something non-standard.
     item_handlers: Map of item name to its checkpoint handler. Or a single
       checkpoint handler for non composite checkpoints.
-    item_metadata: Map of item name to its metadata.
+    item_metadata: Map of item name to its metadata. Or a single metadata for
+      non composite checkpoints.
     metrics: User-provided metrics (accuracy, loss, etc.)
     performance_metrics: Performance metrics (time, memory, etc.)
     init_timestamp_nsecs: timestamp when uncommitted checkpoint was initialized.
@@ -85,7 +87,7 @@ class StepMetadata:
   item_handlers: (
       dict[str, CheckpointHandlerTypeStr] | CheckpointHandlerTypeStr | None
   ) = None
-  item_metadata: ItemMetadata | None = None
+  item_metadata: CompositeItemMetadata | SingleItemMetadata | None = None
   metrics: dict[str, Any] = dataclasses.field(default_factory=dict)
   performance_metrics: StepStatistics = dataclasses.field(
       default_factory=StepStatistics

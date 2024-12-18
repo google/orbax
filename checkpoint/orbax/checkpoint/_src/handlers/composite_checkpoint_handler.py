@@ -74,7 +74,7 @@ Future = future.Future
 CheckpointArgs = checkpoint_args.CheckpointArgs
 CheckpointHandler = checkpoint_handler.CheckpointHandler
 StepMetadata = checkpoint.StepMetadata
-ItemMetadata = checkpoint.ItemMetadata
+CompositeItemMetadata = checkpoint.CompositeItemMetadata
 AsyncCheckpointHandler = async_checkpoint_handler.AsyncCheckpointHandler
 register_with_handler = checkpoint_args.register_with_handler
 ProtoCheckpointHandler = proto_checkpoint_handler.ProtoCheckpointHandler
@@ -897,7 +897,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     return dataclasses.replace(
         saved_metadata,
         item_handlers=item_handlers,
-        item_metadata=ItemMetadata(**item_metadata),
+        item_metadata=CompositeItemMetadata(**item_metadata),
     )
 
   def finalize(self, directory: epath.Path):

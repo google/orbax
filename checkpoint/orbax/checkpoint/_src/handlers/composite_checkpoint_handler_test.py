@@ -801,9 +801,9 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         item_handlers={
             'state': StandardCheckpointHandler().typestr(),
         },
-        item_metadata={
-            'state': 123,
-        },
+        item_metadata=checkpoint.CompositeItemMetadata(
+            state=123,
+        ),
         metrics={
             'loss': 1.0,
             'accuracy': 0.5,
@@ -849,9 +849,9 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         item_handlers={
             'state': StandardCheckpointHandler().typestr(),
         },
-        item_metadata={
-            'state': 123,
-        },
+        item_metadata=checkpoint.CompositeItemMetadata(
+            state=123,
+        ),
     )
     checkpoint.metadata_store(enable_write=True, blocking_write=True).write(
         checkpoint.step_metadata_file_path(self.directory),

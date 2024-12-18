@@ -23,10 +23,10 @@ def validate_field(
     field_type: type[Any] | Sequence[type[Any]]
 ):
   """Validates a single field in a dictionary.
-  
+
   field_type can optionally be a sequence of types, in which case the field
   must be of any one of the types in the sequence.
-  
+
   Args:
     obj: The object to validate.
     field_name: The name of the field to validate.

@@ -15,7 +15,7 @@
 """Internal IO utilities for metadata of a checkpoint at step level."""
 
 import dataclasses
-from typing import Any
+from typing import Any, Mapping
 
 from absl import logging
 from orbax.checkpoint._src.logging import step_statistics
@@ -24,11 +24,12 @@ from orbax.checkpoint._src.metadata import metadata_serialization_utils as utils
 
 SerializedMetadata = checkpoint.SerializedMetadata
 StepMetadata = checkpoint.StepMetadata
-ItemMetadata = checkpoint.ItemMetadata
 CompositeCheckpointHandlerTypeStrs = (
     checkpoint.CompositeCheckpointHandlerTypeStrs
 )
 CheckpointHandlerTypeStr = checkpoint.CheckpointHandlerTypeStr
+CompositeItemMetadata = checkpoint.CompositeItemMetadata
+SingleItemMetadata = checkpoint.SingleItemMetadata
 StepStatistics = step_statistics.SaveStepStatistics
 
 
@@ -36,7 +37,8 @@ def serialize(metadata: StepMetadata) -> SerializedMetadata:
   """Serializes `metadata` to a dictionary."""
 
   # Part of the StepMetadata api for user convenience, but not saved to disk.
-  if metadata.item_metadata is not None:
+  if (metadata.item_metadata is not None and
+      isinstance(metadata.item_metadata, CompositeItemMetadata)):
     just_item_names = {k: None for k in metadata.item_metadata.keys()}
   else:
     just_item_names = None
@@ -74,7 +76,7 @@ def serialize(metadata: StepMetadata) -> SerializedMetadata:
 
 def deserialize(
     metadata_dict: SerializedMetadata,
-    item_metadata: ItemMetadata | None = None,
+    item_metadata: CompositeItemMetadata | SingleItemMetadata | None = None,
     metrics: dict[str, Any] | None = None,
 ) -> StepMetadata:
   """Deserializes `metadata_dict` and other kwargs to `StepMetadata`."""
@@ -92,19 +94,42 @@ def deserialize(
   elif isinstance(item_handlers, CheckpointHandlerTypeStr):
     validated_metadata_dict['item_handlers'] = item_handlers
 
-  utils.validate_field(metadata_dict, 'item_metadata', dict)
-  for k in metadata_dict.get('item_metadata', {}) or {}:
-    utils.validate_dict_entry(metadata_dict, 'item_metadata', k, str)
-  validated_metadata_dict['item_metadata'] = metadata_dict.get(
-      'item_metadata', None
-  )
-  if item_metadata is not None:
-    if validated_metadata_dict['item_metadata'] is None:
-      validated_metadata_dict['item_metadata'] = {}
-    utils.validate_field(item_metadata, 'item_metadata', dict)
-    for k, v in item_metadata.items():
+  utils.validate_field(metadata_dict, 'item_metadata', [dict, str])
+  dict_item_metadata = metadata_dict.get('item_metadata')
+  if (item_metadata is not None and
+      type(item_metadata) is not type(dict_item_metadata)):
+    raise ValueError(
+        'Provided item_metadata is of type {}, but the serialized '
+        'StepMetadata.item_metadata is of type {}. Cannot deserialize '
+        'mismatched types.'.format(
+            type(item_metadata), type(dict_item_metadata)
+        )
+    )
+  if isinstance(dict_item_metadata, Mapping):
+    for k in metadata_dict.get('item_metadata', {}) or {}:
       utils.validate_dict_entry(metadata_dict, 'item_metadata', k, str)
-      validated_metadata_dict['item_metadata'][k] = v
+    validated_metadata_dict['item_metadata'] = dict_item_metadata
+    if item_metadata is not None:
+      if validated_metadata_dict['item_metadata'] is None:
+        validated_metadata_dict['item_metadata'] = {}
+      for k, v in item_metadata.items():
+        utils.validate_dict_entry(metadata_dict, 'item_metadata', k, str)
+        if k in validated_metadata_dict['item_metadata']:
+          logging.warning(
+              'Overwriting item_metadata entry {%s: %s} found in serialized '
+              'StepMetadata with the provided item_metadata entry {%s: %s}.',
+              k, validated_metadata_dict['item_metadata'][k], k, v
+          )
+        validated_metadata_dict['item_metadata'][k] = v
+  elif item_metadata is not None:
+    logging.warning(
+        'Overwriting item_metadata found in serialized StepMetadata (%s) '
+        'with the provided item_metadata (%s).',
+        dict_item_metadata, item_metadata
+    )
+    validated_metadata_dict['item_metadata'] = item_metadata
+  else:
+    validated_metadata_dict['item_metadata'] = dict_item_metadata
 
   utils.validate_field(metadata_dict, 'metrics', dict)
   for k in metadata_dict.get('metrics', {}) or {}:
