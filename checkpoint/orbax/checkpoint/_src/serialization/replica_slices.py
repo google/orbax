@@ -346,7 +346,6 @@ def transfer_arrays_to_host(
     return (
         enable_pinned_host_transfer
         and has_pinned_host
-        and jax._src.config.enable_memories.value  # pylint: disable=protected-access
     )
 
   def async_transfer_slice(
