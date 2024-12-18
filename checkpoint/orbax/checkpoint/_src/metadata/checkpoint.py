@@ -19,7 +19,7 @@ import concurrent.futures
 import dataclasses
 import json
 import threading
-from typing import Any, Protocol, TypeVar
+from typing import Any, Mapping, Protocol, TypeAlias, TypeVar
 
 from absl import logging
 from etils import epath
@@ -31,6 +31,8 @@ _ROOT_METADATA_FILENAME = '_ROOT_METADATA'
 _LEGACY_ROOT_METADATA_FILENAME = 'metadata'
 
 ItemMetadata = composite.Composite
+CompositeCheckpointHandlerTypeStrs: TypeAlias = Mapping
+CheckpointHandlerTypeStr = str
 StepStatistics = step_statistics.SaveStepStatistics
 SerializedMetadata = TypeVar('SerializedMetadata', bound=dict[str, Any])
 
@@ -67,7 +69,8 @@ class StepMetadata:
   Attributes:
     format: The checkpoint file format. Users should specify the format
       explicitly when using something non-standard.
-    item_handlers: Map of item name to its checkpoint handler.
+    item_handlers: Map of item name to its checkpoint handler. Or a single
+      checkpoint handler for non composite checkpoints.
     item_metadata: Map of item name to its metadata.
     metrics: User-provided metrics (accuracy, loss, etc.)
     performance_metrics: Performance metrics (time, memory, etc.)
@@ -79,7 +82,9 @@ class StepMetadata:
   """
 
   format: str | None = None
-  item_handlers: dict[str, str] = dataclasses.field(default_factory=dict)
+  item_handlers: (
+      dict[str, CheckpointHandlerTypeStr] | CheckpointHandlerTypeStr | None
+  ) = None
   item_metadata: ItemMetadata | None = None
   metrics: dict[str, Any] = dataclasses.field(default_factory=dict)
   performance_metrics: StepStatistics = dataclasses.field(

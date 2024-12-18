@@ -859,7 +859,13 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     saved_metadata = step_metadata_serialization.deserialize(
         serialized_metadata or {}
     )
-    item_handlers = saved_metadata.item_handlers or {}
+    if saved_metadata.item_handlers is not None:
+      assert isinstance(saved_metadata.item_handlers, dict)
+      item_handlers: dict[str, checkpoint.CheckpointHandlerTypeStr] = (
+          saved_metadata.item_handlers
+      )
+    else:
+      item_handlers: dict[str, checkpoint.CheckpointHandlerTypeStr] = {}
     item_metadata = dict(saved_metadata.item_metadata or {})
     assert item_handlers.keys() == item_metadata.keys()
 

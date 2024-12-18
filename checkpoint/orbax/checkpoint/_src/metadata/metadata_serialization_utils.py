@@ -14,23 +14,39 @@
 
 """Utilities for serializing and deserializing metadata."""
 
-from typing import Any
+from typing import Any, Sequence
 
 
 def validate_field(
     obj: Any,
     field_name: str,
-    field_type: type[Any]
+    field_type: type[Any] | Sequence[type[Any]]
 ):
+  """Validates a single field in a dictionary.
+  
+  field_type can optionally be a sequence of types, in which case the field
+  must be of any one of the types in the sequence.
+  
+  Args:
+    obj: The object to validate.
+    field_name: The name of the field to validate.
+    field_type: The type (or sequence of types) of the field to validate.
+  """
   if field_name not in obj or obj[field_name] is None:
     return
   field = obj[field_name]
-  if not isinstance(field, field_type):
-    raise ValueError(
-        'StepMetadata {} must be of type {}, got {}.'.format(
-            field_name, field_type, type(field)
-        )
-    )
+  if isinstance(field_type, Sequence):
+    if not any(isinstance(field, f_type) for f_type in field_type):
+      raise ValueError(
+          f'StepMetadata field "{field_name}" must be of type {field_type}, '
+          f'got {type(field)}.'
+      )
+  else:
+    if not isinstance(field, field_type):
+      raise ValueError(
+          f'StepMetadata field "{field_name}" must be of type {field_type}, '
+          f'got {type(field)}.'
+      )
 
 
 def validate_dict_entry(

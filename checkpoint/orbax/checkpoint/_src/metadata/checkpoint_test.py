@@ -572,6 +572,15 @@ class CheckpointMetadataTest(parameterized.TestCase):
     ):
       self.deserialize_metadata(metadata_class, serialized_metadata)
 
+  @parameterized.named_parameters(
+      ('single', 'a_handler'),
+      ('composite', {'a': 'a_handler'}),
+  )
+  def test_deserialize_item_handlers(self, item_handlers):
+    serialized_metadata = {'item_handlers': item_handlers}
+    metadata = self.deserialize_metadata(StepMetadata, serialized_metadata)
+    self.assertEqual(metadata.item_handlers, item_handlers)
+
 
 if __name__ == '__main__':
   absltest.main()

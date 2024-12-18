@@ -25,6 +25,10 @@ from orbax.checkpoint._src.metadata import metadata_serialization_utils as utils
 SerializedMetadata = checkpoint.SerializedMetadata
 StepMetadata = checkpoint.StepMetadata
 ItemMetadata = checkpoint.ItemMetadata
+CompositeCheckpointHandlerTypeStrs = (
+    checkpoint.CompositeCheckpointHandlerTypeStrs
+)
+CheckpointHandlerTypeStr = checkpoint.CheckpointHandlerTypeStr
 StepStatistics = step_statistics.SaveStepStatistics
 
 
@@ -79,12 +83,14 @@ def deserialize(
   utils.validate_field(metadata_dict, 'format', str)
   validated_metadata_dict['format'] = metadata_dict.get('format', None)
 
-  utils.validate_field(metadata_dict, 'item_handlers', dict)
-  for k in metadata_dict.get('item_handlers', {}) or {}:
-    utils.validate_dict_entry(metadata_dict, 'item_handlers', k, str)
-  validated_metadata_dict['item_handlers'] = metadata_dict.get(
-      'item_handlers', {}
-  )
+  utils.validate_field(metadata_dict, 'item_handlers', [dict, str])
+  item_handlers = metadata_dict.get('item_handlers')
+  if isinstance(item_handlers, CompositeCheckpointHandlerTypeStrs):
+    for k in metadata_dict.get('item_handlers', {}) or {}:
+      utils.validate_dict_entry(metadata_dict, 'item_handlers', k, str)
+    validated_metadata_dict['item_handlers'] = item_handlers
+  elif isinstance(item_handlers, CheckpointHandlerTypeStr):
+    validated_metadata_dict['item_handlers'] = item_handlers
 
   utils.validate_field(metadata_dict, 'item_metadata', dict)
   for k in metadata_dict.get('item_metadata', {}) or {}:
