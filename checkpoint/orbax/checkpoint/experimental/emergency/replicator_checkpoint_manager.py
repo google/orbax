@@ -20,8 +20,7 @@ subject to change without notice.
 
 from collections.abc import Mapping
 import dataclasses
-from typing import Any, Callable, Iterable, Self, Sequence
-
+from typing import Any, Callable, Iterable, Sequence
 from absl import logging
 from etils import epath
 from etils import epy
@@ -36,6 +35,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.path import step as step_lib
+from typing_extensions import Self  # for Python version < 3.11
 
 PyTree = Any
 DefaultCheckpointHandlerRegistry = (

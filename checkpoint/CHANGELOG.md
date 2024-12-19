@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3] - 2024-12-19
+
 ### Added
 - `HandlerTypeRegistry` that globally tracks all handler types, which will allow
 `CompositeCheckpointHandler.metadata()` to retrieve item metadata by
@@ -16,6 +18,7 @@ default-constructing `CheckpointHandler`s when they're listed in the saved
 ### Fixed
 - Ignore not-exists and not-dir errors while building step metadata in
  _StandardNameFormat.
+- Fix `Self` import in `replicator_checkpoint_manager.py`.
 
 ### Changed
 - Return `StepMetadata` from `CompositeCheckpointHandler.metadata()`.
