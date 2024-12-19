@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Local type handler registries.
+- The ability to specify a custom `snapshot_dir` in `checkpoints_iterator`
 
 ### Changed
 - The PyPi `orbax` package is deprecated in favor of domain-specific namespace
 packages, namely `orbax-checkpoint` and `orbax-export`. Imports are unchanged,
 and still of the form `import orbax.checkpoint` or `import orbax.export`.
 - Finer scoped jax.monitoring calls on the save path.
+- Fix a bug where snapshots are not released by `wait_for_new_checkpoint`
+when a custom `snapshot_dir` is specified.
 
 ## [0.1.7] - 2022-03-29
 
