@@ -17,6 +17,11 @@
 from typing import Any, Sequence
 
 
+def validate_type(obj: Any, field_type: type[Any]):
+  if not isinstance(obj, field_type):
+    raise ValueError(f'Object must be of type {field_type}, got {type(obj)}.')
+
+
 def validate_field(
     obj: Any,
     field_name: str,
@@ -38,15 +43,14 @@ def validate_field(
   if isinstance(field_type, Sequence):
     if not any(isinstance(field, f_type) for f_type in field_type):
       raise ValueError(
-          f'StepMetadata field "{field_name}" must be of type {field_type}, '
-          f'got {type(field)}.'
+          f'Metadata field "{field_name}" must be any one of '
+          f'types {list(field_type)}, got {type(field)}.'
       )
-  else:
-    if not isinstance(field, field_type):
-      raise ValueError(
-          f'StepMetadata field "{field_name}" must be of type {field_type}, '
-          f'got {type(field)}.'
-      )
+  elif not isinstance(field, field_type):
+    raise ValueError(
+        f'Metadata field "{field_name}" must be of type {field_type}, '
+        f'got {type(field)}.'
+    )
 
 
 def validate_dict_entry(
@@ -59,15 +63,13 @@ def validate_dict_entry(
   """Validates a single entry in a dictionary field."""
   if not isinstance(key, key_type):
     raise ValueError(
-        'StepMetadata {} keys must be of type {}, got {}.'.format(
-            dict_field_name, key_type, type(key)
-        )
+        f'Metadata field "{dict_field_name}" keys must be of type {key_type}, '
+        f'got {type(key)}.'
     )
   if value_type is not None:
     dict_field = dict_field[dict_field_name]
     if not isinstance(dict_field[key], value_type):
       raise ValueError(
-          'StepMetadata {} values must be of type {}, got {}.'.format(
-              dict_field_name, value_type, type(dict_field[key])
-          )
+          f'Metadata field "{dict_field_name}" values must be of '
+          f'type {value_type}, got {type(dict_field[key])}.'
       )

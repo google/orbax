@@ -96,17 +96,15 @@ def deserialize(
 
   utils.validate_field(metadata_dict, 'item_metadata', [dict, str])
   dict_item_metadata = metadata_dict.get('item_metadata')
-  if (item_metadata is not None and
+  if (item_metadata is not None and dict_item_metadata is not None and
       type(item_metadata) is not type(dict_item_metadata)):
     raise ValueError(
-        'Provided item_metadata is of type {}, but the serialized '
-        'StepMetadata.item_metadata is of type {}. Cannot deserialize '
-        'mismatched types.'.format(
-            type(item_metadata), type(dict_item_metadata)
-        )
+        f'Provided item_metadata is of type {type(item_metadata)}, but the '
+        'serialized StepMetadata.item_metadata is of '
+        f'type {type(dict_item_metadata)}. Cannot deserialize mismatched types.'
     )
   if isinstance(dict_item_metadata, Mapping):
-    for k in metadata_dict.get('item_metadata', {}) or {}:
+    for k in dict_item_metadata or {}:
       utils.validate_dict_entry(metadata_dict, 'item_metadata', k, str)
     validated_metadata_dict['item_metadata'] = dict_item_metadata
     if item_metadata is not None:
@@ -136,7 +134,7 @@ def deserialize(
     utils.validate_dict_entry(metadata_dict, 'metrics', k, str)
   validated_metadata_dict['metrics'] = metadata_dict.get('metrics', {})
   if metrics is not None:
-    utils.validate_field(metadata_dict, 'metrics', dict)
+    utils.validate_type(metrics, dict)
     for k, v in metrics.items():
       utils.validate_dict_entry(metadata_dict, 'metrics', k, str)
       validated_metadata_dict['metrics'][k] = v
