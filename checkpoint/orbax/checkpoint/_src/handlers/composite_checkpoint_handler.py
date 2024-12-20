@@ -85,8 +85,9 @@ Composite = composite.Composite
 
 
 _CONCURRENT_WORKERS = 3
-RESERVED_ITEM_NAMES = []
 
+DESCRIPTOR_ITEM_NAME = 'descriptor'
+RESERVED_ITEM_NAMES = [DESCRIPTOR_ITEM_NAME]
 
 
 # TODO(b/295899152) Clean up when users are all registering `CheckpointArgs`.
@@ -769,6 +770,10 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     if args is None or not args.items():
       composite_args_items = {}
       for item_name in existing_items:
+        # Skip reserved items (they were not specifically requested).
+        if item_name in RESERVED_ITEM_NAMES:
+          continue
+
         if item_name not in items_to_handlers:
           raise KeyError(
               f'Item "{item_name}" was found in the checkpoint, but could not'
@@ -776,9 +781,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
               ' call `restore` with an appropriate `CheckpointArgs` subclass.'
           )
         handler = items_to_handlers[item_name]
-        # Skip reserved items (they were not specifically requested).
-        if item_name in RESERVED_ITEM_NAMES:
-          continue
         if handler is None:
           raise ValueError(
               f'Item with name: "{item_name}" had an undetermined'
