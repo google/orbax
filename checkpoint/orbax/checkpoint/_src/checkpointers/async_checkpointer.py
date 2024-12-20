@@ -325,7 +325,12 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
 
   async def _save(
-      self, directory: epath.PathLike, *args, force: bool = False, **kwargs
+      self,
+      directory: epath.PathLike,
+      *args,
+      force: bool = False,
+      custom: dict[str, Any] | None = None,
+      **kwargs,
   ):
     checkpoint_start_time = time.time()
     directory = epath.Path(directory)
@@ -391,6 +396,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       )
       _on_commit_callback(tmpdir, checkpoint_start_time)
 
+      self._save_step_metadata(directory, custom)
+
     self._async_manager.start_async_commit(
         directory,
         commit_futures=commit_ops,
@@ -403,7 +410,12 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
 
   def save(
-      self, directory: epath.PathLike, *args, force: bool = False, **kwargs
+      self,
+      directory: epath.PathLike,
+      *args,
+      force: bool = False,
+      custom: dict[str, Any] | None = None,
+      **kwargs,
   ):
     """Saves the given item to the provided directory.
 
@@ -419,13 +431,17 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       *args: additional args to provide to the CheckpointHandler's save method.
       force: if True, allows overwriting an existing directory. May add overhead
         due to the need to delete any existing files.
+      custom: a dictionary of custom metadata to be written to the checkpoint
+        directory via StepMetadata.
       **kwargs: additional keyword args to provide to the CheckpointHandler's
         save method.
 
     Raises:
       ValueError if the provided directory already exists.
     """
-    asyncio_utils.run_sync(self._save(directory, *args, force=force, **kwargs))
+    asyncio_utils.run_sync(
+        self._save(directory, *args, force=force, custom=custom, **kwargs)
+    )
 
   def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""
