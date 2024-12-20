@@ -36,18 +36,32 @@ class HandlerTypeRegistry:
   ) -> None:
     """Adds an entry to the registry."""
     if handler_typestr in self._registry:
-      if self._registry[handler_typestr] != handler_type:
-        raise ValueError(
-            f'Handler type string "{handler_typestr}" already exists in the '
-            f'registry with type {self._registry[handler_typestr]}. '
-            f'Cannot add type {handler_type}.'
-        )
+      previous_handler_type = self._registry[handler_typestr]
+      if previous_handler_type != handler_type:
+        # When using adhoc import reloads, we overwrite the previous handler
+        # type with the reloaded one.
+        if (
+            previous_handler_type.__module__ == handler_type.__module__
+            and previous_handler_type.__qualname__ == handler_type.__qualname__
+        ):
+          logging.info(
+              'Handler "%s" already exists in the registry with '
+              'associated type %s. Overwriting it as the module was reloaded.',
+              handler_typestr,
+              handler_type,
+          )
+        else:
+          raise ValueError(
+              f'Handler type string "{handler_typestr}" already exists in the '
+              f'registry with type {previous_handler_type}. '
+              f'Cannot add type {handler_type}.'
+          )
       else:
         logging.info(
             'Handler type string "%s" already exists in the registry with '
             'associated type %s.',
             handler_typestr,
-            self._registry[handler_typestr],
+            previous_handler_type,
         )
         return
     self._registry[handler_typestr] = handler_type
