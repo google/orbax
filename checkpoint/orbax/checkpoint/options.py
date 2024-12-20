@@ -21,6 +21,9 @@ from orbax.checkpoint._src.multihost import multihost
 
 
 
+_ORBAX_STANDARD_FORMAT = 'orbax-standard'
+
+
 @dataclasses.dataclass
 class AsyncOptions:
   """Options used to configure async behavior.
@@ -65,9 +68,13 @@ class FileOptions:
       metadata files. e.g. 0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
         path is supported. default=None.
+    format: The checkpoint file format. This is useful when differentiating
+      between Orbax and Roc checkpoints, as well as checkpoints saved by
+      different apis. Defaults to 'orbax-standard'.
   """
 
   path_permission_mode: Optional[int] = None
+  format: str = _ORBAX_STANDARD_FORMAT
 
 
 
