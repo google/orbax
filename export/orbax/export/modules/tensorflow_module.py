@@ -356,13 +356,16 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
 
     apply_fn_tf = jax2tf.convert(apply_fn, **jax2tf_kwargs)
 
+    def predict_fn(x):
+      return apply_fn_tf(
+          export_utils.get_variable_tree(
+              self._tf_var_treedef, self._tf_var_leaves
+          ),
+          x,
+      )
+
     return tf.function(
-        lambda x: apply_fn_tf(
-            export_utils.get_variable_tree(
-                self._tf_var_treedef, self._tf_var_leaves
-            ),
-            x,
-        ),
+        predict_fn,
         jit_compile=jit_compile,
         autograph=False,
     )
