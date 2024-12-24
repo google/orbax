@@ -314,7 +314,7 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
     names = export_utils.get_param_names(params)
     if pspecs is None:
       pspecs = jax.tree_util.tree_map(lambda x: None, params)
-      
+
     return jax.tree_util.tree_map(
         _to_tf_variable, params, names, trainable, pspecs
     )
@@ -356,13 +356,23 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
 
     apply_fn_tf = jax2tf.convert(apply_fn, **jax2tf_kwargs)
 
+    def predict_fn(x):
+      # We need to explicitly define this function instead of using a lambda
+      # function because using lambda function will make the function alias
+      # key '__inference_<lambda>_x', where x is a number. For use cases where
+      # the exported SavedModel is imported for downstream TF model training,
+      # the special charaters '<' and '>' are not allowed as node names.
+      # With this explicit function definition, the alias key will be
+      # '__inference_predict_fn_x', which does not contain special characters.
+      return apply_fn_tf(
+          export_utils.get_variable_tree(
+              self._tf_var_treedef, self._tf_var_leaves
+          ),
+          x,
+      )
+
     return tf.function(
-        lambda x: apply_fn_tf(
-            export_utils.get_variable_tree(
-                self._tf_var_treedef, self._tf_var_leaves
-            ),
-            x,
-        ),
+        predict_fn,
         jit_compile=jit_compile,
         autograph=False,
     )
