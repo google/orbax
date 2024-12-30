@@ -68,7 +68,33 @@ _GLOBAL_HANDLER_TYPE_REGISTRY = HandlerTypeRegistry()
 
 
 def register_handler_type(handler_cls):
-  _GLOBAL_HANDLER_TYPE_REGISTRY.add(handler_cls.typestr(), handler_cls)
+  """Registers a checkpoint handler type in the global registry.
+
+  The registry is keyed by the handler's typestr. If the handler does not
+  provide a typestr, the default typestr is resolved from the handler's
+  module and class name.
+
+  Args:
+    handler_cls: The checkpoint handler class to register.
+
+  Returns:
+    The registered checkpoint handler class.
+  """
+  # TODO(adamcogdell): Change HandlerTypeRegistry.add(typestr, type) to
+  # HandlerTypeRegistry.add(handler_type) and move following logic into
+  # HandlerTypeRegistry.add(). It will help to drop unit tests based on the
+  # singleton HandlerTypeRegistry, which can be flaky.
+  try:
+    typestr = handler_cls.typestr()
+  except AttributeError:
+    typestr = f'{handler_cls.__module__}.{handler_cls.__qualname__}'
+    logging.warning(
+        'Handler class %s does not have a typestr method. '
+        'Using the default typestr value "%s" instead.',
+        handler_cls,
+        typestr,
+    )
+  _GLOBAL_HANDLER_TYPE_REGISTRY.add(typestr, handler_cls)
   return handler_cls
 
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2024-12-30
+
+### Fixed
+- Resolve default value of Handler.typestr if method missing.
+### Added
+- Add announcement for grain version compatibility. See
+ https://github.com/google/orbax/issues/1456.
+
+
 ## [0.10.3] - 2024-12-19
 
 ### Added

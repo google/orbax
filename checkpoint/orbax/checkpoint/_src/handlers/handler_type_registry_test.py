@@ -14,6 +14,7 @@
 
 """Tests for CheckpointerHandler type registry."""
 
+import copy
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -26,6 +27,7 @@ HandlerTypeRegistry = handler_type_registry.HandlerTypeRegistry
 
 
 class TestHandler(checkpoint_handler.CheckpointHandler):
+
   def save(self, directory: epath.Path, *args, **kwargs):
     pass
 
@@ -34,7 +36,9 @@ class TestHandler(checkpoint_handler.CheckpointHandler):
 
 
 class ParentHandler(checkpoint_handler.CheckpointHandler):
+
   class TestHandler(checkpoint_handler.CheckpointHandler):
+
     def save(self, directory: epath.Path, *args, **kwargs):
       pass
 
@@ -43,6 +47,7 @@ class ParentHandler(checkpoint_handler.CheckpointHandler):
 
 
 class StandardCheckpointHandler(checkpoint_handler.CheckpointHandler):
+
   def save(self, directory: epath.Path, *args, **kwargs):
     pass
 
@@ -57,9 +62,14 @@ class ChildStandardCheckpointHandler(
 
 
 class TypestrOverrideHandler(checkpoint_handler.CheckpointHandler):
+
   @classmethod
   def typestr(cls) -> str:
     return 'typestr_override'
+
+
+class NoTypestrHandler:
+  pass
 
 
 class HandlerTypeRegistryTest(parameterized.TestCase):
@@ -78,13 +88,11 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
     )
     self.assertTrue(
         '__main__.TestHandler' in registry._registry
-        or
-        'handler_type_registry_test.TestHandler' in registry._registry
+        or 'handler_type_registry_test.TestHandler' in registry._registry
     )
     self.assertTrue(
         '__main__.ParentHandler.TestHandler' in registry._registry
-        or
-        'handler_type_registry_test.ParentHandler.TestHandler'
+        or 'handler_type_registry_test.ParentHandler.TestHandler'
         in registry._registry
     )
 
@@ -97,7 +105,7 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
     )
     registry.add(
         standard_checkpoint_handler.StandardCheckpointHandler.typestr(),
-        standard_checkpoint_handler.StandardCheckpointHandler
+        standard_checkpoint_handler.StandardCheckpointHandler,
     )
     self.assertEqual(
         registry.get(
@@ -107,14 +115,13 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
     )
     self.assertTrue(
         '__main__.StandardCheckpointHandler' in registry._registry
-        or
-        'handler_type_registry_test.StandardCheckpointHandler'
+        or 'handler_type_registry_test.StandardCheckpointHandler'
         in registry._registry
     )
     self.assertIn(
         'orbax.checkpoint._src.handlers.standard_checkpoint_handler.'
         'StandardCheckpointHandler',
-        registry._registry
+        registry._registry,
     )
 
   def test_register_duplicate_handler_type(self):
@@ -133,7 +140,7 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
         r'<class \'(?:__main__|handler_type_registry_test)\.TestHandler\'>. '
         'Cannot add type '
         r'<class \'(?:__main__|handler_type_registry_test)\.'
-        'ParentHandler.TestHandler\'>.',
+        "ParentHandler.TestHandler'>.",
     ):
       registry.add(TestHandler.typestr(), ParentHandler.TestHandler)
 
@@ -151,11 +158,10 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
     registry = HandlerTypeRegistry()
     registry.add(
         standard_checkpoint_handler.StandardCheckpointHandler.typestr(),
-        standard_checkpoint_handler.StandardCheckpointHandler
+        standard_checkpoint_handler.StandardCheckpointHandler,
     )
     registry.add(
-        ChildStandardCheckpointHandler.typestr(),
-        ChildStandardCheckpointHandler
+        ChildStandardCheckpointHandler.typestr(), ChildStandardCheckpointHandler
     )
     self.assertEqual(
         registry.get(
@@ -175,6 +181,24 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
         registry.get(TypestrOverrideHandler.typestr()),
         TypestrOverrideHandler,
     )
+
+  def test_no_typestr(self):
+    backup = copy.deepcopy(handler_type_registry._GLOBAL_HANDLER_TYPE_REGISTRY)
+    try:
+      # Clear the global registry to avoid side effects from other tests.
+      handler_type_registry._GLOBAL_HANDLER_TYPE_REGISTRY._registry.clear()
+
+      handler_type_registry.register_handler_type(NoTypestrHandler)
+      registry = handler_type_registry._GLOBAL_HANDLER_TYPE_REGISTRY._registry
+
+      expected_registry0 = {
+          'handler_type_registry_test.NoTypestrHandler': NoTypestrHandler
+      }
+      expected_registry1 = {'__main__.NoTypestrHandler': NoTypestrHandler}
+      self.assertIn(registry, [expected_registry0, expected_registry1])
+    finally:
+      handler_type_registry._GLOBAL_HANDLER_TYPE_REGISTRY = backup
+
 
 if __name__ == '__main__':
   absltest.main()

@@ -1,5 +1,11 @@
 # Announcements
 
+## 2024-12-30
+orbax-checkpoint version `0.10.3` and
+[grain](https://pypi.org/project/grain/) version `0.2.2` are not compatible.
+Either upgrade `grain>=0.2.3` or `orbax-checkpoint>=0.11.0`. Please see
+https://github.com/google/orbax/issues/1456 for error details.
+
 ## 2024-10-25
 A new option, `strict` has been added to `ArrayRestoreArgs` (and will be
 present in the next version release). The option defaults to True. This
