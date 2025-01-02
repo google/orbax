@@ -982,7 +982,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         use_zarr3,
     )
 
-  def metadata(self, directory: epath.Path) -> Optional[PyTree]:
+  def metadata(self, directory: epath.Path) -> tree_metadata.TreeMetadata:
     """Returns tree metadata.
 
     The result will be a PyTree matching the structure of the saved checkpoint.
@@ -1053,6 +1053,10 @@ class PyTreeSaveArgs(CheckpointArgs):
   ocdbt_target_data_file_size: Optional[int] = None
   enable_pinned_host_transfer: bool = True
 
+  def __post_init__(self):
+    if isinstance(self.item, tree_metadata.TreeMetadata):
+      raise ValueError('Cannot save TreeMetadata.')
+
 
 @register_with_handler(PyTreeCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
@@ -1064,6 +1068,8 @@ class PyTreeRestoreArgs(CheckpointArgs):
       will infer the structure from the saved checkpoint. Transformations will
       not be run in this case. Necessary particularly in the case where the
       caller needs to restore the tree as a custom object.
+      `TreeMetadata` is also allowed as the tree used to
+      define the restored structure.
     restore_args: optional object containing additional arguments for
       restoration. It should be a PyTree matching the structure of `item`, or
       if `item` is not provided, then it should match the structure of the
@@ -1072,11 +1078,13 @@ class PyTreeRestoreArgs(CheckpointArgs):
       leaf as a certain type, a specific subclass of `RestoreArgs` may be
       required. `RestoreArgs` also provides the option to customize the
       restore type of an individual leaf.
+      `TreeMetadata` is also allowed as the `restore_args` tree.
     transforms: a PyTree of transformations that should be applied to the
       saved tree in order to obtain a final structure. The `transforms` tree
       structure should conceptually match that of `item`, but the use of
       regexes and implicit keys means that it does not need to match
       completely. See `transform_utils` for further information.
+      `TreeMetadata` is also allowed as the `transforms` tree.
     transforms_default_to_original: See transform_utils.apply_transformations.
     legacy_transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which
       accepts the `item` argument, a PyTree checkpoint structure and a PyTree
@@ -1090,3 +1098,11 @@ class PyTreeRestoreArgs(CheckpointArgs):
   transforms: Optional[PyTree] = None
   transforms_default_to_original: bool = True
   legacy_transform_fn: Optional[LegacyTransformFn] = None
+
+  def __post_init__(self):
+    if isinstance(self.item, tree_metadata.TreeMetadata):
+      self.item = self.item.tree
+    if isinstance(self.restore_args, tree_metadata.TreeMetadata):
+      self.restore_args = self.restore_args.tree
+    if isinstance(self.transforms, tree_metadata.TreeMetadata):
+      self.transforms = self.transforms.tree

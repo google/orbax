@@ -47,6 +47,11 @@ class MuNu(NamedTuple):
   nu: np.ndarray | None
 
 
+class IntegerNamedTuple(NamedTuple):
+  x: int | None
+  y: int | None
+
+
 class EmptyNamedTuple(NamedTuple):
   pass
 

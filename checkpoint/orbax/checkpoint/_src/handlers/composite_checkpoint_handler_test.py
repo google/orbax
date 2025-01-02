@@ -668,7 +668,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     step_metadata = handler.metadata(self.directory)
     self.assertDictEqual(
-        step_metadata.item_metadata.state,
+        step_metadata.item_metadata.state.tree,
         {
             'a': value_metadata.ScalarMetadata(
                 name='a', directory=self.directory / 'state', dtype=jnp.int64
@@ -752,24 +752,28 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         step_metadata.item_handlers,
         {
             'state': StandardCheckpointHandler().typestr(),
-        }
+        },
+    )
+    self.assertSameElements(
+        step_metadata.item_metadata,
+        [
+            'state',
+        ],
     )
     self.assertDictEqual(
-        dict(step_metadata.item_metadata),
+        dict(step_metadata.item_metadata.state.tree),
         {
-            'state': {
-                'a': value_metadata.ScalarMetadata(
-                    name='a',
-                    directory=self.directory / 'state',
-                    dtype=jnp.int64,
-                ),
-                'b': value_metadata.ScalarMetadata(
-                    name='b',
-                    directory=self.directory / 'state',
-                    dtype=jnp.int64,
-                ),
-            },
-        }
+            'a': value_metadata.ScalarMetadata(
+                name='a',
+                directory=self.directory / 'state',
+                dtype=jnp.int64,
+            ),
+            'b': value_metadata.ScalarMetadata(
+                name='b',
+                directory=self.directory / 'state',
+                dtype=jnp.int64,
+            ),
+        },
     )
     self.assertEmpty(step_metadata.metrics)
     self.assertEqual(

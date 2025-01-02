@@ -31,6 +31,7 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
+from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.tree import utils as tree_utils
 
 
@@ -242,7 +243,7 @@ class StandardCheckpointHandler(
         ),
     )
 
-  def metadata(self, directory: epath.Path) -> PyTree:
+  def metadata(self, directory: epath.Path) -> tree_metadata.TreeMetadata:
     """Returns metadata about the saved item."""
     return self._impl.metadata(directory)
 
@@ -270,6 +271,10 @@ class StandardSaveArgs(CheckpointArgs):
   item: PyTree
   save_args: Optional[PyTree] = None
 
+  def __post_init__(self):
+    if isinstance(self.item, tree_metadata.TreeMetadata):
+      raise ValueError('Cannot save TreeMetadata.')
+
 
 @register_with_handler(StandardCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
@@ -280,13 +285,17 @@ class StandardRestoreArgs(CheckpointArgs):
 
   Attributes (all optional):
     item: target PyTree. Currently non-optional. Values may be either real
-        array or scalar values, or they may be jax.ShapeDtypeStruct. If real
-        values are provided, that value will be restored as the given type, with
+        array or scalar values, or they may be jax.ShapeDtypeStruct, or
+        `ocp.metadata.value.Metadata` objects (which come from calling the
+        `metadata` method). If real values are provided,
+        that value will be restored as the given type, with
         the given properties. If jax.ShapeDtypeStruct is provided, the value
         will be restored as np.ndarray, unless `sharding` is specified. If
         `item` is a custom PyTree class, the tree will be restored with the
         same structure as provided. If not provided, restores as a serialized
         nested dict representation of the custom class.
+        `TreeMetadata` is also allowed as the tree used to
+        define the restored structure.
     strict: if False, restoration allows silent truncating/padding of arrays if
         the stored array shape does not match the target shape. Otherwise,
         raises an error.
@@ -296,3 +305,7 @@ class StandardRestoreArgs(CheckpointArgs):
   item: Optional[PyTree] = None
   strict: bool = True
   support_layout: bool = False
+
+  def __post_init__(self):
+    if isinstance(self.item, tree_metadata.TreeMetadata):
+      self.item = self.item.tree

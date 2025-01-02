@@ -31,6 +31,11 @@ def isinstance_of_namedtuple(value: Any) -> bool:
   return isinstance(value, tuple) and hasattr(value, '_fields')
 
 
+def issubclass_of_namedtuple(t: Any) -> bool:
+  """Determines if the `type` is a subclass of NamedTuple."""
+  return issubclass(t, tuple) and hasattr(t, '_fields')
+
+
 def is_empty_node(x: Any) -> bool:
   try:
     children, _ = jax._src.tree_util.flatten_one_level(x)  # pylint: disable=protected-access

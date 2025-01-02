@@ -245,6 +245,24 @@ class UtilsTest(parameterized.TestCase):
     )
     self.assertEqual(expected_is_empty_node, tree_utils.is_empty_node(value))
 
+  @parameterized.parameters(
+      (test_tree_utils.EmptyNamedTuple(),),
+      (test_tree_utils.IntegerNamedTuple(None, None),),
+      (test_tree_utils.IntegerNamedTuple(1, 2),),
+  )
+  def test_named_tuple_type_detection(self, nt):
+    self.assertTrue(tree_utils.isinstance_of_namedtuple(nt))
+    self.assertTrue(tree_utils.issubclass_of_namedtuple(type(nt)))
+
+  @parameterized.parameters(
+      ((1, 2),),
+      ({'a': 1, 'b': 2},),
+      ([1, 2],),
+  )
+  def test_non_named_tuple_type_detection(self, nt):
+    self.assertFalse(tree_utils.isinstance_of_namedtuple(nt))
+    self.assertFalse(tree_utils.issubclass_of_namedtuple(type(nt)))
+
 
 if __name__ == '__main__':
   absltest.main()

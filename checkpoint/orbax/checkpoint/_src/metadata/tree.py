@@ -21,8 +21,10 @@ import collections
 import dataclasses
 import enum
 import functools
+import inspect
 import operator
-from typing import Any, Dict, Hashable, List, Optional, Tuple, TypeAlias, TypeVar, Union
+import typing
+from typing import Any, Dict, Hashable, List, Optional, Protocol, Tuple, TypeAlias, TypeVar, Union
 
 from absl import logging
 from etils import epath
@@ -36,6 +38,7 @@ from orbax.checkpoint._src.metadata import value_metadata_entry
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.tree import utils as tree_utils
+
 
 ValueMetadataEntry: TypeAlias = value_metadata_entry.ValueMetadataEntry
 PyTreeMetadataOptions: TypeAlias = (
@@ -533,3 +536,351 @@ def serialize_tree(
     )
 
   return tree_utils.serialize_tree(tree, keep_empty_nodes=True)
+
+
+@typing.runtime_checkable
+class TreeMetadata(Protocol):
+  """User-facing metadata representation of a PyTree.
+
+  Implementations must register themselves as PyTrees, e.g. with
+  `jax.tree_util.register_pytree_with_keys_class`.
+
+  The object should be treated as a regular PyTree that can be mapped over. 
+  Leaf values are typically of type `ocp.metadata.value.Metadata` (when the
+  object is obtained from a `metadata()` function call). Note that the user may
+  subsequently modify these leaves to be of any type. Additional properties
+  (e.g. `custom`) may be accessed directly, and are independent from the tree
+  structure. To directly access the underlying PyTree, which matches the
+  checkpoint structure, use the `tree` property.
+
+  Here is a typical example usage::
+    with ocp.StandardCheckpointer() as ckptr:
+      # `metadata` is a `TreeMetadata` object, but can be treated as a regular
+      # PyTree. In this case, it corresponds to a "serialized" representation of
+      # the checkpoint tree. This means that all custom nodes are converted to
+      # standardized containers like list, tuple, and dict. (See also
+      # `support_rich_types` for further details on how other types are
+      # handled.)
+      metadata = ckptr.metadata('/path/to/existing/checkpoint')
+      # Access array properties.
+      metadata['step'].shape
+      metadata['step'].dtype
+      # Access a list element.
+      metadata['opt_state'][0]
+      # Get all the shapes of the tree elements.
+      shapes = jax.tree.map(lambda x: x.shape, metadata)
+
+  If the checkpoint structure is standardized as a list or a tuple, the metadata
+  object can be indexed like a regular sequence::
+    with ocp.StandardCheckpointer() as ckptr:
+      metadata = ckptr.metadata('/path/to/existing/checkpoint')
+      metadata[0].shape
+      shapes = jax.tree.map(lambda x: x.shape, metadata)
+
+  Note that if we manually construct a target tree with the same structure as
+  the checkpoint, we will run into an error if we try to tree map over it at the
+  same time as the metadata object. To do this, instead access the `tree`
+  property.
+
+  For example, if our checkpoint has a structure like the following::
+
+    {
+        'a': 1,
+        'b': 2,
+    }
+
+  The following will raise a tree mismatch error::
+
+    with ocp.StandardCheckpointer() as ckptr:
+      metadata = ckptr.metadata('/path/to/existing/checkpoint')
+      tree = {
+          'a': 1,
+          'b': 2,
+      }
+      jax.tree.map(lambda x, y: foo(x, y), metadata, tree)
+
+  To avoid this, use the `tree` property::
+
+    with ocp.StandardCheckpointer() as ckptr:
+      metadata = ckptr.metadata('/path/to/existing/checkpoint')
+      tree = {
+          'a': 1,
+          'b': 2,
+      }
+      jax.tree.map(lambda x, y: foo(x, y), metadata.tree, tree)
+
+
+  Properties of the `TreeMetadata` object, such as `custom` and `tree`, can be
+  accessed directly::
+    with ocp.StandardCheckpointer() as ckptr:
+      metadata = ckptr.metadata('/path/to/existing/checkpoint')
+      metadata.custom
+      metadata.tree
+
+  The metadata can be used directly to restore a checkpoint. Restoration code
+  automatically extracts the necessary properties from the metadata. This is
+  allowed because the `TreeMetadata` is by definition a PyTree matching the
+  structure of the checkpoint::
+
+    with ocp.StandardCheckpointer() as ckptr:
+      metadata = ckptr.metadata('/path/to/existing/checkpoint')
+      restored = ckptr.restore(
+          '/path/to/existing/checkpoint',
+          metadata,
+      )
+  """
+
+  @property
+  def tree(self) -> PyTree:
+    ...
+
+  @property
+  def custom(self) -> PyTree | None:
+    ...
+
+
+  def tree_flatten(self):
+    ...
+
+  def tree_flatten_with_keys(self):
+    ...
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, flat_tree):
+    ...
+
+  def __getitem__(self, key: str | int) -> Any:
+    """Retrieves the value associated with the given key in the metadata tree.
+
+    If the container is a dict, the key should be a dict key. If the container
+    is a list or tuple, the key should be an integer index.
+
+    Args:
+      key: The key to retrieve.
+
+    Returns:
+      The value associated with the given key.
+    """
+    ...
+
+  def __contains__(self, key: str | int) -> bool:
+    """Checks if the given key is present in the metadata tree.
+
+    If the container is a dict, the key should be a dict key. If the container
+    is a list or tuple, the key should be an integer index.
+
+    Args:
+      key: The key to check.
+
+    Returns:
+      True if the key is present in the tree, False otherwise.
+    """
+    ...
+
+  def __len__(self) -> int:
+    ...
+
+  def __iter__(self):
+    ...
+
+  def get(self, key: str, default=None):
+    ...
+
+  def keys(self):
+    ...
+
+  def values(self):
+    ...
+
+  def items(self):
+    ...
+
+  @classmethod
+  def build(
+      cls,
+      tree: PyTree,
+      *,
+      custom: PyTree | None = None,
+  ) -> TreeMetadata:
+    """Builds the TreeMetadata."""
+    ...
+
+
+@jax.tree_util.register_pytree_with_keys_class
+class _TreeMetadataImpl(TreeMetadata):
+  """Default implementation of `TreeMetadata`.
+
+  See parent class for documentation.
+  """
+
+  def __init__(
+      self,
+      *,
+      tree: PyTree,
+      custom: PyTree | None = None,
+  ):
+    self._tree = tree
+    self._custom = custom
+    self._validate_tree_type(tree)
+
+  def _validate_tree_type(self, tree: PyTree):
+    # Note: NamedTuple is a subclass of tuple.
+    if not isinstance(tree, (dict, list, tuple)):
+      raise ValueError(f'Unsupported tree type: {type(tree)}')
+
+  def __repr__(self):
+    properties_repr = ''.join(
+        [f'  {k}={v}\n' for k, v in self._properties().items()]
+    )
+    return f'TreeMetadata(\n{properties_repr})'
+
+  @property
+  def tree(self) -> PyTree:
+    return self._tree
+
+  @property
+  def custom(self) -> PyTree | None:
+    return self._custom
+
+
+  def tree_flatten(self):
+    flat_with_keys, aux_data = self.tree_flatten_with_keys()
+    if flat_with_keys:
+      _, tree_values = zip(*flat_with_keys)
+    else:
+      tree_values = []
+    return (tree_values, aux_data)
+
+  def tree_flatten_with_keys(self):
+    # NOTE: jax.tree_util.tree_flatten_with_path() returns keys that include
+    # all levels of nesting. However, the keys expected to be returned by this
+    # function are only the top-level keys (sub-tree keys are computed
+    # recursively).
+    if isinstance(self._tree, dict):
+      tree_keys = [jax.tree_util.DictKey(k) for k in self._tree.keys()]
+      tree_values = self._tree.values()
+    elif tree_utils.isinstance_of_namedtuple(self._tree):
+      tree_keys = [jax.tree_util.DictKey(k) for k in self._tree._fields]
+      tree_values = [getattr(self._tree, k) for k in self._tree._fields]
+    elif isinstance(self._tree, (list, tuple)):
+      tree_keys = [jax.tree_util.SequenceKey(i) for i in range(len(self._tree))]
+      tree_values = self._tree
+    else:
+      raise ValueError(f'Unsupported tree type: {type(self._tree)}')
+
+    return (
+        list(zip(tree_keys, tree_values)),
+        dict(
+            tree_type=type(self._tree),
+            tree_keys=tree_keys,
+            **self._properties(include_tree=False),
+        ),
+    )
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, flat_tree):
+    # Pop off any additional `aux_data` fields not from non-tree-
+    # mappable properties. Remaining `aux_data` keys are used to initialize
+    # `TreeMetadata` properties.
+    tree_type = aux_data.pop('tree_type')
+    tree_keys = aux_data.pop('tree_keys')
+    # `flat_tree` is not truly flat, but is just keys and values for the
+    # top-level tree.
+    if issubclass(tree_type, dict) or tree_utils.issubclass_of_namedtuple(
+        tree_type
+    ):
+      tree = tree_type(**{
+          tree_utils.get_key_name(k): v for k, v in zip(tree_keys, flat_tree)
+      })
+    elif issubclass(tree_type, (list, tuple)):
+      tree = tree_type(flat_tree)
+    else:
+      raise ValueError(f'Unsupported tree type: {tree_type}')
+
+    return cls(tree=tree, **aux_data)
+
+  def __getitem__(self, key: str | int) -> Any:
+    """Retrieves the value associated with the given key in the metadata tree.
+
+    If the container is a dict, the key should be a dict key. If the container
+    is a list or tuple, the key should be an integer index.
+
+    Args:
+      key: The key to retrieve.
+
+    Returns:
+      The value associated with the given key.
+    """
+    return self.tree[key]
+
+  def __contains__(self, key: str | int) -> bool:
+    """Checks if the given key is present in the metadata tree.
+
+    If the container is a dict, the key should be a dict key. If the container
+    is a list or tuple, the key should be an integer index.
+
+    Args:
+      key: The key to check.
+
+    Returns:
+      True if the key is present in the tree, False otherwise.
+    """
+    return key in self.tree
+
+  def __len__(self) -> int:
+    return len(self.tree)
+
+  def __iter__(self):
+    return iter(self.tree)
+
+  def get(self, key: str, default=None):
+    try:
+      return self.__getitem__(key)
+    except KeyError:
+      return default
+    except IndexError:
+      return default
+
+  def keys(self):
+    return self.tree.keys()
+
+  def values(self):
+    return self.tree.values()
+
+  def items(self):
+    return self.tree.items()
+
+  def _properties(self, *, include_tree: bool = True) -> dict[str, Any]:
+    result = {
+        name: getattr(self, name)
+        for name, member in inspect.getmembers(type(self))
+        if isinstance(member, property)
+    }
+    if not include_tree:
+      result.pop('tree')
+    return result
+
+  @classmethod
+  def build(
+      cls,
+      tree: PyTree,
+      *,
+      custom: PyTree | None = None,
+  ) -> TreeMetadata:
+    """Builds the TreeMetadata."""
+    return cls(
+        tree=tree,
+        custom=custom,
+    )
+
+
+def build_default_tree_metadata(
+    tree: PyTree,
+    *,
+    custom: PyTree | None = None,
+) -> TreeMetadata:
+  """Builds the TreeMetadata using a default implementation."""
+  return _TreeMetadataImpl.build(
+      tree,
+      custom=custom,
+  )

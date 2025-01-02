@@ -24,6 +24,7 @@ import jax
 from jax.experimental import layout
 import numpy as np
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import step as step_lib
@@ -482,4 +483,10 @@ def construct_restore_args(
 
   if sharding_tree is None:
     sharding_tree = jax.tree.map(_get_sharding_or_layout, target)
-  return jax.tree.map(_restore_args, target, sharding_tree)
+  if isinstance(target, tree_metadata.TreeMetadata):
+    return tree_metadata.build_default_tree_metadata(
+        jax.tree.map(_restore_args, target.tree, sharding_tree.tree),
+        custom=target.custom,
+    )
+  else:
+    return jax.tree.map(_restore_args, target, sharding_tree)

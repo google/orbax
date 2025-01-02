@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Add user-facing `TreeMetadata` object returned by
+`PyTreeCheckpointHandler.metadata`. This object mimics an ordinary PyTree to
+make the change unnoticeable to most users, but also has additional accessible
+properties not included in any tree mapping operations.
+
+
 ## [0.11.0] - 2024-12-30
 
 ### Fixed
