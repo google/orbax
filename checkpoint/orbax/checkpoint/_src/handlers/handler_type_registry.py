@@ -36,20 +36,39 @@ class HandlerTypeRegistry:
   ) -> None:
     """Adds an entry to the registry."""
     if handler_typestr in self._registry:
-      if self._registry[handler_typestr] != handler_type:
+      previous_handler_type = self._registry[handler_typestr]
+      # On Colab/notebook, it's very common to reload modules when iterating
+      # on the code (e.g. with `importlib.reload` or by re-executing cells).
+      # This re-creates and re-registers a new handler class everytime.
+      has_same_fully_qualified_name = (
+          previous_handler_type.__module__ == handler_type.__module__
+          and previous_handler_type.__qualname__ == handler_type.__qualname__
+      )
+      # If the fully-qualified-name changes then raise error.
+      if not has_same_fully_qualified_name:
         raise ValueError(
             f'Handler type string "{handler_typestr}" already exists in the '
-            f'registry with type {self._registry[handler_typestr]}. '
+            f'registry with type {previous_handler_type}. '
             f'Cannot add type {handler_type}.'
         )
-      else:
-        logging.info(
-            'Handler type string "%s" already exists in the registry with '
-            'associated type %s.',
+      # If both fully-qualified-name and type ref are the same then skip.
+      if previous_handler_type == handler_type:
+        logging.warning(
+            'Handler "%s" already exists in the registry with associated type'
+            ' %s. Skipping registration.',
             handler_typestr,
-            self._registry[handler_typestr],
+            handler_type,
         )
         return
+      # If fully-qualified-name is the same but type ref has changed then
+      # it is okay to overwrite registry with the new type ref.
+      logging.warning(
+          'Handler "%s" already exists in the registry with associated type'
+          ' %s. Overwriting it as the module was recreated (likely from '
+          'Colab reload',
+          handler_typestr,
+          handler_type,
+      )
     self._registry[handler_typestr] = handler_type
 
   def get(

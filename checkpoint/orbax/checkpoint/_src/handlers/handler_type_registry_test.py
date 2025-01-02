@@ -199,6 +199,44 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
     finally:
       handler_type_registry._GLOBAL_HANDLER_TYPE_REGISTRY = backup
 
+  def test_register_after_reload(self):
+    registry = HandlerTypeRegistry()
+
+    class MyTestHandler(checkpoint_handler.CheckpointHandler):
+
+      def save(self, directory: epath.Path, *args, **kwargs):
+        pass
+
+      def restore(self, directory: epath.Path, *args, **kwargs):
+        pass
+
+    MyTestHandlerOld = MyTestHandler
+
+    # Register the handler once
+    registry.add(MyTestHandler.typestr(), MyTestHandler)
+    self.assertEqual(
+        registry.get(MyTestHandler.typestr()),
+        MyTestHandler,
+    )
+
+    # Re-create the handler with the same name and same module.
+    # This simulate a reload on Colab.
+    class MyTestHandler(checkpoint_handler.CheckpointHandler):  # pylint: disable=function-redefined
+
+      def save(self, directory: epath.Path, *args, **kwargs):
+        pass
+
+      def restore(self, directory: epath.Path, *args, **kwargs):
+        pass
+
+    self.assertNotEqual(MyTestHandler, MyTestHandlerOld)
+
+    registry.add(MyTestHandler.typestr(), MyTestHandler)
+    self.assertEqual(
+        registry.get(MyTestHandler.typestr()),
+        MyTestHandler,
+    )
+
 
 if __name__ == '__main__':
   absltest.main()
