@@ -27,8 +27,13 @@ from orbax.checkpoint._src.tree import utils as tree_utils
 
 def _to_param_infos(
     tree: Any,
-    pytree_metadata_options: tree_metadata_lib.PyTreeMetadataOptions,
+    pytree_metadata_options: (
+        tree_metadata_lib.PyTreeMetadataOptions | None
+    ) = None,
 ):
+  pytree_metadata_options = pytree_metadata_options or (
+      tree_metadata_lib.PYTREE_METADATA_OPTIONS
+  )
   return jax.tree.map(
       # Other properties are not relevant.
       lambda x: types.ParamInfo(
@@ -131,6 +136,29 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
 
     restored_tree_metadata = restored_internal_tree_metadata.as_nested_tree()
     chex.assert_trees_all_equal(restored_tree_metadata, expected_tree_metadata)
+
+  @parameterized.parameters(
+      (test_tree_utils.MyDataClass(),),
+      ([test_tree_utils.MyDataClass()],),
+      ({'a': test_tree_utils.MyFlax()},),
+  )
+  def test_invalid_custom_metadata(self, custom):
+    tree = {'scalar_param': 1}
+    with self.assertRaisesRegex(TypeError, 'Failed to encode'):
+      tree_metadata_lib.InternalTreeMetadata.build(
+          param_infos=_to_param_infos(tree), custom=custom
+      )
+
+  @parameterized.parameters(
+      ({'a': 1, 'b': [{'c': 2}, 1]},),
+      ([1, [{'c': 2}, 1]],),
+  )
+  def test_custom_metadata(self, custom):
+    tree = {'scalar_param': 1}
+    internal_tree_metadata = tree_metadata_lib.InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree), custom=custom
+    )
+    self.assertEqual(internal_tree_metadata.custom, custom)
 
 
 class NestedNamedTuple(NamedTuple):
