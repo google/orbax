@@ -902,6 +902,19 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         item_metadata=CompositeItemMetadata(**item_metadata),
     )
 
+  def _update_metadata(self, directory: epath.Path, step_metadata: Any) -> None:
+    """Updates `item_handlers` in `step_metadata`."""
+    try:
+      partial_metadata: StepMetadata = self.metadata(directory)
+    except (FileNotFoundError, NotImplementedError, ValueError):
+      logging.warning(
+          'Failed to get per-item metadata from directory %s. Handler types '
+          'will not be saved.',
+          directory,
+      )
+    else:
+      step_metadata.item_handlers = partial_metadata.item_handlers
+
   def finalize(self, directory: epath.Path):
     if not self._current_temporary_paths:
       raise ValueError('finalize() called before any items were saved.')

@@ -18,6 +18,8 @@ import abc
 from typing import Any, Optional
 from etils import epath
 
+from orbax.checkpoint._src.metadata import checkpoint
+
 
 class CheckpointHandler(abc.ABC):
   """An interface providing save/restore methods used on a savable item.
@@ -67,6 +69,13 @@ class CheckpointHandler(abc.ABC):
     """
     pass
 
+  def _update_metadata(self, directory: epath.Path, step_metadata: Any) -> None:
+    """Updates `item_handlers` in `step_metadata`."""
+    del directory
+    step_metadata.item_handlers: checkpoint.CheckpointHandlerTypeStr = (
+        self.typestr()
+    )
+
   def finalize(self, directory: epath.Path) -> None:
     """Optional, custom checkpoint finalization callback.
 
@@ -84,4 +93,4 @@ class CheckpointHandler(abc.ABC):
   @classmethod
   def typestr(cls) -> str:
     """A unique identifier for the CheckpointHandler type."""
-    return f"{cls.__module__}.{cls.__qualname__}"
+    return f'{cls.__module__}.{cls.__qualname__}'
