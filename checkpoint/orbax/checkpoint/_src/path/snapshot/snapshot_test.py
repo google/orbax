@@ -14,6 +14,7 @@
 
 """test cases for colossus snapshot."""
 
+import logging
 import os
 from unittest import mock
 
@@ -34,6 +35,7 @@ class DefaultSnapshotTest(absltest.TestCase):
       f.write('data')
 
   def test_create_snapshot(self):
+    logging.info('test')
     dst_dir = '/tmp/test/path/to/dest/'
 
     # dst_dir = epath.Path(self.create_tempdir(name='dest').full_path)
