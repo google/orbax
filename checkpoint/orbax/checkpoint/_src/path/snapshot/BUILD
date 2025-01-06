@@ -16,6 +16,6 @@ py_test(
     srcs_version = "PY3",
     deps = [
         ":snapshot",
-        "//absl/testing:absltest",
+        "@com_google_absl//absl/testing:absltest",
     ],
 )
