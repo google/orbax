@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 make the change unnoticeable to most users, but also has additional accessible
 properties not included in any tree mapping operations.
 
+### Added
+- The ability to specify a custom `snapshot_dir` in `checkpoints_iterator`.
+
+### Fixed
+- Fix a bug where snapshots are not released by `wait_for_new_checkpoint`
+when a custom `snapshot_dir` is specified.
 
 ## [0.11.0] - 2024-12-30
 

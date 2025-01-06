@@ -247,7 +247,7 @@ def wait_for_new_checkpoint(
       logging.info(
           'Releasing snapshot for step: %d after releasing control.', step
       )
-      _release_snapshot(checkpoint_dir, step, step_name_format)
+      _release_snapshot(checkpoint_dir, step, step_name_format, snapshot_dir)
 
 
 def checkpoints_iterator(
@@ -260,6 +260,7 @@ def checkpoints_iterator(
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
     step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None,
+    snapshot_dir: Optional[epath.Path] = None,
 ) -> Iterator[int]:
   """Continuously yield new checkpoint files as they appear.
 
@@ -317,6 +318,8 @@ def checkpoints_iterator(
     step_name_format: Step NameFormat used to find step under given root
       directory. If provided, `step_prefix` and `step_format_fixed_length` are
       ignored.
+    snapshot_dir: The directory in which snapshots are saved. If not provided,
+      the snapshot directory is created as `checkpoint_dir / _SNAPSHOTS`.
 
   Yields:
     Integer step numbers of the latest checkpoints as they arrive.
@@ -328,7 +331,8 @@ def checkpoints_iterator(
       step_format_fixed_length=step_format_fixed_length,
   )
   snapshot_impl = snapshot_lib.create_instance(str(checkpoint_dir))
-  snapshot_dir = checkpoint_dir / _SNAPSHOTS
+  if snapshot_dir is None:
+    snapshot_dir = checkpoint_dir / _SNAPSHOTS
   if snapshot_dir.exists():
     for step_dir in snapshot_dir.iterdir():
       snapshot_impl.release_snapshot(str(step_dir))
@@ -342,6 +346,7 @@ def checkpoints_iterator(
         timeout=timeout,
         timeout_fn=timeout_fn,
         step_name_format=step_name_format,
+        snapshot_dir=snapshot_dir,
     ) as new_checkpoint_step:
       if new_checkpoint_step == -1:
         if not timeout_fn:
