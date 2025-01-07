@@ -268,6 +268,9 @@ def _get_restore_parameters(
         byte_limiter=byte_limiter,
         use_zarr3=use_zarr3,
         ts_context=ts_context,
+        # Skip raising array data missing error on this code path, since it
+        # almost exclusively handles legacy use cases.
+        raise_array_data_missing_error=False,
     )
 
   if transforms is None:
@@ -793,6 +796,11 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     # `checkpoint_restore_args` has a structure relative to the checkpoint,
     # while `restore_args` remains structured relative to the output.
 
+    use_zarr3 = (
+        use_zarr3_metadata
+        if use_zarr3_metadata is not None
+        else self._use_zarr3
+    )
     param_infos, checkpoint_restore_args = _get_restore_parameters(
         directory,
         item,
@@ -802,9 +810,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         restore_args,
         self._pytree_metadata_options,
         transforms_default_to_original=transforms_default_to_original,
-        use_zarr3=use_zarr3_metadata
-        if use_zarr3_metadata is not None
-        else self._use_zarr3,
+        use_zarr3=use_zarr3,
     )
 
     if legacy_transform_fn is not None and transforms is not None:

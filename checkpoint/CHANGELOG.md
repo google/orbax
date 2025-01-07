@@ -19,6 +19,7 @@ properties not included in any tree mapping operations.
 ### Fixed
 - Fix a bug where snapshots are not released by `wait_for_new_checkpoint`
 when a custom `snapshot_dir` is specified.
+- Disable `raise_array_data_missing_error` in `PyTreeCheckpointHandler` restoration code path.
 
 ## [0.11.0] - 2024-12-30
 
