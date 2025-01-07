@@ -14,8 +14,5 @@ py_test(
     name = "snapshot_test",
     srcs = ["snapshot_test.py"],
     srcs_version = "PY3",
-    deps = [
-        ":snapshot",
-        "@com_google_absl//absl/testing:absltest",
-    ],
+    deps = [":snapshot"],
 )
