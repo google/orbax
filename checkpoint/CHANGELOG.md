@@ -36,6 +36,7 @@ when a custom `snapshot_dir` is specified.
 `CompositeCheckpointHandler.metadata()` to retrieve item metadata by
 default-constructing `CheckpointHandler`s when they're listed in the saved
 `StepMetadata` but aren't found in the checkpoint.
+- `FileOptions.format` to specify the underlying checkpointing file format.
 
 ### Fixed
 - Ignore not-exists and not-dir errors while building step metadata in
@@ -44,6 +45,7 @@ default-constructing `CheckpointHandler`s when they're listed in the saved
 
 ### Changed
 - Return `StepMetadata` from `CompositeCheckpointHandler.metadata()`.
+- `Checkpointer.save()` also saves `StepMetadata`.
 
 ## [0.10.2] - 2024-12-04
 
