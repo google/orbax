@@ -868,8 +868,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       )
     else:
       item_handlers: dict[str, checkpoint.CheckpointHandlerTypeStr] = {}
-    item_metadata = dict(saved_metadata.item_metadata or {})
-    assert item_handlers.keys() == item_metadata.keys()
+    item_metadata = {}
 
     for item_name in existing_items:
       if (

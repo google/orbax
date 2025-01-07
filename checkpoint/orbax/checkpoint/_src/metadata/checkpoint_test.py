@@ -104,7 +104,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
       return StepMetadata(
           format=_SAMPLE_FORMAT,
           item_handlers={'a': 'b'},
-          item_metadata=CompositeItemMetadata(a=None),
+          item_metadata=None,
           metrics={'a': 1},
           performance_metrics=StepStatistics(
               step=None,

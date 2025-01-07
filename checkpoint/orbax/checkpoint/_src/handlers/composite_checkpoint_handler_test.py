@@ -832,7 +832,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         step_metadata.item_handlers,
         {'state': StandardCheckpointHandler().typestr()}
     )
-    self.assertDictEqual(dict(step_metadata.item_metadata), {'state': None})
+    self.assertEmpty(dict(step_metadata.item_metadata))
     self.assertDictEqual(step_metadata.metrics, {'loss': 1.0, 'accuracy': 0.5})
     self.assertEqual(
         step_metadata.performance_metrics,

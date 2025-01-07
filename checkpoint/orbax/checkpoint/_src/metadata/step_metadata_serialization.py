@@ -36,12 +36,8 @@ StepStatistics = step_statistics.SaveStepStatistics
 def serialize(metadata: StepMetadata) -> SerializedMetadata:
   """Serializes `metadata` to a dictionary."""
 
-  # Part of the StepMetadata api for user convenience, but not saved to disk.
-  if (metadata.item_metadata is not None and
-      isinstance(metadata.item_metadata, CompositeItemMetadata)):
-    just_item_names = {k: None for k in metadata.item_metadata.keys()}
-  else:
-    just_item_names = None
+  # Per item metadata is already saved in the item subdirectories.
+  del metadata.item_metadata
 
   # Save only float performance metrics.
   performance_metrics = metadata.performance_metrics
@@ -56,8 +52,6 @@ def serialize(metadata: StepMetadata) -> SerializedMetadata:
     serialized_metadata['format'] = metadata.format
   if metadata.item_handlers:
     serialized_metadata['item_handlers'] = metadata.item_handlers
-  if just_item_names is not None:
-    serialized_metadata['item_metadata'] = just_item_names
   if metadata.metrics:
     serialized_metadata['metrics'] = metadata.metrics
   if float_metrics:
