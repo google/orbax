@@ -36,6 +36,11 @@ dynamic = ['version']
 [tool.flit.module]
 name = "orbax.export"
 
+[tool.flit.sdist]
+exclude = [
+    '**/BUILD',
+]
+
 [project.urls]
 homepage = 'http://github.com/google/orbax'
 repository = 'http://github.com/google/orbax'
