@@ -526,8 +526,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
       ({'format': int()},),
       ({'item_handlers': list()},),
       ({'item_handlers': {int(): None}},),
-      ({'item_metadata': list()},),
-      ({'item_metadata': {int(): None}},),
       ({'metrics': list()},),
       ({'metrics': {int(): None}},),
       ({'performance_metrics': list()},),
@@ -569,53 +567,16 @@ class CheckpointMetadataTest(parameterized.TestCase):
     self.assertEqual(metadata.item_handlers, item_handlers)
 
   @parameterized.named_parameters(
-      ('single', 'a_metadata'),
-      ('composite', {'a': 'a_metadata'}),
-  )
-  def test_deserialize_item_metadata(self, item_metadata):
-    serialized_metadata = {'item_metadata': item_metadata}
-    metadata = self.deserialize_metadata(StepMetadata, serialized_metadata)
-    self.assertEqual(metadata.item_metadata, item_metadata)
-
-  @parameterized.named_parameters(
-      ('single_same_kwarg', 'a', 'a', 'a'),
-      ('single_different_kwarg', 'a', 'b', 'b'),
-      ('composite_same_kwarg', {'A': 'a'}, {'A': 'a'}, {'A': 'a'}),
-      ('composite_different_kwarg', {'A': 'a'}, {'A': 'b'}, {'A': 'b'}),
-      ('composite_new_kwarg', {'A': 'a'}, {'B': 'b'}, {'A': 'a', 'B': 'b'}),
+      ('single', 'a'),
+      ('composite', {'A': 'a'}),
   )
   def test_deserialize_item_metadata_with_item_metadata_kwarg(
-      self, item_metadata, item_metadata_kwarg, expected_item_metadata
+      self, item_metadata
   ):
-    serialized_metadata = {'item_metadata': item_metadata}
     metadata = self.deserialize_metadata(
-        StepMetadata,
-        serialized_metadata,
-        item_metadata=item_metadata_kwarg,
+        StepMetadata, {}, item_metadata=item_metadata,
     )
-    self.assertEqual(metadata.item_metadata, expected_item_metadata)
-
-  @parameterized.named_parameters(
-      ('single', 'a_metadata', {'a': 'a_metadata'}),
-      ('composite', {'a': 'a_metadata'}, 'a_metadata'),
-  )
-  def test_deserialize_item_metadata_with_item_metadata_kwarg_mismatch(
-      self, item_metadata, item_metadata_kwarg
-  ):
-    serialized_metadata = {'item_metadata': item_metadata}
-    with self.assertRaisesRegex(
-        ValueError,
-        'Provided item_metadata is of type {}, but the serialized '
-        'StepMetadata.item_metadata is of type {}. Cannot deserialize '
-        'mismatched types.'.format(
-            type(item_metadata_kwarg), type(item_metadata)
-        ),
-    ):
-      self.deserialize_metadata(
-          StepMetadata,
-          serialized_metadata,
-          item_metadata=item_metadata_kwarg,
-      )
+    self.assertEqual(metadata.item_metadata, item_metadata)
 
   @parameterized.parameters(
       ('metrics', 1, dict, int),
@@ -649,7 +610,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
 
   @parameterized.parameters(
       ({'item_handlers': 1}, 'item_handlers', int),
-      ({'item_metadata': 1}, 'item_metadata', int),
   )
   def test_validate_field_sequence_wrong_type(
       self, step_metadata, field_name, wrong_field_type
@@ -664,7 +624,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
 
   @parameterized.parameters(
       ({'item_handlers': {1: 'a'}}, 'item_handlers', str, int),
-      ({'item_metadata': {1: 'a'}}, 'item_metadata', str, int),
       ({'metrics': {1: 'a'}}, 'metrics', str, int),
       (
           {'performance_metrics': {1: 1.0}},
