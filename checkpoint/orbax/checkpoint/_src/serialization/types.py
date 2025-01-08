@@ -157,11 +157,15 @@ class SaveArgs:
     specified chunk_byte_size. Both the write_chunk_shape and read_chunk_shape
     are automatically set to the chosen shape. This uses a greedy algorithm that
     prioritizes splitting the largest dimensions first.
+  shard_axes: An optional list of axes that should be prioritized when
+      sharding array for storage. If empty, storage sharding implementation will
+      prioritize axes which are already sharded.
   """
 
   aggregate: bool = False
   dtype: Optional[jnp.dtype] = None
   chunk_byte_size: Optional[int] = None
+  shard_axes: tuple[int, ...] = tuple()
 
   def __post_init__(self):
     if self.aggregate:
