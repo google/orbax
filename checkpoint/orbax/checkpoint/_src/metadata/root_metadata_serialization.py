@@ -24,12 +24,10 @@ RootMetadata = checkpoint.RootMetadata
 
 def serialize(metadata: RootMetadata) -> SerializedMetadata:
   """Serializes `metadata` to a dictionary."""
-  serialized_metadata = {}
-  if metadata.format is not None:
-    serialized_metadata['format'] = metadata.format
-  if metadata.custom:
-    serialized_metadata['custom'] = metadata.custom
-  return serialized_metadata
+  return {
+      'format': metadata.format,
+      'custom': metadata.custom,
+  }
 
 
 def deserialize(metadata_dict: SerializedMetadata) -> RootMetadata:

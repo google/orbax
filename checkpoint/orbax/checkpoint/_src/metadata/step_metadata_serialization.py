@@ -47,25 +47,15 @@ def serialize(metadata: StepMetadata) -> SerializedMetadata:
       if isinstance(val, float)
   }
 
-  serialized_metadata = {}
-  if metadata.format is not None:
-    serialized_metadata['format'] = metadata.format
-  if metadata.item_handlers:
-    serialized_metadata['item_handlers'] = metadata.item_handlers
-  if metadata.metrics:
-    serialized_metadata['metrics'] = metadata.metrics
-  if float_metrics:
-    serialized_metadata['performance_metrics'] = float_metrics
-  if metadata.init_timestamp_nsecs is not None:
-    serialized_metadata['init_timestamp_nsecs'] = metadata.init_timestamp_nsecs
-  if metadata.commit_timestamp_nsecs is not None:
-    serialized_metadata['commit_timestamp_nsecs'] = (
-        metadata.commit_timestamp_nsecs
-    )
-  if metadata.custom:
-    serialized_metadata['custom'] = metadata.custom
-
-  return serialized_metadata
+  return {
+      'format': metadata.format,
+      'item_handlers': metadata.item_handlers,
+      'metrics': metadata.metrics,
+      'performance_metrics': float_metrics,
+      'init_timestamp_nsecs': metadata.init_timestamp_nsecs,
+      'commit_timestamp_nsecs': metadata.commit_timestamp_nsecs,
+      'custom': metadata.custom,
+  }
 
 
 def deserialize(
@@ -87,6 +77,8 @@ def deserialize(
     validated_metadata_dict['item_handlers'] = item_handlers
   elif isinstance(item_handlers, CheckpointHandlerTypeStr):
     validated_metadata_dict['item_handlers'] = item_handlers
+  elif item_handlers is None:
+    validated_metadata_dict['item_handlers'] = None
 
   utils.validate_field(metadata_dict, 'item_metadata', [dict, str])
   dict_item_metadata = metadata_dict.get('item_metadata')
