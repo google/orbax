@@ -15,6 +15,7 @@ properties not included in any tree mapping operations.
 
 ### Added
 - The ability to specify a custom `snapshot_dir` in `checkpoints_iterator`.
+- User-provided custom PyTree metadata.
 
 ### Fixed
 - Fix a bug where snapshots are not released by `wait_for_new_checkpoint`

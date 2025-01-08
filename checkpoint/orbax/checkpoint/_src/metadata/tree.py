@@ -22,6 +22,7 @@ import dataclasses
 import enum
 import functools
 import inspect
+import json
 import operator
 import typing
 from typing import Any, Dict, Hashable, List, Optional, Protocol, Tuple, TypeAlias, TypeVar, Union
@@ -37,6 +38,7 @@ from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.metadata import value_metadata_entry
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types
+from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 
 
@@ -58,6 +60,7 @@ _VALUE_METADATA_KEY = 'value_metadata'
 _USE_ZARR3 = 'use_zarr3'
 _STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE = 'store_array_data_equal_to_fill_value'
 _VALUE_METADATA_TREE = 'value_metadata_tree'
+_USER_METADATA = 'user_metadata'
 
 
 class KeyType(enum.Enum):
@@ -200,12 +203,13 @@ class InternalTreeMetadataEntry:
     return tuple(keypath)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class InternalTreeMetadata:
   """Metadata representation of a PyTree."""
 
   tree_metadata_entries: List[InternalTreeMetadataEntry]
   use_zarr3: bool
+  user_metadata: tree_types.JsonType | None
   store_array_data_equal_to_fill_value: bool
   pytree_metadata_options: PyTreeMetadataOptions
   value_metadata_tree: PyTree | None = None
@@ -219,6 +223,14 @@ class InternalTreeMetadata:
         len(self.tree_metadata_entries),
         self.value_metadata_tree is not None,
     )
+    # Validate JSON-serializability of user_metadata.
+    try:
+      json.dumps(self.user_metadata)
+    except TypeError as e:
+      raise TypeError(
+          'Failed to encode `user_metadata` metadata as JSON object. Please'
+          ' ensure your `user_metadata` is JSON-serializable.'
+      ) from e
 
   @classmethod
   def build(
@@ -227,6 +239,7 @@ class InternalTreeMetadata:
       *,
       save_args: Optional[PyTree] = None,
       use_zarr3: bool = False,
+      user_metadata: tree_types.JsonType | None = None,
       pytree_metadata_options: PyTreeMetadataOptions = (
           PYTREE_METADATA_OPTIONS
       ),
@@ -267,6 +280,7 @@ class InternalTreeMetadata:
     return InternalTreeMetadata(
         tree_metadata_entries=tree_metadata_entries,
         use_zarr3=use_zarr3,
+        user_metadata=user_metadata,
         store_array_data_equal_to_fill_value=ts_utils.STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE,
         pytree_metadata_options=pytree_metadata_options,
         value_metadata_tree=value_metadata_tree,
@@ -295,6 +309,7 @@ class InternalTreeMetadata:
           },
           _USE_ZARR3: True/False,
           _STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE: True,
+          _USER_METADATA: ...,
           _VALUE_METADATA_TREE: '{
             "mu_nu": {
               "category": "namedtuple",
@@ -353,6 +368,7 @@ class InternalTreeMetadata:
         _STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE: (
             self.store_array_data_equal_to_fill_value
         ),
+        _USER_METADATA: self.user_metadata,
     }
     # TODO: b/365169723 - Support versioned evolution of metadata storage.
     if (
@@ -379,6 +395,7 @@ class InternalTreeMetadata:
   ) -> InternalTreeMetadata:
     """Returns an InternalTreeMetadata instance from its JSON representation."""
     use_zarr3 = json_dict.get(_USE_ZARR3, False)
+    user_metadata = json_dict.get(_USER_METADATA, None)
     store_array_data_equal_to_fill_value = json_dict.get(
         _STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE, False
     )
@@ -405,6 +422,7 @@ class InternalTreeMetadata:
     return InternalTreeMetadata(
         tree_metadata_entries=tree_metadata_entries,
         use_zarr3=use_zarr3,
+        user_metadata=user_metadata,
         pytree_metadata_options=pytree_metadata_options,
         value_metadata_tree=value_metadata_tree,
         store_array_data_equal_to_fill_value=store_array_data_equal_to_fill_value,
@@ -545,11 +563,12 @@ class TreeMetadata(Protocol):
   Implementations must register themselves as PyTrees, e.g. with
   `jax.tree_util.register_pytree_with_keys_class`.
 
-  The object should be treated as a regular PyTree that can be mapped over. 
+  The object should be treated as a regular PyTree that can be mapped over.
   Leaf values are typically of type `ocp.metadata.value.Metadata` (when the
   object is obtained from a `metadata()` function call). Note that the user may
   subsequently modify these leaves to be of any type. Additional properties
-  (e.g. `custom`) may be accessed directly, and are independent from the tree
+  (e.g. `user_metadata`) may be accessed directly, and are independent from the
+  tree
   structure. To directly access the underlying PyTree, which matches the
   checkpoint structure, use the `tree` property.
 
@@ -557,7 +576,8 @@ class TreeMetadata(Protocol):
     with ocp.StandardCheckpointer() as ckptr:
       # `metadata` is a `TreeMetadata` object, but can be treated as a regular
       # PyTree. In this case, it corresponds to a "serialized" representation of
-      # the checkpoint tree. This means that all custom nodes are converted to
+      # the checkpoint tree. This means that all user_metadata nodes are
+      converted to
       # standardized containers like list, tuple, and dict. (See also
       # `support_rich_types` for further details on how other types are
       # handled.)
@@ -610,11 +630,12 @@ class TreeMetadata(Protocol):
       jax.tree.map(lambda x, y: foo(x, y), metadata.tree, tree)
 
 
-  Properties of the `TreeMetadata` object, such as `custom` and `tree`, can be
+  Properties of the `TreeMetadata` object, such as `user_metadata` and `tree`,
+  can be
   accessed directly::
     with ocp.StandardCheckpointer() as ckptr:
       metadata = ckptr.metadata('/path/to/existing/checkpoint')
-      metadata.custom
+      metadata.user_metadata
       metadata.tree
 
   The metadata can be used directly to restore a checkpoint. Restoration code
@@ -635,7 +656,7 @@ class TreeMetadata(Protocol):
     ...
 
   @property
-  def custom(self) -> PyTree | None:
+  def user_metadata(self) -> PyTree | None:
     ...
 
 
@@ -700,7 +721,7 @@ class TreeMetadata(Protocol):
       cls,
       tree: PyTree,
       *,
-      custom: PyTree | None = None,
+      user_metadata: PyTree | None = None,
   ) -> TreeMetadata:
     """Builds the TreeMetadata."""
     ...
@@ -717,10 +738,10 @@ class _TreeMetadataImpl(TreeMetadata):
       self,
       *,
       tree: PyTree,
-      custom: PyTree | None = None,
+      user_metadata: PyTree | None = None,
   ):
     self._tree = tree
-    self._custom = custom
+    self._user_metadata = user_metadata
     self._validate_tree_type(tree)
 
   def _validate_tree_type(self, tree: PyTree):
@@ -739,8 +760,8 @@ class _TreeMetadataImpl(TreeMetadata):
     return self._tree
 
   @property
-  def custom(self) -> PyTree | None:
-    return self._custom
+  def user_metadata(self) -> PyTree | None:
+    return self._user_metadata
 
 
   def tree_flatten(self):
@@ -865,22 +886,22 @@ class _TreeMetadataImpl(TreeMetadata):
       cls,
       tree: PyTree,
       *,
-      custom: PyTree | None = None,
+      user_metadata: PyTree | None = None,
   ) -> TreeMetadata:
     """Builds the TreeMetadata."""
     return cls(
         tree=tree,
-        custom=custom,
+        user_metadata=user_metadata,
     )
 
 
 def build_default_tree_metadata(
     tree: PyTree,
     *,
-    custom: PyTree | None = None,
+    user_metadata: PyTree | None = None,
 ) -> TreeMetadata:
   """Builds the TreeMetadata using a default implementation."""
   return _TreeMetadataImpl.build(
       tree,
-      custom=custom,
+      user_metadata=user_metadata,
   )

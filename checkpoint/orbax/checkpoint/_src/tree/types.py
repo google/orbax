@@ -14,6 +14,8 @@
 
 """Public common types to work with pytrees."""
 
+from __future__ import annotations
+
 from typing import Any, TypeVar, Union
 
 from jax import tree_util as jtu
@@ -30,3 +32,6 @@ PyTreeKey = Union[
     jtu.SequenceKey, jtu.DictKey, jtu.GetAttrKey, jtu.FlattenedIndexKey
 ]
 PyTreePath = tuple[PyTreeKey, ...]
+
+JsonType = list['JsonValue'] | dict[str, 'JsonValue']
+JsonValue = str | int | float | bool | None | JsonType

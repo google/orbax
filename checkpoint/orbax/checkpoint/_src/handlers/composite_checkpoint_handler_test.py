@@ -729,7 +729,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     self.assertIsNone(step_metadata.init_timestamp_nsecs)
     self.assertIsNone(step_metadata.commit_timestamp_nsecs)
-    self.assertEmpty(step_metadata.custom)
+    self.assertEmpty(step_metadata.user_metadata)
 
   def test_metadata_handler_registry(self):
     registry = handler_registration.DefaultCheckpointHandlerRegistry()
@@ -781,7 +781,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     self.assertIsNone(step_metadata.init_timestamp_nsecs)
     self.assertIsNone(step_metadata.commit_timestamp_nsecs)
-    self.assertEmpty(step_metadata.custom)
+    self.assertEmpty(step_metadata.user_metadata)
 
   def test_metadata_after_step_metadata_write(self):
     handler = CompositeCheckpointHandler(
@@ -798,7 +798,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     self.assertIsNone(step_metadata.init_timestamp_nsecs)
     self.assertIsNone(step_metadata.commit_timestamp_nsecs)
-    self.assertEmpty(step_metadata.custom)
+    self.assertEmpty(step_metadata.user_metadata)
 
     metadata_to_write = checkpoint.StepMetadata(
         format='orbax',
@@ -817,7 +817,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         ),
         init_timestamp_nsecs=1000,
         commit_timestamp_nsecs=2000,
-        custom={
+        user_metadata={
             'custom_key': 'custom_value',
         },
     )
@@ -842,7 +842,9 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     self.assertEqual(step_metadata.init_timestamp_nsecs, 1000)
     self.assertEqual(step_metadata.commit_timestamp_nsecs, 2000)
-    self.assertEqual(step_metadata.custom, {'custom_key': 'custom_value'})
+    self.assertEqual(
+        step_metadata.user_metadata, {'custom_key': 'custom_value'}
+    )
 
   def test_metadata_existing_items_updates_step_metadata(self):
     handler = CompositeCheckpointHandler(

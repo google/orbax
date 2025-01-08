@@ -80,7 +80,7 @@ class StepMetadata:
       Specified as nano seconds since epoch. default=None.
     commit_timestamp_nsecs: commit timestamp of a checkpoint, specified as nano
       seconds since epoch. default=None.
-    custom: User-provided custom metadata.
+    user_metadata: User-provided custom metadata.
   """
 
   format: str | None = None
@@ -94,7 +94,7 @@ class StepMetadata:
   )
   init_timestamp_nsecs: int | None = None
   commit_timestamp_nsecs: int | None = None
-  custom: dict[str, Any] = dataclasses.field(default_factory=dict)
+  user_metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -104,11 +104,11 @@ class RootMetadata:
   Attributes:
     format: The checkpoint file format. Users should specify the format
       explicitly when using something non-standard.
-    custom: User-provided custom metadata.
+    user_metadata: User-provided custom metadata.
   """
 
   format: str | None = None
-  custom: dict[str, Any] | None = dataclasses.field(default_factory=dict)
+  user_metadata: dict[str, Any] | None = dataclasses.field(default_factory=dict)
 
 
 class MetadataStore(Protocol):

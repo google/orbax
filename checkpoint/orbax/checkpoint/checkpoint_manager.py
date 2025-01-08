@@ -1518,7 +1518,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           logging.info('Writing root metadata')
           metadata_to_save = checkpoint.RootMetadata(
               format=None,
-              custom=dict(metadata),
+              user_metadata=dict(metadata),
           )
           self._blocking_metadata_store.write(
               file_path, serialize_root_metadata(metadata_to_save)
@@ -1543,7 +1543,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
                           self._metadata_dir)
           file_path = self._metadata_file_path(legacy=True)
         serialized_metadata = self._blocking_metadata_store.read(file_path)
-        self._metadata = deserialize_root_metadata(serialized_metadata).custom
+        self._metadata = deserialize_root_metadata(
+            serialized_metadata
+        ).user_metadata
         if self._metadata is None:
           raise FileNotFoundError(
               f'Failed to read metadata from {file_path}.'
