@@ -463,6 +463,7 @@ class InternalTreeMetadata:
           is_ocdbt_checkpoint=use_ocdbt,
           use_zarr3=self.use_zarr3,
           ts_context=ts_context,
+          write_shape=value_meta.write_shape,
       )
       flat_restore_types[keypath] = value_meta.value_type
 
