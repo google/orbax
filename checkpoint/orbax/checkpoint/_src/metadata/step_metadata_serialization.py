@@ -57,6 +57,73 @@ def serialize(metadata: StepMetadata) -> SerializedMetadata:
   }
 
 
+# TODO(adamcogdell): Reduce code duplication with deserialize().
+def serialize_for_update(**kwargs) -> SerializedMetadata:
+  """Validates and serializes `kwargs` to a dictionary.
+
+  To be used with MetadataStore.update().
+
+  Args:
+    **kwargs: The kwargs to be serialized.
+
+  Returns:
+    A dictionary of the serialized kwargs.
+  """
+  validated_kwargs = {}
+
+  if 'item_handlers' in kwargs:
+    utils.validate_field(kwargs, 'item_handlers', [dict, str])
+    item_handlers = kwargs.get('item_handlers')
+    if isinstance(item_handlers, CompositeCheckpointHandlerTypeStrs):
+      for k in kwargs.get('item_handlers'):
+        utils.validate_dict_entry(kwargs, 'item_handlers', k, str)
+      validated_kwargs['item_handlers'] = item_handlers
+    elif isinstance(item_handlers, CheckpointHandlerTypeStr):
+      validated_kwargs['item_handlers'] = item_handlers
+
+  if 'metrics' in kwargs:
+    utils.validate_field(kwargs, 'metrics', dict)
+    for k in kwargs.get('metrics', {}) or {}:
+      utils.validate_dict_entry(kwargs, 'metrics', k, str)
+    validated_kwargs['metrics'] = kwargs.get('metrics', {})
+
+  if 'performance_metrics' in kwargs:
+    utils.validate_field(kwargs, 'performance_metrics', [dict, StepStatistics])
+    performance_metrics = kwargs.get('performance_metrics', {})
+    if isinstance(performance_metrics, StepStatistics):
+      performance_metrics = dataclasses.asdict(performance_metrics)
+    float_metrics = {
+        metric: val
+        for metric, val in performance_metrics.items()
+        if isinstance(val, float)
+    }
+    validated_kwargs['performance_metrics'] = float_metrics
+
+  if 'init_timestamp_nsecs' in kwargs:
+    utils.validate_field(kwargs, 'init_timestamp_nsecs', int)
+    validated_kwargs['init_timestamp_nsecs'] = (
+        kwargs.get('init_timestamp_nsecs', None)
+    )
+
+  if 'commit_timestamp_nsecs' in kwargs:
+    utils.validate_field(kwargs, 'commit_timestamp_nsecs', int)
+    validated_kwargs['commit_timestamp_nsecs'] = (
+        kwargs.get('commit_timestamp_nsecs', None)
+    )
+
+  if 'user_metadata' in kwargs:
+    utils.validate_field(kwargs, 'user_metadata', dict)
+    for k in kwargs.get('user_metadata', {}) or {}:
+      utils.validate_dict_entry(kwargs, 'user_metadata', k, str)
+    validated_kwargs['user_metadata'] = kwargs.get('user_metadata', {})
+
+  for k in kwargs:
+    if k not in validated_kwargs:
+      raise ValueError('Provided metadata contains unknown key %s.' % k)
+
+  return validated_kwargs
+
+
 def deserialize(
     metadata_dict: SerializedMetadata,
     item_metadata: CompositeItemMetadata | SingleItemMetadata | None = None,

@@ -640,6 +640,58 @@ class CheckpointMetadataTest(parameterized.TestCase):
     ):
       self.deserialize_metadata(StepMetadata, step_metadata)
 
+  @parameterized.parameters(
+      ({'item_handlers': {'a': 'b'}},),
+      ({'performance_metrics': {'a': 1.0}},),
+      ({'user_metadata': {'a': 1}, 'init_timestamp_nsecs': 1},),
+  )
+  def test_serialize_for_update_valid_kwargs(
+      self, kwargs: dict[str, Any]
+  ):
+    self.assertEqual(
+        step_metadata_serialization.serialize_for_update(**kwargs),
+        kwargs,
+    )
+
+  @parameterized.parameters(
+      ({'item_handlers': list()},),
+      ({'item_handlers': {int(): None}},),
+      ({'metrics': list()},),
+      ({'metrics': {int(): None}},),
+      ({'performance_metrics': list()},),
+      ({'init_timestamp_nsecs': float()},),
+      ({'commit_timestamp_nsecs': float()},),
+      ({'user_metadata': list()},),
+      ({'user_metadata': {int(): None}},),
+  )
+  def test_serialize_for_update_wrong_types(
+      self, kwargs: dict[str, Any]
+  ):
+    with self.assertRaises(ValueError):
+      step_metadata_serialization.serialize_for_update(**kwargs)
+
+  def test_serialize_for_update_with_unknown_kwargs(self):
+    with self.assertRaisesRegex(
+        ValueError, 'Provided metadata contains unknown key blah'
+    ):
+      step_metadata_serialization.serialize_for_update(
+          user_metadata={'a': 1},
+          blah=123,
+      )
+
+  def test_serialize_for_update_performance_metrics_only_float(self):
+    self.assertEqual(
+        step_metadata_serialization.serialize_for_update(
+            performance_metrics=StepStatistics(
+                step=1,
+                event_type='save',
+                reached_preemption=False,
+                preemption_received_at=1.0,
+            )
+        ),
+        {'performance_metrics': {'preemption_received_at': 1.0}},
+    )
+
 
 if __name__ == '__main__':
   absltest.main()
