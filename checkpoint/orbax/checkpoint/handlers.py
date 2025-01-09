@@ -31,6 +31,7 @@ from orbax.checkpoint._src.handlers.async_checkpoint_handler import AsyncCheckpo
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers.handler_registration import DefaultCheckpointHandlerRegistry
 from orbax.checkpoint._src.handlers.handler_registration import CheckpointHandlerRegistry
+from orbax.checkpoint._src.handlers.handler_registration import create_default_handler_registry
 
 from orbax.checkpoint._src.handlers.array_checkpoint_handler import ArrayCheckpointHandler
 from orbax.checkpoint._src.handlers.composite_checkpoint_handler import CompositeCheckpointHandler

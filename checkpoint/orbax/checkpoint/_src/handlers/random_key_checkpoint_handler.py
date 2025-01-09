@@ -62,9 +62,7 @@ class BaseRandomKeyCheckpointHandler(
     """
     self._key_name = key_name
     self._key_metadata = f'{self._key_name}_metadata'
-    self._handler = CompositeCheckpointHandler(
-        self._key_name, self._key_metadata
-    )
+    self._handler = CompositeCheckpointHandler()
 
   @abc.abstractmethod
   def checkpoint_save_args(

@@ -133,13 +133,7 @@ class RandomKeyCheckpointHandlerTest(absltest.TestCase):
     self.assert_dict_equal(random_state, restored_random_state)
 
   def test_save_and_restore_random_keys_with_new_api(self):
-    handler = CompositeCheckpointHandler(
-        'some_pytree',
-        'jax_typed_key',
-        'jax_untyped_key',
-        'numpy_legacy_key',
-        'numpy_nonlegacy_key',
-    )
+    handler = CompositeCheckpointHandler()
 
     jax_typed_key = jax.random.key(123)
     jax_untyped_key = jax.random.PRNGKey(256)
@@ -162,13 +156,7 @@ class RandomKeyCheckpointHandlerTest(absltest.TestCase):
 
     handler.finalize(self.directory)
 
-    restore_handler = CompositeCheckpointHandler(
-        'some_pytree',
-        'jax_typed_key',
-        'jax_untyped_key',
-        'numpy_legacy_key',
-        'numpy_nonlegacy_key',
-    )
+    restore_handler = CompositeCheckpointHandler()
 
     restored = restore_handler.restore(
         directory=self.directory,
