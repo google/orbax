@@ -48,3 +48,8 @@ def run_sync(
   except RuntimeError:
     pass
   return asyncio.run(coro)
+
+
+async def chain(*awaitables):
+  """Executes `awaitables` sequentially and returns the results."""
+  return [await a for a in awaitables]
