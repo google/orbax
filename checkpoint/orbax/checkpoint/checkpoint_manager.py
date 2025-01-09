@@ -298,7 +298,7 @@ class CheckpointManagerOptions:
     if self.best_mode not in ('min', 'max'):
       msg = (
           "`CheckpointManagerOptions.best_mode` must be one of None, 'min' "
-          "or 'max'. Got {self.dtype}."
+          f"or 'max'. Got {self.best_mode}."
       )
       raise ValueError(msg)
     if self.max_to_keep is not None and self.max_to_keep < 0:
