@@ -19,7 +19,7 @@ py_library(
     srcs = ["step.py"],
 )
 
-pytype_strict_test(
+py_test(
     name = "step_test",
     srcs = ["step_test.py"],
     deps = [
@@ -34,7 +34,7 @@ py_library(
     deps = [":step"],
 )
 
-pytype_strict_test(
+py_test(
     name = "deleter_test",
     srcs = ["deleter_test.py"],
     deps = [
@@ -61,7 +61,7 @@ py_library(
     ],
 )
 
-pytype_strict_test(
+py_test(
     name = "atomicity_test",
     srcs = ["atomicity_test.py"],
     deps = [
@@ -91,7 +91,7 @@ py_library(
     srcs = ["format_utils.py"],
 )
 
-pytype_strict_test(
+py_test(
     name = "format_utils_test",
     srcs = ["format_utils_test.py"],
     deps = [":format_utils"],
