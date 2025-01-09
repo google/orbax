@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package orbax_model_simple_orchestration;
+
+message SimpleOrchestration {
+
+  optional string pre_processor_name = 1;
+
+  string model_function_name = 2;
+
+  // Will be given as the 1st arg to the model function.
+  //
+  // In the short term when we don't support PyTree,
+  // (the value whose name is) `weights_name` will be a tuple
+  // of tensors, and the model function will take in a flat list
+  // (often longer than 2) of tensors. In that case, we will interpret
+  // "the 1st arg" above as "the left-most args", i.e. we will retrieve the
+  // individual tensors from `weights_name`, and feed them as the
+  // left-most arguments to the model function.
+  //
+  // # TODO(b/329305005): Remove this hacky interpretation once we support
+  //   PyTree.
+  string weights_name = 3;
+
+  optional string post_processor_name = 4;
+}

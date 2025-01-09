@@ -93,7 +93,7 @@ def process_index_from_device_id(device_id: int) -> int:
   # CPU workload.
   else:
     # This is based on how CPU device ids are assigned.
-    # See third_party/tensorflow/compiler/xla/pjrt/cpu/cpu_topology.h.
+    # See tensorflow/compiler/xla/pjrt/cpu/cpu_topology.h.
     return device_id // (1 << 17) // jax.local_device_count()
 
 
