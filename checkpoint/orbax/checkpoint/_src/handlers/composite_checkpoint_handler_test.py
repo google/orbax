@@ -720,7 +720,6 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
           state=StandardCheckpointHandler(),
       )
     step_metadata = handler.metadata(self.directory)
-    self.assertIsNone(step_metadata.format)
     self.assertEmpty(step_metadata.item_handlers)
     self.assertEmpty(step_metadata.item_metadata)
     self.assertEmpty(step_metadata.metrics)
@@ -747,7 +746,6 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         ),
     )
     step_metadata = handler.metadata(self.directory)
-    self.assertIsNone(step_metadata.format)
     self.assertEqual(
         step_metadata.item_handlers,
         {
@@ -789,7 +787,6 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         state=StandardCheckpointHandler(),
     )
     step_metadata = handler.metadata(self.directory)
-    self.assertIsNone(step_metadata.format)
     self.assertEmpty(step_metadata.item_handlers)
     self.assertEmpty(step_metadata.item_metadata)
     self.assertEmpty(step_metadata.metrics)
@@ -801,7 +798,6 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertEmpty(step_metadata.custom)
 
     metadata_to_write = checkpoint.StepMetadata(
-        format='orbax',
         item_handlers={
             'state': StandardCheckpointHandler().typestr(),
         },
@@ -827,7 +823,6 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
 
     step_metadata = handler.metadata(self.directory)
-    self.assertEqual(step_metadata.format, 'orbax')
     self.assertDictEqual(
         step_metadata.item_handlers,
         {'state': StandardCheckpointHandler().typestr()}

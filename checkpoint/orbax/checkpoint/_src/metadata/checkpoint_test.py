@@ -32,8 +32,6 @@ StepStatistics = step_statistics.SaveStepStatistics
 CompositeItemMetadata = checkpoint.CompositeItemMetadata
 SingleItemMetadata = checkpoint.SingleItemMetadata
 
-_SAMPLE_FORMAT = 'sample_format'
-
 
 class CheckpointMetadataTest(parameterized.TestCase):
 
@@ -102,7 +100,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
       custom = {'a': 1}
     if metadata_type == StepMetadata:
       return StepMetadata(
-          format=_SAMPLE_FORMAT,
           item_handlers={'a': 'b'},
           item_metadata=None,
           metrics={'a': 1},
@@ -118,7 +115,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
       )
     elif metadata_type == RootMetadata:
       return RootMetadata(
-          format=_SAMPLE_FORMAT,
           custom=custom,
       )
 
@@ -144,7 +140,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
       self, a: StepMetadata | RootMetadata, b: StepMetadata | RootMetadata,
   ):
     if isinstance(a, StepMetadata):
-      self.assertEqual(a.format, b.format)
       self.assertEqual(a.item_handlers, b.item_handlers)
       # ignore item_metadata
       self.assertEqual(a.metrics, b.metrics)
@@ -153,7 +148,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
       self.assertEqual(a.commit_timestamp_nsecs, b.commit_timestamp_nsecs)
       self.assertEqual(a.custom, b.custom)
     elif isinstance(a, RootMetadata):
-      self.assertEqual(a.format, b.format)
       self.assertEqual(a.custom, b.custom)
 
   @parameterized.parameters(True, False)
@@ -303,7 +297,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
   ):
     self.write_metadata_store(blocking_write).update(
         file_path=self.get_metadata_file_path(metadata_class),
-        format=_SAMPLE_FORMAT,
         custom={'a': 1},
     )
 
@@ -315,7 +308,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
     self.assertMetadataEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
         metadata_class(
-            format=_SAMPLE_FORMAT,
             custom={'a': 1},
         ),
     )
@@ -323,34 +315,32 @@ class CheckpointMetadataTest(parameterized.TestCase):
   @parameterized.parameters(
       itertools.product(
           [True, False],
-          [StepMetadata, RootMetadata],
       )
   )
   def test_update_with_prior_data(
       self,
       blocking_write: bool,
-      metadata_class: type[StepMetadata] | type[RootMetadata],
   ):
-    metadata = metadata_class(format=_SAMPLE_FORMAT)
+    metadata = StepMetadata(init_timestamp_nsecs=1)
     self.write_metadata_store(blocking_write).write(
-        file_path=self.get_metadata_file_path(metadata_class),
+        file_path=self.get_metadata_file_path(StepMetadata),
         metadata=self.serialize_metadata(metadata),
     )
 
     self.write_metadata_store(blocking_write).update(
-        file_path=self.get_metadata_file_path(metadata_class),
+        file_path=self.get_metadata_file_path(StepMetadata),
         custom={'a': 1},
     )
 
     self.write_metadata_store(blocking_write).wait_until_finished()
 
     serialized_metadata = self.write_metadata_store(blocking_write).read(
-        file_path=self.get_metadata_file_path(metadata_class)
+        file_path=self.get_metadata_file_path(StepMetadata)
     )
     self.assertMetadataEqual(
-        self.deserialize_metadata(metadata_class, serialized_metadata),
-        metadata_class(
-            format=_SAMPLE_FORMAT,
+        self.deserialize_metadata(StepMetadata, serialized_metadata),
+        StepMetadata(
+            init_timestamp_nsecs=1,
             custom={'a': 1},
         ),
     )
@@ -373,7 +363,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
     )
     self.write_metadata_store(blocking_write).update(
         file_path=self.get_metadata_file_path(metadata_class),
-        format=_SAMPLE_FORMAT,
         blah=2,
     )
 
@@ -385,7 +374,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
     self.assertMetadataEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
         metadata_class(
-            format=_SAMPLE_FORMAT,
             custom={'blah': 2},
         ),
     )
@@ -512,7 +500,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
     _ = pickle.dumps(self.read_metadata_store(blocking_write))
 
   @parameterized.parameters(
-      ({'format': int()},),
       ({'custom': list()},),
       ({'custom': {int(): None}},),
   )
@@ -523,7 +510,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
       self.deserialize_metadata(RootMetadata, wrong_metadata)
 
   @parameterized.parameters(
-      ({'format': int()},),
       ({'item_handlers': list()},),
       ({'item_handlers': {int(): None}},),
       ({'metrics': list()},),
@@ -547,7 +533,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
       self, metadata_class: type[StepMetadata] | type[RootMetadata],
   ):
     metadata = metadata_class(
-        format=_SAMPLE_FORMAT,
         custom={'a': 1},
     )
     serialized_metadata = self.serialize_metadata(metadata)
@@ -591,7 +576,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
       self.deserialize_metadata(StepMetadata, {}, **{kwarg_name: kwarg_value})
 
   @parameterized.parameters(
-      ({'format': 1}, 'format', str, int),
       ({'metrics': 1}, 'metrics', dict, int),
       ({'performance_metrics': 1}, 'performance_metrics', dict, int),
       ({'init_timestamp_nsecs': 'a'}, 'init_timestamp_nsecs', int, str),

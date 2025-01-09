@@ -68,8 +68,6 @@ class StepMetadata:
   """Metadata of a checkpoint at step level (not per item).
 
   Attributes:
-    format: The checkpoint file format. Users should specify the format
-      explicitly when using something non-standard.
     item_handlers: Map of item name to its checkpoint handler. Or a single
       checkpoint handler for non composite checkpoints.
     item_metadata: Map of item name to its metadata. Or a single metadata for
@@ -83,7 +81,6 @@ class StepMetadata:
     custom: User-provided custom metadata.
   """
 
-  format: str | None = None
   item_handlers: (
       dict[str, CheckpointHandlerTypeStr] | CheckpointHandlerTypeStr | None
   ) = None
@@ -102,12 +99,9 @@ class RootMetadata:
   """Metadata of a checkpoint at root level (contains all steps).
 
   Attributes:
-    format: The checkpoint file format. Users should specify the format
-      explicitly when using something non-standard.
     custom: User-provided custom metadata.
   """
 
-  format: str | None = None
   custom: dict[str, Any] | None = dataclasses.field(default_factory=dict)
 
 

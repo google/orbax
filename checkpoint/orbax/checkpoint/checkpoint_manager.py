@@ -1517,7 +1517,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         if not file_path.exists():  # May have been created by a previous run.
           logging.info('Writing root metadata')
           metadata_to_save = checkpoint.RootMetadata(
-              format=None,
               custom=dict(metadata),
           )
           self._blocking_metadata_store.write(

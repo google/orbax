@@ -48,7 +48,6 @@ def serialize(metadata: StepMetadata) -> SerializedMetadata:
   }
 
   return {
-      'format': metadata.format,
       'item_handlers': metadata.item_handlers,
       'metrics': metadata.metrics,
       'performance_metrics': float_metrics,
@@ -65,9 +64,6 @@ def deserialize(
 ) -> StepMetadata:
   """Deserializes `metadata_dict` and other kwargs to `StepMetadata`."""
   validated_metadata_dict = {}
-
-  utils.validate_field(metadata_dict, 'format', str)
-  validated_metadata_dict['format'] = metadata_dict.get('format', None)
 
   utils.validate_field(metadata_dict, 'item_handlers', [dict, str])
   item_handlers = metadata_dict.get('item_handlers')
