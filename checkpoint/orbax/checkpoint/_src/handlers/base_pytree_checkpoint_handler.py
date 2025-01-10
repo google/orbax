@@ -43,6 +43,7 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.metadata import ts_array_metadata_store
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.serialization import serialization
@@ -282,6 +283,9 @@ class BasePyTreeCheckpointHandler(
       pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
           tree_metadata.PYTREE_METADATA_OPTIONS
       ),
+      array_metadata_store: ts_array_metadata_store.Store = (
+          ts_array_metadata_store.Store()
+      ),
   ):
     """Creates BasePyTreeCheckpointHandler.
 
@@ -301,6 +305,7 @@ class BasePyTreeCheckpointHandler(
       enable_post_merge_validation: If True, enables validation of the
         parameters after the finalize step.
       pytree_metadata_options: `PyTreeMetadataOptions` to manage metadata.
+      array_metadata_store: `Store` containing ts_utils.ArrayMetadata.
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
@@ -310,6 +315,7 @@ class BasePyTreeCheckpointHandler(
     self._type_handler_registry = type_handler_registry
     self._enable_post_merge_validation = enable_post_merge_validation
     self._pytree_metadata_options = pytree_metadata_options
+    self._array_metadata_store = array_metadata_store
 
 
     jax.monitoring.record_event(
@@ -317,7 +323,7 @@ class BasePyTreeCheckpointHandler(
     )
 
     self._thread_pool = futures.ThreadPoolExecutor(
-        max_workers=2, thread_name_prefix='base_pytree_ch'
+        max_workers=3, thread_name_prefix='base_pytree_ch'
     )
     logging.info(
         'Created BasePyTreeCheckpointHandler: pytree_metadata_options=%s',
@@ -451,7 +457,7 @@ class BasePyTreeCheckpointHandler(
         leaf.parent_dir == directory for leaf in jax.tree.leaves(param_infos)
     )
 
-    serialize_ops = []
+    serialize_ops = []  # List of (coros -> List of futures)
     batch_requests = batched_serialization_requests(
         item,
         param_infos,
@@ -465,20 +471,29 @@ class BasePyTreeCheckpointHandler(
       ]
       write_size, _ = _get_batch_memory_size(request.handler, request.values)
       tree_memory_size += write_size
-    # Await copy futures. Returns list of lists.
+    # Await copy futures. Returns List[List[future.Future]].
     commit_futures = await asyncio.gather(*serialize_ops)
+    # Flatten to List[future.Future].
     commit_futures, _ = jax.tree.flatten(commit_futures)
 
     if logging.vlog_is_on(1):
       logging.vlog(1, 'param_info: %s', param_infos)
       logging.vlog(1, 'save_args: %s', save_args)
 
+    save_futures = []
     if multihost.is_primary_host(self._primary_host):
-      commit_futures.append(
-          self._write_metadata_file(
-              directory, param_infos, save_args, self._use_zarr3
+      save_futures.append(
+          self._thread_pool.submit(
+              self._write_metadata_after_commits,
+              commit_futures=commit_futures,
+              checkpoint_dir=directory,
+              param_infos=param_infos,
+              save_args=save_args,
+              use_zarr3=self._use_zarr3,
           )
       )
+    else:
+      save_futures += commit_futures
 
     _log_io_metrics(
         tree_memory_size,
@@ -487,7 +502,7 @@ class BasePyTreeCheckpointHandler(
     )
     return [
         future.ChainedFuture(
-            commit_futures,
+            save_futures,
             functools.partial(
                 _log_io_metrics,
                 tree_memory_size,
@@ -725,6 +740,41 @@ class BasePyTreeCheckpointHandler(
     )
     return restored_item
 
+  def _get_param_infos_with_write_shape(
+      self, param_infos: PyTree, checkpoint_dir: epath.Path
+  ) -> PyTree:
+    """Returns `param_infos` updated with `write_shape`.
+
+    Args:
+      param_infos: A PyTree of ParamInfo to be updated.
+      checkpoint_dir: The checkpoint directory where write_shape metadata is
+        saved in ArrayMetadata store.
+    """
+    # Since write_shape is the same for all process_index, we only read the
+    # metadata from process_index=0.
+    array_metadatas = self._array_metadata_store.read(
+        checkpoint_dir, process_index=0
+    )
+    if array_metadatas is None:
+      return param_infos
+
+    assert isinstance(array_metadatas, list)  # we read only process_index=0
+    array_metadatas_cache = {
+        array_metadata.param_name: array_metadata
+        for array_metadata in array_metadatas
+    }
+    return jax.tree.map(
+        lambda param_info: dataclasses.replace(
+            param_info,
+            write_shape=(
+                array_metadatas_cache[param_info.name].write_shape
+                if param_info.name in array_metadatas_cache
+                else None
+            ),
+        ),
+        param_infos,
+    )
+
   def _write_metadata_file(
       self,
       directory: epath.Path,
@@ -732,9 +782,12 @@ class BasePyTreeCheckpointHandler(
       save_args: PyTree,
       use_zarr3: bool = False,
   ) -> future.Future:
-    def _save_fn():
+    def _save_fn(param_infos):
       if utils.is_primary_host(self._primary_host):
         metadata_write_start_time = time.time()
+        param_infos = self._get_param_infos_with_write_shape(
+            param_infos, directory
+        )
         path = directory / PYTREE_METADATA_FILE
         metadata_content = tree_metadata.InternalTreeMetadata.build(
             param_infos,
@@ -755,7 +808,21 @@ class BasePyTreeCheckpointHandler(
         )
       return 0
 
-    return self._thread_pool.submit(_save_fn)
+    return self._thread_pool.submit(_save_fn, param_infos)
+
+  def _write_metadata_after_commits(
+      self,
+      commit_futures: List[future.Future],
+      checkpoint_dir: epath.Path,
+      param_infos: PyTree,
+      save_args: PyTree,
+      use_zarr3: bool,
+  ) -> None:
+    for commit_future in commit_futures:
+      commit_future.result()
+    self._write_metadata_file(
+        checkpoint_dir, param_infos, save_args, use_zarr3
+    ).result()
 
   def _read_metadata_file(
       self, directory: epath.Path
