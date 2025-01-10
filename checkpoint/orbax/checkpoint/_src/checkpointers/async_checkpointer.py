@@ -37,6 +37,7 @@ from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
 
 
+
 BarrierSyncFn = multihost.BarrierSyncFn
 _DIRECTORY_CREATION_SIGNALS = [
     synchronization.HandlerAwaitableSignal.STEP_DIRECTORY_CREATION
@@ -49,7 +50,8 @@ def _on_commit_callback(
 ):
   """Finalize atomic save and record checkpoint save metrics."""
   atomicity.on_commit_callback(
-      tmpdir, checkpoint_start_time=checkpoint_start_time
+      tmpdir,
+      checkpoint_start_time=checkpoint_start_time,
   )
   total_duration_secs = time.time() - checkpoint_start_time
   jax.monitoring.record_event_duration_secs(
@@ -441,7 +443,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           threading.current_thread().name,
           tmpdir.get(),
       )
-      _on_commit_callback(tmpdir, checkpoint_start_time)
+      _on_commit_callback(
+          tmpdir,
+          checkpoint_start_time,
+      )
 
     self._async_manager.start_async_commit(
         directory,
