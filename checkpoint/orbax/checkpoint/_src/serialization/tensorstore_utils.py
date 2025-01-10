@@ -18,7 +18,7 @@ import dataclasses
 import math
 import os
 import re
-from typing import  Any, TypeAlias
+from typing import Any, TypeAlias
 
 from absl import logging
 from jax import numpy as jnp
@@ -112,8 +112,8 @@ def build_kvstore_tspec(
     name: Name (filename) of the parameter.
     use_ocdbt: Whether to use OCDBT driver.
     process_id: [only used with OCDBT driver] If provided,
-      `{directory}/ocdbt.process_{process_id}` path is used as the base path.
-      If a string, must conform to [A-Za-z0-9]+ pattern.
+      `{directory}/ocdbt.process_{process_id}` path is used as the base path. If
+      a string, must conform to [A-Za-z0-9]+ pattern.
 
   Returns:
     A Tensorstore KvStore spec in dictionary form.
@@ -288,6 +288,8 @@ def calculate_chunk_byte_size(
 @dataclasses.dataclass(frozen=True)
 class ArrayMetadata:
   """TensorStore metadata for a single array in a checkpoint."""
+
+  param_name: str  # Unique full name of the parameter.
   shape: Shape
   dtype: DType
   write_shape: Shape
@@ -398,6 +400,7 @@ class ArrayWriteSpec:
 
     # Keep the metadata in a separate field.
     self._metadata = ArrayMetadata(
+        param_name=relative_array_filename,
         shape=global_shape,
         dtype=target_storage_dtype,
         write_shape=write_shape,
