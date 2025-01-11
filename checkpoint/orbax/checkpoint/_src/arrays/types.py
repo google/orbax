@@ -16,10 +16,12 @@
 
 import dataclasses
 
+from jax import numpy as jnp
 import numpy as np
 
 
 Shape = tuple[int, ...]
+DType = jnp.dtype | np.dtype
 
 # Indexing an np.ndarray with an empty tuple gives an array of the same shape,
 # *unless* the array is zero-dimensional in which case the result is a scalar.
@@ -34,6 +36,7 @@ Index = tuple[slice, ...]
 @dataclasses.dataclass(frozen=True)
 class NumpyShapeDtypeStruct:
   """Abstract representation of a Numpy array."""
+
   shape: Shape
   dtype: np.dtype
 
