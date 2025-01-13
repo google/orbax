@@ -17,6 +17,11 @@ py_library(
 py_library(
     name = "step",
     srcs = ["step.py"],
+    deps = [
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+        "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+    ],
 )
 
 py_test(
@@ -25,6 +30,8 @@ py_test(
     deps = [
         ":atomicity",
         ":step",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+        "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
     ],
 )
 
@@ -58,6 +65,9 @@ py_library(
         ":path",
         ":step",
         ":utils",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+        "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
     ],
 )
 
@@ -68,12 +78,14 @@ py_test(
         ":atomicity",
         ":atomicity_types",
         ":step",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
     ],
 )
 
 py_library(
     name = "atomicity_types",
     srcs = ["atomicity_types.py"],
+    deps = ["//checkpoint/orbax/checkpoint/_src/metadata:checkpoint"],
 )
 
 py_library(
@@ -89,10 +101,14 @@ py_library(
 py_library(
     name = "format_utils",
     srcs = ["format_utils.py"],
+    deps = ["//checkpoint/orbax/checkpoint/_src/metadata:checkpoint"],
 )
 
 py_test(
     name = "format_utils_test",
     srcs = ["format_utils_test.py"],
-    deps = [":format_utils"],
+    deps = [
+        ":format_utils",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+    ],
 )
