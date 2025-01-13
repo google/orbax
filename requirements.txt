@@ -15,5 +15,9 @@ jaxlib>=0.4.34
 portpicker~=1.6
 absl-py>=1.0,==1.*
 numpy>=1.26.0
+orbax-checkpoint>=0.9.0
 etils[epath]
+simplejson
+chex
+optax
 
