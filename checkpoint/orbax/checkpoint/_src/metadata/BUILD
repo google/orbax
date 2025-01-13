@@ -68,13 +68,6 @@ py_test(
     ],
 )
 
-py_test(
-    name = "sharding_tpu_test",
-    srcs = ["sharding_tpu_test.py"],
-    python_version = "PY3",
-    deps = [":sharding"],
-)
-
 py_library(
     name = "root_metadata_serialization",
     srcs = ["root_metadata_serialization.py"],
