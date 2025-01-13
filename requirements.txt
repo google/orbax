@@ -20,4 +20,5 @@ etils[epath]
 simplejson
 chex
 optax
+nest_asyncio
 
