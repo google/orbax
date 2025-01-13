@@ -18,6 +18,7 @@ import dataclasses
 import os
 
 from orbax.experimental.model.core.protos.manifest_pb2 import UnstructuredData  # pylint: disable=g-importing-member
+from orbax.experimental.model.core.python import file_utils
 
 
 @dataclasses.dataclass
@@ -77,7 +78,7 @@ def write_inlined_data_to_file(
   else:
     data_to_write = proto.inlined_bytes
     io_mode = "wb"
-  with open(os.path.join(dirname, filename), io_mode) as f:
+  with file_utils.open_file(os.path.join(dirname, filename), io_mode) as f:
     f.write(data_to_write)
   result = UnstructuredData()
   result.file_system_location.string_path = filename

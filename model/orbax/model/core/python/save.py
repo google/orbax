@@ -25,6 +25,7 @@ from typing import Optional
 from absl import logging
 from orbax.experimental.model.core.checkpoint.tensor_bundle import _tensor_bundle_api
 from orbax.experimental.model.core.python import constants
+from orbax.experimental.model.core.python import file_utils
 from orbax.experimental.model.core.python import manifest_constants
 from orbax.experimental.model.core.python import module
 from orbax.experimental.model.core.python import unstructured_data
@@ -168,7 +169,7 @@ def save(
     manifest_proto = build_manifest_proto(
         m, path, supplemental_info=supplemental_info,
     )
-    with open(
+    with file_utils.open_file(
         os.path.join(path, manifest_constants.MANIFEST_FILENAME), 'wb'
     ) as f:
       f.write(manifest_proto.SerializeToString())
@@ -190,7 +191,9 @@ def save(
           'function_aliases is set but no named function exists in the graph.'
       )
   proto = builder.build()
-  with open(os.path.join(path, constants.SAVED_MODEL_FILENAME_PB), 'wb') as f:
+  with file_utils.open_file(
+      os.path.join(path, constants.SAVED_MODEL_FILENAME_PB), 'wb'
+  ) as f:
     f.write(proto.SerializeToString())
 
   # Write checkpoint. The `builder.variables_by_name` to used to ensure
