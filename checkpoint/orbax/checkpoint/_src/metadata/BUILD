@@ -27,13 +27,19 @@ py_library(
         ":tree_rich_types",
         ":value",
         ":value_metadata_entry",
+        "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
+        "//checkpoint/orbax/checkpoint/_src/serialization:types",
     ],
 )
 
 py_test(
     name = "tree_test",
     srcs = ["tree_test.py"],
-    deps = [":tree"],
+    deps = [
+        ":tree",
+        "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//checkpoint/orbax/checkpoint/_src/serialization:types",
+    ],
 )
 
 py_library(
@@ -102,6 +108,7 @@ py_library(
     deps = [
         ":empty_values",
         ":pytree_metadata_options",
+        "//checkpoint/orbax/checkpoint/_src/serialization:types",
     ],
 )
 

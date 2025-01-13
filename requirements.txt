@@ -21,4 +21,5 @@ simplejson
 chex
 optax
 nest_asyncio
-
+tensorstore
+humanize
