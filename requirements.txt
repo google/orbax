@@ -20,6 +20,7 @@ etils[epath]
 simplejson
 chex
 optax
+mock
 nest_asyncio
 tensorstore
 humanize
