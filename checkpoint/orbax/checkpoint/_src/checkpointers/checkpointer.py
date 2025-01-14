@@ -29,6 +29,7 @@ from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
+from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
@@ -42,6 +43,7 @@ register_with_handler = checkpoint_args.register_with_handler
 get_legacy_handler_wrapper = (
     composite_checkpoint_handler.get_legacy_handler_wrapper
 )
+StepMetadata = checkpoint.StepMetadata
 
 
 def construct_checkpoint_args(
@@ -161,7 +163,11 @@ class Checkpointer(
     return tmpdir
 
   def save(
-      self, directory: epath.PathLike, *args, force: bool = False, **kwargs
+      self,
+      directory: epath.PathLike,
+      *args,
+      force: bool = False,
+      **kwargs,
   ):
     """Saves the given item to the provided directory.
 
@@ -200,8 +206,12 @@ class Checkpointer(
       else:
         raise ValueError(f'Destination {directory} already exists.')
     ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)
+    # tmpdir creation also does an initial StepMetadata save.
     tmpdir = asyncio_utils.run_sync(self.create_temporary_path(directory))
     self._handler.save(tmpdir.get(), args=ckpt_args)
+    if utils.is_primary_host(self._primary_host):
+      # Update StepMetadata after the handler save is complete.
+      self._save_step_metadata(tmpdir.get())
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
             'Checkpointer:save',
@@ -212,6 +222,7 @@ class Checkpointer(
 
     # Ensure save operation atomicity and record time saved by checkpoint.
     if utils.is_primary_host(self._primary_host):
+      # finalize does a final StepMetadata update.
       self._handler.finalize(tmpdir.get())
       atomicity.on_commit_callback(
           tmpdir,
@@ -251,10 +262,47 @@ class Checkpointer(
   ) -> Any:
     return self._handler.restore(directory, args=args)
 
-  def metadata(self, directory: epath.PathLike) -> Optional[Any]:
+  def metadata(self, directory: epath.PathLike) -> StepMetadata | Any | None:
     """See superclass documentation."""
     directory = epath.Path(directory)
     return self._handler.metadata(directory)
+
+  def _save_step_metadata(
+      self, directory: epath.Path
+  ):
+    """Saves StepMetadata to the checkpoint directory."""
+    update_dict = {}
+    if isinstance(
+        self._handler, composite_checkpoint_handler.CompositeCheckpointHandler
+    ):
+      try:
+        # get item_handlers from handler
+        partial_metadata: StepMetadata = self._handler.metadata(directory)
+      except (FileNotFoundError, NotImplementedError, ValueError, TypeError):
+        logging.warning(
+            'Failed to get per-item metadata from directory %s. Handler types '
+            'will not be saved.',
+            directory,
+        )
+      else:
+        update_dict['item_handlers'] = partial_metadata.item_handlers
+    else:
+      try:
+        item_handler = self._handler.typestr()
+      except (NotImplementedError, AttributeError):
+        logging.warning(
+            'Failed to get item handler typestr from directory %s. Backup '
+            'handler type will be saved.',
+            directory,
+        )
+        item_handler = (
+            f'{self._handler.__module__}.{self._handler.__class__.__qualname__}'
+        )
+      update_dict['item_handlers'] = item_handler
+    self._metadata_store.update(
+        file_path=checkpoint.step_metadata_file_path(directory),
+        **step_metadata_serialization.serialize_for_update(**update_dict),
+    )
 
   def close(self):
     """Closes the underlying CheckpointHandler."""

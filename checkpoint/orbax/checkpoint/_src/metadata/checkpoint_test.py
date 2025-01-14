@@ -643,7 +643,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
   @parameterized.parameters(
       ({'item_handlers': {'a': 'b'}},),
       ({'performance_metrics': {'a': 1.0}},),
-      ({'user_metadata': {'a': 1}, 'init_timestamp_nsecs': 1},),
+      ({'custom': {'a': 1}, 'init_timestamp_nsecs': 1},),
   )
   def test_serialize_for_update_valid_kwargs(
       self, kwargs: dict[str, Any]
@@ -661,8 +661,8 @@ class CheckpointMetadataTest(parameterized.TestCase):
       ({'performance_metrics': list()},),
       ({'init_timestamp_nsecs': float()},),
       ({'commit_timestamp_nsecs': float()},),
-      ({'user_metadata': list()},),
-      ({'user_metadata': {int(): None}},),
+      ({'custom': list()},),
+      ({'custom': {int(): None}},),
   )
   def test_serialize_for_update_wrong_types(
       self, kwargs: dict[str, Any]
@@ -675,7 +675,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
         ValueError, 'Provided metadata contains unknown key blah'
     ):
       step_metadata_serialization.serialize_for_update(
-          user_metadata={'a': 1},
+          custom={'a': 1},
           blah=123,
       )
 
