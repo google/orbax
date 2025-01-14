@@ -637,7 +637,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   ) -> atomicity_types.TemporaryPath:
     temporary_path_class = (
         self._temporary_path_class
-        or atomicity_defaults.get_default_temporary_path_class(directory)
+        or atomicity_defaults.get_item_default_temporary_path_class(directory)
     )
     tmp_item_dir = temporary_path_class.from_final(
         self._get_item_directory(directory, item_name),
