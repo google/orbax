@@ -1,0 +1,49 @@
+[build-system]
+requires = ["flit_core >=3.5,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "orbax-model"
+description = "Orbax Model"
+readme = 'README.md'
+license = {file = 'LICENSE'}
+requires-python = '>=3.10'
+authors = [{name = 'Orbax Model Authors', email='orbax-export-dev@google.com'}]
+classifiers=[
+    'Development Status :: 3 - Alpha',
+    'Intended Audience :: Developers',
+    'Intended Audience :: Science/Research',
+    'License :: OSI Approved :: Apache Software License',
+    'Programming Language :: Python',
+    'Topic :: Scientific/Engineering :: Artificial Intelligence',
+]
+
+keywords = ["JAX machine learning", "serialization", "export"]
+
+dependencies = [
+    'absl-py',
+    'jax >= 0.4.34',
+    'jaxlib',
+    'jaxtyping',
+    'numpy',
+    'protobuf',
+    "orbax-checkpoint >=0.9.0"
+]
+
+dynamic = ['version']
+
+[tool.flit.module]
+name = "orbax.export"
+
+[project.urls]
+homepage = 'http://github.com/google/orbax'
+repository = 'http://github.com/google/orbax'
+
+[project.optional-dependencies]
+all = [
+  'tensorflow>=2.15.0',
+]
+
+testing = [
+    'pytest',
+]
