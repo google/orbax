@@ -14,7 +14,6 @@
 
 """Tests for CheckpointerHandler type registry."""
 
-import copy
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -44,6 +43,21 @@ class ParentHandler(checkpoint_handler.CheckpointHandler):
 
     def restore(self, directory: epath.Path, *args, **kwargs):
       pass
+
+
+class MalformedParentHandler(checkpoint_handler.CheckpointHandler):
+
+  class TestHandler(checkpoint_handler.CheckpointHandler):
+
+    def save(self, directory: epath.Path, *args, **kwargs):
+      pass
+
+    def restore(self, directory: epath.Path, *args, **kwargs):
+      pass
+
+    @classmethod
+    def typestr(cls) -> str:
+      return TestHandler.typestr()
 
 
 class StandardCheckpointHandler(checkpoint_handler.CheckpointHandler):
@@ -76,12 +90,12 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
 
   def test_register_and_get(self):
     registry = HandlerTypeRegistry()
-    registry.add(TestHandler.typestr(), TestHandler)
+    registry.add(TestHandler)
     self.assertEqual(
         registry.get(TestHandler.typestr()),
         TestHandler,
     )
-    registry.add(ParentHandler.TestHandler.typestr(), ParentHandler.TestHandler)
+    registry.add(ParentHandler.TestHandler)
     self.assertEqual(
         registry.get(ParentHandler.TestHandler.typestr()),
         ParentHandler.TestHandler,
@@ -98,15 +112,12 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
 
   def test_register_different_modules(self):
     registry = HandlerTypeRegistry()
-    registry.add(StandardCheckpointHandler.typestr(), StandardCheckpointHandler)
+    registry.add(StandardCheckpointHandler)
     self.assertEqual(
         registry.get(StandardCheckpointHandler.typestr()),
         StandardCheckpointHandler,
     )
-    registry.add(
-        standard_checkpoint_handler.StandardCheckpointHandler.typestr(),
-        standard_checkpoint_handler.StandardCheckpointHandler,
-    )
+    registry.add(standard_checkpoint_handler.StandardCheckpointHandler)
     self.assertEqual(
         registry.get(
             standard_checkpoint_handler.StandardCheckpointHandler().typestr()
@@ -126,10 +137,10 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
 
   def test_register_duplicate_handler_type(self):
     registry = HandlerTypeRegistry()
-    registry.add(TestHandler.typestr(), TestHandler)
+    registry.add(TestHandler)
 
     # Register the same handler and typestr again. OK.
-    registry.add(TestHandler.typestr(), TestHandler)
+    registry.add(TestHandler)
 
     # Register a different handler with the same typestr. Error.
     with self.assertRaisesRegex(
@@ -140,9 +151,9 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
         r'<class \'(?:__main__|handler_type_registry_test)\.TestHandler\'>. '
         'Cannot add type '
         r'<class \'(?:__main__|handler_type_registry_test)\.'
-        "ParentHandler.TestHandler'>.",
+        "MalformedParentHandler.TestHandler'>.",
     ):
-      registry.add(TestHandler.typestr(), ParentHandler.TestHandler)
+      registry.add(MalformedParentHandler.TestHandler)
 
   def test_get_handler_type_not_found(self):
     registry = HandlerTypeRegistry()
@@ -156,13 +167,8 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
 
   def test_register_subclass_handler_type(self):
     registry = HandlerTypeRegistry()
-    registry.add(
-        standard_checkpoint_handler.StandardCheckpointHandler.typestr(),
-        standard_checkpoint_handler.StandardCheckpointHandler,
-    )
-    registry.add(
-        ChildStandardCheckpointHandler.typestr(), ChildStandardCheckpointHandler
-    )
+    registry.add(standard_checkpoint_handler.StandardCheckpointHandler)
+    registry.add(ChildStandardCheckpointHandler)
     self.assertEqual(
         registry.get(
             standard_checkpoint_handler.StandardCheckpointHandler.typestr()
@@ -176,28 +182,24 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
 
   def test_typestr_override(self):
     registry = HandlerTypeRegistry()
-    registry.add(TypestrOverrideHandler.typestr(), TypestrOverrideHandler)
+    registry.add(TypestrOverrideHandler)
     self.assertEqual(
         registry.get(TypestrOverrideHandler.typestr()),
         TypestrOverrideHandler,
     )
 
   def test_no_typestr(self):
-    backup = copy.deepcopy(handler_type_registry._GLOBAL_HANDLER_TYPE_REGISTRY)
-    try:
-      # Clear the global registry to avoid side effects from other tests.
-      handler_type_registry._GLOBAL_HANDLER_TYPE_REGISTRY._registry.clear()
+    type_registry = HandlerTypeRegistry()
+    type_registry.add(NoTypestrHandler)
 
-      handler_type_registry.register_handler_type(NoTypestrHandler)
-      registry = handler_type_registry._GLOBAL_HANDLER_TYPE_REGISTRY._registry
+    self.assertLen(type_registry._registry, 1)
+    typestr = list(type_registry._registry.keys())[0]
 
-      expected_registry0 = {
-          'handler_type_registry_test.NoTypestrHandler': NoTypestrHandler
-      }
-      expected_registry1 = {'__main__.NoTypestrHandler': NoTypestrHandler}
-      self.assertIn(registry, [expected_registry0, expected_registry1])
-    finally:
-      handler_type_registry._GLOBAL_HANDLER_TYPE_REGISTRY = backup
+    possible_typestrs = {
+        'handler_type_registry_test.NoTypestrHandler',
+        '__main__.NoTypestrHandler',
+    }
+    self.assertIn(typestr, possible_typestrs)
 
   def test_register_after_reload(self):
     registry = HandlerTypeRegistry()
@@ -213,7 +215,7 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
     MyTestHandlerOld = MyTestHandler
 
     # Register the handler once
-    registry.add(MyTestHandler.typestr(), MyTestHandler)
+    registry.add(MyTestHandler)
     self.assertEqual(
         registry.get(MyTestHandler.typestr()),
         MyTestHandler,
@@ -231,7 +233,7 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
 
     self.assertNotEqual(MyTestHandler, MyTestHandlerOld)
 
-    registry.add(MyTestHandler.typestr(), MyTestHandler)
+    registry.add(MyTestHandler)
     self.assertEqual(
         registry.get(MyTestHandler.typestr()),
         MyTestHandler,

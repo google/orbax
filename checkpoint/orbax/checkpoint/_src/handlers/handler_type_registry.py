@@ -29,12 +29,18 @@ class HandlerTypeRegistry:
   def __init__(self):
     self._registry = {}
 
-  def add(
-      self,
-      handler_typestr: str,
-      handler_type: Type[CheckpointHandler],
-  ) -> None:
+  def add(self, handler_type: Type[CheckpointHandler]) -> None:
     """Adds an entry to the registry."""
+    try:
+      handler_typestr = handler_type.typestr()
+    except AttributeError:
+      handler_typestr = f'{handler_type.__module__}.{handler_type.__qualname__}'
+      logging.info(
+          'Handler class %s does not have a typestr method. '
+          'Using the default typestr value "%s" instead.',
+          handler_type,
+          handler_typestr,
+      )
     if handler_typestr in self._registry:
       previous_handler_type = self._registry[handler_typestr]
       # On Colab/notebook, it's very common to reload modules when iterating
@@ -99,21 +105,7 @@ def register_handler_type(handler_cls):
   Returns:
     The registered checkpoint handler class.
   """
-  # TODO(adamcogdell): Change HandlerTypeRegistry.add(typestr, type) to
-  # HandlerTypeRegistry.add(handler_type) and move following logic into
-  # HandlerTypeRegistry.add(). It will help to drop unit tests based on the
-  # singleton HandlerTypeRegistry, which can be flaky.
-  try:
-    typestr = handler_cls.typestr()
-  except AttributeError:
-    typestr = f'{handler_cls.__module__}.{handler_cls.__qualname__}'
-    logging.info(
-        'Handler class %s does not have a typestr method. '
-        'Using the default typestr value "%s" instead.',
-        handler_cls,
-        typestr,
-    )
-  _GLOBAL_HANDLER_TYPE_REGISTRY.add(typestr, handler_cls)
+  _GLOBAL_HANDLER_TYPE_REGISTRY.add(handler_cls)
   return handler_cls
 
 
