@@ -39,6 +39,7 @@ from orbax.checkpoint import future
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types as arrays_types
+from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
@@ -202,7 +203,7 @@ def get_json_tspec_write(
   return tspec
 
 
-def _build_array_tspec_write(
+def _build_array_write_spec(
     info: types.ParamInfo,
     arg: Optional[types.SaveArgs] = None,
     *,
@@ -212,8 +213,8 @@ def _build_array_tspec_write(
     use_ocdbt: bool,
     process_index: Optional[Union[int, str]] = None,
     metadata_key: Optional[str] = None,
-) -> ts_utils.JsonSpec:
-  """Gets Tensorstore spec for writing."""
+) -> ts_utils.ArrayWriteSpec:
+  """Gets ArrayWriteSpec for writing."""
   if info.path is None:
     raise ValueError('Must construct serialization path.')
   parent_dir = info.parent_dir
@@ -234,7 +235,7 @@ def _build_array_tspec_write(
       process_id=process_index,
       ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
       metadata_key=metadata_key,
-  ).json
+  )
 
 
 class _CommitFuture(future.Future):
@@ -345,7 +346,8 @@ async def _validate_params(
         )
 
   unique = with_zarray | without_zarray
-  logging.info(
+  logging.vlog(
+      1,
       '[process=%s][thread=%s] Validating params in TensorStore KvStore.',
       process_index,
       current_thread_name,
@@ -542,16 +544,16 @@ class NumpyHandler(types.TypeHandler):
     # managed by this controller.
     self._override_ocdbt_process_id: Optional[str] = None
 
-  def _get_json_tspec_write(
+  def _get_array_write_spec(
       self,
       info: types.ParamInfo,
       value: np.ndarray,
       use_ocdbt: bool,
       process_index: Optional[Union[int, str]] = None,
       arg: Optional[types.SaveArgs] = None,
-  ) -> Dict[str, Any]:
-    """Gets Tensorstore spec for writing."""
-    return _build_array_tspec_write(
+  ) -> ts_utils.ArrayWriteSpec:
+    """Gets ArrayWriteSpec for writing."""
+    return _build_array_write_spec(
         info=info,
         arg=arg,
         global_shape=value.shape,
@@ -614,7 +616,7 @@ class NumpyHandler(types.TypeHandler):
     """Serializes numpy arrays in a background thread."""
     write_coros = []
     for value, info, arg in zip(values, infos, args):
-      tspec = self._get_json_tspec_write(
+      array_write_spec = self._get_array_write_spec(
           info,
           value,
           use_ocdbt=info.is_ocdbt_checkpoint,
@@ -624,6 +626,7 @@ class NumpyHandler(types.TypeHandler):
           ),
           arg=arg,
       )
+      tspec = array_write_spec.json
       if logging.vlog_is_on(1):
         logging.vlog(1, 'tspec = %s', tspec)
         logging.vlog(1, 'infos = %s', info)
@@ -846,6 +849,7 @@ class ArrayHandler(types.TypeHandler):
       replica_id: Optional[int] = 0,
       use_replica_parallel: bool = True,
       enable_write_sharding_file: bool = True,
+      array_metadata_store: array_metadata_store_lib.Store | None = None,
   ):
     """Constructor.
 
@@ -860,19 +864,25 @@ class ArrayHandler(types.TypeHandler):
       use_replica_parallel: Whether to parallelize saving across replicas.
       enable_write_sharding_file: whether to write sharding file, defaults to
         True.
+      array_metadata_store: Store to manage per host ArrayMetadata. To disable
+        ArrayMetadata persistence, set it to None.
     """
     self._metadata_key = metadata_key
     self._primary_host = primary_host
     self._replica_id = replica_id
     self._enable_write_sharding_file = enable_write_sharding_file
     self._use_replica_parallel = use_replica_parallel
+    self._array_metadata_store = array_metadata_store
 
-    logging.info(
-        'Created `ArrayHandler` with primary_host=%s, replica_id=%s,'
-        ' use_replica_parallel=%s',
+    logging.vlog(
+        1,
+        'Created `%s` with primary_host=%s, replica_id=%s,'
+        ' use_replica_parallel=%s, array_metadata_store=%s',
+        self.__class__.__qualname__,
         self._primary_host,
         self._replica_id,
         self._use_replica_parallel,
+        self._array_metadata_store,
     )
 
     if self._primary_host is None and jax.__version_info__ <= (0, 4, 25):  # pylint:disable=unreachable
@@ -880,7 +890,7 @@ class ArrayHandler(types.TypeHandler):
           'Setting `primary_host` to None requires JAX version > 0.4.25.'
       )
 
-  def _get_json_tspec_write(
+  def _get_array_write_spec(
       self,
       info: types.ParamInfo,
       value: replica_slices.ReplicaSlices,
@@ -888,9 +898,9 @@ class ArrayHandler(types.TypeHandler):
       use_ocdbt: bool,
       process_index: Optional[Union[int, str]] = None,
       arg: Optional[types.SaveArgs] = None,
-  ) -> Dict[str, Any]:
-    """Gets Tensorstore spec for writing."""
-    return _build_array_tspec_write(
+  ) -> ts_utils.ArrayWriteSpec:
+    """Gets ArrayWriteSpec for writing."""
+    return _build_array_write_spec(
         info=info,
         arg=arg,
         global_shape=value.global_shape,
@@ -1013,6 +1023,7 @@ class ArrayHandler(types.TypeHandler):
     write_coros = []
     sharding_metadata_txn = ts.Transaction()
     ocdbt_transaction: Optional[ts.Transaction] = None
+    array_metadatas = []
     for value, info, arg in zip(values, infos, args):
       # The byte_limiter can't be used with a transaction, because awaiting the
       # `write` only waits until the in-memory transaction state reflects the
@@ -1021,13 +1032,14 @@ class ArrayHandler(types.TypeHandler):
       if info.is_ocdbt_checkpoint and info.byte_limiter is None:
         if ocdbt_transaction is None:
           ocdbt_transaction = ts.Transaction(atomic=True)
-      tspec = self._get_json_tspec_write(
+      array_write_spec = self._get_array_write_spec(
           info,
           value,
           use_ocdbt=info.is_ocdbt_checkpoint,
           process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
           arg=arg,
       )
+      tspec = array_write_spec.json
       ts_context = info.ts_context
       write_coros.append(
           serialization.async_serialize_from_host(
@@ -1045,7 +1057,15 @@ class ArrayHandler(types.TypeHandler):
                 value.sharding, info, sharding_metadata_txn
             )
         )
-
+      array_metadatas.append(array_write_spec.metadata)
+    if self._array_metadata_store is not None:
+      write_coros.append(
+          self._array_metadata_store.write(
+              checkpoint_dir=infos[0].parent_dir,
+              array_metadatas=array_metadatas,
+              process_index=multihost.process_index(),
+          )
+      )
     await asyncio.gather(*write_coros)
     await sharding_metadata_txn.commit_async()
     if ocdbt_transaction is not None:

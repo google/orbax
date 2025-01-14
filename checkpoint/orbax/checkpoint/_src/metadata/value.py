@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Metadata describing PyTree values."""
+"""User facing metadata describing PyTree values."""
 
 from __future__ import annotations
 

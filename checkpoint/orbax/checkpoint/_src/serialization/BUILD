@@ -7,6 +7,7 @@ py_library(
     name = "tensorstore_utils",
     srcs = ["tensorstore_utils.py"],
     srcs_version = "PY3",
+    deps = ["//orbax/checkpoint/_src/metadata:array_metadata"],
 )
 
 py_library(
@@ -35,6 +36,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/multihost:multislice",
         "//checkpoint/orbax/checkpoint/_src/path:async_utils",
         "//checkpoint/orbax/checkpoint/_src/path:format_utils",
+        "//orbax/checkpoint/_src/metadata:array_metadata_store",
     ],
 )
 

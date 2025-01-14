@@ -131,3 +131,26 @@ py_test(
         ":pytree_metadata_options",
     ],
 )
+
+py_library(
+    name = "array_metadata",
+    srcs = ["array_metadata.py"],
+)
+
+py_library(
+    name = "array_metadata_store",
+    srcs = ["array_metadata_store.py"],
+    deps = [
+        ":array_metadata",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+    ],
+)
+
+py_test(
+    name = "array_metadata_store_test",
+    srcs = ["array_metadata_store_test.py"],
+    deps = [
+        ":array_metadata",
+        ":array_metadata_store",
+    ],
+)

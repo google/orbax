@@ -14,19 +14,22 @@
 
 """TensorStore serialization helper functions."""
 
-import dataclasses
 import math
 import os
 import re
-from typing import  Any, TypeAlias
+from typing import Any, TypeAlias
 
 from absl import logging
 from jax import numpy as jnp
-import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.metadata import array_metadata
 import tensorstore as ts
 
+JsonSpec: TypeAlias = dict[str, Any]
+Shape: TypeAlias = types.Shape
+DType: TypeAlias = types.DType
+ArrayMetadata: TypeAlias = array_metadata.ArrayMetadata
 
 DEFAULT_DRIVER = 'file'
 
@@ -47,10 +50,6 @@ _GCS_PATH_RE = r'^gs://([^/]*)/(.*)$'
 # metadata.
 STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE = True
 
-
-JsonSpec: TypeAlias = dict[str, Any]
-Shape: TypeAlias = types.Shape
-DType: TypeAlias = jnp.dtype | np.dtype
 
 _BASE_TS_CONTEXT = {
     'file_io_concurrency': {'limit': 128},
@@ -112,8 +111,8 @@ def build_kvstore_tspec(
     name: Name (filename) of the parameter.
     use_ocdbt: Whether to use OCDBT driver.
     process_id: [only used with OCDBT driver] If provided,
-      `{directory}/ocdbt.process_{process_id}` path is used as the base path.
-      If a string, must conform to [A-Za-z0-9]+ pattern.
+      `{directory}/ocdbt.process_{process_id}` path is used as the base path. If
+      a string, must conform to [A-Za-z0-9]+ pattern.
 
   Returns:
     A Tensorstore KvStore spec in dictionary form.
@@ -285,17 +284,6 @@ def calculate_chunk_byte_size(
 ### Building TensorStore array specs.
 
 
-@dataclasses.dataclass(frozen=True)
-class ArrayMetadata:
-  """TensorStore metadata for a single array in a checkpoint."""
-  shape: Shape
-  dtype: DType
-  write_shape: Shape
-  chunk_shape: Shape
-  use_ocdbt: bool
-  use_zarr3: bool
-
-
 def _maybe_add_cast_to_write_spec(
     array_tspec: JsonSpec,
     *,
@@ -398,6 +386,7 @@ class ArrayWriteSpec:
 
     # Keep the metadata in a separate field.
     self._metadata = ArrayMetadata(
+        param_name=relative_array_filename,
         shape=global_shape,
         dtype=target_storage_dtype,
         write_shape=write_shape,
