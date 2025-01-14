@@ -14,62 +14,148 @@
 
 """Utilities for serializing and deserializing metadata."""
 
-from typing import Any, Sequence
+import dataclasses
+from typing import Any, Optional, Sequence
+
+from absl import logging
+from orbax.checkpoint._src.logging import step_statistics
+from orbax.checkpoint._src.metadata import checkpoint
 
 
-def validate_type(obj: Any, field_type: type[Any]):
-  if not isinstance(obj, field_type):
+CompositeCheckpointHandlerTypeStrs = (
+    checkpoint.CompositeCheckpointHandlerTypeStrs
+)
+CheckpointHandlerTypeStr = checkpoint.CheckpointHandlerTypeStr
+CompositeItemMetadata = checkpoint.CompositeItemMetadata
+SingleItemMetadata = checkpoint.SingleItemMetadata
+StepStatistics = step_statistics.SaveStepStatistics
+
+
+def _validate_type(obj: Any, field_type: type[Any] | Sequence[type[Any]]):
+  if isinstance(field_type, Sequence):
+    if not any(isinstance(obj, f_type) for f_type in field_type):
+      raise ValueError(
+          f'Object must be any one of types {list(field_type)}, got '
+          f'{type(obj)}.'
+      )
+  elif not isinstance(obj, field_type):
     raise ValueError(f'Object must be of type {field_type}, got {type(obj)}.')
 
 
-def validate_field(
-    obj: Any,
-    field_name: str,
-    field_type: type[Any] | Sequence[type[Any]]
-):
-  """Validates a single field in a dictionary.
+def validate_and_process_item_handlers(
+    item_handlers: Any,
+) -> CompositeCheckpointHandlerTypeStrs | CheckpointHandlerTypeStr | None:
+  """Validates and processes item_handlers field."""
+  if item_handlers is None:
+    return None
 
-  field_type can optionally be a sequence of types, in which case the field
-  must be of any one of the types in the sequence.
+  _validate_type(item_handlers, [dict, str])
+  if isinstance(item_handlers, CompositeCheckpointHandlerTypeStrs):
+    for k in item_handlers or {}:
+      _validate_type(k, str)
+    return item_handlers
+  elif isinstance(item_handlers, CheckpointHandlerTypeStr):
+    return item_handlers
 
-  Args:
-    obj: The object to validate.
-    field_name: The name of the field to validate.
-    field_type: The type (or sequence of types) of the field to validate.
-  """
-  if field_name not in obj or obj[field_name] is None:
-    return
-  field = obj[field_name]
-  if isinstance(field_type, Sequence):
-    if not any(isinstance(field, f_type) for f_type in field_type):
-      raise ValueError(
-          f'Metadata field "{field_name}" must be any one of '
-          f'types {list(field_type)}, got {type(field)}.'
-      )
-  elif not isinstance(field, field_type):
+
+def validate_and_process_item_metadata(
+    item_metadata: Any,
+) -> CompositeItemMetadata | SingleItemMetadata | None:
+  """Validates and processes item_metadata field."""
+  if item_metadata is None:
+    return None
+
+  if isinstance(item_metadata, CompositeItemMetadata):
+    _validate_type(item_metadata, dict)
+    for k in item_metadata:
+      _validate_type(k, str)
+    return item_metadata
+  else:
+    return item_metadata
+
+
+def validate_and_process_metrics(
+    metrics: Any,
+    additional_metrics: Optional[Any] = None
+) -> dict[str, Any]:
+  """Validates and processes metrics field."""
+  metrics = metrics or {}
+
+  _validate_type(metrics, dict)
+  for k in metrics:
+    _validate_type(k, str)
+  validated_metrics = metrics
+
+  if additional_metrics is not None:
+    _validate_type(additional_metrics, dict)
+    for k, v in additional_metrics.items():
+      _validate_type(k, str)
+      validated_metrics[k] = v
+
+  return validated_metrics
+
+
+def validate_and_process_performance_metrics(
+    performance_metrics: Any,
+) -> dict[str, float]:
+  """Validates and processes performance_metrics field."""
+  if performance_metrics is None:
+    return {}
+
+  _validate_type(performance_metrics, [dict, StepStatistics])
+  if isinstance(performance_metrics, StepStatistics):
+    performance_metrics = dataclasses.asdict(performance_metrics)
+
+  for k in performance_metrics:
+    _validate_type(k, str)
+
+  return {
+      metric: val
+      for metric, val in performance_metrics.items()
+      if isinstance(val, float)
+  }
+
+
+def validate_and_process_init_timestamp_nsecs(
+    init_timestamp_nsecs: Any,
+) -> int | None:
+  """Validates and processes init_timestamp_nsecs field."""
+  if init_timestamp_nsecs is None:
+    return None
+
+  _validate_type(init_timestamp_nsecs, int)
+  return init_timestamp_nsecs
+
+
+def validate_and_process_commit_timestamp_nsecs(
+    commit_timestamp_nsecs: Any,
+) -> int | None:
+  """Validates and processes commit_timestamp_nsecs field."""
+  if commit_timestamp_nsecs is None:
+    return None
+
+  _validate_type(commit_timestamp_nsecs, int)
+  return commit_timestamp_nsecs
+
+
+def validate_and_process_custom(custom: Any) -> dict[str, Any]:
+  """Validates and processes custom field."""
+  if custom is None:
+    return {}
+
+  _validate_type(custom, dict)
+  for k in custom:
+    _validate_type(k, str)
+  return custom
+
+
+def process_unknown_key(key: str, metadata_dict: dict[str, Any]) -> Any:
+  if 'custom' in metadata_dict and metadata_dict['custom']:
     raise ValueError(
-        f'Metadata field "{field_name}" must be of type {field_type}, '
-        f'got {type(field)}.'
+        'Provided metadata contains unknown key %s, and the custom field '
+        'is already defined.' % key
     )
-
-
-def validate_dict_entry(
-    dict_field: dict[Any, Any],
-    dict_field_name: str,
-    key: Any,
-    key_type: type[Any],
-    value_type: type[Any] | None = None,
-):
-  """Validates a single entry in a dictionary field."""
-  if not isinstance(key, key_type):
-    raise ValueError(
-        f'Metadata field "{dict_field_name}" keys must be of type {key_type}, '
-        f'got {type(key)}.'
-    )
-  if value_type is not None:
-    dict_field = dict_field[dict_field_name]
-    if not isinstance(dict_field[key], value_type):
-      raise ValueError(
-          f'Metadata field "{dict_field_name}" values must be of '
-          f'type {value_type}, got {type(dict_field[key])}.'
-      )
+  logging.warning(
+      'Provided metadata contains unknown key %s. Adding it to custom.', key
+  )
+  return metadata_dict[key]

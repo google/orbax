@@ -14,7 +14,6 @@
 
 """Internal IO utilities for metadata of a checkpoint at root level."""
 
-from absl import logging
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import metadata_serialization_utils as utils
 
@@ -22,10 +21,17 @@ SerializedMetadata = checkpoint.SerializedMetadata
 RootMetadata = checkpoint.RootMetadata
 
 
+# Mapping from field name to field validation and processing function.
+_FIELD_PROCESSORS = {
+    'custom': utils.validate_and_process_custom,
+}
+
+
 def serialize(metadata: RootMetadata) -> SerializedMetadata:
   """Serializes `metadata` to a dictionary."""
   return {
-      'custom': metadata.custom,
+      field_name: process_field(metadata.__getattribute__(field_name))
+      for field_name, process_field in _FIELD_PROCESSORS.items()
   }
 
 
@@ -33,22 +39,15 @@ def deserialize(metadata_dict: SerializedMetadata) -> RootMetadata:
   """Deserializes `metadata_dict` to `RootMetadata`."""
   validated_metadata_dict = {}
 
-  if 'custom' in metadata_dict:
-    utils.validate_field(metadata_dict, 'custom', dict)
-    for k in metadata_dict.get('custom', {}) or {}:
-      utils.validate_dict_entry(metadata_dict, 'custom', k, str)
-  validated_metadata_dict['custom'] = metadata_dict.get('custom', {})
+  for f in _FIELD_PROCESSORS:
+    validated_metadata_dict[f] = _FIELD_PROCESSORS[f](
+        metadata_dict.get(f, None)
+    )
 
   for k in metadata_dict:
     if k not in validated_metadata_dict:
-      if 'custom' in metadata_dict and metadata_dict['custom']:
-        raise ValueError(
-            'Provided metadata contains unknown key %s, and the custom field '
-            'is already defined.' % k
-        )
-      logging.warning(
-          'Provided metadata contains unknown key %s. Adding it to custom.', k
+      validated_metadata_dict['custom'][k] = utils.process_unknown_key(
+          k, metadata_dict
       )
-      validated_metadata_dict['custom'][k] = metadata_dict[k]
 
   return RootMetadata(**validated_metadata_dict)

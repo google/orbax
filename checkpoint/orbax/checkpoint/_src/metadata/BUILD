@@ -98,6 +98,10 @@ py_library(
 py_library(
     name = "metadata_serialization_utils",
     srcs = ["metadata_serialization_utils.py"],
+    deps = [
+        ":checkpoint",
+        "//checkpoint/orbax/checkpoint/_src/logging:step_statistics",
+    ],
 )
 
 py_library(
