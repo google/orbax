@@ -72,23 +72,23 @@ def serialize_for_update(**kwargs) -> SerializedMetadata:
   validated_kwargs = {}
 
   if 'item_handlers' in kwargs:
-    utils.validate_field(kwargs, 'item_handlers', [dict, str])
+    utils.validate_type(kwargs['item_handlers'], [dict, str])
     item_handlers = kwargs.get('item_handlers')
     if isinstance(item_handlers, CompositeCheckpointHandlerTypeStrs):
       for k in kwargs.get('item_handlers'):
-        utils.validate_dict_entry(kwargs, 'item_handlers', k, str)
+        utils.validate_type(k, str)
       validated_kwargs['item_handlers'] = item_handlers
     elif isinstance(item_handlers, CheckpointHandlerTypeStr):
       validated_kwargs['item_handlers'] = item_handlers
 
   if 'metrics' in kwargs:
-    utils.validate_field(kwargs, 'metrics', dict)
+    utils.validate_type(kwargs['metrics'], dict)
     for k in kwargs.get('metrics', {}) or {}:
-      utils.validate_dict_entry(kwargs, 'metrics', k, str)
+      utils.validate_type(k, str)
     validated_kwargs['metrics'] = kwargs.get('metrics', {})
 
   if 'performance_metrics' in kwargs:
-    utils.validate_field(kwargs, 'performance_metrics', [dict, StepStatistics])
+    utils.validate_type(kwargs['performance_metrics'], [dict, StepStatistics])
     performance_metrics = kwargs.get('performance_metrics', {})
     if isinstance(performance_metrics, StepStatistics):
       performance_metrics = dataclasses.asdict(performance_metrics)
@@ -100,21 +100,21 @@ def serialize_for_update(**kwargs) -> SerializedMetadata:
     validated_kwargs['performance_metrics'] = float_metrics
 
   if 'init_timestamp_nsecs' in kwargs:
-    utils.validate_field(kwargs, 'init_timestamp_nsecs', int)
+    utils.validate_type(kwargs['init_timestamp_nsecs'], int)
     validated_kwargs['init_timestamp_nsecs'] = (
         kwargs.get('init_timestamp_nsecs', None)
     )
 
   if 'commit_timestamp_nsecs' in kwargs:
-    utils.validate_field(kwargs, 'commit_timestamp_nsecs', int)
+    utils.validate_type(kwargs['commit_timestamp_nsecs'], int)
     validated_kwargs['commit_timestamp_nsecs'] = (
         kwargs.get('commit_timestamp_nsecs', None)
     )
 
   if 'custom' in kwargs:
-    utils.validate_field(kwargs, 'custom', dict)
+    utils.validate_type(kwargs['custom'], dict)
     for k in kwargs.get('custom', {}) or {}:
-      utils.validate_dict_entry(kwargs, 'custom', k, str)
+      utils.validate_type(k, str)
     validated_kwargs['custom'] = kwargs.get('custom', {})
 
   for k in kwargs:
@@ -132,58 +132,64 @@ def deserialize(
   """Deserializes `metadata_dict` and other kwargs to `StepMetadata`."""
   validated_metadata_dict = {}
 
-  utils.validate_field(metadata_dict, 'item_handlers', [dict, str])
-  item_handlers = metadata_dict.get('item_handlers')
-  if isinstance(item_handlers, CompositeCheckpointHandlerTypeStrs):
-    for k in metadata_dict.get('item_handlers', {}) or {}:
-      utils.validate_dict_entry(metadata_dict, 'item_handlers', k, str)
-    validated_metadata_dict['item_handlers'] = item_handlers
-  elif isinstance(item_handlers, CheckpointHandlerTypeStr):
-    validated_metadata_dict['item_handlers'] = item_handlers
-  elif item_handlers is None:
+  item_handlers = metadata_dict.get('item_handlers', None)
+  if item_handlers is not None:
+    utils.validate_type(item_handlers, [dict, str])
+    if isinstance(item_handlers, CompositeCheckpointHandlerTypeStrs):
+      for k in metadata_dict.get('item_handlers', {}) or {}:
+        utils.validate_type(k, str)
+      validated_metadata_dict['item_handlers'] = item_handlers
+    elif isinstance(item_handlers, CheckpointHandlerTypeStr):
+      validated_metadata_dict['item_handlers'] = item_handlers
+  else:
     validated_metadata_dict['item_handlers'] = None
 
   if isinstance(item_metadata, CompositeItemMetadata):
     validated_metadata_dict['item_metadata'] = {}
     for k, v in item_metadata.items():
-      utils.validate_field(item_metadata, k, str)
+      utils.validate_type(k, str)
       validated_metadata_dict['item_metadata'][k] = v
   else:
     validated_metadata_dict['item_metadata'] = item_metadata
 
-  utils.validate_field(metadata_dict, 'metrics', dict)
-  for k in metadata_dict.get('metrics', {}) or {}:
-    utils.validate_dict_entry(metadata_dict, 'metrics', k, str)
-  validated_metadata_dict['metrics'] = metadata_dict.get('metrics', {})
+  serialized_metrics = metadata_dict.get('metrics', None)
+  if serialized_metrics is not None:
+    utils.validate_type(serialized_metrics, dict)
+    for k in serialized_metrics:
+      utils.validate_type(k, str)
+  validated_metadata_dict['metrics'] = serialized_metrics or {}
   if metrics is not None:
     utils.validate_type(metrics, dict)
     for k, v in metrics.items():
-      utils.validate_dict_entry(metadata_dict, 'metrics', k, str)
+      utils.validate_type(k, str)
       validated_metadata_dict['metrics'][k] = v
 
-  utils.validate_field(metadata_dict, 'performance_metrics', dict)
-  for k in metadata_dict.get('performance_metrics', {}) or {}:
-    utils.validate_dict_entry(
-        metadata_dict, 'performance_metrics', k, str, float
-    )
+  performance_metrics = metadata_dict.get('performance_metrics', None)
+  if performance_metrics is not None:
+    utils.validate_type(performance_metrics, dict)
+    for k in performance_metrics:
+      utils.validate_type(k, str)
+      utils.validate_type(performance_metrics[k], float)
   validated_metadata_dict['performance_metrics'] = StepStatistics(
-      **metadata_dict.get('performance_metrics', {})
+      **(performance_metrics or {})
   )
 
-  utils.validate_field(metadata_dict, 'init_timestamp_nsecs', int)
-  validated_metadata_dict['init_timestamp_nsecs'] = (
-      metadata_dict.get('init_timestamp_nsecs', None)
-  )
+  init_timestamp_nsecs = metadata_dict.get('init_timestamp_nsecs', None)
+  if init_timestamp_nsecs is not None:
+    utils.validate_type(init_timestamp_nsecs, int)
+  validated_metadata_dict['init_timestamp_nsecs'] = init_timestamp_nsecs
 
-  utils.validate_field(metadata_dict, 'commit_timestamp_nsecs', int)
-  validated_metadata_dict['commit_timestamp_nsecs'] = (
-      metadata_dict.get('commit_timestamp_nsecs', None)
-  )
+  commit_timestamp_nsecs = metadata_dict.get('commit_timestamp_nsecs', None)
+  if commit_timestamp_nsecs is not None:
+    utils.validate_type(commit_timestamp_nsecs, int)
+  validated_metadata_dict['commit_timestamp_nsecs'] = commit_timestamp_nsecs
 
-  utils.validate_field(metadata_dict, 'custom', dict)
-  for k in metadata_dict.get('custom', {}) or {}:
-    utils.validate_dict_entry(metadata_dict, 'custom', k, str)
-  validated_metadata_dict['custom'] = metadata_dict.get('custom', {})
+  custom = metadata_dict.get('custom', None)
+  if custom is not None:
+    utils.validate_type(custom, dict)
+    for k in custom:
+      utils.validate_type(k, str)
+  validated_metadata_dict['custom'] = custom or {}
 
   for k in metadata_dict:
     if k not in validated_metadata_dict:

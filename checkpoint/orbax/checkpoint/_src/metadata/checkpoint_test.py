@@ -576,67 +576,59 @@ class CheckpointMetadataTest(parameterized.TestCase):
       self.deserialize_metadata(StepMetadata, {}, **{kwarg_name: kwarg_value})
 
   @parameterized.parameters(
-      ({'metrics': 1}, 'metrics', dict, int),
-      ({'performance_metrics': 1}, 'performance_metrics', dict, int),
-      ({'init_timestamp_nsecs': 'a'}, 'init_timestamp_nsecs', int, str),
-      ({'commit_timestamp_nsecs': 'a'}, 'commit_timestamp_nsecs', int, str),
-      ({'custom': 1}, 'custom', dict, int),
+      ({'metrics': 1}, dict, int),
+      ({'performance_metrics': 1}, dict, int),
+      ({'init_timestamp_nsecs': 'a'}, int, str),
+      ({'commit_timestamp_nsecs': 'a'}, int, str),
+      ({'custom': 1}, dict, int),
   )
   def test_validate_field_wrong_type(
-      self, step_metadata, field_name, expected_field_type, wrong_field_type
+      self, step_metadata, expected_field_type, wrong_field_type
   ):
     with self.assertRaisesRegex(
         ValueError,
-        f'Metadata field "{field_name}" must be of type '
-        f'{expected_field_type}, got {wrong_field_type}.',
+        f'Object must be of type {expected_field_type}, got {wrong_field_type}',
     ):
       self.deserialize_metadata(StepMetadata, step_metadata)
 
   @parameterized.parameters(
-      ({'item_handlers': 1}, 'item_handlers', int),
+      ({'item_handlers': 1}, int),
   )
   def test_validate_field_sequence_wrong_type(
-      self, step_metadata, field_name, wrong_field_type
+      self, step_metadata, wrong_field_type
   ):
     with self.assertRaisesRegex(
         ValueError,
-        f'Metadata field "{field_name}" must be any one of types '
+        f'Object must be any one of types '
         r'\[.+]'
         f', got {wrong_field_type}.',
     ):
       self.deserialize_metadata(StepMetadata, step_metadata)
 
   @parameterized.parameters(
-      ({'item_handlers': {1: 'a'}}, 'item_handlers', str, int),
-      ({'metrics': {1: 'a'}}, 'metrics', str, int),
-      (
-          {'performance_metrics': {1: 1.0}},
-          'performance_metrics',
-          str,
-          int,
-      ),
-      ({'custom': {1: 'a'}}, 'custom', str, int),
+      ({'item_handlers': {1: 'a'}}, str, int),
+      ({'metrics': {1: 'a'}}, str, int),
+      ({'performance_metrics': {1: 1.0}}, str, int),
+      ({'custom': {1: 'a'}}, str, int),
   )
   def test_validate_dict_entry_wrong_key_type(
-      self, step_metadata, field_name, expected_key_type, wrong_key_type
+      self, step_metadata, expected_key_type, wrong_key_type
   ):
     with self.assertRaisesRegex(
         ValueError,
-        f'Metadata field "{field_name}" keys must be of type '
-        f'{expected_key_type}, got {wrong_key_type}.',
+        f'Object must be of type {expected_key_type}, got {wrong_key_type}.',
     ):
       self.deserialize_metadata(StepMetadata, step_metadata)
 
   @parameterized.parameters(
-      ({'performance_metrics': {'a': 1}}, 'performance_metrics', float, int),
+      ({'performance_metrics': {'a': 1}}, float, int),
   )
   def test_validate_dict_entry_wrong_value_type(
-      self, step_metadata, field_name, expected_value_type, wrong_value_type
+      self, step_metadata, expected_value_type, wrong_value_type
   ):
     with self.assertRaisesRegex(
         ValueError,
-        f'Metadata field "{field_name}" values must be of type '
-        f'{expected_value_type}, got {wrong_value_type}.',
+        f'Object must be of type {expected_value_type}, got {wrong_value_type}',
     ):
       self.deserialize_metadata(StepMetadata, step_metadata)
 

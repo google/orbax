@@ -34,9 +34,9 @@ def deserialize(metadata_dict: SerializedMetadata) -> RootMetadata:
   validated_metadata_dict = {}
 
   if 'custom' in metadata_dict:
-    utils.validate_field(metadata_dict, 'custom', dict)
+    utils.validate_type(metadata_dict['custom'], dict)
     for k in metadata_dict.get('custom', {}) or {}:
-      utils.validate_dict_entry(metadata_dict, 'custom', k, str)
+      utils.validate_type(k, str)
   validated_metadata_dict['custom'] = metadata_dict.get('custom', {})
 
   for k in metadata_dict:
