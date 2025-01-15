@@ -211,7 +211,10 @@ class Checkpointer(
     self._handler.save(tmpdir.get(), args=ckpt_args)
     if utils.is_primary_host(self._primary_host):
       # Update StepMetadata after the handler save is complete.
-      self._save_step_metadata(tmpdir.get())
+      # TODO(b/390198468): Support custom_metadata if this use case comes up:
+      #   Write metadata pertaining to multiple items and specific to an
+      #   individual step.
+      self._save_step_metadata(tmpdir.get(), custom_metadata=None)
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
             'Checkpointer:save',
@@ -268,10 +271,12 @@ class Checkpointer(
     return self._handler.metadata(directory)
 
   def _save_step_metadata(
-      self, directory: epath.Path
+      self, directory: epath.Path, custom_metadata: dict[str, Any] | None
   ):
     """Saves StepMetadata to the checkpoint directory."""
-    update_dict = {}
+    update_dict = {
+        'custom': custom_metadata,
+    }
     if isinstance(
         self._handler, composite_checkpoint_handler.CompositeCheckpointHandler
     ):

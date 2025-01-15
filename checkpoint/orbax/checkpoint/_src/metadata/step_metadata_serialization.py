@@ -112,10 +112,13 @@ def serialize_for_update(**kwargs) -> SerializedMetadata:
     )
 
   if 'custom' in kwargs:
-    utils.validate_type(kwargs['custom'], dict)
-    for k in kwargs.get('custom', {}) or {}:
-      utils.validate_type(k, str)
-    validated_kwargs['custom'] = kwargs.get('custom', {})
+    if kwargs['custom'] is None:
+      validated_kwargs['custom'] = {}
+    else:
+      utils.validate_type(kwargs['custom'], dict)
+      for k in kwargs.get('custom', {}) or {}:
+        utils.validate_type(k, str)
+      validated_kwargs['custom'] = kwargs.get('custom', {})
 
   for k in kwargs:
     if k not in validated_kwargs:
