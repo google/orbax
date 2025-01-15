@@ -24,3 +24,4 @@ mock
 nest_asyncio
 tensorstore
 humanize
+flax

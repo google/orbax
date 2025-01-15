@@ -15,7 +15,10 @@ py_library(
 py_test(
     name = "tree_rich_types_test",
     srcs = ["tree_rich_types_test.py"],
-    deps = [":tree_rich_types"],
+    deps = [
+        ":tree_rich_types",
+        "//checkpoint/orbax/checkpoint/_src/testing:test_tree_utils",
+    ],
 )
 
 py_library(
@@ -39,6 +42,7 @@ py_test(
         ":tree",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//checkpoint/orbax/checkpoint/_src/serialization:types",
+        "//checkpoint/orbax/checkpoint/_src/testing:test_tree_utils",
     ],
 )
 
@@ -129,6 +133,7 @@ py_test(
     deps = [
         ":empty_values",
         ":pytree_metadata_options",
+        "//checkpoint/orbax/checkpoint/_src/testing:test_tree_utils",
     ],
 )
 
