@@ -14,6 +14,7 @@ make the change unnoticeable to most users, but also has additional accessible
 properties not included in any tree mapping operations.
 - `Checkpointer.save()`, `AsyncCheckpointer.save()` also saves `StepMetadata`.
 - Added github actions CI testing using Python versions 3.10-3.13
+- Remove items_and_handlers-related `CompositeCheckpointHandler` code.
 
 ### Added
 - The ability to specify a custom `snapshot_dir` in `checkpoints_iterator`.

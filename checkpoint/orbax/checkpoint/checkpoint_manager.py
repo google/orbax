@@ -582,20 +582,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._logger = logger or standard_logger.StandardLogger()
 
-    if checkpointers and item_names:
-      raise ValueError(
-          '`item_names` and `checkpointers` are mutually exclusive - do not use'
-          ' together.'
-      )
+    del item_names  # argument is deprecated and ignored.
     if checkpointers and item_handlers:
       raise ValueError(
           '`item_handlers` and `checkpointers` are mutually exclusive - do not'
           ' use together.'
-      )
-    if item_names and isinstance(item_handlers, CheckpointHandler):
-      raise ValueError(
-          '`item_handlers` in default item mode and `item_names` should not be'
-          ' provided together.'
       )
     if checkpointers is not None and handler_registry is not None:
       raise ValueError(
@@ -604,17 +595,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           ' https://orbax.readthedocs.io/en/latest/api_refactor.html to'
           ' migrate.'
       )
-
     if item_handlers is not None and handler_registry is not None:
       raise ValueError(
           '`item_handlers` and `handler_registry` are mutually exclusive -'
           ' prefer configuring the handler registry.'
-      )
-
-    if item_names is not None and handler_registry is not None:
-      raise ValueError(
-          '`item_names` and `handler_registry` are mutually exclusive - prefer'
-          ' configuring the handler registry.'
       )
 
     # For async_checkpointer.
@@ -650,7 +634,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           handler_registry,
           self._options,
       )
-    elif item_names is None and item_handlers is None:
+    elif item_handlers is not None:
+      self._default_item = isinstance(item_handlers, CheckpointHandler)
+      self._checkpointer = (
+          self._configure_checkpointer_from_items_and_handlers(
+              item_handlers,
+              self._options,
+              self._default_item,
+          )
+      )
+    else:
       # In this case, we can just default construct the
       # CheckpointHandlerRegistry and allow the user to lazily specify default
       # vs. multi-item mode.
@@ -659,16 +652,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       self._checkpointer = self._configure_checkpointer_from_handler_registry(
           handler_registry,
           self._options,
-      )
-    else:
-      self._default_item = isinstance(item_handlers, CheckpointHandler)
-      self._checkpointer = (
-          self._configure_checkpointer_from_item_names_and_handlers(
-              item_names,
-              item_handlers,
-              self._options,
-              self._default_item,
-          )
       )
 
     if (
@@ -844,7 +827,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           f'Invalid type for `checkpointers`. Found {checkpointers}.'
       )
 
-    # if options.best_fn:
     item_handlers[METRIC_ITEM_NAME] = self._metrics_handler
     if options.async_options is None:
       options.async_options = (
@@ -852,22 +834,29 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           if async_timeout is not None
           else AsyncOptions()
       )
+    registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    for item_name, handler in item_handlers.items():
+      save_args_cls, restore_args_cls = checkpoint_args.get_registered_args_cls(
+          handler
+      )
+      registry.add(item_name, save_args_cls, handler)
+      if save_args_cls != restore_args_cls:
+        registry.add(item_name, restore_args_cls, handler)
     return self._configure_checkpointer_common(
         CompositeCheckpointHandler(
+            registry,
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 multiprocessing_options=options.multiprocessing_options,
                 file_options=options.file_options,
             ),
-            **item_handlers,
         ),
         options,
         use_async,
     )
 
 
-  def _configure_checkpointer_from_item_names_and_handlers(
+  def _configure_checkpointer_from_items_and_handlers(
       self,
-      item_names: Optional[Sequence[str]],
       item_handlers: Optional[Union[CheckpointHandler, CheckpointHandlersDict]],
       options: CheckpointManagerOptions,
       default_item: bool,
@@ -882,22 +871,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           ' match with the primary_host setting.'
       )
     if default_item:
-      item_handler = (
-          item_handlers
-          if isinstance(item_handlers, CheckpointHandler)
-          else None
-      )
+      if not item_handlers:
+        raise ValueError('Provided empty or None value for `item_handlers`.')
+      item_handler = item_handlers
       all_item_handlers = {DEFAULT_ITEM_NAME: item_handler}
     else:
-      # Initialize all_item_handlers with None or empty.
-      if item_names:
-        all_item_handlers = {item_name: None for item_name in item_names}
-      else:
-        all_item_handlers = {}
+      all_item_handlers = {}
       # Update all_item_handlers with provided CheckpointHandlers.
-      if item_handlers and isinstance(item_handlers, Mapping):
-        for item_name, handler in item_handlers.items():
-          all_item_handlers[item_name] = handler
+      assert isinstance(item_handlers, Mapping)
+      for item_name, handler in item_handlers.items():
+        all_item_handlers[item_name] = handler
 
     for item_name in all_item_handlers:
       if item_name in RESERVED_ITEM_NAMES:
@@ -905,15 +888,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             f'Found {item_name} in `checkpointers`; this is a reserved key.'
         )
     all_item_handlers[METRIC_ITEM_NAME] = self._metrics_handler
+    registry = handler_registration.create_default_handler_registry(
+        **all_item_handlers
+    )
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
     return self._configure_checkpointer_common(
         CompositeCheckpointHandler(
+            registry,
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 multiprocessing_options=options.multiprocessing_options,
                 file_options=options.file_options,
             ),
-            **all_item_handlers,
         ),
         options,
         options.enable_async_checkpointing,
@@ -937,10 +923,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # save/restore time.
     return self._configure_checkpointer_common(
         CompositeCheckpointHandler(
+            handler_registry,
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 multiprocessing_options=options.multiprocessing_options,
+                file_options=options.file_options,
             ),
-            handler_registry=handler_registry,
         ),
         options,
         options.enable_async_checkpointing,

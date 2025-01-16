@@ -69,25 +69,14 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     test_utils.sync_global_processes('CCHTest:finalize_after_save')
 
   def test_init(self):
-    handler = CompositeCheckpointHandler('state', 'dataset')
-    self.assertContainsSubset(
-        {'state', 'dataset'}, handler._item_names_without_registered_handlers
+    registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    registry.add(
+        'state',
+        standard_checkpoint_handler.StandardSaveArgs,
+        StandardCheckpointHandler(),
     )
 
-    handler = CompositeCheckpointHandler(state=StandardCheckpointHandler())
-    self.assertIsInstance(
-        handler._handler_registry.get(
-            'state', standard_checkpoint_handler.StandardSaveArgs
-        ),
-        StandardCheckpointHandler,
-    )
-
-    handler = CompositeCheckpointHandler(
-        'tree', 'dataset', state=StandardCheckpointHandler()
-    )
-    self.assertContainsSubset(
-        {'tree', 'dataset'}, handler._item_names_without_registered_handlers
-    )
+    handler = CompositeCheckpointHandler(registry)
     self.assertIsInstance(
         handler._handler_registry.get(
             'state', standard_checkpoint_handler.StandardSaveArgs
@@ -96,7 +85,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
 
   def test_save_restore(self):
-    handler = CompositeCheckpointHandler('state', 'metadata')
+    handler = CompositeCheckpointHandler()
     state = {'a': 1, 'b': 2}
     dummy_state = {'a': 0, 'b': 0}
     metadata = {'lang': 'en', 'version': 1.0}
@@ -241,7 +230,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertDictEqual(restored.metadata, metadata)
 
   def test_save_restore_partial(self):
-    handler = CompositeCheckpointHandler('state', 'opt_state', 'metadata')
+    handler = CompositeCheckpointHandler()
     state = {'a': 1, 'b': 2}
     dummy_state = {'a': 0, 'b': 0}
     opt_state = {'x': 1, 'y': 2}
@@ -295,11 +284,10 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertSameElements(restored.keys(), {'metadata'})
     self.assertDictEqual(restored.metadata, metadata)
 
-  @parameterized.parameters(('state',), ())
-  def test_incorrect_args(self, *item_names: str):
+  def test_incorrect_args(self):
     dir1 = epath.Path(self.create_tempdir(name='dir1'))
     dir2 = epath.Path(self.create_tempdir(name='dir2'))
-    handler = CompositeCheckpointHandler(*item_names)
+    handler = CompositeCheckpointHandler()
     state = {'a': 1, 'b': 2}
     self.save(handler, dir1, CompositeArgs(state=args_lib.StandardSave(state)))
     with self.assertRaisesRegex(
@@ -358,7 +346,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
       )
 
   def test_no_restore_args(self):
-    handler = CompositeCheckpointHandler('state', 'metadata')
+    handler = CompositeCheckpointHandler()
     state = {'a': 1, 'b': 2}
     dummy_state = {'a': 0, 'b': 0}
     metadata = {'lang': 'en', 'version': 1.0}
@@ -525,7 +513,6 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
 
   def test_no_restore_args_partial_save(self):
     handler = CompositeCheckpointHandler(
-        'state', metadata=JsonCheckpointHandler()
     )
     state = {'a': 1, 'b': 2}
     dummy_state = {'a': 0, 'b': 0}
@@ -583,7 +570,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertNotIn('metadata', restored)
 
   def test_no_restore_args_handler_unspecified(self):
-    handler = CompositeCheckpointHandler('state', 'metadata')
+    handler = CompositeCheckpointHandler()
     state = {'a': 1, 'b': 2}
     dummy_state = {'a': 0, 'b': 0}
     metadata = {'lang': 'en', 'version': 1.0}
@@ -598,18 +585,15 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertTrue((self.directory / 'state').exists())
     self.assertTrue((self.directory / 'metadata').exists())
 
-    handler = CompositeCheckpointHandler('state', 'metadata')
+    handler = CompositeCheckpointHandler()
     with self.assertRaisesRegex(
-        ValueError, r'undetermined `CheckpointHandler` when restoring'
+        KeyError, r'was found in the checkpoint, but could not be restored'
     ):
       handler.restore(self.directory)
     with self.assertRaisesRegex(
-        ValueError, r'undetermined `CheckpointHandler` when restoring'
+        KeyError, r'was found in the checkpoint, but could not be restored'
     ):
-      handler.restore(
-          self.directory,
-          CompositeArgs(),
-      )
+      handler.restore(self.directory, CompositeArgs())
 
   def test_no_restore_args_handler_registry(self):
     handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
@@ -655,8 +639,6 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
 
   def test_metadata(self):
     handler = CompositeCheckpointHandler(
-        'extra',
-        state=StandardCheckpointHandler(),
     )
     state = {'a': 1, 'b': 2}
     self.save(
@@ -704,21 +686,14 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         }
     )
 
-  @parameterized.parameters(True, False)
-  def test_metadata_no_save(self, use_handler_registry):
-    if use_handler_registry:
-      handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
-      state_handler = StandardCheckpointHandler()
-      handler_registry.add('state', args_lib.StandardSave, state_handler)
-      handler_registry.add('state', args_lib.StandardRestore, state_handler)
-      handler = CompositeCheckpointHandler(
-          handler_registry=handler_registry,
-      )
-    else:
-      handler = CompositeCheckpointHandler(
-          'extra',
-          state=StandardCheckpointHandler(),
-      )
+  def test_metadata_no_save(self):
+    handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    state_handler = StandardCheckpointHandler()
+    handler_registry.add('state', args_lib.StandardSave, state_handler)
+    handler_registry.add('state', args_lib.StandardRestore, state_handler)
+    handler = CompositeCheckpointHandler(
+        handler_registry=handler_registry,
+    )
     step_metadata = handler.metadata(self.directory)
     self.assertEmpty(step_metadata.item_handlers)
     self.assertEmpty(step_metadata.item_metadata)
@@ -782,9 +757,11 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertEmpty(step_metadata.custom)
 
   def test_metadata_after_step_metadata_write(self):
+    registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    registry.add('state', args_lib.StandardSave, StandardCheckpointHandler())
+    registry.add('state', args_lib.StandardRestore, StandardCheckpointHandler())
     handler = CompositeCheckpointHandler(
-        'extra',
-        state=StandardCheckpointHandler(),
+        registry
     )
     step_metadata = handler.metadata(self.directory)
     self.assertEmpty(step_metadata.item_handlers)
@@ -841,8 +818,6 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
 
   def test_metadata_existing_items_updates_step_metadata(self):
     handler = CompositeCheckpointHandler(
-        'extra',
-        state=StandardCheckpointHandler(),
     )
     metadata_to_write = checkpoint.StepMetadata(
         item_handlers={
@@ -884,8 +859,13 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
   def test_finalize(self):
     state_handler = mock.create_autospec(StandardCheckpointHandler)
     metadata_handler = mock.create_autospec(JsonCheckpointHandler)
+    registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    registry.add('state', _TestSaveArgs, state_handler)
+    registry.add('state', _TestRestoreArgs, state_handler)
+    registry.add('metadata', _TestSaveArgs, metadata_handler)
+    registry.add('metadata', _TestRestoreArgs, metadata_handler)
     handler = CompositeCheckpointHandler(
-        'extra', state=state_handler, metadata=metadata_handler
+        registry
     )
     with mock.patch.object(
         handler,
@@ -897,7 +877,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
           handler,
           self.directory,
           CompositeArgs(
-              state=args_lib.StandardSave({'a': 1, 'b': 2}),
+              state=_TestSaveArgs({'a': 1, 'b': 2}),
           ),
       )
       # Finalize only called for items that are actually present.
@@ -911,7 +891,10 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
   def test_finalize_gcs(self, is_gcs_path):
     del is_gcs_path
     state_handler = mock.create_autospec(StandardCheckpointHandler)
-    handler = CompositeCheckpointHandler(state=state_handler)
+    registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    registry.add('state', _TestSaveArgs, state_handler)
+    registry.add('state', _TestRestoreArgs, state_handler)
+    handler = CompositeCheckpointHandler(registry)
     with mock.patch.object(
         handler,
         '_get_or_set_handler',
@@ -922,7 +905,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
           handler,
           self.directory,
           CompositeArgs(
-              state=args_lib.StandardSave({'a': 1, 'b': 2}),
+              state=_TestSaveArgs({'a': 1, 'b': 2}),
           ),
       )
       state_handler.finalize.assert_called_once()
@@ -932,17 +915,16 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
 
   def test_close(self):
     state_handler = mock.create_autospec(StandardCheckpointHandler)
-    metadata_handler = mock.create_autospec(JsonCheckpointHandler)
-    handler = CompositeCheckpointHandler(
-        'extra', state=state_handler, metadata=metadata_handler
-    )
+    registry = handler_registration.DefaultCheckpointHandlerRegistry()
+    registry.add('state', _TestSaveArgs, state_handler)
+    registry.add('state', _TestRestoreArgs, state_handler)
+    handler = CompositeCheckpointHandler(registry)
     handler.close()
     state_handler.close.assert_called_once()
-    metadata_handler.close.assert_called_once()
 
 
   def test_items_exist_final(self):
-    handler = CompositeCheckpointHandler('state', 'metadata')
+    handler = CompositeCheckpointHandler()
     state = {'a': 1, 'b': 2}
     metadata = {'lang': 'en', 'version': 1.0}
     self.save(
@@ -964,7 +946,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
 
   def test_items_exist_temp(self):
-    handler = CompositeCheckpointHandler('state', 'metadata')
+    handler = CompositeCheckpointHandler()
     state = {'a': 1, 'b': 2}
     metadata = {'lang': 'en', 'version': 1.0}
     handler.save(
@@ -994,28 +976,6 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         (self.directory / 'metadata.orbax-checkpoint-tmp-').as_posix(),
         tmp_dirs['metadata'].get().as_posix(),
     )
-
-  def test_handler_registry_and_items_and_handlers_raises_error(self):
-
-    with self.assertRaisesRegex(ValueError, 'items_and_handlers'):
-      handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
-      CompositeCheckpointHandler(
-          handler_registry=handler_registry,
-          items_and_handlers={
-              'state': StandardCheckpointHandler(),
-              'metadata': JsonCheckpointHandler(),
-          },
-      )
-
-  def test_handler_registry_and_items_names_raises_error(self):
-
-    with self.assertRaisesRegex(ValueError, 'item_names'):
-      handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
-      CompositeCheckpointHandler(
-          'state',
-          'metadata',
-          handler_registry=handler_registry,
-      )
 
 
 if __name__ == '__main__':
