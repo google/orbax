@@ -504,14 +504,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
     self._metadata_store = checkpoint.metadata_store(enable_write=False)
 
-  # TODO: b/359524229 - Remove this property as it has been deprecated.
-  @property
-  def _known_handlers(self) -> Dict[str, Optional[CheckpointHandler]]:
-    logging.info(
-        '`_known_handlers` has been deprecated and should not be used.'
-    )
-    return dict(self._get_all_registered_and_unregistered_items_and_handlers())
-
   def _get_all_registered_and_unregistered_items_and_handlers(
       self,
   ) -> list[tuple[str, Optional[CheckpointHandler]]]:
