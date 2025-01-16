@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 make the change unnoticeable to most users, but also has additional accessible
 properties not included in any tree mapping operations.
 - `Checkpointer.save()`, `AsyncCheckpointer.save()` also saves `StepMetadata`.
+- Added github actions CI testing using Python versions 3.10-3.13
 
 ### Added
 - The ability to specify a custom `snapshot_dir` in `checkpoints_iterator`.
