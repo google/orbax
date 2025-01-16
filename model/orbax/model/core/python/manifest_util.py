@@ -20,7 +20,6 @@ from absl import logging
 from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.python import module
 from orbax.experimental.model.core.python import unstructured_data
-from orbax.experimental.model.core.python.function import Absence
 from orbax.experimental.model.core.python.function import Function
 from orbax.experimental.model.core.python.function import ShloDimSize
 from orbax.experimental.model.core.python.function import ShloDType
@@ -128,12 +127,6 @@ def shlo_tensor_spec_pytree_to_manifest_type(
   return result
 
 
-def _ignore_absence(fn, a):
-  if isinstance(a, Absence):
-    return None
-  return fn(a)
-
-
 def _maybe_copy_from(dst, src):
   if src is not None:
     dst.CopyFrom(src)
@@ -146,12 +139,8 @@ def build_function(fn: Function, path: str, name: str) -> manifest_pb2.Function:
   fn_proto.visibility = manifest_pb2.PUBLIC
 
   # Add input/output signature.
-  input_type = _ignore_absence(
-      shlo_tensor_spec_pytree_to_manifest_type, fn.input_signature
-  )
-  output_type = _ignore_absence(
-      shlo_tensor_spec_pytree_to_manifest_type, fn.output_signature
-  )
+  input_type = shlo_tensor_spec_pytree_to_manifest_type(fn.input_signature)
+  output_type = shlo_tensor_spec_pytree_to_manifest_type(fn.output_signature)
   fn_proto.signature.SetInParent()
   _maybe_copy_from(fn_proto.signature.input, input_type)
   _maybe_copy_from(fn_proto.signature.output, output_type)

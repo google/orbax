@@ -3,7 +3,6 @@ syntax = "proto3";
 package orbax_model_simple_orchestration;
 
 message SimpleOrchestration {
-
   optional string pre_processor_name = 1;
 
   string model_function_name = 2;

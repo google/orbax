@@ -98,8 +98,8 @@ enum Visibility {
 }
 
 message FunctionSignature {
-  optional Type input = 1;
-  optional Type output = 2;
+  Type input = 1;
+  Type output = 2;
 }
 
 message Type {

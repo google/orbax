@@ -25,7 +25,6 @@ from orbax.experimental.model.core.python import shlo_function
 from orbax.experimental.model.core.python import tracing
 from orbax.experimental.model.core.python import tree_util
 from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
-from orbax.experimental.model.core.python.function import Absence
 from orbax.experimental.model.core.python.function import ShloDimSize
 from orbax.experimental.model.core.python.function import ShloDType
 from orbax.experimental.model.core.python.function import ShloTensorSpec
@@ -237,10 +236,6 @@ def _run_shlo_fn_as_tf(
   Returns:
     The flattened tuple of data outputs and the control output.
   """
-  if isinstance(shlo_fn.input_signature, Absence):
-    raise ValueError("The input signature of the function is not set.")
-  if isinstance(shlo_fn.output_signature, Absence):
-    raise ValueError("The output signature of the function is not set.")
   shlo_fn.input_signature: tree_util.Tree[ShloTensorSpec]
   shlo_fn.output_signature: tree_util.Tree[ShloTensorSpec]
 

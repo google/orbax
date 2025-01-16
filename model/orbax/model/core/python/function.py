@@ -99,10 +99,6 @@ class ShloTensorSpec:
   sharding: Optional[Sharding] = None
 
 
-class Absence:
-  pass
-
-
 @dataclass(kw_only=True)
 class Function:
   """An abstract base class for functions whose signatures are StableHLO types.
@@ -112,7 +108,6 @@ class Function:
     output_signature: the output signature of the function.
   """
 
-  # We can't use `None` to indicate absence because `None` is a valid tree.
-  input_signature: Tree[ShloTensorSpec] | Absence = Absence()
-  output_signature: Tree[ShloTensorSpec] | Absence = Absence()
+  input_signature: Tree[ShloTensorSpec]
+  output_signature: Tree[ShloTensorSpec]
   # TODO(b/372084833): Add `vjp_name``.
