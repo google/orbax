@@ -210,7 +210,7 @@ class Checkpointer(
     tmpdir = asyncio_utils.run_sync(self.create_temporary_path(directory))
     self._handler.save(tmpdir.get(), args=ckpt_args)
     if utils.is_primary_host(self._primary_host):
-      # Update StepMetadata after the handler save is complete.
+      # Update StepMetadata after the handler save is complete. (blocking write)
       # TODO(b/390198468): Support custom_metadata if this use case comes up:
       #   Write metadata pertaining to multiple items and specific to an
       #   individual step.

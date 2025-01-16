@@ -363,6 +363,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
 
     # Directory is the final directory.
     def _callback() -> None:
+      if utils.is_primary_host(self._primary_host):
+        # Update StepMetadata after the handler save is complete.
+        # (blocking write)
+        self._save_step_metadata(tmpdir.get(), custom_metadata=None)
       logging.info(
           '[process=%s][thread=%s] Async Save Callback [1/3]: Finalizing'
           ' Handler: %s on %s',
@@ -371,6 +375,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           self._handler,
           tmpdir.get(),
       )
+      # Finalize does a final StepMetadata update.
       self._handler.finalize(tmpdir.get())
       logging.info(
           '[process=%s][thread=%s] Async Save Callback [2/3]: Running'
