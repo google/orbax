@@ -18,9 +18,12 @@ import unittest
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+import jax
 import numpy as np
+from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.metadata import array_metadata as array_metadata_lib
-from orbax.checkpoint._src.metadata import array_metadata_store
+from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
+from orbax.checkpoint._src.serialization import type_handlers
 
 
 class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
@@ -28,7 +31,7 @@ class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
   def setUp(self):
     super().setUp()
     self.checkpoint_dir = epath.Path(self.create_tempdir().full_path)
-    self.store = array_metadata_store.Store()
+    self.store = array_metadata_store_lib.Store()
 
   def test_non_existing_checkpoint_dir(self):
     with self.assertRaisesRegex(
@@ -129,6 +132,57 @@ class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
             ],
         },
     )
+
+
+class ResolveArrayMetadataStoreTest(parameterized.TestCase):
+
+  @parameterized.product(
+      array_metadata_store=(None, array_metadata_store_lib.Store()),
+  )
+  def test_resolve_array_metadata_store_with_array_metadata_store(
+      self, array_metadata_store
+  ):
+    array_handler = type_handlers.ArrayHandler(
+        array_metadata_store=array_metadata_store
+    )
+    ty = jax.Array
+    fn = lambda ty: issubclass(ty, jax.Array)
+    with test_utils.register_type_handler(ty, array_handler, fn):
+      store = array_metadata_store_lib.resolve_array_metadata_store(
+          type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY
+      )
+      self.assertIs(store, array_metadata_store)
+
+  def test_no_jax_array_type_handler(self):
+    type_handler_registry = type_handlers.create_type_handler_registry(
+        (int, type_handlers.ScalarHandler())
+    )
+
+    store = array_metadata_store_lib.resolve_array_metadata_store(
+        type_handler_registry
+    )
+
+    self.assertIsNone(store)
+
+  def test_no_array_metadata_store_attribute_in_jax_array_type_handler(self):
+    class WithoutArrayMetadataStore(type_handlers.ArrayHandler):
+
+      def __init__(self):
+        super().__init__()
+        del self._array_metadata_store
+
+    self.assertFalse(
+        hasattr(WithoutArrayMetadataStore(), '_array_metadata_store')
+    )
+    type_handler_registry = type_handlers.create_type_handler_registry(
+        (jax.Array, WithoutArrayMetadataStore())
+    )
+
+    store = array_metadata_store_lib.resolve_array_metadata_store(
+        type_handler_registry
+    )
+
+    self.assertIsNone(store)
 
 
 if __name__ == '__main__':

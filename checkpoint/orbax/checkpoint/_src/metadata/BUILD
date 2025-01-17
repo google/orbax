@@ -164,6 +164,7 @@ py_library(
     deps = [
         ":array_metadata",
         "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//checkpoint/orbax/checkpoint/_src/serialization:types",
     ],
 )
 
@@ -173,5 +174,6 @@ py_test(
     deps = [
         ":array_metadata",
         ":array_metadata_store",
+        "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
     ],
 )

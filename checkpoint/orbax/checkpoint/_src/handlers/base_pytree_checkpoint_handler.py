@@ -41,6 +41,7 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
@@ -310,6 +311,13 @@ class BasePyTreeCheckpointHandler(
     self._type_handler_registry = type_handler_registry
     self._enable_post_merge_validation = enable_post_merge_validation
     self._pytree_metadata_options = pytree_metadata_options
+    # Get ArrayMetadata Store from TypeHandler for jax.Array.
+    # ArrayMetadata persistence is only supported for jax.Array.
+    self._array_metadata_store = (
+        array_metadata_store_lib.resolve_array_metadata_store(
+            type_handler_registry
+        )
+    )
 
 
     jax.monitoring.record_event(
@@ -317,7 +325,7 @@ class BasePyTreeCheckpointHandler(
     )
 
     self._thread_pool = futures.ThreadPoolExecutor(
-        max_workers=2, thread_name_prefix='base_pytree_ch'
+        max_workers=3, thread_name_prefix='base_pytree_ch'
     )
     logging.info(
         'Created BasePyTreeCheckpointHandler: pytree_metadata_options=%s',
@@ -451,7 +459,7 @@ class BasePyTreeCheckpointHandler(
         leaf.parent_dir == directory for leaf in jax.tree.leaves(param_infos)
     )
 
-    serialize_ops = []
+    serialize_ops = []  # List of (coros -> List of futures)
     batch_requests = batched_serialization_requests(
         item,
         param_infos,
@@ -465,20 +473,29 @@ class BasePyTreeCheckpointHandler(
       ]
       write_size, _ = _get_batch_memory_size(request.handler, request.values)
       tree_memory_size += write_size
-    # Await copy futures. Returns list of lists.
+    # Await copy futures. Returns List[List[future.Future]].
     commit_futures = await asyncio.gather(*serialize_ops)
+    # Flatten to List[future.Future].
     commit_futures, _ = jax.tree.flatten(commit_futures)
 
     if logging.vlog_is_on(1):
       logging.vlog(1, 'param_info: %s', param_infos)
       logging.vlog(1, 'save_args: %s', save_args)
 
+    save_futures = []
     if multihost.is_primary_host(self._primary_host):
-      commit_futures.append(
-          self._write_metadata_file(
-              directory, param_infos, save_args, self._use_zarr3
+      save_futures.append(
+          self._thread_pool.submit(
+              self._write_metadata_after_commits,
+              commit_futures=commit_futures,
+              checkpoint_dir=directory,
+              param_infos=param_infos,
+              save_args=save_args,
+              use_zarr3=self._use_zarr3,
           )
       )
+    else:
+      save_futures += commit_futures
 
     _log_io_metrics(
         tree_memory_size,
@@ -487,7 +504,7 @@ class BasePyTreeCheckpointHandler(
     )
     return [
         future.ChainedFuture(
-            commit_futures,
+            save_futures,
             functools.partial(
                 _log_io_metrics,
                 tree_memory_size,
@@ -725,6 +742,60 @@ class BasePyTreeCheckpointHandler(
     )
     return restored_item
 
+  def _get_param_infos_with_write_shape(
+      self,
+      param_infos: PyTree,
+      checkpoint_dir: epath.Path,
+      array_metadata_store: array_metadata_store_lib.Store,
+  ) -> PyTree:
+    """Returns `param_infos` updated with `write_shape`.
+
+    Args:
+      param_infos: A PyTree of ParamInfo to be updated.
+      checkpoint_dir: The checkpoint directory where write_shape metadata is
+        saved in ArrayMetadata store.
+      array_metadata_store: The ArrayMetadata store to read write_shape metadata
+        from.
+    """
+    if not utils.is_primary_host(self._primary_host):
+      return param_infos
+    # Extract write_shape from ArrayMetadata for current process_index.
+    process_index = multihost.process_index()
+    array_metadatas = array_metadata_store.read(
+        checkpoint_dir, process_index=process_index
+    )
+    if array_metadatas is None:
+      jax_array_param_info = type_handlers.any_jax_array_param_info(param_infos)
+      if jax_array_param_info is not None:
+        raise ValueError(
+            f'No ArrayMetadata found for process_index={process_index} in the'
+            f' checkpoint directory: {checkpoint_dir}. But input PyTree'
+            ' contains at least one jax.Array param_info:'
+            f' {jax_array_param_info}.'
+        )
+      return param_infos
+
+    assert isinstance(array_metadatas, list)
+    array_metadatas_cache = {
+        array_metadata.param_name: array_metadata
+        for array_metadata in array_metadatas
+    }
+
+    def update_param_info(param_info: types.ParamInfo) -> types.ParamInfo:
+      if not type_handlers.represents_jax_array(param_info):
+        return param_info
+      if param_info.name not in array_metadatas_cache:
+        raise ValueError(
+            f'No ArrayMetadata found for param_info: {param_info}, checkpoint'
+            f' directory: {checkpoint_dir}, process_index={process_index}.'
+        )
+      return dataclasses.replace(
+          param_info,
+          write_shape=array_metadatas_cache[param_info.name].write_shape,
+      )
+
+    return jax.tree.map(update_param_info, param_infos)
+
   def _write_metadata_file(
       self,
       directory: epath.Path,
@@ -732,7 +803,7 @@ class BasePyTreeCheckpointHandler(
       save_args: PyTree,
       use_zarr3: bool = False,
   ) -> future.Future:
-    def _save_fn():
+    def _save_fn(param_infos):
       if utils.is_primary_host(self._primary_host):
         metadata_write_start_time = time.time()
         path = directory / PYTREE_METADATA_FILE
@@ -755,7 +826,35 @@ class BasePyTreeCheckpointHandler(
         )
       return 0
 
-    return self._thread_pool.submit(_save_fn)
+    return self._thread_pool.submit(_save_fn, param_infos)
+
+  def _write_metadata_after_commits(
+      self,
+      commit_futures: List[future.Future],
+      checkpoint_dir: epath.Path,
+      param_infos: PyTree,
+      save_args: PyTree,
+      use_zarr3: bool,
+  ) -> None:
+    if not utils.is_primary_host(self._primary_host):
+      return
+    for commit_future in commit_futures:
+      commit_future.result()
+    # `write_shape` is extracted from ArrayMetadata store saved during
+    # materialization of commit_futures. Then it is written to the pytree
+    # metadata.
+    # TODO(b/390465017): Simplify all metadata related code in this module after
+    # removing overriding of self._write_metadata_file() in subclasses. All
+    # metadata related code can be moved to a separate class and
+    # BasePyTreeCheckpointHandler should delegate all metadata related code to
+    # that class.
+    if self._array_metadata_store is not None:
+      param_infos = self._get_param_infos_with_write_shape(
+          param_infos, checkpoint_dir, self._array_metadata_store
+      )
+    self._write_metadata_file(
+        checkpoint_dir, param_infos, save_args, use_zarr3
+    ).result()
 
   def _read_metadata_file(
       self, directory: epath.Path

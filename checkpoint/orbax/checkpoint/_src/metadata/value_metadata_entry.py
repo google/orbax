@@ -51,7 +51,9 @@ class ValueMetadataEntry:
         _SKIP_DESERIALIZE: self.skip_deserialize,
     }
     if self.write_shape is not None:
-      json_dict[_WRITE_SHAPE] = self.write_shape
+      # Convert to list because JSON does not support tuples.
+      # Make sure to convert back to tuple in `from_json`.
+      json_dict[_WRITE_SHAPE] = list(self.write_shape)
     return json_dict
 
   @classmethod
@@ -80,7 +82,6 @@ class ValueMetadataEntry:
       save_arg: types.SaveArgs,
   ) -> ValueMetadataEntry:
     """Builds a ValueMetadataEntry."""
-    # TODO(niket): Add support for `write_shape`.
     del save_arg
     if info.value_typestr is None:
       raise AssertionError(
@@ -88,5 +89,7 @@ class ValueMetadataEntry:
       )
     skip_deserialize = empty_values.is_empty_typestr(info.value_typestr)
     return ValueMetadataEntry(
-        value_type=info.value_typestr, skip_deserialize=skip_deserialize
+        value_type=info.value_typestr,
+        skip_deserialize=skip_deserialize,
+        write_shape=info.write_shape,
     )

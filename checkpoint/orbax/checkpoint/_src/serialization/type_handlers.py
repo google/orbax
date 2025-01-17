@@ -58,6 +58,7 @@ SaveArgs: TypeAlias = types.SaveArgs
 RestoreArgs: TypeAlias = types.RestoreArgs
 TypeHandler: TypeAlias = types.TypeHandler
 TypeHandlerRegistry: TypeAlias = types.TypeHandlerRegistry
+Pytree = Any
 
 Layout = layout.Layout
 Shape = arrays_types.Shape
@@ -839,6 +840,29 @@ class SingleReplicaArrayRestoreArgs(ArrayRestoreArgs):
   single_replica_sharding: Optional[jax.sharding.NamedSharding] = None
 
 
+JAX_ARRAY_TYPE_STR = 'jax.Array'
+
+
+def represents_jax_array(param_info: types.ParamInfo) -> bool:
+  """Returns True if the param_info represents a jax.Array."""
+  assert (
+      param_info.value_typestr is not None
+  ), f'ParamInfo.value_typestr cannot be None: {param_info}'
+  return param_info.value_typestr == JAX_ARRAY_TYPE_STR
+
+
+def any_jax_array_param_info(param_infos: Pytree) -> types.ParamInfo | None:
+  """Returns any jax.Array param_info in the PyTree, or None."""
+  return jax.tree_util.tree_reduce(
+      lambda found_jax_array, param_info: (
+          found_jax_array
+          or (param_info if represents_jax_array(param_info) else None)
+      ),
+      tree=param_infos,
+      initializer=None,
+  )
+
+
 class ArrayHandler(types.TypeHandler):
   """An implementation of TypeHandler for jax.Array."""
 
@@ -925,7 +949,7 @@ class ArrayHandler(types.TypeHandler):
     )
 
   def typestr(self) -> str:
-    return 'jax.Array'
+    return JAX_ARRAY_TYPE_STR
 
   async def metadata(
       self, infos: Sequence[types.ParamInfo]
