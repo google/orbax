@@ -112,6 +112,9 @@ py_test(
     srcs = ["format_utils_test.py"],
     deps = [
         ":format_utils",
+        "//checkpoint/orbax/checkpoint/_src/checkpointers:checkpointer",
+        "//checkpoint/orbax/checkpoint/_src/handlers:pytree_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/_src/handlers:standard_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
     ],
 )

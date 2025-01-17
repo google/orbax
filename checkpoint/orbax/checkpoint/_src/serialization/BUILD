@@ -7,7 +7,11 @@ py_library(
     name = "tensorstore_utils",
     srcs = ["tensorstore_utils.py"],
     srcs_version = "PY3",
-    deps = ["//orbax/checkpoint/_src/metadata:array_metadata"],
+    deps = [
+        "//checkpoint/orbax/checkpoint/_src/arrays:subchunking",
+        "//checkpoint/orbax/checkpoint/_src/arrays:types",
+        "//orbax/checkpoint/_src/metadata:array_metadata",
+    ],
 )
 
 py_library(
@@ -15,6 +19,7 @@ py_library(
     srcs = ["types.py"],
     deps = [
         ":serialization",
+        "//checkpoint/orbax/checkpoint/_src/arrays:types",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
         "//checkpoint/orbax/checkpoint/_src/metadata:pytree_metadata_options",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
@@ -30,6 +35,8 @@ py_library(
         ":tensorstore_utils",
         ":types",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
+        "//checkpoint/orbax/checkpoint/_src/arrays:subchunking",
+        "//checkpoint/orbax/checkpoint/_src/arrays:types",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
         "//checkpoint/orbax/checkpoint/_src/metadata:sharding",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
@@ -46,7 +53,11 @@ py_test(
     srcs = ["tensorstore_utils_test.py"],
     python_version = "PY3",
     srcs_version = "PY3",
-    deps = [":tensorstore_utils"],
+    deps = [
+        ":tensorstore_utils",
+        "//checkpoint/orbax/checkpoint/_src/arrays:subchunking",
+        "//checkpoint/orbax/checkpoint/_src/arrays:types",
+    ],
 )
 
 py_library(
@@ -55,6 +66,9 @@ py_library(
     deps = [
         ":replica_slices",
         ":tensorstore_utils",
+        "//checkpoint/orbax/checkpoint/_src/arrays:fragments",
+        "//checkpoint/orbax/checkpoint/_src/arrays:numpy_utils",
+        "//checkpoint/orbax/checkpoint/_src/arrays:types",
         "//checkpoint/orbax/checkpoint/_src/multihost",
     ],
 )
@@ -62,7 +76,12 @@ py_library(
 py_library(
     name = "replica_slices",
     srcs = ["replica_slices.py"],
-    deps = ["//checkpoint/orbax/checkpoint/_src/multihost"],
+    deps = [
+        "//checkpoint/orbax/checkpoint/_src/arrays:fragments",
+        "//checkpoint/orbax/checkpoint/_src/arrays:numpy_utils",
+        "//checkpoint/orbax/checkpoint/_src/arrays:types",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+    ],
 )
 
 py_test(

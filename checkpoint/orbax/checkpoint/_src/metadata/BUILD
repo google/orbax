@@ -9,13 +9,17 @@ py_library(
     deps = [
         ":pytree_metadata_options",
         ":value_metadata_entry",
+        "//checkpoint/orbax/checkpoint/_src/tree:utils",
     ],
 )
 
 py_test(
     name = "tree_rich_types_test",
     srcs = ["tree_rich_types_test.py"],
-    deps = [":tree_rich_types"],
+    deps = [
+        ":tree_rich_types",
+        "//checkpoint/orbax/checkpoint/_src/testing:test_tree_utils",
+    ],
 )
 
 py_library(
@@ -30,6 +34,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:types",
+        "//checkpoint/orbax/checkpoint/_src/tree:utils",
     ],
 )
 
@@ -40,13 +45,18 @@ py_test(
         ":tree",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//checkpoint/orbax/checkpoint/_src/serialization:types",
+        "//checkpoint/orbax/checkpoint/_src/testing:test_tree_utils",
+        "//checkpoint/orbax/checkpoint/_src/tree:utils",
     ],
 )
 
 py_library(
     name = "value",
     srcs = ["value.py"],
-    deps = [":sharding"],
+    deps = [
+        ":sharding",
+        "//checkpoint/orbax/checkpoint/_src/arrays:types",
+    ],
 )
 
 py_library(
@@ -107,6 +117,7 @@ py_library(
 py_library(
     name = "pytree_metadata_options",
     srcs = ["pytree_metadata_options.py"],
+    deps = ["//checkpoint/orbax/checkpoint/_src/tree:utils"],
 )
 
 py_library(
@@ -115,6 +126,7 @@ py_library(
     deps = [
         ":empty_values",
         ":pytree_metadata_options",
+        "//checkpoint/orbax/checkpoint/_src/arrays:types",
         "//checkpoint/orbax/checkpoint/_src/serialization:types",
     ],
 )
@@ -122,7 +134,10 @@ py_library(
 py_library(
     name = "empty_values",
     srcs = ["empty_values.py"],
-    deps = [":pytree_metadata_options"],
+    deps = [
+        ":pytree_metadata_options",
+        "//checkpoint/orbax/checkpoint/_src/tree:utils",
+    ],
 )
 
 py_test(
@@ -133,12 +148,14 @@ py_test(
     deps = [
         ":empty_values",
         ":pytree_metadata_options",
+        "//checkpoint/orbax/checkpoint/_src/testing:test_tree_utils",
     ],
 )
 
 py_library(
     name = "array_metadata",
     srcs = ["array_metadata.py"],
+    deps = ["//checkpoint/orbax/checkpoint/_src/arrays:types"],
 )
 
 py_library(

@@ -12,11 +12,17 @@ py_library(
 py_library(
     name = "utils",
     srcs = ["utils.py"],
-    deps = [":types"],
+    deps = [
+        ":types",
+        "//checkpoint/orbax/checkpoint/_src/arrays:abstract_arrays",
+    ],
 )
 
 py_test(
     name = "utils_test",
     srcs = ["utils_test.py"],
-    deps = [":utils"],
+    deps = [
+        ":utils",
+        "//checkpoint/orbax/checkpoint/_src/testing:test_tree_utils",
+    ],
 )

@@ -17,6 +17,7 @@ absl-py>=1.0,==1.*
 numpy>=1.26.0
 orbax-checkpoint>=0.9.0
 etils[epath]
+etils[epy]
 simplejson
 chex
 optax
@@ -25,3 +26,4 @@ nest_asyncio
 tensorstore
 humanize
 flax
+typing_extensions
