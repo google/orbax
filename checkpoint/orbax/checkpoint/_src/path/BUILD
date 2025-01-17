@@ -53,7 +53,10 @@ py_test(
 py_library(
     name = "async_utils",
     srcs = ["async_utils.py"],
-    deps = [":step"],
+    deps = [
+        ":step",
+        "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
+    ],
 )
 
 py_library(

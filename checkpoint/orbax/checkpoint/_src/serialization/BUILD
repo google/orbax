@@ -29,6 +29,7 @@ py_library(
         ":serialization",
         ":tensorstore_utils",
         ":types",
+        "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
         "//checkpoint/orbax/checkpoint/_src/metadata:sharding",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
@@ -71,6 +72,7 @@ py_test(
     deps = [
         ":serialization",
         ":tensorstore_utils",
+        "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
     ],
 )
 
