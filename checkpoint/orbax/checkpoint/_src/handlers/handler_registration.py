@@ -23,7 +23,7 @@ The default implementation of the registry is
 implementation for an example how to use the registry.
 """
 
-from typing import MutableMapping, Optional, Protocol, Type, Union
+from typing import MutableMapping, Optional, Protocol, Type, Union, runtime_checkable
 
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint._src.handlers import checkpoint_handler
@@ -35,6 +35,7 @@ HandlerRegistryMapping = MutableMapping[
 ]
 
 
+@runtime_checkable
 class CheckpointHandlerRegistry(Protocol):
   """Protocol for `CheckpointHandlerRegistry`.
 
@@ -53,7 +54,6 @@ class CheckpointHandlerRegistry(Protocol):
       handler: Optional[
           Union[CheckpointHandler, Type[CheckpointHandler]]
       ] = None,
-      **kwargs,
   ) -> None:
     """Adds an entry to the registry."""
     ...
@@ -77,6 +77,10 @@ class CheckpointHandlerRegistry(Protocol):
   def get_all_entries(
       self,
   ) -> HandlerRegistryMapping:
+    ...
+
+  def copy(self) -> 'CheckpointHandlerRegistry':
+    """Creates a copy of the registry."""
     ...
 
 
@@ -153,6 +157,9 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
           args_type,
       ), handler in other_registry.get_all_entries().items():
         self.add(item, args_type, handler)
+
+  def copy(self) -> CheckpointHandlerRegistry:
+    return DefaultCheckpointHandlerRegistry(other_registry=self)
 
   def add(
       self,
@@ -279,6 +286,10 @@ def create_default_handler_registry(
   """Creates a registry given a mapping of item names to handlers."""
   registry = DefaultCheckpointHandlerRegistry()
   for item_name, handler in items_to_handlers.items():
+    if handler is None:
+      raise ValueError(
+          f'Handler for item {item_name} is None. Please provide a handler.'
+      )
     save_args_cls, restore_args_cls = checkpoint_args.get_registered_args_cls(
         handler
     )

@@ -48,7 +48,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import dataclasses
-from typing import Any, Coroutine, Dict, List, Mapping, MutableSet, Optional, Tuple, Type
+from typing import Any, Coroutine, Dict, List, Mapping, Optional, Tuple, Type
 import uuid
 
 from absl import logging
@@ -270,9 +270,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   will use the same handler and will require the same :py:class:`CheckpointArgs`
   to be provided.
 
-  `item_names` and `items_and_handlers` are deprecated arguments for specifying
-  the items and handlers. Please use `handler_registry` instead.
-
   Usage::
 
     # The simplest use-case, with no handler registry provided on construction.
@@ -367,109 +364,35 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   """
 
   _current_temporary_paths: Dict[str, atomicity_types.TemporaryPath] = {}
-  # Items that do not have a registered handler. This is set to `None` if the
-  # user provided a `handler_registry` at initialization. If the user provided
-  # `item_names` and `items_and_handlers` at initialization, this is set to a
-  # set of the item names that have a `None` handler and will need to be
-  # registered at the first call to `_get_or_set_handler`.
-  _item_names_without_registered_handlers: Optional[MutableSet[str]] = None
 
   def __init__(
       self,
-      *item_names: str,
-      composite_options: CompositeOptions = CompositeOptions(),
       handler_registry: Optional[
           handler_registration.CheckpointHandlerRegistry
       ] = None,
-      **items_and_handlers: CheckpointHandler,
+      *,
+      composite_options: CompositeOptions = CompositeOptions(),
   ):
     """Constructor.
 
-    If you are `item_names` and/or `items_and_handlers`, all items must be
-    provided up-front, at initialization. If you are using a `handler_registry`,
-    you can register items at any time, even after the first call to `save` or
-    `restore`.
+    If you are using a `handler_registry`, you can register items at any time,
+    even after the first call to `save` or `restore`.
 
     Args:
-      *item_names: A list of string item names that this handler will manage.
-        `item_names` is deprecated. Please use `handler_registry` instead.
-      composite_options: Options.
       handler_registry: A :py:class:`CheckpointHandlerRegistry` instance. If
         provided, the :py:class:`CompositeCheckpointHandler` will use this
         registry to determine the :py:class:`CheckpointHandler` for each item.
-        This option is mutually exclusive with `items_and_handlers` and
-        `item_names`.
-      **items_and_handlers: A mapping of item name to `CheckpointHandler`
-        instance, which will be used as the handler for objects of the
-        corresponding name. `items_and_handlers` is deprecated. Please use
-        `handler_registry` instead.
+      composite_options: Options.
     """
-    if handler_registry is not None and items_and_handlers:
-      raise ValueError(
-          'Both `handler_registry` and `items_and_handlers` were provided. '
-          'Please specify only one of the two.'
-      )
-    if handler_registry is not None and item_names:
-      raise ValueError(
-          'Both `handler_registry` and `item_names` were provided. '
-          'Please specify only one of the two.'
-      )
-    if items_and_handlers or item_names:
-      # This whole code branch will be removed once `item_and_handlers` and
-      # `item_names` have been completely deprecated.
-      self._item_names_without_registered_handlers: MutableSet[str] = set()
-      self._handler_registry = (
-          handler_registration.DefaultCheckpointHandlerRegistry()
-      )
-
-      if item_names:
-        for item in item_names:
-          _maybe_raise_reserved_item_error(item)
-          if item not in items_and_handlers:
-            # If an item is in `item_names`, but not in `items_and_handlers`,
-            # there is no way to know what the corresponding handler and args
-            # are. Instead, defer registration until the first call to
-            # `_get_or_set_handler`.
-            self._item_names_without_registered_handlers.add(item)
-
-      # Register all the items and handlers in the handler registry.
-      if items_and_handlers:
-        for item, handler in items_and_handlers.items():
-          _maybe_raise_reserved_item_error(item)
-          if handler is not None and checkpoint_args.has_registered_args(
-              handler
-          ):
-            _add_to_handler_registry_from_global_registry(
-                self._handler_registry,
-                handler,
-                item,
-            )
-          elif handler is not None:
-            logging.warning(
-                'No registered CheckpointArgs found for handler type: %s',
-                type(handler),
-            )
-            legacy_wrapped_handler = get_legacy_handler_wrapper(handler)
-            self._handler_registry.add(
-                item,
-                _WrapperArgs,
-                legacy_wrapped_handler,
-            )
-          else:
-            # If the handler is `None`, the handler will be determined from the
-            # global checkpoint args registry during the first call to
-            # `_get_or_set_handler`.
-            self._item_names_without_registered_handlers.add(item)
-
-      self._items_with_deferred_registration = None
-    elif handler_registry is not None:
+    if handler_registry is not None:
+      if not isinstance(
+          handler_registry, handler_registration.CheckpointHandlerRegistry
+      ):
+        raise ValueError(
+            'Must provide an instance of `CheckpointHandlerRegistry`.'
+        )
       # Create a new handler registry to prevent the input from being mutated.
-      self._handler_registry = (
-          handler_registration.DefaultCheckpointHandlerRegistry(
-              handler_registry
-          )
-      )
-      self._item_names_without_registered_handlers = None
+      self._handler_registry = handler_registry.copy()
       self._items_with_deferred_registration = set()
 
       # Prevent the user from lazily registering items that are already
@@ -477,12 +400,12 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       for item, _ in _get_unique_registered_items_and_handlers(
           self._handler_registry
       ):
+        _maybe_raise_reserved_item_error(item)
         self._items_with_deferred_registration.add(item)
     else:
       self._handler_registry = (
           handler_registration.DefaultCheckpointHandlerRegistry()
       )
-      self._item_names_without_registered_handlers = None
       self._items_with_deferred_registration = set()
 
     self._primary_host = composite_options.multiprocessing_options.primary_host
@@ -503,27 +426,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     )
 
     self._metadata_store = checkpoint.metadata_store(enable_write=False)
-
-  def _get_all_registered_and_unregistered_items_and_handlers(
-      self,
-  ) -> list[tuple[str, Optional[CheckpointHandler]]]:
-    """Gets all items and corresponding handlers.
-
-    Can be rmeoved once `item_names` and `items_and_handlers` have been
-    completely deprecated.
-
-    Returns:
-      A tuple containing all uniuqe items and handlers registered in the handler
-      registry. If `item_names` or `items_and_handlers` has been specified, the
-      tuple may also contain item without a corresponding checkpoint handler.
-    """
-    items_and_handlers = _get_unique_registered_items_and_handlers(
-        self._handler_registry
-    )
-    if self._item_names_without_registered_handlers is not None:
-      for item in self._item_names_without_registered_handlers:
-        items_and_handlers.append((item, None))
-    return items_and_handlers
 
   def _get_or_set_handler(
       self,
@@ -577,41 +479,23 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         checkpoint_args.get_registered_handler_cls(args)
     )()  # pytype: disable=not-instantiable
 
-    # Add items from `item_names` to the handler registry if it is not already
-    # registered. This happens on the first call of `_get_or_set_handler` for
-    # each item. `self._item_names_without_registered_handlers` is only set if
-    # the user provided `item_names` or `items_and_handlers` at initialization.
-    item_names_without_registered_handlers = (
-        self._item_names_without_registered_handlers
-    )
-    if item_names_without_registered_handlers is not None:
-      if item_name in item_names_without_registered_handlers:
-        item_names_without_registered_handlers.remove(item_name)
-        _add_to_handler_registry_from_global_registry(
-            handler_registry,
-            registered_handler_for_args,
-            item_name,
-        )
-        return registered_handler_for_args
-    else:
-      # This branch is only reached if the user provided a `handler_registry` at
-      # initialization. Any item that is not registered in the provided handler
-      # registry will be registered in a deferred manner. This allows the user
-      # to provide a `handler_registry` at initialization that does not need to
-      # contain all the items that will be checkpointed, as long as the
-      # checkpoint args for the item have been registered globally with
-      # a corresponding handler.
-      assert self._items_with_deferred_registration is not None
-      if item_name not in self._items_with_deferred_registration:
-        # Add the item to the set of items with deferred registration to prevent
-        # adding the same item multiple times to the handler registry.
-        self._items_with_deferred_registration.add(item_name)
-        _add_to_handler_registry_from_global_registry(
-            handler_registry,
-            registered_handler_for_args,
-            item_name,
-        )
-        return registered_handler_for_args
+    # Any item that is not registered in the provided handler
+    # registry will be registered in a deferred manner. This allows the user
+    # to provide a `handler_registry` at initialization that does not need to
+    # contain all the items that will be checkpointed, as long as the
+    # checkpoint args for the item have been registered globally with
+    # a corresponding handler.
+    assert self._items_with_deferred_registration is not None
+    if item_name not in self._items_with_deferred_registration:
+      # Add the item to the set of items with deferred registration to prevent
+      # adding the same item multiple times to the handler registry.
+      self._items_with_deferred_registration.add(item_name)
+      _add_to_handler_registry_from_global_registry(
+          handler_registry,
+          registered_handler_for_args,
+          item_name,
+      )
+      return registered_handler_for_args
 
     raise ValueError(
         f'Item "{item_name}" and args "{args}" does not match with any'
@@ -755,7 +639,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     """
 
     items_to_handlers = dict(
-        self._get_all_registered_and_unregistered_items_and_handlers()
+        _get_unique_registered_items_and_handlers(self._handler_registry)
     )
     existing_items = self._existing_items(directory)
 
@@ -835,7 +719,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       raise FileNotFoundError(f'Directory does not exist: {directory}')
 
     items_to_handlers = dict(
-        self._get_all_registered_and_unregistered_items_and_handlers()
+        _get_unique_registered_items_and_handlers(self._handler_registry)
     )
     try:
       existing_items = self._existing_items(directory)
