@@ -16,9 +16,13 @@ properties not included in any tree mapping operations.
 - Added github actions CI testing using Python versions 3.10-3.13.
 - Standardize naming of the "custom metadata" field (user-supplied metadata) as
 `custom_metadata`.
+- Add `SaveIntervalPolicy` to better encapsulate various options around choosing
+whether or not to perform a save at a particular step.
 
 ### Added
 - The ability to specify a custom `snapshot_dir` in `checkpoints_iterator`.
+- A policy that allows for checkpointing as often as possible, as long as a
+save is not already in progress (continuous checkpointing).
 - `CommitFuture` and `HandlerAwaitableSignal` for signalling between
 Checkpointing layers to enable async directory creation.
 - User-provided custom PyTree metadata.

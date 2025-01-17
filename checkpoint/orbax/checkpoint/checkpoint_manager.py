@@ -34,6 +34,7 @@ from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.checkpoint_managers import save_interval_policy as save_interval_policy_lib
 from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
@@ -155,6 +156,53 @@ class _FinalizeThread(threading.Thread):
     super().join(*args, **kwargs)
     if self.exception:
       raise self.exception
+
+
+@dataclasses.dataclass
+class _ShouldSaveFnPolicy(save_interval_policy_lib.SaveIntervalPolicy):
+  """A policy that uses a user-provided should_save_fn."""
+
+  should_save_fn: Callable[[int, Optional[int]], bool]
+
+  def should_save(
+      self,
+      step: save_interval_policy_lib.StepInfo,
+      *,
+      previous_steps: list[save_interval_policy_lib.StepInfo],
+  ) -> bool:
+    return self.should_save_fn(
+        step.step, previous_steps[-1].step if previous_steps else None
+    )
+
+
+def _get_default_save_interval_policy(
+    options: CheckpointManagerOptions,
+) -> save_interval_policy_lib.SaveIntervalPolicy:
+  """Creates a default policy from CheckpointManagerOptions."""
+  save_interval_policies = []
+  if options.should_save_fn is not None:
+    save_interval_policies.append(_ShouldSaveFnPolicy(options.should_save_fn))
+    save_interval_policies.append(
+        save_interval_policy_lib.PreemptionCheckpointingPolicy()
+    )
+  else:
+    if options.save_interval_steps is not None:
+      save_interval_policies.append(
+          save_interval_policy_lib.FixedIntervalPolicy(
+              options.save_interval_steps
+          )
+      )
+    if options.save_on_steps is not None:
+      save_interval_policies.append(
+          save_interval_policy_lib.SpecificStepsPolicy(options.save_on_steps)
+      )
+    save_interval_policies.append(
+        save_interval_policy_lib.PreemptionCheckpointingPolicy()
+    )
+    save_interval_policies.append(
+        save_interval_policy_lib.InitialSavePolicy()
+    )
+  return save_interval_policy_lib.AnySavePolicy(save_interval_policies)
 
 
 # TODO(b/268051457) Clean up when no longer depended upon by internal users.
@@ -293,6 +341,9 @@ class CheckpointManagerOptions:
   file_options: FileOptions = dataclasses.field(default_factory=FileOptions)
   save_root_metadata: bool = True
   temporary_path_class: Optional[Type[atomicity_types.TemporaryPath]] = None
+  save_interval_policy: Optional[
+      save_interval_policy_lib.SaveIntervalPolicy
+  ] = None
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -362,7 +413,7 @@ class CheckpointManagerOptions:
           self.keep_period,
       )
       self.keep_period = None
-    self.save_on_steps = frozenset(self.save_on_steps or ())
+    self.save_on_steps = set(self.save_on_steps or ())
 
 
 @dataclasses.dataclass
@@ -576,6 +627,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._options = options or CheckpointManagerOptions()
     self._multiprocessing_options = self._options.multiprocessing_options
+    self._save_interval_policy = (
+        self._options.save_interval_policy
+        or _get_default_save_interval_policy(self._options)
+    )
 
     if self._options.best_mode not in ['min', 'max']:
       raise ValueError('`best_mode` must be one of: "min", "max"')
@@ -719,6 +774,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._finalize_thread_lock = threading.Lock()
     with self._finalize_thread_lock:
       self._finalize_thread = None
+
+    self._is_saving_in_progress_lock = threading.Lock()
+    with self._is_saving_in_progress_lock:
+      self._is_saving_in_progress = False
 
     self._checkpoint_deleter: deleter.CheckpointDeleter = (
         deleter.create_checkpoint_deleter(
@@ -992,32 +1051,29 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if self._options.read_only:
       logging.warning('%s is read only, save will be skipped', self.directory)
       return False
-    if self.reached_preemption(step):
-      return True
     last_checkpoint_step = self.latest_step()
     # Ensure current step is between the last step and next step (accounting for
-    # save interval). The `last_checkpoint_step` may not be initialized, in
-    # which case we should save. Otherwise, step must fall on the specified
-    # save interval. This condition accounts for the possibility of saving
-    # on preemption, in which case we want to maintain the same save period as
-    # if preemption had not happened.
+    # save interval).
     if last_checkpoint_step is not None and last_checkpoint_step >= step:
       return False
-    # If present then prefer should_save_fn over other 'save_*' options.
-    if self._options.should_save_fn is not None:
-      logging.log_every_n(
-          logging.INFO,
-          'CheckpointManagerOptions.should_save_fn is available, following save'
-          ' options will be ignored: save_interval_steps=%s and'
-          ' save_on_steps=%s',
-          500,
-          self._options.save_interval_steps,
-          self._options.save_on_steps,
-      )
-      return self._options.should_save_fn(step, last_checkpoint_step)
-    return last_checkpoint_step is None or (
-        step % self._options.save_interval_steps == 0
-        or step in self._options.save_on_steps
+
+    is_saving_in_progress = self.is_saving_in_progress()
+    reached_preemption = self.reached_preemption(step)
+    previous_step_infos = [
+        save_interval_policy_lib.StepInfo(
+            step=ckpt.step,
+            is_saving_in_progress=False,
+            reached_preemption=False,
+        )
+        for ckpt in self._checkpoints
+    ]
+    current_step_info = save_interval_policy_lib.StepInfo(
+        step=step,
+        is_saving_in_progress=is_saving_in_progress,
+        reached_preemption=reached_preemption,
+    )
+    return self._save_interval_policy.should_save(
+        current_step_info, previous_steps=previous_step_infos
     )
 
   def _get_save_directory(
@@ -1264,6 +1320,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     assert self._finalize_thread is None
     if is_async_checkpointer(self._checkpointer):
+      with self._is_saving_in_progress_lock:
+        self._is_saving_in_progress = True
       with self._finalize_thread_lock:
         finalize_thread_name = 'save_finalize'
         logging.info(
@@ -1769,10 +1827,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def is_saving_in_progress(self) -> bool:
     """Returns whether a checkpoint save is in progress."""
-    with self._finalize_thread_lock:
-      return (
-          self._finalize_thread is not None and self._finalize_thread.is_alive()
-      )
+    with self._is_saving_in_progress_lock:
+      return self._is_saving_in_progress
 
   def check_for_errors(self):
     """See superclass documentation."""
@@ -1852,6 +1908,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         threading.current_thread().name,
         step,
     )
+    with self._is_saving_in_progress_lock:
+      self._is_saving_in_progress = False
 
   def close(self):
     """See superclass documentation."""
