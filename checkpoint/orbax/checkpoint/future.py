@@ -18,25 +18,10 @@ import threading
 import time
 from typing import Any, Callable, Optional, Sequence
 from absl import logging
-from typing_extensions import Protocol
+from orbax.checkpoint._src.futures import future
 
 
-class Future(Protocol):
-  """Abstracted Orbax Future class.
-
-  This is used to represent the return value of
-  AsyncCheckpointHandler.async_save. This method may return multiple related,
-  but potentially distinct, future objects. Common examples may include
-  tensorstore.Future or concurrent.futures.Future. Since these types are not
-  strictly related to one another, we merely enforce that any returned future
-  must have a `result` method which blocks until the future's operation
-  completes. Importantly, calling `result` should not *start* execution of the
-  future, but merely wait for an ongoing operation to complete.
-  """
-
-  def result(self, timeout: Optional[int] = None) -> Any:
-    """Waits for the future to complete its operation."""
-    ...
+Future = future.Future
 
 
 class NoopFuture:

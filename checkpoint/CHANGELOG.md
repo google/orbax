@@ -17,6 +17,8 @@ properties not included in any tree mapping operations.
 
 ### Added
 - The ability to specify a custom `snapshot_dir` in `checkpoints_iterator`.
+- `CommitFuture` and `HandlerAwaitableSignal` for signalling between Checkpointing layers to enable async
+directory creation.
 
 ### Fixed
 - Fix a bug where snapshots are not released by `wait_for_new_checkpoint`
