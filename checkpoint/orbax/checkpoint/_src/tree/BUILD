@@ -23,6 +23,7 @@ py_test(
     srcs = ["utils_test.py"],
     deps = [
         ":utils",
+        "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/testing:test_tree_utils",
     ],
 )

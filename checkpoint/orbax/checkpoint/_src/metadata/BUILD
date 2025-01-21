@@ -174,6 +174,7 @@ py_test(
     deps = [
         ":array_metadata",
         ":array_metadata_store",
+        "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
     ],
 )

@@ -19,6 +19,7 @@ py_library(
     srcs = ["types.py"],
     deps = [
         ":serialization",
+        "//checkpoint/orbax/checkpoint:future",
         "//checkpoint/orbax/checkpoint/_src/arrays:types",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
         "//checkpoint/orbax/checkpoint/_src/metadata:pytree_metadata_options",
@@ -34,6 +35,7 @@ py_library(
         ":serialization",
         ":tensorstore_utils",
         ":types",
+        "//checkpoint/orbax/checkpoint:future",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/arrays:subchunking",
         "//checkpoint/orbax/checkpoint/_src/arrays:types",
@@ -91,6 +93,8 @@ py_test(
     deps = [
         ":serialization",
         ":tensorstore_utils",
+        "//checkpoint/orbax/checkpoint:future",
+        "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
     ],
 )

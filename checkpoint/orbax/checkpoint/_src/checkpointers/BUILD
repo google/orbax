@@ -6,6 +6,7 @@ package(
 py_library(
     name = "abstract_checkpointer",
     srcs = ["abstract_checkpointer.py"],
+    deps = ["//checkpoint/orbax/checkpoint:version"],
 )
 
 py_library(
@@ -13,6 +14,8 @@ py_library(
     srcs = ["checkpointer.py"],
     deps = [
         ":abstract_checkpointer",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/handlers:checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/handlers:composite_checkpoint_handler",
@@ -22,6 +25,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:atomicity",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_defaults",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
+        "//orbax/checkpoint:utils",
     ],
 )
 
@@ -30,6 +34,7 @@ py_library(
     srcs = ["pytree_checkpointer.py"],
     deps = [
         ":checkpointer",
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src/handlers:pytree_checkpoint_handler",
     ],
 )
@@ -39,6 +44,7 @@ py_library(
     srcs = ["standard_checkpointer.py"],
     deps = [
         ":async_checkpointer",
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src/handlers:standard_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
@@ -50,6 +56,9 @@ py_library(
     srcs = ["async_checkpointer.py"],
     deps = [
         ":checkpointer",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:future",
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/handlers:async_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
@@ -57,5 +66,6 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:async_utils",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
+        "//orbax/checkpoint:utils",
     ],
 )

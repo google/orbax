@@ -16,6 +16,9 @@ py_library(
         ":checkpoint_handler",
         ":handler_registration",
         ":proto_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:future",
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src:composite",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
@@ -36,6 +39,9 @@ py_test(
         ":json_checkpoint_handler",
         ":proto_checkpoint_handler",
         ":standard_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:args",
+        "//checkpoint/orbax/checkpoint:logging",
+        "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
@@ -51,6 +57,11 @@ py_library(
     deps = [
         ":async_checkpoint_handler",
         ":base_pytree_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:aggregate_handlers",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:future",
+        "//checkpoint/orbax/checkpoint:options",
+        "//checkpoint/orbax/checkpoint:transform_utils",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
         "//checkpoint/orbax/checkpoint/_src/metadata:tree",
@@ -58,6 +69,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
+        "//orbax/checkpoint:utils",
     ],
 )
 
@@ -67,6 +79,9 @@ py_library(
     srcs_version = "PY3",
     deps = [
         ":async_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:future",
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
         "//checkpoint/orbax/checkpoint/_src/metadata:tree",
@@ -77,6 +92,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//checkpoint/orbax/checkpoint/_src/serialization:types",
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
+        "//orbax/checkpoint:utils",
         "//orbax/checkpoint/_src/metadata:array_metadata_store",
     ],
 )
@@ -86,14 +102,21 @@ py_library(
     srcs = ["json_checkpoint_handler.py"],
     deps = [
         ":async_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:future",
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
+        "//orbax/checkpoint:utils",
     ],
 )
 
 py_library(
     name = "async_checkpoint_handler",
     srcs = ["async_checkpoint_handler.py"],
-    deps = [":checkpoint_handler"],
+    deps = [
+        ":checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:future",
+    ],
 )
 
 py_library(
@@ -101,9 +124,13 @@ py_library(
     srcs = ["array_checkpoint_handler.py"],
     deps = [
         ":async_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:aggregate_handlers",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:future",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//orbax/checkpoint:utils",
     ],
 )
 
@@ -122,7 +149,11 @@ py_library(
     srcs = ["proto_checkpoint_handler.py"],
     deps = [
         ":async_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:future",
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
+        "//orbax/checkpoint:utils",
     ],
 )
 
@@ -132,6 +163,10 @@ py_library(
     deps = [
         ":async_checkpoint_handler",
         ":pytree_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:checkpoint_utils",
+        "//checkpoint/orbax/checkpoint:future",
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/metadata:pytree_metadata_options",
         "//checkpoint/orbax/checkpoint/_src/metadata:tree",
@@ -153,8 +188,10 @@ py_library(
     srcs = ["standard_checkpoint_handler_test_utils.py"],
     deps = [
         ":standard_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//orbax/checkpoint:utils",
     ],
 )
 
@@ -167,6 +204,8 @@ py_library(
         ":composite_checkpoint_handler",
         ":json_checkpoint_handler",
         ":pytree_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:future",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
     ],
@@ -179,13 +218,17 @@ py_test(
     deps = [
         ":composite_checkpoint_handler",
         ":random_key_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:args",
     ],
 )
 
 py_library(
     name = "handler_registration",
     srcs = ["handler_registration.py"],
-    deps = [":checkpoint_handler"],
+    deps = [
+        ":checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+    ],
 )
 
 py_test(
@@ -195,6 +238,7 @@ py_test(
         ":checkpoint_handler",
         ":handler_registration",
         ":standard_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
     ],
 )
 

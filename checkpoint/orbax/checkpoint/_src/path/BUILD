@@ -7,6 +7,7 @@ py_library(
     name = "utils",
     srcs = ["utils.py"],
     srcs_version = "PY3",
+    deps = ["//checkpoint/orbax/checkpoint:options"],
 )
 
 py_library(
@@ -30,6 +31,7 @@ py_test(
     deps = [
         ":atomicity",
         ":step",
+        "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
     ],
@@ -38,7 +40,10 @@ py_test(
 py_library(
     name = "deleter",
     srcs = ["deleter.py"],
-    deps = [":step"],
+    deps = [
+        ":step",
+        "//orbax/checkpoint:utils",
+    ],
 )
 
 py_test(
@@ -68,6 +73,7 @@ py_library(
         ":path",
         ":step",
         ":utils",
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
         "//checkpoint/orbax/checkpoint/_src/multihost",
@@ -81,6 +87,8 @@ py_test(
         ":atomicity",
         ":atomicity_types",
         ":step",
+        "//checkpoint/orbax/checkpoint:options",
+        "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/multihost",
     ],
 )
@@ -88,7 +96,10 @@ py_test(
 py_library(
     name = "atomicity_types",
     srcs = ["atomicity_types.py"],
-    deps = ["//checkpoint/orbax/checkpoint/_src/metadata:checkpoint"],
+    deps = [
+        "//checkpoint/orbax/checkpoint:options",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+    ],
 )
 
 py_library(
@@ -112,6 +123,8 @@ py_test(
     srcs = ["format_utils_test.py"],
     deps = [
         ":format_utils",
+        "//checkpoint/orbax/checkpoint:args",
+        "//checkpoint/orbax/checkpoint:checkpoint_manager",
         "//checkpoint/orbax/checkpoint/_src/checkpointers:checkpointer",
         "//checkpoint/orbax/checkpoint/_src/handlers:pytree_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/handlers:standard_checkpoint_handler",
