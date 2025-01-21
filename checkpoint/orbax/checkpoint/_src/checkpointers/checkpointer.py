@@ -275,7 +275,7 @@ class Checkpointer(
   ):
     """Saves StepMetadata to the checkpoint directory."""
     update_dict = {
-        'custom': custom_metadata,
+        'custom_metadata': custom_metadata,
     }
     if isinstance(
         self._handler, composite_checkpoint_handler.CompositeCheckpointHandler

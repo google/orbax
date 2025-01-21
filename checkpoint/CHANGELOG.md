@@ -13,12 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 make the change unnoticeable to most users, but also has additional accessible
 properties not included in any tree mapping operations.
 - `Checkpointer.save()`, `AsyncCheckpointer.save()` also saves `StepMetadata`.
-- Added github actions CI testing using Python versions 3.10-3.13
+- Added github actions CI testing using Python versions 3.10-3.13.
+- Standardize naming of the "custom metadata" field (user-supplied metadata) as
+`custom_metadata`.
 
 ### Added
 - The ability to specify a custom `snapshot_dir` in `checkpoints_iterator`.
-- `CommitFuture` and `HandlerAwaitableSignal` for signalling between Checkpointing layers to enable async
-directory creation.
+- `CommitFuture` and `HandlerAwaitableSignal` for signalling between
+Checkpointing layers to enable async directory creation.
+- User-provided custom PyTree metadata.
 
 ### Fixed
 - Fix a bug where snapshots are not released by `wait_for_new_checkpoint`

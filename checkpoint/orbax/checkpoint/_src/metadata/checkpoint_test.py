@@ -93,11 +93,11 @@ class CheckpointMetadataTest(parameterized.TestCase):
   def get_metadata(
       self,
       metadata_type: type[StepMetadata] | type[RootMetadata],
-      custom: dict[str, Any] = None,
+      custom_metadata: dict[str, Any] = None,
   ) -> StepMetadata | RootMetadata:
     """Returns a sample metadata object of `metadata_class`."""
-    if custom is None:
-      custom = {'a': 1}
+    if custom_metadata is None:
+      custom_metadata = {'a': 1}
     if metadata_type == StepMetadata:
       return StepMetadata(
           item_handlers={'a': 'b'},
@@ -111,11 +111,11 @@ class CheckpointMetadataTest(parameterized.TestCase):
           ),
           init_timestamp_nsecs=1,
           commit_timestamp_nsecs=1,
-          custom=custom,
+          custom_metadata=custom_metadata,
       )
     elif metadata_type == RootMetadata:
       return RootMetadata(
-          custom=custom,
+          custom_metadata=custom_metadata,
       )
 
   def get_metadata_filename(
@@ -146,9 +146,9 @@ class CheckpointMetadataTest(parameterized.TestCase):
       self.assertEqual(a.performance_metrics, b.performance_metrics)
       self.assertEqual(a.init_timestamp_nsecs, b.init_timestamp_nsecs)
       self.assertEqual(a.commit_timestamp_nsecs, b.commit_timestamp_nsecs)
-      self.assertEqual(a.custom, b.custom)
+      self.assertEqual(a.custom_metadata, b.custom_metadata)
     elif isinstance(a, RootMetadata):
-      self.assertEqual(a.custom, b.custom)
+      self.assertEqual(a.custom_metadata, b.custom_metadata)
 
   @parameterized.parameters(True, False)
   def test_read_unknown_path(self, blocking_write: bool):
@@ -308,7 +308,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
     self.assertMetadataEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
         metadata_class(
-            custom={'a': 1},
+            custom_metadata={'a': 1},
         ),
     )
 
@@ -341,7 +341,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
         self.deserialize_metadata(StepMetadata, serialized_metadata),
         StepMetadata(
             init_timestamp_nsecs=1,
-            custom={'a': 1},
+            custom_metadata={'a': 1},
         ),
     )
 
@@ -374,7 +374,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
     self.assertMetadataEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
         metadata_class(
-            custom={'blah': 2},
+            custom_metadata={'blah': 2},
         ),
     )
 
@@ -428,7 +428,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
 
     # write validations
     serialized_metadata = self.serialize_metadata(
-        self.get_metadata(metadata_class, custom={'a': 2})
+        self.get_metadata(metadata_class, custom_metadata={'a': 2})
     )
     self.write_metadata_store(blocking_write=False).write(
         file_path=self.get_metadata_file_path(metadata_class),
@@ -442,14 +442,14 @@ class CheckpointMetadataTest(parameterized.TestCase):
     )
     self.assertMetadataEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
-        self.get_metadata(metadata_class, custom={'a': 2}),
+        self.get_metadata(metadata_class, custom_metadata={'a': 2}),
     )
     serialized_metadata = self.write_metadata_store(blocking_write=False).read(
         file_path=self.get_metadata_file_path(metadata_class)
     )
     self.assertMetadataEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
-        self.get_metadata(metadata_class, custom={'a': 2}),
+        self.get_metadata(metadata_class, custom_metadata={'a': 2}),
     )
 
     # update validations
@@ -463,14 +463,14 @@ class CheckpointMetadataTest(parameterized.TestCase):
     )
     self.assertMetadataEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
-        self.get_metadata(metadata_class, custom={'a': 3}),
+        self.get_metadata(metadata_class, custom_metadata={'a': 3}),
     )
     serialized_metadata = self.write_metadata_store(blocking_write=False).read(
         file_path=self.get_metadata_file_path(metadata_class)
     )
     self.assertMetadataEqual(
         self.deserialize_metadata(metadata_class, serialized_metadata),
-        self.get_metadata(metadata_class, custom={'a': 3}),
+        self.get_metadata(metadata_class, custom_metadata={'a': 3}),
     )
 
   @parameterized.parameters(StepMetadata, RootMetadata)
@@ -533,7 +533,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
       self, metadata_class: type[StepMetadata] | type[RootMetadata],
   ):
     metadata = metadata_class(
-        custom={'a': 1},
+        custom_metadata={'a': 1},
     )
     serialized_metadata = self.serialize_metadata(metadata)
     serialized_metadata['blah'] = 2
@@ -635,14 +635,17 @@ class CheckpointMetadataTest(parameterized.TestCase):
   @parameterized.parameters(
       ({'item_handlers': {'a': 'b'}},),
       ({'performance_metrics': {'a': 1.0}},),
-      ({'custom': {'a': 1}, 'init_timestamp_nsecs': 1},),
+      ({'custom_metadata': {'a': 1}, 'init_timestamp_nsecs': 1},),
   )
   def test_serialize_for_update_valid_kwargs(
       self, kwargs: dict[str, Any]
   ):
+    expected_kwargs = kwargs.copy()
+    if 'custom_metadata' in expected_kwargs:
+      expected_kwargs['custom'] = expected_kwargs.pop('custom_metadata')
     self.assertEqual(
         step_metadata_serialization.serialize_for_update(**kwargs),
-        kwargs,
+        expected_kwargs,
     )
 
   @parameterized.parameters(
@@ -653,8 +656,8 @@ class CheckpointMetadataTest(parameterized.TestCase):
       ({'performance_metrics': list()},),
       ({'init_timestamp_nsecs': float()},),
       ({'commit_timestamp_nsecs': float()},),
-      ({'custom': list()},),
-      ({'custom': {int(): None}},),
+      ({'custom_metadata': list()},),
+      ({'custom_metadata': {int(): None}},),
   )
   def test_serialize_for_update_wrong_types(
       self, kwargs: dict[str, Any]
@@ -667,8 +670,15 @@ class CheckpointMetadataTest(parameterized.TestCase):
         ValueError, 'Provided metadata contains unknown key blah'
     ):
       step_metadata_serialization.serialize_for_update(
-          custom={'a': 1},
+          custom_metadata={'a': 1},
           blah=123,
+      )
+
+    with self.assertRaisesRegex(
+        ValueError, 'Provided metadata contains unknown key custom'
+    ):
+      step_metadata_serialization.serialize_for_update(
+          custom={'a': 1},
       )
 
   def test_serialize_for_update_performance_metrics_only_float(self):

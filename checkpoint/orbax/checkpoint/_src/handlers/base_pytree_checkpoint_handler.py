@@ -50,6 +50,7 @@ from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
+from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
 
@@ -444,6 +445,7 @@ class BasePyTreeCheckpointHandler(
       raise ValueError('Found empty item.')
     save_args = args.save_args
     ocdbt_target_data_file_size = args.ocdbt_target_data_file_size
+    custom_metadata = args.custom_metadata
 
     save_args = _fill_missing_save_or_restore_args(item, save_args, mode='save')
     byte_limiter = serialization.get_byte_limiter(self._save_concurrent_bytes)
@@ -491,6 +493,7 @@ class BasePyTreeCheckpointHandler(
               checkpoint_dir=directory,
               param_infos=param_infos,
               save_args=save_args,
+              custom_metadata=custom_metadata,
               use_zarr3=self._use_zarr3,
           )
       )
@@ -799,8 +802,10 @@ class BasePyTreeCheckpointHandler(
   def _write_metadata_file(
       self,
       directory: epath.Path,
+      *,
       param_infos: PyTree,
       save_args: PyTree,
+      custom_metadata: tree_types.JsonType | None = None,
       use_zarr3: bool = False,
   ) -> future.Future:
     def _save_fn(param_infos):
@@ -811,6 +816,7 @@ class BasePyTreeCheckpointHandler(
             param_infos,
             save_args=save_args,
             use_zarr3=use_zarr3,
+            custom_metadata=custom_metadata,
             pytree_metadata_options=self._pytree_metadata_options,
         )
         logging.vlog(
@@ -832,8 +838,10 @@ class BasePyTreeCheckpointHandler(
       self,
       commit_futures: List[future.Future],
       checkpoint_dir: epath.Path,
+      *,
       param_infos: PyTree,
       save_args: PyTree,
+      custom_metadata: tree_types.JsonType | None = None,
       use_zarr3: bool,
   ) -> None:
     if not utils.is_primary_host(self._primary_host):
@@ -853,7 +861,11 @@ class BasePyTreeCheckpointHandler(
           param_infos, checkpoint_dir, self._array_metadata_store
       )
     self._write_metadata_file(
-        checkpoint_dir, param_infos, save_args, use_zarr3
+        checkpoint_dir,
+        param_infos=param_infos,
+        save_args=save_args,
+        custom_metadata=custom_metadata,
+        use_zarr3=use_zarr3,
     ).result()
 
   def _read_metadata_file(
@@ -915,12 +927,14 @@ class BasePyTreeCheckpointHandler(
       tree containing metadata.
     """
     is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
+    internal_tree_metadata = self._read_metadata_file(directory)
     return tree_metadata.build_default_tree_metadata(
-        self._read_metadata_file(directory).as_user_metadata(
+        internal_tree_metadata.as_custom_metadata(
             directory,
             self._type_handler_registry,
             use_ocdbt=is_ocdbt_checkpoint,
         ),
+        custom_metadata=internal_tree_metadata.custom_metadata,
     )
 
   def finalize(self, directory: epath.Path) -> None:
@@ -972,12 +986,16 @@ class BasePyTreeSaveArgs(CheckpointArgs):
     enable_pinned_host_transfer: True by default. If False, disables transfer to
       pinned host when copying from device to host, regardless of the presence
       of pinned host memory.
+    custom_metadata: User-provided custom metadata. An arbitrary
+      JSON-serializable dictionary the user can use to store additional
+      information. The field is treated as opaque by Orbax.
   """
 
   item: PyTree
   save_args: Optional[PyTree] = None
   ocdbt_target_data_file_size: Optional[int] = None
   enable_pinned_host_transfer: bool = True
+  custom_metadata: tree_types.JsonType | None = None
 
 
 @register_with_handler(BasePyTreeCheckpointHandler, for_restore=True)

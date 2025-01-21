@@ -34,6 +34,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:types",
+        "//checkpoint/orbax/checkpoint/_src/tree:types",
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
     ],
 )

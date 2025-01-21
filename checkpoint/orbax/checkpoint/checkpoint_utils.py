@@ -491,7 +491,7 @@ def construct_restore_args(
   if isinstance(target, tree_metadata.TreeMetadata):
     return tree_metadata.build_default_tree_metadata(
         jax.tree.map(_restore_args, target.tree, sharding_tree.tree),
-        custom=target.custom,
+        custom_metadata=target.custom_metadata,
     )
   else:
     return jax.tree.map(_restore_args, target, sharding_tree)

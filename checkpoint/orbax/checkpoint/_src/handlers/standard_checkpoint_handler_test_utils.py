@@ -14,6 +14,8 @@
 
 """Test for standard_checkpoint_handler.py."""
 
+# pylint: disable=protected-access, missing-function-docstring
+
 import functools
 from typing import Any
 
@@ -127,7 +129,6 @@ class StandardCheckpointHandlerTestBase:
       test_utils.assert_tree_equal(self, self.pytree, restored)
 
     def test_shape_dtype_struct(self):
-      """Test case."""
       self.handler.save(
           self.directory, args=self.save_args_cls(self.mixed_pytree)
       )
@@ -162,7 +163,7 @@ class StandardCheckpointHandlerTestBase:
       custom_layout = Layout(
           device_local_layout=DLL(
               major_to_minor=arr.layout.device_local_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
-              _tiling=arr.layout.device_local_layout._tiling,  # pylint: disable=protected-access  # pytype: disable=attribute-error
+              _tiling=arr.layout.device_local_layout._tiling,  # pytype: disable=attribute-error
           ),
           sharding=arr.sharding,
       )
@@ -210,7 +211,6 @@ class StandardCheckpointHandlerTestBase:
 
     @parameterized.parameters((True,), (False,))
     def test_change_shape(self, strict: bool):
-      """Test case."""
       if not hasattr(self.restore_args_cls, 'strict'):
         self.skipTest('strict option not supported for this handler')
       mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
@@ -255,7 +255,6 @@ class StandardCheckpointHandlerTestBase:
         self.handler.restore(self.directory, args=self.restore_args_cls(pytree))
 
     def test_cast(self):
-      """Test case."""
       # TODO(dicentra): casting from int dtypes currently doesn't work
       # in the model surgery context.
       save_args = jax.tree.map(
@@ -289,7 +288,6 @@ class StandardCheckpointHandlerTestBase:
       jax.tree.map(lambda x: check_dtype(x, jnp.bfloat16), restored)
 
     def test_flax_model(self):
-      """Test case."""
 
       @flax.struct.dataclass
       class Params(flax.struct.PyTreeNode):
@@ -318,12 +316,10 @@ class StandardCheckpointHandlerTestBase:
       test_utils.assert_tree_equal(self, params, restored)
 
     def test_empty_error(self):
-      """Test case."""
       with self.assertRaises(ValueError):
         self.handler.save(self.directory, args=self.save_args_cls({}))
 
     def test_empty_dict_node(self):
-      """Test case."""
       item = {'a': {}, 'b': 3}
       self.handler.save(self.directory, args=self.save_args_cls(item))
       restored = self.handler.restore(
@@ -332,7 +328,6 @@ class StandardCheckpointHandlerTestBase:
       self.assertDictEqual(restored, item)
 
     def test_empty_none_node(self):
-      """Test case."""
       item = {'c': None, 'd': 2}
       self.handler.save(self.directory, args=self.save_args_cls(item))
       restored = self.handler.restore(
@@ -341,7 +336,6 @@ class StandardCheckpointHandlerTestBase:
       self.assertDictEqual(restored, item)
 
     def test_none_node_in_restore_args(self):
-      """Test case."""
       devices = np.asarray(jax.devices())
       mesh = jax.sharding.Mesh(devices, ('x',))
       mesh_axes = jax.sharding.PartitionSpec(
@@ -358,7 +352,6 @@ class StandardCheckpointHandlerTestBase:
       test_utils.assert_tree_equal(self, restored, {'b': None})
 
     def test_masked_shape_dtype_struct(self):
-      """Test case."""
 
       def _should_mask(keypath):
         return keypath[0].key == 'a' or (
@@ -398,3 +391,12 @@ class StandardCheckpointHandlerTestBase:
       # Restore it without any item.
       restored = self.handler.restore(self.directory)
       test_utils.assert_tree_equal(self, expected, restored)
+
+    def test_custom_metadata(self):
+      custom_metadata = {'foo': 1}
+      self.handler.save(
+          self.directory,
+          args=self.save_args_cls(self.pytree, custom_metadata=custom_metadata),
+      )
+      metadata = self.handler.metadata(self.directory)
+      self.assertEqual(metadata.custom_metadata, custom_metadata)

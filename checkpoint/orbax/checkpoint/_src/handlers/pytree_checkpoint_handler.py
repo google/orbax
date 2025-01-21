@@ -46,6 +46,7 @@ from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
 
@@ -431,6 +432,7 @@ def _get_impl_save_args(
       save_args=args.save_args,
       ocdbt_target_data_file_size=args.ocdbt_target_data_file_size,
       enable_pinned_host_transfer=args.enable_pinned_host_transfer,
+      custom_metadata=args.custom_metadata,
   )
 
 
@@ -1052,12 +1054,16 @@ class PyTreeSaveArgs(CheckpointArgs):
     enable_pinned_host_transfer: True by default. If False, disables transfer to
       pinned host when copying from device to host, regardless of the presence
       of pinned host memory.
+    custom_metadata: User-provided custom metadata. An arbitrary
+      JSON-serializable dictionary the user can use to store additional
+      information. The field is treated as opaque by Orbax.
   """
 
   item: PyTree
   save_args: Optional[PyTree] = None
   ocdbt_target_data_file_size: Optional[int] = None
   enable_pinned_host_transfer: bool = True
+  custom_metadata: tree_types.JsonType | None = None
 
   def __post_init__(self):
     if isinstance(self.item, tree_metadata.TreeMetadata):

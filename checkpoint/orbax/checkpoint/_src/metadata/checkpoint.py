@@ -78,7 +78,9 @@ class StepMetadata:
       Specified as nano seconds since epoch. default=None.
     commit_timestamp_nsecs: commit timestamp of a checkpoint, specified as nano
       seconds since epoch. default=None.
-    custom: User-provided custom metadata.
+    custom_metadata: User-provided custom metadata. An arbitrary
+      JSON-serializable dictionary the user can use to store additional
+      information. The field is treated as opaque by Orbax.
   """
 
   item_handlers: (
@@ -91,7 +93,7 @@ class StepMetadata:
   )
   init_timestamp_nsecs: int | None = None
   commit_timestamp_nsecs: int | None = None
-  custom: dict[str, Any] = dataclasses.field(default_factory=dict)
+  custom_metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -99,10 +101,14 @@ class RootMetadata:
   """Metadata of a checkpoint at root level (contains all steps).
 
   Attributes:
-    custom: User-provided custom metadata.
+    custom_metadata: User-provided custom metadata. An arbitrary
+      JSON-serializable dictionary the user can use to store additional
+      information. The field is treated as opaque by Orbax.
   """
 
-  custom: dict[str, Any] | None = dataclasses.field(default_factory=dict)
+  custom_metadata: dict[str, Any] | None = dataclasses.field(
+      default_factory=dict
+  )
 
 
 class MetadataStore(Protocol):

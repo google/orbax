@@ -25,7 +25,7 @@ RootMetadata = checkpoint.RootMetadata
 def serialize(metadata: RootMetadata) -> SerializedMetadata:
   """Serializes `metadata` to a dictionary."""
   return {
-      'custom': metadata.custom,
+      'custom': metadata.custom_metadata,
   }
 
 
@@ -51,4 +51,8 @@ def deserialize(metadata_dict: SerializedMetadata) -> RootMetadata:
       )
       validated_metadata_dict['custom'][k] = metadata_dict[k]
 
+  # Rename to `custom_metadata`.
+  validated_metadata_dict['custom_metadata'] = validated_metadata_dict.pop(
+      'custom'
+  )
   return RootMetadata(**validated_metadata_dict)

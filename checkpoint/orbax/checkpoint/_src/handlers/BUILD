@@ -68,6 +68,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/serialization",
         "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//checkpoint/orbax/checkpoint/_src/tree:types",
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
         "//orbax/checkpoint:utils",
     ],
@@ -91,6 +92,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//checkpoint/orbax/checkpoint/_src/serialization:types",
+        "//checkpoint/orbax/checkpoint/_src/tree:types",
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
         "//orbax/checkpoint:utils",
         "//orbax/checkpoint/_src/metadata:array_metadata_store",
@@ -170,6 +172,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/metadata:pytree_metadata_options",
         "//checkpoint/orbax/checkpoint/_src/metadata:tree",
+        "//checkpoint/orbax/checkpoint/_src/tree:types",
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
     ],
 )

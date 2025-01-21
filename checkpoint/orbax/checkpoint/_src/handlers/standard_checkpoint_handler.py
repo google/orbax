@@ -32,6 +32,7 @@ from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 
 
@@ -144,15 +145,19 @@ class StandardCheckpointHandler(
           'Make sure to specify kwarg name `args=` when providing'
           ' `StandardSaveArgs`.'
       )
+    custom_metadata = None
     if args is not None:
       item = args.item
       save_args = args.save_args
+      custom_metadata = args.custom_metadata
 
     self._validate_save_state(item, save_args=save_args)
     return await self._impl.async_save(
         directory,
         args=pytree_checkpoint_handler.PyTreeSaveArgs(
-            item=item, save_args=save_args
+            item=item,
+            save_args=save_args,
+            custom_metadata=custom_metadata,
         ),
     )
 
@@ -266,10 +271,14 @@ class StandardSaveArgs(CheckpointArgs):
     save_args: a PyTree with the same structure of `item`, which consists of
       `ocp.SaveArgs` objects as values. `None` can be used for values where no
       `SaveArgs` are specified.
+    custom_metadata: User-provided custom metadata. An arbitrary
+      JSON-serializable dictionary the user can use to store additional
+      information. The field is treated as opaque by Orbax.
   """
 
   item: PyTree
   save_args: Optional[PyTree] = None
+  custom_metadata: tree_types.JsonType | None = None
 
   def __post_init__(self):
     if isinstance(self.item, tree_metadata.TreeMetadata):

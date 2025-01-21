@@ -53,7 +53,8 @@ def serialize(metadata: StepMetadata) -> SerializedMetadata:
       'performance_metrics': float_metrics,
       'init_timestamp_nsecs': metadata.init_timestamp_nsecs,
       'commit_timestamp_nsecs': metadata.commit_timestamp_nsecs,
-      'custom': metadata.custom,
+      # Change name from `custom_metadata` to `custom` for serialization.
+      'custom': metadata.custom_metadata,
   }
 
 
@@ -111,18 +112,22 @@ def serialize_for_update(**kwargs) -> SerializedMetadata:
         kwargs.get('commit_timestamp_nsecs', None)
     )
 
-  if 'custom' in kwargs:
-    if kwargs['custom'] is None:
-      validated_kwargs['custom'] = {}
+  if 'custom_metadata' in kwargs:
+    if kwargs['custom_metadata'] is None:
+      validated_kwargs['custom_metadata'] = {}
     else:
-      utils.validate_type(kwargs['custom'], dict)
-      for k in kwargs.get('custom', {}) or {}:
+      utils.validate_type(kwargs['custom_metadata'], dict)
+      for k in kwargs.get('custom_metadata', {}) or {}:
         utils.validate_type(k, str)
-      validated_kwargs['custom'] = kwargs.get('custom', {})
+      validated_kwargs['custom_metadata'] = kwargs.get('custom_metadata', {})
 
   for k in kwargs:
     if k not in validated_kwargs:
       raise ValueError('Provided metadata contains unknown key %s.' % k)
+
+  # Change name from `custom_metadata` to `custom` for serialization.
+  if 'custom_metadata' in validated_kwargs:
+    validated_kwargs['custom'] = validated_kwargs.pop('custom_metadata')
 
   return validated_kwargs
 
@@ -193,7 +198,6 @@ def deserialize(
     for k in custom:
       utils.validate_type(k, str)
   validated_metadata_dict['custom'] = custom or {}
-
   for k in metadata_dict:
     if k not in validated_metadata_dict:
       if 'custom' in metadata_dict and metadata_dict['custom']:
@@ -205,5 +209,9 @@ def deserialize(
           'Provided metadata contains unknown key %s. Adding it to custom.', k
       )
       validated_metadata_dict['custom'][k] = metadata_dict[k]
+  # Change name from `custom` to `custom_metadata` for deserialization.
+  validated_metadata_dict['custom_metadata'] = validated_metadata_dict.pop(
+      'custom'
+  )
 
   return StepMetadata(**validated_metadata_dict)

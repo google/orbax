@@ -27,8 +27,13 @@ from orbax.checkpoint._src.tree import utils as tree_utils
 
 def _to_param_infos(
     tree: Any,
-    pytree_metadata_options: tree_metadata_lib.PyTreeMetadataOptions,
+    pytree_metadata_options: (
+        tree_metadata_lib.PyTreeMetadataOptions | None
+    ) = None,
 ):
+  pytree_metadata_options = pytree_metadata_options or (
+      tree_metadata_lib.PYTREE_METADATA_OPTIONS
+  )
   return jax.tree.map(
       # Other properties are not relevant.
       lambda x: types.ParamInfo(
@@ -132,6 +137,29 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
     restored_tree_metadata = restored_internal_tree_metadata.as_nested_tree()
     chex.assert_trees_all_equal(restored_tree_metadata, expected_tree_metadata)
 
+  @parameterized.parameters(
+      (test_tree_utils.MyDataClass(),),
+      ([test_tree_utils.MyDataClass()],),
+      ({'a': test_tree_utils.MyFlax()},),
+  )
+  def test_invalid_custom_metadata(self, custom_metadata):
+    tree = {'scalar_param': 1}
+    with self.assertRaisesRegex(TypeError, 'Failed to encode'):
+      tree_metadata_lib.InternalTreeMetadata.build(
+          param_infos=_to_param_infos(tree), custom_metadata=custom_metadata
+      )
+
+  @parameterized.parameters(
+      ({'a': 1, 'b': [{'c': 2}, 1]},),
+      ([1, [{'c': 2}, 1]],),
+  )
+  def test_custom_metadata(self, custom_metadata):
+    tree = {'scalar_param': 1}
+    internal_tree_metadata = tree_metadata_lib.InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree), custom_metadata=custom_metadata
+    )
+    self.assertEqual(internal_tree_metadata.custom_metadata, custom_metadata)
+
 
 class NestedNamedTuple(NamedTuple):
   a: int
@@ -157,9 +185,11 @@ class TreeMetadataTest(parameterized.TestCase):
 
   @parameterized.parameters(({'a': 1, 'b': 2},), ([1, 2],), ((1, 2),))
   def test_properties(self, tree):
-    custom = {'foo': 1}
-    metadata = tree_metadata_lib._TreeMetadataImpl(tree=tree, custom=custom)
-    self.assertDictEqual(metadata.custom, custom)
+    custom_metadata = {'foo': 1}
+    metadata = tree_metadata_lib._TreeMetadataImpl(
+        tree=tree, custom_metadata=custom_metadata
+    )
+    self.assertDictEqual(metadata.custom_metadata, custom_metadata)
     self._check_tree_property(tree, metadata)
 
   @parameterized.parameters(
@@ -229,10 +259,12 @@ class TreeMetadataTest(parameterized.TestCase):
       (test_tree_utils.EmptyNamedTuple(),),
   )
   def test_tree_map(self, tree):
-    custom = {'foo': 1}
-    metadata = tree_metadata_lib._TreeMetadataImpl(tree=tree, custom=custom)
+    custom_metadata = {'foo': 1}
+    metadata = tree_metadata_lib._TreeMetadataImpl(
+        tree=tree, custom_metadata=custom_metadata
+    )
     metadata = jax.tree.map(lambda x: x + 1, metadata)
-    self.assertDictEqual(metadata.custom, custom)
+    self.assertDictEqual(metadata.custom_metadata, custom_metadata)
     self._check_tree_property(jax.tree.map(lambda x: x + 1, tree), metadata)
 
   @parameterized.parameters(

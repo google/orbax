@@ -308,8 +308,8 @@ py_library(
     name = "tree",
     srcs = ["tree.py"],
     deps = [
+        "//checkpoint/orbax/checkpoint/_src/tree:types",
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
-        "//orbax/checkpoint/_src/tree:types",
     ],
 )
 
