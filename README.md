@@ -23,7 +23,7 @@ flexibility for diverse use cases.
 
 > [!NOTE]
 > Please see
-[Announcements](https://orbax.readthedocs.io/en/latest/orbax_checkpoint_announcements.html)
+[Announcements](https://orbax.readthedocs.io/en/latest/guides/checkpoint/orbax_checkpoint_announcements.html)
 for important updates.
 
 
