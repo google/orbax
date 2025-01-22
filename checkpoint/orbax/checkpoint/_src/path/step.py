@@ -35,6 +35,7 @@ from orbax.checkpoint._src.multihost import multihost
 _GCS_PATH_PREFIX = ('gs://',)
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
+TMP_DIR_NAME_PATTERN = r'^(.+?)\.orbax-checkpoint-tmp-\d+$'
 # prefix_1000.orbax-checkpoint-tmp-1010101
 # OR
 # 1000.orbax-checkpoint-tmp-1010101
@@ -515,6 +516,15 @@ def is_tmp_checkpoint(path: epath.PathLike) -> bool:
   if TMP_DIR_SUFFIX in path.name:
     return True
   return False
+
+
+def item_name_from_item_dir(item_dir: epath.PathLike) -> str:
+  """Returns the item name from a item's directory (which may be temporary)."""
+  name = epath.Path(item_dir).name
+  if tmp_match := re.match(TMP_DIR_NAME_PATTERN, name):
+    return tmp_match.group(1)
+  else:
+    return name
 
 
 def is_checkpoint_finalized(path: epath.PathLike) -> bool:

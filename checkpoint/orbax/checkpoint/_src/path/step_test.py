@@ -581,6 +581,21 @@ class UtilsTest(parameterized.TestCase):
         )
 
 
+  @parameterized.parameters(
+      ('0.orbax-checkpoint-tmp-1010101', '0'),
+      ('foobar.orbax-checkpoint-tmp-124244', 'foobar'),
+      ('foobar_000505.orbax-checkpoint-tmp-13124', 'foobar_000505'),
+      (epath.Path('foobar_000505.orbax-checkpoint-tmp-13124'), 'foobar_000505'),
+      ('abc', 'abc'),
+      ('.orbax-checkpoint-tmp-191913', '.orbax-checkpoint-tmp-191913'),
+      ('0.orbax-checkpoint-tmp-', '0.orbax-checkpoint-tmp-'),
+      (epath.Path('0.orbax-checkpoint-tmp-'), '0.orbax-checkpoint-tmp-'),
+  )
+  def test_item_name_from_item_dir(self, item_dir, expected_item_name):
+    self.assertEqual(
+        step_lib.item_name_from_item_dir(item_dir), expected_item_name
+    )
+
 
 if __name__ == '__main__':
   absltest.main()
