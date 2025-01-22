@@ -158,7 +158,7 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
   def test_get_handler_type_not_found(self):
     registry = HandlerTypeRegistry()
     with self.assertRaisesRegex(
-        ValueError,
+        KeyError,
         'Handler type string '
         r'"(?:__main__|handler_type_registry_test)\.TestHandler"'
         ' not found in the registry.',

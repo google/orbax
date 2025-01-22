@@ -83,7 +83,7 @@ class HandlerTypeRegistry:
   ) -> Type[CheckpointHandler]:
     """Gets an entry from the registry."""
     if handler_typestr not in self._registry:
-      raise ValueError(
+      raise KeyError(
           f'Handler type string "{handler_typestr}" not found in the registry.'
       )
     return self._registry[handler_typestr]
