@@ -15,7 +15,8 @@
 """Futures that can be used for signaling for synchronization."""
 
 import threading
-from typing import Any, Coroutine, Optional
+import time
+from typing import Any, Callable, Coroutine, Optional, Sequence
 
 from absl import logging
 from orbax.checkpoint._src import asyncio_utils
@@ -46,6 +47,62 @@ class Future(Protocol):
   def result(self, timeout: Optional[int] = None) -> Any:
     """Waits for the future to complete its operation."""
     ...
+
+
+class NoopFuture:
+
+  def result(self, timeout: Optional[int] = None) -> Any:
+    del timeout
+    return None
+
+
+class ChainedFuture:
+  """A future representing a sequence of multiple futures."""
+
+  def __init__(self, futures: Sequence[Future], cb: Callable[[], None]):
+    self._futures = futures
+    self._cb = cb
+
+  def result(self, timeout: Optional[int] = None) -> Any:
+    """Waits for all futures to complete."""
+    n = len(self._futures)
+    start = time.time()
+    time_remaining = timeout
+    for k, f in enumerate(self._futures):
+      f.result(timeout=time_remaining)
+      if time_remaining is not None:
+        time_elapsed = time.time() - start
+        time_remaining -= time_elapsed
+        if time_remaining <= 0:
+          raise TimeoutError(
+              'ChainedFuture completed {:d}/{:d} futures but timed out after'
+              ' {:.2f} seconds.'.format(k, n, time_elapsed)
+          )
+    time_elapsed = time.time() - start
+    logging.info(
+        'ChainedFuture completed %d/%d futures in %.2f seconds.',
+        n,
+        n,
+        time_elapsed,
+    )
+    self._cb()
+
+
+class ThreadRaisingException(threading.Thread):
+  """Thread that raises an exception if it encounters an error."""
+
+  _exception: Optional[Exception] = None
+
+  def run(self):
+    try:
+      super().run()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      self._exception = e
+
+  def join(self, timeout=None):
+    super().join(timeout=timeout)
+    if self._exception is not None:
+      raise self._exception
 
 
 class _SignalingThread(threading.Thread):
