@@ -635,7 +635,7 @@ class NumpyHandler(types.TypeHandler):
       _print_ts_debug_data(self._metadata_key, infos)
     copied_values = [copy.deepcopy(v) for v in values]
     return [
-        future.CoroutineRunningFuture(
+        future.CommitFutureAwaitingContractedSignals(
             self._background_serialize(copied_values, infos, args),
             name='np_type_handler',
         )
@@ -1116,7 +1116,7 @@ class ArrayHandler(types.TypeHandler):
     )
 
     return [
-        future.CoroutineRunningFuture(
+        future.CommitFutureAwaitingContractedSignals(
             self._background_serialize(values_on_host, infos, args),
             name='array_type_handler',
         )
@@ -1561,7 +1561,7 @@ class StringHandler(types.TypeHandler):
     del args
     # Copy is not needed since strings are passed by value.
     return [
-        future.CoroutineRunningFuture(
+        future.CommitFutureAwaitingContractedSignals(
             self._background_serialize(values, infos),
             name='string_type_handler',
         )
