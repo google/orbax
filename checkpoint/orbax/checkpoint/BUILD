@@ -3,10 +3,7 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
-license(
-    name = "package_license",
-    package_name = "orbax-checkpoint",
-)
+licenses(["notice"])
 
 py_library(
     name = "checkpoint",
