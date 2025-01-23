@@ -780,6 +780,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     with self._finalize_thread_lock:
       self._finalize_thread = None
 
+    self._is_saving_in_progress_lock = threading.Lock()
+    with self._is_saving_in_progress_lock:
+      self._is_saving_in_progress = False
+
     self._checkpoint_deleter: deleter.CheckpointDeleter = (
         deleter.create_checkpoint_deleter(
             self._multiprocessing_options.primary_host,
@@ -1317,6 +1321,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     assert self._finalize_thread is None
     if is_async_checkpointer(self._checkpointer):
+      with self._is_saving_in_progress_lock:
+        self._is_saving_in_progress = True
       with self._finalize_thread_lock:
         finalize_thread_name = 'save_finalize'
         logging.info(
@@ -1822,10 +1828,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def is_saving_in_progress(self) -> bool:
     """Returns whether a checkpoint save is in progress."""
-    with self._finalize_thread_lock:
-      return (
-          self._finalize_thread is not None and self._finalize_thread.is_alive()
-      )
+    with self._is_saving_in_progress_lock:
+      return self._is_saving_in_progress
 
   def check_for_errors(self):
     """See superclass documentation."""
@@ -1905,6 +1909,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         threading.current_thread().name,
         step,
     )
+    with self._is_saving_in_progress_lock:
+      self._is_saving_in_progress = False
 
   def close(self):
     """See superclass documentation."""
