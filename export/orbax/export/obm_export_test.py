@@ -38,13 +38,6 @@ def _package_jax_module(m: jax_module.JaxModule):
   return result
 
 
-def _get_expected_tf_function_body(name: str, support_tf_resources: bool):
-  if support_tf_resources:
-    return f'inlined_string: "{name}"'
-  else:
-    return 'file_system_location { string_path: "%s.pb" }' % name
-
-
 class ObmExportTest(parameterized.TestCase, tf.test.TestCase):
 
   def setUp(self):
