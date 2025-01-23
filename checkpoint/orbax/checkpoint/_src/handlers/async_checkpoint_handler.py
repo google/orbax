@@ -18,7 +18,7 @@ import abc
 from typing import List, Optional
 
 from etils import epath
-from orbax.checkpoint import future
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import checkpoint_handler
 
 

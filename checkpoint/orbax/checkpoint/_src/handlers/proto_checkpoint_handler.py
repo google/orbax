@@ -26,10 +26,10 @@ from etils import epath
 from google.protobuf import message
 from google.protobuf import text_format
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import future
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 
 

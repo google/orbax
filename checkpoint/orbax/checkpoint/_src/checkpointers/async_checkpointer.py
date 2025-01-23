@@ -23,11 +23,11 @@ from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import future as future_lib
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.checkpointers import checkpointer
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.multihost import multihost
@@ -106,7 +106,7 @@ class _AsyncManager:
   def _thread_func(
       self,
       directory: epath.Path,
-      commit_futures: Sequence[future_lib.Future],
+      commit_futures: Sequence[future.Future],
       on_commit_callback: Callable[[], None],
   ):
     """Awaits on commit futures and finalizes the checkpoint."""
@@ -122,8 +122,8 @@ class _AsyncManager:
       thread_start_time = time.time()
 
       # Wait for commit operations to complete.
-      for future in commit_futures:
-        future.result()
+      for commit_future in commit_futures:
+        commit_future.result()
       logging.info(
           '[process=%s][thread=%s] %d Handler Commit operations completed.',
           current_process,
@@ -194,7 +194,7 @@ class _AsyncManager:
   def start_async_commit(
       self,
       directory: epath.Path,
-      commit_futures: Sequence[future_lib.Future],
+      commit_futures: Sequence[future.Future],
       on_commit_callback: Callable[[], None],
   ):
     """Completes checkpoint save in a background thread."""
@@ -304,9 +304,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     self._barrier_sync_key_prefix = barrier_sync_key_prefix
     self._file_options = file_options
     self._metadata_store = (
-        checkpoint_metadata_store or checkpoint.metadata_store(
-            enable_write=True
-        )
+        checkpoint_metadata_store
+        or checkpoint.metadata_store(enable_write=True)
     )
     self._temporary_path_class = temporary_path_class
     timeout_secs = timeout_secs or async_options.timeout_secs

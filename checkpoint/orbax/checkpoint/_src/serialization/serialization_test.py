@@ -27,9 +27,9 @@ from jax import dtypes as _dtypes
 from jax.experimental import layout
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint import future
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts

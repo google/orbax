@@ -25,8 +25,8 @@ from etils import epath
 import jax
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint import future
 from orbax.checkpoint._src.arrays import types as arrays_types
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import value as value_metadata

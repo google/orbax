@@ -26,10 +26,10 @@ from typing import Any, List, Mapping, Optional
 
 from etils import epath
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import future
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
