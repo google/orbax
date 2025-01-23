@@ -147,7 +147,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: model/orbax/model
+        working-directory: model/orbax/model/core
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
