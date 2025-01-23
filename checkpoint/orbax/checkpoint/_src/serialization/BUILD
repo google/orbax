@@ -35,8 +35,6 @@ py_library(
         ":serialization",
         ":tensorstore_utils",
         ":types",
-        "//checkpoint/orbax/checkpoint:future",
-        "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/arrays:subchunking",
         "//checkpoint/orbax/checkpoint/_src/arrays:types",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
@@ -46,6 +44,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/multihost:multislice",
         "//checkpoint/orbax/checkpoint/_src/path:async_utils",
         "//checkpoint/orbax/checkpoint/_src/path:format_utils",
+        "//orbax/checkpoint/_src/futures:future",
         "//orbax/checkpoint/_src/metadata:array_metadata_store",
     ],
 )

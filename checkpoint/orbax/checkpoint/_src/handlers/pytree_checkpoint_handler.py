@@ -41,6 +41,7 @@ from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
+from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.serialization import serialization
@@ -477,6 +478,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
           tree_metadata.PYTREE_METADATA_OPTIONS
       ),
+      array_metadata_validator: array_metadata_store_lib.Validator = (
+          array_metadata_store_lib.Validator()
+      ),
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -498,6 +502,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         specified, the global type handler registry will be used.
       handler_impl: Allows overriding the internal implementation.
       pytree_metadata_options: `PyTreeMetadataOptions` to manage metadata.
+      array_metadata_validator: Validator for ArrayMetadata.
     """
     self._aggregate_handler = MsgpackHandler(
         primary_host=multiprocessing_options.primary_host,
@@ -520,6 +525,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         multiprocessing_options=multiprocessing_options,
         type_handler_registry=type_handler_registry,
         pytree_metadata_options=pytree_metadata_options,
+        array_metadata_validator=array_metadata_validator,
     )
     self._pytree_metadata_options = pytree_metadata_options
 

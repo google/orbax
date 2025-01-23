@@ -36,10 +36,10 @@ from etils import epath
 import humanize
 import jax
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import future
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
@@ -284,6 +284,9 @@ class BasePyTreeCheckpointHandler(
       pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
           tree_metadata.PYTREE_METADATA_OPTIONS
       ),
+      array_metadata_validator: array_metadata_store_lib.Validator = (
+          array_metadata_store_lib.Validator()
+      ),
   ):
     """Creates BasePyTreeCheckpointHandler.
 
@@ -303,6 +306,7 @@ class BasePyTreeCheckpointHandler(
       enable_post_merge_validation: If True, enables validation of the
         parameters after the finalize step.
       pytree_metadata_options: `PyTreeMetadataOptions` to manage metadata.
+      array_metadata_validator: Validator for ArrayMetadata.
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
@@ -319,6 +323,7 @@ class BasePyTreeCheckpointHandler(
             type_handler_registry
         )
     )
+    self._array_metadata_validator = array_metadata_validator
 
 
     jax.monitoring.record_event(
@@ -329,8 +334,10 @@ class BasePyTreeCheckpointHandler(
         max_workers=3, thread_name_prefix='base_pytree_ch'
     )
     logging.info(
-        'Created BasePyTreeCheckpointHandler: pytree_metadata_options=%s',
+        'Created BasePyTreeCheckpointHandler: pytree_metadata_options=%s,'
+        ' array_metadata_store=%s',
         self._pytree_metadata_options,
+        self._array_metadata_store,
     )
 
   def get_param_names(self, item: PyTree) -> PyTree:
@@ -487,14 +494,16 @@ class BasePyTreeCheckpointHandler(
     save_futures = []
     if multihost.is_primary_host(self._primary_host):
       save_futures.append(
-          self._thread_pool.submit(
-              self._write_metadata_after_commits,
-              commit_futures=commit_futures,
-              checkpoint_dir=directory,
-              param_infos=param_infos,
-              save_args=save_args,
-              custom_metadata=custom_metadata,
-              use_zarr3=self._use_zarr3,
+          future.CoroutineRunningFuture(
+              self._write_metadata_after_commits(
+                  commit_futures,
+                  checkpoint_dir=directory,
+                  param_infos=param_infos,
+                  save_args=save_args,
+                  custom_metadata=custom_metadata,
+                  use_zarr3=self._use_zarr3,
+              ),
+              name='write_metadata_after_commits',
           )
       )
     else:
@@ -745,7 +754,7 @@ class BasePyTreeCheckpointHandler(
     )
     return restored_item
 
-  def _get_param_infos_with_write_shape(
+  async def _get_param_infos_with_write_shape(
       self,
       param_infos: PyTree,
       checkpoint_dir: epath.Path,
@@ -764,7 +773,7 @@ class BasePyTreeCheckpointHandler(
       return param_infos
     # Extract write_shape from ArrayMetadata for current process_index.
     process_index = multihost.process_index()
-    array_metadatas = array_metadata_store.read(
+    array_metadatas = await array_metadata_store.read(
         checkpoint_dir, process_index=process_index
     )
     if array_metadatas is None:
@@ -834,7 +843,7 @@ class BasePyTreeCheckpointHandler(
 
     return self._thread_pool.submit(_save_fn, param_infos)
 
-  def _write_metadata_after_commits(
+  async def _write_metadata_after_commits(
       self,
       commit_futures: List[future.Future],
       checkpoint_dir: epath.Path,
@@ -847,7 +856,7 @@ class BasePyTreeCheckpointHandler(
     if not utils.is_primary_host(self._primary_host):
       return
     for commit_future in commit_futures:
-      commit_future.result()
+      await asyncio.to_thread(commit_future.result)
     # `write_shape` is extracted from ArrayMetadata store saved during
     # materialization of commit_futures. Then it is written to the pytree
     # metadata.
@@ -857,16 +866,17 @@ class BasePyTreeCheckpointHandler(
     # BasePyTreeCheckpointHandler should delegate all metadata related code to
     # that class.
     if self._array_metadata_store is not None:
-      param_infos = self._get_param_infos_with_write_shape(
+      param_infos = await self._get_param_infos_with_write_shape(
           param_infos, checkpoint_dir, self._array_metadata_store
       )
-    self._write_metadata_file(
+    metadata_write_future = self._write_metadata_file(
         checkpoint_dir,
         param_infos=param_infos,
         save_args=save_args,
         custom_metadata=custom_metadata,
         use_zarr3=use_zarr3,
-    ).result()
+    )
+    await asyncio.to_thread(metadata_write_future.result)
 
   def _read_metadata_file(
       self, directory: epath.Path
@@ -947,20 +957,45 @@ class BasePyTreeCheckpointHandler(
     Args:
       directory: Path where the checkpoint is located.
     """
-    merge_start_time = time.time()
-    ts_context = ts_utils.get_ts_context(use_ocdbt=True)
-    asyncio_utils.run_sync(
-        type_handlers.merge_ocdbt_per_process_files(
-            directory,
-            ts_context=ts_context,
-            use_zarr3=self._use_zarr3,
-            enable_validation=self._enable_post_merge_validation,
+    finalize_coros = []
+    if self._array_metadata_store is not None:
+      if self._primary_host is None:
+        logging.log_first_n(
+            logging.WARNING,
+            '[process=%s] Skipped cross-host ArrayMetadata validation'
+            ' because all hosts are primary (e.g. local storage).',
+            1,  # log only once
+            multihost.process_index(),
         )
-    )
-    jax.monitoring.record_event_duration_secs(
-        '/jax/checkpoint/write/async/ocdbt_merge_duration_secs',
-        time.time() - merge_start_time,
-    )
+      elif utils.is_primary_host(self._primary_host):
+        finalize_coros.append(
+            array_metadata_store_lib.validate_all_array_metadatas(
+                self._array_metadata_validator,
+                self._array_metadata_store,
+                directory,
+            )
+        )
+
+    async def merge_ocdbt_per_process_files():
+      merge_start_time = time.time()
+      ts_context = ts_utils.get_ts_context(use_ocdbt=True)
+      await type_handlers.merge_ocdbt_per_process_files(
+          directory,
+          ts_context=ts_context,
+          use_zarr3=self._use_zarr3,
+          enable_validation=self._enable_post_merge_validation,
+      )
+      jax.monitoring.record_event_duration_secs(
+          '/jax/checkpoint/write/async/ocdbt_merge_duration_secs',
+          time.time() - merge_start_time,
+      )
+
+    finalize_coros.append(merge_ocdbt_per_process_files())
+
+    async def _fn():
+      await asyncio.gather(*finalize_coros)
+
+    asyncio_utils.run_sync(_fn())
 
   def close(self):
     """Closes the handler. Called automatically by Checkpointer."""

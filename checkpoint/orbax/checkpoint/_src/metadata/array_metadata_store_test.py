@@ -14,6 +14,7 @@
 
 """Tests for `array_metadata_store` module."""
 
+from typing import List
 import unittest
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -33,19 +34,19 @@ class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     self.checkpoint_dir = epath.Path(self.create_tempdir().full_path)
     self.store = array_metadata_store_lib.Store()
 
-  def test_non_existing_checkpoint_dir(self):
+  async def test_non_existing_checkpoint_dir(self):
     with self.assertRaisesRegex(
         ValueError, 'Checkpoint directory does not exist'
     ):
-      _ = self.store.read(self.checkpoint_dir / 'unknown_dir')
+      _ = await self.store.read(self.checkpoint_dir / 'unknown_dir')
 
-  def test_non_existing_metadata_files(self):
-    self.assertIsNone(self.store.read(self.checkpoint_dir))
+  async def test_non_existing_metadata_files(self):
+    self.assertIsNone(await self.store.read(self.checkpoint_dir))
 
     (self.checkpoint_dir / 'array_metadatas').mkdir(
         parents=True, exist_ok=False
     )
-    self.assertIsNone(self.store.read(self.checkpoint_dir))
+    self.assertIsNone(await self.store.read(self.checkpoint_dir))
 
   async def test_write_and_read_single_process(self):
     process_index = 0
@@ -74,7 +75,7 @@ class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     )
 
     self.assertEqual(
-        self.store.read(self.checkpoint_dir, process_index=process_index),
+        await self.store.read(self.checkpoint_dir, process_index=process_index),
         [
             array_metadata_lib.SerializedArrayMetadata(
                 param_name='a',
@@ -107,7 +108,7 @@ class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
       )
 
     self.assertEqual(
-        self.store.read(self.checkpoint_dir, process_index=None),
+        await self.store.read(self.checkpoint_dir, process_index=None),
         {
             0: [
                 array_metadata_lib.SerializedArrayMetadata(
@@ -183,6 +184,173 @@ class ResolveArrayMetadataStoreTest(parameterized.TestCase):
     )
 
     self.assertIsNone(store)
+
+
+class ValidatorTest(parameterized.TestCase):
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='empty_array_metadatas',
+          array_metadatas={0: []},
+          expected_error_regex=(
+              'ArrayMetadata Store contains no metadata for process_index=0'
+          ),
+      ),
+      dict(
+          testcase_name='different_number_of_params',
+          array_metadatas={
+              0: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  )
+              ],
+              1: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='b', write_shape=(1,), chunk_shape=(1,)
+                  ),
+              ],
+          },
+          expected_error_regex=(
+              'ArrayMetadata Store contains different number of params'
+          ),
+      ),
+      dict(
+          testcase_name='different_params',
+          array_metadatas={
+              0: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='c', write_shape=(1,), chunk_shape=(1,)
+                  ),
+              ],
+              1: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='b', write_shape=(1,), chunk_shape=(1,)
+                  ),
+              ],
+          },
+          expected_error_regex='ArrayMetadata Store contains different params',
+      ),
+      dict(
+          testcase_name='different_chunk_shapes',
+          array_metadatas={
+              0: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='b', write_shape=(1,), chunk_shape=(2,)
+                  ),
+              ],
+              1: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='b', write_shape=(1,), chunk_shape=(3,)
+                  ),
+              ],
+          },
+          expected_error_regex=(
+              'ArrayMetadata Store contains different chunk_shape'
+          ),
+      ),
+      dict(
+          testcase_name='different_write_shapes',
+          array_metadatas={
+              0: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='b', write_shape=(2,), chunk_shape=(3,)
+                  ),
+              ],
+              1: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='b', write_shape=(3,), chunk_shape=(3,)
+                  ),
+              ],
+          },
+          expected_error_regex=(
+              'ArrayMetadata Store contains different write_shape'
+          ),
+      ),
+      dict(
+          testcase_name='single_process_array_metadatas',
+          array_metadatas={
+              0: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  )
+              ]
+          },
+          expected_error_regex=None,
+      ),
+      dict(
+          testcase_name='valid_array_metadatas',
+          array_metadatas={
+              0: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='b', write_shape=(2,), chunk_shape=(2,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='c', write_shape=(3,), chunk_shape=(3,)
+                  ),
+              ],
+              1: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='b', write_shape=(2,), chunk_shape=(2,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='c', write_shape=(3,), chunk_shape=(3,)
+                  ),
+              ],
+              2: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a', write_shape=(1,), chunk_shape=(1,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='b', write_shape=(2,), chunk_shape=(2,)
+                  ),
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='c', write_shape=(3,), chunk_shape=(3,)
+                  ),
+              ],
+          },
+          expected_error_regex=None,
+      ),
+  ])
+  def test_validate_all_array_metadatas(
+      self,
+      array_metadatas: dict[
+          int, List[array_metadata_lib.SerializedArrayMetadata]
+      ],
+      expected_error_regex: str | None,
+  ):
+    validator = array_metadata_store_lib.Validator()
+    if expected_error_regex is None:
+      validator.validate_all_array_metadatas(array_metadatas)
+    else:
+      with self.assertRaisesRegex(ValueError, expected_error_regex):
+        validator.validate_all_array_metadatas(array_metadatas)
 
 
 if __name__ == '__main__':

@@ -35,10 +35,9 @@ import jax
 from jax.experimental import layout
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint import future
-from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types as arrays_types
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
@@ -237,20 +236,6 @@ def _build_array_write_spec(
       ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
       metadata_key=metadata_key,
   )
-
-
-class _CommitFuture(future.Future):
-  """Represents the result of a background commit."""
-
-  def __init__(self, coro, name: Optional[str] = None):
-    self._t = future.ThreadRaisingException(
-        name=name,
-        target=lambda: asyncio_utils.run_sync(coro),
-    )
-    self._t.start()
-
-  def result(self, timeout: Optional[int] = None) -> Any:
-    return self._t.join(timeout=timeout)
 
 
 def check_input_arguments(*args):
@@ -650,7 +635,7 @@ class NumpyHandler(types.TypeHandler):
       _print_ts_debug_data(self._metadata_key, infos)
     copied_values = [copy.deepcopy(v) for v in values]
     return [
-        _CommitFuture(
+        future.CoroutineRunningFuture(
             self._background_serialize(copied_values, infos, args),
             name='np_type_handler',
         )
@@ -1131,7 +1116,7 @@ class ArrayHandler(types.TypeHandler):
     )
 
     return [
-        _CommitFuture(
+        future.CoroutineRunningFuture(
             self._background_serialize(values_on_host, infos, args),
             name='array_type_handler',
         )
@@ -1576,7 +1561,7 @@ class StringHandler(types.TypeHandler):
     del args
     # Copy is not needed since strings are passed by value.
     return [
-        _CommitFuture(
+        future.CoroutineRunningFuture(
             self._background_serialize(values, infos),
             name='string_type_handler',
         )

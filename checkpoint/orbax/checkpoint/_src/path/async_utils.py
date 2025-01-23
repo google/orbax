@@ -20,6 +20,8 @@ from etils import epath
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.path import step as step_lib
 
+# TODO(b/360190539): Why not use just asyncio.to_thread?
+
 
 # TODO(b/360190539): This functionality should be provided by either an external
 # library or Orbax should subclass epath.Path.
@@ -33,6 +35,8 @@ def async_makedirs(
   return asyncio_utils.as_async_function(path.mkdir)(
       *args, parents=parents, exist_ok=exist_ok, **kwargs
   )
+
+
 
 
 def async_write_bytes(path: epath.Path, data: Any):

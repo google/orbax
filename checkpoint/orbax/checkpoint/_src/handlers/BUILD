@@ -71,6 +71,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/tree:types",
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
         "//orbax/checkpoint:utils",
+        "//orbax/checkpoint/_src/metadata:array_metadata_store",
     ],
 )
 
@@ -81,7 +82,6 @@ py_library(
     deps = [
         ":async_checkpoint_handler",
         "//checkpoint/orbax/checkpoint:checkpoint_args",
-        "//checkpoint/orbax/checkpoint:future",
         "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
@@ -95,6 +95,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/tree:types",
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
         "//orbax/checkpoint:utils",
+        "//orbax/checkpoint/_src/futures:future",
         "//orbax/checkpoint/_src/metadata:array_metadata_store",
     ],
 )
