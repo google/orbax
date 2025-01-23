@@ -19,8 +19,9 @@ properties not included in any tree mapping operations.
 
 ### Added
 - The ability to specify a custom `snapshot_dir` in `checkpoints_iterator`.
-- `CommitFuture` and `HandlerAwaitableSignal` for signalling between
-Checkpointing layers to enable async directory creation.
+- `CommitFutureAwaitDirectorySignals`, `CommitFuture` and
+`HandlerAwaitableSignal` for signalling between Checkpointing layers to enable
+async directory creation.
 - User-provided custom PyTree metadata.
 
 ### Fixed

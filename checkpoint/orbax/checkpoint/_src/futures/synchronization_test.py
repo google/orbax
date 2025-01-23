@@ -14,57 +14,34 @@
 
 from absl.testing import absltest
 from orbax.checkpoint._src.futures import synchronization
-from orbax.checkpoint._src.multihost import multihost
 
 
-HandlerAwaitableSignalBarrierKeyGenerator = (
-    synchronization.HandlerAwaitableSignalBarrierKeyGenerator
+HandlerAwaitableSignalOperationIdGenerator = (
+    synchronization.HandlerAwaitableSignalOperationIdGenerator
 )
 
 
-class HandlerAwaitableSignalBarrierKeyGeneratorTest(absltest.TestCase):
+class HandlerAwaitableSignalOperationIdGeneratorTest(absltest.TestCase):
 
-  def test_get_unique_barrier_key_without_operation_id_raises_error(self):
-    step_directory_creation_signal = (
-        synchronization.HandlerAwaitableSignal.STEP_DIRECTORY_CREATION
-    )
-    HandlerAwaitableSignalBarrierKeyGenerator._operation_id = None
+  def test_is_operation_id_initialized(self):
+    HandlerAwaitableSignalOperationIdGenerator._operation_id = 0
 
-    with self.assertRaisesWithLiteralMatch(
-        ValueError,
-        "_operation_id is not initialized. Please call `next_operation_id()`"
-        " first.",
-    ):
-      HandlerAwaitableSignalBarrierKeyGenerator.get_unique_barrier_key(
-          step_directory_creation_signal
-      )
+    self.assertFalse(HandlerAwaitableSignalOperationIdGenerator.is_intialized())
 
-  def test_get_unique_barrier_key(self):
-    step_directory_creation_signal = (
-        synchronization.HandlerAwaitableSignal.STEP_DIRECTORY_CREATION
-    )
-    expected_barrier_key_0 = multihost.unique_barrier_key(
-        step_directory_creation_signal.value, suffix="0"
-    )
-    expected_barrier_key_1 = multihost.unique_barrier_key(
-        step_directory_creation_signal.value, suffix="1"
+  def test_get_operation_id(self):
+    HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
+    operation_id_1 = (
+        HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
     )
 
-    HandlerAwaitableSignalBarrierKeyGenerator.next_operation_id()
-    barrier_key_0 = (
-        HandlerAwaitableSignalBarrierKeyGenerator.get_unique_barrier_key(
-            step_directory_creation_signal
-        )
-    )
-    HandlerAwaitableSignalBarrierKeyGenerator.next_operation_id()
-    barrier_key_1 = (
-        HandlerAwaitableSignalBarrierKeyGenerator.get_unique_barrier_key(
-            step_directory_creation_signal
-        )
+    HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
+    operation_id_2 = (
+        HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
     )
 
-    self.assertEqual(barrier_key_0, expected_barrier_key_0)
-    self.assertEqual(barrier_key_1, expected_barrier_key_1)
+    self.assertTrue(HandlerAwaitableSignalOperationIdGenerator.is_intialized())
+    self.assertEqual(operation_id_1, "1")
+    self.assertEqual(operation_id_2, "2")
 
 
 if __name__ == "__main__":

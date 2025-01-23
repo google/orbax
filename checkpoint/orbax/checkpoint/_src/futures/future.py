@@ -19,16 +19,71 @@ import time
 from typing import Any, Callable, Coroutine, Optional, Sequence
 
 from absl import logging
+import jax
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.multihost import multihost
 from typing_extensions import Protocol
 
 
-get_unique_barrier_key = (
-    synchronization.HandlerAwaitableSignalBarrierKeyGenerator.get_unique_barrier_key
+HandlerAwaitableSignal = synchronization.HandlerAwaitableSignal
+HandlerAwaitableSignalOperationIdGenerator = (
+    synchronization.HandlerAwaitableSignalOperationIdGenerator
 )
+is_intialized = HandlerAwaitableSignalOperationIdGenerator.is_intialized
 _SIGNAL_ACTION_SUCCESS = 'signal_action_success'
+
+
+def _get_unique_barrier_key(
+    signal: HandlerAwaitableSignal, operation_id: str
+) -> str:
+  """Returns a unique barrier key for the signal.
+
+  Args:
+    signal: The signal to generate a barrier key for.
+    operation_id: The operation id to use as a suffix for the barrier key.
+  """
+  return multihost.unique_barrier_key(signal.value, suffix=operation_id)
+
+
+def get_awaitable_signals_from_contract() -> Sequence[HandlerAwaitableSignal]:
+  """Gets the awaitable signals that may be sent for the current operation id."""
+  client = multihost.get_jax_distributed_client()
+  barrier_key = _get_unique_barrier_key(
+      HandlerAwaitableSignal.AWAITABLE_SIGNALS_CONTRACT,
+      HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id(),
+  )
+  try:
+    values_str = str(client.key_value_try_get(barrier_key))
+    return [HandlerAwaitableSignal(value) for value in values_str.split(',')]
+  except jax.errors.JaxRuntimeError:
+    # If the key is not found, then there are no awaitable signals yet.
+    return []
+
+
+def add_to_awaitable_signals_contract(
+    signals: Sequence[HandlerAwaitableSignal],
+):
+  """Adds awaitable signals to `AWAITABLE_SIGNALS_CONTRACT` for lower checkpointing layers to wait on.
+
+  These signals are added to the list of awaitable signals for the current
+  opertation id in `HandlerAwaitableSignalOperationIdGenerator`.
+
+  Args:
+    signals: The signals to add to the list of awaitable signals.
+  """
+  if not signals:
+    return
+
+  current_signals = list(get_awaitable_signals_from_contract())
+  current_signals.extend(signals)
+  keys = ','.join([current_signal.value for current_signal in current_signals])
+  client = multihost.get_jax_distributed_client()
+  barrier_key = _get_unique_barrier_key(
+      HandlerAwaitableSignal.AWAITABLE_SIGNALS_CONTRACT,
+      HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id(),
+  )
+  client.key_value_set(barrier_key, keys, allow_overwrite=True)
 
 
 class Future(Protocol):
@@ -108,8 +163,10 @@ class ThreadRaisingException(threading.Thread):
 class _SignalingThread(threading.Thread):
   """Thread that raises an exception if it encounters an error.
 
-  Waits for signals to be received before proceeding with the target function.
-  Then sends signals to indicate that the target function has completed.
+  Waits for signals to be received for the current operation id before
+  proceeding with the target function. Then sends signals to indicate that the
+  target function has completed with
+  same operation id.
   """
 
   _exception: Optional[Exception] = None
@@ -117,9 +174,10 @@ class _SignalingThread(threading.Thread):
   def __init__(
       self,
       *,
-      send_signals: list[synchronization.HandlerAwaitableSignal],
-      receive_signals: list[synchronization.HandlerAwaitableSignal],
+      send_signals: Sequence[HandlerAwaitableSignal],
+      receive_signals: Sequence[HandlerAwaitableSignal],
       timeout_secs: int = 600,
+      operation_id: str | None = None,
       **kwargs,
   ):
     """Constructor.
@@ -130,12 +188,19 @@ class _SignalingThread(threading.Thread):
       receive_signals: Signals to wait for before proceeding with the target
         function.
       timeout_secs: Timeout in seconds for waiting for signals.
+      operation_id: The operation id to use for the barrier keys. If None, the
+        current operation id is used.
       **kwargs: Keyword arguments passed to the base class.
     """
     super().__init__(**kwargs)
     self._send_signals = send_signals
     self._receive_signals = receive_signals
     self._timeout_secs = timeout_secs
+    # Capture the current operation id syncronously.
+    self._operation_id = (
+        operation_id
+        or HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
+    )
 
   def _wait_for_signals(self):
     """Waits for signals to be set."""
@@ -148,7 +213,7 @@ class _SignalingThread(threading.Thread):
           signal.value,
           self._timeout_secs,
       )
-      barrier_key = get_unique_barrier_key(signal)
+      barrier_key = _get_unique_barrier_key(signal, self._operation_id)
       client = multihost.get_jax_distributed_client()
       client.blocking_key_value_get(barrier_key, self._timeout_secs * 1000)
 
@@ -162,7 +227,7 @@ class _SignalingThread(threading.Thread):
           threading.current_thread().name,
           signal.value,
       )
-      barrier_key = get_unique_barrier_key(signal)
+      barrier_key = _get_unique_barrier_key(signal, self._operation_id)
       client = multihost.get_jax_distributed_client()
       client.key_value_set(barrier_key, _SIGNAL_ACTION_SUCCESS)
 
@@ -194,11 +259,10 @@ class CommitFuture(Future):
       coro: Coroutine[Any, Any, None],
       *,
       name: str | None = None,
-      send_signals: list[synchronization.HandlerAwaitableSignal] | None = None,
-      receive_signals: (
-          list[synchronization.HandlerAwaitableSignal] | None
-      ) = None,
+      send_signals: Sequence[HandlerAwaitableSignal] | None = None,
+      receive_signals: Sequence[HandlerAwaitableSignal] | None = None,
       timeout_secs: int = 600,
+      operation_id: str | None = None,
   ):
     """Constructor.
 
@@ -208,6 +272,8 @@ class CommitFuture(Future):
       send_signals: Signals to send to indicate that the commit has completed.
       receive_signals: Signals to wait for before proceeding with the commit.
       timeout_secs: Timeout in seconds for waiting for signals.
+      operation_id: The operation id to use for the barrier keys. If None, the
+        current operation id is used.
     """
     super().__init__()
     send_signals = send_signals or []
@@ -216,6 +282,7 @@ class CommitFuture(Future):
         send_signals=send_signals,
         receive_signals=receive_signals,
         timeout_secs=timeout_secs,
+        operation_id=operation_id,
         target=lambda: asyncio_utils.run_sync(coro),
         name=name,
     )
@@ -253,3 +320,53 @@ class CoroutineRunningFuture(Future):
 
   def result(self, timeout: Optional[int] = None) -> Any:
     return self._t.join(timeout=timeout)
+
+
+class CommitFutureAwaitingContractedSignals(Future):
+  """Represents the result of a background commit.
+
+  May send signals to indicate that the commit has completed. Waits for all
+  awaitable signals in the `AWAITABLE_SIGNALS_CONTRACT` to be set before
+  proceeding with the commit.
+  """
+
+  def __init__(
+      self,
+      coro: Coroutine[Any, Any, None],
+      *,
+      name: str | None = None,
+      send_signals: Sequence[HandlerAwaitableSignal] | None = None,
+      skip_if_not_initialized: bool = True,
+      timeout_secs: int = 600,
+      operation_id: str | None = None,
+  ):
+    """Constructor.
+
+    Synchronously gets all awaitable signals in the contract and waits to
+    receive them in background before proceeding with the commit.
+
+    Args:
+      coro: The coroutine to run.
+      name: The name of the thread.
+      send_signals: Signals to send to indicate that the commit has completed.
+      skip_if_not_initialized: If True, skip fetching signals if the
+        `HandlerAwaitableSignalOperationIdGenerator` is not initialized.
+      timeout_secs: Timeout in seconds for waiting for signals.
+      operation_id: The operation id to use for the barrier keys. If None, the
+        current operation id is used.
+    """
+    super().__init__()
+    receive_signals = []
+    if is_intialized() or not skip_if_not_initialized:
+      receive_signals = get_awaitable_signals_from_contract()
+    self._f = CommitFuture(
+        coro,
+        name=name,
+        send_signals=send_signals,
+        receive_signals=receive_signals,
+        timeout_secs=timeout_secs,
+        operation_id=operation_id,
+    )
+
+  def result(self, timeout: Optional[float] = None) -> Any:
+    return self._f.result(timeout=timeout)

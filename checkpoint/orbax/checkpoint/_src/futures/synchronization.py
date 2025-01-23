@@ -16,7 +16,6 @@
 
 import enum
 import itertools
-from orbax.checkpoint._src.multihost import multihost
 
 
 class HandlerAwaitableSignal(enum.Enum):
@@ -26,6 +25,8 @@ class HandlerAwaitableSignal(enum.Enum):
   `CheckpointHandler or below.`
 
   Attributes:
+    AWAITABLE_SIGNALS_CONTRACT: Contract that contains a list of signals that
+      may be sent and can be awaited by the handlers.
     STEP_DIRECTORY_CREATION: When recieved, indicates that the step directory
       has been created. The handler should not attempt to write files before the
       directory is created.
@@ -34,15 +35,16 @@ class HandlerAwaitableSignal(enum.Enum):
       directory is created.
   """
 
+  AWAITABLE_SIGNALS_CONTRACT = "awaitable_signals_contract"
   STEP_DIRECTORY_CREATION = "step_directory_creation"
   ITEM_DIRECTORY_CREATION = "item_directory_creation"
 
 
-class HandlerAwaitableSignalBarrierKeyGenerator:
-  """A unique barrier key generator for a `HandlerAwaitableSignal`."""
+class HandlerAwaitableSignalOperationIdGenerator:
+  """A unique operation id generator for `HandlerAwaitableSignal`."""
 
   _operation_id_counter = itertools.count()
-  _operation_id = None
+  _operation_id = next(_operation_id_counter)
 
   @classmethod
   def next_operation_id(cls) -> int:
@@ -51,20 +53,11 @@ class HandlerAwaitableSignalBarrierKeyGenerator:
     return cls._operation_id
 
   @classmethod
-  def get_unique_barrier_key(cls, signal: HandlerAwaitableSignal) -> str:
-    """Returns a unique barrier key for the signal.
+  def get_current_operation_id(cls) -> str:
+    """Returns the current operation id."""
+    return str(cls._operation_id)
 
-    Args:
-      signal: The signal to generate a barrier key for.
-
-    Raises:
-      ValueError: If `_operation_id` is not initialized.
-    """
-    if cls._operation_id is None:
-      raise ValueError(
-          "_operation_id is not initialized. Please call `next_operation_id()`"
-          " first."
-      )
-    return multihost.unique_barrier_key(
-        signal.value, suffix=str(cls._operation_id)
-    )
+  @classmethod
+  def is_intialized(cls) -> bool:
+    """Returns whether the operation id counter is initialized by calling `next_operation_id`."""
+    return cls._operation_id > 0
