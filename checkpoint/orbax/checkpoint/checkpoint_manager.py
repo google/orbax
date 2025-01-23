@@ -34,6 +34,7 @@ from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
@@ -157,6 +158,52 @@ class _FinalizeThread(threading.Thread):
       raise self.exception
 
 
+@dataclasses.dataclass
+class _ShouldSaveFnPolicy(save_decision_policy_lib.SaveDecisionPolicy):
+  """A policy that uses a user-provided should_save_fn."""
+
+  should_save_fn: Callable[[int, Optional[int]], bool]
+
+  def should_save(
+      self,
+      step: save_decision_policy_lib.StepInfo,
+      previous_steps: Sequence[save_decision_policy_lib.StepInfo],
+      *,
+      context: save_decision_policy_lib.DecisionContext,
+  ) -> bool:
+    return self.should_save_fn(
+        step.step, previous_steps[-1].step if previous_steps else None
+    )
+
+
+def _get_default_save_decision_policy(
+    options: CheckpointManagerOptions,
+) -> save_decision_policy_lib.SaveDecisionPolicy:
+  """Creates a default policy from CheckpointManagerOptions."""
+  save_interval_policies = []
+  if options.should_save_fn is not None:
+    save_interval_policies.append(_ShouldSaveFnPolicy(options.should_save_fn))
+    save_interval_policies.append(
+        save_decision_policy_lib.PreemptionCheckpointingPolicy()
+    )
+  else:
+    if options.save_interval_steps is not None:
+      save_interval_policies.append(
+          save_decision_policy_lib.FixedIntervalPolicy(
+              options.save_interval_steps
+          )
+      )
+    if options.save_on_steps is not None:
+      save_interval_policies.append(
+          save_decision_policy_lib.SpecificStepsPolicy(options.save_on_steps)
+      )
+    save_interval_policies.append(
+        save_decision_policy_lib.PreemptionCheckpointingPolicy()
+    )
+    save_interval_policies.append(save_decision_policy_lib.InitialSavePolicy())
+  return save_decision_policy_lib.AnySavePolicy(save_interval_policies)
+
+
 # TODO(b/268051457) Clean up when no longer depended upon by internal users.
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
   return isinstance(
@@ -264,6 +311,12 @@ class CheckpointManagerOptions:
   temporary_path_class:
     Optional. The concrete `atomicity_types.TemporaryPath` class to be used by
     the underlying `Checkpointer`.
+  save_decision_policy: An object used to determine when a checkpoint should be
+    saved. If provided, overrides any other options dealing with this subject,
+    including `save_interval_steps`, `save_on_steps`, and `should_save_fn`, and
+    is the sole means of determining when a checkpoint should be saved. If not
+    provided, these other options are used instead. Prefer to use this option
+    over others.
   """
 
   save_interval_steps: int = 1
@@ -293,6 +346,9 @@ class CheckpointManagerOptions:
   file_options: FileOptions = dataclasses.field(default_factory=FileOptions)
   save_root_metadata: bool = True
   temporary_path_class: Optional[Type[atomicity_types.TemporaryPath]] = None
+  save_decision_policy: Optional[
+      save_decision_policy_lib.SaveDecisionPolicy
+  ] = None
 
   def __post_init__(self):
     if self.best_mode not in ('min', 'max'):
@@ -576,6 +632,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._options = options or CheckpointManagerOptions()
     self._multiprocessing_options = self._options.multiprocessing_options
+    self._save_decision_policy = (
+        self._options.save_decision_policy
+        or _get_default_save_decision_policy(self._options)
+    )
 
     if self._options.best_mode not in ['min', 'max']:
       raise ValueError('`best_mode` must be one of: "min", "max"')
@@ -992,32 +1052,25 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if self._options.read_only:
       logging.warning('%s is read only, save will be skipped', self.directory)
       return False
-    if self.reached_preemption(step):
-      return True
     last_checkpoint_step = self.latest_step()
     # Ensure current step is between the last step and next step (accounting for
-    # save interval). The `last_checkpoint_step` may not be initialized, in
-    # which case we should save. Otherwise, step must fall on the specified
-    # save interval. This condition accounts for the possibility of saving
-    # on preemption, in which case we want to maintain the same save period as
-    # if preemption had not happened.
+    # save interval).
     if last_checkpoint_step is not None and last_checkpoint_step >= step:
       return False
-    # If present then prefer should_save_fn over other 'save_*' options.
-    if self._options.should_save_fn is not None:
-      logging.log_every_n(
-          logging.INFO,
-          'CheckpointManagerOptions.should_save_fn is available, following save'
-          ' options will be ignored: save_interval_steps=%s and'
-          ' save_on_steps=%s',
-          500,
-          self._options.save_interval_steps,
-          self._options.save_on_steps,
-      )
-      return self._options.should_save_fn(step, last_checkpoint_step)
-    return last_checkpoint_step is None or (
-        step % self._options.save_interval_steps == 0
-        or step in self._options.save_on_steps
+
+    is_saving_in_progress = self.is_saving_in_progress()
+    reached_preemption = self.reached_preemption(step)
+    previous_step_infos = [
+        save_decision_policy_lib.StepInfo(step=ckpt.step)
+        for ckpt in self._checkpoints
+    ]
+    current_step_info = save_decision_policy_lib.StepInfo(step=step)
+    context = save_decision_policy_lib.DecisionContext(
+        is_saving_in_progress=is_saving_in_progress,
+        reached_preemption=reached_preemption,
+    )
+    return self._save_decision_policy.should_save(
+        current_step_info, previous_steps=previous_step_infos, context=context
     )
 
   def _get_save_directory(

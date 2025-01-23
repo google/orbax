@@ -16,6 +16,7 @@ py_library(
         ":args",
         ":arrays",
         ":checkpoint_manager",
+        ":checkpoint_managers",
         ":checkpoint_utils",
         ":checkpointers",
         ":future",
@@ -130,6 +131,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:step",
         "//checkpoint/orbax/checkpoint/_src/path:utils",
         "//third_party/py/jax/experimental/array_serialization:serialization",
+        "//orbax/checkpoint/_src/checkpoint_managers:save_decision_policy",
         "//orbax/checkpoint/_src/checkpointers:abstract_checkpointer",
         "//orbax/checkpoint/_src/checkpointers:async_checkpointer",
         "//orbax/checkpoint/_src/handlers:handler_registration",
@@ -348,5 +350,15 @@ py_library(
     deps = [
         "//checkpoint/orbax/checkpoint/_src/arrays:abstract_arrays",
         "//checkpoint/orbax/checkpoint/_src/arrays:types",
+    ],
+)
+
+py_library(
+    name = "checkpoint_managers",
+    srcs = ["checkpoint_managers.py"],
+    deps = [
+        ":abstract_checkpoint_manager",
+        ":checkpoint_manager",
+        "//orbax/checkpoint/_src/checkpoint_managers:save_decision_policy",
     ],
 )
