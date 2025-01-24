@@ -8,7 +8,6 @@ licenses(["notice"])
 py_library(
     name = "checkpoint",
     srcs = ["__init__.py"],
-    lib_rule = pytype_strict_library,
     visibility = ["//visibility:public"],
     deps = [
         ":abstract_checkpoint_manager",

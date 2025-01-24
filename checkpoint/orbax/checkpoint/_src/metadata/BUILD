@@ -162,9 +162,6 @@ py_library(
 py_library(
     name = "array_metadata_store",
     srcs = ["array_metadata_store.py"],
-    visibility = default_visibility + [
-        "//learning/deepmind/jax/roc/formats/roc_orbax:__subpackages__",
-    ],
     deps = [
         ":array_metadata",
         "//checkpoint/orbax/checkpoint/_src/multihost",
