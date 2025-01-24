@@ -883,6 +883,68 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     self.assertIsNotNone(step_metadata.item_metadata['state'])
 
+  def test_metadata_with_temporary_directories(self):
+    handler = CompositeCheckpointHandler()
+    handler.save(
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave({'a': 1, 'b': 2}),
+        ),
+    )
+
+    # Make sure 'state' tmp dir is created.
+    self.assertFalse((self.directory / 'state').exists())
+    existing_items = handler._existing_items(self.directory)
+    item_names = [
+        item_dir.split(step.TMP_DIR_SUFFIX, 1)[0]
+        for item_dir in existing_items
+    ]
+    self.assertIn('state', item_names)
+
+    with self.assertRaises(ValueError):
+      handler.metadata(self.directory)
+
+    handler.finalize(self.directory)
+    step_metadata = handler.metadata(self.directory)
+    self.assertDictEqual(
+        step_metadata.item_handlers,
+        {
+            'state': StandardCheckpointHandler().typestr(),
+        }
+    )
+    self.assertIsNotNone(step_metadata.item_metadata['state'])
+
+  def test_metadata_from_temporary_paths(self):
+    handler = CompositeCheckpointHandler()
+    handler.save(
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave({'a': 1, 'b': 2}),
+        ),
+    )
+
+    # Make sure 'state' temp dir is created.
+    self.assertFalse((self.directory / 'state').exists())
+    existing_items = handler._existing_items(self.directory)
+    item_names = [
+        item_dir.split(step.TMP_DIR_SUFFIX, 1)[0]
+        for item_dir in existing_items
+    ]
+    self.assertIn('state', item_names)
+
+    step_metadata = handler.metadata_from_temporary_paths(self.directory)
+    self.assertDictEqual(
+        step_metadata.item_handlers,
+        {
+            'state': StandardCheckpointHandler().typestr(),
+        },
+    )
+
+    handler.finalize(self.directory)
+    # Temporary files are absent after finalize.
+    step_metadata = handler.metadata_from_temporary_paths(self.directory)
+    self.assertEmpty(step_metadata.item_handlers)
+
   def test_finalize(self):
     state_handler = mock.create_autospec(StandardCheckpointHandler)
     metadata_handler = mock.create_autospec(JsonCheckpointHandler)

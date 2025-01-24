@@ -282,7 +282,9 @@ class Checkpointer(
     ):
       try:
         # get item_handlers from handler
-        partial_metadata: StepMetadata = self._handler.metadata(directory)
+        partial_metadata: StepMetadata = (
+            self._handler.metadata_from_temporary_paths(directory)
+        )
       except (FileNotFoundError, NotImplementedError, ValueError, TypeError):
         logging.warning(
             'Failed to get per-item metadata from directory %s. Handler types '
