@@ -33,7 +33,7 @@ dependencies = [
 dynamic = ['version']
 
 [tool.flit.module]
-name = "orbax.export"
+name = "orbax.experimental.model.core.python"
 
 [project.urls]
 homepage = 'http://github.com/google/orbax'
