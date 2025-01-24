@@ -1681,17 +1681,6 @@ class _TypeHandlerRegistryImpl(types.TypeHandlerRegistry):
       return False
 
 
-GLOBAL_TYPE_HANDLER_REGISTRY = _TypeHandlerRegistryImpl(
-    (int, ScalarHandler()),
-    (float, ScalarHandler()),
-    (bytes, ScalarHandler()),
-    (np.number, ScalarHandler()),
-    (np.ndarray, NumpyHandler()),
-    (jax.Array, ArrayHandler()),
-    (str, StringHandler()),
-)
-
-
 def create_type_handler_registry(
     *handlers: Tuple[Any, types.TypeHandler]
 ) -> types.TypeHandlerRegistry:
@@ -1704,7 +1693,20 @@ def create_type_handler_registry(
   Returns:
     A TypeHandlerRegistry instance with only the specified handlers.
   """
+  if not handlers:
+    handlers = (
+        (int, ScalarHandler()),
+        (float, ScalarHandler()),
+        (bytes, ScalarHandler()),
+        (np.number, ScalarHandler()),
+        (np.ndarray, NumpyHandler()),
+        (jax.Array, ArrayHandler()),
+        (str, StringHandler()),
+    )
   return _TypeHandlerRegistryImpl(*handlers)
+
+
+GLOBAL_TYPE_HANDLER_REGISTRY = create_type_handler_registry()
 
 
 def register_type_handler(

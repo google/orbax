@@ -313,10 +313,63 @@ def get_replica_slices(
   )
 
 
+def get_unique_shards(
+    arr: jax.Array,
+    replica_id: int | None,
+) -> list[jax.Shard]:
+  """Returns the list of jax.Shard that should be transferred to host memory."""
+  shards_info = ', '.join([
+      f'Shard(index={shard.index}, replica_id={shard.replica_id})'
+      for shard in arr.addressable_shards
+  ])
+  logging.vlog(
+      1,
+      '[process=%d] array shards: replica_id=%d, %s',
+      multihost.process_index(),
+      replica_id,
+      shards_info,
+  )
+  if replica_id is None:
+    replica_id = arr.addressable_shards[0].replica_id
+  return [
+      shard
+      for shard in arr.addressable_shards
+      if shard.replica_id == replica_id
+  ]
+
+
+@dataclasses.dataclass
+class _Shard:
+  index: Index
+  data: np.ndarray | jax.Array
+
+
+def _transfer_shard_to_host(
+    shard: jax.Shard,
+    enable_pinned_host_transfer: bool,  # pylint: disable=unused-argument
+) -> _Shard:
+  """Asynchronously transfers shard data to host memory. Does not block."""
+  data = shard.data
+  # has_pinned_host = any(
+  #     m.kind == 'pinned_host' for m in shard.device.addressable_memories()
+  # )
+  # if (
+  #     False
+  # ):
+  #   # If available, transfer to pinned host memory
+  #   sharding = jax.sharding.SingleDeviceSharding(
+  #       shard.device, memory_kind='pinned_host'
+  #   )
+  #   data = jax.device_put(data, sharding)
+  # else:
+  data.copy_to_host_async()
+  return _Shard(shard.index, data)
+
+
 def transfer_arrays_to_host(
     arrays: Sequence[jax.Array],
     replica_id: Optional[int],
-    use_replica_parallel: bool,
+    use_replica_parallel: bool,  # pylint: disable=unused-argument
     *,
     enable_pinned_host_transfer: bool = True,
 ) -> Sequence[ReplicaSlices]:
@@ -339,57 +392,29 @@ def transfer_arrays_to_host(
     ReplicaSlices objects, in host memory.
   """
 
-  def use_pinned_host_transfer(device: jax.Device):
-    has_pinned_host = any(
-        m.kind == 'pinned_host' for m in device.addressable_memories()
-    )
-    return (
-        enable_pinned_host_transfer
-        and has_pinned_host
-    )
+  transferred_shards_per_array = []
+  for arr in arrays:
+    shards_to_transfer = get_unique_shards(arr, replica_id)
+    transferred_shards = [
+        _transfer_shard_to_host(shard, enable_pinned_host_transfer)
+        for shard in shards_to_transfer
+    ]
+    transferred_shards_per_array.append(transferred_shards)
 
-  def async_transfer_slice(
-      rslice: ReplicaSlice,
-  ) -> tuple[ReplicaSlice, jax.Array]:
-    assert not rslice.is_on_host
-    data = rslice.data()
-    assert isinstance(data, jax.Array)
-    device = data.device
-    # Start the asynchronous device-to-host copy
-    if use_pinned_host_transfer(device):
-      # If available, transfer to pinned host memory
-      data = jax.device_put(
-          data,
-          jax.sharding.SingleDeviceSharding(device, memory_kind='pinned_host'),
-      )
-    else:
-      data.copy_to_host_async()
-    return rslice, data
-
-  # Gather the replica slices to be saved for each array.
-  rslices_per_array = [
-      get_replica_slices(arr, replica_id, use_replica_parallel)
-      for arr in arrays
-  ]
-  # Kick off transfers for all replica slices to be saved.
-  transfers_per_array = [
-      [async_transfer_slice(rslice) for rslice in rslices.replica_slices]
-      for rslices in rslices_per_array
-  ]
-  # Wait for all the transferred data to be ready.
   return [
-      dataclasses.replace(
-          rslices,
+      ReplicaSlices(
+          global_shape=arr.shape,
+          local_shape=arr.sharding.shard_shape(arr.shape),
+          sharding=arr.sharding,
+          dtype=arr.dtype,
           is_on_host=True,
           replica_slices=[
-              dataclasses.replace(
-                  rslice_on_device,
-                  # Conversion to numpy arrays forces block_until_ready.
-                  unsliced_data=np.asarray(data),
+              ReplicaSlice(
+                  index=shard.index,
+                  unsliced_data=np.asarray(shard.data),
                   slice_args=None,
-              )
-              for rslice_on_device, data in transfers
+              ) for shard in transferred_shards
           ],
       )
-      for rslices, transfers in zip(rslices_per_array, transfers_per_array)
+      for arr, transferred_shards in zip(arrays, transferred_shards_per_array)
   ]
