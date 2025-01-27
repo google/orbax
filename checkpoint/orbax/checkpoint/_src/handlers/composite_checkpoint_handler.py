@@ -59,6 +59,7 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src import composite
 from orbax.checkpoint._src.futures import future
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
@@ -82,12 +83,14 @@ ProtoSaveArgs = proto_checkpoint_handler.ProtoSaveArgs
 ProtoRestoreArgs = proto_checkpoint_handler.ProtoRestoreArgs
 AsyncSaveCoroutine = Coroutine[Any, Any, Optional[List[Future]]]
 Composite = composite.Composite
+HandlerAwaitableSignal = synchronization.HandlerAwaitableSignal
 
 
 _CONCURRENT_WORKERS = 3
 
 DESCRIPTOR_ITEM_NAME = 'descriptor'
 RESERVED_ITEM_NAMES = [DESCRIPTOR_ITEM_NAME]
+_DIRECTORY_CREATION_SIGNALS = [HandlerAwaitableSignal.ITEM_DIRECTORY_CREATION]
 
 
 # TODO(b/295899152) Clean up when users are all registering `CheckpointArgs`.
@@ -197,6 +200,7 @@ class CompositeOptions:
   )
   temporary_path_class: Optional[Type[atomicity_types.TemporaryPath]] = None
   file_options: Optional[options_lib.FileOptions] = None
+  async_options: Optional[options_lib.AsyncOptions] = None
 
 
 def _get_unique_registered_items_and_handlers(
@@ -496,6 +500,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
     self._temporary_path_class = composite_options.temporary_path_class
     self._file_options = composite_options.file_options
+    self._async_options = (
+        composite_options.async_options or options_lib.AsyncOptions()
+    )
 
     logging.info(
         'Initialized registry %s.',
@@ -669,10 +676,20 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     self._current_temporary_paths = self._get_item_temporary_paths(
         directory, args
     )
-    await atomicity.create_all(
-        list(self._current_temporary_paths.values()),
-        multiprocessing_options=self._multiprocessing_options,
-    )
+    commit_futures = []
+    if self._async_options.create_directories_asynchronously:
+      commit_futures.append(
+          atomicity.create_all_async(
+              list(self._current_temporary_paths.values()),
+              completion_signals=_DIRECTORY_CREATION_SIGNALS,
+              multiprocessing_options=self._multiprocessing_options,
+          )
+      )
+    else:
+      await atomicity.create_all(
+          list(self._current_temporary_paths.values()),
+          multiprocessing_options=self._multiprocessing_options,
+      )
     save_ops = []
     for item_name, item_directory in self._current_temporary_paths.items():
       arg = args[item_name]
@@ -684,8 +701,10 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         # Blocking save.
         handler.save(item_directory.get(), args=arg)
 
-    commit_futures = jax.tree.flatten(await asyncio.gather(*save_ops))[0]
-    return commit_futures or []
+    commit_futures.extend(
+        jax.tree.flatten(await asyncio.gather(*save_ops))[0] or []
+    )
+    return commit_futures
 
   def save(self, *args, **kwargs):
     """Saves synchronously."""
@@ -717,11 +736,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     }
 
   def _existing_items(self, directory: epath.Path) -> List[str]:
-    return [
-        p.name
-        for p in directory.iterdir()
-        if p.is_dir()
-    ]
+    return [p.name for p in directory.iterdir() if p.is_dir()]
 
   def restore(
       self,
@@ -905,9 +920,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
     if get_item_metadata:
       item_metadata = CompositeItemMetadata(
-          **self._get_item_metadata(
-              directory, item_names, items_to_handlers
-          )
+          **self._get_item_metadata(directory, item_names, items_to_handlers)
       )
     else:
       item_metadata = None
@@ -959,7 +972,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       existing_items = []
       logging.warning(
           'Failed to get existing items from directory %s. Will use items '
-          'provided during initialization.', directory,
+          'provided during initialization.',
+          directory,
       )
 
     for item_tmp_dir in self._current_temporary_paths.values():

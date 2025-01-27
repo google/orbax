@@ -77,6 +77,8 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
         "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//orbax/checkpoint/_src/futures:future",
+        "//orbax/checkpoint/_src/futures:synchronization",
     ],
 )
 

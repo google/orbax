@@ -62,6 +62,8 @@ from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import options as options_lib
+from orbax.checkpoint._src.futures import future
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
@@ -453,6 +455,76 @@ async def create_all(
   )
   jax.monitoring.record_event_duration_secs(
       '/jax/orbax/write/directory_creation_secs', time.time() - start
+  )
+
+
+def create_all_async(
+    paths: Sequence[atomicity_types.TemporaryPath],
+    completion_signals: Sequence[synchronization.HandlerAwaitableSignal],
+    *,
+    multiprocessing_options: Optional[
+        options_lib.MultiprocessingOptions
+    ] = None,
+) -> future.Future:
+  """Creates all temporary paths in parallel asynchronously.
+
+  Args:
+    paths: Sequence of temporary paths to create.
+    completion_signals: Sequence of signals to send when all paths are created.
+      Also adds them to the awaitable signals contract.
+    multiprocessing_options: MultiprocessingOptions to use for barrier syncs and
+      primary host.
+
+  Returns:
+    A future that which sends the completion signals when all paths are created.
+  """
+  multiprocessing_options = (
+      multiprocessing_options or options_lib.MultiprocessingOptions()
+  )
+  barrier_sync_key_prefix = multiprocessing_options.barrier_sync_key_prefix
+  active_processes = multiprocessing_options.active_processes
+  primary_host = multiprocessing_options.primary_host
+  # Sync for existence check to complete on all hosts before directory
+  # creation starts.
+  multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'create_tmp_directory:post_existence_check',
+          prefix=barrier_sync_key_prefix,
+      ),
+      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+      processes=active_processes,
+  )
+
+  commit_future = future.NoopFuture()
+  if multihost.is_primary_host(primary_host):
+    commit_future = future.CommitFutureAwaitingContractedSignals(
+        _create_paths(paths),
+        send_signals=completion_signals,
+        timeout_secs=multihost.DIRECTORY_CREATION_TIMEOUT,
+    )
+    future.add_to_awaitable_signals_contract(completion_signals)
+
+  # Sync to enusre that all hosts have the same awaitable signals contract.
+  multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'add_to_awaitable_signals_contract',
+          prefix=barrier_sync_key_prefix,
+      ),
+      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+      processes=active_processes,
+  )
+  return commit_future
+
+
+async def _create_paths(
+    paths: Sequence[atomicity_types.TemporaryPath],
+):
+  """Creates all temporary paths in parallel."""
+  start = time.time()
+  await asyncio.gather(*[path.create() for path in paths])
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/write/directory_creation_secs',
+      time.time() - start,
   )
 
 

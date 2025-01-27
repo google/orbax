@@ -26,6 +26,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_defaults",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
         "//orbax/checkpoint/_src/futures:future",
+        "//orbax/checkpoint/_src/futures:synchronization",
     ],
 )
 
