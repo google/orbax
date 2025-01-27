@@ -48,9 +48,6 @@ class TestJsonCheckpointHandler(JsonCheckpointHandler):
     time.sleep(5)
     return super()._save_fn(x, directory)
 
-  def close(self):
-    self._executor.shutdown(wait=True)
-
 
 class JsonCheckpointHandlerTest(absltest.TestCase):
 

@@ -96,6 +96,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
         "//orbax/checkpoint:utils",
         "//orbax/checkpoint/_src/futures:future",
+        "//orbax/checkpoint/_src/futures:synchronization",
         "//orbax/checkpoint/_src/metadata:array_metadata_store",
     ],
 )

@@ -17,9 +17,7 @@
 Implementation of CheckpointHandler interface.
 """
 
-from concurrent import futures
 import dataclasses
-import functools
 from typing import List, Optional, Type
 
 from etils import epath
@@ -56,7 +54,6 @@ class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """
     self._filename = filename
     self._primary_host = multiprocessing_options.primary_host
-    self._executor = futures.ThreadPoolExecutor(max_workers=1)
 
   async def async_save(
       self,
@@ -77,13 +74,16 @@ class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if args is not None:
       item = args.item
 
-    def _save_fn(x):
+    async def _save_fn(x):
       if utils.is_primary_host(self._primary_host):
         path = directory / self._filename
-        return path.write_text(text_format.MessageToString(x))
-      return 0
+        path.write_text(text_format.MessageToString(x))
 
-    return [self._executor.submit(functools.partial(_save_fn, item))]
+    return [
+        future.CommitFutureAwaitingContractedSignals(
+            _save_fn(item), name="proto_ch_save"
+        )
+    ]
 
   def save(self, *args, **kwargs):
     """Saves the provided item."""
@@ -121,9 +121,6 @@ class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       item = args.item
     path = directory / self._filename
     return text_format.Parse(path.read_text(), item())
-
-  def close(self):
-    self._executor.shutdown()
 
 
 @register_with_handler(ProtoCheckpointHandler, for_save=True)

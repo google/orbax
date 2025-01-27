@@ -22,7 +22,6 @@ customized, and is delegated to the `TypeHandler` class.
 from __future__ import annotations
 
 import asyncio
-from concurrent import futures
 import dataclasses
 import functools
 import json
@@ -40,6 +39,7 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
@@ -329,10 +329,6 @@ class BasePyTreeCheckpointHandler(
     jax.monitoring.record_event(
         '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
     )
-
-    self._thread_pool = futures.ThreadPoolExecutor(
-        max_workers=3, thread_name_prefix='base_pytree_ch'
-    )
     logging.info(
         'Created BasePyTreeCheckpointHandler: pytree_metadata_options=%s,'
         ' array_metadata_store=%s',
@@ -493,8 +489,11 @@ class BasePyTreeCheckpointHandler(
 
     save_futures = []
     if multihost.is_primary_host(self._primary_host):
+      operation_id = (
+          synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
+      )
       save_futures.append(
-          future.CoroutineRunningFuture(
+          future.CommitFuture(
               self._write_metadata_after_commits(
                   commit_futures,
                   checkpoint_dir=directory,
@@ -502,6 +501,7 @@ class BasePyTreeCheckpointHandler(
                   save_args=save_args,
                   custom_metadata=custom_metadata,
                   use_zarr3=self._use_zarr3,
+                  operation_id=operation_id,
               ),
               name='write_metadata_after_commits',
           )
@@ -817,7 +817,7 @@ class BasePyTreeCheckpointHandler(
       custom_metadata: tree_types.JsonType | None = None,
       use_zarr3: bool = False,
   ) -> future.Future:
-    def _save_fn(param_infos):
+    async def _save_fn(param_infos):
       if utils.is_primary_host(self._primary_host):
         metadata_write_start_time = time.time()
         path = directory / PYTREE_METADATA_FILE
@@ -839,9 +839,10 @@ class BasePyTreeCheckpointHandler(
             '/jax/checkpoint/write/async/metadata_write_duration_secs',
             time.time() - metadata_write_start_time,
         )
-      return 0
 
-    return self._thread_pool.submit(_save_fn, param_infos)
+    return future.CommitFuture(
+        _save_fn(param_infos),
+    )
 
   async def _write_metadata_after_commits(
       self,
@@ -852,6 +853,7 @@ class BasePyTreeCheckpointHandler(
       save_args: PyTree,
       custom_metadata: tree_types.JsonType | None = None,
       use_zarr3: bool,
+      operation_id: str | None = None,
   ) -> None:
     if not utils.is_primary_host(self._primary_host):
       return
@@ -869,12 +871,20 @@ class BasePyTreeCheckpointHandler(
       param_infos = await self._get_param_infos_with_write_shape(
           param_infos, checkpoint_dir, self._array_metadata_store
       )
-    metadata_write_future = self._write_metadata_file(
-        checkpoint_dir,
-        param_infos=param_infos,
-        save_args=save_args,
-        custom_metadata=custom_metadata,
-        use_zarr3=use_zarr3,
+
+    async def metadata_coro():
+      self._write_metadata_file(
+          checkpoint_dir,
+          param_infos=param_infos,
+          save_args=save_args,
+          custom_metadata=custom_metadata,
+          use_zarr3=use_zarr3,
+      ).result()
+
+    metadata_write_future = future.CommitFutureAwaitingContractedSignals(
+        metadata_coro(),
+        name='write_metadata_file',
+        operation_id=operation_id,
     )
     await asyncio.to_thread(metadata_write_future.result)
 
@@ -996,10 +1006,6 @@ class BasePyTreeCheckpointHandler(
       await asyncio.gather(*finalize_coros)
 
     asyncio_utils.run_sync(_fn())
-
-  def close(self):
-    """Closes the handler. Called automatically by Checkpointer."""
-    self._thread_pool.shutdown()
 
 
 @register_with_handler(BasePyTreeCheckpointHandler, for_save=True)

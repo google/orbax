@@ -19,7 +19,6 @@ Implementation of CheckpointHandler interface.
 
 from __future__ import annotations
 
-from concurrent import futures
 import dataclasses
 import json
 from typing import Any, List, Mapping, Optional
@@ -54,15 +53,11 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """
     self._filename = filename or 'metadata'
     self._primary_host = multiprocessing_options.primary_host
-    self._executor = futures.ThreadPoolExecutor(
-        max_workers=1, thread_name_prefix='json_ch'
-    )
 
-  def _save_fn(self, x, directory):
+  async def _save_fn(self, x, directory):
     if utils.is_primary_host(self._primary_host):
       path = directory / self._filename
       path.write_text(json.dumps(x))
-    return 0
 
   async def async_save(
       self,
@@ -87,7 +82,11 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       )
     if args is not None:
       item = args.item
-    return [self._executor.submit(self._save_fn, item, directory)]
+    return [
+        future.CommitFutureAwaitingContractedSignals(
+            self._save_fn(item, directory), name='json_ch_save'
+        )
+    ]
 
   def save(
       self,
@@ -130,9 +129,6 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if not path.exists():
       raise FileNotFoundError(f'File {path} not found.')
     return json.loads(path.read_text())
-
-  def close(self):
-    self._executor.shutdown()
 
 
 @register_with_handler(JsonCheckpointHandler, for_save=True)
