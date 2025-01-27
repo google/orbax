@@ -112,7 +112,6 @@ py_library(
     name = "checkpoint_manager",
     srcs = ["checkpoint_manager.py"],
     srcs_version = "PY3",
-    tags = ["ignore_for_dep=//orbax/checkpoint/google:storage_configuration_alerter"],
     deps = [
         ":abstract_checkpoint_manager",
         ":args",
