@@ -1,7 +1,4 @@
-package(
-    default_applicable_licenses = ["//:package_license"],
-    default_visibility = ["//visibility:public"],
-)
+package(default_visibility = ["//visibility:public"])
 
 py_library(
     name = "types",

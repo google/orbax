@@ -1,7 +1,4 @@
-package(
-    default_applicable_licenses = ["//:package_license"],
-    default_visibility = ["//visibility:public"],
-)
+package(default_visibility = ["//visibility:public"])
 
 filegroup(
     name = "aggregate_checkpoints",
