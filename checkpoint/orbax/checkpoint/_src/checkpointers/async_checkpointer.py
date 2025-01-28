@@ -28,6 +28,7 @@ from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.checkpointers import checkpointer
 from orbax.checkpoint._src.futures import future
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.multihost import multihost
@@ -37,6 +38,9 @@ from orbax.checkpoint._src.path import atomicity_types
 
 
 BarrierSyncFn = multihost.BarrierSyncFn
+_DIRECTORY_CREATION_SIGNALS = [
+    synchronization.HandlerAwaitableSignal.STEP_DIRECTORY_CREATION
+]
 
 
 def _on_commit_callback(
@@ -296,6 +300,9 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     self._primary_host = multiprocessing_options.primary_host
     self._active_processes = multiprocessing_options.active_processes
     self._post_finalization_callback = async_options.post_finalization_callback
+    self._create_directories_asynchronously = (
+        async_options.create_directories_asynchronously
+    )
     barrier_sync_key_prefix = (
         ''
         if multiprocessing_options.barrier_sync_key_prefix is None
@@ -322,6 +329,21 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         primary_host=multiprocessing_options.primary_host,
         barrier_sync_key_prefix=barrier_sync_key_prefix,
     )
+    self._multiprocessing_options = multiprocessing_options
+
+  def synchronize_next_awaitable_signal_operation_id(self):
+    # Synchronize next operation id if async directory creation is enabled
+    # across all hosts.
+    synchronization.HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
+
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'next_awaitable_signal_operation_id:sync',
+            prefix=self._barrier_sync_key_prefix,
+        ),
+        timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+        processes=self._active_processes,
+    )
 
   async def _save(
       self, directory: epath.PathLike, *args, force: bool = False, **kwargs
@@ -329,6 +351,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     checkpoint_start_time = time.time()
     directory = epath.Path(directory)
     self.wait_until_finished()
+    if self._create_directories_asynchronously:
+      self.synchronize_next_awaitable_signal_operation_id()
 
     jax.monitoring.record_event('/jax/orbax/write/async/start')
     logging.info(
@@ -350,13 +374,26 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       else:
         raise ValueError(f'Destination {directory} already exists.')
 
-    tmpdir = await self.create_temporary_path(directory)
+    commit_ops = []
+    tmpdir = self.get_temporary_path(directory)
+    if self._create_directories_asynchronously:
+      commit_ops.append(
+          atomicity.create_all_async(
+              [tmpdir],
+              completion_signals=_DIRECTORY_CREATION_SIGNALS,
+              multiprocessing_options=self._multiprocessing_options,
+          )
+      )
+    else:
+      await self.create_temporary_path(tmpdir)
     # Run copy ops.
     # Try to save using new CheckpointArgs API if supported by the handler.
     ckpt_args = checkpointer.construct_checkpoint_args(
         self._handler, True, *args, **kwargs
     )
-    commit_ops = await self._handler.async_save(tmpdir.get(), args=ckpt_args)
+    commit_ops.extend(
+        await self._handler.async_save(tmpdir.get(), args=ckpt_args) or []
+    )
     commit_ops, _ = jax.tree.flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
 

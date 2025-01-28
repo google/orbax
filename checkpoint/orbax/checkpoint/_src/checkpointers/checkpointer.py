@@ -126,6 +126,11 @@ class Checkpointer(
     self._barrier_sync_key_prefix = (
         multiprocessing_options.barrier_sync_key_prefix
     )
+    self._multiprocessing_options = options_lib.MultiprocessingOptions(
+        primary_host=self._primary_host,
+        active_processes=self._active_processes,
+        barrier_sync_key_prefix=self._barrier_sync_key_prefix,
+    )
     self._file_options = file_options
     self._temporary_path_class = temporary_path_class
 
@@ -139,28 +144,28 @@ class Checkpointer(
 
     jax.monitoring.record_event('/jax/orbax/checkpointer/init')
 
-  async def create_temporary_path(
+  def get_temporary_path(
       self, directory: epath.Path
   ) -> atomicity_types.TemporaryPath:
     temporary_path_class = (
         self._temporary_path_class
         or atomicity_defaults.get_default_temporary_path_class(directory)
     )
-    multiprocessing_options = options_lib.MultiprocessingOptions(
-        primary_host=self._primary_host,
-        active_processes=self._active_processes,
-        barrier_sync_key_prefix=self._barrier_sync_key_prefix,
-    )
     tmpdir = temporary_path_class.from_final(
         directory,
         checkpoint_metadata_store=self._metadata_store,
-        multiprocessing_options=multiprocessing_options,
+        multiprocessing_options=self._multiprocessing_options,
         file_options=self._file_options,
     )
-    await atomicity.create_all(
-        [tmpdir], multiprocessing_options=multiprocessing_options
-    )
     return tmpdir
+
+  async def create_temporary_path(
+      self, temporary_path: atomicity_types.TemporaryPath
+  ):
+    await atomicity.create_all(
+        [temporary_path],
+        multiprocessing_options=self._multiprocessing_options,
+    )
 
   def save(
       self,
@@ -206,8 +211,9 @@ class Checkpointer(
       else:
         raise ValueError(f'Destination {directory} already exists.')
     ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)
+    tmpdir = self.get_temporary_path(directory)
     # tmpdir creation also does an initial StepMetadata save.
-    tmpdir = asyncio_utils.run_sync(self.create_temporary_path(directory))
+    asyncio_utils.run_sync(self.create_temporary_path(tmpdir))
     self._handler.save(tmpdir.get(), args=ckpt_args)
     if utils.is_primary_host(self._primary_host):
       # Update StepMetadata after the handler save is complete. (blocking write)

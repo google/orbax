@@ -24,6 +24,8 @@ whether or not to perform a save at a particular step.
 - `CommitFutureAwaitDirectorySignals`, `CommitFuture` and
 `HandlerAwaitableSignal` for signalling between Checkpointing layers to enable
 async directory creation.
+- Added `AsyncOptions.create_directories_asynchronously` flag to enable creating
+directories asynchronously.
 - A policy that allows for checkpointing as often as possible, as long as a
 save is not already in progress (continuous checkpointing).
 - User-provided custom PyTree metadata.
