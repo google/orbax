@@ -184,7 +184,10 @@ py_test(
     name = "proto_checkpoint_handler_test",
     srcs = ["proto_checkpoint_handler_test.py"],
     python_version = "PY3",
-    deps = [":proto_checkpoint_handler"],
+    deps = [
+        ":proto_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/proto/testing:foo_py_pb2",
+    ],
 )
 
 py_library(

@@ -7,7 +7,7 @@ py_library(
     deps = [
         "//checkpoint/orbax/checkpoint/_src/arrays:subchunking",
         "//checkpoint/orbax/checkpoint/_src/arrays:types",
-        "//orbax/checkpoint/_src/metadata:array_metadata",
+        "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata",
     ],
 )
 
