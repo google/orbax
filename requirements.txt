@@ -27,3 +27,4 @@ tensorstore
 humanize
 flax
 typing_extensions
+ml_dtypes

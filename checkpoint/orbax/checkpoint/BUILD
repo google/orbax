@@ -266,7 +266,6 @@ py_test(
         ":test_utils",
         "//checkpoint/orbax/checkpoint/_src/handlers:pytree_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
-        "//third_party/py/ml_dtypes",
         "//orbax/checkpoint/_src/handlers:standard_checkpoint_handler_test_utils",
     ],
 )
