@@ -63,6 +63,7 @@ from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
+from orbax.checkpoint._src.handlers import handler_type_registry
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import step_metadata_serialization
@@ -776,18 +777,29 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
     if args is None or not args.items():
       composite_args_items = {}
+      item_handlers = None
       for item_name in existing_items:
         # Skip reserved items (they were not specifically requested).
         if item_name in RESERVED_ITEM_NAMES:
           continue
 
         if item_name not in items_to_handlers:
-          raise KeyError(
-              f'Item "{item_name}" was found in the checkpoint, but could not'
-              ' be restored. Please provide a `CheckpointHandlerRegistry`, or'
-              ' call `restore` with an appropriate `CheckpointArgs` subclass.'
+          item_handlers = (
+              item_handlers or self.metadata(directory).item_handlers
           )
-        handler = items_to_handlers[item_name]
+          try:
+            # TODO(b/392622978): Support custom (local) handler registry.
+            handler = handler_type_registry.get_handler_type(
+                item_handlers[item_name]
+            )
+          except KeyError as e:
+            raise ValueError(
+                f'Item "{item_name}" was found in the checkpoint, but could not'
+                ' be restored. Please provide a `CheckpointHandlerRegistry`, or'
+                ' call `restore` with an appropriate `CheckpointArgs` subclass.'
+            ) from e
+        else:
+          handler = items_to_handlers[item_name]
         if handler is None:
           raise ValueError(
               f'Item with name: "{item_name}" had an undetermined'

@@ -638,18 +638,50 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertTrue((self.directory / 'metadata').exists())
 
     restore_handler_without_registry = CompositeCheckpointHandler()
-    with self.assertRaisesRegex(KeyError, 'could not be restored'):
+    with self.assertRaisesRegex(ValueError, 'could not be restored'):
       restore_handler_without_registry.restore(
           self.directory,
           CompositeArgs(),
       )
-    with self.assertRaisesRegex(KeyError, 'could not be restored'):
+    with self.assertRaisesRegex(ValueError, 'could not be restored'):
       restore_handler_without_registry.restore(self.directory)
 
     restore_handler_with_registry = CompositeCheckpointHandler(
         handler_registry=handler_registry,
     )
     restored = restore_handler_with_registry.restore(self.directory)
+    self.assertDictEqual(restored.state, state)
+    self.assertDictEqual(restored.metadata, metadata)
+
+  def test_no_restore_args_with_step_metadata(self):
+    handler = CompositeCheckpointHandler('state', 'metadata')
+    state = {'a': 1, 'b': 2}
+    metadata = {'lang': 'en', 'version': 1.0}
+    self.save(
+        handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+            metadata=args_lib.JsonSave(metadata),
+        ),
+    )
+
+    handler = CompositeCheckpointHandler()
+    with self.assertRaises(ValueError):
+      handler.restore(self.directory)
+
+    checkpoint.metadata_store(enable_write=True, blocking_write=True).write(
+        checkpoint.step_metadata_file_path(self.directory),
+        step_metadata_serialization.serialize(
+            checkpoint.StepMetadata(
+                item_handlers={
+                    'state': StandardCheckpointHandler().typestr(),
+                    'metadata': JsonCheckpointHandler().typestr(),
+                },
+            )
+        ),
+    )
+    restored = handler.restore(self.directory)
     self.assertDictEqual(restored.state, state)
     self.assertDictEqual(restored.metadata, metadata)
 
