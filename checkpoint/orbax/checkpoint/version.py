@@ -16,7 +16,7 @@
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
 # Also modify version and date in CHANGELOG.
-__version__ = '0.11.0'
+__version__ = '0.11.1'
 
 
 # TODO: b/362813406 - Add latest change timestamp and commit number.
