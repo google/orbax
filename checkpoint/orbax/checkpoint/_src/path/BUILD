@@ -123,6 +123,7 @@ py_library(
 py_test(
     name = "format_utils_test",
     srcs = ["format_utils_test.py"],
+    data = ["//checkpoint/orbax/checkpoint/testing:aggregate_checkpoints"],
     deps = [
         ":format_utils",
         "//checkpoint/orbax/checkpoint:args",
