@@ -8,18 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+
 - Add user-facing `TreeMetadata` object returned by
 `PyTreeCheckpointHandler.metadata`. This object mimics an ordinary PyTree to
 make the change unnoticeable to most users, but also has additional accessible
 properties not included in any tree mapping operations.
 - `Checkpointer.save()`, `AsyncCheckpointer.save()` also saves `StepMetadata`.
-- Added github actions CI testing using Python versions 3.10-3.13.
+- Added Github actions CI testing using Python versions 3.10-3.13.
 - Standardize naming of the "custom metadata" field (user-supplied metadata) as
 `custom_metadata`.
 - Add `SaveDecisionPolicy` to better encapsulate various options around choosing
 whether or not to perform a save at a particular step.
 
 ### Added
+
 - The ability to specify a custom `snapshot_dir` in `checkpoints_iterator`.
 - `CommitFutureAwaitDirectorySignals`, `CommitFuture` and
 `HandlerAwaitableSignal` for signalling between Checkpointing layers to enable
@@ -31,9 +33,16 @@ save is not already in progress (continuous checkpointing).
 - User-provided custom PyTree metadata.
 
 ### Fixed
-- Fix a bug where snapshots are not released by `wait_for_new_checkpoint`
-when a custom `snapshot_dir` is specified.
-- Disable `raise_array_data_missing_error` in `PyTreeCheckpointHandler` restoration code path.
+
+- Fix a bug where snapshots are not released by `wait_for_new_checkpoint` when a
+custom `snapshot_dir` is specified.
+- Disable `raise_array_data_missing_error` in `PyTreeCheckpointHandler`
+restoration code path.
+- Partially revert `replica_parallel` feature, as performance regressions have
+been observed. Note also that simply setting `use_replica_parallel=False` does
+not fix the issue.
+- Disable `enable_pinned_host_transfer` option as poor performance has been
+observed.
 
 ## [0.11.0] - 2024-12-30
 

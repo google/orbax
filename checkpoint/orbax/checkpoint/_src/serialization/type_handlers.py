@@ -856,7 +856,7 @@ class ArrayHandler(types.TypeHandler):
       metadata_key: Optional[str] = None,
       primary_host: Optional[int] = 0,
       replica_id: Optional[int] = 0,
-      use_replica_parallel: bool = True,
+      use_replica_parallel: bool = False,
       enable_write_sharding_file: bool = True,
       array_metadata_store: array_metadata_store_lib.Store | None = None,
   ):

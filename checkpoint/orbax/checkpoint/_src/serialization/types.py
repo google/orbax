@@ -131,7 +131,7 @@ class ParamInfo:
   ocdbt_target_data_file_size: Optional[int] = None
   ts_context: Optional[ts.Context] = None
   value_typestr: Optional[str] = None
-  enable_pinned_host_transfer: bool = True
+  enable_pinned_host_transfer: bool = False
   raise_array_data_missing_error: bool = True
   write_shape: arrays_types.Shape | None = None
 
