@@ -16,6 +16,7 @@ py_library(
         ":abstract_checkpointer",
         "//checkpoint/orbax/checkpoint:checkpoint_args",
         "//checkpoint/orbax/checkpoint:options",
+        "//checkpoint/orbax/checkpoint:utils",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/handlers:checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/handlers:composite_checkpoint_handler",
@@ -25,7 +26,6 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:atomicity",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_defaults",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
-        "//orbax/checkpoint:utils",
     ],
 )
 
@@ -58,14 +58,14 @@ py_library(
         ":checkpointer",
         "//checkpoint/orbax/checkpoint:checkpoint_args",
         "//checkpoint/orbax/checkpoint:options",
+        "//checkpoint/orbax/checkpoint:utils",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
         "//checkpoint/orbax/checkpoint/_src/handlers:async_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/path:async_utils",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
-        "//orbax/checkpoint:utils",
-        "//orbax/checkpoint/_src/futures:future",
     ],
 )

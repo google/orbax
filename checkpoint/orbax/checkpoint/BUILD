@@ -192,7 +192,7 @@ py_library(
 py_library(
     name = "future",
     srcs = ["future.py"],
-    deps = ["//orbax/checkpoint/_src/futures:future"],
+    deps = ["//checkpoint/orbax/checkpoint/_src/futures:future"],
 )
 
 py_library(

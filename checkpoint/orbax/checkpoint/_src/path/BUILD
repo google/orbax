@@ -42,7 +42,7 @@ py_library(
     srcs = ["deleter.py"],
     deps = [
         ":step",
-        "//orbax/checkpoint:utils",
+        "//checkpoint/orbax/checkpoint:utils",
     ],
 )
 
@@ -74,11 +74,11 @@ py_library(
         ":step",
         ":utils",
         "//checkpoint/orbax/checkpoint:options",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
+        "//checkpoint/orbax/checkpoint/_src/futures:synchronization",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
         "//checkpoint/orbax/checkpoint/_src/multihost",
-        "//orbax/checkpoint/_src/futures:future",
-        "//orbax/checkpoint/_src/futures:synchronization",
     ],
 )
 

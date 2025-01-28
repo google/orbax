@@ -20,10 +20,10 @@ py_library(
     deps = [
         ":serialization",
         "//checkpoint/orbax/checkpoint/_src/arrays:types",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
         "//checkpoint/orbax/checkpoint/_src/metadata:pytree_metadata_options",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
-        "//orbax/checkpoint/_src/futures:future",
     ],
 )
 
@@ -37,6 +37,8 @@ py_library(
         ":types",
         "//checkpoint/orbax/checkpoint/_src/arrays:subchunking",
         "//checkpoint/orbax/checkpoint/_src/arrays:types",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
+        "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata_store",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
         "//checkpoint/orbax/checkpoint/_src/metadata:sharding",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
@@ -44,8 +46,6 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/multihost:multislice",
         "//checkpoint/orbax/checkpoint/_src/path:async_utils",
         "//checkpoint/orbax/checkpoint/_src/path:format_utils",
-        "//orbax/checkpoint/_src/futures:future",
-        "//orbax/checkpoint/_src/metadata:array_metadata_store",
     ],
 )
 
@@ -94,7 +94,7 @@ py_test(
         ":tensorstore_utils",
         "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
-        "//orbax/checkpoint/_src/futures:future",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
     ],
 )
 
