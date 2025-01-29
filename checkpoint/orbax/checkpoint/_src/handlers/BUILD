@@ -158,6 +158,33 @@ py_library(
 )
 
 py_library(
+    name = "pytree_checkpoint_handler_test_utils",
+    srcs = ["pytree_checkpoint_handler_test_utils.py"],
+    deps = [
+        ":base_pytree_checkpoint_handler",
+        ":proto_checkpoint_handler",
+        ":pytree_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:msgpack_utils",
+        "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint:transform_utils",
+        "//checkpoint/orbax/checkpoint:utils",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
+        "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata",
+        "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata_store",
+        "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
+        "//checkpoint/orbax/checkpoint/_src/metadata:sharding",
+        "//checkpoint/orbax/checkpoint/_src/metadata:tree",
+        "//checkpoint/orbax/checkpoint/_src/metadata:value",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//checkpoint/orbax/checkpoint/_src/serialization",
+        "//checkpoint/orbax/checkpoint/_src/serialization:replica_slices",
+        "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
+        "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//checkpoint/orbax/checkpoint/_src/tree:utils",
+    ],
+)
+
+py_library(
     name = "standard_checkpoint_handler",
     srcs = ["standard_checkpoint_handler.py"],
     deps = [
