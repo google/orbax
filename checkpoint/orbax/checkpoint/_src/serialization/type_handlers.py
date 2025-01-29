@@ -1681,17 +1681,6 @@ class _TypeHandlerRegistryImpl(types.TypeHandlerRegistry):
       return False
 
 
-GLOBAL_TYPE_HANDLER_REGISTRY = _TypeHandlerRegistryImpl(
-    (int, ScalarHandler()),
-    (float, ScalarHandler()),
-    (bytes, ScalarHandler()),
-    (np.number, ScalarHandler()),
-    (np.ndarray, NumpyHandler()),
-    (jax.Array, ArrayHandler()),
-    (str, StringHandler()),
-)
-
-
 def create_type_handler_registry(
     *handlers: Tuple[Any, types.TypeHandler]
 ) -> types.TypeHandlerRegistry:
@@ -1705,6 +1694,22 @@ def create_type_handler_registry(
     A TypeHandlerRegistry instance with only the specified handlers.
   """
   return _TypeHandlerRegistryImpl(*handlers)
+
+
+_DEFAULT_TYPE_HANDLERS = tuple([
+    (int, ScalarHandler()),
+    (float, ScalarHandler()),
+    (bytes, ScalarHandler()),
+    (np.number, ScalarHandler()),
+    (np.ndarray, NumpyHandler()),
+    (jax.Array, ArrayHandler()),
+    (str, StringHandler()),
+])
+
+
+GLOBAL_TYPE_HANDLER_REGISTRY = create_type_handler_registry(
+    *_DEFAULT_TYPE_HANDLERS
+)
 
 
 def register_type_handler(
@@ -1742,6 +1747,11 @@ def get_type_handler(ty: Any) -> types.TypeHandler:
 def has_type_handler(ty: Any) -> bool:
   """Returns if there is a handler registered for a given type."""
   return GLOBAL_TYPE_HANDLER_REGISTRY.has(ty)
+
+
+def supported_types() -> list[Any]:
+  """Returns the default list of supported types."""
+  return [ty for ty, _ in _DEFAULT_TYPE_HANDLERS]
 
 
 def register_standard_handlers_with_options(**kwargs):

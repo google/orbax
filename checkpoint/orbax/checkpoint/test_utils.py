@@ -19,8 +19,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from concurrent import futures
 import contextlib
+import copy
 import inspect
 import time
 import typing
@@ -47,6 +49,8 @@ from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
+
+PyTree = Any
 
 
 def sync_global_processes(name: str):
@@ -515,11 +519,22 @@ def register_type_handler(ty, handler, func):
 
 
 @contextlib.contextmanager
+def global_type_handler_registry_context():
+  """Context manager for changing the GLOBAL_TYPE_HANDLER_REGISTRY."""
+  original_type_handlers = copy.deepcopy(type_handlers._DEFAULT_TYPE_HANDLERS)
+  try:
+    yield
+  finally:
+    for original_type, original_handler in original_type_handlers:
+      type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY.add(
+          original_type, original_handler, override=True
+      )
+
+
+@contextlib.contextmanager
 def ocdbt_checkpoint_context(use_ocdbt: bool, ts_context: Any):
   """Use OCDBT driver within context."""
-  original_registry = list(
-      type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY._type_registry
-  )
+  original_type_handlers = copy.deepcopy(type_handlers._DEFAULT_TYPE_HANDLERS)
   if use_ocdbt:
     type_handlers.register_standard_handlers_with_options(
         use_ocdbt=use_ocdbt, ts_context=ts_context
@@ -527,9 +542,10 @@ def ocdbt_checkpoint_context(use_ocdbt: bool, ts_context: Any):
   try:
     yield
   finally:
-    type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY._type_registry = (
-        original_registry
-    )
+    for original_type, original_handler in original_type_handlers:
+      type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY.add(
+          original_type, original_handler, override=True
+      )
 
 
 def _get_test_wrapper_function(test_func):
@@ -724,3 +740,18 @@ def get_expected_chunk_shape(
   if local_shape is None:
     local_shape = arr.sharding.shard_shape(arr.shape)
   return local_shape
+
+
+def filter_metadata_fields(
+    pytree: PyTree, include_fields: Sequence[str]
+) -> PyTree:
+  """Returns a PyTree of dicts with keys in `include_fields`."""
+
+  def _include(metadata):
+    result = {}
+    for f in include_fields:
+      if hasattr(metadata, f):
+        result[f] = getattr(metadata, f)
+    return result
+
+  return jax.tree.map(_include, pytree)

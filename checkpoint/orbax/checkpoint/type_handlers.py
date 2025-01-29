@@ -35,6 +35,7 @@ from orbax.checkpoint._src.serialization.type_handlers import get_type_handler
 from orbax.checkpoint._src.serialization.type_handlers import has_type_handler
 from orbax.checkpoint._src.serialization.type_handlers import register_standard_handlers_with_options
 from orbax.checkpoint._src.serialization.type_handlers import register_type_handler
+from orbax.checkpoint._src.serialization.type_handlers import supported_types
 
 from orbax.checkpoint._src.serialization.type_handlers import is_ocdbt_checkpoint
 
