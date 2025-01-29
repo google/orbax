@@ -14,7 +14,7 @@
 
 """Wraps JAX functions and parameters into a tf.Module."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 import copy
 import logging
 from typing import Any, Optional, Union
@@ -24,6 +24,7 @@ from orbax.export import constants
 from orbax.export import typing as orbax_export_typing
 from orbax.export.modules import orbax_module_base
 from orbax.export.typing import PyTree
+from orbax.export import utils
 import tensorflow as tf
 
 ApplyFn = orbax_export_typing.ApplyFn
@@ -45,7 +46,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       apply_fn: The apply_fn for the model.
       jax2obm_kwargs: A dictionary of kwargs to pass to the jax2obm conversion
         library. Accepted arguments to jax2obm_kwargs are
-        'native_serialization_platform', 'flatten_signature', 'weights_name'and
+        'native_serialization_platforms', 'flatten_signature', 'weights_name'and
         'checkpoint_path'.
     """
 
@@ -63,22 +64,9 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
           f' for export. Received: {self._apply_fn_map}'
       )
 
-    self._native_serialization_platform = (
-        jax2obm_kwargs[constants.NATIVE_SERIALIZATION_PLATFORM]
-        if constants.NATIVE_SERIALIZATION_PLATFORM in jax2obm_kwargs
-        else None
+    self._native_serialization_platforms = utils.get_lowering_platforms(
+        jax2obm_kwargs
     )
-    supported_platforms = [
-        platform.name for platform in constants.OrbaxNativeSerializationType
-    ]
-    if (
-        self._native_serialization_platform is not None
-        and self._native_serialization_platform not in supported_platforms
-    ):
-      raise ValueError(
-          'native_serialization_platforms must be a sequence containing a'
-          f' subset of: {supported_platforms}'
-      )
 
     self._flatten_signature = (
         jax2obm_kwargs[constants.FLATTEN_SIGNATURE]
@@ -134,9 +122,11 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     return self._apply_fn_map
 
   @property
-  def native_serialization_platform(self) -> Optional[str]:
+  def native_serialization_platforms(
+      self,
+  ) -> Optional[Sequence[constants.OrbaxNativeSerializationType]]:
     """Returns the native serialization platform."""
-    return self._native_serialization_platform
+    return self._native_serialization_platforms
 
   @property
   def flatten_signature(self) -> bool:

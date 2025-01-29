@@ -32,14 +32,15 @@ class ExportModelType(enum.Enum):
 DEFAULT_METHOD_KEY = 'jax_module_default_method'
 
 
+# LINT.IfChange
 class OrbaxNativeSerializationType(enum.Enum):
   """Defines the native serialization types available for a JAX model through Orbax."""
 
-  CPU = ('cpu',)
-  CUDA = ('cuda',)
-  ROCM = ('rocm',)
-  TPU = ('tpu',)
-
+  CPU = 'cpu'
+  CUDA = 'cuda'
+  ROCM = 'rocm'
+  TPU = 'tpu'
+# LINT.ThenChange(//depot//orbax/experimental/model/jax2obm/constants.py)
 
 ################################################################################
 # Keyword args
@@ -52,9 +53,9 @@ JAX2OBM_KWARGS = 'jax2obm_kwargs'
 # function to an obm function.
 PSPECS = 'pspecs'
 
-# Jax2obm_kwargs key for the native serialization platform to use when
+# Jax2obm_kwargs key for the native serialization platforms to use when
 # converting the jax function to an obm function.
-NATIVE_SERIALIZATION_PLATFORM = 'native_serialization_platform'
+NATIVE_SERIALIZATION_PLATFORMS = 'native_serialization_platforms'
 
 # Jax2obm_kwargs key for whether to flatten the signature of the function
 # during conversion.

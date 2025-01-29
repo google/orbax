@@ -16,7 +16,7 @@
 
 from collections.abc import Callable, Mapping
 import dataclasses
-from typing import Any, Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Union
 from absl import logging
 from etils.epy import reraise_utils
 import jax
@@ -490,10 +490,13 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
     }
 
     def _lowering_platforms(
-        jax2tf_kwargs: Any,
+        jax2tf_kwargs: Optional[Dict[str, Any]],
     ) -> Optional[Sequence[str]]:
-      if jax2tf_kwargs and 'native_serialization_platforms' in jax2tf_kwargs:
-        return tuple(jax2tf_kwargs['native_serialization_platforms'])
+      if (
+          jax2tf_kwargs is not None
+          and constants.NATIVE_SERIALIZATION_PLATFORMS in jax2tf_kwargs
+      ):
+        return tuple(jax2tf_kwargs[constants.NATIVE_SERIALIZATION_PLATFORMS])
       else:
         return None
 

@@ -25,6 +25,7 @@ import jax
 from jax import export as jax_export
 from jax import tree_util
 import jaxtyping
+from orbax.export import constants
 from orbax.export import serving_config as osc
 import tensorflow as tf
 
@@ -493,3 +494,35 @@ def make_e2e_inference_fn(
   )
 
 
+def get_lowering_platforms(
+    kwargs: Mapping[str, Any],
+) -> Optional[Sequence[constants.OrbaxNativeSerializationType]]:
+  """Returns a Sequence of lowering platforms provided by the user.
+
+  Args:
+    kwargs: The kwargs passed to the export function. This function only 
+            cares about 'native_serialization_platforms' kwarg key.
+
+  Returns:
+    A Sequence of lowering platforms provided by the user.
+  """
+  if constants.NATIVE_SERIALIZATION_PLATFORMS not in kwargs:
+    return None
+
+  native_serialization_platforms = kwargs[
+      constants.NATIVE_SERIALIZATION_PLATFORMS
+  ]
+
+  if not isinstance(native_serialization_platforms, Sequence):
+    native_serialization_platforms = [native_serialization_platforms]
+
+  if not all(
+      isinstance(p, constants.OrbaxNativeSerializationType)
+      for p in native_serialization_platforms
+  ):
+    raise ValueError(
+        'native_serialization_platforms must be a sequence'
+        ' OrbaxNativeSerializationType'
+    )
+
+  return native_serialization_platforms

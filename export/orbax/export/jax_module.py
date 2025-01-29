@@ -78,9 +78,9 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
         must either be unspecified or a mapping of method key to the jax2tf
         kwargs for the method. The jax2tf_kwargs is only relevant for TF
         SavedModel export.
-      jax2obm_kwargs: options passed to the Orbax model export.  Accepted
-        arguments are 'native_serialization_platform' with values that must
-        match 'cpu', 'cuda', 'rocm', or 'tpu'.
+      jax2obm_kwargs: options passed to the Orbax Model export. Accepted
+        arguments are 'native_serialization_platforms' which must be
+        a tuple of OrbaxNativeSerializationType.
       jit_compile: whether to jit compile the jax2tf converted functions. If
         ``apply_fn`` is a mapping, this can either be a boolean applied to all
         functions or a mapping of method key to the jit compile option for the
