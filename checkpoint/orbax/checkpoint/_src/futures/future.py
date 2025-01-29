@@ -67,7 +67,7 @@ def add_to_awaitable_signals_contract(
   """Adds awaitable signals to `AWAITABLE_SIGNALS_CONTRACT` for lower checkpointing layers to wait on.
 
   These signals are added to the list of awaitable signals for the current
-  opertation id in `HandlerAwaitableSignalOperationIdGenerator`.
+  operation id in `HandlerAwaitableSignalOperationIdGenerator`.
 
   Args:
     signals: The signals to add to the list of awaitable signals.
@@ -165,8 +165,7 @@ class _SignalingThread(threading.Thread):
 
   Waits for signals to be received for the current operation id before
   proceeding with the target function. Then sends signals to indicate that the
-  target function has completed with
-  same operation id.
+  target function has completed with the same operation id.
   """
 
   _exception: Optional[Exception] = None
@@ -196,7 +195,7 @@ class _SignalingThread(threading.Thread):
     self._send_signals = send_signals
     self._receive_signals = receive_signals
     self._timeout_secs = timeout_secs
-    # Capture the current operation id syncronously.
+    # Capture the current operation id synchronously.
     self._operation_id = (
         operation_id
         or HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
