@@ -3,7 +3,6 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "types",
     srcs = ["types.py"],
-    srcs_version = "PY3",
 )
 
 py_library(

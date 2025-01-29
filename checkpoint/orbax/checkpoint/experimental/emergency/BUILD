@@ -3,7 +3,6 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "checkpoint_manager",
     srcs = ["checkpoint_manager.py"],
-    srcs_version = "PY3",
     deps = [
         ":local_checkpoint_data_debugging",
         ":mesh_consistency",
@@ -23,7 +22,6 @@ py_library(
 py_library(
     name = "test_utils",
     srcs = ["test_utils.py"],
-    srcs_version = "PY3",
     deps = [
         ":checkpoint_manager",
         ":mesh_consistency",

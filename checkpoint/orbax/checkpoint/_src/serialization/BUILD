@@ -3,7 +3,6 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "tensorstore_utils",
     srcs = ["tensorstore_utils.py"],
-    srcs_version = "PY3",
     deps = [
         "//checkpoint/orbax/checkpoint/_src/arrays:subchunking",
         "//checkpoint/orbax/checkpoint/_src/arrays:types",
@@ -49,8 +48,6 @@ py_library(
 py_test(
     name = "tensorstore_utils_test",
     srcs = ["tensorstore_utils_test.py"],
-    python_version = "PY3",
-    srcs_version = "PY3",
     deps = [
         ":tensorstore_utils",
         "//checkpoint/orbax/checkpoint/_src/arrays:subchunking",
@@ -85,7 +82,6 @@ py_library(
 py_test(
     name = "serialization_test",
     srcs = ["serialization_test.py"],
-    python_version = "PY3",
     deps = [
         ":serialization",
         ":tensorstore_utils",

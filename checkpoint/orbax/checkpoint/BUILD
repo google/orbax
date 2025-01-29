@@ -75,7 +75,6 @@ py_library(
 py_test(
     name = "checkpoint_args_test",
     srcs = ["checkpoint_args_test.py"],
-    python_version = "PY3",
     deps = [
         ":checkpoint_args",
         "//checkpoint/orbax/checkpoint/_src/handlers:checkpoint_handler",
@@ -108,7 +107,6 @@ py_library(
 py_library(
     name = "checkpoint_manager",
     srcs = ["checkpoint_manager.py"],
-    srcs_version = "PY3",
     deps = [
         ":abstract_checkpoint_manager",
         ":args",
@@ -138,7 +136,6 @@ py_library(
 py_library(
     name = "test_utils",
     srcs = ["test_utils.py"],
-    srcs_version = "PY3",
     deps = [
         ":checkpoint_args",
         "//checkpoint/orbax/checkpoint/_src/handlers:async_checkpoint_handler",
@@ -232,7 +229,6 @@ py_test(
 py_test(
     name = "checkpoint_utils_test",
     srcs = ["checkpoint_utils_test.py"],
-    python_version = "PY3",
     deps = [
         ":args",
         ":checkpoint_manager",

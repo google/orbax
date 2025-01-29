@@ -3,7 +3,6 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "utils",
     srcs = ["utils.py"],
-    srcs_version = "PY3",
     deps = ["//checkpoint/orbax/checkpoint:options"],
 )
 

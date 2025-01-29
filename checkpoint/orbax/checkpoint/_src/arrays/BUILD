@@ -3,21 +3,17 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "types",
     srcs = ["types.py"],
-    srcs_version = "PY3",
 )
 
 py_library(
     name = "numpy_utils",
     srcs = ["numpy_utils.py"],
-    srcs_version = "PY3",
     deps = [":types"],
 )
 
 py_test(
     name = "numpy_utils_test",
     srcs = ["numpy_utils_test.py"],
-    python_version = "PY3",
-    srcs_version = "PY3",
     deps = [":numpy_utils"],
 )
 
@@ -33,15 +29,12 @@ py_library(
 py_test(
     name = "fragments_test",
     srcs = ["fragments_test.py"],
-    python_version = "PY3",
-    srcs_version = "PY3",
     deps = [":fragments"],
 )
 
 py_library(
     name = "subchunking",
     srcs = ["subchunking.py"],
-    srcs_version = "PY3",
     deps = [
         ":fragments",
         ":types",
@@ -70,8 +63,6 @@ py_test(
     name = "subchunking_test",
     srcs = ["subchunking_test.py"],
     args = ["--vmodule=subchunking=1"],
-    python_version = "PY3",
-    srcs_version = "PY3",
     deps = [
         ":fragments",
         ":subchunking",

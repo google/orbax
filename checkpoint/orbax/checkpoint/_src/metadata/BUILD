@@ -141,8 +141,6 @@ py_library(
 py_test(
     name = "empty_values_test",
     srcs = ["empty_values_test.py"],
-    python_version = "PY3",
-    srcs_version = "PY3",
     deps = [
         ":empty_values",
         ":pytree_metadata_options",
