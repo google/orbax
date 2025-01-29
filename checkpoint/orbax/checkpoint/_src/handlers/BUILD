@@ -52,7 +52,6 @@ py_test(
 py_library(
     name = "pytree_checkpoint_handler",
     srcs = ["pytree_checkpoint_handler.py"],
-    srcs_version = "PY3",
     deps = [
         ":async_checkpoint_handler",
         ":base_pytree_checkpoint_handler",
@@ -77,7 +76,6 @@ py_library(
 py_library(
     name = "base_pytree_checkpoint_handler",
     srcs = ["base_pytree_checkpoint_handler.py"],
-    srcs_version = "PY3",
     deps = [
         ":async_checkpoint_handler",
         "//checkpoint/orbax/checkpoint:checkpoint_args",
@@ -140,7 +138,6 @@ py_library(
 py_test(
     name = "json_checkpoint_handler_test",
     srcs = ["json_checkpoint_handler_test.py"],
-    python_version = "PY3",
     deps = [
         ":json_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
@@ -183,7 +180,6 @@ py_library(
 py_test(
     name = "proto_checkpoint_handler_test",
     srcs = ["proto_checkpoint_handler_test.py"],
-    python_version = "PY3",
     deps = [
         ":proto_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/proto/testing:foo_py_pb2",
@@ -221,7 +217,6 @@ py_library(
 py_test(
     name = "random_key_checkpoint_handler_test",
     srcs = ["random_key_checkpoint_handler_test.py"],
-    python_version = "PY3",
     deps = [
         ":composite_checkpoint_handler",
         ":random_key_checkpoint_handler",
