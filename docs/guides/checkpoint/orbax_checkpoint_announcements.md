@@ -1,10 +1,5 @@
 # Announcements
 
-## 2025-01-28
-`CheckpointManager.metadata()` now accepts a `step` parameter. If provided, it
-will return `StepMetadata`, and will otherwise return `RootMetadata`. Subclasses
-of `AbstractCheckpointManager` should be updated to incorporate this new kwarg.
-
 ## 2024-12-30
 orbax-checkpoint version `0.10.3` and
 [grain](https://pypi.org/project/grain/) version `0.2.2` are not compatible.
