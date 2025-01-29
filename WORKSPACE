@@ -32,14 +32,8 @@ http_archive(
     ],
 )
 
-load("@rules_proto//proto:repositories.bzl", "protobuf_dependencies", "rules_proto_dependencies", "rules_proto_toolchains")
+load("@rules_proto//proto:repositories.bzl", "rules_proto_dependencies", "rules_proto_toolchains")
 
 rules_proto_dependencies()
 
 rules_proto_toolchains()
-
-protobuf_dependencies()
-
-load("@rules_python//python:repositories.bzl", "python_register_toolchains")
-
-python_register_toolchains()
