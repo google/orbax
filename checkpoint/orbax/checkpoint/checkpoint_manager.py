@@ -22,7 +22,7 @@ import datetime
 import threading
 import time
 import typing
-from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Tuple, Type, Union
+from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Tuple, Type, Union, overload
 
 from absl import logging
 from etils import epath
@@ -45,6 +45,7 @@ from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import root_metadata_serialization
+from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import deleter
@@ -65,6 +66,9 @@ CheckpointersDict = Mapping[str, AbstractCheckpointer]
 AbstractCheckpointManager = (
     abstract_checkpoint_manager.AbstractCheckpointManager
 )
+StepMetadata = checkpoint.StepMetadata
+RootMetadata = checkpoint.RootMetadata
+ItemMetadata = checkpoint.CompositeItemMetadata | checkpoint.SingleItemMetadata
 AsyncCheckpointer = async_checkpointer.AsyncCheckpointer
 Checkpointer = checkpointer_lib.Checkpointer
 JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
@@ -769,11 +773,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._metadata_dir = self.directory / METADATA_ITEM_NAME
     if self._options.read_only and not self._metadata_dir.exists():
-      self._metadata = {} if metadata is None else metadata
+      custom_metadata = {} if metadata is None else dict(metadata)
     else:
-      self._metadata = None
+      custom_metadata = None
+    self._root_metadata = RootMetadata(
+        custom_metadata=custom_metadata,
+    )
 
-    self._maybe_save_metadata(metadata)
+    self._maybe_save_root_metadata(metadata)
 
     # TODO: b/359854428 - Move Finalize biz logic to a separate class/module.
     self._finalize_thread_lock = threading.Lock()
@@ -1357,7 +1364,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._logger.log_entry(dataclasses.asdict(step_stats))
     return True
 
-  def _maybe_get_default_item(self, composite_result: args_lib.Composite):
+  def _maybe_get_default_item(
+      self, composite_result: args_lib.Composite
+  ) -> Union[Any, args_lib.Composite]:
     if self._default_item:
       if DEFAULT_ITEM_NAME not in composite_result:
         raise ValueError(
@@ -1438,8 +1447,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     return self._maybe_get_default_item(restored)
 
-  def item_metadata(self, step: int) -> Union[Any, args_lib.Composite]:
+  def item_metadata(
+      self, step: int
+  ) -> Union[Any, args_lib.Composite, ItemMetadata]:
     """Retrieves metadata for all known items.
+
+    Important note: This method will soon be deprecated in favor of
+    `metadata().item_metadata`. Please use that method instead.
 
     Note that metadata will only be returned for items that can actually be
     interpreted. If an item is present in the checkpoint but not registered
@@ -1453,18 +1467,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       Either metadata for the item itself, if in default-item mode, or a
       Composite of metadata for each item.
     """
-    assert isinstance(self._checkpointer.handler, CompositeCheckpointHandler)
-    read_step_directory = self._get_read_step_directory(step, self.directory)
+    return self.metadata(step).item_metadata
 
-    result = self._checkpointer.metadata(read_step_directory)
-    if isinstance(result, checkpoint.StepMetadata):
-      result = result.item_metadata
-    if self._default_item is None:
-      self._default_item = _determine_default_item_mode_from_directory(
-          read_step_directory
-      )
-    return self._maybe_get_default_item(result)
-
+  # TODO(b/370812224): Deprecate in favor of StepMetadata.metrics
   def metrics(self, step: int) -> Optional[PyTree]:
     if self._track_best:
       try:
@@ -1563,21 +1568,22 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self._metadata_dir, legacy=legacy
     )
 
-  def _maybe_save_metadata(self, metadata: Mapping[str, Any]):
+  def _maybe_save_root_metadata(
+      self, custom_metadata: Mapping[str, Any] | None
+  ):
     """Saves CheckpointManager level metadata, skips if already present."""
     if self._options.save_root_metadata:
-      logging.info('Saving root metadata')
-      if (metadata is not None and
-          not self._options.read_only and
-          utils.is_primary_host(self._multiprocessing_options.primary_host)):
-        logging.info('Creating metadata directory')
+      if (
+          custom_metadata is not None
+          and not self._options.read_only
+          and utils.is_primary_host(self._multiprocessing_options.primary_host)
+      ):
         self._metadata_dir.mkdir(parents=True, exist_ok=True)
         file_path = self._metadata_file_path()
         if not file_path.exists():  # May have been created by a previous run.
-          logging.info('Writing root metadata')
-          metadata_to_save = checkpoint.RootMetadata(
-              custom_metadata=dict(metadata),
-          )
+          metadata_to_save = self._root_metadata
+          if custom_metadata is not None:
+            metadata_to_save.custom_metadata = dict(custom_metadata)
           self._blocking_metadata_store.write(
               file_path, serialize_root_metadata(metadata_to_save)
           )
@@ -1590,9 +1596,43 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           processes=self._multiprocessing_options.active_processes,
       )
 
-  def metadata(self) -> Mapping[str, Any]:
-    """See superclass documentation."""
-    if self._metadata is None:
+  def _get_step_metadata(self, step: int) -> StepMetadata:
+    infos = [info for info in self._checkpoints if info.step == step]
+    if not infos:
+      metrics = None
+    else:
+      if len(infos) > 1:
+        logging.warning(
+            'Multiple CheckpointInfos found for step %d. Using the first one.',
+            step,
+        )
+      metrics = infos[0].metrics
+
+    step_metadata = self._checkpointer.metadata(
+        self._get_read_step_directory(step, self.directory),
+    )
+
+    if self._default_item is None:
+      self._default_item = _determine_default_item_mode_from_directory(
+          self._get_read_step_directory(step, self.directory)
+      )
+    step_metadata.item_metadata = self._maybe_get_default_item(
+        step_metadata.item_metadata
+    )
+
+    if metrics is not None:
+      validated_metrics = step_metadata_serialization.deserialize(
+          {}, metrics=dict(metrics)
+      ).metrics
+      step_metadata = dataclasses.replace(
+          step_metadata,
+          metrics=validated_metrics,
+      )
+
+    return step_metadata
+
+  def _get_root_metadata(self) -> RootMetadata:
+    if self._root_metadata.custom_metadata is None:
       if self._metadata_dir.exists():
         file_path = self._metadata_file_path()
         if not file_path.exists():
@@ -1601,16 +1641,28 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
                           self._metadata_dir)
           file_path = self._metadata_file_path(legacy=True)
         serialized_metadata = self._blocking_metadata_store.read(file_path)
-        self._metadata = deserialize_root_metadata(
+        if serialized_metadata is None:
+          raise IOError(f'Failed to read metadata from {file_path}')
+        self._root_metadata = root_metadata_serialization.deserialize(
             serialized_metadata
-        ).custom_metadata
-        if self._metadata is None:
-          raise FileNotFoundError(
-              f'Failed to read metadata from {file_path}.'
-          )
+        )
       else:
-        self._metadata = {}
-    return self._metadata
+        self._root_metadata.custom_metadata = {}
+    return self._root_metadata
+
+  @overload
+  def metadata(self, step: None = None) -> RootMetadata:
+    ...
+
+  @overload
+  def metadata(self, step: int) -> StepMetadata:
+    ...
+
+  def metadata(self, step: int | None = None) -> RootMetadata | StepMetadata:
+    """See superclass documentation."""
+    if step is not None:
+      return self._get_step_metadata(step)
+    return self._get_root_metadata()
 
   def _sort_checkpoints_by_metrics(
       self, checkpoints: List[CheckpointInfo]

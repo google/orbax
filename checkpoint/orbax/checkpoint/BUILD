@@ -101,7 +101,10 @@ py_library(
 py_library(
     name = "abstract_checkpoint_manager",
     srcs = ["abstract_checkpoint_manager.py"],
-    deps = [":args"],
+    deps = [
+        ":args",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+    ],
 )
 
 py_library(
@@ -125,6 +128,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/handlers:proto_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:root_metadata_serialization",
+        "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
         "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
         "//checkpoint/orbax/checkpoint/_src/path:deleter",

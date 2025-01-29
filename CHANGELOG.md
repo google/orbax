@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 packages, namely `orbax-checkpoint` and `orbax-export`. Imports are unchanged,
 and still of the form `import orbax.checkpoint` or `import orbax.export`.
 - Finer scoped jax.monitoring calls on the save path.
+- `CheckpointManager.metadata()` now accepts a `step` parameter. If provided, it
+will return `StepMetadata`, and will otherwise return `RootMetadata`.
+- `CheckpointManager.restore()` will now attempt to initialize checkpoint
+handlers using `StepMetadata.item_handlers` and the global `HandlerTypeRegistry`
+if no args are provided.
+- `CompositeCheckpointHandler.metadata()` now returns `StepMetadata`.
 
 ## [0.1.7] - 2022-03-29
 
