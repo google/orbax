@@ -921,6 +921,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 multiprocessing_options=options.multiprocessing_options,
                 file_options=options.file_options,
+                async_options=options.async_options,
             ),
             **item_handlers,
         ),
@@ -976,6 +977,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 multiprocessing_options=options.multiprocessing_options,
                 file_options=options.file_options,
+                async_options=options.async_options,
             ),
             **all_item_handlers,
         ),
@@ -1003,6 +1005,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         CompositeCheckpointHandler(
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 multiprocessing_options=options.multiprocessing_options,
+                async_options=options.async_options,
             ),
             handler_registry=handler_registry,
         ),
