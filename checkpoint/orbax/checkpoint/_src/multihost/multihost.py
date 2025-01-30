@@ -304,18 +304,18 @@ def sync_global_processes(
   if processes is None:
     key = _unique_barrier_key(name)
     logging.info(
-        '[process=%s][thread=%s] Waiting with jax/sync_global_devices("%s")',
+        '[process=%s][thread=%s] Begin jax/sync_global_devices("%s")',
         process_index(),
         threading.current_thread().name,
         key,
     )
     multihost_utils.sync_global_devices(key)
     logging.info(
-        '[process=%s][thread=%s] Done waiting with'
-        ' jax/sync_global_devices("%s")',
+        '[process=%s][thread=%s] Done jax/sync_global_devices("%s"): %s secs',
         process_index(),
         threading.current_thread().name,
         key,
+        (time.time() - sync_start_time),
     )
   else:
     barrier_sync_fn = barrier_sync_fn or get_barrier_sync_fn(
