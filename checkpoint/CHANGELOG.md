@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `custom_metadata` parameter to `Checkpointer.save()`,
+`AsyncCheckpointer.save()`, and `CheckpointManager.save()`, which saves a custom
+dict of user metadata to `StepMetadata`.
+
 ## [0.11.1] - 2025-01-28
 
 ### Changed

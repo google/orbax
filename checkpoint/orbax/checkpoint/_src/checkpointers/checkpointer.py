@@ -172,6 +172,7 @@ class Checkpointer(
       directory: epath.PathLike,
       *args,
       force: bool = False,
+      custom_metadata: dict[str, Any] | None = None,
       **kwargs,
   ):
     """Saves the given item to the provided directory.
@@ -187,6 +188,8 @@ class Checkpointer(
       *args: additional args to provide to the CheckpointHandler's save method.
       force: if True, allows overwriting an existing directory. May add overhead
         due to the need to delete any existing files.
+      custom_metadata: a dictionary of custom metadata to be written to the
+        checkpoint directory via StepMetadata.
       **kwargs: additional keyword args to provide to the CheckpointHandler's
         save method.
 
@@ -217,10 +220,7 @@ class Checkpointer(
     self._handler.save(tmpdir.get(), args=ckpt_args)
     if utils.is_primary_host(self._primary_host):
       # Update StepMetadata after the handler save is complete. (blocking write)
-      # TODO(b/390198468): Support custom_metadata if this use case comes up:
-      #   Write metadata pertaining to multiple items and specific to an
-      #   individual step.
-      self._save_step_metadata(tmpdir.get(), custom_metadata=None)
+      self._save_step_metadata(tmpdir.get(), custom_metadata=custom_metadata)
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
             'Checkpointer:save',

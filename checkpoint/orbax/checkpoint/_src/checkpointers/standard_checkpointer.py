@@ -100,6 +100,7 @@ class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
       *,
       save_args: Optional[PyTree] = None,
       force: bool = False,
+      custom_metadata: dict[str, Any] | None = None,
   ):
     """Saves a checkpoint asynchronously (does not block).
 
@@ -111,8 +112,15 @@ class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
         `SaveArgs` are specified. Only necessary for fine-grained customization
         of saving behavior for individual parameters.
       force: See superclass documentation.
+      custom_metadata: a dictionary of custom metadata to be written to the
+        checkpoint directory via StepMetadata.
     """
-    super().save(directory, args=StandardSave(state, save_args), force=force)
+    super().save(
+        directory,
+        args=StandardSave(state, save_args),
+        force=force,
+        custom_metadata=custom_metadata,
+    )
 
   def restore(
       self,

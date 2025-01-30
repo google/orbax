@@ -1167,6 +1167,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       metrics: Optional[PyTree] = None,
       force: Optional[bool] = False,
       args: Optional[args_lib.CheckpointArgs] = None,
+      custom_metadata: dict[str, Any] | None = None,
   ) -> bool:
     """See superclass documentation."""
     process_index = multihost.process_index()
@@ -1290,7 +1291,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         '[process=%s] Saving checkpoint at step %d', process_index, step
     )
     step_stats.checkpointer_blocking_start_time = time.time()
-    self._checkpointer.save(save_directory, args=args)
+    self._checkpointer.save(
+        save_directory, args=args, custom_metadata=custom_metadata
+    )
     step_stats.checkpointer_blocking_duration_secs = (
         time.time() - step_stats.checkpointer_blocking_start_time
     )

@@ -116,6 +116,7 @@ class AbstractCheckpointManager(Protocol):
       metrics: Optional[PyTree] = None,
       force: Optional[bool] = False,
       args: Optional[args_lib.CheckpointArgs] = None,
+      custom_metadata: dict[str, Any] | None = None,
   ) -> bool:
     """Saves the provided items.
 
@@ -167,6 +168,8 @@ class AbstractCheckpointManager(Protocol):
         existing checkpoints.
       args: `CheckpointArgs` which is used to save checkpointable objects with
         the appropriate logic.
+      custom_metadata: a dictionary of custom metadata to be written to the
+        checkpoint directory via StepMetadata.
 
     Returns:
       bool indicating whether a save operation was performed.
