@@ -453,8 +453,14 @@ async def create_all(
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,
   )
+  directory_creation_secs = time.time() - start
   jax.monitoring.record_event_duration_secs(
-      '/jax/orbax/write/directory_creation_secs', time.time() - start
+      '/jax/orbax/write/directory_creation_secs', directory_creation_secs
+  )
+  logging.vlog(
+      1,
+      'Synchronous directory creation took %s seconds',
+      directory_creation_secs,
   )
 
 
@@ -522,9 +528,15 @@ async def _create_paths(
   """Creates all temporary paths in parallel."""
   start = time.time()
   await asyncio.gather(*[path.create() for path in paths])
+  directory_creation_secs = time.time() - start
   jax.monitoring.record_event_duration_secs(
       '/jax/orbax/write/directory_creation_secs',
-      time.time() - start,
+      directory_creation_secs,
+  )
+  logging.vlog(
+      1,
+      'Asynchronous directory creation took %s seconds',
+      directory_creation_secs,
   )
 
 

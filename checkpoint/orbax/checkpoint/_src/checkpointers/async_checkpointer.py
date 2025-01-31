@@ -51,10 +51,12 @@ def _on_commit_callback(
   atomicity.on_commit_callback(
       tmpdir, checkpoint_start_time=checkpoint_start_time
   )
+  total_duration_secs = time.time() - checkpoint_start_time
   jax.monitoring.record_event_duration_secs(
       '/jax/checkpoint/write/async/total_duration_secs',
-      time.time() - checkpoint_start_time,
+      total_duration_secs,
   )
+  logging.vlog(1, 'Async Total duration: %s seconds', total_duration_secs)
 
 
 def _add_deadline_exceeded_notes(e: jax.errors.JaxRuntimeError):
@@ -142,10 +144,12 @@ class _AsyncManager:
       )
 
       # Log the per process storage commit latency excluding the barrier time.
+      commit_duration_secs = time.time() - thread_start_time
       jax.monitoring.record_event_duration_secs(
           '/jax/checkpoint/write/async/commit_duration_sec',
-          time.time() - thread_start_time,
+          commit_duration_secs,
       )
+      logging.vlog(1, 'Async Commit duration: %s seconds', commit_duration_secs)
 
       if process_count > 1:
         # All processes will wait at the barrier. When all processes are at the
@@ -176,10 +180,12 @@ class _AsyncManager:
             )
         )
 
+      thread_duration_secs = time.time() - thread_start_time
       jax.monitoring.record_event_duration_secs(
           '/jax/checkpoint/write/async/thread_duration_sec',
-          time.time() - thread_start_time,
+          thread_duration_secs,
       )
+      logging.vlog(1, 'Async thread duration: %s seconds', thread_duration_secs)
       logging.info(
           '[process=%s][thread=%s] Background save thread done.',
           current_process,
@@ -442,10 +448,13 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         commit_futures=commit_ops,
         on_commit_callback=_callback,
     )
-
+    blocking_duration_secs = time.time() - checkpoint_start_time
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/async/blocking_duration_secs',
-        time.time() - checkpoint_start_time,
+        blocking_duration_secs,
+    )
+    logging.vlog(
+        1, 'Async save blocking duration: %s seconds', blocking_duration_secs
     )
 
   def save(
