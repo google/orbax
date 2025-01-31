@@ -68,3 +68,31 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
     ],
 )
+
+py_library(
+    name = "checkpointer_test_utils",
+    srcs = ["checkpointer_test_utils.py"],
+    deps = [
+        ":async_checkpointer",
+        ":checkpointer",
+        "//checkpoint/orbax/checkpoint:args",
+        "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint:utils",
+        "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
+        "//checkpoint/orbax/checkpoint/_src/handlers:async_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/_src/handlers:composite_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/_src/handlers:pytree_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/_src/logging:step_statistics",
+        "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata",
+        "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata_store",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+        "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
+        "//checkpoint/orbax/checkpoint/_src/metadata:tree",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//checkpoint/orbax/checkpoint/_src/path:atomicity",
+        "//checkpoint/orbax/checkpoint/_src/path:step",
+        "//checkpoint/orbax/checkpoint/_src/serialization",
+        "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//checkpoint/orbax/checkpoint/_src/testing:test_tree_utils",
+    ],
+)

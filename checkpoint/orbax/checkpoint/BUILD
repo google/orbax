@@ -227,6 +227,12 @@ py_test(
 )
 
 py_test(
+    name = "checkpoint_manager_options_test",
+    srcs = ["checkpoint_manager_options_test.py"],
+    deps = [":checkpoint"],
+)
+
+py_test(
     name = "checkpoint_utils_test",
     srcs = ["checkpoint_utils_test.py"],
     deps = [
