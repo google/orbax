@@ -2308,3 +2308,14 @@ class PyTreeCheckpointHandlerTestBase:
           checkpoint_handler.save(
               self.directory, args=PyTreeSaveArgs(self.pytree)
           )
+
+    @parameterized.parameters((True,), (False,))
+    def test_zero_size_array(self, use_jax_array: bool):
+      arr = np.ones(shape=(0,))
+      mesh = jax.sharding.Mesh(np.array(jax.devices()), axis_names=('x',))
+      pspec = jax.sharding.PartitionSpec()
+      if use_jax_array:
+        arr = test_utils.create_sharded_array(arr, mesh, pspec)
+      tree = [arr]
+      with self.assertRaisesRegex(ValueError, 'zero size'):
+        self.handler.save(self.directory, args=PyTreeSaveArgs(tree))

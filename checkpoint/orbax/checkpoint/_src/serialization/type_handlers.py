@@ -249,6 +249,12 @@ def check_input_arguments(*args):
       raise ValueError('Found input args with mismatched lengths.')
 
 
+def check_array_values(values: Sequence[Union[jax.Array, np.ndarray]]):
+  for v in values:
+    if v.size == 0:
+      raise ValueError('Cannot save arrays with zero size.')
+
+
 async def _validate_params(
     directory: epath.Path,
     ts_context: ts.Context,
@@ -631,6 +637,7 @@ class NumpyHandler(types.TypeHandler):
     """Uses Tensorstore to serialize a numpy array."""
     args = args or [types.SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
+    check_array_values(values)
     if logging.vlog_is_on(1):
       _print_ts_debug_data(self._metadata_key, infos)
     copied_values = [copy.deepcopy(v) for v in values]
@@ -1102,6 +1109,7 @@ class ArrayHandler(types.TypeHandler):
         )
     args = args or [types.SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
+    check_array_values(values)
 
     assert all([info.enable_pinned_host_transfer for info in infos]) or all(
         [not info.enable_pinned_host_transfer for info in infos]

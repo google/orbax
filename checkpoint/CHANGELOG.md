@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 `AsyncCheckpointer.save()`, and `CheckpointManager.save()`, which saves a custom
 dict of user metadata to `StepMetadata`.
 
+### Fixed
+
+- Add a check to prevent zero-sized arrays from being saved. This behavior
+already resulted in an error, but it was one that was difficult to parse.
+
 ## [0.11.1] - 2025-01-28
 
 ### Changed
