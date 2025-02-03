@@ -217,7 +217,6 @@ py_library(
 py_library(
     name = "msgpack_utils",
     srcs = ["msgpack_utils.py"],
-    deps = ["//third_party/py/msgpack"],
 )
 
 py_test(
