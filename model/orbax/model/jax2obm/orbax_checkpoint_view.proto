@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package orbax_model_orbax_checkpoint_view;
+
+// A view into an Orbax checkpoint (OCP).
+//
+// A view can be e.g. a sub-tree of the checkpoint's overall tree.
+message View {
+  // Path to the Orbax checkpoint folder.
+  string path = 1;
+
+  // A sub-tree path.
+  //
+  // ["foo", "bar"] means the sub-tree `/foo/bar`.
+  // [] means the overall tree.
+  repeated string sub_tree = 2;
+}

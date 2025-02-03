@@ -1,0 +1,100 @@
+// LINT: LEGACY_NAMES
+
+syntax = "proto3";
+
+package orbax_model_jax_supplemental;
+
+message Function {
+  // Refinements of the input tensor specs.
+  //
+  // See `ShapeDTypeRefinement` for the meaning of an "refinement".
+  //
+  // Absence indicates no input specs need to be refined.
+  optional ShapeDTypeRefinements input_spec_refinements = 1;
+
+  // Refinements of the output tensor specs.
+  //
+  // See `ShapeDTypeRefinement` for the meaning of an "refinement".
+  //
+  // Absence indicates no output specs need to be refined.
+  optional ShapeDTypeRefinements output_spec_refinements = 2;
+
+  int32 nr_devices = 3;
+  repeated string ordered_effects = 4;
+  repeated string unordered_effects = 5;
+  repeated DisabledSafetyCheck disabled_checks = 6;
+  bool uses_shape_polymorphism = 7;
+
+  // The name of the original JAX function.
+  string name = 8;
+}
+
+message ShapeDTypeRefinements {
+  oneof case {
+    ShapeDTypeRefinementList list = 1;
+    ShapeDTypeRefinementMap map = 2;
+  }
+}
+
+message ShapeDTypeRefinementList {
+  repeated ShapeDTypeRefinement refinements = 1;
+}
+
+message ShapeDTypeRefinementMap {
+  map<uint64, ShapeDTypeRefinement> idx_to_refinement = 1;
+}
+
+// A refinement of a tensor spec.
+//
+// For each tensor spec in manifest.pb, JAX may want to provide
+// a more precise version of it. For examples, manifest.pb may
+// say tensor `Foo`'s dtype is `bool` while JAX may want to say it's actually
+// `float0`; manifest.pb may say tensor `Bar`'s shape is `[None, 4]` while JAX
+// may want to say it's actually `["b", 4]`. Note that JAX's information
+// cannot contradict manifest.pb's, i.e. it can only be a
+// refinement.
+//
+// Anywhere in an refinement, a `None` indicates that this part doesn't need to
+// be refined.
+message ShapeDTypeRefinement {
+  // Absence indicates the corresponding `Shape` doesn't need to be
+  // refined.
+  optional ShapeRefinement shape = 1;
+
+  // Absence indicates the corresponding `DType` doesn't need to be
+  // refined.
+  optional DTypeRefinement dtype = 2;
+}
+
+message ShapeRefinement {
+  repeated DimensionSizeRefinement dimension_sizes = 1;
+}
+
+message DimensionSizeRefinement {
+  // We use string instead of int here in order to support shape polymorphism
+  // and symbolic shapes.
+  //
+  // Absence indicates the corresponding
+  // `DimensionSize` doesn't need to be refined.
+  optional string size = 1;
+}
+
+enum DTypeRefinement {
+  f0 = 0;  // float0
+}
+
+message DisabledSafetyCheck {
+  message Platform {}
+
+  message CustomCall {
+    string target_name = 1;
+  }
+
+  message ShapeAssertions {}
+
+  oneof value {
+    Platform platform = 1;
+    CustomCall custom_call = 2;
+    ShapeAssertions shape_assertions = 3;
+  }
+}
