@@ -205,11 +205,11 @@ py_library(
     srcs = ["checkpoint_utils.py"],
     deps = [
         ":utils",
-        "//checkpoint/orbax/_src/path/snapshot",
         "//checkpoint/orbax/checkpoint/_src/metadata:tree",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
         "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/path:step",
+        "//checkpoint/orbax/checkpoint/_src/path/snapshot",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
     ],
 )
