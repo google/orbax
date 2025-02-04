@@ -28,7 +28,6 @@ from etils import epath
 import jax
 import numpy as np
 import optax
-from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
@@ -36,7 +35,6 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint.experimental.emergency import checkpoint_manager
 from orbax.checkpoint.experimental.emergency import mesh_consistency
-from orbax.checkpoint.path import step as step_lib
 
 PyTree = Any
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
@@ -111,11 +109,6 @@ class LocalCheckpointManagerTestBase:
       self.doubled_pytree = doubled_pytree
       self.mesh_tree = mesh_tree
       self.axes_tree = axes_tree
-
-      self.persistent_checkpoint_handler = PyTreeCheckpointHandler(
-          use_ocdbt=True,
-          use_zarr3=True,
-      )
 
       # make sure each process is working on different directories
       self.local_directory = epath.Path(
@@ -630,10 +623,6 @@ class CheckpointManagerTestBase:
           self.persistent_directory,
       )
 
-      self.persistent_checkpoint_handler = PyTreeCheckpointHandler(
-          use_ocdbt=True,
-          use_zarr3=True,
-      )
       test_utils.set_tensorstore_driver_for_test()
       test_utils.sync_global_processes('CheckpointManagerTest:setup_complete')
 
@@ -643,9 +632,8 @@ class CheckpointManagerTestBase:
           'CheckpointManagerTest:teardown_complete'
       )
 
-    def setup_pytree(self, replica_axis_index: int = 0):
+    def setup_pytree(self, global_mesh: jax.sharding.Mesh):
       """Create mesh and pytree."""
-      global_mesh = self.make_global_mesh(replica_axis_index)
       pytree = {
           'a': test_utils.create_sharded_array(
               np.arange(8), global_mesh, jax.sharding.PartitionSpec(None)
@@ -681,7 +669,7 @@ class CheckpointManagerTestBase:
         expectation: bool,
     ):
       """Test case."""
-      global_mesh, pytree = self.setup_pytree()
+      global_mesh, pytree = self.setup_pytree(self.make_global_mesh())
       abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       options = CheckpointManagerOptions(
           local=LocalCheckpointOptions(
@@ -720,28 +708,14 @@ class CheckpointManagerTestBase:
     )
     def test_global_max(self, inputs, expectation):
       """Test case."""
-      global_mesh, pytree = self.setup_pytree()
-      abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
-      options = CheckpointManagerOptions(
-          local=LocalCheckpointOptions(save_interval_steps=1, max_to_keep=1),
-          persistent=PersistentCheckpointOptions(
-              save_interval_steps=1, max_to_keep=4
-          ),
-      )
-      manager = CheckpointManager(
-          local_directory=self.local_directory,
-          persistent_directory=self.persistent_directory,
-          global_mesh=global_mesh,
-          abstract_state=abstract_state,
-          options=options,
-      )
-
       local_host_inputs = inputs[multihost.process_index()]
       if not isinstance(local_host_inputs, list):
         local_host_inputs = [local_host_inputs]
         expectation = [expectation]
       self.assertEqual(
-          manager._global_max(local_host_inputs),
+          checkpoint_manager._global_max(
+              local_host_inputs, checkpoint_manager._get_global_broadcast_fn()
+          ),
           expectation,
       )
 
@@ -761,7 +735,7 @@ class CheckpointManagerTestBase:
         expectation,
     ):
       """Test case."""
-      global_mesh, pytree = self.setup_pytree()
+      global_mesh, pytree = self.setup_pytree(self.make_global_mesh())
       abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       options = CheckpointManagerOptions(
           local=LocalCheckpointOptions(
@@ -811,7 +785,7 @@ class CheckpointManagerTestBase:
         total_steps: Optional[int] = 4,
     ):
       """Test case."""
-      global_mesh, pytree = self.setup_pytree()
+      global_mesh, pytree = self.setup_pytree(self.make_global_mesh())
       abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       options = CheckpointManagerOptions(
           local=LocalCheckpointOptions(
@@ -852,7 +826,7 @@ class CheckpointManagerTestBase:
     )
     def test_save(self, enable_async_checkpointing: bool):
       """Test case."""
-      global_mesh, pytree = self.setup_pytree()
+      global_mesh, pytree = self.setup_pytree(self.make_global_mesh())
       abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       options = CheckpointManagerOptions(
           local=LocalCheckpointOptions(save_interval_steps=3, max_to_keep=2),
@@ -873,26 +847,7 @@ class CheckpointManagerTestBase:
         manager.save(i, args=PyTreeSaveArgs(pytree))
       manager.wait_until_finished()
 
-      in_primary_slice = multislice.in_slice(
-          multihost.process_index(), global_mesh
-      )
-      if in_primary_slice:
-        persistent_multiprocessing_options = options_lib.MultiprocessingOptions(
-            primary_host=global_mesh.devices[0].flat[0].process_index,
-            active_processes=multihost.unique_processes_from_devices(
-                global_mesh.devices[0]
-            ),
-            barrier_sync_key_prefix='persistent',
-        )
-        persistent_manager = manager._make_persistent_checkpoint_manager(
-            persistent_multiprocessing_options
-        )
-        self.assertEmpty(step_lib.checkpoint_steps(self.local_directory))
-        self.assertEqual(persistent_manager.all_steps(), [5, 10, 15])
-      else:
-        local_manager = manager._make_local_checkpoint_manager()
-        self.assertNotEmpty(step_lib.checkpoint_steps(self.local_directory))
-        self.assertEqual(local_manager.all_steps(), [12, 15])
+      self.assertEqual(manager.all_steps(), [5, 10, 12, 15])
 
     @parameterized.parameters(
         (False, 0),
@@ -903,7 +858,9 @@ class CheckpointManagerTestBase:
         self, enable_async_checkpointing: bool, replica_axis_index: int
     ):
       """Test restore successfully."""
-      global_mesh, pytree = self.setup_pytree(replica_axis_index)
+      global_mesh, pytree = self.setup_pytree(
+          self.make_global_mesh(replica_axis_index)
+      )
       abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       pytree_double = test_utils.apply_function(pytree, lambda x: x * 2)
       options = CheckpointManagerOptions(
@@ -916,7 +873,7 @@ class CheckpointManagerTestBase:
       )
 
       with mock.patch.object(
-          CheckpointManager,
+          checkpoint_manager._MultisliceCheckpointManager,
           '_restore_from_persistent',
           autospec=True,
           return_value=None,
@@ -945,7 +902,9 @@ class CheckpointManagerTestBase:
     )
     def test_slice_setup(self, replica_axis_index: int):
       """Test restoration after slice swap (via global mesh)."""
-      global_mesh, pytree = self.setup_pytree(replica_axis_index)
+      global_mesh, pytree = self.setup_pytree(
+          self.make_global_mesh(replica_axis_index)
+      )
       abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       pytree_double = test_utils.apply_function(pytree, lambda x: x * 2)
       options = CheckpointManagerOptions(
@@ -963,8 +922,10 @@ class CheckpointManagerTestBase:
           options=options,
           abstract_state=abstract_state,
       ) as manager:
-        self.assertEqual(manager._persistent_primary_host, 0)
-        self.assertEqual(manager._local_primary_host, 2)
+        self.assertEqual(
+            manager._checkpoint_manager._persistent_primary_host, 0
+        )
+        self.assertEqual(manager._checkpoint_manager._local_primary_host, 2)
         slice_id = multislice.process_slice_id(
             multihost.process_index(),
             global_mesh,
@@ -1034,7 +995,9 @@ class CheckpointManagerTestBase:
     )
     def test_slice_swap_check_steps(self, replica_axis_index: int):
       """Test step detection across slice swap (via mesh)."""
-      global_mesh, pytree = self.setup_pytree(replica_axis_index)
+      global_mesh, pytree = self.setup_pytree(
+          self.make_global_mesh(replica_axis_index)
+      )
       abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       options = CheckpointManagerOptions(
           local=LocalCheckpointOptions(save_interval_steps=1, max_to_keep=10),
@@ -1051,8 +1014,10 @@ class CheckpointManagerTestBase:
           options=options,
           abstract_state=abstract_state,
       ) as manager:
-        self.assertEqual(manager._persistent_primary_host, 0)
-        self.assertEqual(manager._local_primary_host, 2)
+        self.assertEqual(
+            manager._checkpoint_manager._persistent_primary_host, 0
+        )
+        self.assertEqual(manager._checkpoint_manager._local_primary_host, 2)
         slice_id = multislice.process_slice_id(
             multihost.process_index(),
             global_mesh,
@@ -1091,8 +1056,10 @@ class CheckpointManagerTestBase:
           options=options,
           abstract_state=abstract_state,
       ) as manager:
-        self.assertEqual(manager._persistent_primary_host, 2)
-        self.assertEqual(manager._local_primary_host, 0)
+        self.assertEqual(
+            manager._checkpoint_manager._persistent_primary_host, 2
+        )
+        self.assertEqual(manager._checkpoint_manager._local_primary_host, 0)
         slice_id = multislice.process_slice_id(
             multihost.process_index(),
             new_global_mesh,
@@ -1119,7 +1086,9 @@ class CheckpointManagerTestBase:
         self, enable_async_checkpointing: bool, replica_axis_index: int
     ):
       """Test restore successfully."""
-      global_mesh, pytree = self.setup_pytree(replica_axis_index)
+      global_mesh, pytree = self.setup_pytree(
+          self.make_global_mesh(replica_axis_index)
+      )
       abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       pytree_double = test_utils.apply_function(pytree, lambda x: x * 2)
       options = CheckpointManagerOptions(
@@ -1171,7 +1140,9 @@ class CheckpointManagerTestBase:
         self, enable_async_checkpointing: bool, replica_axis_index: int
     ):
       """Test case."""
-      global_mesh, pytree = self.setup_pytree(replica_axis_index)
+      global_mesh, pytree = self.setup_pytree(
+          self.make_global_mesh(replica_axis_index)
+      )
       abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       pytree_double = test_utils.apply_function(pytree, lambda x: x * 2)
       options = CheckpointManagerOptions(
@@ -1203,7 +1174,7 @@ class CheckpointManagerTestBase:
 
     def test_process_index_metadata(self):
       """Test case."""
-      global_mesh, pytree = self.setup_pytree()
+      global_mesh, pytree = self.setup_pytree(self.make_global_mesh())
       abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       with CheckpointManager(
           local_directory=self.local_directory,
@@ -1255,7 +1226,7 @@ class CheckpointManagerTestBase:
         return step in persistent_expectation
 
       max_to_keep = 10
-      global_mesh, pytree = self.setup_pytree()
+      global_mesh, pytree = self.setup_pytree(self.make_global_mesh())
       abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       options = CheckpointManagerOptions(
           local=LocalCheckpointOptions(
@@ -1301,6 +1272,8 @@ class CheckpointManagerTestBase:
         def __init__(self, devices, axis_names):
           self.devices = devices
           self.axis_names = axis_names
+          self.shape = mesh_shape
+          self.shape_tuple = tuple(mesh_shape)
 
       devices = np.arange(np.prod(mesh_shape)).reshape(mesh_shape)
       with mock.patch.object(jax.sharding, 'Mesh', wraps=FakeMesh):

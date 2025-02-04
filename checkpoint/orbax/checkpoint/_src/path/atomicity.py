@@ -240,6 +240,7 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
     return False
 
   def get(self) -> epath.Path:
+    logging.info('get tmp path: %s', self._tmp_path)
     return self._tmp_path
 
   def get_final(self) -> epath.Path:
