@@ -70,5 +70,3 @@ class FileOptions:
 
   path_permission_mode: Optional[int] = None
 
-
-
