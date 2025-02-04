@@ -91,7 +91,8 @@ def initialize_distributed_to_device_ids():
     ]
   assert None not in results
   _DISTRIBUTED_TO_DEVICE_IDS = results
-  logging.info(
+  logging.vlog(
+      1,
       '[process=%s][thread=%s] distributed_to_device_ids: %s',
       own_distributed_id,
       threading.current_thread().name,
@@ -124,7 +125,8 @@ def initialize_runtime_to_distributed_ids():
   for key, distributed_id in ids:
     runtime_id = int(key.split('/')[-1])
     _RUNTIME_TO_DISTRIBUTED_ID[runtime_id] = int(distributed_id)
-  logging.info(
+  logging.vlog(
+      1,
       '[process=%s][thread=%s] runtime_to_distributed_id: %s',
       process_index(),
       threading.current_thread().name,
@@ -222,7 +224,8 @@ def get_barrier_sync_fn(
 
   def _fn(*, key: str, timeout_ms: int) -> None:
     key = _unique_barrier_key(key)
-    logging.info(
+    logging.vlog(
+        1,
         '[process=%s][thread=%s] Waiting at barrier: %s',
         process_index(),
         threading.current_thread().name,
@@ -239,7 +242,8 @@ def get_barrier_sync_fn(
           barrier_processes,
       )
       client.wait_at_barrier(key, timeout_ms, process_ids=barrier_processes)
-    logging.info(
+    logging.vlog(
+        1,
         '[process=%s][thread=%s] Done waiting at barrier: %s',
         process_index(),
         threading.current_thread().name,
@@ -290,7 +294,8 @@ def sync_global_processes(
       provided, a default implementation is used.
   """
   if should_skip_process_sync(processes):
-    logging.info(
+    logging.vlog(
+        1,
         '[process=%s][thread=%s] Skipping global process sync, barrier'
         ' name: %s',
         process_index(),
@@ -303,14 +308,16 @@ def sync_global_processes(
   # Temporarily default to existing behavior to minimize risk of breakage.
   if processes is None:
     key = _unique_barrier_key(name)
-    logging.info(
+    logging.vlog(
+        1,
         '[process=%s][thread=%s] Begin jax/sync_global_devices("%s")',
         process_index(),
         threading.current_thread().name,
         key,
     )
     multihost_utils.sync_global_devices(key)
-    logging.info(
+    logging.vlog(
+        1,
         '[process=%s][thread=%s] Done jax/sync_global_devices("%s"): %s secs',
         process_index(),
         threading.current_thread().name,

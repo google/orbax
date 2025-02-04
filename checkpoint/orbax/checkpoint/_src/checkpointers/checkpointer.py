@@ -245,9 +245,16 @@ class Checkpointer(
         ),
         processes=self._active_processes,
     )
+    save_duration_secs = time.time() - checkpoint_start_time
+    logging.info(
+        'Finished synchronous save in %.2f seconds to %s',
+        save_duration_secs,
+        directory,
+    )
 
   def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""
+    restore_start_time = time.time()
     directory = epath.Path(directory)
     if not directory.exists():
       raise FileNotFoundError(f'Checkpoint at {directory} not found.')
@@ -256,13 +263,18 @@ class Checkpointer(
     logging.info('Restoring checkpoint from %s.', directory)
     ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
     restored = self._restore(directory, args=ckpt_args)
-    logging.info('Finished restoring checkpoint from %s.', directory)
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
             'Checkpointer:restore',
             prefix=self._barrier_sync_key_prefix,
         ),
         processes=self._active_processes,
+    )
+    restore_duration_secs = time.time() - restore_start_time
+    logging.info(
+        'Finished restoring checkpoint in %.2f seconds from %s.',
+        restore_duration_secs,
+        directory,
     )
     return restored
 

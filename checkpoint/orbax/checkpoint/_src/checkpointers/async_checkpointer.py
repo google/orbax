@@ -58,7 +58,11 @@ def _on_commit_callback(
       '/jax/checkpoint/write/async/total_duration_secs',
       total_duration_secs,
   )
-  logging.vlog(1, 'Async Total duration: %s seconds', total_duration_secs)
+  logging.info(
+      'Finished asynchronous save in %.2f seconds to %s',
+      total_duration_secs,
+      tmpdir.get_final(),
+  )
 
 
 def _add_deadline_exceeded_notes(e: jax.errors.JaxRuntimeError):
@@ -458,8 +462,11 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         '/jax/checkpoint/write/async/blocking_duration_secs',
         blocking_duration_secs,
     )
-    logging.vlog(
-        1, 'Async save blocking duration: %s seconds', blocking_duration_secs
+    logging.info(
+        'Finished blocking save in %.2f seconds. Continuing to save'
+        ' asynchronously to %s.',
+        blocking_duration_secs,
+        directory,
     )
 
   def save(
