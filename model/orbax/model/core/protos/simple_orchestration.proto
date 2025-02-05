@@ -2,12 +2,33 @@ syntax = "proto3";
 
 package orbax_model_simple_orchestration;
 
+import "orbax/experimental/model/core/protos/type.proto";
+
+// TODO(wangpeng): Allow multiple
+//   (signature, pre_processor_name, post_processor_name)
+//   tuples (each associated with a name), sharing the same
+//   (model_function_name, weights_name).
 message SimpleOrchestration {
-  optional string pre_processor_name = 1;
+  // The overall (input and output) signature of the orchestration pipeline.
 
-  string model_function_name = 2;
+  // The overall input signature will be the input signature of the
+  // pre-processor if present, otherwise the input signature of the model
+  // function minus the weights argument.
 
-  // Will be given as the 1st arg to the model function.
+  // The overall output signature will be the output signature of the
+  // post-processor if present, otherwise the output signature of the model
+  // function.
+  orbax_model_type.FunctionSignature signature = 1;
+
+  // The name (in manifest) of the pre-processor function.
+  optional string pre_processor_name = 20;
+
+  // The name (in manifest) of the model function.
+  string model_function_name = 30;
+
+  // The name (in manifest) of the value representing the weights PyTree.
+  //
+  // This PyTree will be given as the 1st arg to the model function.
   //
   // In the short term when we don't support PyTree,
   // (the value whose name is) `weights_name` will be a tuple
@@ -19,7 +40,8 @@ message SimpleOrchestration {
   //
   // # TODO(b/329305005): Remove this hacky interpretation once we support
   //   PyTree.
-  string weights_name = 3;
+  string weights_name = 40;
 
-  optional string post_processor_name = 4;
+  // The name (in manifest) of the post-processor function.
+  optional string post_processor_name = 50;
 }

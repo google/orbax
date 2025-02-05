@@ -41,6 +41,9 @@ class ServingConfig:
   # `tf_preprocessor`, in which case `tf_preprocessor` must be a tf.function
   # with `input_signature` annotation. See
   # https://www.tensorflow.org/api_docs/python/tf/function#input_signatures.
+  #
+  # TODO(wangpeng): Replace `Optional[Sequence[PyTree]]` with `PyTree`. The
+  #   input signature doesn't need to be a sequence.
   input_signature: Optional[Sequence[PyTree]] = None
   # Optional pre-precessing function written in TF.
   tf_preprocessor: Optional[Callable[..., Any]] = None

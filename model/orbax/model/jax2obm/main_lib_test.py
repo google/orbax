@@ -115,7 +115,13 @@ class MainLibTest(parameterized.TestCase):
         obm.SaveOptions(
             version=2,
             supplemental_info=obm.SupplementalInfo(
-                obm.simple_orchestration(
+                obm.simple_orchestration.create(
+                    signature=obm.simple_orchestration.calculate_signature(
+                        model_function_signature=em_shlo_fn.signature,
+                        num_of_weights=None
+                        if not flatten_signature
+                        else len(obm.tree_util.flatten(params_args_spec)),
+                    ),
                     model_function_name=model_function_name,
                     weights_name=weights_name,
                 ),
@@ -128,9 +134,9 @@ class MainLibTest(parameterized.TestCase):
     with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), 'rb') as f:
       manifest_proto.ParseFromString(f.read())
 
-    # Expected function signature (depending on flatten_signature)
     if flatten_signature:
-      expected_sig = """
+      # Expected function signature (depending on flatten_signature)
+      expected_signature_text = """
         signature {
           input {
             tuple {
@@ -234,9 +240,65 @@ class MainLibTest(parameterized.TestCase):
             }
           }
         }
-    """
+      """
+
+      expected_orchestration_signature_text = """
+        signature {
+          input {
+            tuple {
+              elements {
+                leaf {
+                  tensor_type {
+                    shape {
+                      shape_with_known_rank {
+                        dimension_sizes {
+                          size: 8
+                        }
+                        dimension_sizes {
+                          size: 4
+                        }
+                      }
+                    }
+                    dtype: f32
+                    sharding {
+                      type: OTHER
+                      tile_assignment_dimensions: 4
+                      tile_assignment_dimensions: 1
+                      tile_assignment_dimensions: 2
+                      replicate_on_last_tile_dim: true
+                      iota_reshape_dims: 8
+                      iota_transpose_perm: 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+          output {
+            tuple {
+              elements {
+                leaf {
+                  tensor_type {
+                    shape {
+                      shape_with_known_rank {
+                        dimension_sizes {
+                          size: 8
+                        }
+                        dimension_sizes {
+                          size: 16
+                        }
+                      }
+                    }
+                    dtype: f32
+                  }
+                }
+              }
+            }
+          }
+        }
+      """
     else:
-      expected_sig = """
+      expected_signature_text = """
         signature {
           input {
             tuple {
@@ -354,7 +416,67 @@ class MainLibTest(parameterized.TestCase):
             }
           }
         }
-    """
+      """
+
+      expected_orchestration_signature_text = """
+        signature {
+          input {
+            tuple {
+              elements {
+                tuple {
+                  elements {
+                    leaf {
+                      tensor_type {
+                        shape {
+                          shape_with_known_rank {
+                            dimension_sizes {
+                              size: 8
+                            }
+                            dimension_sizes {
+                              size: 4
+                            }
+                          }
+                        }
+                        dtype: f32
+                        sharding {
+                          type: OTHER
+                          tile_assignment_dimensions: 4
+                          tile_assignment_dimensions: 1
+                          tile_assignment_dimensions: 2
+                          replicate_on_last_tile_dim: true
+                          iota_reshape_dims: 8
+                          iota_transpose_perm: 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              elements {
+                dict {
+                }
+              }
+            }
+          }
+          output {
+            leaf {
+              tensor_type {
+                shape {
+                  shape_with_known_rank {
+                    dimension_sizes {
+                      size: 8
+                    }
+                    dimension_sizes {
+                      size: 16
+                    }
+                  }
+                }
+                dtype: f32
+              }
+            }
+          }
+        }
+      """
 
     jax_supplemental_filename = f'{model_function_name}_supplemental.pb'
 
@@ -366,7 +488,7 @@ class MainLibTest(parameterized.TestCase):
         + """\"
         value {
           function {"""
-        + expected_sig
+        + expected_signature_text
         + """
             body {
               stable_hlo_body {
@@ -462,10 +584,12 @@ class MainLibTest(parameterized.TestCase):
     orchestration_proto = obm.simple_orchestration_pb2.SimpleOrchestration()
     with open(os.path.join(save_dir_path, supplemental_filename), 'rb') as f:
       orchestration_proto.ParseFromString(f.read())
-    expected_orchestration_proto_text = f"""
+    expected_orchestration_proto_text = (
+        expected_orchestration_signature_text + f"""
       model_function_name: "{model_function_name}"
       weights_name: "{weights_name}"
     """
+    )
     expected_orchestration_proto = text_format.Parse(
         expected_orchestration_proto_text,
         obm.simple_orchestration_pb2.SimpleOrchestration(),

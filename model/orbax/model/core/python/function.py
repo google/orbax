@@ -16,7 +16,7 @@
 
 from dataclasses import dataclass  # pylint: disable=g-importing-member
 import enum
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
 from orbax.experimental.model.core.python.tree_util import Tree
@@ -106,8 +106,13 @@ class Function:
   Attributes:
     input_signature: the input signature of the function.
     output_signature: the output signature of the function.
+    signature: the pair `(input_signature, output_signature)`.
   """
 
   input_signature: Tree[ShloTensorSpec]
   output_signature: Tree[ShloTensorSpec]
   # TODO(b/372084833): Add `vjp_name``.
+
+  @property
+  def signature(self) -> Tuple[Tree[ShloTensorSpec], Tree[ShloTensorSpec]]:
+    return self.input_signature, self.output_signature
