@@ -62,7 +62,6 @@ py_test(
 py_test(
     name = "subchunking_test",
     srcs = ["subchunking_test.py"],
-    args = ["--vmodule=subchunking=1"],
     deps = [
         ":fragments",
         ":subchunking",

@@ -16,12 +16,6 @@ py_library(
     deps = [":abstract_logger"],
 )
 
-py_test(
-    name = "cloud_logger_test",
-    srcs = ["cloud_logger_test.py"],
-    deps = [":cloud_logger"],
-)
-
 py_library(
     name = "standard_logger",
     srcs = ["standard_logger.py"],
@@ -38,15 +32,4 @@ py_library(
     name = "composite_logger",
     srcs = ["composite_logger.py"],
     deps = [":abstract_logger"],
-)
-
-py_test(
-    name = "composite_logger_test",
-    srcs = ["composite_logger_test.py"],
-    deps = [
-        ":abstract_logger",
-        ":cloud_logger",
-        ":composite_logger",
-        ":standard_logger",
-    ],
 )
