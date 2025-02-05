@@ -142,3 +142,39 @@ jobs:
             "description": "'$status'",
             "context": "github-actions/build"
             }'
+
+  build-orbax-model:
+    name: "build-orbax-model (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: model
+    strategy:
+      matrix: # TODO(qidichen): update to multiple versions.
+        python-version: [ "3.12"]
+        jax-version: ["newest"]
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
+      with:
+        version: '3.x'
+    - name: Extract branch name
+      shell: bash
+      run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
+      id: extract_branch
+    - name: Install dependencies
+      run: |
+        pip install .
+        pip install .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
+          pip install -U jax jaxlib
+        elif [[ "${{ matrix.jax-version }}" == "nightly" ]]; then
+          pip install -U --pre jax jaxlib -f https://storage.googleapis.com/jax-releases/jax_nightly_releases.html
+        else
+          pip install "jax==${{ matrix.jax-version }}" "jaxlib==${{ matrix.jax-version }}"
+        fi

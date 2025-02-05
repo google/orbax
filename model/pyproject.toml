@@ -32,8 +32,8 @@ dependencies = [
 
 dynamic = ['version']
 
-# [tool.flit.module]
-# name = "python"
+[tool.flit.module]
+name = "orbax.experimental.model"
 
 [project.urls]
 homepage = 'http://github.com/google/orbax'
