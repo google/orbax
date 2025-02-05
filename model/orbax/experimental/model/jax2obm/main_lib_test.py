@@ -40,19 +40,18 @@ os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
 class MainLibTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
-      (  # pylint: disable=g-complex-comprehension
-          f'_{flatten_signature}_{native_serialization_platforms}',
-          flatten_signature,
-          native_serialization_platforms,
-      )
-      for flatten_signature in (True, False)
-      for native_serialization_platforms in (
+      ('_default', False, None, False),
+      ('_flatten_signature', True, None, False),
+      (
+          '_native_cpu_serialization',
+          False,
           [constants.OrbaxNativeSerializationType.CPU],
-          None,
-      )
+          False,
+      ),
+      ('_polymorphic_shape', False, None, True),
   )
   def test_sharded_jax_e2e(
-      self, flatten_signature, native_serialization_platforms
+      self, flatten_signature, native_serialization_platforms, polymorphic_shape
   ):
 
     def jax_model_fn(params, x):
@@ -78,10 +77,26 @@ class MainLibTest(parameterized.TestCase):
       }
 
     jax_params = _generated_sharded_params()
-    in_shardings_ = (pytree_shardings, NamedSharding(mesh, PartitionSpec('x')))
+    in_shardings_ = (
+        pytree_shardings,
+        NamedSharding(
+            mesh,
+            PartitionSpec(None, 'x')
+            if polymorphic_shape
+            else PartitionSpec('x'),
+        ),
+    )
     jax_model_fn_sharded = jax.jit(jax_model_fn, in_shardings=in_shardings_)
-    input_ = jnp.ones((8, 4), dtype=jnp.float64)
-    input_args_spec = main_lib.get_shape_dtype_struct(input_)
+    if polymorphic_shape:
+      input_args_spec = jax_export.symbolic_args_specs(
+          jax.ShapeDtypeStruct(
+              (jax_export.symbolic_shape('a'), 4),
+              jnp.float64,
+          ),
+          shapes_specs='a, 4',
+      )
+    else:
+      input_args_spec = jax.ShapeDtypeStruct((8, 4), jnp.float64)
     params_args_spec = main_lib.get_shape_dtype_struct(jax_params)
     em_shlo_fn = main_lib.convert_to_shlo_fn(
         jax_model_fn_sharded,
@@ -127,6 +142,21 @@ class MainLibTest(parameterized.TestCase):
     manifest_proto = obm.manifest_pb2.Manifest()
     with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), 'rb') as f:
       manifest_proto.ParseFromString(f.read())
+
+    if polymorphic_shape:
+      batch_size = ''
+      sharding_dims = """
+        tile_assignment_dimensions: 1
+        tile_assignment_dimensions: 4
+        tile_assignment_dimensions: 2
+        """
+    else:
+      sharding_dims = """
+        tile_assignment_dimensions: 4
+        tile_assignment_dimensions: 1
+        tile_assignment_dimensions: 2
+      """
+      batch_size = 'size: 8'
 
     # Expected function signature (depending on flatten_signature)
     if flatten_signature:
@@ -308,7 +338,7 @@ class MainLibTest(parameterized.TestCase):
                         shape {
                           shape_with_known_rank {
                             dimension_sizes {
-                              size: 8
+                              """ + batch_size + """
                             }
                             dimension_sizes {
                               size: 4
@@ -318,9 +348,7 @@ class MainLibTest(parameterized.TestCase):
                         dtype: f32
                         sharding {
                           type: OTHER
-                          tile_assignment_dimensions: 4
-                          tile_assignment_dimensions: 1
-                          tile_assignment_dimensions: 2
+                          """ + sharding_dims + """
                           replicate_on_last_tile_dim: true
                           iota_reshape_dims: 8
                           iota_transpose_perm: 0
@@ -342,7 +370,7 @@ class MainLibTest(parameterized.TestCase):
                 shape {
                   shape_with_known_rank {
                     dimension_sizes {
-                      size: 8
+                      """ + batch_size + """
                     }
                     dimension_sizes {
                       size: 16
@@ -471,9 +499,7 @@ class MainLibTest(parameterized.TestCase):
         obm.simple_orchestration_pb2.SimpleOrchestration(),
     )
     compare.assertProto2Equal(
-        self,
-        orchestration_proto,
-        expected_orchestration_proto,
+        self, expected_orchestration_proto, orchestration_proto
     )
 
     jax_supplemental_proto = jax_supplemental_pb2.Function()
@@ -485,14 +511,46 @@ class MainLibTest(parameterized.TestCase):
       nr_devices: 8
       name: "jax_model_fn"
     """
+    if polymorphic_shape:
+      expected_jax_supplemental_proto_text += """
+      uses_shape_polymorphism: true
+      input_spec_refinements {
+        map {
+          idx_to_refinement {
+            key: 2
+            value {
+              shape {
+                dimension_sizes {
+                  size: "a"
+                }
+                dimension_sizes {
+                }
+              }
+            }
+          }
+        }
+      }
+      output_spec_refinements {
+        list {
+          refinements {
+            shape {
+              dimension_sizes {
+                size: "a"
+              }
+              dimension_sizes {
+              }
+            }
+          }
+        }
+      }
+      """
+
     expected_jax_supplemental_proto = text_format.Parse(
         expected_jax_supplemental_proto_text,
         jax_supplemental_pb2.Function(),
     )
     compare.assertProto2Equal(
-        self,
-        jax_supplemental_proto,
-        expected_jax_supplemental_proto,
+        self, expected_jax_supplemental_proto, jax_supplemental_proto
     )
 
   def test_mnist_model(self):
@@ -1021,232 +1079,6 @@ class MainLibTest(parameterized.TestCase):
     self.assertNotEmpty(
         os.listdir(checkpoint_abs_path),
         f"Checkpoint directory '{checkpoint_abs_path}' is empty.",
-    )
-
-  # TODO(qidichen): Merge this test with `def test_sharded_jax_e2e` above
-  # with extra param like `use_polymorphic_shape`.
-  def test_polymorphic_shape_sharded_jax(
-      self,
-  ):
-
-    def jax_model_fn(params, x):
-      return jnp.dot(jnp.dot(x, params['a']), params['b'])
-
-    def _create_mesh() -> jax.sharding.Mesh:
-      os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
-      devices = mesh_utils.create_device_mesh((4, 2))
-      return jax.sharding.Mesh(devices, ('x', 'y'))
-
-    mesh = _create_mesh()
-    pytree_shardings = {
-        'a': NamedSharding(mesh, PartitionSpec('x')),
-        'b': NamedSharding(mesh, PartitionSpec('x', 'y')),
-    }
-
-    def _generated_sharded_params():
-      a = jnp.array(jax.random.uniform(jax.random.key(0), (4, 4)))
-      b = jnp.array(jax.random.uniform(jax.random.key(1), (4, 16)))
-      return {
-          'a': jax.device_put(a, pytree_shardings['a']),
-          'b': jax.device_put(b, pytree_shardings['b']),
-      }
-
-    jax_params = _generated_sharded_params()
-    in_shardings_ = (
-        pytree_shardings,
-        NamedSharding(mesh, PartitionSpec(None, 'x')),
-    )
-    jax_model_fn_sharded = jax.jit(jax_model_fn, in_shardings=in_shardings_)
-
-    # Use symbolic shapes for the model input.
-    a = jax_export.symbolic_shape('a')
-    input_args_spec = jax_export.symbolic_args_specs(
-        jax.ShapeDtypeStruct(
-            (a, 4),
-            jnp.float64,
-        ),
-        shapes_specs='a, 4',
-    )
-    params_args_spec = main_lib.get_shape_dtype_struct(jax_params)
-
-    em_shlo_fn = main_lib.convert_to_shlo_fn(
-        jax_model_fn_sharded,
-        (params_args_spec, input_args_spec),
-        {},
-        flatten_signature=True,
-    )
-    obm_module = obm.Module()
-    model_function_name = 'my_model_fn'
-    setattr(obm_module, model_function_name, em_shlo_fn)
-
-    save_dir_path = os.path.join(self.create_tempdir())
-
-    obm.save(
-        obm_module,
-        save_dir_path,
-        obm.SaveOptions(
-            version=2,
-        ),
-    )
-
-    manifest_proto = obm.manifest_pb2.Manifest()
-    with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), 'rb') as f:
-      manifest_proto.ParseFromString(f.read())
-
-    expected_manifest_proto_text = """
-        objects {
-          key: "my_model_fn"
-          value {
-            function {
-              signature {
-                input {
-                  tuple {
-                    elements {
-                      leaf {
-                        tensor_type {
-                          shape {
-                            shape_with_known_rank {
-                              dimension_sizes {
-                                size: 4
-                              }
-                              dimension_sizes {
-                                size: 4
-                              }
-                            }
-                          }
-                          dtype: f32
-                          sharding {
-                            type: OTHER
-                            tile_assignment_dimensions: 4
-                            tile_assignment_dimensions: 1
-                            tile_assignment_dimensions: 2
-                            replicate_on_last_tile_dim: true
-                            iota_reshape_dims: 8
-                            iota_transpose_perm: 0
-                          }
-                        }
-                      }
-                    }
-                    elements {
-                      leaf {
-                        tensor_type {
-                          shape {
-                            shape_with_known_rank {
-                              dimension_sizes {
-                                size: 4
-                              }
-                              dimension_sizes {
-                                size: 16
-                              }
-                            }
-                          }
-                          dtype: f32
-                          sharding {
-                            type: OTHER
-                            tile_assignment_dimensions: 4
-                            tile_assignment_dimensions: 2
-                            iota_reshape_dims: 8
-                            iota_transpose_perm: 0
-                          }
-                        }
-                      }
-                    }
-                    elements {
-                      leaf {
-                        tensor_type {
-                          shape {
-                            shape_with_known_rank {
-                              dimension_sizes {
-                              }
-                              dimension_sizes {
-                                size: 4
-                              }
-                            }
-                          }
-                          dtype: f32
-                          sharding {
-                            type: OTHER
-                            tile_assignment_dimensions: 1
-                            tile_assignment_dimensions: 4
-                            tile_assignment_dimensions: 2
-                            replicate_on_last_tile_dim: true
-                            iota_reshape_dims: 8
-                            iota_transpose_perm: 0
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-                output {
-                  tuple {
-                    elements {
-                      leaf {
-                        tensor_type {
-                          shape {
-                            shape_with_known_rank {
-                              dimension_sizes {
-                              }
-                              dimension_sizes {
-                                size: 16
-                              }
-                            }
-                          }
-                          dtype: f32
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-              body {
-                stable_hlo_body {
-                  stable_hlo {
-                    mime_type: "mlir_stablehlo"
-                    version: "1.0"
-                  }
-                  calling_convention_version: 9
-                  lowering_platforms: "cpu"
-                  module_kept_var_idx: 0
-                  module_kept_var_idx: 1
-                  module_kept_var_idx: 2
-                  supplemental_info {
-                    file_system_location {
-                      string_path: "my_model_fn_supplemental.pb"
-                    }
-                    mime_type: "orbax_model_jax_supplemental"
-                    version: "0.0.1"
-                  }
-                }
-              }
-              visibility: PUBLIC
-            }
-          }
-        }
-    """
-    expected_manifest_proto = text_format.Parse(
-        expected_manifest_proto_text, obm.manifest_pb2.Manifest()
-    )
-    print('!!! \n', manifest_proto)
-    compare.assertProto2Equal(
-        self,
-        expected_manifest_proto,
-        manifest_proto,
-        ignored_fields=[
-            'objects.function.body.stable_hlo_body.stable_hlo.inlined_bytes'
-        ],
-    )
-    self.assertIn(
-        b'ML\xef',
-        manifest_proto.objects[
-            model_function_name
-        ].function.body.stable_hlo_body.stable_hlo.inlined_bytes,
-    )
-    self.assertIn(
-        b'StableHLO_v',
-        manifest_proto.objects[
-            model_function_name
-        ].function.body.stable_hlo_body.stable_hlo.inlined_bytes,
     )
 
 
