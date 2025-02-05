@@ -202,17 +202,6 @@ py_library(
     ],
 )
 
-# BEGIN OSS-INTERNAL
-# TODO(yaning): Expose this test in OSS.
-py_test(
-    name = "proto_checkpoint_handler_test",
-    srcs = ["proto_checkpoint_handler_test.py"],
-    deps = [
-        ":proto_checkpoint_handler",
-        "//checkpoint/orbax/checkpoint/proto/testing:foo_py_pb2",
-    ],
-)
-
 py_library(
     name = "standard_checkpoint_handler_test_utils",
     srcs = ["standard_checkpoint_handler_test_utils.py"],
