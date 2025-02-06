@@ -31,7 +31,8 @@ Shape: TypeAlias = types.Shape
 DType: TypeAlias = types.DType
 ArrayMetadata: TypeAlias = array_metadata.ArrayMetadata
 
-DEFAULT_DRIVER = 'file'
+FILE_DRIVER = 'file'
+DEFAULT_DRIVER = FILE_DRIVER
 
 PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
 _OCDBT_PROCESS_ID_RE = r'[A-Za-z0-9]+'
@@ -150,15 +151,19 @@ def build_kvstore_tspec(
       kv_spec['path'] = name
 
     kv_spec.update({  # pytype: disable=attribute-error
-        # Enable read coalescing.  This feature merges adjacent read_ops into
-        # one, which could reduce I/O ops by a factor of 10. This is especially
-        # beneficial for unstacked models.
-        'experimental_read_coalescing_threshold_bytes': 1000000,
-        'experimental_read_coalescing_merged_bytes': 500000000000,
-        'experimental_read_coalescing_interval': '1ms',
         # References the cache specified in ts.Context.
         'cache_pool': 'cache_pool#ocdbt',
     })
+
+    if default_driver != FILE_DRIVER:
+      kv_spec.update({  # pytype: disable=attribute-error
+          # Enable read coalescing.  This feature merges adjacent read_ops into
+          # one, which could reduce I/O ops by a factor of 10. This is
+          # especially beneficial for unstacked models.
+          'experimental_read_coalescing_threshold_bytes': 1000000,
+          'experimental_read_coalescing_merged_bytes': 500000000000,
+          'experimental_read_coalescing_interval': '1ms',
+      })
   else:
     if name is None:
       path = directory
