@@ -162,6 +162,11 @@ def should_skip_process_sync(processes: Optional[Set[int]] = None) -> bool:
   return False
 
 
+def is_jax_distributed_client_initialized() -> bool:
+  """Returns True if the JAX distributed client is initialized."""
+  return jax._src.distributed.global_state.client is not None  # pylint: disable=protected-access
+
+
 def get_jax_distributed_client():
   client = jax._src.distributed.global_state.client  # pylint: disable=protected-access
   if client is None:

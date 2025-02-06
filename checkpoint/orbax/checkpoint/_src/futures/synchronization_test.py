@@ -23,11 +23,6 @@ HandlerAwaitableSignalOperationIdGenerator = (
 
 class HandlerAwaitableSignalOperationIdGeneratorTest(absltest.TestCase):
 
-  def test_is_operation_id_initialized(self):
-    HandlerAwaitableSignalOperationIdGenerator._operation_id = 0
-
-    self.assertFalse(HandlerAwaitableSignalOperationIdGenerator.is_intialized())
-
   def test_get_operation_id(self):
     HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
     operation_id_1 = (
@@ -39,7 +34,6 @@ class HandlerAwaitableSignalOperationIdGeneratorTest(absltest.TestCase):
         HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
     )
 
-    self.assertTrue(HandlerAwaitableSignalOperationIdGenerator.is_intialized())
     self.assertEqual(operation_id_1, "1")
     self.assertEqual(operation_id_2, "2")
 

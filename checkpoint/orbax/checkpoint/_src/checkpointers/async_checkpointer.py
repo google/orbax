@@ -343,20 +343,6 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
     self._multiprocessing_options = multiprocessing_options
 
-  def synchronize_next_awaitable_signal_operation_id(self):
-    # Synchronize next operation id if async directory creation is enabled
-    # across all hosts.
-    synchronization.HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
-
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'next_awaitable_signal_operation_id:sync',
-            prefix=self._barrier_sync_key_prefix,
-        ),
-        timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
-        processes=self._active_processes,
-    )
-
   async def _save(
       self,
       directory: epath.PathLike,
@@ -368,8 +354,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     checkpoint_start_time = time.time()
     directory = epath.Path(directory)
     self.wait_until_finished()
-    if self._create_directories_asynchronously:
-      self.synchronize_next_awaitable_signal_operation_id()
+    self.synchronize_next_awaitable_signal_operation_id()
 
     jax.monitoring.record_event('/jax/orbax/write/async/start')
     logging.info(

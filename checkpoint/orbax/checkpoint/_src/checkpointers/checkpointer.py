@@ -26,6 +26,7 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.checkpointers import abstract_checkpointer
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
@@ -167,6 +168,18 @@ class Checkpointer(
         multiprocessing_options=self._multiprocessing_options,
     )
 
+  def synchronize_next_awaitable_signal_operation_id(self):
+    synchronization.HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
+
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'next_awaitable_signal_operation_id:sync',
+            prefix=self._barrier_sync_key_prefix,
+        ),
+        timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+        processes=self._active_processes,
+    )
+
   def save(
       self,
       directory: epath.PathLike,
@@ -205,6 +218,7 @@ class Checkpointer(
         multihost.process_index(),
         directory,
     )
+    self.synchronize_next_awaitable_signal_operation_id()
 
     if directory.exists():
       if force:

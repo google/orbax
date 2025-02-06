@@ -56,8 +56,3 @@ class HandlerAwaitableSignalOperationIdGenerator:
   def get_current_operation_id(cls) -> str:
     """Returns the current operation id."""
     return str(cls._operation_id)
-
-  @classmethod
-  def is_intialized(cls) -> bool:
-    """Returns whether the operation id counter is initialized by calling `next_operation_id`."""
-    return cls._operation_id > 0
