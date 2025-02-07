@@ -392,6 +392,54 @@ def _all_devices_excepting_slice(
     return np.delete(devices, replica_id, axis=replica_axis_index)
 
 
+def _get_global_broadcast_fn() -> Callable[[jax.Array], jax.Array]:
+  """Returns a global broadcast function. More efficient to compile once."""
+  # Compile function for global broadcast.
+  slice_mesh = jax.sharding.Mesh(
+      np.asarray(jax.devices()).reshape(
+          multihost.process_count(), jax.local_device_count()
+      ),
+      ['host', 'dev'],
+  )
+  return jax.jit(
+      lambda x: x,
+      out_shardings=jax.sharding.NamedSharding(slice_mesh, P()),
+  )
+
+
+def _global_max(
+    values: list[int], global_broadcast_fn: Callable[[jax.Array], jax.Array]
+) -> list[int]:
+  """Computes the global max of a list of values."""
+  num_hosts = multihost.process_count()
+  num_devices_per_host = jax.local_device_count()
+  slice_mesh = jax.sharding.Mesh(
+      np.asarray(jax.devices()).reshape(num_hosts, num_devices_per_host),
+      ['host', 'dev'],
+  )
+
+  sdas = []
+  for d in jax.local_devices():
+    sdas.append(
+        jax.device_put(np.asarray(values).reshape((1, 1, len(values))), d)
+    )
+  sharding = jax.sharding.NamedSharding(slice_mesh, P('host', 'dev'))
+  # TODO(cpgaffney): Use jax.make_array_from_process_local_data.
+  g_arr = jax.make_array_from_single_device_arrays(
+      (num_hosts, num_devices_per_host, len(values)), sharding, sdas
+  )
+  result_arr = global_broadcast_fn(g_arr)
+  result_arr = np.asarray(result_arr.addressable_data(0))
+
+  # Checks that for every host, values are equal across local devices.
+  assert (
+      np.sum(result_arr, axis=1) / num_devices_per_host == result_arr[:, 0, :]
+  ).all()
+  # Select values from first device and compute max for each value across
+  # hosts.
+  return list(np.max(result_arr[:, 0, :], axis=0).astype(int))
+
+
 class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
   """A checkpoint manager that checkpoints to local storage.
 
@@ -606,10 +654,31 @@ def _get_single_slice_sharding(
   return jax.sharding.NamedSharding(slice_mesh, pspec)
 
 
-class CheckpointManager(
+def _get_persistent_options(
+    options: CheckpointManagerOptions,
+    multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
+) -> checkpoint_manager.CheckpointManagerOptions:
+  """Get options for persistent checkpoint manager."""
+  return checkpoint_manager.CheckpointManagerOptions(
+      save_interval_steps=options.persistent.save_interval_steps,
+      max_to_keep=options.persistent.max_to_keep,
+      step_name_format=options.step_name_format,
+      create=False,
+      cleanup_tmp_directories=options.cleanup_tmp_directories,
+      async_options=options.async_options,
+      multiprocessing_options=multiprocessing_options,
+      enable_async_checkpointing=options.enable_async_checkpointing,
+      should_save_fn=options.persistent.should_save_fn,
+      save_root_metadata=False,
+  )
+
+
+class _MultisliceCheckpointManager(
     abstract_checkpoint_manager.AbstractCheckpointManager, epy.ContextManager
 ):
   """Provides both checkpoint management and emergency checkpointings.
+
+  This class is an implementation layer for handling multislice checkpointing.
 
   This class composes a local and a persistent checkpoint managers. The local
   manager saves checkpoints frequently to a fast local storage (like RAMFS).
@@ -628,7 +697,7 @@ class CheckpointManager(
         ),
         enable_async_checkpointing=use_async,
     )
-    return CheckpointManager(
+    return _MultisliceCheckpointManager(
         local_directory=local_directory,
         persistent_directory=persistent_directory,
         global_mesh=global_mesh,
@@ -637,8 +706,6 @@ class CheckpointManager(
     )
   """
 
-  # TODO: b/330585086 - Allow configuration of global mesh describing slices.
-  # Validate against global meshes used for arrays in state.
   # TODO: b/330585086 - Support arbitrary items beyond state. We will have
   # to evaluate whether arbitrary items can be a good fit for local
   # checkpointing, given restore+broadcast requirements.
@@ -722,14 +789,14 @@ class CheckpointManager(
         replica_axis_index=self._replica_axis_index,
         replica_id=secondary_replica_id,
     )
-    self.in_primary_slice = multislice.in_slice(
+    self._in_primary_slice = multislice.in_slice(
         multihost.process_index(),
         global_mesh,
         replica_axis_index=self._replica_axis_index,
         replica_id=primary_replica_id,
     )
 
-    if self.in_primary_slice:
+    if self._in_primary_slice:
       persistent_multiprocessing_options = (
           checkpoint_manager.MultiprocessingOptions(
               primary_host=self._persistent_primary_host,
@@ -761,17 +828,7 @@ class CheckpointManager(
     # Initialize step cache.
     self.all_steps(read=True)
 
-    # Compile function for global broadcast.
-    slice_mesh = jax.sharding.Mesh(
-        np.asarray(jax.devices()).reshape(
-            multihost.process_count(), jax.local_device_count()
-        ),
-        ['host', 'dev'],
-    )
-    self._global_broadcast_fn = jax.jit(
-        lambda x: x,
-        out_shardings=jax.sharding.NamedSharding(slice_mesh, P()),
-    )
+    self._global_broadcast_fn = _get_global_broadcast_fn()
 
     logging.info(
         'Created emergency.CheckpointManager with slice_id=%d,'
@@ -796,21 +853,11 @@ class CheckpointManager(
       self,
       persistent_multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
   ) -> checkpoint_manager.CheckpointManager:
-    persistent_options = checkpoint_manager.CheckpointManagerOptions(
-        save_interval_steps=self._options.persistent.save_interval_steps,
-        max_to_keep=self._persistent_max_to_keep,
-        step_name_format=self._options.step_name_format,
-        create=False,
-        cleanup_tmp_directories=self._options.cleanup_tmp_directories,
-        async_options=self._options.async_options,
-        multiprocessing_options=persistent_multiprocessing_options,
-        enable_async_checkpointing=self._options.enable_async_checkpointing,
-        should_save_fn=self._options.persistent.should_save_fn,
-        save_root_metadata=False,
-    )
     return checkpoint_manager.CheckpointManager(
         self._persistent_directory,
-        options=persistent_options,
+        options=_get_persistent_options(
+            self._options, persistent_multiprocessing_options
+        ),
         metadata=self._metadata,
         item_handlers=_persistent_checkpoint_handler(
             persistent_multiprocessing_options
@@ -832,7 +879,11 @@ class CheckpointManager(
 
   @property
   def directory(self) -> epath.Path:
-    raise NotImplementedError()
+    return self._persistent_directory
+
+  @property
+  def in_primary_slice(self) -> bool:
+    return self._in_primary_slice
 
   @property
   def global_mesh(self) -> jax.sharding.Mesh:
@@ -898,45 +949,6 @@ class CheckpointManager(
     """Returns True if a preemption sync point has been reached."""
     return multihost.reached_preemption(step)
 
-  def _global_max(self, values: list[int]) -> list[int]:
-    """Returns the global max of local values across all processes as a scalar.
-
-    Uses JAX-based broadcasting to ensure greater performance at scale.
-
-    Args:
-      values: A list of integers.
-
-    Args:
-      values: Max of the values across all processes.
-    """
-    num_hosts = multihost.process_count()
-    num_devices_per_host = jax.local_device_count()
-    slice_mesh = jax.sharding.Mesh(
-        np.asarray(jax.devices()).reshape(num_hosts, num_devices_per_host),
-        ['host', 'dev'],
-    )
-
-    sdas = []
-    for d in jax.local_devices():
-      sdas.append(
-          jax.device_put(np.asarray(values).reshape((1, 1, len(values))), d)
-      )
-    sharding = jax.sharding.NamedSharding(slice_mesh, P('host', 'dev'))
-    # TODO(cpgaffney): Use jax.make_array_from_process_local_data.
-    g_arr = jax.make_array_from_single_device_arrays(
-        (num_hosts, num_devices_per_host, len(values)), sharding, sdas
-    )
-    result_arr = self._global_broadcast_fn(g_arr)
-    result_arr = np.asarray(result_arr.addressable_data(0))
-
-    # Checks that for every host, values are equal across local devices.
-    assert (
-        np.sum(result_arr, axis=1) / num_devices_per_host == result_arr[:, 0, :]
-    ).all()
-    # Select values from first device and compute max for each value across
-    # hosts.
-    return list(np.max(result_arr[:, 0, :], axis=0).astype(int))
-
   def should_save(self, step: int) -> bool:
     """Returns True if a checkpoint should be saved for the current step.
 
@@ -953,7 +965,7 @@ class CheckpointManager(
       should_save = self._persistent_checkpoint_manager.should_save(step)
     else:
       should_save = self._local_checkpoint_manager.should_save(step)
-    return bool(self._global_max([int(should_save)])[0])
+    return bool(_global_max([int(should_save)], self._global_broadcast_fn)[0])
 
   def delete(self, step: int):
     """Deletes a step checkpoint."""
@@ -964,18 +976,18 @@ class CheckpointManager(
   def save(
       self,
       step: int,
-      args: Optional[args_lib.CheckpointArgs] = None,
-      metrics: Optional[PyTree] = None,
-      force: Optional[bool] = False,
+      args: args_lib.CheckpointArgs,
+      *,
+      force: bool = False,
   ) -> bool:
-    """Returns True no matter if a checkpoint is saved or not."""
+    """Returns True if a checkpoint was saved either locally or persistently."""
     # TODO: b/330608746 - implement save op on different slices
     persistent_saved = False
     local_saved = False
     if self.in_primary_slice:
       logging.info('Maybe saving at step %d (persistent).', step)
       persistent_saved = self._persistent_checkpoint_manager.save(
-          step, args=args, metrics=metrics, force=force
+          step, args=args, force=force
       )
     else:
       logging.info('Maybe saving at step %d (local).', step)
@@ -990,13 +1002,15 @@ class CheckpointManager(
       })
 
       local_saved = self._local_checkpoint_manager.save(
-          step, args=args, metrics=metrics, force=force
+          step, args=args, force=force
       )
 
     start = time.time()
     saved = tuple(
         bool(e)
-        for e in self._global_max([int(persistent_saved), int(local_saved)])
+        for e in _global_max(
+            [int(persistent_saved), int(local_saved)], self._global_broadcast_fn
+        )
     )
     persistent_saved, local_saved = saved
     logging.info('Broadcast `saved` bool in %f seconds.', time.time() - start)
@@ -1293,8 +1307,7 @@ class CheckpointManager(
   def restore(
       self,
       step: Optional[int],
-      args: Optional[args_lib.CheckpointArgs] = None,
-      directory: Optional[epath.PathLike] = None,
+      args: args_lib.CheckpointArgs | None = None,
   ) -> Any:
     del args
     if step is None:
@@ -1310,10 +1323,9 @@ class CheckpointManager(
       return self._restore_from_local(
           step=step,
           restoring_slice_id=restoring_slice_id,
-          directory=directory,
       )
 
-    return self._restore_from_persistent(step=step, directory=directory)
+    return self._restore_from_persistent(step=step)
 
   def item_metadata(self, step: int) -> Any:
     raise NotImplementedError(
@@ -1366,6 +1378,184 @@ class CheckpointManager(
       self._persistent_checkpoint_manager.close()
     else:
       self._local_checkpoint_manager.close()
+
+  def __contextmanager__(
+      self,
+  ) -> Iterable[Self]:
+    try:
+      yield self
+    finally:
+      self.close()
+
+
+class CheckpointManager(
+    abstract_checkpoint_manager.AbstractCheckpointManager, epy.ContextManager
+):
+  """Provides both checkpoint management and emergency checkpointings.
+
+  This class composes a local and a persistent checkpoint managers. The local
+  manager saves checkpoints frequently to a fast local storage (like RAMFS).
+  When a complete checkpoint exists at least one slice, restoration is possible,
+  and the slice broadcasts the checkpoint to others. Additionally, the
+  persistent manager checkpoints less frequently to a remote file system (e.g.,
+  GCS),
+  providing a fail-safe if local checkpoints become unavailable due to issues
+  like hardware failure or preemption.
+
+  Usage::
+
+    options = CheckpointManagerOptions(
+        local=LocalCheckpointOptions(save_interval_steps=2, max_to_keep=2),
+        persistent=PersistentCheckpointOptions(
+            save_interval_steps=5, max_to_keep=3
+        ),
+        enable_async_checkpointing=use_async,
+    )
+    return CheckpointManager(
+        local_directory=local_directory,
+        persistent_directory=persistent_directory,
+        global_mesh=global_mesh,
+        abstract_state=abstract_state,
+        options=options,
+    )
+  """
+
+  # TODO: b/330585086 - Support arbitrary items beyond state. We will have
+  # to evaluate whether arbitrary items can be a good fit for local
+  # checkpointing, given restore+broadcast requirements.
+  def __init__(
+      self,
+      local_directory: epath.PathLike,
+      persistent_directory: epath.PathLike,
+      global_mesh: jax.sharding.Mesh,
+      abstract_state: PyTree,  # a single PyTree describing the state structure
+      *,
+      options: Optional[CheckpointManagerOptions] = None,
+      metadata: Optional[dict[str, Any]] = None,
+      logger: Optional[abstract_logger.AbstractLogger] = None,
+  ):
+    options = options or CheckpointManagerOptions()
+    self._global_mesh = global_mesh
+    self._abstract_state = abstract_state
+    self._slice_count = multislice.slice_count(
+        global_mesh, replica_axis_index=options.replica_axis_index
+    )
+    if self._slice_count <= 0:
+      raise ValueError(
+          'Slice count must be positive, but got'
+          f' {self._slice_count} for mesh {global_mesh}.'
+      )
+    elif self._slice_count == 1:
+      del local_directory
+      self._checkpoint_manager = checkpoint_manager.CheckpointManager(
+          persistent_directory,
+          options=_get_persistent_options(
+              options, checkpoint_manager.MultiprocessingOptions()
+          ),
+          metadata=metadata,
+          logger=logger,
+      )
+    else:
+      self._checkpoint_manager = _MultisliceCheckpointManager(
+          local_directory=local_directory,
+          persistent_directory=persistent_directory,
+          global_mesh=global_mesh,
+          abstract_state=abstract_state,
+          options=options,
+          metadata=metadata,
+          logger=logger,
+      )
+
+  @property
+  def directory(self) -> epath.Path:
+    return self._checkpoint_manager.directory
+
+  @property
+  def in_primary_slice(self) -> bool:
+    if self._slice_count == 1:
+      return True
+    else:
+      assert isinstance(self._checkpoint_manager, _MultisliceCheckpointManager)
+      return self._checkpoint_manager.in_primary_slice
+
+  @property
+  def global_mesh(self) -> jax.sharding.Mesh:
+    return self._global_mesh
+
+  def all_steps(self, read: bool = False) -> Sequence[int]:
+    return self._checkpoint_manager.all_steps(read=read)
+
+  def latest_step(self) -> Optional[int]:
+    return self._checkpoint_manager.latest_step()
+
+  def best_step(self) -> Optional[int]:
+    raise NotImplementedError(
+        'Metrics tracking not yet implemented for emergency.CheckpointManager.'
+    )
+
+  def reload(self):
+    return self._checkpoint_manager.reload()
+
+  def reached_preemption(self, step: int) -> bool:
+    return self._checkpoint_manager.reached_preemption(step)
+
+  def should_save(self, step: int) -> bool:
+    return self._checkpoint_manager.should_save(step)
+
+  def delete(self, step: int):
+    """Deletes a step checkpoint."""
+    raise NotImplementedError(
+        'Delete not yet implemented for emergency.CheckpointManager.'
+    )
+
+  def save(
+      self,
+      step: int,
+      args: args_lib.CheckpointArgs,
+      *,
+      force: bool = False,
+  ) -> bool:
+    return self._checkpoint_manager.save(step, args=args, force=force)
+
+  def restore(
+      self,
+      step: int | None,
+      args: args_lib.CheckpointArgs | None = None,
+  ) -> Any:
+    del args
+    args = args_lib.PyTreeRestore(
+        item=self._abstract_state,
+        restore_args=checkpoint_utils.construct_restore_args(
+            self._abstract_state
+        ),
+    )
+    return self._checkpoint_manager.restore(step, args=args)
+
+  def item_metadata(self, step: int) -> Any:
+    raise NotImplementedError(
+        'Item metadata not implemented for emergency.CheckpointManager.'
+    )
+
+  def metadata(self, step: int | None = None) -> RootMetadata | StepMetadata:
+    """Returns CheckpointManager level metadata if present, empty otherwise."""
+    raise NotImplementedError(
+        'Metadata not yet implemented for emergency.CheckpointManager.'
+    )
+
+  def metrics(self, step: int) -> Optional[PyTree]:
+    """Returns metrics for step, if present."""
+    raise NotImplementedError(
+        'Metrics not yet implemented for emergency.CheckpointManager.'
+    )
+
+  def wait_until_finished(self):
+    return self._checkpoint_manager.wait_until_finished()
+
+  def check_for_errors(self):
+    return self._checkpoint_manager.check_for_errors()
+
+  def close(self):
+    return self._checkpoint_manager.close()
 
   def __contextmanager__(
       self,

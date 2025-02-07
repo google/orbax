@@ -1001,11 +1001,19 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   @property
   def directory(self) -> epath.Path:
-    """See superclass documentation."""
+    """Returns the top-level directory containing checkpoints for all items."""
     return self._directory
 
   def all_steps(self, read: bool = False) -> Sequence[int]:
-    """See superclass documentation."""
+    """Returns all steps tracked by the manager.
+
+    Args:
+      read: If True, forces a read directly from the storage location.
+        Otherwise, a cached result can be returned.
+
+    Returns:
+      A sequence of steps (integers)
+    """
     if read:
       logging.warning(
           '`read` option is deprecated. Use `reload` to read from disk.'
@@ -1014,12 +1022,24 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     return [ckpt.step for ckpt in self._checkpoints]
 
   def latest_step(self) -> Optional[int]:
-    """See superclass documentation."""
+    """Returns the latest step saved.
+
+    Returns None if no steps have been saved.
+
+    Returns:
+      A step (int) or None if no steps are present.
+    """
     latest = self._checkpoints.latest()
     return latest.step if latest else None
 
   def best_step(self) -> Optional[int]:
-    """See superclass documentation."""
+    """Returns the best step saved, as defined by `options.best_fn`.
+
+    Returns None if no steps have been saved.
+
+    Returns:
+      A step (int) or None if no steps are present.
+    """
     if not self._track_best:
       return self.latest_step()
     if self._checkpoints.empty():
@@ -1038,11 +1058,20 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._checkpoints.set(self._load_checkpoint_infos())
 
   def reached_preemption(self, step: int) -> bool:
-    """See superclass documentation."""
+    """Returns True if a preemption sync point has been reached."""
     return utils.reached_preemption(step)
 
   def should_save(self, step: int) -> bool:
-    """See superclass documentation."""
+    """Returns True if a checkpoint should be saved for the current step.
+
+    This depends the previous step and SaveDecisionPolicy.
+
+    Args:
+      step: int
+
+    Returns:
+      True if the checkpoint should be saved.
+    """
     if self._options.read_only:
       logging.warning('%s is read only, save will be skipped', self.directory)
       return False
@@ -1154,7 +1183,68 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       args: Optional[args_lib.CheckpointArgs] = None,
       custom_metadata: dict[str, Any] | None = None,
   ) -> bool:
-    """See superclass documentation."""
+    """Saves the provided items.
+
+    This method should be called by all hosts - process synchronization and
+    actions that need to be performed on only one host are managed internally.
+
+    NOTE: The `items` and `save_kwargs` arguments are deprecated, use `args`
+    instead. Make sure to configure `CheckpointManager` with `item_names`.
+
+    `args` should be a subclass of
+    `orbax.checkpoint.args.CheckpointArgs`, the specific type of which is used
+    to indicate what logic is used to save the object. For a typical, PyTree of
+    arrays, use `StandardSave`/`StandardRestore`.
+
+    When constructing the `CheckpointManager`, if no `item_names` were provided,
+    it is assumed that we are managing a single object. If `item_names` were
+    provided, it is assumed that we are managing multiple objects, and `args`
+    must be `orbax.checkpoint.args.CompositeArgs`. See below for details.
+
+    Example::
+
+      # Single item
+      mngr = ocp.CheckpointManager(directory)
+      mngr.save(step, args=ocp.args.StandardSave(my_train_state))
+
+      # Multiple items
+      mngr = ocp.CheckpointManager(directory, item_names=('state', 'meta'))
+      mngr.save(step, args=ocp.args.Composite(
+          state=ocp.args.StandardSave(my_train_state),
+          meta=ocp.args.JsonSave(my_metadata)
+      ))
+
+    Args:
+      step: current step, int
+      items: a savable object, or a dictionary of object name to savable object.
+      save_kwargs: save kwargs for a single Checkpointer, or a dictionary of
+        object name to kwargs needed by the Checkpointer implementation to save
+        the object.
+      metrics: a dictionary of metric name (string) to numeric value to be
+        tracked along with this checkpoint. Required if `options.best_fn` is
+        set. Allows users to specify a metric value to determine which
+        checkpoints are best and should be kept (in conjunction with
+        `options.max_to_keep`).
+      force: if `True`, this method will attempt to save a checkpoint regardless
+        of the result of `AbstractCheckpointManager.should_save(step)`. By
+        default, `save` will only write a checkpoint to disk when the options
+        permit, e.g. when `step` is in `options.save_interval_steps` or
+        `options.save_on_steps`. Setting `force=True` will not overwrite
+        existing checkpoints.
+      args: `CheckpointArgs` which is used to save checkpointable objects with
+        the appropriate logic.
+      custom_metadata: a dictionary of custom metadata to be written to the
+        checkpoint directory via StepMetadata.
+
+    Returns:
+      bool indicating whether a save operation was performed.
+    Raises:
+      ValueError: if `track_best` was indicated but `metrics` is not provided.
+      ValueError: directory creation failed.
+      ValueError: if an item is provided for which no `Checkpointer` is
+      found.
+      ValueError: if the checkpoint already exists.
+    """
     process_index = multihost.process_index()
     step_stats = step_statistics.SaveStepStatistics()
     step_stats.step = step
@@ -1374,7 +1464,55 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       directory: Optional[epath.PathLike] = None,
       args: Optional[args_lib.CheckpointArgs] = None,
   ) -> Union[Any, Mapping[str, Any]]:
-    """See superclass documentation."""
+    """Restores from the given step and provided items.
+
+    This method should be called by all hosts - process synchronization and
+    actions that need to be performed on only one host are managed internally.
+
+    NOTE: The `items` and `restore_kwargs` arguments are deprecated, use `args`
+    instead. Make sure to configure `CheckpointManager` with `item_names`.
+    See `save` docstring for additional details.
+
+    Example::
+
+      # Single item
+      mngr = ocp.CheckpointManager(directory)
+      mngr.restore(step, args=ocp.args.StandardRestore(abstract_train_state))
+
+      # Multiple items
+      mngr = ocp.CheckpointManager(directory, item_names=('state', 'meta'))
+      mngr.restore(step, args=ocp.args.Composite(
+          state=ocp.args.StandardRestore(abstract_train_state),
+          meta=ocp.args.JsonRestore(),
+      ))
+      # If it is acceptable to restore without providing additional arguments,
+      # and if a save has already been performed, it is ok to do the following:
+      mngr.restore(step, args=ocp.args.Composite(state=None, meta=None))
+      # If a save has not already been performed, there is no way for Orbax to
+      # know how to restore the objects. If a save has already been performed,
+      # it remembers the logic used to save the objects.
+
+    Args:
+      step: current step, int
+      items: a restoreable object, or a dictionary of object name to restorable
+        object.
+      restore_kwargs: restore kwargs for a single Checkpointer, or a dictionary
+        of object name to kwargs needed by the Checkpointer implementation to
+        restore the object.
+      directory: if provided, uses the given directory rather than the
+        `directory` property of this class. Can be used to restore checkpoints
+        from an independent location.
+      args: `CheckpointArgs` which is used to restore checkpointable objects
+        with the appropriate logic.
+
+    Returns:
+      If managing a single item, returns a single checkpointable object.
+      If managing multiple items, returns ocp.args.Composite, where the keys
+      are item names, and values are checkpointable objects.
+
+    Raises:
+      FileNotFoundError: If no steps are found in the directory.
+    """
     if step is None:
       step = self.latest_step()
       if step is None:
@@ -1796,7 +1934,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       self._checkpointer.wait_until_finished()  # pytype: disable=attribute-error
 
   def wait_until_finished(self):
-    """See superclass documentation."""
+    """Blocks until any incomplete save operations are completed.
+
+    Note that this method will typically be a no-op if all checkpointers are
+    synchronous, since old checkpoints are already cleaned up immediately after
+    completing `save`, and there is no background thread to wait for.
+
+    If some checkpointers are of type AsyncCheckpointer, however, this method
+    will wait until each of these checkpointers is finished.
+    """
     process_index = multihost.process_index()
     current_thread = threading.current_thread()
 
@@ -1852,7 +1998,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     return self._finalize_thread.map(lambda t: t is not None and t.is_alive())
 
   def check_for_errors(self):
-    """See superclass documentation."""
+    """Checks for any outstanding errors in completed asynchronous save operations.
+
+    Delegates to underlying Checkpointer.
+    """
     if is_async_checkpointer(self._checkpointer):
       self._checkpointer.check_for_errors()  # pytype: disable=attribute-error
 
@@ -1932,7 +2081,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
 
   def close(self):
-    """See superclass documentation."""
+    """Waits for outstanding operations to finish and closes internal objects."""
     self.wait_until_finished()
     self._checkpointer.close()
     # Call after checkpointer.close().
