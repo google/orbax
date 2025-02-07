@@ -39,7 +39,7 @@ from orbax.experimental.model.core.python.signature import Shape
 from orbax.experimental.model.core.python.signature import TensorSpec
 from orbax.experimental.model.core.python.tree_util import flatten
 
-from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
+from orbax.experimental.model.core.protos import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
 
 
 OpSharding = xla_data_pb2.OpSharding

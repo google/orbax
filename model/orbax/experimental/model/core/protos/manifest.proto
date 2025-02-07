@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package orbax_model_manifest;
 
-import "xla/xla_data.proto";
+import "orbax/experimental/model/core/protos/xla_data.proto";
 
 message Manifest {
   map<string, TopLevelObject> objects = 1;

@@ -20,7 +20,7 @@ from typing import Optional, Tuple
 
 from orbax.experimental.model.core.protos.saved_model import types_pb2
 
-from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
+from orbax.experimental.model.core.protos import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
 
 OpSharding = xla_data_pb2.OpSharding
 # TODO(b/329309575): Decide whether to use None or -1 for unknown dim size.

@@ -21,7 +21,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 from orbax.experimental.model.core.python.tree_util import Tree
 
-from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
+from orbax.experimental.model.core.protos import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
 
 
 ShloDimSize = Optional[int]
