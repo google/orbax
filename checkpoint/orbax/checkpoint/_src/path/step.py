@@ -151,6 +151,9 @@ class NameFormat(Protocol, Generic[MetadataT]):
     Args:
       base_path: *root* Path under which Step folders are placed.
       step: Step number.
+
+    Raises:
+      ValueError if no committed paths for the requested step is found.
     """
     ...
 
@@ -265,6 +268,19 @@ def find_step_path(
     return uncommitted_step_path
   # Uncommitted step not found, return committed one or raise error.
   return name_format.find_step(base_path, step).path
+
+
+def maybe_find_step_metadata(
+    base_path: epath.PathLike,
+    name_format: NameFormat[Metadata],
+    *,
+    step: int,
+) -> Metadata | None:
+  """Returns `Metadata` for `step` with `name_format` or None."""
+  try:
+    return name_format.find_step(base_path, step)
+  except ValueError:
+    return None
 
 
 @dataclasses.dataclass(frozen=True)
