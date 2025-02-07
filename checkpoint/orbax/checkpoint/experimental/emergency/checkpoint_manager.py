@@ -466,9 +466,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
   def _run_initial_garbage_collection(self):
     """Remove steps that might be left over from previous runs."""
     steps_to_remove = self._get_old_steps_to_remove()
-    self._checkpoints = [
-        info for info in self._checkpoints if info.step not in steps_to_remove
-    ]
+    self._checkpoints.delete_if(lambda info: info.step in steps_to_remove)
     self._checkpoint_deleter.delete_steps(steps_to_remove)
 
     checkpoint_steps_set = set([info.step for info in self._checkpoints])

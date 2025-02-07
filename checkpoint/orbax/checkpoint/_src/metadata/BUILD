@@ -174,3 +174,14 @@ py_test(
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
     ],
 )
+
+py_library(
+    name = "checkpoint_info",
+    srcs = ["checkpoint_info.py"],
+)
+
+py_test(
+    name = "checkpoint_info_test",
+    srcs = ["checkpoint_info_test.py"],
+    deps = [":checkpoint_info"],
+)

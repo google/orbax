@@ -44,6 +44,7 @@ from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
+from orbax.checkpoint._src.metadata import checkpoint_info
 from orbax.checkpoint._src.metadata import root_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity_types
@@ -61,6 +62,7 @@ PyTree = Any
 CheckpointDirs = Tuple[str, str]
 SaveParams = Mapping[str, Any]
 RestoreParams = SaveParams
+CheckpointInfo = checkpoint_info.CheckpointInfo
 AbstractCheckpointer = abstract_checkpointer.AbstractCheckpointer
 CheckpointersDict = Mapping[str, AbstractCheckpointer]
 AbstractCheckpointManager = (
@@ -422,33 +424,6 @@ class CheckpointManagerOptions:
     self.save_on_steps = frozenset(self.save_on_steps or ())
 
 
-@dataclasses.dataclass
-class CheckpointInfo:
-  """Metadata about a checkpoint."""
-
-  step: int
-  time: datetime.datetime
-  metrics: Optional[PyTree]
-  is_locked: Optional[bool] = None
-
-  def __post_init__(self):
-    # Users may provide step as a jax.Array.
-    if isinstance(self.step, jax.Array):
-      self.step = int(self.step)
-
-  def __str__(self) -> str:
-    return (
-        f'Checkpoint[step={self.step} | time={self.time} |'
-        f' is_locked={self.is_locked}]'
-    )
-
-  def __eq__(self, other: CheckpointInfo) -> bool:
-    return self.step == other.step and self.time == other.time
-
-  def __hash__(self) -> int:
-    return hash((self.step, self.time))
-
-
 def _get_args_for_key(
     handler: CheckpointHandler, item_name: str
 ) -> Tuple[Type[CheckpointArgs], Type[CheckpointArgs]]:
@@ -679,12 +654,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
 
     # For async_checkpointer.
-    self._non_blocking_metadata_store = (
-        checkpoint.metadata_store(enable_write=True)
+    self._non_blocking_metadata_store = checkpoint.metadata_store(
+        enable_write=True
     )
     # For metadata checkpointer and regular checkpointer.
-    self._blocking_metadata_store = (
-        checkpoint.metadata_store(enable_write=True, blocking_write=True)
+    self._blocking_metadata_store = checkpoint.metadata_store(
+        enable_write=True, blocking_write=True
     )
 
     if checkpointers is not None:
@@ -766,7 +741,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
     )
 
-    self._checkpoints = self._load_checkpoint_infos()
+    self._checkpoints = checkpoint_info.CheckpointInfos(
+        self._load_checkpoint_infos()
+    )
 
     self._metadata_dir = self.directory / METADATA_ITEM_NAME
     if self._options.read_only and not self._metadata_dir.exists():
@@ -1025,18 +1002,19 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       logging.warning(
           '`read` option is deprecated. Use `reload` to read from disk.'
       )
-      self._checkpoints = self._load_checkpoint_infos()
+      self._checkpoints.set(self._load_checkpoint_infos())
     return [ckpt.step for ckpt in self._checkpoints]
 
   def latest_step(self) -> Optional[int]:
     """See superclass documentation."""
-    return self._checkpoints[-1].step if self._checkpoints else None
+    latest = self._checkpoints.latest()
+    return latest.step if latest else None
 
   def best_step(self) -> Optional[int]:
     """See superclass documentation."""
     if not self._track_best:
       return self.latest_step()
-    if not self._checkpoints:
+    if self._checkpoints.empty():
       return None
     _, sorted_checkpoints = self._sort_checkpoints_by_metrics(self._checkpoints)
     if not sorted_checkpoints:
@@ -1049,7 +1027,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Resets internal cache of checkpoint steps, in case the directory managed
     by this object has been updated externally.
     """
-    self._checkpoints = self._load_checkpoint_infos()
+    self._checkpoints.set(self._load_checkpoint_infos())
 
   def reached_preemption(self, step: int) -> bool:
     """See superclass documentation."""
@@ -1127,9 +1105,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
         processes=self._multiprocessing_options.active_processes,
     )
-    for i, info in enumerate(self._checkpoints):
-      if info.step == step:
-        self._checkpoints.pop(i)
+    self._checkpoints.delete_if(lambda info: info.step == step)
 
   def _validate_args(
       self,
@@ -1311,9 +1287,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         step_stats.get_old_steps_duration_secs,
     )
 
-    self._checkpoints = [
-        info for info in self._checkpoints if info.step not in steps_to_remove
-    ]
+    self._checkpoints.delete_if(lambda info: info.step in steps_to_remove)
     # Sync needed to ensure that old steps to remove are retrieved before
     # actually deleting them during finalize, since retrieval can involve
     # looking at the directory.
@@ -1540,17 +1514,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       return checkpoint_infos
 
   def _get_interval_preserved_checkpoints(
-      self, checkpoints: List[CheckpointInfo]
+      self, checkpoints: checkpoint_info.CheckpointInfos
   ) -> List[CheckpointInfo]:
     """Gets which checkpoints should be kept based on keep_time_interval."""
-    if not checkpoints:
+    if checkpoints.empty():
       return []
     interval_preserved_checkpoints = [checkpoints[0]]
     if self._options.keep_time_interval is not None:
       for info in checkpoints[1:]:
-        if (
-            info.time
-            >= interval_preserved_checkpoints[-1].time
+        if info.time >= (
+            interval_preserved_checkpoints[-1].time
             + self._options.keep_time_interval
         ):
           interval_preserved_checkpoints.append(info)
@@ -1566,17 +1539,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   def _metadata_file_path(self, legacy: bool = False) -> epath.Path:
     if not self._metadata_dir.exists():
       raise ValueError('Metadata directory is not initialized.')
-    return checkpoint.root_metadata_file_path(
-        self._metadata_dir, legacy=legacy
-    )
+    return checkpoint.root_metadata_file_path(self._metadata_dir, legacy=legacy)
 
   def _maybe_save_metadata(self, metadata: Mapping[str, Any]):
     """Saves CheckpointManager level metadata, skips if already present."""
     if self._options.save_root_metadata:
       logging.info('Saving root metadata')
-      if (metadata is not None and
-          not self._options.read_only and
-          utils.is_primary_host(self._multiprocessing_options.primary_host)):
+      if (
+          metadata is not None
+          and not self._options.read_only
+          and utils.is_primary_host(self._multiprocessing_options.primary_host)
+      ):
         logging.info('Creating metadata directory')
         self._metadata_dir.mkdir(parents=True, exist_ok=True)
         file_path = self._metadata_file_path()
@@ -1603,31 +1576,31 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       if self._metadata_dir.exists():
         file_path = self._metadata_file_path()
         if not file_path.exists():
-          logging.warning('New metadata file not found in directory: %s. '
-                          'Will try to read legacy metadata file.',
-                          self._metadata_dir)
+          logging.warning(
+              'New metadata file not found in directory: %s. '
+              'Will try to read legacy metadata file.',
+              self._metadata_dir,
+          )
           file_path = self._metadata_file_path(legacy=True)
         serialized_metadata = self._blocking_metadata_store.read(file_path)
         self._metadata = deserialize_root_metadata(
             serialized_metadata
         ).custom_metadata
         if self._metadata is None:
-          raise FileNotFoundError(
-              f'Failed to read metadata from {file_path}.'
-          )
+          raise FileNotFoundError(f'Failed to read metadata from {file_path}.')
       else:
         self._metadata = {}
     return self._metadata
 
   def _sort_checkpoints_by_metrics(
-      self, checkpoints: List[CheckpointInfo]
+      self, checkpoints: checkpoint_info.CheckpointInfos
   ) -> Tuple[List[CheckpointInfo], List[CheckpointInfo]]:
     """Sorts `checkpoints` in order of increasing metric quality.
 
     Checkpoints without corresponding metrics set will be at the beginning.
 
     Args:
-      checkpoints: a list of CheckpointInfo.
+      checkpoints: CheckpointInfos to sort.
 
     Returns:
       Tuple of CheckpointInfo lists:
@@ -1656,14 +1629,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if self._options.max_to_keep is None:
       return []
     # Not enough checkpoints accumulated to consider deletion.
-    if len(self._checkpoints) <= self._options.max_to_keep:
+    if self._checkpoints.size() <= self._options.max_to_keep:
       return []
 
     # This isn't a duration but there isn't a general counter that we can use so
     # we abuse a duration metric to count the number of steps examined.
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/old_steps_examined_count',
-        len(self._checkpoints),
+        self._checkpoints.size(),
     )
 
     if self._track_best:
@@ -1675,7 +1648,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     else:
       # checkpoints already sorted by ascending step
       checkpoints_without_metrics = []
-      sorted_checkpoints = self._checkpoints
+      sorted_checkpoints = [info for info in self._checkpoints]
 
     keep = int(self._options.max_to_keep)
     if self._options.keep_checkpoints_without_metrics:
@@ -1812,10 +1785,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         if threading.current_thread() is self._finalize_thread.save_thread():
           # If an exception occurred in the finalization of the previous
           # save, we clean up since that checkpoint was never actually saved.
-          # TODO: b/359321026 - Make self._checkpoints access threadsafe.
-          assert self._checkpoints
-          assert self._checkpoints[-1].step == step
-          self._checkpoints = self._checkpoints[:-1]
+          latest = self._checkpoints.latest()
+          assert latest is not None
+          assert latest.step == step
+          self._checkpoints.delete_if(lambda info: info.step == step)
         raise
       finally:
         # Only thread which requested save is allowed to reset Save Finalize
@@ -1869,11 +1842,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # If another checkpoint has not been previously saved, measures the time
       # since program start.
       if self.reached_preemption(step):
-        if len(self._checkpoints) > 1:
+        if self._checkpoints.size() > 1:
           previous_time = self._checkpoints[-2].time
         else:
           previous_time = _INIT_TIME
-        assert self._checkpoints
+        assert not self._checkpoints.empty()
         duration = self._checkpoints[-1].time - previous_time
         jax.monitoring.record_event_duration_secs(
             '/jax/checkpoint/write/preempt/duration_saved_secs',
