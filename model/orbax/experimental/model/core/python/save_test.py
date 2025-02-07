@@ -71,71 +71,9 @@ def jax_spec_to_tensor_spec(x: jax.ShapeDtypeStruct) -> TensorSpec:
 
 
 class SaveTest(googletest.TestCase):
-
+  # TODO(qidichen): We can move relevant parts of test from orbax/experimental/model/integration_tests/orbax_model_test.py here.
   def test_save(self):
-    @jax.jit
-    def f(xy, captured):
-      return captured + xy, captured - xy
-
-    myvar = jnp.array(np.ones((5, 10), dtype=np.float32))
-    jax_in_spec = (
-        jax.ShapeDtypeStruct(shape=[], dtype=myvar.dtype),
-        jax.ShapeDtypeStruct(shape=myvar.shape, dtype=myvar.dtype),
-    )
-    exported = jax_export.export(f)(*jax_in_spec)
-    jax_out_spec = tuple(jax_spec_from_aval(x) for x in exported.out_avals)
-
-    input_signature = (jax_spec_to_tensor_spec(jax_in_spec[0]),)
-    output_signature = tuple(jax_spec_to_tensor_spec(x) for x in jax_out_spec)
-    func = Function(
-        input_signature=input_signature,
-        output_signature=output_signature,
-        base_fn=ShloFunction(
-            input_signature=jax_spec_to_shlo_spec(jax_in_spec),
-            output_signature=jax_spec_to_shlo_spec(jax_out_spec),
-            mlir_module_serialized=exported.mlir_module_serialized,
-            calling_convention_version=exported.calling_convention_version,
-            module_kept_var_idx=exported.module_kept_var_idx,
-            lowering_platforms=exported.platforms,
-            supplemental_info=None,
-            physical_in_dtypes=(None,) * len(jax_in_spec),
-            physical_out_dtypes=(None,) * len(jax_out_spec),
-        ),
-        captured_vars=(Variable(Tensor(np.asarray(myvar))),),
-    )
-
-    m = module.Module()
-    m.add_variables(
-        'a', concrete_function.Variable(Tensor(np.array([1, 2, 3, 4, 5])))
-    )
-    m.add_variables(
-        'b', concrete_function.Variable(Tensor(np.array([1, 25, 34, 14, 20])))
-    )
-    m.add_concrete_function('add', func)
-
-    save_path = os.path.join(self.create_tempdir())
-    save(m, save_path)
-
-    # Validate exported model using tf.saved_model.load.
-    # TODO(b/328687975): loaded.variables will be empty, but the function can be
-    # called and the variables can be found in the checkpoint.
-    loaded = tf.saved_model.load(save_path)
-
-    inp = np.array(33.4, dtype=np.float32)
-    out = loaded.signatures['add'](tf.constant(inp))
-    expected = f(inp, myvar)
-
-    np.testing.assert_array_equal(expected[0], out['output_0'])
-    np.testing.assert_array_equal(expected[1], out['output_1'])
-
-    ckpt = read_checkpoint_values(
-        os.path.join(save_path, 'variables', 'variables')
-    )
-    self.assertEqual(ckpt.keys(), {'a', 'b', 'add/capture_0'})
-    np.testing.assert_array_equal(ckpt['a'], np.array([1, 2, 3, 4, 5]))
-    np.testing.assert_array_equal(ckpt['b'], np.array([1, 25, 34, 14, 20]))
-    np.testing.assert_array_equal(ckpt['add/capture_0'], myvar)
-
+    pass
 
 if __name__ == '__main__':
   googletest.main()

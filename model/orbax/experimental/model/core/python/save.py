@@ -23,8 +23,6 @@ import os
 from typing import Optional
 
 from absl import logging
-from orbax.experimental.model.core.checkpoint.tensor_bundle import _tensor_bundle_api
-from orbax.experimental.model.core.python import constants
 from orbax.experimental.model.core.python import file_utils
 from orbax.experimental.model.core.python import manifest_constants
 from orbax.experimental.model.core.python import module
@@ -32,7 +30,6 @@ from orbax.experimental.model.core.python import unstructured_data
 from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
 from orbax.experimental.model.core.python.concrete_function import Variable
 from orbax.experimental.model.core.python.manifest_util import build_manifest_proto
-from orbax.experimental.model.core.python.saved_model_proto import saved_model_builder
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredData
 from orbax.experimental.model.core.python.util import object_identity
 
@@ -154,58 +151,18 @@ def save(
     options: Optional[SaveOptions] = None,
 ) -> None:
   """Saved the Module to disk."""
-  version = None
-  if options is not None:
-    version = options.version
-  if version is None:
-    version = 1
-  assert version >= 1
-  logging.info('Save version: %d', version)
-
-  if version >= 2:  # Generate and export the Manifest proto.
-    if options is None:
-      raise ValueError('`options` must not be `None` to save version >= 2.')
-    supplemental_info = _save_supplementals(options.supplemental_info, path)
-    manifest_proto = build_manifest_proto(
-        m, path, supplemental_info=supplemental_info,
-    )
-    with file_utils.open_file(
-        os.path.join(path, manifest_constants.MANIFEST_FILENAME), 'wb'
-    ) as f:
-      f.write(manifest_proto.SerializeToString())
-    return
-
-  # Generate and export the SavedModel proto.
-  builder = saved_model_builder.SavedModelProtoBuilder()
-  named_vars, named_functions = named_variables_and_functions(m)
-  for variable, name in named_vars.items():
-    builder.add_variable(variable, name)
-  for fn, name in named_functions.items():
-    builder.add_function(fn, name)
-  options = options or SaveOptions()
-  if options.function_aliases:
-    if named_functions:
-      builder.add_function_alias(options.function_aliases, named_functions)
-    else:
-      raise ValueError(
-          'function_aliases is set but no named function exists in the graph.'
-      )
-  proto = builder.build()
-  with file_utils.open_file(
-      os.path.join(path, constants.SAVED_MODEL_FILENAME_PB), 'wb'
-  ) as f:
-    f.write(proto.SerializeToString())
-
-  # Write checkpoint. The `builder.variables_by_name` to used to ensure
-  # that the checkpoint keys match the variable names added by the builder.
-  variables_by_name = builder.variables_by_name
-  keys = []
-  arrays = []
-  for name, variable in variables_by_name.items():
-    keys.append(name)
-    arrays.append(variable.value.np_array)
-
-  ckpt_prefix = os.path.join(
-      path, constants.VARIABLES_DIRECTORY, constants.VARIABLES_FILENAME
+  if options is None:
+    raise ValueError('`options` must not be `None` to save version >= 2.')
+  assert options.version is not None and options.version >= 2
+  logging.info('Save version: %d', options.version)
+  # Generate and export the Manifest proto.
+  supplemental_info = _save_supplementals(options.supplemental_info, path)
+  manifest_proto = build_manifest_proto(
+      m,
+      path,
+      supplemental_info=supplemental_info,
   )
-  _tensor_bundle_api.WriteArray(ckpt_prefix, keys, arrays)
+  with file_utils.open_file(
+      os.path.join(path, manifest_constants.MANIFEST_FILENAME), 'wb'
+  ) as f:
+    f.write(manifest_proto.SerializeToString())
