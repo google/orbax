@@ -218,7 +218,7 @@ class ReplicatorCheckpointManager(
   def save(
       self,
       step: int,
-      args: args_lib.CheckpointArgs | None = None,
+      args: args_lib.CheckpointArgs,
       *,
       force: bool = False,
   ) -> bool:
@@ -319,7 +319,7 @@ class ReplicatorCheckpointManager(
   def item_metadata(self, step: int) -> Any:
     return self._impl.item_metadata(step)
 
-  def metadata(self) -> Mapping[str, Any]:
+  def metadata(self, step: int | None = None) -> Mapping[str, Any]:
     return self._impl.metadata()
 
   def metrics(self, step: int) -> PyTree | None:
