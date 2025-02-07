@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.4] - 2025-02-07
+
 ### Changed
 
 - Updated orbax-checkpoint PyPI package to exclude tests.
+
+### Fixed
+
+- `AsyncCheckpointer` completion logging, to log on all hosts instead of just
+the leader.
 
 ## [0.11.3] - 2025-02-06
 

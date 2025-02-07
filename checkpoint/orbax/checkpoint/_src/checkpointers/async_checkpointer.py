@@ -58,11 +58,6 @@ def _on_commit_callback(
       '/jax/checkpoint/write/async/total_duration_secs',
       total_duration_secs,
   )
-  logging.info(
-      'Finished asynchronous save in %.2f seconds to %s',
-      total_duration_secs,
-      tmpdir.get_final(),
-  )
 
 
 def _add_deadline_exceeded_notes(e: jax.errors.JaxRuntimeError):
@@ -405,7 +400,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         # Update StepMetadata after the handler save is complete.
         # (blocking write)
         self._save_step_metadata(tmpdir.get(), custom_metadata=custom_metadata)
-      logging.info(
+      logging.vlog(
+          1,
           '[process=%s][thread=%s] Async Save Callback [1/3]: Finalizing'
           ' Handler: %s on %s',
           multihost.process_index(),
@@ -415,7 +411,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       )
       # Finalize does a final StepMetadata update.
       self._handler.finalize(tmpdir.get())
-      logging.info(
+      logging.vlog(
+          1,
           '[process=%s][thread=%s] Async Save Callback [2/3]: Running'
           ' post_finalization_callback: %s on %s',
           multihost.process_index(),
@@ -425,7 +422,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       )
       if self._post_finalization_callback is not None:
         self._post_finalization_callback()
-      logging.info(
+      logging.vlog(
+          1,
           '[process=%s][thread=%s] Async Save Callback [3/3]: Finalizing'
           ' checkpoint directory: %s',
           multihost.process_index(),
@@ -435,6 +433,12 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       _on_commit_callback(
           tmpdir,
           checkpoint_start_time,
+      )
+      logging.info(
+          'Finished asynchronous save (blocking + background) in %.2f seconds'
+          ' to %s',
+          time.time() - checkpoint_start_time,
+          directory,
       )
 
     self._async_manager.start_async_commit(
