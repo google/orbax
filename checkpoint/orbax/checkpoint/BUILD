@@ -124,13 +124,13 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/handlers:json_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/handlers:proto_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint_info",
         "//checkpoint/orbax/checkpoint/_src/metadata:root_metadata_serialization",
         "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
         "//checkpoint/orbax/checkpoint/_src/path:deleter",
         "//checkpoint/orbax/checkpoint/_src/path:step",
         "//checkpoint/orbax/checkpoint/_src/path:utils",
-        "//orbax/checkpoint/_src/metadata:checkpoint_info",
     ],
 )
 

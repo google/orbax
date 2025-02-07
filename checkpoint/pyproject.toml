@@ -54,3 +54,10 @@ testing = [
     'pytest-xdist',
     'chex',
 ]
+
+[tool.flit.sdist]
+# Flit specific options (files to exclude from the PyPI package).
+exclude = [
+  # Do not release tests files on PyPI
+  "**/*_test.py",
+]
