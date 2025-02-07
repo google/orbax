@@ -20,6 +20,7 @@ import jax
 import numpy as np
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
+from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import random_key_checkpoint_handler
 
 # Parse absl flags test_srcdir and test_tmpdir.
@@ -36,6 +37,8 @@ NumpyRandomKeyCheckpointHandler = (
 CompositeCheckpointHandler = (
     composite_checkpoint_handler.CompositeCheckpointHandler
 )
+
+JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
 
 
 class RandomKeyCheckpointHandlerTest(absltest.TestCase):
@@ -131,6 +134,24 @@ class RandomKeyCheckpointHandlerTest(absltest.TestCase):
 
     # dictionary
     self.assert_dict_equal(random_state, restored_random_state)
+
+  def test_save_and_restore_numpy_random_generator_state(self):
+    # np random generator
+    rng = np.random.default_rng(1)
+    handler = JsonCheckpointHandler()
+    handler.save(
+        self.directory,
+        args=args_lib.JsonSave(item=rng.bit_generator.state),
+    )
+    handler.finalize(self.directory)
+
+    restore_handler = JsonCheckpointHandler()
+    restored_random_state = restore_handler.restore(
+        directory=self.directory, args=args_lib.JsonRestore()
+    )
+
+    # dictionary
+    self.assert_dict_equal(rng.bit_generator.state, restored_random_state)
 
   def test_save_and_restore_random_keys_with_new_api(self):
     handler = CompositeCheckpointHandler()

@@ -235,6 +235,7 @@ py_test(
     srcs = ["random_key_checkpoint_handler_test.py"],
     deps = [
         ":composite_checkpoint_handler",
+        ":json_checkpoint_handler",
         ":random_key_checkpoint_handler",
         "//checkpoint/orbax/checkpoint:args",
     ],
