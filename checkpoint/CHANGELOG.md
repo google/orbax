@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ocp.metadata.get_step_metadata(path)` to public api.
+
 ## [0.11.4] - 2025-02-07
 
 ### Changed

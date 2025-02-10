@@ -9,6 +9,7 @@ py_library(
         ":value",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:sharding",
+        "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
     ],
 )

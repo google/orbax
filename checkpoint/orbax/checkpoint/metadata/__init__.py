@@ -20,6 +20,7 @@ from orbax.checkpoint._src.metadata.checkpoint import RootMetadata
 from orbax.checkpoint._src.metadata.checkpoint import StepMetadata
 from orbax.checkpoint._src.metadata.checkpoint import MetadataStore
 from orbax.checkpoint._src.metadata.checkpoint import metadata_store
+from orbax.checkpoint._src.metadata.step_metadata_serialization import get_step_metadata
 
 from orbax.checkpoint._src.metadata.sharding import ShardingMetadata
 from orbax.checkpoint._src.metadata.sharding import NamedShardingMetadata
