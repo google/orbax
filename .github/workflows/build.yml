@@ -169,6 +169,9 @@ jobs:
       id: extract_branch
     - name: Install dependencies
       run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+
         pip install .
         pip install .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
