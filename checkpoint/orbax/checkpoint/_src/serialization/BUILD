@@ -49,6 +49,7 @@ py_test(
     name = "tensorstore_utils_test",
     srcs = ["tensorstore_utils_test.py"],
     deps = [
+        ":serialization",
         ":tensorstore_utils",
         "//checkpoint/orbax/checkpoint/_src/arrays:subchunking",
         "//checkpoint/orbax/checkpoint/_src/arrays:types",

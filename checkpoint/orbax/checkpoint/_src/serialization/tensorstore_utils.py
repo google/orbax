@@ -17,7 +17,7 @@
 import math
 import os
 import re
-from typing import Any, TypeAlias
+from typing import Any, Dict, TypeAlias, Union
 
 from absl import logging
 from jax import numpy as jnp
@@ -61,6 +61,13 @@ _DEFAULT_OCDBT_TS_CONTEXT = {
     # 100MB limit.
     **{'cache_pool#ocdbt': {'total_bytes_limit': 100000000}},
 }
+
+_REMOTE_URL_PREFIXES = ['gs://', 's3://']
+_REMOTE_DRIVER_VALIDATIONS = [
+    {'driver': 'gcs', 'path_regex': None},
+    {'driver': 's3', 'path_regex': None},
+]
+
 
 
 def get_ts_context(*, use_ocdbt: bool = True) -> ts.Context:
@@ -155,7 +162,7 @@ def build_kvstore_tspec(
         'cache_pool': 'cache_pool#ocdbt',
     })
 
-    if default_driver != FILE_DRIVER:
+    if is_remote_storage(kv_spec):
       kv_spec.update({  # pytype: disable=attribute-error
           # Enable read coalescing.  This feature merges adjacent read_ops into
           # one, which could reduce I/O ops by a factor of 10. This is
@@ -415,3 +422,39 @@ class ArrayWriteSpec:
   def metadata(self) -> ArrayMetadata:
     """Checkpoint-relevant TensorStore metadata of the array."""
     return self._metadata
+
+
+def is_remote_storage(tspec: Union[Dict[str, Any], str]) -> bool:
+  """Detect if user is using remote storages.
+
+  This can detect common defines and unable to detect some corner cases such as
+  using gcsfuse.
+
+  Args:
+    tspec: Tensorstore spec.
+
+  Returns:
+    True if the spec is using remote storage.
+  """
+  if isinstance(tspec, str):
+    # KvStoreUrl
+    if re.match(rf'^({"|".join(_REMOTE_URL_PREFIXES)})', tspec):
+      return True
+    else:
+      return False
+
+  for key in ('base', 'kvstore'):
+    if key in tspec:
+      return is_remote_storage(tspec[key])
+
+  if 'driver' in tspec:
+    for rule in _REMOTE_DRIVER_VALIDATIONS:
+      if tspec['driver'] == rule['driver']:
+        if rule['path_regex'] is None:
+          return True
+
+        # check if path matches the regex.
+        if re.match(rule['path_regex'], tspec['path']):
+          return True
+
+  return False

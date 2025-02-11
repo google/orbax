@@ -21,6 +21,7 @@ from absl.testing import parameterized
 import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 
 
@@ -598,6 +599,25 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
           math.prod(chunk_shape) * self.dtype.itemsize,
           expected_chunk_byte_size_limit,
       )
+
+  def test_maybe_cloud_storage(self):
+    gs_path = 'gs://some-buck/path'
+    gs_spec = serialization.get_tensorstore_spec(gs_path, ocdbt=True)
+    self.assertTrue(ts_utils.is_remote_storage(gs_spec))
+
+    local_path = '/tmp/checkpoint'
+    local_spec = serialization.get_tensorstore_spec(local_path, ocdbt=True)
+    self.assertFalse(ts_utils.is_remote_storage(local_spec))
+
+    nested_tspec = {
+        'driver': 'cast',
+        'dtype': 'int32',
+        'base': {
+            'driver': 'zarr',
+            'kvstore': {'driver': 'ocdbt', 'base': 's3://some-bucket/path'},
+        },
+    }
+    self.assertTrue(ts_utils.is_remote_storage(nested_tspec))
 
 
 if __name__ == '__main__':

@@ -472,25 +472,6 @@ class CheckpointTest(parameterized.TestCase):
     ):
       serialization.get_tensorstore_spec(path, ocdbt=True)
 
-  def test_maybe_cloud_storage(self):
-    gs_path = 'gs://some-buck/path'
-    gs_spec = serialization.get_tensorstore_spec(gs_path, ocdbt=True)
-    self.assertTrue(serialization.is_remote_storage(gs_spec))
-
-    local_path = '/tmp/checkpoint'
-    local_spec = serialization.get_tensorstore_spec(local_path, ocdbt=True)
-    self.assertFalse(serialization.is_remote_storage(local_spec))
-
-    nested_tspec = {
-        'driver': 'cast',
-        'dtype': 'int32',
-        'base': {
-            'driver': 'zarr',
-            'kvstore': {'driver': 'ocdbt', 'base': 's3://some-bucket/path'},
-        },
-    }
-    self.assertTrue(serialization.is_remote_storage(nested_tspec))
-
   def test_deserialization_with_int4(self):
     dtype = jnp.int4
     shape = (8, 2)
