@@ -98,7 +98,11 @@ def train_step(state, inc=1):
   def increment(tree):
     return jax.tree.map(lambda x: x + inc, tree)
 
-  return jax.jit(increment)(state)
+  # Avoid out shardings from changing
+  shardings = jax.tree.map(lambda x: x.sharding, state)
+  return jax.jit(increment, in_shardings=(shardings,), out_shardings=shardings)(
+      state
+  )
 
 
 class TestClass:

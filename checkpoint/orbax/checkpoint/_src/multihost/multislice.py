@@ -146,14 +146,16 @@ def fake_zero_data(sharding, x):
 def get_device_memory() -> int:
   """Returns HBM capacity of the device on which the code is running(in bytes)."""
   device = jax.devices()[0]
-  if device.platform != 'tpu':
-    raise ValueError('Only TPU devices are supported.')
+  if device.platform not in ('tpu', 'gpu'):
+    raise ValueError('Only select TPU and GPU devices are supported.')
   hbm_memory = {
-      'TPU v3': int(16e9),  # two cores pre chip each with 16 GB HBM
+      'TPU v3': int(16e9),  # two cores per chip each with 16 GB HBM
       'TPU v4': int(32e9),  # one megacore per chip with 32 GB HBM
       'TPU v5 lite': int(16e9),  # one core per chip with 16 GB HBM
       'TPU v5': int(96e9),  # one megacore per chip with 96 GB HBM
       'TPU v6 lite': int(32e9),  # one core per chip with 32 GB HBM
+      'NVIDIA H100': int(144e9),
+      'NVIDIA H200': int(80e9),
   }
   memory = hbm_memory.get(device.device_kind, None)
   if memory is None:
