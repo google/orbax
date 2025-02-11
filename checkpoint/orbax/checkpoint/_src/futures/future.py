@@ -299,35 +299,6 @@ class CommitFuture(Future):
     return self._t.join(timeout=timeout)
 
 
-class CoroutineRunningFuture(Future):
-  """Runs a coroutine with `asyncio.run` in a new thread.
-
-  This future resembles a concurrent.futures.Future because its result()
-  supports a timeout.
-
-  Extends the Orbax Future protocol.
-
-  Not thread-safe.
-  """
-
-  def __init__(self, coro, name: Optional[str] = None):
-    """Creates an Orbax Future for running given coroutine in a new thread.
-
-    Args:
-      coro: The coroutine to run.
-      name: The name of the underlying thread.
-    """
-    super().__init__()
-    self._t = ThreadRaisingException(
-        name=name,
-        target=lambda: asyncio_utils.run_sync(coro),
-    )
-    self._t.start()
-
-  def result(self, timeout: Optional[int] = None) -> Any:
-    return self._t.join(timeout=timeout)
-
-
 class CommitFutureAwaitingContractedSignals(Future):
   """Represents the result of a background commit.
 
