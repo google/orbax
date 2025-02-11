@@ -24,57 +24,13 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-import threading
-import time
 from typing import Any, Callable, Sequence
 
 from absl import logging
 import jax
+from orbax.checkpoint._src import threading as threading_lib
 
 PyTree = Any
-
-
-# TODO(niketkb): Move it to a new module, if required by other modules.
-class _TimeoutRLock:
-  """An RLock that can time out when used as a context manager.
-
-  Unforunately, `threading.RLock` does not support a timeout when used as a
-  context manager.
-
-  NOTE: Always blocks until the timeout.
-
-  NOTE: Must be used as a context manager.
-
-  Usage:
-    ```
-    # Blocks until the timeout of 10 seconds.
-    with _TimeoutRLock(timeout=10.0):
-      ...
-    ```
-  """
-
-  def __init__(self, timeout: float = 5.0):
-    """Initializes the RLock with the given timeout in seconds."""
-    self._lock = threading.RLock()
-    self._timeout = timeout
-    self._acquired = False
-    self._start = time.time()
-
-  def __enter__(self) -> _TimeoutRLock:
-    self._start = time.time()
-    self._acquired = self._lock.acquire(timeout=self._timeout)
-    if self._acquired:
-      return self
-    raise TimeoutError(
-        f'Thread {threading.current_thread().name} failed to acquire reentrant'
-        f' lock. timeout={self._timeout}s,'
-        f' time_elapsed={time.time() - self._start}s: {self._lock}'
-    )
-
-  def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
-    if self._acquired:
-      self._lock.release()
-    return False  # Raise the exception if any.
 
 
 @dataclasses.dataclass
@@ -105,7 +61,7 @@ class CheckpointInfo:
 
 
 class CheckpointInfos:
-  """Thread-safe list of CheckpointInfo.
+  """Thread-safe list of `CheckpointInfo`.
 
   It does not gurantee thread-safety for individual CheckpointInfo.
 
@@ -118,7 +74,8 @@ class CheckpointInfos:
       checkpoint_infos: Sequence[CheckpointInfo] | None = None,
       timeout_sec=5.0,
   ):
-    self._lock = _TimeoutRLock(timeout_sec)
+    """Initializes thread-safe list of `CheckpointInfo`."""
+    self._lock = threading_lib.TimeoutRLock(timeout_sec)
     with self._lock:
       self._checkpoint_infos: list[CheckpointInfo] = list(
           checkpoint_infos or []

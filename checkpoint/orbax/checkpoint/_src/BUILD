@@ -21,3 +21,8 @@ py_test(
     srcs = ["composite_test.py"],
     deps = [":composite"],
 )
+
+py_library(
+    name = "threading",
+    srcs = ["threading.py"],
+)

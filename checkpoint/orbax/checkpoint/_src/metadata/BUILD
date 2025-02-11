@@ -178,6 +178,7 @@ py_test(
 py_library(
     name = "checkpoint_info",
     srcs = ["checkpoint_info.py"],
+    deps = ["//orbax/checkpoint/_src:threading"],
 )
 
 py_test(

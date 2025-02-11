@@ -34,6 +34,7 @@ from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
+from orbax.checkpoint._src import threading as threading_lib
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.checkpointers import async_checkpointer
@@ -666,6 +667,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         enable_write=True, blocking_write=True
     )
 
+    self._default_item = threading_lib.OptionalRef[bool]()
     if checkpointers is not None:
       jax.monitoring.record_event(
           '/jax/orbax/deprecation/checkpoint_manager_legacy_init'
@@ -676,7 +678,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           ' https://orbax.readthedocs.io/en/latest/api_refactor.html to'
           ' migrate.'
       )
-      self._default_item = isinstance(checkpointers, AbstractCheckpointer)
+      self._default_item.set(isinstance(checkpointers, AbstractCheckpointer))
       self._checkpointer = self._configure_checkpointer_legacy_init(
           checkpointers, self._options
       )
@@ -685,7 +687,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # not, detemine this lazily instead on the first call to `save`, `restore`
       # or `item_metadata`. Once locked-in, the value of `_default_item` will
       # not change.
-      self._default_item = None
+      self._default_item.set(None)
       self._checkpointer = self._configure_checkpointer_from_handler_registry(
           handler_registry,
           self._options,
@@ -694,20 +696,21 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # In this case, we can just default construct the
       # CheckpointHandlerRegistry and allow the user to lazily specify default
       # vs. multi-item mode.
-      self._default_item = None
+      self._default_item.set(None)
       handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
       self._checkpointer = self._configure_checkpointer_from_handler_registry(
           handler_registry,
           self._options,
       )
     else:
-      self._default_item = isinstance(item_handlers, CheckpointHandler)
+      default_item = isinstance(item_handlers, CheckpointHandler)
+      self._default_item.set(default_item)
       self._checkpointer = (
           self._configure_checkpointer_from_item_names_and_handlers(
               item_names,
               item_handlers,
               self._options,
-              self._default_item,
+              default_item,
           )
       )
 
@@ -754,8 +757,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       custom_metadata = {} if metadata is None else dict(metadata)
     else:
       custom_metadata = None
-    self._root_metadata = RootMetadata(
-        custom_metadata=custom_metadata,
+    self._root_metadata = threading_lib.Ref(
+        RootMetadata(
+            custom_metadata=custom_metadata,
+        )
     )
 
     self._maybe_save_root_metadata(metadata)
@@ -1130,7 +1135,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         raise ValueError(
             f'Expected args of type `CheckpointArgs`; found {type(args)}.'
         )
-      if self._default_item:
+      if self._default_item.get():
         if isinstance(args, args_lib.Composite):
           raise ValueError(
               'Cannot provide `args` of type `Composite` when dealing with a'
@@ -1162,8 +1167,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')
-    if self._default_item is None:
-      self._default_item = determine_default_item_mode_from_args(args)
+    self._default_item.set_if_none(determine_default_item_mode_from_args(args))
     self._validate_args(items, args)
     if not force and not self.should_save(step):
       return False
@@ -1199,7 +1203,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       items = {}
     if save_kwargs is None:
       save_kwargs = {}
-    if self._default_item:
+    if self._default_item.get():
       items = {DEFAULT_ITEM_NAME: items}
       save_kwargs = {DEFAULT_ITEM_NAME: save_kwargs}
 
@@ -1218,7 +1222,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         args_dict[key] = save_ckpt_arg_cls(item, **extra_args)  # pylint: disable=too-many-function-args  # pytype: disable=wrong-arg-count
       args = args_lib.Composite(**args_dict)
     else:
-      if self._default_item:
+      if self._default_item.get():
         args = args_lib.Composite(**{DEFAULT_ITEM_NAME: args})
       else:
         if not isinstance(args, args_lib.Composite):
@@ -1348,7 +1352,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   def _maybe_get_default_item(
       self, composite_result: args_lib.Composite
   ) -> Union[Any, args_lib.Composite]:
-    if self._default_item:
+    if self._default_item.get():
       if DEFAULT_ITEM_NAME not in composite_result:
         raise ValueError(
             'Unable to retrieve default item. Please ensure that a handler for'
@@ -1380,19 +1384,20 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     step_stats.checkpoint_manager_start_time = time.time()
     step_stats.directory = str(directory)
 
-    if self._default_item is None:
-      self._default_item = _determine_default_item_mode_from_directory(
-          self._get_read_step_directory(step, directory)
-      )
+    self._default_item.set_if_none(
+        _determine_default_item_mode_from_directory(
+            self._get_read_step_directory(step, directory)
+        )
+    )
     self._validate_args(items, args)
 
     if items is None:
       items = {}
-    elif self._default_item:
+    elif self._default_item.get():
       items = {DEFAULT_ITEM_NAME: items}
     if restore_kwargs is None:
       restore_kwargs = {}
-    elif self._default_item:
+    elif self._default_item.get():
       restore_kwargs = {DEFAULT_ITEM_NAME: restore_kwargs}
 
     if args is None:
@@ -1409,7 +1414,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         args_dict[key] = restore_ckpt_arg_cls(item, **extra_args)  # pylint: disable=too-many-function-args  # pytype: disable=wrong-arg-count
       args = args_lib.Composite(**args_dict)
     else:
-      if self._default_item:
+      if self._default_item.get():
         args = args_lib.Composite(**{DEFAULT_ITEM_NAME: args})
       else:
         args = typing.cast(args_lib.Composite, args)
@@ -1541,9 +1546,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
     )
 
-  def _metadata_file_path(self, legacy: bool = False) -> epath.Path:
+  def _root_metadata_file_path(self, legacy: bool = False) -> epath.Path:
     if not self._metadata_dir.exists():
-      raise ValueError('Metadata directory is not initialized.')
+      raise ValueError(
+          f'Root Metadata directory is not initialized: {self._metadata_dir}'
+      )
     return checkpoint.root_metadata_file_path(self._metadata_dir, legacy=legacy)
 
   def _maybe_save_root_metadata(
@@ -1557,9 +1564,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           and utils.is_primary_host(self._multiprocessing_options.primary_host)
       ):
         self._metadata_dir.mkdir(parents=True, exist_ok=True)
-        file_path = self._metadata_file_path()
+        file_path = self._root_metadata_file_path()
         if not file_path.exists():  # May have been created by a previous run.
-          metadata_to_save = self._root_metadata
+          metadata_to_save = self._root_metadata.get()
           if custom_metadata is not None:
             metadata_to_save.custom_metadata = dict(custom_metadata)
           self._blocking_metadata_store.write(
@@ -1568,7 +1575,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
       multihost.sync_global_processes(
           multihost.unique_barrier_key(
-              'CheckpointManager:save_metadata',
+              'CheckpointManager:save_root_metadata',
               prefix=self._multiprocessing_options.barrier_sync_key_prefix,
           ),
           processes=self._multiprocessing_options.active_processes,
@@ -1590,10 +1597,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self._get_read_step_directory(step, self.directory),
     )
 
-    if self._default_item is None:
-      self._default_item = _determine_default_item_mode_from_directory(
-          self._get_read_step_directory(step, self.directory)
-      )
+    self._default_item.set_if_none(
+        _determine_default_item_mode_from_directory(
+            self._get_read_step_directory(step, self.directory)
+        )
+    )
     step_metadata.item_metadata = self._maybe_get_default_item(
         step_metadata.item_metadata
     )
@@ -1610,25 +1618,25 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     return step_metadata
 
   def _get_root_metadata(self) -> RootMetadata:
-    if self._root_metadata.custom_metadata is None:
+    if self._root_metadata.get().custom_metadata is None:
       if self._metadata_dir.exists():
-        file_path = self._metadata_file_path()
+        file_path = self._root_metadata_file_path()
         if not file_path.exists():
           logging.warning(
-              'New metadata file not found in directory: %s. '
-              'Will try to read legacy metadata file.',
+              'New root metadata file not found in directory: %s. '
+              'Will try to read legacy file.',
               self._metadata_dir,
           )
-          file_path = self._metadata_file_path(legacy=True)
+          file_path = self._root_metadata_file_path(legacy=True)
         serialized_metadata = self._blocking_metadata_store.read(file_path)
         if serialized_metadata is None:
           raise IOError(f'Failed to read metadata from {file_path}')
-        self._root_metadata = root_metadata_serialization.deserialize(
-            serialized_metadata
+        self._root_metadata.set(
+            root_metadata_serialization.deserialize(serialized_metadata)
         )
       else:
-        self._root_metadata.custom_metadata = {}
-    return self._root_metadata
+        self._root_metadata.get().custom_metadata = {}
+    return self._root_metadata.get()
 
   @overload
   def metadata(self, step: None = None) -> RootMetadata:

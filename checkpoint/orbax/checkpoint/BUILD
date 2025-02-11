@@ -135,6 +135,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:deleter",
         "//checkpoint/orbax/checkpoint/_src/path:step",
         "//checkpoint/orbax/checkpoint/_src/path:utils",
+        "//orbax/checkpoint/_src:threading",
     ],
 )
 
