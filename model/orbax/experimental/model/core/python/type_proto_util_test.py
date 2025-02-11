@@ -13,9 +13,9 @@
 # limitations under the License.
 
 from absl.testing import parameterized
-from orbax.experimental.model.core.protos import manifest_pb2
-from orbax.experimental.model.core.python import manifest_util
+from orbax.experimental.model.core.protos import type_pb2
 from orbax.experimental.model.core.python import test_utils
+from orbax.experimental.model.core.python import type_proto_util
 from orbax.experimental.model.core.python.function import Sharding
 from orbax.experimental.model.core.python.function import ShloDType
 from orbax.experimental.model.core.python.function import ShloTensorSpec
@@ -23,6 +23,7 @@ from orbax.experimental.model.core.python.tree_util import Tree
 
 from google.protobuf import text_format
 from absl.testing import absltest
+# TODO(wangpeng): Replace all "manifest" with "type_proto" in this file.
 
 
 class RoundtripBetweenShloShapeAndManifestShapeTest(parameterized.TestCase):
@@ -68,16 +69,16 @@ class RoundtripBetweenShloShapeAndManifestShapeTest(parameterized.TestCase):
       self, shlo_shape, manifest_shape_proto_text
   ):
     # One way conversion.
-    result_manifest_shape = manifest_util.shlo_shape_to_manifest_shape(
+    result_manifest_shape = type_proto_util.shlo_shape_to_manifest_shape(
         shlo_shape
     )
     expected_manifest_shape = text_format.Parse(
-        manifest_shape_proto_text, manifest_pb2.Shape()
+        manifest_shape_proto_text, type_pb2.Shape()
     )
     self.assertEqual(result_manifest_shape, expected_manifest_shape)
 
     # The other way conversion.
-    result_shlo_shape = manifest_util.manifest_shape_to_shlo_shape(
+    result_shlo_shape = type_proto_util.manifest_shape_to_shlo_shape(
         expected_manifest_shape
     )
     if shlo_shape is None:
@@ -188,12 +189,10 @@ class ManifestTypeToShloTensorSpecTreeTest(test_utils.ObmTestCase):
       }
     """
 
-    manifest_type = text_format.Parse(
-        manifest_type_proto_str, manifest_pb2.Type()
-    )
+    manifest_type = text_format.Parse(manifest_type_proto_str, type_pb2.Type())
 
     shlo_tensor_spec_tree = (
-        manifest_util.manifest_type_to_shlo_tensor_spec_pytree(manifest_type)
+        type_proto_util.manifest_type_to_shlo_tensor_spec_pytree(manifest_type)
     )
 
     a_sharding = Sharding()
