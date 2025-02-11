@@ -19,6 +19,7 @@ from typing import Any, Mapping, Optional, Protocol, Sequence, Union
 
 from etils import epath
 from orbax.checkpoint import args as args_lib
+from orbax.checkpoint._src.metadata import checkpoint
 
 PyTree = Any
 SaveParams = Mapping[str, Any]
@@ -293,8 +294,22 @@ class AbstractCheckpointManager(Protocol):
     """
 
   @abc.abstractmethod
-  def metadata(self) -> Mapping[str, Any]:
-    """Returns CheckpointManager level metadata if present, empty otherwise."""
+  def metadata(
+      self, step: int | None = None,
+  ) -> checkpoint.StepMetadata | checkpoint.RootMetadata:
+    """Returns `StepMetadata` for the specified step, or `RootMetadata` all.
+
+    If step is specified, only return `StepMetadata` for that step.
+    Otherwise, return `RootMetadata`.
+
+    Args:
+      step: Step for which to retrieve `StepMetadata`. If None, returns
+        `RootMetadata`.
+
+    Returns:
+      Metadata for the specified step (`StepMetadata`), or all steps
+      (`RootMetadata`).
+    """
 
   @abc.abstractmethod
   def metrics(self, step: int) -> Optional[PyTree]:

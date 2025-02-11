@@ -67,6 +67,8 @@ ChunkId = local_checkpoint_data_debugging.ChunkId
 get_present_and_missing_chunks = (
     local_checkpoint_data_debugging.get_present_and_missing_chunks
 )
+RootMetadata = checkpoint_manager.RootMetadata
+StepMetadata = checkpoint_manager.StepMetadata
 
 _PRIMARY_REPLICA_ID = 0
 _SECONDARY_REPLICA_ID = 1
@@ -1301,7 +1303,7 @@ class CheckpointManager(
         'Item metadata not yet implemented for emergency.CheckpointManager.'
     )
 
-  def metadata(self) -> dict[str, Any]:
+  def metadata(self, step: int | None = None) -> RootMetadata | StepMetadata:
     """Returns CheckpointManager level metadata if present, empty otherwise."""
     raise NotImplementedError(
         'Metadata not yet implemented for emergency.CheckpointManager.'

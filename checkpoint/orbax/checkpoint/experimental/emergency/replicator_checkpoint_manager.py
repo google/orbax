@@ -18,7 +18,6 @@ WARNING: Do not use without specific approval. The API and implementation are
 subject to change without notice.
 """
 
-from collections.abc import Mapping
 import dataclasses
 from typing import Any, Callable, Iterable, Sequence
 from absl import logging
@@ -42,6 +41,8 @@ DefaultCheckpointHandlerRegistry = (
     handler_registration.DefaultCheckpointHandlerRegistry
 )
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
+RootMetadata = checkpoint_manager.RootMetadata
+StepMetadata = checkpoint_manager.StepMetadata
 
 
 _UNNAMED_ITEM_NAME = 'state'
@@ -319,8 +320,8 @@ class ReplicatorCheckpointManager(
   def item_metadata(self, step: int) -> Any:
     return self._impl.item_metadata(step)
 
-  def metadata(self) -> Mapping[str, Any]:
-    return self._impl.metadata()
+  def metadata(self, step: int | None = None) -> RootMetadata | StepMetadata:
+    return self._impl.metadata(step)
 
   def metrics(self, step: int) -> PyTree | None:
     raise NotImplementedError()
