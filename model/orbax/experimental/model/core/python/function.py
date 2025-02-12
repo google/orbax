@@ -19,9 +19,8 @@ import enum
 from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
+from orbax.experimental.model.core.protos import xla_data_pb2
 from orbax.experimental.model.core.python.tree_util import Tree
-
-from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
 
 
 ShloDimSize = Optional[int]

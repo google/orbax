@@ -21,6 +21,7 @@ from typing import List, Optional, Sequence, Tuple
 
 from absl import logging
 import numpy as np
+from orbax.experimental.model.core.protos import xla_data_pb2
 from orbax.experimental.model.core.python import shlo_function
 from orbax.experimental.model.core.python import tracing
 from orbax.experimental.model.core.python import tree_util
@@ -38,9 +39,6 @@ from orbax.experimental.model.core.python.signature import int32
 from orbax.experimental.model.core.python.signature import Shape
 from orbax.experimental.model.core.python.signature import TensorSpec
 from orbax.experimental.model.core.python.tree_util import flatten
-
-from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
-
 
 OpSharding = xla_data_pb2.OpSharding
 TfSymbolicTensor = tracing.GraphEdgeTensor
@@ -121,7 +119,7 @@ def call_module(  # pylint: disable=missing-function-docstring
     platforms: Sequence[str] = (),
     has_token_input_output: bool = False,
     disabled_checks: Sequence[str] = (),
-    ) -> Tuple[Sequence[TfVal], str]:
+) -> Tuple[Sequence[TfVal], str]:
   nodes = assert_emitting()
   node = nodes_lib.XlaCallModule(
       inputs=[inp.graph_edge for inp in inputs],
@@ -138,10 +136,17 @@ def call_module(  # pylint: disable=missing-function-docstring
   nodes.add_node(node)
   control_output = node.name
   assert control_output is not None
-  return (tuple(map(lambda i, s, t: TfVal(TensorSpec(s, t),
-                                          node.get_output(0, i)),
-                    range(len(Sout)), Sout, Tout)),
-          control_output)
+  return (
+      tuple(
+          map(
+              lambda i, s, t: TfVal(TensorSpec(s, t), node.get_output(0, i)),
+              range(len(Sout)),
+              Sout,
+              Tout,
+          )
+      ),
+      control_output,
+  )
 
 
 # TODO(b/332765622): Properly implement `xla_sharding` by forking
@@ -178,18 +183,22 @@ def emit_nodes_for_concrete_function(
   specs_flat_shlo: List[ShloTensorSpec] = flatten(shlo_fn.input_signature)
 
   args_flat_tf = tuple(
-      map(lambda i, a, s, p: preprocess_arg_tf(i, a, s.dtype, p),
-          range(len(args_flat_tf)), args_flat_tf, specs_flat_shlo,
-          shlo_fn.physical_in_dtypes))
+      map(
+          lambda i, a, s, p: preprocess_arg_tf(i, a, s.dtype, p),
+          range(len(args_flat_tf)),
+          args_flat_tf,
+          specs_flat_shlo,
+          shlo_fn.physical_in_dtypes,
+      )
+  )
 
   outs_tf, control_output = _run_shlo_fn_as_tf(
       shlo_fn, args_flat_tf, supplemental_info
   )
-  message = ("This function does not support gradients.")
+  message = "This function does not support gradients."
   # We use PreventGradient, which is propagated through a SavedModel.
   outs_flat_tf = [
-      tf_PreventGradient(input_=o, message=message)
-      for o in outs_tf
+      tf_PreventGradient(input_=o, message=message) for o in outs_tf
   ]
 
   outs_flat_tf = [tf_identity(x, "em_out") for x in outs_flat_tf]
@@ -199,17 +208,19 @@ def emit_nodes_for_concrete_function(
   return out_tf, control_output
 
 
-def preprocess_arg_tf(arg_idx: int,  # pylint: disable=missing-function-docstring
-                      arg_tf: TfVal,
-                      shlo_dtype: ShloDType,
-                      physical_dtype: Optional[ShloDType],
-                      ) -> TfVal:
+def preprocess_arg_tf(
+    arg_idx: int,  # pylint: disable=missing-function-docstring
+    arg_tf: TfVal,
+    shlo_dtype: ShloDType,
+    physical_dtype: Optional[ShloDType],
+) -> TfVal:
   assert isinstance(
-      shlo_dtype, ShloDType), f"Wrong shlo_dtype type: {type(shlo_dtype)}"
+      shlo_dtype, ShloDType
+  ), f"Wrong shlo_dtype type: {type(shlo_dtype)}"
   if physical_dtype is not None:
     assert isinstance(
-        physical_dtype,
-        ShloDType), f"Wrong physical_dtype type: {type(physical_dtype)}"
+        physical_dtype, ShloDType
+    ), f"Wrong physical_dtype type: {type(physical_dtype)}"
   # May cast the args_flat to SHLO types.
   arg_tf = _convert_tf_value(arg_tf, shlo_dtype, physical_dtype)
   # Name input tensors; do this after we have cast the arguments
@@ -244,29 +255,34 @@ def _run_shlo_fn_as_tf(
   # TF values may be integer types for float0
   def _convert_value(val, aval, physical_dtype):
     # Check the shape
-    assert all(d_aval == d_val
-               for d_aval, d_val in zip(aval.shape, val.shape)
-               if is_constant_dim(d_aval)), (aval, val)
+    assert all(
+        d_aval == d_val
+        for d_aval, d_val in zip(aval.shape, val.shape)
+        if is_constant_dim(d_aval)
+    ), (aval, val)
     conversion_dtype = _to_tf_dtype(aval.dtype, physical_dtype)
     if conversion_dtype != aval.dtype:
       return tf_cast(val, conversion_dtype)
     else:
       return val
 
-  args_flat_tf = tuple(map(
-      _convert_value, args_flat_tf, in_avals, shlo_fn.physical_in_dtypes))
+  args_flat_tf = tuple(
+      map(_convert_value, args_flat_tf, in_avals, shlo_fn.physical_in_dtypes)
+  )
 
   out_avals = flatten(shlo_fn.output_signature)
 
   out_shapes_tf: Tuple[Shape, ...] = tuple(
-      tuple(d if is_constant_dim(d) else None
-            for d in out_aval.shape)
-      for out_aval in out_avals)
+      tuple(d if is_constant_dim(d) else None for d in out_aval.shape)
+      for out_aval in out_avals
+  )
 
   out_types = tuple(
-      _to_tf_dtype(out_aval.dtype,
-                   physical_dtype) for out_aval, physical_dtype in zip(
-                       out_avals, shlo_fn.physical_out_dtypes))
+      _to_tf_dtype(out_aval.dtype, physical_dtype)
+      for out_aval, physical_dtype in zip(
+          out_avals, shlo_fn.physical_out_dtypes
+      )
+  )
 
   kept_args_flat_tf = [
       atf
@@ -297,7 +313,8 @@ def _run_shlo_fn_as_tf(
   )
 
   call_module_attrs["platforms"] = tuple(
-      p.upper() for p in shlo_fn.lowering_platforms)
+      p.upper() for p in shlo_fn.lowering_platforms
+  )
   if supplemental_info is not None:
     supplemental_info.process_xla_call_module_attrs(version, call_module_attrs)
 
@@ -318,11 +335,11 @@ def _run_shlo_fn_as_tf(
   kept_in_shardings = []
   for i in shlo_fn.module_kept_var_idx:
     kept_in_shardings.append(in_avals[i].sharding)
-  args_flat_tf = tuple(
-      map(_shard_value, kept_args_flat_tf, kept_in_shardings))
+  args_flat_tf = tuple(map(_shard_value, kept_args_flat_tf, kept_in_shardings))
   res, control_output = call_module(args_flat_tf, **call_module_attrs)
-  res = list(map(lambda val, aval: _shard_value(val, aval.sharding),
-                 res, out_avals))
+  res = list(
+      map(lambda val, aval: _shard_value(val, aval.sharding), res, out_avals)
+  )
   res = tuple(map(_convert_value, res, out_avals, shlo_fn.physical_out_dtypes))
   return res, control_output
 
@@ -336,20 +353,21 @@ _SHLO_DTYPE_TO_DTYPE: dict[ShloDType, DType] = {
 
 def shlo_dtype_to_dtype(dtype: ShloDType) -> DType:
   assert isinstance(
-      dtype,
-      ShloDType), (
-          f"Wrong shlo_dtype type: type=[{type(dtype)}] repr=[{repr(dtype)}]")
+      dtype, ShloDType
+  ), f"Wrong shlo_dtype type: type=[{type(dtype)}] repr=[{repr(dtype)}]"
   return _SHLO_DTYPE_TO_DTYPE[dtype]
 
 
-def _to_tf_dtype(shlo_dtype: ShloDType,
-                 physical_dtype: Optional[ShloDType]) -> DType:
+def _to_tf_dtype(
+    shlo_dtype: ShloDType, physical_dtype: Optional[ShloDType]
+) -> DType:
   assert isinstance(
-      shlo_dtype, ShloDType), f"Wrong shlo_dtype type: {type(shlo_dtype)}"
+      shlo_dtype, ShloDType
+  ), f"Wrong shlo_dtype type: {type(shlo_dtype)}"
   if physical_dtype is not None:
     assert isinstance(
-        physical_dtype,
-        ShloDType), f"Wrong physical_dtype type: {type(physical_dtype)}"
+        physical_dtype, ShloDType
+    ), f"Wrong physical_dtype type: {type(physical_dtype)}"
     shlo_dtype = physical_dtype
   return shlo_dtype_to_dtype(shlo_dtype)
 
@@ -358,7 +376,7 @@ def _convert_tf_value(
     val: TfVal,
     shlo_dtype: ShloDType,
     physical_dtype: Optional[ShloDType],
-    ) -> TfVal:
+) -> TfVal:
   conversion_dtype = _to_tf_dtype(shlo_dtype, physical_dtype)
   if conversion_dtype != val.dtype:  # May need to cast for 64-bit values
     return tf_cast(val, conversion_dtype)

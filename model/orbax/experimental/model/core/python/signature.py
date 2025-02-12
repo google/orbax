@@ -18,9 +18,8 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+from orbax.experimental.model.core.protos import xla_data_pb2
 from orbax.experimental.model.core.protos.saved_model import types_pb2
-
-from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
 
 OpSharding = xla_data_pb2.OpSharding
 # TODO(b/329309575): Decide whether to use None or -1 for unknown dim size.
@@ -108,8 +107,7 @@ def assert_sub_type(sub: TensorSpec, super_: TensorSpec) -> None:  # pylint: dis
   assert_sub_shape(sub.shape, super_.shape)
 
 
-def assert_sub_specs(sub: TreeOfTensorSpecs,
-                     super_: TreeOfTensorSpecs) -> None:
+def assert_sub_specs(sub: TreeOfTensorSpecs, super_: TreeOfTensorSpecs) -> None:
   assert isinstance(sub, TensorSpec)
   assert isinstance(super_, TensorSpec)
   assert_sub_type(sub, super_)
