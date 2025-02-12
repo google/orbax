@@ -1515,7 +1515,12 @@ class PyTreeCheckpointHandlerTestBase:
       axes = jax.sharding.PartitionSpec(
           'x',
       )
-      tree = {'x': test_utils.create_sharded_array(np.arange(8), mesh, axes)}
+      dtype = np.float32
+      tree = {
+          'x': test_utils.create_sharded_array(
+              np.arange(8, dtype=dtype), mesh, axes
+          )
+      }
       restore_args = {
           'x': ArrayRestoreArgs(
               mesh=mesh, mesh_axes=axes, global_shape=(16,), strict=strict
@@ -1533,7 +1538,11 @@ class PyTreeCheckpointHandlerTestBase:
         )
         expected = {
             'x': test_utils.create_sharded_array(
-                np.concatenate((np.arange(8), np.zeros(8))), mesh, axes
+                np.concatenate(
+                    (np.arange(8, dtype=dtype), np.zeros(8, dtype=dtype))
+                ),
+                mesh,
+                axes,
             )
         }
         self.validate_restore(expected, restored)

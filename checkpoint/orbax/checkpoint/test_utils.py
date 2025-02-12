@@ -203,6 +203,8 @@ def apply_function(tree, function):
 
 def assert_array_equal(testclass, v_expected, v_actual):
   """Asserts that two arrays are equal."""
+  if hasattr(v_expected, 'dtype'):
+    testclass.assertEqual(v_expected.dtype, v_actual.dtype)
   testclass.assertIsInstance(v_actual, type(v_expected))
   if isinstance(v_expected, jax.Array):
     testclass.assertEqual(
