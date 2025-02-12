@@ -146,23 +146,6 @@ class ChainedFuture:
     self._cb()
 
 
-class ThreadRaisingException(threading.Thread):
-  """Thread that raises an exception if it encounters an error."""
-
-  _exception: Optional[Exception] = None
-
-  def run(self):
-    try:
-      super().run()
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      self._exception = e
-
-  def join(self, timeout=None):
-    super().join(timeout=timeout)
-    if self._exception is not None:
-      raise self._exception
-
-
 class _SignalingThread(threading.Thread):
   """Thread that raises an exception if it encounters an error.
 

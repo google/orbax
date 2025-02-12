@@ -19,4 +19,3 @@
 from orbax.checkpoint._src.futures.future import ChainedFuture
 from orbax.checkpoint._src.futures.future import Future
 from orbax.checkpoint._src.futures.future import NoopFuture
-from orbax.checkpoint._src.futures.future import ThreadRaisingException
