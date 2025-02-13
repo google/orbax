@@ -21,6 +21,7 @@ from orbax.checkpoint._src.tree.types import (
     PyTreeOf,
     PyTreeKey,
     PyTreePath,
+    JsonType,
 )
 from orbax.checkpoint._src.tree.utils import (
     get_param_names,

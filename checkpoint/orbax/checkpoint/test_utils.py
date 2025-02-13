@@ -571,6 +571,10 @@ def _get_test_wrapper_function(test_func):
 def barrier_compatible_test(cls):
   """A decorator to be used with a test class.
 
+  This is primarily needed when different processes in a multihost test may be
+  executing different code. This will cause operation IDs to get out of sync. If
+  all processes always execute the same code, this decorator is not needed.
+
   E.g.
 
   @barrier_compatible_test
