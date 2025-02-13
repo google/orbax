@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Allow concurrent CheckpointManager.save requests and wait_until_finished.
+
 ## [0.11.5] - 2025-02-10
 
 ### Fixed
