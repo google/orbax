@@ -7,13 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- V1: Introduce Context and its usage as a contextmanager.
+- V1: Add `ArrayStorageOptions` to customize per-leaf saving behavior for
+arrays (e.g. `dtype`).
+
+### Fixed
+
+- Fix RESOURCE_EXHAUSTED while writing array_metadatas.
+
 ### Changed
 
 - Improve `Cannot serialize host local jax.Array` error message.
 
 ### Added
 
-- support saving and restoring jax.random.key() in PyTree
+- support saving and restoring jax.random.key() in PyTree.
+- `CheckpointableHandler` for V1.
 
 ## [0.11.6] - 2025-02-20
 

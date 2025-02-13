@@ -15,10 +15,10 @@
 """Defines free-function interface for loading."""
 
 import orbax.checkpoint as ocp
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
-
 
 
 def _get_concurrent_gb(concurrent_bytes: int | None) -> int | None:
@@ -32,10 +32,6 @@ def load_pytree(
     abstract_pytree: (
         tree_types.PyTreeOf[tree_types.AbstractLeafType] | None
     ) = None,
-    *,
-    # PyTree-specific options.
-    partial_load: bool = False,
-    restore_concurrent_bytes: int | None = None
 ) -> tree_types.PyTreeOf[tree_types.LeafType]:
   """Loads a PyTree.
 
@@ -55,21 +51,21 @@ def load_pytree(
       indicated by the abstract leaves. For example, if a leaf in
       `abstract_pytree` is a `jax.ShapeDtypeStruct`, the restored leaf will be a
       `jax.Array` with the same shape and dtype. Each `AbstractLeafType` has a
-    partial_load: If the tree structure omits some keys relative to the
-      checkpoint, the omitted keys will not be loaded.
-    restore_concurrent_bytes: The maximum number of bytes to restore
-      concurrently.
 
   Returns:
     The restored PyTree.
   """
-  if partial_load:
+  context = context_lib.get_context()
+
+  if context.pytree_options.partial_load:
     raise NotImplementedError('Partial loading is not yet supported.')
 
 
   handler_registry = ocp.handlers.create_default_handler_registry(
       pytree=ocp.PyTreeCheckpointHandler(
-          restore_concurrent_gb=_get_concurrent_gb(restore_concurrent_bytes),
+          restore_concurrent_gb=_get_concurrent_gb(
+              context.pytree_options.restore_concurrent_bytes
+          ),
       )
   )
   ckptr = ocp.Checkpointer(
