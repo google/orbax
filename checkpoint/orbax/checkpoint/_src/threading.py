@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import threading
 import time
 from typing import Generic, TypeVar
 
 _T = TypeVar('_T')
+_R = TypeVar('_R')
 
 
 class TimeoutRLock:
@@ -80,6 +82,12 @@ class OptionalRef(Generic[_T]):
       self._value = value
     return self
 
+  def set_from(self, get_value: Callable[[], _T | None]) -> OptionalRef[_T]:
+    """Sets `value` from `get_value` and returns self."""
+    with self._lock:
+      self._value = get_value()
+    return self
+
   def set_if_none(self, value: _T) -> OptionalRef[_T]:
     """Sets `value` if current value is None and returns self."""
     with self._lock:
@@ -91,6 +99,17 @@ class OptionalRef(Generic[_T]):
     """Returns the value."""
     with self._lock:
       return self._value
+
+  def get_not_none(self) -> _T:
+    """Returns the value, or raises assertion exception if the value is None."""
+    with self._lock:
+      assert self._value is not None
+      return self._value
+
+  def map(self, func: Callable[[_T], _R]) -> _R:
+    """Applies `func` to the value and returns the result."""
+    with self._lock:
+      return func(self._value)
 
 
 class Ref(Generic[_T]):
