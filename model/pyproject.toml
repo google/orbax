@@ -46,4 +46,5 @@ all = [
 
 testing = [
     'pytest',
+    'flax',
 ]

@@ -17,7 +17,7 @@ from jax.experimental.topologies import get_topology_desc
 import numpy as np
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.jax2obm import sharding
-from .net.proto2.contrib.pyutil import compare
+from tensorflow.python.util.protobuf import compare
 from google.protobuf import text_format
 from absl.testing import absltest
 
@@ -47,7 +47,7 @@ class ShardingTest(absltest.TestCase):
     expected_device_mesh = text_format.Parse(
         expected_device_mesh_text, obm.manifest_pb2.DeviceMesh()
     )
-    compare.assertProto2Equal(
+    compare.assertProtoEqual(
         self,
         device_mesh,
         expected_device_mesh,
@@ -174,7 +174,7 @@ class ShardingTest(absltest.TestCase):
         expected_device_assignment_by_coords_text,
         obm.manifest_pb2.DeviceAssignmentByCoords(),
     )
-    compare.assertProto2Equal(
+    compare.assertProtoEqual(
         self,
         device_assignment_by_coords,
         expected_device_assignment_by_coords,
