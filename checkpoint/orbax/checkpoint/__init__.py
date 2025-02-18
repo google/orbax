@@ -64,6 +64,7 @@ from orbax.checkpoint._src.handlers.async_checkpoint_handler import AsyncCheckpo
 
 from orbax.checkpoint._src.handlers.array_checkpoint_handler import ArrayCheckpointHandler
 from orbax.checkpoint._src.handlers.composite_checkpoint_handler import CompositeCheckpointHandler
+from orbax.checkpoint._src.handlers.composite_checkpoint_handler import CompositeOptions
 from orbax.checkpoint._src.handlers.json_checkpoint_handler import JsonCheckpointHandler
 from orbax.checkpoint._src.handlers.proto_checkpoint_handler import ProtoCheckpointHandler
 from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import PyTreeCheckpointHandler
