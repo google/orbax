@@ -52,6 +52,7 @@ from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency import local_checkpoint_data_debugging
 from orbax.checkpoint.experimental.emergency import mesh_consistency
+from orbax.checkpoint.experimental.emergency import process_metadata_checkpoint_handler
 from orbax.checkpoint.logging import abstract_logger
 from orbax.checkpoint.logging import standard_logger
 from orbax.checkpoint.logging import step_statistics
@@ -62,6 +63,9 @@ PyTree = checkpoint_manager.PyTree
 CheckpointHandler = checkpoint_manager.CheckpointHandler
 P = jax.sharding.PartitionSpec
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
+ProcessMetadataCheckpointHandler = (
+    process_metadata_checkpoint_handler.ProcessMetadataCheckpointHandler
+)
 unique_barrier_key = multihost._unique_barrier_key  # pylint: disable=protected-access
 ChunkId = local_checkpoint_data_debugging.ChunkId
 get_present_and_missing_chunks = (
@@ -72,6 +76,8 @@ StepMetadata = checkpoint_manager.StepMetadata
 
 _PRIMARY_REPLICA_ID = 0
 _SECONDARY_REPLICA_ID = 1
+_UNNAMED_ITEM_NAME = 'state'
+_PROCESS_METADATA_NAME = 'process_metadata'
 
 
 local_all_steps_broadcast_counter = itertools.count()
@@ -456,7 +462,10 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         directory,
         options=local_options,
         metadata=metadata,
-        item_handlers=_local_checkpoint_handler(multiprocessing_options),
+        item_handlers=dict(
+            state=_local_checkpoint_handler(multiprocessing_options),
+            process_metadata=ProcessMetadataCheckpointHandler,
+        ),
         logger=self._logger,
     )
     self._run_initial_garbage_collection()
@@ -564,14 +573,6 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     if saved:
       self._steps.append(step)
       self._steps = self._steps[-self._max_to_keep :]
-      # TODO(cpgaffney) make this asynchronous. Not a priority because the write
-      # happens to local storage, so it should be fast.
-      mesh_consistency.save_process_metadata(
-          self.directory,
-          step,
-          self._global_mesh,
-          multihost.distributed_to_device_ids(),
-      )
     return saved
 
   def reload(self):
@@ -978,6 +979,16 @@ class CheckpointManager(
       )
     else:
       logging.info('Maybe saving at step %d (local).', step)
+
+      args = args_lib.Composite(**{
+          _UNNAMED_ITEM_NAME: args,
+          _PROCESS_METADATA_NAME: (
+              process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
+                  global_mesh=self._global_mesh
+              )
+          ),
+      })
+
       local_saved = self._local_checkpoint_manager.save(
           step, args=args, metrics=metrics, force=force
       )
@@ -1094,13 +1105,23 @@ class CheckpointManager(
       logging.vlog(
           1, 'emergency.CheckpointManager: restoring from local checkpoint.'
       )
+      restore_directory = self._options.step_name_format.find_step(
+          epath.Path(directory or self._local_directory), step
+      ).path
+      step_stats.directory = str(restore_directory)
+      (
+          previous_distributed_to_device_ids,
+          previous_device_ids,
+      ) = ProcessMetadataCheckpointHandler().restore(
+          restore_directory / _PROCESS_METADATA_NAME,
+          process_metadata_checkpoint_handler.ProcessMetadataRestoreArgs(),
+      )
       restore_mesh = mesh_consistency.consistent_restore_mesh_from_metadata(
-          self._local_directory,
-          step,
           self._global_mesh,
           multihost.distributed_to_device_ids(),
+          previous_distributed_to_device_ids=previous_distributed_to_device_ids,
+          previous_device_ids=previous_device_ids,
       )
-
       restoring_processes = multihost.unique_processes_from_devices(
           multislice.slice_devices(
               restore_mesh,
@@ -1127,10 +1148,6 @@ class CheckpointManager(
       single_slice_restore_args = checkpoint_utils.construct_restore_args(
           self._abstract_state, restore_single_slice_shardings
       )
-      restore_directory = self._options.step_name_format.find_step(
-          epath.Path(directory or self._local_directory), step
-      ).path
-      step_stats.directory = str(restore_directory)
 
       # Directly use CheckpointHandler to restore. This is undesirable, but
       # allows us to avoid barrier issues that occur when calling
@@ -1140,12 +1157,12 @@ class CheckpointManager(
       logging.vlog(
           1,
           'Restoring from %s',
-          restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
+          restore_directory / _UNNAMED_ITEM_NAME,
       )
       if logging.vlog_is_on(1):
         asyncio.run(
             local_checkpoint_data_debugging.print_chunk_debug_info(
-                restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
+                restore_directory / _UNNAMED_ITEM_NAME,
                 single_slice_restore_args,
             )
         )
@@ -1161,7 +1178,7 @@ class CheckpointManager(
           ),
       )
       single_slice_pytree = local_state_handler.restore(
-          restore_directory / checkpoint_manager.DEFAULT_ITEM_NAME,
+          restore_directory / _UNNAMED_ITEM_NAME,
           args=dataclasses.replace(
               args, restore_args=single_slice_restore_args
           ),

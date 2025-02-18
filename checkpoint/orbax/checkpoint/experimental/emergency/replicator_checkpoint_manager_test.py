@@ -147,6 +147,32 @@ class ReplicatorCheckpointManagerTest(
         'ReplicatorCheckpointManagerTest:teardown_complete'
     )
 
+  def assert_process_metadata_files_exist(
+      self,
+      step: int,
+      global_mesh: jax.sharding.Mesh,
+  ):
+    metadata_folder = mesh_consistency.process_metadata_folder(
+        self.local_directory / str(step) / 'process_metadata'
+    )
+    metadata_path = (
+        metadata_folder / mesh_consistency._GLOBAL_PROCESS_METADATA_FILE_NAME
+    )
+    self.assertTrue(metadata_path.exists())
+    contents = json.loads(metadata_path.read_text())
+    self.assertListEqual(
+        multihost.distributed_to_device_ids(),
+        contents,
+    )
+
+    metadata_path = metadata_folder / mesh_consistency._MESH_METADATA_FILE_NAME
+    self.assertTrue(metadata_path.exists())
+    device_ids = json.loads(metadata_path.read_text())
+    self.assertListEqual(
+        device_ids,
+        [int(id) for id in global_mesh.device_ids.flatten()],
+    )
+
   @parameterized.parameters((0,), (1,))
   def test_save(self, replica_axis_index: int):
     global_mesh = self.make_global_mesh(replica_axis_index=replica_axis_index)
@@ -164,8 +190,11 @@ class ReplicatorCheckpointManagerTest(
       manager.save(i, args=PyTreeSaveArgs(pytree))
     manager.wait_until_finished()
 
+    expected_steps = [0, 3, 6, 9, 12, 15]
     self.assertNotEmpty(list(self.local_directory.iterdir()))
-    self.assertEqual(manager.all_steps(), [0, 3, 6, 9, 12, 15])
+    self.assertEqual(manager.all_steps(), expected_steps)
+    for i in expected_steps:
+      self.assert_process_metadata_files_exist(i, global_mesh)
 
   @parameterized.parameters((0,), (1,))
   def test_save_restore(self, replica_axis_index: int):
@@ -181,14 +210,16 @@ class ReplicatorCheckpointManagerTest(
     )
 
     manager.save(0, args=PyTreeSaveArgs(pytree))
-
     manager.wait_until_finished()
+    self.assert_process_metadata_files_exist(0, global_mesh)
 
     restored = manager.restore(
         0, args=PyTreeRestoreArgs(restore_args=restore_args)
     )
 
-    test_utils.assert_tree_equal(self, pytree, restored)
+    test_utils.assert_tree_equal(
+        self, pytree, restored
+    )
 
   def test_no_cleanup(self):
     options = ReplicatorCheckpointManagerOptions(
@@ -202,9 +233,11 @@ class ReplicatorCheckpointManagerTest(
 
     manager.save(0, args=PyTreeSaveArgs(self.pytree))
     manager.wait_until_finished()
+    self.assert_process_metadata_files_exist(0, self.global_mesh)
 
     manager.save(1, args=PyTreeSaveArgs(self.doubled_pytree))
     manager.wait_until_finished()
+    self.assert_process_metadata_files_exist(1, self.global_mesh)
 
     restored = manager.restore(
         0, args=PyTreeRestoreArgs(restore_args=self.restore_args)
@@ -239,6 +272,7 @@ class ReplicatorCheckpointManagerTest(
               self.local_directory / str(step) / atomicity.COMMIT_SUCCESS_FILE
           ).exists()
       )
+      self.assert_process_metadata_files_exist(step, self.global_mesh)
 
     # Step looks like uncommitted now.
     (self.local_directory / '0' / atomicity.COMMIT_SUCCESS_FILE).unlink()
@@ -261,6 +295,7 @@ class ReplicatorCheckpointManagerTest(
     self.assertEqual(manager2.all_steps(), [1, 2, 3])
     self.assertTrue((self.local_directory / '2').exists())
     self.assertTrue((self.local_directory / '3').exists())
+    self.assert_process_metadata_files_exist(3, self.global_mesh)
 
   @parameterized.parameters(
       (0, 1, True),
@@ -482,38 +517,22 @@ class ReplicatorCheckpointManagerTest(
         global_mesh=self.global_mesh,
     ) as mngr:
       metadata_folder = mesh_consistency.process_metadata_folder(
-          self.local_directory, 0
+          self.local_directory/str(0)/'process_metadata'
       )
       self.assertFalse(metadata_folder.exists())
 
       mngr.save(0, args=PyTreeSaveArgs(self.pytree))
       mngr.wait_until_finished()
 
-      metadata_path = (
-          metadata_folder / mesh_consistency._GLOBAL_PROCESS_METADATA_FILE_NAME
-      )
-      self.assertTrue(metadata_path.exists())
-      contents = json.loads(metadata_path.read_text())
-      self.assertListEqual(
-          multihost.distributed_to_device_ids(),
-          contents,
-      )
-
-      metadata_path = (
-          metadata_folder / mesh_consistency._MESH_METADATA_FILE_NAME
-      )
-      self.assertTrue(metadata_path.exists())
-      device_ids = json.loads(metadata_path.read_text())
-      self.assertListEqual(
-          device_ids,
-          [int(id) for id in self.global_mesh.device_ids.flatten()],
-      )
+      self.assert_process_metadata_files_exist(0, self.global_mesh)
 
       (metadata_folder / atomicity.COMMIT_SUCCESS_FILE).unlink()
       with self.assertRaisesRegex(
           ValueError, 'Process metadata folder was not finalized'
       ):
-        mesh_consistency.read_process_metadata(self.local_directory, 0)
+        mesh_consistency.read_process_metadata(
+            metadata_folder
+        )
 
   def test_should_save_fn(self):
     expectation = [1, 5, 7, 8]
@@ -534,6 +553,8 @@ class ReplicatorCheckpointManagerTest(
         manager.wait_until_finished()
 
       self.assertSameElements(manager.all_steps(), expectation)
+      for step in expectation:
+        self.assert_process_metadata_files_exist(step, self.global_mesh)
 
   @parameterized.parameters((0,), (1,))
   def test_multiple_items(self, replica_axis_index: int):
@@ -551,6 +572,7 @@ class ReplicatorCheckpointManagerTest(
               other_state=PyTreeSaveArgs(doubled_pytree),
           ),
       )
+      self.assert_process_metadata_files_exist(0, global_mesh)
 
     restored = manager.restore(
         0,

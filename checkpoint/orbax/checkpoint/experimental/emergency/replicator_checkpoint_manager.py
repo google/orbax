@@ -19,7 +19,8 @@ subject to change without notice.
 """
 
 import dataclasses
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, List, Sequence, Tuple
+
 from absl import logging
 from etils import epath
 from etils import epy
@@ -33,8 +34,10 @@ from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency import mesh_consistency
+from orbax.checkpoint.experimental.emergency import process_metadata_checkpoint_handler
 from orbax.checkpoint.path import step as step_lib
 from typing_extensions import Self  # for Python version < 3.11
+
 
 PyTree = Any
 DefaultCheckpointHandlerRegistry = (
@@ -43,14 +46,18 @@ DefaultCheckpointHandlerRegistry = (
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
 RootMetadata = checkpoint_manager.RootMetadata
 StepMetadata = checkpoint_manager.StepMetadata
+ProcessMetadataCheckpointHandler = (
+    process_metadata_checkpoint_handler.ProcessMetadataCheckpointHandler
+)
 
 
 _UNNAMED_ITEM_NAME = 'state'
+_PROCESS_METADATA_NAME = 'process_metadata'
 
 
 def _local_checkpoint_handler(
     multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
-) -> PyTreeCheckpointHandler:
+) -> Tuple[PyTreeCheckpointHandler, ProcessMetadataCheckpointHandler]:
   """Create a PyTreeCheckpointHandler for local checkpoints."""
   if multiprocessing_options.primary_host is not None:
     raise ValueError(
@@ -65,12 +72,14 @@ def _local_checkpoint_handler(
           ),
       ),
   )
-  return PyTreeCheckpointHandler(
+  pytree_handler = PyTreeCheckpointHandler(
       use_ocdbt=True,
       use_zarr3=True,
       multiprocessing_options=multiprocessing_options,
       type_handler_registry=local_registry,
   )
+  metadata_handler = ProcessMetadataCheckpointHandler()
+  return pytree_handler, metadata_handler
 
 
 @dataclasses.dataclass
@@ -130,7 +139,9 @@ class ReplicatorCheckpointManager(
         self._options,
         step_name_format=self._step_name_format,
     )
-    state_handler = _local_checkpoint_handler(multiprocessing_options)
+    [state_handler, process_metadata_handler] = _local_checkpoint_handler(
+        multiprocessing_options
+    )
     options = checkpoint_manager.CheckpointManagerOptions(
         save_interval_steps=options.save_interval_steps,
         max_to_keep=None,  # No garbage collection.
@@ -146,6 +157,16 @@ class ReplicatorCheckpointManager(
     self._handler_registry = DefaultCheckpointHandlerRegistry()
     self._handler_registry.add(None, args_lib.PyTreeSave, state_handler)
     self._handler_registry.add(None, args_lib.PyTreeRestore, state_handler)
+    self._handler_registry.add(
+        None,
+        process_metadata_checkpoint_handler.ProcessMetadataSaveArgs,
+        process_metadata_handler,
+    )
+    self._handler_registry.add(
+        None,
+        process_metadata_checkpoint_handler.ProcessMetadataRestoreArgs,
+        process_metadata_handler,
+    )
     self._impl = checkpoint_manager.CheckpointManager(
         local_directory,
         options=options,
@@ -224,26 +245,28 @@ class ReplicatorCheckpointManager(
       force: bool = False,
   ) -> bool:
     args = self._validate_and_standardize_args(args)
+    process_metadata_args = (
+        process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
+            global_mesh=self._global_mesh,
+        )
+    )
+    args_dict = dict(args.items())
+    args_dict[_PROCESS_METADATA_NAME] = process_metadata_args
+    args = args_lib.Composite(**args_dict)
     saved = self._impl.save(step, args=args, force=force)
-    if saved:
-      # TODO(cpgaffney) make this asynchronous. Not a priority because the write
-      # happens to local storage, so it should be fast.
-      mesh_consistency.save_process_metadata(
-          self.directory,
-          step,
-          self._global_mesh,
-          multihost.distributed_to_device_ids(),
-      )
     return saved
 
   def _get_mesh_consistent_args(
-      self, step: int, args: args_lib.Composite
+      self,
+      previous_distributed_to_device_ids: List[List[int]],
+      previous_device_ids: List[int],
+      args: args_lib.Composite,
   ) -> tuple[args_lib.Composite, args_lib.Composite]:
     restore_mesh = mesh_consistency.consistent_restore_mesh_from_metadata(
-        self.directory,
-        step,
         self._global_mesh,
         multihost.distributed_to_device_ids(),
+        previous_distributed_to_device_ids=previous_distributed_to_device_ids,
+        previous_device_ids=previous_device_ids,
     )
 
     def _replace_sharding(arg: type_handlers.ArrayRestoreArgs):
@@ -311,7 +334,20 @@ class ReplicatorCheckpointManager(
         checkpoint_manager.determine_default_item_mode_from_args(args)
     )
     args = self._validate_and_standardize_args(args)
-    original_args, consistent_args = self._get_mesh_consistent_args(step, args)
+    process_meatadata_args = args_lib.Composite(**{
+        _PROCESS_METADATA_NAME: (
+            process_metadata_checkpoint_handler.ProcessMetadataRestoreArgs()
+        )
+    })
+    process_metadata_restored = self._impl.restore(
+        step, args=process_meatadata_args
+    )
+    previous_distributed_to_device_ids, previous_device_ids = (
+        process_metadata_restored[_PROCESS_METADATA_NAME]
+    )
+    original_args, consistent_args = self._get_mesh_consistent_args(
+        previous_distributed_to_device_ids, previous_device_ids, args
+    )
     restored = self._impl.restore(step, args=consistent_args)
     return self._get_mesh_consistent_result(
         original_args, restored, default_item_mode=default_item_mode

@@ -6,6 +6,7 @@ py_library(
     deps = [
         ":local_checkpoint_data_debugging",
         ":mesh_consistency",
+        ":process_metadata_checkpoint_handler",
         "//checkpoint/orbax/checkpoint:abstract_checkpoint_manager",
         "//checkpoint/orbax/checkpoint:args",
         "//checkpoint/orbax/checkpoint:checkpoint_manager",
@@ -25,6 +26,8 @@ py_library(
     deps = [
         ":checkpoint_manager",
         ":mesh_consistency",
+        ":process_metadata_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:args",
         "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint:path",
         "//checkpoint/orbax/checkpoint:test_utils",
@@ -46,6 +49,7 @@ py_library(
     srcs = ["replicator_checkpoint_manager.py"],
     deps = [
         ":mesh_consistency",
+        ":process_metadata_checkpoint_handler",
         "//checkpoint/orbax/checkpoint:abstract_checkpoint_manager",
         "//checkpoint/orbax/checkpoint:args",
         "//checkpoint/orbax/checkpoint:checkpoint_manager",
@@ -90,6 +94,20 @@ py_library(
     ],
 )
 
+py_library(
+    name = "process_metadata_checkpoint_handler",
+    srcs = ["process_metadata_checkpoint_handler.py"],
+    deps = [
+        ":mesh_consistency",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:options",
+        "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
+        "//checkpoint/orbax/checkpoint/_src/handlers:async_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+    ],
+)
+
 py_test(
     name = "checkpoint_manager_test",
     timeout = "long",
@@ -131,6 +149,21 @@ py_test(
         "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/multihost:multislice",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+    ],
+)
+
+py_test(
+    name = "process_metadata_checkpoint_handler_test",
+    srcs = ["process_metadata_checkpoint_handler_test.py"],
+    args = [
+        "--alsologtostderr",
+        "--logbuflevel=-1",  # Ensures logs are saved even if the test times out.
+    ],
+    deps = [
+        ":process_metadata_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
     ],
 )
 

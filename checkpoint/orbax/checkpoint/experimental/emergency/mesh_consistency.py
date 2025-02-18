@@ -14,7 +14,6 @@
 
 """Utils for ensuring mesh consistency in emergency checkpoint restoration."""
 
-import asyncio
 import json
 import time
 from typing import Any, List
@@ -39,17 +38,14 @@ PyTree = Any
 
 
 def process_metadata_folder(
-    directory: epath.Path, step: int | None = None
+    directory: epath.Path
 ) -> epath.Path:
-  if step is None:
-    return directory / _PROCESS_METADATA_FOLDER
-  else:
-    return directory / _PROCESS_METADATA_FOLDER / str(step)
+  return directory
 
 
-def read_process_metadata(directory: epath.Path, step: int):
+def read_process_metadata(directory: epath.Path):
   """Read process metadata from the given path."""
-  metadata_folder = process_metadata_folder(directory, step)
+  metadata_folder = process_metadata_folder(directory)
   if not metadata_folder.exists():
     raise FileNotFoundError(
         f'Process metadata folder does not exist at {metadata_folder}. The'
@@ -71,14 +67,13 @@ def read_process_metadata(directory: epath.Path, step: int):
   return distributed_to_device_ids, device_ids
 
 
-def save_process_metadata(
+async def save_process_metadata(
     directory: epath.Path,
-    step: int,
     global_mesh: jax.sharding.Mesh,
     distributed_to_device_ids: List[List[int]],
 ):
   """Saves process metadata to local storage. Runs on every process."""
-  metadata_folder = process_metadata_folder(directory, step)
+  metadata_folder = process_metadata_folder(directory)
   logging.info('Saving process index metadata at %s', metadata_folder)
   if metadata_folder.exists():
     logging.warning(
@@ -93,7 +88,7 @@ def save_process_metadata(
   tmp_path = atomicity_defaults.get_default_temporary_path_class(
       metadata_folder
   ).from_final(metadata_folder, multiprocessing_options=multiprocessing_options)
-  asyncio.run(tmp_path.create())
+  await tmp_path.create()
 
   (tmp_path.get() / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
       json.dumps(distributed_to_device_ids)
@@ -105,10 +100,10 @@ def save_process_metadata(
 
 
 def consistent_restore_mesh_from_metadata(
-    directory: epath.Path,
-    step: int,
     global_mesh: jax.sharding.Mesh,
     current_distributed_to_device_ids: List[List[int]],
+    previous_distributed_to_device_ids: List[List[int]],
+    previous_device_ids: List[int],
 ) -> jax.sharding.Mesh:
   """Create a mesh consistent with the saved metadata.
 
@@ -133,18 +128,16 @@ def consistent_restore_mesh_from_metadata(
       each device's software ids changed across restarts.
 
   Args:
-    directory: The directory of the local checkpoint.
-    step: The step of the local checkpoint.
     global_mesh: The global mesh, provided by the user.
     current_distributed_to_device_ids: The distributed id to range of device ids
       mapping of the current incarnation.
+    previous_distributed_to_device_ids: The distributed id to range of device
+      ids mapping of the previous incarnation.
+    previous_device_ids: The device ids of the previous incarnation.
 
   Returns:
     A mesh that is the same as the mesh used to save the local checkpoint.
   """
-  previous_distributed_to_device_ids, previous_device_ids = (
-      read_process_metadata(directory, step)
-  )
   assert isinstance(previous_device_ids, list)
   logging.info(
       'From process metadata, distributed_to_device_ids=%s',
