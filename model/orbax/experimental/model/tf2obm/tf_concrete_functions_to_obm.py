@@ -279,7 +279,7 @@ def _to_args_kwargs_pattern(
     )
 
 
-def _to_keyword_only_fn(
+def to_keyword_only_fn(
     f: tf.types.experimental.ConcreteFunction,
 ) -> tf.types.experimental.ConcreteFunction:
   """Wraps a function into one whose inputs and outputs are keyword-only.
@@ -349,7 +349,7 @@ def save_tf_concrete_functions(
   # conforming form, and save the information gap separately (in
   # tf_concrete_function_name_to_obm_function).
   concrete_functions = {
-      k: _to_keyword_only_fn(v) for k, v in concrete_functions.items()
+      k: to_keyword_only_fn(v) for k, v in concrete_functions.items()
   }
 
   tf_module = tf.Module()
