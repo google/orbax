@@ -18,7 +18,7 @@ from orbax.experimental.model.core.python.util import naming
 from absl.testing import absltest
 
 
-class NamingTest(googletest.TestCase):
+class NamingTest(absltest.TestCase):
 
   def test_validate_node_name(self):
     self.assertTrue(naming.is_valid_node_name('correct_name_1534'))
@@ -30,4 +30,4 @@ class NamingTest(googletest.TestCase):
 
 
 if __name__ == '__main__':
-  googletest.main()
+  absltest.main()

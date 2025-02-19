@@ -32,7 +32,7 @@ from orbax.experimental.model.core.python.util import object_identity
 from absl.testing import absltest
 
 
-class ObjectIdentityWrapperTest(googletest.TestCase):
+class ObjectIdentityWrapperTest(absltest.TestCase):
 
   def testWrapperNotEqualToWrapped(self):
     class SettableHash(object):
@@ -63,7 +63,7 @@ class ObjectIdentityWrapperTest(googletest.TestCase):
       bool(o in set([wrap1]))
 
 
-class ObjectIdentitySetTest(googletest.TestCase):
+class ObjectIdentitySetTest(absltest.TestCase):
 
   def testDifference(self):
     class Element(object):
@@ -96,4 +96,4 @@ class ObjectIdentitySetTest(googletest.TestCase):
 
 
 if __name__ == '__main__':
-  googletest.main()
+  absltest.main()
