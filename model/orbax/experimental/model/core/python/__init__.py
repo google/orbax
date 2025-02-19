@@ -46,9 +46,9 @@ from orbax.experimental.model.core.python.manifest_constants import *
 from orbax.experimental.model.core.python.module import Module
 from orbax.experimental.model.core.python.polymorphic_function import function
 from orbax.experimental.model.core.python.polymorphic_function import PolymorphicFunction
-from orbax.experimental.model.core.python.save import save
-from orbax.experimental.model.core.python.save import SaveOptions
-from orbax.experimental.model.core.python.save import SupplementalInfo
+from orbax.experimental.model.core.python.save_lib import save
+from orbax.experimental.model.core.python.save_lib import SaveOptions
+from orbax.experimental.model.core.python.save_lib import SupplementalInfo
 from orbax.experimental.model.core.python.serializable_function import SerializableFunction
 from orbax.experimental.model.core.python.shlo_function import ShloFunction
 from orbax.experimental.model.core.python.shlo_function import ShloFunctionSupplementalInfo

@@ -22,7 +22,7 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.experimental.model.core.python import concrete_function
 from orbax.experimental.model.core.python import module
-from orbax.experimental.model.core.python import save as save_lib
+from orbax.experimental.model.core.python import save_lib
 from orbax.experimental.model.core.python import shlo_function
 from orbax.experimental.model.core.python import signature
 from orbax.experimental.model.core.python.function import np_dtype_to_shlo_dtype
