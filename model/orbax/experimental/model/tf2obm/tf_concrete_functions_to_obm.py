@@ -29,6 +29,18 @@ TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE = 'tensorflow_concrete_function_handle'
 TF_CONCRETE_FUNCTION_HANDLE_VERSION = '0.0.1'
 
 
+def is_pair(tree: TfSignature) -> bool:
+  return isinstance(tree, Sequence) and len(tree) == 2
+
+
+def is_args_kwargs_pattern(tree: TfSignature) -> bool:
+  return (
+      is_pair(tree)
+      and isinstance(tree[0], Sequence)
+      and isinstance(tree[1], dict)
+  )
+
+
 def _is_str_tensor_spec_dict(tree: TfSignature) -> bool:
   if not isinstance(tree, dict):
     return False
@@ -40,21 +52,31 @@ def _is_str_tensor_spec_dict(tree: TfSignature) -> bool:
   return True
 
 
+def _is_dict_only(tree: TfSignature) -> bool:
+  if _is_str_tensor_spec_dict(tree):
+    return True
+  elif is_args_kwargs_pattern(tree):
+    return not tree[0] and _is_str_tensor_spec_dict(tree)
+  return False
+
+
 _NamesAndSequence = Tuple[Sequence[str] | None, Sequence[Any] | None]
 
 
-# We choose to rely solely on a concrete function's TF signature to determine
-# its argument names, not using any other information (such as the argument
-# names in the original Python `def`). Currently in TF SavedModel, if a concrete
-# function's TF signature is a list, SavedModel may use the argument names in
-# the original Python `def` to generate a keyword-based version of this function
-# (which is needed for Servomatic which only supports keyword-based calling
-# conventions). We think relying on this SavedModel behavior is a mistake and
-# the user should make the TF signature a dict instead if they want to serve the
-# function on Servomatic. If we find that there are too many users relying on
-# this SavedModel behavior, we can revisit the decision here.
+# We choose to rely solely on a concrete function's TF signature to
+# determine its argument names, not using any other information (such
+# as the argument names in the original Python `def`, or the `name`
+# field in `TensorSpec`). Currently in TF SavedModel, if a concrete
+# function's TF signature is a list, SavedModel may use the argument
+# names in the original Python `def` to generate a keyword-based
+# version of this function (which is needed for Servomatic which only
+# supports keyword-based calling conventions). We think relying on
+# this SavedModel behavior is a mistake and the user should make the
+# TF signature a dict instead if they want to serve the function on
+# Servomatic. If we find that there are too many users relying on this
+# SavedModel behavior, we can revisit the decision here.
 def _generate_names(tree: TfSignature, prefix: str = '') -> _NamesAndSequence:
-  if _is_str_tensor_spec_dict(tree):
+  if _is_dict_only(tree):
     # If the input signature is dict-only, the function shouldn't be
     # called with positional arguments anyway, so we don't generate
     # names and just return None.
@@ -180,10 +202,33 @@ def _make_dict_only_signature(
     tree: TfSignature,
     get_names_fn: Callable[[TfSignature], _NamesAndSequence],
 ) -> Tuple[_StrDict | None, Sequence[str] | None]:
+  """Converts a TF signature to a dict-only signature.
+
+  Args:
+    tree: a TF signature.
+    get_names_fn: a function that takes a TF signature and returns a sequence of
+      names for the flattened signature and the flattened signature itself.
+
+  Returns:
+    A dict-only signature and the sequence of names.
+  """
   names, flat = get_names_fn(tree)
   if names is None:
     return None, None
-  return dict(zip(names, flat)), names
+  d = dict(zip(names, flat))
+  # `d`'s values (of type TensorSpec) may have their `name` attribute
+  # set. Some SavedModel loaders (e.g. TFRT) may use this `name`
+  # instead of the key in `d` to construct the input signature. We
+  # clear the `name` attribute to avoid that.
+  d = {
+      k: tf.TensorSpec(
+          shape=v.shape,
+          dtype=v.dtype,
+          name=None,
+      )
+      for k, v in d.items()
+  }
+  return d, names
 
 
 def _tree_to_dict(
@@ -222,24 +267,21 @@ def _to_args_kwargs_pattern(
   Raises:
     ValueError: if the tree cannot be converted to the '(args, kwargs)' pattern.
   """
-  if isinstance(tree, dict):
+  if is_args_kwargs_pattern(tree):
+    return tree[0], tree[1]
+  elif isinstance(tree, Sequence):
+    return tree, {}
+  elif isinstance(tree, dict):
     return (), tree
-  elif isinstance(tree, (list, tuple)):
-    if (
-        len(tree) == 2
-        and isinstance(tree[0], (list, tuple))
-        and isinstance(tree[1], dict)
-    ):
-      return tree[0], tree[1]
-    else:
-      return tree, {}
   else:
     raise ValueError(
         f"Can`t convert this tree to the '(args, kwargs)' pattern: {tree}"
     )
 
 
-def _to_keyword_only_fn(f):
+def _to_keyword_only_fn(
+    f: tf.types.experimental.ConcreteFunction,
+) -> tf.types.experimental.ConcreteFunction:
   """Wraps a function into one whose inputs and outputs are keyword-only.
 
   Args:
@@ -306,9 +348,10 @@ def save_tf_concrete_functions(
   # tensors), so we need to wrap our concrete function into such a
   # conforming form, and save the information gap separately (in
   # tf_concrete_function_name_to_obm_function).
-  concrete_functions = obm.tree_util.tree_map(
-      _to_keyword_only_fn, concrete_functions
-  )
+  concrete_functions = {
+      k: _to_keyword_only_fn(v) for k, v in concrete_functions.items()
+  }
+
   tf_module = tf.Module()
   if trackable_resources is not None:
     tf_module.resources = trackable_resources
