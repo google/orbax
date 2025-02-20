@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Allow concurrent CheckpointManager.save requests and wait_until_finished.
+- `orbax.checkpoint.experimental.v1` code structure, particularly including core
+types and save/load free functions.
 
 ## Changed
 
