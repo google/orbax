@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import os
 from typing import cast
 
@@ -36,6 +37,10 @@ def _package_jax_module(m: jax_module.JaxModule):
   result = tf.Module()
   result.computation_module = m
   return result
+
+
+def _assert(b):
+  assert b
 
 
 class ObmExportTest(parameterized.TestCase, tf.test.TestCase):

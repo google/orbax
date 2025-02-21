@@ -95,7 +95,7 @@ def shlo_tensor_spec_pytree_to_manifest_type(
         shlo_tensor_spec_to_manifest_tensor_type(tree)
     )
   elif tree is None:
-    result.none = type_pb2.NoneType()
+    result.none.SetInParent()
   # list/tuple/dict can be empty, but we still want to record the type, so we
   # need to call SetInParent() for them.
   elif isinstance(tree, list):
