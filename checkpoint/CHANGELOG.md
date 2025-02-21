@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.6] - 2025-02-20
+
 ### Added
 
 - Allow concurrent CheckpointManager.save requests and wait_until_finished.
@@ -19,6 +21,7 @@ background task. It also incorporates typing, in contrast with its predecessor.
 ## Changed
 
 - Move process_metadata to the checkpoint_num directory
+- Updated default JAX version requirement to 0.5.0.
 
 ## [0.11.5] - 2025-02-10
 
