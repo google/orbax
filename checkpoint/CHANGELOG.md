@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allow concurrent CheckpointManager.save requests and wait_until_finished.
 - `orbax.checkpoint.experimental.v1` code structure, particularly including core
 types and save/load free functions.
+- Introduce `AsyncResponse` in V1 library. This is not much different from
+`ocp.Future`, but serves as a generic type representing a result from a
+background task. It also incorporates typing, in contrast with its predecessor.
 
 ## Changed
 

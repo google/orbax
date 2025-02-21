@@ -159,6 +159,7 @@ class _SignalingThread(threading.Thread):
   def __init__(
       self,
       *,
+      target: Callable[[], Any],
       send_signals: Sequence[synchronization.HandlerAwaitableSignal],
       receive_signals: Sequence[synchronization.HandlerAwaitableSignal],
       timeout_secs: int = 600,
@@ -168,6 +169,7 @@ class _SignalingThread(threading.Thread):
     """Constructor.
 
     Args:
+      target: The target function to run. Takes no arguments.
       send_signals: Signals to send to indicate that the target function has
         completed.
       receive_signals: Signals to wait for before proceeding with the target
@@ -177,7 +179,12 @@ class _SignalingThread(threading.Thread):
         current operation id is used.
       **kwargs: Keyword arguments passed to the base class.
     """
-    super().__init__(**kwargs)
+    self._result = None
+
+    def _target_setting_result():
+      self._result = target()
+
+    super().__init__(target=_target_setting_result, **kwargs)
     self._send_signals = send_signals
     self._receive_signals = receive_signals
     self._timeout_secs = timeout_secs
@@ -230,6 +237,10 @@ class _SignalingThread(threading.Thread):
     super().join(timeout=timeout)
     if self._exception is not None:
       raise self._exception
+
+  def result(self, timeout: Optional[float] = None):
+    self.join(timeout=timeout)
+    return self._result
 
 
 class CommitFuture(Future):
