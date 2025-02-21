@@ -249,10 +249,16 @@ def check_input_arguments(*args):
       raise ValueError('Found input args with mismatched lengths.')
 
 
-def check_array_values(values: Sequence[Union[jax.Array, np.ndarray]]):
-  for v in values:
+def check_array_values(
+    values: Sequence[Union[jax.Array, np.ndarray]],
+    infos: Sequence[types.ParamInfo],
+):
+  for v, info in zip(values, infos):
     if v.size == 0:
-      raise ValueError('Cannot save arrays with zero size.')
+      raise ValueError(
+          f'Cannot save arrays with zero size: ParamInfo: [name={info.name},'
+          f'value_typestr={info.value_typestr}]'
+      )
 
 
 async def _validate_params(
@@ -637,7 +643,7 @@ class NumpyHandler(types.TypeHandler):
     """Uses Tensorstore to serialize a numpy array."""
     args = args or [types.SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
-    check_array_values(values)
+    check_array_values(values, infos)
     if logging.vlog_is_on(1):
       _print_ts_debug_data(self._metadata_key, infos)
     copied_values = [copy.deepcopy(v) for v in values]
@@ -1094,22 +1100,30 @@ class ArrayHandler(types.TypeHandler):
       args: Optional[Sequence[types.SaveArgs]] = None,
   ) -> Sequence[future.Future]:
     """See superclass documentation."""
-    for v in values:
+    args = args or [types.SaveArgs()] * len(values)
+    check_input_arguments(values, infos, args)
+    check_array_values(values, infos)
+    for v, info in zip(values, infos):
       if (
           isinstance(v, jax.Array)
           and jax.process_count() > 1
           and v.is_fully_addressable
       ):
+        debug_param_info = (
+            f'ParamInfo=[name={info.name},value_typestr={info.value_typestr}]'
+        )
+        debug_array = (
+            f'jax.Array=[value={v},shape={v.shape},dtype={v.dtype},'
+            f'sharding={v.sharding},device={v.device}]'
+        )
         raise ValueError(
-            'Cannot serialize host local arrays. Arrays like this are typically'
-            ' obtained using pmap. Consider using'
+            f'Cannot serialize host local jax.Array ({debug_param_info},'
+            f' {debug_array}). Arrays like this are typically obtained using'
+            ' pmap. Consider using'
             ' fully_replicated_host_local_array_to_global_array in'
             ' orbax/checkpoint/utils.py to convert your arrays into'
             ' serializable objects.'
         )
-    args = args or [types.SaveArgs()] * len(values)
-    check_input_arguments(values, infos, args)
-    check_array_values(values)
 
     assert all([info.enable_pinned_host_transfer for info in infos]) or all(
         [not info.enable_pinned_host_transfer for info in infos]
