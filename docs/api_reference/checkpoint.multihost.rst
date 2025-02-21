@@ -5,12 +5,13 @@ Multi-host Utilities
 
 .. automodule:: orbax.checkpoint.multihost
 
-.. autofunction:: should_skip_process_sync
-.. autofunction:: sync_global_processes
 .. autofunction:: broadcast_one_to_all
+.. autofunction:: is_primary_host
+.. autofunction:: reached_preemption
+.. autofunction:: sync_global_processes
+.. autofunction:: process_index
 
 .. autoclass:: BarrierSyncFn
   :members:
 
 .. autofunction:: get_barrier_sync_fn
-.. autofunction:: unique_barrier_key
