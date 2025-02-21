@@ -19,7 +19,7 @@ from orbax.experimental.model.core.python import unstructured_data
 from absl.testing import absltest
 
 
-class UnstructuredDataTest(googletest.TestCase):
+class UnstructuredDataTest(absltest.TestCase):
 
   def test_write_inlined_string_to_file(self):
     proto = unstructured_data.UnstructuredData()
@@ -119,4 +119,4 @@ class UnstructuredDataTest(googletest.TestCase):
 
 
 if __name__ == "__main__":
-  googletest.main()
+  absltest.main()

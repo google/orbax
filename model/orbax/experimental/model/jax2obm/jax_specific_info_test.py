@@ -172,4 +172,4 @@ class JaxSpecificInfoTest(parameterized.TestCase):
 
 
 if __name__ == '__main__':
-  googletest.main()
+  absltest.main()

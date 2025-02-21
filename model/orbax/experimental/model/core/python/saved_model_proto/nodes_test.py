@@ -27,7 +27,7 @@ Node = nodes.Node
 OpType = nodes.OpType
 
 
-class NodesTest(googletest.TestCase):
+class NodesTest(absltest.TestCase):
 
   def assertProtoEqual(self, a, b):
     compare.assertProto2Equal(self, a, b)
@@ -102,4 +102,4 @@ device: "device"''',
 
 
 if __name__ == '__main__':
-  googletest.main()
+  absltest.main()
