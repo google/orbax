@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Support single-slice checkpointing in `emergency.CheckpointManager`.
+
 ## [0.11.6] - 2025-02-20
 
 ### Added
