@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Improve `Cannot serialize host local jax.Array` error message.
+
 ## [0.11.6] - 2025-02-20
 
 ### Added
@@ -18,7 +22,7 @@ types and save/load free functions.
 `ocp.Future`, but serves as a generic type representing a result from a
 background task. It also incorporates typing, in contrast with its predecessor.
 
-## Changed
+### Changed
 
 - Move process_metadata to the checkpoint_num directory
 - Updated default JAX version requirement to 0.5.0.
