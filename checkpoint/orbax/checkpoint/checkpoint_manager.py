@@ -1161,6 +1161,25 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     step_stats.checkpoint_manager_blocking_start_time = time.time()
     step_stats.directory = str(self.directory)
 
+    checkpoint_start_time = time.time()
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'CheckpointManager:save_start',
+            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+        ),
+        processes=self._multiprocessing_options.active_processes,
+    )
+    start_sync_duration_secs = time.time() - checkpoint_start_time
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/manager_start_sync_duration_secs',
+        start_sync_duration_secs,
+    )
+    logging.vlog(
+        1,
+        'Finished checkpoint manager save start sync in %.2f seconds',
+        start_sync_duration_secs,
+    )
+
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')
     self._default_item.set_if_none(determine_default_item_mode_from_args(args))

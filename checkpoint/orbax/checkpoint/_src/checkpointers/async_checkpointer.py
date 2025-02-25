@@ -473,7 +473,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       *args,
       force: bool = False,
       custom_metadata: dict[str, Any] | None = None,
-      **kwargs
+      **kwargs,
   ):
     """Saves the given item to the provided directory.
 
@@ -498,6 +498,23 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       ValueError if the provided directory already exists.
     """
     checkpoint_start_time = time.time()
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'Checkpointer:save_start',
+            prefix=self._barrier_sync_key_prefix,
+        ),
+        processes=self._active_processes,
+    )
+    start_sync_duration_secs = time.time() - checkpoint_start_time
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/async/start_sync_duration_secs',
+        start_sync_duration_secs,
+    )
+    logging.vlog(
+        1,
+        'Finished async checkpointer save start sync in %.2f seconds',
+        start_sync_duration_secs,
+    )
     directory = epath.Path(directory)
     tmpdir = self.get_temporary_path(directory)
     on_commit_callback = self._make_on_commit_callback(
