@@ -3,7 +3,10 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "types",
     srcs = ["types.py"],
-    visibility = ["//learning/gemini/gemax/core/checkpointing:__subpackages__"],
+    visibility = [
+        "//learning/gemini/gemax/core/checkpointing:__subpackages__",
+        "//learning/gemini/prod/core/checkpointing:__subpackages__",
+    ],
 )
 
 py_library(
