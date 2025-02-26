@@ -19,7 +19,7 @@ import numpy as np
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.jax2obm import jax_specific_info
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
-from .net.proto2.contrib.pyutil import compare
+from tensorflow.python.util.protobuf import compare
 from google.protobuf import text_format
 from absl.testing import absltest
 
@@ -102,7 +102,7 @@ class JaxSpecificInfoTest(parameterized.TestCase):
         }
       }
     """
-    compare.assertProto2Equal(
+    compare.assertProtoEqual(
         self,
         jax_specific_info._to_shape_dtype_refinements_proto(input1),
         text_format.Parse(
@@ -135,7 +135,7 @@ class JaxSpecificInfoTest(parameterized.TestCase):
         }
       }
     """
-    compare.assertProto2Equal(
+    compare.assertProtoEqual(
         self,
         jax_specific_info._to_shape_dtype_refinements_proto(input2),
         text_format.Parse(
