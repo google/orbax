@@ -12,7 +12,7 @@ sphinx-design
 docutils==0.18.1
 
 # Packages used for notebook execution
-IPython==7.23.1
+IPython==8.10.0
 ipykernel==6.5.0
 myst-nb>=1.0.0
 cached_property
