@@ -1,0 +1,103 @@
+# Copyright 2024 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Orbax context for customized checkpointing."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+import contextvars
+import dataclasses
+
+from etils import epy
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class PytreeOptions:
+  """Options for PyTree checkpointing.
+
+  Attributes:
+    use_ocdbt: Whether to use OCDBT for saving.
+    use_zarr3: Whether to use Zarr3 for saving.
+    save_concurrent_bytes: The maximum number of bytes to save concurrently.
+    restore_concurrent_bytes: The maximum number of bytes to restore
+      concurrently.
+    ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
+      OCDBT data file.  It only applies when OCDBT is enabled and Zarr3 must be
+      turned on.  If left unspecified, default size is 2GB.  A value of 0
+      indicates no maximum file size limit.  For best results, ensure
+      chunk_byte_size is smaller than this value.  For more details, refer to
+      https://google.github.io/tensorstore/kvstore/ocdbt/index.html#json-kvstore/ocdbt.target_data_file_size
+    enable_pinned_host_transfer: If False, disables transfer to pinned host when
+      copying from device to host, regardless of the presence of pinned host
+      memory.
+    partial_load: If the tree structure omits some keys relative to the
+      checkpoint, the omitted keys will not be loaded.
+  """
+
+  use_ocdbt: bool = True
+  use_zarr3: bool = True
+  save_concurrent_bytes: int | None = None
+  restore_concurrent_bytes: int | None = None
+  ocdbt_target_data_file_size: int | None = None
+  enable_pinned_host_transfer: bool = False
+  partial_load: bool = False
+
+
+# Each Thread will have its own copy of `Context` object.
+# Task and groups will have their own copy of `Context` object.
+_CONTEXT: contextvars.ContextVar[Context] = contextvars.ContextVar(
+    "orbax_context", default=None
+)
+
+
+def get_context(default: Context | None = None) -> Context:
+  """Returns the current `Context` or `default` or `Context()` if not set."""
+  default = default or Context()
+  return _CONTEXT.get(default)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class Context(epy.ContextManager):
+  """Context for customized checkpointing.
+
+  Usage example::
+  ```
+    with ocp.Context(...):
+      ocp.save_pytree(...)
+  ```
+
+  NOTE: The context is not shared across threads. In other words, the whole
+  context block must be executed in the same thread. Following example will
+  not work as expected:
+  ```
+    executor = ThreadPoolExecutor()
+    with ocp.Context(...):  # Thread #1 creates Context A.
+      executor.submit(ocp.save_pytree, ...)  # Thread #2 sees "default" Context.
+  ```
+
+  Attributes:
+    pytree_options: Options for PyTree checkpointing.
+  """
+
+  pytree_options: PytreeOptions = dataclasses.field(
+      default_factory=PytreeOptions
+  )
+
+  def __contextmanager__(self) -> Iterable[Context]:
+    token = _CONTEXT.set(self)
+    try:
+      yield self
+    finally:
+      _CONTEXT.reset(token)

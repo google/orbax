@@ -16,6 +16,9 @@
 
 # pylint: disable=g-importing-member, g-multiple-import
 
+from orbax.checkpoint.experimental.v1._src.context.context import (
+    Context,
+)
 from orbax.checkpoint.experimental.v1._src.loading.loading import (
     load_pytree,
     load_pytree_async,
