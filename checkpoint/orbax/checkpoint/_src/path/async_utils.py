@@ -14,6 +14,7 @@
 
 """Provides async variants of path functions."""
 
+import asyncio
 from typing import Any
 
 from etils import epath
@@ -57,3 +58,14 @@ def async_rmtree(path: epath.Path):
 
 def async_is_tmp_checkpoint(path: epath.Path):
   return asyncio_utils.as_async_function(step_lib.is_tmp_checkpoint)(path)
+
+
+async def maybe_mkdir(
+    path: epath.PathLike, mode: int = 0o777, parents: bool = False
+) -> bool:
+  """Creates a new directory at `path` if it does not exist."""
+  path = epath.Path(path)
+  if await asyncio.to_thread(path.exists):
+    return False
+  await asyncio.to_thread(path.mkdir, mode=mode, parents=parents)
+  return True

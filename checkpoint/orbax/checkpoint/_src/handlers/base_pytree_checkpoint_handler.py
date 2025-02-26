@@ -323,6 +323,8 @@ class BasePyTreeCheckpointHandler(
             type_handler_registry
         )
     )
+    if self._array_metadata_store:
+      self._array_metadata_store.set_primary_host(self._primary_host)
     self._array_metadata_validator = array_metadata_validator
 
 

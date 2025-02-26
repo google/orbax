@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Introduce `retry` module to retry coroutines.
+
 ### Changed
 
 - Improve `Cannot serialize host local jax.Array` error message.
