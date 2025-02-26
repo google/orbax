@@ -47,9 +47,7 @@ def _is_str_tensor_spec_dict(tree: TfSignature) -> bool:
   for k, v in tree.items():
     if not isinstance(k, str):
       return False
-    # ConcreteFunction.structured_outputs returns `SymbolicTensor`s, not
-    # `TensorSpec`s, so we need to also check for `SymbolicTensor`.
-    if not (isinstance(v, tf.TensorSpec) or tf.is_symbolic_tensor(v)):
+    if not isinstance(v, tf.TensorSpec):
       return False
   return True
 
@@ -58,12 +56,7 @@ def _is_dict_only(tree: TfSignature) -> bool:
   if _is_str_tensor_spec_dict(tree):
     return True
   elif is_args_kwargs_pattern(tree):
-    args, kwargs = tree
-    if not args and _is_str_tensor_spec_dict(kwargs):
-      return True
-    if not kwargs and len(args) == 1 and _is_str_tensor_spec_dict(args[0]):
-      # Treating [[{...}], {}] as dict-only
-      return True
+    return not tree[0] and _is_str_tensor_spec_dict(tree)
   return False
 
 
