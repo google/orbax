@@ -142,8 +142,8 @@ class SaveArgs:
 
   aggregate:
     Deprecated, please use custom TypeHandler
-    (https://orbax.readthedocs.io/en/latest/custom_handlers.html#typehandler) or
-    contact Orbax team to migrate before August 1st, 2024. If true, saves the
+    (https://orbax.readthedocs.io/en/latest/guides/checkpoint/custom_handlers.html#typehandler)
+    or contact Orbax team to migrate before August 1st, 2024. If true, saves the
     given
     parameter in an aggregated tree format rather than individually. See
     AggregateHandler.
