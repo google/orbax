@@ -14,10 +14,13 @@
 
 import os
 
+from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
+from orbax.experimental.model.tf2obm import utils
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import _generate_names
+from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import _is_dict_only
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import save_tf_concrete_functions
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import SAVED_MODEL_MIME_TYPE
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import SAVED_MODEL_VERSION
@@ -30,31 +33,92 @@ import tensorflow as tf
 
 from .net.proto2.contrib.pyutil import compare
 from google.protobuf import text_format
-from absl.testing import absltest
+
+
+_TUPLE = (
+    tf.TensorSpec((2, 3), tf.float32),
+    tf.TensorSpec((4, 5), tf.float64),
+    tf.TensorSpec((6,), tf.float32),
+)
+
+
+_DICT = {
+    "a": tf.TensorSpec((2, 3), tf.float32),
+    "b": tf.TensorSpec((4, 5), tf.float64),
+}
+
+
+def _as_output_signature(tree):
+  @tf.function(autograph=False)
+  def f():
+    return obm.tree_util.tree_map(
+        lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), tree
+    )
+
+  return utils.get_output_signature(f.get_concrete_function())
 
 
 class TfConcreteFunctionsToObmTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.named_parameters(
-      (
-          "tuple",
+      (  # pylint: disable=g-complex-comprehension
+          f"_{idx}_{as_output_signature}",
+          signature,
+          expected,
+          as_output_signature,
+      )
+      for as_output_signature in (False, True)
+      for idx, (signature, expected) in enumerate((
           (
-              tf.TensorSpec((2, 3), tf.float32),
-              tf.TensorSpec((4, 5), tf.float64),
-              tf.TensorSpec((6,), tf.float32),
+              _TUPLE,
+              False,
           ),
-          ("_0", "_1", "_2"),
-      ),
-      (
-          "dict",
-          {
-              "a": tf.TensorSpec((2, 3), tf.float32),
-              "b": tf.TensorSpec((4, 5), tf.float64),
-          },
-          None,
-      ),
+          (
+              _DICT,
+              True,
+          ),
+          (
+              ((), _DICT),
+              True,
+          ),
+          (
+              ((_DICT,), {}),
+              True,
+          ),
+      ))
   )
-  def test_generate_names(self, signature, expected_names):
+  def test_is_dict_only(self, signature, expected, as_output_signature):
+    if as_output_signature:
+      signature = _as_output_signature(signature)
+    self.assertEqual(
+        _is_dict_only(signature),
+        expected,
+    )
+
+  @parameterized.named_parameters(
+      (  # pylint: disable=g-complex-comprehension
+          f"_{name}_{as_output_signature}",
+          signature,
+          expected_names,
+          as_output_signature,
+      )
+      for as_output_signature in (False, True)
+      for name, signature, expected_names in (
+          (
+              "tuple",
+              _TUPLE,
+              ("_0", "_1", "_2"),
+          ),
+          (
+              "dict",
+              _DICT,
+              None,
+          ),
+      )
+  )
+  def test_generate_names(self, signature, expected_names, as_output_signature):
+    if as_output_signature:
+      signature = _as_output_signature(signature)
     prefix = "my_prefix"
     if expected_names is not None:
       expected_names = tuple(prefix + name for name in expected_names)
