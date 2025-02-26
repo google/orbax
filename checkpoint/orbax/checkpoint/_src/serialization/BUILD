@@ -34,6 +34,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/arrays:subchunking",
         "//checkpoint/orbax/checkpoint/_src/arrays:types",
         "//checkpoint/orbax/checkpoint/_src/futures:future",
+        "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata",
         "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata_store",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
         "//checkpoint/orbax/checkpoint/_src/metadata:sharding",

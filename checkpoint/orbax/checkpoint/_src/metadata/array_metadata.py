@@ -15,7 +15,15 @@
 """Metadata describing Arrays. Meant to be used internally."""
 
 import dataclasses
+from typing import Any, Dict, TypeAlias
+
 from orbax.checkpoint._src.arrays import types
+
+
+ExtMetadata: TypeAlias = Dict[str, Any]
+
+# Keys in the `ext_metadata` dict.
+RANDOM_KEY_IMPL = 'random_key_impl'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -29,6 +37,9 @@ class ArrayMetadata:
   chunk_shape: types.Shape
   use_ocdbt: bool
   use_zarr3: bool
+  ext_metadata: ExtMetadata | None = (
+      None  # to contain any extension metadata for an array.
+  )
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -43,3 +54,4 @@ class SerializedArrayMetadata:
   param_name: str  # Unique full name of the parameter.
   write_shape: types.Shape
   chunk_shape: types.Shape
+  ext_metadata: ExtMetadata | None = None

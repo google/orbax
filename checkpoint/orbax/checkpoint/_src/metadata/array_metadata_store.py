@@ -91,6 +91,7 @@ class SerDeserializer:
             'param_name': array_metadata.param_name,
             'write_shape': array_metadata.write_shape,
             'chunk_shape': array_metadata.chunk_shape,
+            'ext_metadata': array_metadata.ext_metadata,
         }
     }
 
@@ -102,6 +103,7 @@ class SerDeserializer:
           param_name=array_metadata['param_name'],
           write_shape=tuple(array_metadata['write_shape']),
           chunk_shape=tuple(array_metadata['chunk_shape']),
+          ext_metadata=array_metadata.get('ext_metadata'),
       )
     return obj
 
@@ -357,8 +359,9 @@ class Validator:
           process_index=process_index,
           process_cache=process_cache,
       )
-      # Check if the chunk_shape and write_shape are the same for each param.
-      self._validate_chunk_shape_and_write_shape(
+      # Check if the chunk_shape, write_shape and ext_metadata are the same for
+      # each param.
+      self._validate_metadata(
           ref_process_index=ref_process_index,
           ref_process_cache=ref_process_cache,
           process_index=process_index,
@@ -449,7 +452,7 @@ class Validator:
           f' {len(missing_in_ref_process)} params: {missing_in_ref_process}.'
       )
 
-  def _validate_chunk_shape_and_write_shape(
+  def _validate_metadata(
       self,
       *,
       ref_process_index: int,
@@ -475,6 +478,40 @@ class Validator:
             f' {array_metadata.write_shape}, but'
             f' process_index={ref_process_index} has'
             f' {ref_array_metadata.write_shape}.'
+        )
+
+      # Check if the RANDOM_KEY_IMPL is the same.
+      if not isinstance(
+          array_metadata.ext_metadata, type(ref_array_metadata.ext_metadata)
+      ):
+        raise ValueError(
+            'Different ext_metadata types param:'
+            f' {param_name}. process_index={process_index} has'
+            f' {array_metadata.ext_metadata}, but'
+            f' process_index={ref_process_index} has'
+            f' {ref_array_metadata.ext_metadata}.'
+        )
+
+      if (
+          isinstance(ref_array_metadata.ext_metadata, dict)
+          and isinstance(array_metadata.ext_metadata, dict)
+      ) and (
+          (
+              ref_key := ref_array_metadata.ext_metadata.get(
+                  array_metadata_lib.RANDOM_KEY_IMPL
+              )
+          )
+          != (
+              arr_key := array_metadata.ext_metadata.get(
+                  array_metadata_lib.RANDOM_KEY_IMPL
+              )
+          )
+      ):
+        raise ValueError(
+            'ArrayMetadata Store contains different'
+            f' ext_metadata.{array_metadata_lib.RANDOM_KEY_IMPL} for param:'
+            f' {param_name}. process_index={process_index} has {ref_key}, but'
+            f' process_index={ref_process_index} has {arr_key}.'
         )
 
 

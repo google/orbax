@@ -2328,3 +2328,55 @@ class PyTreeCheckpointHandlerTestBase:
       tree = [arr]
       with self.assertRaisesRegex(ValueError, 'zero size'):
         self.handler.save(self.directory, args=PyTreeSaveArgs(tree))
+
+    @parameterized.product(use_ocdbt=(True, False))
+    def test_save_restore_random_keys(self, use_ocdbt: bool):
+      """Test saving and restoring random keys within a pytree."""
+
+      # TODO(b/393160483) investigate Pathways remote Python support for
+      # random.keys.
+      if utils.is_pathways_backend():
+        self.skipTest(
+            'Disabled on Pathways because random keys are not supported by'
+            ' remote Python.'
+        )
+
+      mesh = jax.sharding.Mesh(jax.devices(), ('x',))
+      sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+
+      pytree = {
+          'keys': {
+              'kone': jax.random.key(jnp.array(0, device=sharding)),
+              'impl_key': {
+                  'rbg': jax.random.key(
+                      jnp.array(1, device=sharding), impl='rbg'
+                  ),
+                  'unsafe_rbg': jax.random.key(
+                      jnp.array(2, device=sharding), impl='unsafe_rbg'
+                  ),
+              },
+              'split_keys': jax.random.split(
+                  jax.random.key(jnp.array(123, device=sharding)), num=10
+              ),
+          },
+          'arrays': self.pytree,
+      }
+
+      restore_args = jax.tree.map(
+          lambda x: ArrayRestoreArgs(sharding=x.sharding), pytree
+      )
+
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=use_ocdbt,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        save_handler.save(self.directory, args=PyTreeSaveArgs(pytree))
+
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=use_ocdbt,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as restore_handler:
+        restored = restore_handler.restore(
+            self.directory, args=PyTreeRestoreArgs(pytree, restore_args)
+        )
+        test_utils.assert_tree_equal(self, pytree, restored)

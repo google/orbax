@@ -337,6 +337,75 @@ class ValidatorTest(parameterized.TestCase):
           },
           expected_error_regex=None,
       ),
+      dict(
+          testcase_name='same_ext_metadata',
+          array_metadatas={
+              0: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a',
+                      write_shape=(1,),
+                      chunk_shape=(1,),
+                      ext_metadata={array_metadata_lib.RANDOM_KEY_IMPL: 'rbg'},
+                  ),
+              ],
+              1: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a',
+                      write_shape=(1,),
+                      chunk_shape=(1,),
+                      ext_metadata={array_metadata_lib.RANDOM_KEY_IMPL: 'rbg'},
+                  ),
+              ],
+          },
+          expected_error_regex=None,
+      ),
+      dict(
+          testcase_name='different_ext_metadata_dict_vs_none',
+          array_metadatas={
+              0: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a',
+                      write_shape=(1,),
+                      chunk_shape=(1,),
+                      ext_metadata={array_metadata_lib.RANDOM_KEY_IMPL: 'rbg'},
+                  ),
+              ],
+              1: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a',
+                      write_shape=(1,),
+                      chunk_shape=(1,),
+                  ),
+              ],
+          },
+          expected_error_regex='Different ext_metadata types',
+      ),
+      dict(
+          testcase_name='different_ext_metadata_random_key_impl',
+          array_metadatas={
+              0: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a',
+                      write_shape=(1,),
+                      chunk_shape=(1,),
+                      ext_metadata={array_metadata_lib.RANDOM_KEY_IMPL: 'rbg'},
+                  ),
+              ],
+              1: [
+                  array_metadata_lib.SerializedArrayMetadata(
+                      param_name='a',
+                      write_shape=(1,),
+                      chunk_shape=(1,),
+                      ext_metadata={
+                          array_metadata_lib.RANDOM_KEY_IMPL: 'unsafe_rbg'
+                      },
+                  ),
+              ],
+          },
+          expected_error_regex=(
+              'ArrayMetadata Store contains different ext_metadata'
+          ),
+      ),
   ])
   def test_validate_all_array_metadatas(
       self,

@@ -38,6 +38,7 @@ import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.futures import future
+from orbax.checkpoint._src.metadata import array_metadata as array_metadata_lib
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
@@ -213,6 +214,7 @@ def _build_array_write_spec(
     use_ocdbt: bool,
     process_index: Optional[Union[int, str]] = None,
     metadata_key: Optional[str] = None,
+    ext_metadata: Optional[Dict[str, Any]] = None,
 ) -> ts_utils.ArrayWriteSpec:
   """Gets ArrayWriteSpec for writing."""
   if info.path is None:
@@ -235,6 +237,7 @@ def _build_array_write_spec(
       process_id=process_index,
       ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
       metadata_key=metadata_key,
+      ext_metadata=ext_metadata,
   )
 
 
@@ -895,6 +898,7 @@ class ArrayHandler(types.TypeHandler):
     self._enable_write_sharding_file = enable_write_sharding_file
     self._use_replica_parallel = use_replica_parallel
     self._array_metadata_store = array_metadata_store
+    self._ext_metadata = dict()
 
     logging.vlog(
         1,
@@ -931,6 +935,7 @@ class ArrayHandler(types.TypeHandler):
         use_ocdbt=use_ocdbt,
         process_index=process_index,
         metadata_key=self._metadata_key,
+        ext_metadata=self._ext_metadata.get(info.name),
     )
 
   def _get_json_tspec_read(
@@ -1088,6 +1093,7 @@ class ArrayHandler(types.TypeHandler):
               process_index=multihost.process_index(),
           )
       )
+
     await asyncio.gather(*write_coros)
     await sharding_metadata_txn.commit_async()
     if ocdbt_transaction is not None:
@@ -1103,6 +1109,9 @@ class ArrayHandler(types.TypeHandler):
     args = args or [types.SaveArgs()] * len(values)
     check_input_arguments(values, infos, args)
     check_array_values(values, infos)
+
+    self._ext_metadata = dict()
+    arrays = []
     for v, info in zip(values, infos):
       if (
           isinstance(v, jax.Array)
@@ -1122,8 +1131,18 @@ class ArrayHandler(types.TypeHandler):
             ' typically obtained using pmap. Consider using'
             ' fully_replicated_host_local_array_to_global_array in'
             ' orbax/checkpoint/utils.py to convert your arrays into'
-            ' serializable objects.'
+            f' serializable objects. Array.sharding: {v.sharding}'
         )
+
+      if jax.dtypes.issubdtype(v.dtype, jax.dtypes.prng_key):
+        # a JAX random key
+        arrays.append(jax.random.key_data(v))
+        self._ext_metadata[info.name] = {
+            array_metadata_lib.RANDOM_KEY_IMPL: str(jax.random.key_impl(v))
+        }
+      else:
+        # regular array
+        arrays.append(v)
 
     assert all([info.enable_pinned_host_transfer for info in infos]) or all(
         [not info.enable_pinned_host_transfer for info in infos]
@@ -1131,7 +1150,7 @@ class ArrayHandler(types.TypeHandler):
 
     # Complete D2H transfer in parallel for each array.
     values_on_host = replica_slices.transfer_arrays_to_host(
-        values,
+        arrays,
         self._replica_id,
         self._use_replica_parallel,
         enable_pinned_host_transfer=infos[0].enable_pinned_host_transfer,
@@ -1143,6 +1162,41 @@ class ArrayHandler(types.TypeHandler):
             name='array_type_handler',
         )
     ]
+
+  def _parse_array_metadatas(self, array_metadatas, infos, deserialized_arrays):
+    """Parse array_metadatas and adjust deserialized_arrays accordingly."""
+
+    logging.vlog(1, 'array_metadatas = %s', array_metadatas)
+    if not isinstance(array_metadatas, Dict):
+      raise ValueError(
+          'Expecting array_metadatas to be a "Dict" but got'
+          f' {type(array_metadatas)}.'
+      )
+
+    # use the first available array_metadata
+    array_metadatas_cache = {
+        array_metadata.param_name: array_metadata
+        for array_metadata in next(iter(array_metadatas.values()))
+    }
+
+    for i, (info, v) in enumerate(zip(infos, deserialized_arrays)):
+      if meta := array_metadatas_cache.get(info.name):
+        assert isinstance(
+            meta, array_metadata_lib.SerializedArrayMetadata
+        ), f'Expecting SerializedArrayMetadata but got {type(meta)}.'
+        if meta.ext_metadata is None or not isinstance(meta.ext_metadata, dict):
+          continue
+
+        if impl := meta.ext_metadata.get(array_metadata_lib.RANDOM_KEY_IMPL):
+          deserialized_arrays[i] = jax.random.wrap_key_data(v, impl=impl)
+          logging.vlog(
+              1,
+              '%s: recreated as a random key: %s',
+              info.name,
+              deserialized_arrays[i],
+          )
+
+    return deserialized_arrays
 
   async def deserialize(
       self,
@@ -1243,21 +1297,33 @@ class ArrayHandler(types.TypeHandler):
               strict=arg.strict if hasattr(arg, 'strict') else True,
           )
       ]
-    ret = await asyncio.gather(*deserialize_ops)
+
+    if self._array_metadata_store is not None:
+      deserialize_ops.append(
+          self._array_metadata_store.read(
+              checkpoint_dir=infos[0].parent_dir,
+          )
+      )
+      *ret, array_metadatas = await asyncio.gather(*deserialize_ops)
+
+      if array_metadatas:
+        ret = self._parse_array_metadatas(array_metadatas, infos, ret)
+    else:
+      ret = await asyncio.gather(*deserialize_ops)
 
     if logging.vlog_is_on(1):
       for a in ret:
         logging.vlog(
             1,
             'restored jax.Array.shape = %s, jax.array.dtype = %s,'
-            ' jax.array.layout + %s',
-            a.shape,
-            a.dtype,
-            a.layout,
+            ' jax.array.layout = %s',
+            getattr(a, 'shape', None),
+            getattr(a, 'dtype', None),
+            getattr(a, 'layout', None),
         )
       _print_ts_debug_data(self._metadata_key, infos)
 
-    return ret
+    return ret  # pytype: disable=bad-return-type
 
   def memory_size(
       self, values: Sequence[jax.Array]

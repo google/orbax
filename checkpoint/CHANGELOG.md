@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Improve `Cannot serialize host local jax.Array` error message.
 
+### Added
+
+- support saving and restoring jax.random.key() in PyTree
+
 ## [0.11.6] - 2025-02-20
 
 ### Added

@@ -30,6 +30,7 @@ JsonSpec: TypeAlias = dict[str, Any]
 Shape: TypeAlias = types.Shape
 DType: TypeAlias = types.DType
 ArrayMetadata: TypeAlias = array_metadata.ArrayMetadata
+ExtMetadata: TypeAlias = array_metadata.ExtMetadata
 
 FILE_DRIVER = 'file'
 DEFAULT_DRIVER = FILE_DRIVER
@@ -337,6 +338,7 @@ class ArrayWriteSpec:
       ocdbt_target_data_file_size: int | None = None,
       process_id: int | str | None = None,
       metadata_key: str | None = None,
+      ext_metadata: ExtMetadata | None = None,
   ):
     """Builds a TensorStore spec for writing an array."""
     # Construct the underlying KvStore spec.
@@ -405,6 +407,7 @@ class ArrayWriteSpec:
         chunk_shape=chunk_shape,
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
+        ext_metadata=ext_metadata,
     )
     # Wrap spec into `cast` driver if needed, and keep it in a separate field.
     self._json_spec = _maybe_add_cast_to_write_spec(

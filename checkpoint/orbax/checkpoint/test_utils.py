@@ -207,13 +207,27 @@ def assert_array_equal(testclass, v_expected, v_actual):
     testclass.assertEqual(v_expected.dtype, v_actual.dtype)
   testclass.assertIsInstance(v_actual, type(v_expected))
   if isinstance(v_expected, jax.Array):
-    testclass.assertEqual(
-        len(v_expected.addressable_shards), len(v_actual.addressable_shards)
-    )
-    for shard_expected, shard_actual in zip(
-        v_expected.addressable_shards, v_actual.addressable_shards
-    ):
-      np.testing.assert_array_equal(shard_expected.data, shard_actual.data)
+    if jax.dtypes.issubdtype(v_expected.dtype, jax.dtypes.prng_key):
+      # random key
+      testclass.assertTrue(
+          jax.dtypes.issubdtype(v_actual.dtype, jax.dtypes.prng_key)
+      )
+      expected_array = jax.random.key_data(v_expected)
+      actual_array = jax.random.key_data(v_actual)
+      assert_array_equal(testclass, expected_array, actual_array)
+      testclass.assertEqual(
+          str(jax.random.key_impl(v_expected)),
+          str(jax.random.key_impl(v_actual)),
+      )
+    else:
+      # regular array
+      testclass.assertEqual(
+          len(v_expected.addressable_shards), len(v_actual.addressable_shards)
+      )
+      for shard_expected, shard_actual in zip(
+          v_expected.addressable_shards, v_actual.addressable_shards
+      ):
+        np.testing.assert_array_equal(shard_expected.data, shard_actual.data)
   elif isinstance(v_expected, (np.ndarray, jnp.ndarray)):
     np.testing.assert_array_equal(v_expected, v_actual)
   else:
