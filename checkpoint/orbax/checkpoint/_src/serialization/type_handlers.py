@@ -1790,7 +1790,10 @@ _DEFAULT_TYPE_HANDLERS = tuple([
     (bytes, ScalarHandler()),
     (np.number, ScalarHandler()),
     (np.ndarray, NumpyHandler()),
-    (jax.Array, ArrayHandler()),
+    (
+        jax.Array,
+        ArrayHandler(array_metadata_store=array_metadata_store_lib.Store()),
+    ),
     (str, StringHandler()),
 ])
 
