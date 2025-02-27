@@ -26,3 +26,8 @@ py_library(
     name = "threading",
     srcs = ["threading.py"],
 )
+
+py_library(
+    name = "retry",
+    srcs = ["retry.py"],
+)
