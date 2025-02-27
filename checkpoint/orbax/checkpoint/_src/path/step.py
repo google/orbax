@@ -19,6 +19,7 @@ import concurrent
 import dataclasses
 import datetime
 import functools
+import os
 import re
 import time
 from typing import Callable, Generic, Iterator, List, Optional, Protocol, Sequence, Set, TypeVar
@@ -522,6 +523,11 @@ def get_save_directory(
 def is_tmp_checkpoint(path: epath.PathLike) -> bool:
   """Determines whether a directory is a tmp checkpoint path."""
   path = epath.Path(path)
+  if os.path.islink(path):
+    logging.warning(
+        'Path %s is a symbolic link, not treating it as a tmp checkpoint.', path
+    )
+    return False
   if not path.exists():
     raise ValueError(f'Path {path} does not exist.')
   if not path.is_dir():
