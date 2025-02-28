@@ -29,7 +29,7 @@ from orbax.experimental.model.jax2obm import jax_specific_info
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 from orbax.experimental.model.jax2obm import main_lib
 
-from .net.proto2.contrib.pyutil import compare
+from tensorflow.python.util.protobuf import compare
 from google.protobuf import text_format
 from absl.testing import absltest
 
@@ -586,7 +586,7 @@ class MainLibTest(parameterized.TestCase):
     expected_manifest_proto = text_format.Parse(
         expected_manifest_proto_text, obm.manifest_pb2.Manifest()
     )
-    compare.assertProto2Equal(
+    compare.assertProtoEqual(
         self,
         manifest_proto,
         expected_manifest_proto,
@@ -620,7 +620,7 @@ class MainLibTest(parameterized.TestCase):
         expected_orchestration_proto_text,
         obm.simple_orchestration_pb2.SimpleOrchestration(),
     )
-    compare.assertProto2Equal(
+    compare.assertProtoEqual(
         self, expected_orchestration_proto, orchestration_proto
     )
 
@@ -671,7 +671,7 @@ class MainLibTest(parameterized.TestCase):
         expected_jax_supplemental_proto_text,
         jax_supplemental_pb2.Function(),
     )
-    compare.assertProto2Equal(
+    compare.assertProtoEqual(
         self, expected_jax_supplemental_proto, jax_supplemental_proto
     )
 
@@ -1190,7 +1190,7 @@ class MainLibTest(parameterized.TestCase):
         expected_manifest_proto_text, obm.manifest_pb2.Manifest()
     )
 
-    compare.assertProto2Equal(
+    compare.assertProtoEqual(
         self,
         manifest_proto,
         expected_manifest_proto,

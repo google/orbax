@@ -28,7 +28,7 @@ from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import tf_save
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import TF_SAVED_MODEL_SUPPLEMENTAL_NAME
 import tensorflow as tf
 
-from .net.proto2.contrib.pyutil import compare
+from tensorflow.python.util.protobuf import compare
 from google.protobuf import text_format
 from absl.testing import absltest
 
@@ -332,7 +332,7 @@ class TfConcreteFunctionsToObmTest(parameterized.TestCase, tf.test.TestCase):
     expected_manifest_proto = text_format.Parse(
         expected_manifest_proto_text, obm.manifest_pb2.Manifest()
     )
-    compare.assertProto2Equal(
+    compare.assertProtoEqual(
         self,
         manifest_proto,
         expected_manifest_proto,
@@ -360,7 +360,7 @@ class TfConcreteFunctionsToObmTest(parameterized.TestCase, tf.test.TestCase):
         expected_pre_processor_proto_text,
         tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(),
     )
-    compare.assertProto2Equal(
+    compare.assertProtoEqual(
         self,
         pre_processor_proto,
         expected_pre_processor_proto,
@@ -388,7 +388,7 @@ class TfConcreteFunctionsToObmTest(parameterized.TestCase, tf.test.TestCase):
         expected_post_processor_proto_text,
         tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(),
     )
-    compare.assertProto2Equal(
+    compare.assertProtoEqual(
         self,
         post_processor_proto,
         expected_post_processor_proto,
