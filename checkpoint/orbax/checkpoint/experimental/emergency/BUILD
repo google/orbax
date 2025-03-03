@@ -121,6 +121,24 @@ py_test(
 )
 
 py_test(
+    name = "single_slice_checkpoint_manager_test",
+    timeout = "long",
+    srcs = ["single_slice_checkpoint_manager_test.py"],
+    args = [
+        "--alsologtostderr",
+        "--logbuflevel=-1",  # Ensures logs are saved even if the test times out.
+        "--extra_test_args='--vmodule=checkpoint_manager=1'",
+    ],
+    deps = [
+        ":checkpoint_manager",
+        "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint:utils",
+        "//checkpoint/orbax/checkpoint/_src/handlers:pytree_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+    ],
+)
+
+py_test(
     name = "local_checkpoint_manager_test",
     srcs = ["local_checkpoint_manager_test.py"],
     args = [
