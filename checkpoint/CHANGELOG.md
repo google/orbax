@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fix RESOURCE_EXHAUSTED while writing array_metadatas.
+- Internal/external mirroring was temporarily broken and a few changes were not
+pushed when intended (since 2-27). However, there are only a few such changes,
+which are reflected in the CHANGELOG.
 
 ### Changed
 
