@@ -240,7 +240,7 @@ class ReplicatorCheckpointManager(
   def save(
       self,
       step: int,
-      args: args_lib.CheckpointArgs | None = None,
+      args: args_lib.CheckpointArgs,
       *,
       force: bool = False,
   ) -> bool:

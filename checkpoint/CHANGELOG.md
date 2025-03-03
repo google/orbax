@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- support saving and restoring jax.random.key() in PyTree
+- support saving and restoring jax.random.key() in PyTree.
+- `CheckpointableHandler` for V1.
+- Support single-slice checkpointing in `emergency.CheckpointManager`.
 
 ## [0.11.6] - 2025-02-20
 
