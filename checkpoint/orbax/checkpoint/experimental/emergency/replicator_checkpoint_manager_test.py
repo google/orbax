@@ -591,7 +591,7 @@ class ReplicatorCheckpointManagerTest(
         self.local_directory,
         global_mesh=self.global_mesh,
     ) as manager:
-      with self.assertRaises(ValueError):
+      with self.assertRaises(TypeError):
         manager.save(0)
       with self.assertRaises(ValueError):
         manager.save(0, args=args_lib.StandardSave(self.pytree))
@@ -634,6 +634,36 @@ class ReplicatorCheckpointManagerTest(
         global_mesh=self.global_mesh,
     ) as manager:
       manager.save(0, args=args_lib.PyTreeSave(self.pytree))
+
+  @parameterized.parameters(
+      ((8,), ('data',)),
+      ((8,), ('data',)),
+      ((1, 8), ('replica', 'data')),
+      ((8, 1), ('data', 'replica')),
+  )
+  def test_save_restore_single_slice(self, mesh_shape, axis_names):
+    """Test single-slice save/restore."""
+    # 1-d mesh
+    global_mesh = jax.sharding.Mesh(
+        np.asarray(jax.devices()).reshape(mesh_shape), axis_names
+    )
+    pytree, restore_args = self.setup_pytree(global_mesh)
+    options = ReplicatorCheckpointManagerOptions(
+        save_interval_steps=1,
+    )
+    manager = ReplicatorCheckpointManager(
+        self.local_directory,
+        options=options,
+        global_mesh=global_mesh,
+    )
+
+    manager.save(0, args=PyTreeSaveArgs(pytree))
+    manager.wait_until_finished()
+
+    restored = manager.restore(
+        0, args=PyTreeRestoreArgs(restore_args=restore_args)
+    )
+    test_utils.assert_tree_equal(self, pytree, restored)
 
 
 if __name__ == '__main__':
