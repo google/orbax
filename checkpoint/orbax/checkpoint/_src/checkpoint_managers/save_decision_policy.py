@@ -15,6 +15,7 @@
 """Defines policies for when a checkpoint is saved."""
 
 import dataclasses
+import datetime
 import typing
 from typing import Container, Protocol, Sequence
 
@@ -23,6 +24,7 @@ from typing import Container, Protocol, Sequence
 class StepInfo:
   """Relevant information about a checkpoint step."""
   step: int
+  time: datetime.datetime
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -87,8 +89,11 @@ class SpecificStepsPolicy(SaveDecisionPolicy):
     return step.step in self.steps
 
 
+@dataclasses.dataclass
 class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
   """Checkpoint as often as possible, as long as a save is not ongoing."""
+
+  interval: int
 
   def should_save(
       self,
@@ -97,9 +102,12 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
       *,
       context: DecisionContext
   ) -> bool:
-    del step
-    del previous_steps
-    return not context.is_saving_in_progress
+    if not previous_steps:
+      return False
+    return not context.is_saving_in_progress and (
+        step.time - previous_steps[-1].time
+        >= datetime.timedelta(seconds=self.interval)
+    )
 
 
 class PreemptionCheckpointingPolicy(SaveDecisionPolicy):

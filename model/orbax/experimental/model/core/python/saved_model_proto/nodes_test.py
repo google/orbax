@@ -20,7 +20,7 @@ from typing import Sequence
 from orbax.experimental.model.core.python.saved_model_proto import node_builder
 from orbax.experimental.model.core.python.saved_model_proto import nodes
 
-from .net.proto2.contrib.pyutil import compare
+from tensorflow.python.util.protobuf import compare
 from absl.testing import absltest
 
 Node = nodes.Node
@@ -30,7 +30,7 @@ OpType = nodes.OpType
 class NodesTest(absltest.TestCase):
 
   def assertProtoEqual(self, a, b):
-    compare.assertProto2Equal(self, a, b)
+    compare.assertProtoEqual(self, a, b)
 
   def test_node(self):
     node = Node(
