@@ -764,9 +764,9 @@ def get_sharding_tensorstore_spec(
   return {
       'driver': 'json',
       'kvstore': kvstore_tspec,
-      'json_pointer': '/' + base64.urlsafe_b64encode(
-          param_name.encode()
-      ).decode('utf-8'),
+      'json_pointer': (
+          '/' + base64.urlsafe_b64encode(param_name.encode()).decode('utf-8')
+      ),
   }
 
 
@@ -1790,7 +1790,10 @@ _DEFAULT_TYPE_HANDLERS = tuple([
     (bytes, ScalarHandler()),
     (np.number, ScalarHandler()),
     (np.ndarray, NumpyHandler()),
-    (jax.Array, ArrayHandler()),
+    (
+        jax.Array,
+        ArrayHandler(array_metadata_store=array_metadata_store_lib.Store()),
+    ),
     (str, StringHandler()),
 ])
 

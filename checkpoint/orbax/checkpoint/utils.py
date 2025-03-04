@@ -146,6 +146,9 @@ def pytree_structure(directory: epath.PathLike) -> PyTree:
       continue
     if k.name == '_METADATA':
       continue
+    # array_metadatas is not a checkpoint param. Only used when ocdbt is used.
+    if k.name == 'array_metadatas':
+      continue
     tree = add_nested_key(tree, k.name.split('.'), k.name)
   return tree
 
