@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, Mapping, Sequence, Tuple, cast
 
 from absl import logging
 import jax
+from jax import export as jax_export
 from orbax.export import constants
 from orbax.export import export_base
 from orbax.export import jax_module
