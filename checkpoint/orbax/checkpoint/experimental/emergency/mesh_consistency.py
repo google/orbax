@@ -26,6 +26,7 @@ from orbax.checkpoint.path import atomicity_defaults
 from orbax.checkpoint.path import step as step_lib
 
 
+
 _PROCESS_METADATA_FOLDER = 'process_metadata'
 _PROCESS_METADATA_FILE_NAME = 'process_metadata.json'
 _GLOBAL_PROCESS_METADATA_FILE_NAME = 'global_process_metadata.json'
@@ -96,7 +97,8 @@ async def save_process_metadata(
   (tmp_path.get() / _MESH_METADATA_FILE_NAME).write_text(
       json.dumps([int(id) for id in global_mesh.device_ids.flatten()])
   )
-  tmp_path.finalize()
+  tmp_path.finalize(
+  )
 
 
 def consistent_restore_mesh_from_metadata(

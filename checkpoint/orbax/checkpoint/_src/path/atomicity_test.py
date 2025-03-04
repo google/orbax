@@ -73,7 +73,8 @@ class AtomicRenameTemporaryPathTest(
     tmp_path = AtomicRenameTemporaryPath.from_final(path)
     await tmp_path.create()
     if multihost.process_index() == 0:
-      tmp_path.finalize()
+      tmp_path.finalize(
+      )
     test_utils.sync_global_processes('test_finalize')
     self.assertFalse(tmp_path.get().exists())
     self.assertTrue(path.exists())
@@ -131,7 +132,8 @@ class CommitFileTemporaryPathTest(
     tmp_path = CommitFileTemporaryPath.from_final(path)
     await tmp_path.create()
     if multihost.process_index() == 0:
-      tmp_path.finalize()
+      tmp_path.finalize(
+      )
     test_utils.sync_global_processes('test_finalize')
     self.assertTrue(tmp_path.get().exists())
     self.assertTrue(path.exists())

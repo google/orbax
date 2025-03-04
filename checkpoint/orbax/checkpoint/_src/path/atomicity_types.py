@@ -27,6 +27,7 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 
 
+
 # TODO(b/326119183) Support configuration of temporary path detection
 # (currently handled by `tmp_checkpoints` util methods).
 class TemporaryPath(Protocol):
@@ -77,7 +78,9 @@ class TemporaryPath(Protocol):
     """Creates the temporary path on disk."""
     ...
 
-  def finalize(self):
+  def finalize(
+      self,
+  ):
     """Finalizes the temporary path into the final path.
 
     NOTE: This method is only called on the primary host. This is in contrast
@@ -85,5 +88,6 @@ class TemporaryPath(Protocol):
     processes.
 
     This function is called from a background thread.
+
     """
     ...

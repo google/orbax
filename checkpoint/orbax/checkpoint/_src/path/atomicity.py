@@ -279,10 +279,13 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
 
-  def finalize(self):
+  def finalize(
+      self,
+  ):
     """Finalizes atomic save by renaming tmp_dir or writing a success file.
 
     Updates checkpoint metadata with commit_timestamp_nsecs.
+
     """
     logging.info('Renaming %s to %s', self._tmp_path, self._final_path)
     if self._checkpoint_metadata_store:
@@ -401,10 +404,13 @@ class CommitFileTemporaryPath(atomicity_types.TemporaryPath):
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
 
-  def finalize(self):
+  def finalize(
+      self,
+  ):
     """Finalizes atomic save by renaming tmp_dir or writing a success file.
 
     Updates checkpoint metadata with commit_timestamp_nsecs.
+
     """
     logging.info('Finalizing %s', self._tmp_path)
     if self._checkpoint_metadata_store:
@@ -554,7 +560,8 @@ def on_commit_callback(
       currently saved.
     checkpoint_start_time: The time at which checkpoint saving began.
   """
-  tmp_dir.finalize()
+  tmp_dir.finalize(
+  )
   step_lib.record_saved_duration(checkpoint_start_time)
   jax.monitoring.record_event('/jax/orbax/write/success')
   logging.info(

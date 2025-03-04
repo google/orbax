@@ -50,6 +50,7 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
 
+
 PyTree = Any
 
 
@@ -624,13 +625,15 @@ def ensure_atomic_save(
         temp_ckpt_dir,
         final_ckpt_dir,
         checkpoint_metadata_store=metadata_store,
-    ).finalize()
+    ).finalize(
+    )
   else:
     atomicity.AtomicRenameTemporaryPath(
         temp_ckpt_dir,
         final_ckpt_dir,
         checkpoint_metadata_store=metadata_store,
-    ).finalize()
+    ).finalize(
+    )
 
 
 def create_single_replica_restore_args(

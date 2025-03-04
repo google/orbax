@@ -1012,7 +1012,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         # Not an error, as some items may not have been saved.
         continue
       handler.finalize(tmp_dir.get())
-      tmp_dir.finalize()
+      tmp_dir.finalize(
+      )
 
       # Remove the temporary path once it has been finalized.
       self._current_temporary_paths.pop(item_name)
