@@ -18,8 +18,9 @@ from concurrent import futures
 from absl.testing import absltest
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 
-PytreeOptions = context_lib.PytreeOptions
+PyTreeOptions = options_lib.PyTreeOptions
 
 
 def fake_checkpoint_operation() -> ocp.Context:
@@ -30,62 +31,62 @@ class ContextTest(absltest.TestCase):
 
   def test_default_context(self):
     ctx = fake_checkpoint_operation()
-    self.assertEqual(ctx.pytree_options, PytreeOptions())
+    self.assertEqual(ctx.pytree_options, PyTreeOptions())
 
     with ocp.Context():
       ctx = fake_checkpoint_operation()
-      self.assertEqual(ctx.pytree_options, PytreeOptions())
+      self.assertEqual(ctx.pytree_options, PyTreeOptions())
 
     context = ocp.Context()
     with context:
       ctx = fake_checkpoint_operation()
-      self.assertEqual(ctx.pytree_options, PytreeOptions())
+      self.assertEqual(ctx.pytree_options, PyTreeOptions())
 
   def test_custom_context(self):
-    with ocp.Context(pytree_options=PytreeOptions(use_zarr3=False)):
+    with ocp.Context(pytree_options=PyTreeOptions(use_zarr3=False)):
       ctx = fake_checkpoint_operation()
-      self.assertEqual(ctx.pytree_options, PytreeOptions(use_zarr3=False))
+      self.assertEqual(ctx.pytree_options, PyTreeOptions(use_zarr3=False))
 
-    context = ocp.Context(pytree_options=PytreeOptions(use_zarr3=False))
+    context = ocp.Context(pytree_options=PyTreeOptions(use_zarr3=False))
     with context:
       ctx = fake_checkpoint_operation()
-      self.assertEqual(ctx.pytree_options, PytreeOptions(use_zarr3=False))
+      self.assertEqual(ctx.pytree_options, PyTreeOptions(use_zarr3=False))
 
   def test_custom_context_in_separate_thread_becomes_default(self):
     with futures.ThreadPoolExecutor(max_workers=1) as executor:
-      with ocp.Context(pytree_options=PytreeOptions(use_zarr3=False)):
+      with ocp.Context(pytree_options=PyTreeOptions(use_zarr3=False)):
         future = executor.submit(fake_checkpoint_operation)
         ctx = future.result()
-        self.assertEqual(ctx.pytree_options, PytreeOptions())
+        self.assertEqual(ctx.pytree_options, PyTreeOptions())
 
-    with ocp.Context(pytree_options=PytreeOptions(use_zarr3=False)):
+    with ocp.Context(pytree_options=PyTreeOptions(use_zarr3=False)):
       with futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(fake_checkpoint_operation)
         ctx = future.result()
-        self.assertEqual(ctx.pytree_options, PytreeOptions())
+        self.assertEqual(ctx.pytree_options, PyTreeOptions())
 
   def test_custom_context_in_same_thread_remains_custom(self):
     def test_fn():
-      with ocp.Context(pytree_options=PytreeOptions(use_zarr3=False)):
+      with ocp.Context(pytree_options=PyTreeOptions(use_zarr3=False)):
         ctx = fake_checkpoint_operation()
         return ctx
 
     with futures.ThreadPoolExecutor(max_workers=1) as executor:
       future = executor.submit(test_fn)
       ctx = future.result()
-      self.assertEqual(ctx.pytree_options, PytreeOptions(use_zarr3=False))
+      self.assertEqual(ctx.pytree_options, PyTreeOptions(use_zarr3=False))
 
   def test_nested_contexts(self):
-    with ocp.Context(pytree_options=PytreeOptions(use_zarr3=False)):
+    with ocp.Context(pytree_options=PyTreeOptions(use_zarr3=False)):
       ctx = fake_checkpoint_operation()
-      self.assertEqual(ctx.pytree_options, PytreeOptions(use_zarr3=False))
+      self.assertEqual(ctx.pytree_options, PyTreeOptions(use_zarr3=False))
 
-      with ocp.Context(pytree_options=PytreeOptions(use_ocdbt=False)):
+      with ocp.Context(pytree_options=PyTreeOptions(use_ocdbt=False)):
         ctx = fake_checkpoint_operation()
-        self.assertEqual(ctx.pytree_options, PytreeOptions(use_ocdbt=False))
+        self.assertEqual(ctx.pytree_options, PyTreeOptions(use_ocdbt=False))
 
       ctx = fake_checkpoint_operation()
-      self.assertEqual(ctx.pytree_options, PytreeOptions(use_zarr3=False))
+      self.assertEqual(ctx.pytree_options, PyTreeOptions(use_zarr3=False))
 
 
 if __name__ == "__main__":

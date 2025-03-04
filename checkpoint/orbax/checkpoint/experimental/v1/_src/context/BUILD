@@ -3,13 +3,21 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "context",
     srcs = ["context.py"],
+    deps = [":options"],
+)
+
+py_library(
+    name = "options",
+    srcs = ["options.py"],
+    deps = ["//orbax/checkpoint/experimental/v1/_src/tree:types"],
 )
 
 py_test(
     name = "context_test",
     srcs = ["context_test.py"],
     deps = [
+        ":context",
+        ":options",
         "//orbax/checkpoint/experimental/v1",
-        "//orbax/checkpoint/experimental/v1/_src/context",
     ],
 )

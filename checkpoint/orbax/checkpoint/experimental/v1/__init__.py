@@ -12,10 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Defines exported symbols for the namespace package `orbax.checkpoint.v1`."""
+"""Defines exported symbols for `orbax.checkpoint.experimental.v1`.
+
+Prefer to use the style::
+
+  import orbax.checkpoint.experimental.v1 as ocp
+"""
 
 # pylint: disable=g-importing-member, g-multiple-import
 
+from orbax.checkpoint.experimental.v1._src.context import options
 from orbax.checkpoint.experimental.v1._src.context.context import (
     Context,
 )

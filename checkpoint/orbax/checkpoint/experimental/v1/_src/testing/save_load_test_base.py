@@ -276,17 +276,19 @@ class SaveLoadTestBase:
       test_utils.assert_tree_equal(self, expected_tree, loaded)
 
     @parameterized.parameters(
-        (np.int32, np.int64),
-        (np.float32, np.float64),
-        (np.float32, np.int64),
-        (np.float64, np.int64),
-        (np.int32, np.float32),
-        (np.int64, np.float32),
-        (np.int32, np.float64),
-        (np.int64, np.float64),
+        (np.int32, np.int16, np.int64),
+        (np.int32, np.int64, np.int16),
+        (np.int32, np.float32, np.int64),
+        (np.int32, np.float32, np.float64),
+        (np.float32, np.int16, np.int64),
+        (np.float32, np.int64, np.int16),
+        (np.float32, np.float32, np.int64),
+        (np.float32, np.int32, np.int64),
+        (np.int64, np.float32, jnp.bfloat16),
+        (np.int64, jnp.bfloat16, np.int32),
+        (jnp.bfloat16, np.int32, jnp.bfloat16),
     )
-    def test_casting(self, original_dtype, load_dtype):
-      # TODO(cpgaffney): Add support for save casting.
+    def test_casting(self, original_dtype, save_dtype, load_dtype):
       sharding = jax.sharding.NamedSharding(
           jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',)),
           jax.sharding.PartitionSpec(),
@@ -298,6 +300,13 @@ class SaveLoadTestBase:
           ),
           'numpy_array': np.arange(len(jax.devices()), dtype=original_dtype),
       }
+      save_casted_tree = {
+          'jax_array': create_sharded_array(
+              np.arange(len(jax.devices()), dtype=save_dtype),
+              sharding,
+          ),
+          'numpy_array': np.arange(len(jax.devices()), dtype=save_dtype),
+      }
       load_casted_tree = {
           'jax_array': create_sharded_array(
               np.arange(len(jax.devices()), dtype=load_dtype),
@@ -306,7 +315,15 @@ class SaveLoadTestBase:
           'numpy_array': np.arange(len(jax.devices()), dtype=load_dtype),
       }
 
-      ocp.save_pytree(self.directory, tree)
+      create_array_storage_options_fn = (
+          lambda k, v: ocp.options.ArrayStorageOptions(dtype=save_dtype)
+      )
+      with ocp.Context(
+          pytree_options=ocp.options.PyTreeOptions(
+              create_array_storage_options_fn=create_array_storage_options_fn
+          )
+      ):
+        ocp.save_pytree(self.directory, tree)
 
       with self.subTest('with_abstract_tree'):
         abstract_tree = jax.tree.map(as_abstract_type, load_casted_tree)
@@ -317,7 +334,7 @@ class SaveLoadTestBase:
         if multihost.is_pathways_backend():
           self.skipTest('Must provide abstract_pytree for Pathways.')
         loaded = ocp.load_pytree(self.directory)
-        test_utils.assert_tree_equal(self, tree, loaded)
+        test_utils.assert_tree_equal(self, save_casted_tree, loaded)
 
     # TODO(b/295313820): Improve mismatched-tree error messages.
     def test_mismatched_abstract_tree(self):

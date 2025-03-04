@@ -25,7 +25,7 @@ PyTree = Any
 PyTreeOf = ocp.tree.PyTreeOf
 
 PyTreeKey = ocp.tree.PyTreeKey
-PyTreePath = ocp.tree.PyTreePath
+PyTreeKeyPath = ocp.tree.PyTreePath
 
 ScalarType = int | float | bool
 LeafType = jax.Array | np.ndarray | str | ScalarType | Any

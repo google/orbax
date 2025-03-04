@@ -19,11 +19,37 @@
 import threading
 
 from etils import epath
+import jax
 import orbax.checkpoint as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+
+
+def _make_v0_save_args(
+    pytree: tree_types.PyTree,
+    create_array_storage_options_fn: (
+        options_lib.CreateArrayStorageOptionsFn | None
+    ),
+) -> tree_types.PyTree:
+  """Creates v0-compatible `SaveArgs` from v1 storage options."""
+  if create_array_storage_options_fn is None:
+    save_args = None
+  else:
+    array_storage_options_pytree = jax.tree.map_with_path(
+        create_array_storage_options_fn, pytree
+    )
+    save_args = jax.tree.map(
+        lambda v: ocp.SaveArgs(
+            dtype=v.dtype,
+            chunk_byte_size=v.chunk_byte_size,
+            shard_axes=v.shard_axes,
+        ),
+        array_storage_options_pytree,
+    )
+  return save_args
 
 
 def _get_concurrent_gb(concurrent_bytes: int | None) -> int | None:
@@ -72,9 +98,13 @@ def save_pytree(
   ckptr = ocp.Checkpointer(
       ocp.CompositeCheckpointHandler(handler_registry=handler_registry)
   )
+  save_args = _make_v0_save_args(
+      pytree, context.pytree_options.create_array_storage_options_fn
+  )
   args = ocp.args.Composite(
       pytree=ocp.args.PyTreeSave(
           pytree,
+          save_args=save_args,
           ocdbt_target_data_file_size=(
               context.pytree_options.ocdbt_target_data_file_size
           ),
@@ -141,7 +171,6 @@ def save_pytree_async(
     An `AsyncResponse` that can be used to block until the save is complete.
     Blocking can be done using `response.result()`, which returns `None`.
   """
-
   context = context_lib.get_context()
 
   handler_registry = ocp.handlers.create_default_handler_registry(
@@ -156,9 +185,13 @@ def save_pytree_async(
   ckptr = ocp.AsyncCheckpointer(
       ocp.CompositeCheckpointHandler(handler_registry=handler_registry)
   )
+  save_args = _make_v0_save_args(
+      pytree, context.pytree_options.create_array_storage_options_fn
+  )
   args = ocp.args.Composite(
       pytree=ocp.args.PyTreeSave(
           pytree,
+          save_args=save_args,
           ocdbt_target_data_file_size=(
               context.pytree_options.ocdbt_target_data_file_size
           ),

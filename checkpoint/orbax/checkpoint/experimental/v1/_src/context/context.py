@@ -21,38 +21,7 @@ import contextvars
 import dataclasses
 
 from etils import epy
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class PytreeOptions:
-  """Options for PyTree checkpointing.
-
-  Attributes:
-    use_ocdbt: Whether to use OCDBT for saving.
-    use_zarr3: Whether to use Zarr3 for saving.
-    save_concurrent_bytes: The maximum number of bytes to save concurrently.
-    restore_concurrent_bytes: The maximum number of bytes to restore
-      concurrently.
-    ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
-      OCDBT data file.  It only applies when OCDBT is enabled and Zarr3 must be
-      turned on.  If left unspecified, default size is 2GB.  A value of 0
-      indicates no maximum file size limit.  For best results, ensure
-      chunk_byte_size is smaller than this value.  For more details, refer to
-      https://google.github.io/tensorstore/kvstore/ocdbt/index.html#json-kvstore/ocdbt.target_data_file_size
-    enable_pinned_host_transfer: If False, disables transfer to pinned host when
-      copying from device to host, regardless of the presence of pinned host
-      memory.
-    partial_load: If the tree structure omits some keys relative to the
-      checkpoint, the omitted keys will not be loaded.
-  """
-
-  use_ocdbt: bool = True
-  use_zarr3: bool = True
-  save_concurrent_bytes: int | None = None
-  restore_concurrent_bytes: int | None = None
-  ocdbt_target_data_file_size: int | None = None
-  enable_pinned_host_transfer: bool = False
-  partial_load: bool = False
+from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 
 
 # Each Thread will have its own copy of `Context` object.
@@ -73,26 +42,25 @@ class Context(epy.ContextManager):
   """Context for customized checkpointing.
 
   Usage example::
-  ```
+
     with ocp.Context(...):
       ocp.save_pytree(...)
-  ```
 
   NOTE: The context is not shared across threads. In other words, the whole
   context block must be executed in the same thread. Following example will
-  not work as expected:
-  ```
+  not work as expected::
+
     executor = ThreadPoolExecutor()
     with ocp.Context(...):  # Thread #1 creates Context A.
       executor.submit(ocp.save_pytree, ...)  # Thread #2 sees "default" Context.
-  ```
+
 
   Attributes:
     pytree_options: Options for PyTree checkpointing.
   """
 
-  pytree_options: PytreeOptions = dataclasses.field(
-      default_factory=PytreeOptions
+  pytree_options: options_lib.PyTreeOptions = dataclasses.field(
+      default_factory=options_lib.PyTreeOptions
   )
 
   def __contextmanager__(self) -> Iterable[Context]:
