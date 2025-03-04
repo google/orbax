@@ -58,7 +58,7 @@ def jax_spec_to_tensor_spec(x: jax.ShapeDtypeStruct) -> TensorSpec:
   )
 
 
-class SavedModelBuilderTest(absltest.TestCase):
+class SavedModelBuilderTest(googletest.TestCase):
 
   def test_build_with_function_aliases(self):
     @jax.jit
@@ -110,4 +110,4 @@ class SavedModelBuilderTest(absltest.TestCase):
 
 
 if __name__ == "__main__":
-  absltest.main()
+  googletest.main()

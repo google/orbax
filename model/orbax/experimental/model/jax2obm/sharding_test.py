@@ -22,7 +22,7 @@ from google.protobuf import text_format
 from absl.testing import absltest
 
 
-class ShardingTest(absltest.TestCase):
+class ShardingTest(googletest.TestCase):
 
   def get_mesh(self):
     def _create_mesh(devices) -> jax.sharding.Mesh:
@@ -182,4 +182,4 @@ class ShardingTest(absltest.TestCase):
 
 
 if __name__ == '__main__':
-  absltest.main()
+  googletest.main()

@@ -33,7 +33,7 @@ from orbax.experimental.model.core.python.util import compat
 from absl.testing import absltest
 
 
-class CompatTest(absltest.TestCase):
+class CompatTest(googletest.TestCase):
 
   def testCompatValidEncoding(self):
     self.assertEqual(compat.as_bytes("hello", "utf8"), b"hello")
@@ -48,4 +48,4 @@ class CompatTest(absltest.TestCase):
 
 
 if __name__ == "__main__":
-  absltest.main()
+  googletest.main()

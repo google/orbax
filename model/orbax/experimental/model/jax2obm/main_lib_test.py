@@ -1205,4 +1205,4 @@ class MainLibTest(parameterized.TestCase):
 
 
 if __name__ == '__main__':
-  absltest.main()
+  googletest.main()

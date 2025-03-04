@@ -20,7 +20,7 @@ from orbax.experimental.model.core.python.tree_util import Tree
 from absl.testing import absltest
 
 
-class TreeUtilTest(absltest.TestCase):
+class TreeUtilTest(googletest.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -79,4 +79,4 @@ class TreeUtilTest(absltest.TestCase):
 
 
 if __name__ == "__main__":
-  absltest.main()
+  googletest.main()

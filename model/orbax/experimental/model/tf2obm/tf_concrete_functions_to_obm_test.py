@@ -422,4 +422,4 @@ class TfConcreteFunctionsToObmTest(parameterized.TestCase, tf.test.TestCase):
 
 
 if __name__ == "__main__":
-  absltest.main()
+  googletest.main()

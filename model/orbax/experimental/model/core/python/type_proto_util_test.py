@@ -238,4 +238,4 @@ class ManifestTypeToShloTensorSpecTreeTest(test_utils.ObmTestCase):
 
 
 if __name__ == "__main__":
-  absltest.main()
+  googletest.main()
