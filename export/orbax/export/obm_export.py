@@ -22,10 +22,20 @@ import jax
 from orbax.export import constants
 from orbax.export import export_base
 from orbax.export import jax_module
+from orbax.export import obm_configs
 from orbax.export import serving_config as osc
 from orbax.export.modules import obm_module
 from orbax.export.typing import PyTree
 import tensorflow as tf
+
+BATCH_COMPONENT_MAPPING = {
+    obm_configs.BatchComponent.NO_BATCHING: (
+        obm.simple_orchestration_pb2.BatchOptions.BatchComponent.NO_BATCHING
+    ),
+    obm_configs.BatchComponent.MODEL_FUNCTION: (
+        obm.simple_orchestration_pb2.BatchOptions.BatchComponent.MODEL_FUNCTION
+    ),
+}
 
 
 class ObmExport(export_base.ExportBase):

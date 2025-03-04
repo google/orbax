@@ -92,3 +92,7 @@ DEFAULT_SUPPLEMENTAL_FILENAME = 'orchestration.pb'
 
 # Orbax MIME types
 ORBAX_CHECKPOINT_MIME_TYPE = 'orbax_checkpoint'
+
+# obm_kwargs keys in `ServingConfig`:
+# - The batching config for the model.
+BATCH_OPTIONS = 'batch_options'
