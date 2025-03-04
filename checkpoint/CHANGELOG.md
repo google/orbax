@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Introduce Context and its usage as a contextmanager.
+
 ### Fixed
 
 - Fix RESOURCE_EXHAUSTED while writing array_metadatas.

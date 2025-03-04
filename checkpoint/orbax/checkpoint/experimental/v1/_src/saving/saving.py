@@ -20,6 +20,7 @@ import threading
 
 from etils import epath
 import orbax.checkpoint as ocp
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -38,12 +39,6 @@ def save_pytree(
     # Generic arguments.
     force: bool = False,
     custom_metadata: ocp.tree.JsonType | None = None,
-    # PyTree-specific arguments.
-    use_ocdbt: bool = True,
-    use_zarr3: bool = True,
-    save_concurrent_bytes: int | None = None,
-    ocdbt_target_data_file_size: int | None = None,
-    enable_pinned_host_transfer: bool = False,
 ):
   """Saves a PyTree.
 
@@ -53,35 +48,25 @@ def save_pytree(
   Args:
     directory: The directory to save the checkpoint to.
     pytree: The PyTree to save. This may be any JAX PyTree (including custom
-      objects registered as PyTrees) consisting of supported leaf types.
-      Default supported leaf types include `jax.Array`,
-      `np.ndarray`, simple types like `int`, `float`, `str`, and empty nodes.
-      Support for custom leaves is also possible by implementing a
-      `LeafTypeHandler`.
+      objects registered as PyTrees) consisting of supported leaf types. Default
+      supported leaf types include `jax.Array`, `np.ndarray`, simple types like
+      `int`, `float`, `str`, and empty nodes. Support for custom leaves is also
+      possible by implementing a `LeafTypeHandler`.
     force: Whether to allow the save to proceed even if it would fully overwrite
       an existing checkpoint.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
-    use_ocdbt: Whether to use OCDBT for saving.
-    use_zarr3: Whether to use Zarr3 for saving.
-    save_concurrent_bytes: The maximum number of bytes to save concurrently.
-    ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
-      OCDBT data file.  It only applies when OCDBT is enabled and Zarr3 must be
-      turned on.  If left unspecified, default size is 2GB.  A value of 0
-      indicates no maximum file size limit.  For best results, ensure
-      chunk_byte_size is smaller than this value.  For more details, refer to
-      https://google.github.io/tensorstore/kvstore/ocdbt/index.html#json-kvstore/ocdbt.target_data_file_size
-    enable_pinned_host_transfer: If False, disables transfer to pinned host when
-      copying from device to host, regardless of the presence of pinned host
-      memory.
   """
+  context = context_lib.get_context()
 
   handler_registry = ocp.handlers.create_default_handler_registry(
       pytree=ocp.PyTreeCheckpointHandler(
-          use_ocdbt=use_ocdbt,
-          use_zarr3=use_zarr3,
-          save_concurrent_gb=_get_concurrent_gb(save_concurrent_bytes),
+          use_ocdbt=context.pytree_options.use_ocdbt,
+          use_zarr3=context.pytree_options.use_zarr3,
+          save_concurrent_gb=_get_concurrent_gb(
+              context.pytree_options.save_concurrent_bytes
+          ),
       )
   )
   ckptr = ocp.Checkpointer(
@@ -90,8 +75,12 @@ def save_pytree(
   args = ocp.args.Composite(
       pytree=ocp.args.PyTreeSave(
           pytree,
-          ocdbt_target_data_file_size=ocdbt_target_data_file_size,
-          enable_pinned_host_transfer=enable_pinned_host_transfer,
+          ocdbt_target_data_file_size=(
+              context.pytree_options.ocdbt_target_data_file_size
+          ),
+          enable_pinned_host_transfer=(
+              context.pytree_options.enable_pinned_host_transfer
+          ),
       )
   )
   ckptr.save(directory, args=args, force=force, custom_metadata=custom_metadata)
@@ -124,12 +113,6 @@ def save_pytree_async(
     # Generic arguments.
     force: bool = False,
     custom_metadata: ocp.tree.JsonType | None = None,
-    # PyTree-specific arguments.
-    use_ocdbt: bool = True,
-    use_zarr3: bool = True,
-    save_concurrent_bytes: int | None = None,
-    ocdbt_target_data_file_size: int | None = None,
-    enable_pinned_host_transfer: bool = False,
 ) -> async_types.AsyncResponse[None]:
   """Saves a PyTree asynchronously.
 
@@ -144,40 +127,30 @@ def save_pytree_async(
   Args:
     directory: The directory to save the checkpoint to.
     pytree: The PyTree to save. This may be any JAX PyTree (including custom
-      objects registered as PyTrees) consisting of supported leaf types.
-      Default supported leaf types include `jax.Array`,
-      `np.ndarray`, simple types like `int`, `float`, `str`, and empty nodes.
-      Support for custom leaves is also possible by implementing a
-      `LeafTypeHandler`.
+      objects registered as PyTrees) consisting of supported leaf types. Default
+      supported leaf types include `jax.Array`, `np.ndarray`, simple types like
+      `int`, `float`, `str`, and empty nodes. Support for custom leaves is also
+      possible by implementing a `LeafTypeHandler`.
     force: Whether to allow the save to proceed even if it would fully overwrite
       an existing checkpoint.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
-    use_ocdbt: Whether to use OCDBT for saving.
-    use_zarr3: Whether to use Zarr3 for saving.
-    save_concurrent_bytes: The maximum number of bytes to save concurrently.
-    ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
-      OCDBT data file.  It only applies when OCDBT is enabled and Zarr3 must be
-      turned on.  If left unspecified, default size is 2GB.  A value of 0
-      indicates no maximum file size limit.  For best results, ensure
-      chunk_byte_size is smaller than this value.  For more details, refer to
-      https://google.github.io/tensorstore/kvstore/ocdbt/index.html#json-kvstore/ocdbt.target_data_file_size
-    enable_pinned_host_transfer: If False, disables transfer to pinned host when
-      copying from device to host, regardless of the presence of pinned host
-      memory.
 
   Returns:
     An `AsyncResponse` that can be used to block until the save is complete.
     Blocking can be done using `response.result()`, which returns `None`.
   """
 
+  context = context_lib.get_context()
 
   handler_registry = ocp.handlers.create_default_handler_registry(
       pytree=ocp.PyTreeCheckpointHandler(
-          use_ocdbt=use_ocdbt,
-          use_zarr3=use_zarr3,
-          save_concurrent_gb=_get_concurrent_gb(save_concurrent_bytes),
+          use_ocdbt=context.pytree_options.use_ocdbt,
+          use_zarr3=context.pytree_options.use_zarr3,
+          save_concurrent_gb=_get_concurrent_gb(
+              context.pytree_options.save_concurrent_bytes
+          ),
       )
   )
   ckptr = ocp.AsyncCheckpointer(
@@ -186,8 +159,12 @@ def save_pytree_async(
   args = ocp.args.Composite(
       pytree=ocp.args.PyTreeSave(
           pytree,
-          ocdbt_target_data_file_size=ocdbt_target_data_file_size,
-          enable_pinned_host_transfer=enable_pinned_host_transfer,
+          ocdbt_target_data_file_size=(
+              context.pytree_options.ocdbt_target_data_file_size
+          ),
+          enable_pinned_host_transfer=(
+              context.pytree_options.enable_pinned_host_transfer
+          ),
       )
   )
   directory = epath.Path(directory)
