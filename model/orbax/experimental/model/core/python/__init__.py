@@ -63,6 +63,7 @@ from orbax.experimental.model.core.python.signature import TensorSpec
 from orbax.experimental.model.core.python.simple_orchestration import CURRENT_SIMPLE_ORCHESTRATION_MIME_TYPE
 from orbax.experimental.model.core.python.simple_orchestration import CURRENT_SIMPLE_ORCHESTRATION_VERSION
 from orbax.experimental.model.core.python.simple_orchestration import ORCHESTRATION_SUPPLEMENTAL_NAME
+from orbax.experimental.model.core.python.test_utils import ObmTestCase
 from orbax.experimental.model.core.python.tree_util import Tree
 from orbax.experimental.model.core.python.type_proto_util import manifest_type_to_shlo_tensor_spec_pytree
 from orbax.experimental.model.core.python.type_proto_util import to_function_signature_proto

@@ -14,7 +14,7 @@
 
 """Converts TF concrete functions to OBM functions (allowing TF resources)."""
 
-from typing import Any, Callable, Dict, Mapping, Sequence, Tuple, TypeVar
+from typing import Any, Callable, Dict, Iterable, Mapping, Sequence, Tuple, TypeVar
 
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
@@ -47,7 +47,9 @@ def _is_str_tensor_spec_dict(tree: TfSignature) -> bool:
   for k, v in tree.items():
     if not isinstance(k, str):
       return False
-    if not isinstance(v, tf.TensorSpec):
+    # ConcreteFunction.structured_outputs returns `SymbolicTensor`s, not
+    # `TensorSpec`s, so we need to also check for `SymbolicTensor`.
+    if not (isinstance(v, tf.TensorSpec) or tf.is_symbolic_tensor(v)):
       return False
   return True
 
@@ -56,7 +58,12 @@ def _is_dict_only(tree: TfSignature) -> bool:
   if _is_str_tensor_spec_dict(tree):
     return True
   elif is_args_kwargs_pattern(tree):
-    return not tree[0] and _is_str_tensor_spec_dict(tree)
+    args, kwargs = tree
+    if not args and _is_str_tensor_spec_dict(kwargs):
+      return True
+    if not kwargs and len(args) == 1 and _is_str_tensor_spec_dict(args[0]):
+      # Treating [[{...}], {}] as dict-only
+      return True
   return False
 
 
@@ -75,8 +82,10 @@ _NamesAndSequence = Tuple[Sequence[str] | None, Sequence[Any] | None]
 # TF signature a dict instead if they want to serve the function on
 # Servomatic. If we find that there are too many users relying on this
 # SavedModel behavior, we can revisit the decision here.
-def _generate_names(tree: TfSignature, prefix: str = '') -> _NamesAndSequence:
-  if _is_dict_only(tree):
+def _generate_names(
+    tree: TfSignature, prefix: str = '', *, fixed_name_pattern: bool
+) -> _NamesAndSequence:
+  if not fixed_name_pattern and _is_dict_only(tree):
     # If the input signature is dict-only, the function shouldn't be
     # called with positional arguments anyway, so we don't generate
     # names and just return None.
@@ -85,12 +94,20 @@ def _generate_names(tree: TfSignature, prefix: str = '') -> _NamesAndSequence:
   return tuple(f'{prefix}_{i}' for i in range(len(flat))), flat
 
 
-def _get_input_names(tree: TfSignature) -> _NamesAndSequence:
-  return _generate_names(tree, prefix='input')
+def _get_input_names(
+    tree: TfSignature, *, fixed_name_pattern: bool
+) -> _NamesAndSequence:
+  return _generate_names(
+      tree, prefix='input', fixed_name_pattern=fixed_name_pattern
+  )
 
 
-def _get_output_names(tree: TfSignature) -> _NamesAndSequence:
-  return _generate_names(tree, prefix='output')
+def _get_output_names(
+    tree: TfSignature, *, fixed_name_pattern: bool
+) -> _NamesAndSequence:
+  return _generate_names(
+      tree, prefix='output', fixed_name_pattern=fixed_name_pattern
+  )
 
 
 _T0 = TypeVar('_T0')
@@ -111,12 +128,15 @@ def _to_optional_str_list(
   )
 
 
+# TODO(b/400777413): Remove `fixed_name_pattern` in tf2obm once GemaxProd no
+#   longer uses it.
 def tf_concrete_function_name_to_obm_function(
     name: str,
     *,
     input_signature: TfSignature | None = None,
     output_signature: TfSignature | None = None,
     fn: tf.types.experimental.ConcreteFunction | None = None,
+    fixed_name_pattern: bool = False,
 ) -> obm.SerializableFunction:
   """Converts a TensorFlow (TF) concrete function name (with input/output signatures) to an Orbax Model (OBM) function.
 
@@ -132,6 +152,10 @@ def tf_concrete_function_name_to_obm_function(
     input_signature: the input signature of the concrete function.
     output_signature: the output signature of the concrete function.
     fn: the concrete function itself.
+    fixed_name_pattern: see `to_keyword_only_fn`. If this function is used with
+      `to_keyword_only_fn`, their `fixed_name_pattern` arguments must match. If
+      it is used with `save_tf_concrete_functions`, `fixed_name_pattern` should
+      be set to `False`.
 
   Returns:
     An OBM function.
@@ -150,8 +174,12 @@ def tf_concrete_function_name_to_obm_function(
     input_signature = get_input_signature(fn)
     output_signature = get_output_signature(fn)
 
-  input_names, _ = _get_input_names(input_signature)
-  output_names, _ = _get_output_names(output_signature)
+  input_names, _ = _get_input_names(
+      input_signature, fixed_name_pattern=fixed_name_pattern
+  )
+  output_names, _ = _get_output_names(
+      output_signature, fixed_name_pattern=fixed_name_pattern
+  )
   unstructured_data = obm.manifest_pb2.UnstructuredData(
       inlined_bytes=tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(
           fn_name=name,
@@ -279,25 +307,72 @@ def _to_args_kwargs_pattern(
     )
 
 
+T1 = TypeVar('T1')
+T2 = TypeVar('T2')
+
+
+def unzip2(
+    xys: Iterable[tuple[T1, T2]],
+) -> tuple[tuple[T1, ...], tuple[T2, ...]]:
+  """Unzip sequence of length-2 tuples into two tuples."""
+  xs: list[T1] = []
+  ys: list[T2] = []
+  for x, y in xys:
+    xs.append(x)
+    ys.append(y)
+  return tuple(xs), tuple(ys)
+
+
+# TODO(b/400777413): Remove `fixed_name_pattern` in tf2obm once GemaxProd no
+#   longer uses it.
 def to_keyword_only_fn(
     f: tf.types.experimental.ConcreteFunction,
+    *,
+    fixed_name_pattern: bool = False,
 ) -> tf.types.experimental.ConcreteFunction:
   """Wraps a function into one whose inputs and outputs are keyword-only.
 
   Args:
     f: a TF concrete function.
+    fixed_name_pattern: if True, the new function's input (output) names will be
+      in the form "input_0", "input_1", ... (output_0", "output_1", ...).
 
   Returns:
     The wrapped function (also a TF concrete function).
   """
   input_signature = get_input_signature(f)
   output_signature = get_output_signature(f)
+
+  def input_names_fn(tree: TfSignature) -> _NamesAndSequence:
+    names, flat = _get_input_names(tree, fixed_name_pattern=fixed_name_pattern)
+    if names is None and is_args_kwargs_pattern(tree):
+      args, kwargs = tree
+      if not kwargs and len(args) == 1 and _is_str_tensor_spec_dict(args[0]):
+        # Although _is_dict_only treats this [[{...}], {}] pattern as
+        # dict-only (hence _get_input_names won't generate any new
+        # names), tf.function will put names like "dictname1_key1" in
+        # the `TensorSpec`s which will be picked up by TFRT. So we
+        # still need to wrap the function in this case, to remove
+        # those unwanted (because they are not generated hence not
+        # controlled by us) names. (Previous TF users seem to avoid
+        # those "dictname1_key1" names by explicitly setting names in
+        # tf.function's input_signature.)
+        dict_ = args[0]
+        names, flat = unzip2(sorted(dict_.items()))
+    return names, flat
+
   new_input_signature, input_names = _make_dict_only_signature(
-      input_signature, _get_input_names
+      input_signature, input_names_fn
   )
-  output_names, _ = _get_output_names(output_signature)
+  output_names, _ = _get_output_names(
+      output_signature, fixed_name_pattern=fixed_name_pattern
+  )
+
   if input_names is None and output_names is None:
     return f
+
+  # Note that `new_input_signature`, `input_names` or `output_names`
+  # may still be None here.
 
   @tf.function(
       autograph=False,
@@ -317,6 +392,8 @@ def to_keyword_only_fn(
     )
     return new_output
 
+  if new_input_signature is None:
+    _, new_input_signature = _to_args_kwargs_pattern(input_signature)
   return new_f.get_concrete_function(
       **new_input_signature,
   )

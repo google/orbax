@@ -13,11 +13,14 @@
 # limitations under the License.
 
 import os
+from typing import Any, Sequence
 
 from absl.testing import parameterized
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
+from orbax.experimental.model.tf2obm import utils
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import _generate_names
+from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import _is_dict_only
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import save_tf_concrete_functions
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import SAVED_MODEL_MIME_TYPE
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import SAVED_MODEL_VERSION
@@ -26,6 +29,7 @@ from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import TF_CONC
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import tf_concrete_function_name_to_obm_function
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import tf_saved_model_as_obm_supplemental
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import TF_SAVED_MODEL_SUPPLEMENTAL_NAME
+from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import to_keyword_only_fn
 import tensorflow as tf
 
 from tensorflow.python.util.protobuf import compare
@@ -33,35 +37,195 @@ from google.protobuf import text_format
 from absl.testing import absltest
 
 
-class TfConcreteFunctionsToObmTest(parameterized.TestCase, tf.test.TestCase):
+_TUPLE = (
+    tf.TensorSpec((2, 3), tf.float32),
+    tf.TensorSpec((4, 5), tf.float64),
+    tf.TensorSpec((6,), tf.float32),
+)
+
+
+_DICT = {
+    "a": tf.TensorSpec((2, 3), tf.float32),
+    "b": tf.TensorSpec((4, 5), tf.float64),
+}
+
+
+def _dict_from_seq(prefix: str, seq: Sequence[Any]):
+  return {f"{prefix}{i}": elem for i, elem in enumerate(seq)}
+
+
+def _as_output_signature(tree):
+  @tf.function(autograph=False)
+  def f():
+    return obm.tree_util.tree_map(
+        lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), tree
+    )
+
+  return utils.get_output_signature(f.get_concrete_function())
+
+
+class TfConcreteFunctionsToObmTest(
+    tf.test.TestCase,
+    obm.ObmTestCase,
+):
 
   @parameterized.named_parameters(
-      (
-          "tuple",
+      (  # pylint: disable=g-complex-comprehension
+          f"_{idx}_{as_output_signature}",
+          signature,
+          expected,
+          as_output_signature,
+      )
+      for as_output_signature in (False, True)
+      for idx, (signature, expected) in enumerate((
           (
-              tf.TensorSpec((2, 3), tf.float32),
-              tf.TensorSpec((4, 5), tf.float64),
-              tf.TensorSpec((6,), tf.float32),
+              _TUPLE,
+              False,
           ),
-          ("_0", "_1", "_2"),
-      ),
-      (
-          "dict",
-          {
-              "a": tf.TensorSpec((2, 3), tf.float32),
-              "b": tf.TensorSpec((4, 5), tf.float64),
-          },
-          None,
-      ),
+          (
+              _DICT,
+              True,
+          ),
+          (
+              ((), _DICT),
+              True,
+          ),
+          (
+              ((_DICT,), {}),
+              True,
+          ),
+      ))
   )
-  def test_generate_names(self, signature, expected_names):
+  def test_is_dict_only(self, signature, expected, as_output_signature):
+    if as_output_signature:
+      signature = _as_output_signature(signature)
+    self.assertEqual(
+        _is_dict_only(signature),
+        expected,
+    )
+
+  @parameterized.named_parameters(
+      (  # pylint: disable=g-complex-comprehension
+          f"_{name}_{as_output_signature}",
+          signature,
+          expected_names,
+          as_output_signature,
+      )
+      for as_output_signature in (False, True)
+      for name, signature, expected_names in (
+          (
+              "tuple",
+              _TUPLE,
+              ("_0", "_1", "_2"),
+          ),
+          (
+              "dict",
+              _DICT,
+              None,
+          ),
+      )
+  )
+  def test_generate_names(self, signature, expected_names, as_output_signature):
+    if as_output_signature:
+      signature = _as_output_signature(signature)
     prefix = "my_prefix"
     if expected_names is not None:
       expected_names = tuple(prefix + name for name in expected_names)
-    names, _ = _generate_names(signature, prefix=prefix)
+    names, _ = _generate_names(
+        signature, prefix=prefix, fixed_name_pattern=False
+    )
     self.assertEqual(
         names,
         expected_names,
+    )
+
+  @parameterized.named_parameters(
+      (  # pylint: disable=g-complex-comprehension
+          f"_{input_case_id}_{output_case_id}",
+          input_sig,
+          expected_input_sig,
+          output_sig,
+          expected_output_sig,
+      )
+      for input_case_id, (input_sig, expected_input_sig) in enumerate((
+          (
+              (_TUPLE, {}),
+              ((), _dict_from_seq("input_", _TUPLE)),
+          ),
+          (
+              ((), _DICT),
+              None,
+          ),
+          (
+              (_TUPLE, _DICT),
+              (
+                  (),
+                  _dict_from_seq(
+                      "input_", obm.tree_util.flatten((_TUPLE, _DICT))
+                  ),
+              ),
+          ),
+          (
+              ((_DICT,), {}),
+              ((), _DICT),
+          ),
+      ))
+      for output_case_id, (output_sig, expected_output_sig) in enumerate((
+          (
+              _TUPLE,
+              _dict_from_seq("output_", _TUPLE),
+          ),
+          (
+              _TUPLE[0],
+              _dict_from_seq("output_", _TUPLE[0:1]),
+          ),
+          (
+              _DICT,
+              None,
+          ),
+          (
+              (_DICT,),
+              _dict_from_seq("output_", obm.tree_util.flatten(_DICT)),
+          ),
+          (
+              (_TUPLE, _DICT),
+              _dict_from_seq("output_", obm.tree_util.flatten((_TUPLE, _DICT))),
+          ),
+      ))
+  )
+  def test_to_keyword_only_fn(
+      self, input_sig, expected_input_sig, output_sig, expected_output_sig
+  ):
+    if expected_input_sig is None:
+      expected_input_sig = input_sig
+    if expected_output_sig is None:
+      expected_output_sig = output_sig
+
+    @tf.function(autograph=False)
+    def f(*args, **kwargs):
+      del args, kwargs
+      return obm.tree_util.tree_map(
+          lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), output_sig
+      )
+
+    args, kwargs = input_sig
+    cf = f.get_concrete_function(*args, **kwargs)
+    new_cf = to_keyword_only_fn(cf)
+
+    def is_spec_equiv(a, b):
+      self.assertEqual(a.shape, b.shape)
+      self.assertEqual(a.dtype, b.dtype)
+      return True
+
+    self.assertTreeEquiv(
+        utils.get_input_signature(new_cf),
+        expected_input_sig,
+        is_spec_equiv,
+    )
+    self.assertTreeEquiv(
+        utils.get_output_signature(new_cf),
+        expected_output_sig,
+        is_spec_equiv,
     )
 
   def test_e2e(self):
