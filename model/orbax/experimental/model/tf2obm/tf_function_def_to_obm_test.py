@@ -19,7 +19,7 @@ import tensorflow as tf
 from absl.testing import absltest
 
 
-class TfFunctionDefToObmTest(googletest.TestCase):
+class TfFunctionDefToObmTest(absltest.TestCase):
 
   def test_tf_concrete_function_to_unstructured_data_success(self):
 
@@ -56,4 +56,4 @@ class TfFunctionDefToObmTest(googletest.TestCase):
 
 
 if __name__ == "__main__":
-  googletest.main()
+  absltest.main()

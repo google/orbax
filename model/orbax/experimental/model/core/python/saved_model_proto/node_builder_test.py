@@ -22,7 +22,7 @@ from absl.testing import absltest
 DataType = types_pb2.DataType
 
 
-class NodeBuilderTest(googletest.TestCase):
+class NodeBuilderTest(absltest.TestCase):
 
   def test_add_nodes(self):
     builder = node_builder.NodeBuilder()
@@ -61,4 +61,4 @@ class NodeBuilderTest(googletest.TestCase):
 
 
 if __name__ == '__main__':
-  googletest.main()
+  absltest.main()

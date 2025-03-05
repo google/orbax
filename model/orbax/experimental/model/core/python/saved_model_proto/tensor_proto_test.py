@@ -72,4 +72,4 @@ class TensorProtoTest(parameterized.TestCase):
       self.assertEqual(s, back_tensor.np_array[n])
 
 if __name__ == '__main__':
-  googletest.main()
+  absltest.main()

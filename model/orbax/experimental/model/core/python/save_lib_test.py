@@ -18,6 +18,7 @@ from collections.abc import Sequence
 import os
 from typing import Tuple
 
+from absl.testing import absltest
 import jax
 from jax import export as jax_export
 import jax.numpy as jnp
@@ -32,8 +33,6 @@ from orbax.experimental.model.core.python.function import np_dtype_to_shlo_dtype
 from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.shlo_function import ShloFunction
 import tensorflow as tf
-
-from absl.testing import absltest
 
 save = save_lib.save
 Tensor = concrete_function.Tensor
@@ -70,10 +69,11 @@ def jax_spec_to_tensor_spec(x: jax.ShapeDtypeStruct) -> TensorSpec:
   return TensorSpec(shape=x.shape, dtype=dtype_from_np_dtype(x.dtype))
 
 
-class SaveTest(googletest.TestCase):
+class SaveTest(absltest.TestCase):
   # TODO(qidichen): We can move relevant parts of test from orbax/experimental/model/integration_tests/orbax_model_test.py here.
   def test_save(self):
     pass
 
+
 if __name__ == '__main__':
-  googletest.main()
+  absltest.main()
