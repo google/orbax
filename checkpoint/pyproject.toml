@@ -41,6 +41,11 @@ dynamic = ['version']
 [tool.flit.module]
 name = "orbax.checkpoint"
 
+[tool.flit.sdist]
+exclude = [
+    '**/BUILD',
+]
+
 [project.urls]
 homepage = 'http://github.com/google/orbax'
 repository = 'http://github.com/google/orbax'
