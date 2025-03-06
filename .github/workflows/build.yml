@@ -172,8 +172,14 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y protobuf-compiler
 
-        pip install .
+        pip install tensorflow
+
+        protoc -I=. --python_out=. $(find orbax/experimental/model/ -name "*.proto")
+
+        pip install -e .
+
         pip install .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+
         if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
           pip install -U jax jaxlib
         elif [[ "${{ matrix.jax-version }}" == "nightly" ]]; then
@@ -181,3 +187,13 @@ jobs:
         else
           pip install "jax==${{ matrix.jax-version }}" "jaxlib==${{ matrix.jax-version }}"
         fi
+    - name: Test with pytest
+      run: |
+        pytest orbax/experimental/model/core/python/*_test.py
+
+        pytest orbax/experimental/model/tf2obm/*_test.py
+
+        pytest orbax/experimental/model/jax2obm/ \
+        --ignore=orbax/experimental/model/jax2obm/main_lib_test.py \
+        --ignore=orbax/experimental/model/jax2obm/sharding_test.py \
+        --ignore=orbax/experimental/model/jax2obm/jax_to_polymorphic_function_test.py
