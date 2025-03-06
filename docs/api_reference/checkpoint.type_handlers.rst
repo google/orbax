@@ -36,9 +36,9 @@ ArrayHandler
 .. autoclass:: ArrayHandler
   :members:
 
-SingleSliceArrayHandler
+SingleReplicaArrayHandler
 ------------------------
-.. autoclass:: ArrayHandler
+.. autoclass:: SingleReplicaArrayHandler
   :members:
 
 StringHandler

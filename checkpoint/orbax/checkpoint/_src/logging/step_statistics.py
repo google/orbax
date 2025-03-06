@@ -28,21 +28,21 @@ class SaveStepStatistics:
   Attributes:
     step: The step number.
     event_type: The event type.
-    checkpoint_manager_blocking_start_time: The start time of checkpoint manager
-      blocking section.
     directory: The directory of the checkpoint.
     reached_preemption: Whether the event reached preemption.
     preemption_received_at: The time when preemption was received.
-    wait_for_prev_start_time: The start time of waiting for previous checkpoint.
-    checkpointer_blocking_start_time: The start time of blocking time introduced
-      by checkpointer.
-    get_old_steps_start_time: The start time of getting old steps.
     synchronous: Whether the event is synchronous.
+    wait_for_prev_start_time: The start time of waiting for previous checkpoint.
     wait_for_prev_duration_secs: The duration of waiting for previous
       checkpoint.
+    checkpointer_blocking_start_time: The start time of blocking time introduced
+      by checkpointer.
     checkpointer_blocking_duration_secs: The duration of blocking time
       introduced by checkpointer.
+    get_old_steps_start_time: The start time of getting old steps.
     get_old_steps_duration_secs: The duration of getting old steps.
+    checkpoint_manager_blocking_start_time: The start time of checkpoint manager
+      blocking section.
     checkpoint_manager_blocking_duration_secs: The duration of checkpoint
       manager blocking section.
   """
@@ -82,8 +82,6 @@ class RestoreStepStatistics:
   """
 
   step: Optional[int] = None
-  event_type: Optional[str] = "restore"
-  directory: Optional[str] = None
   event_type: Optional[str] = "restore"
   directory: Optional[str] = None
   checkpointer_start_time: Optional[float] = None

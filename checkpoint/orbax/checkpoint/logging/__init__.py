@@ -16,13 +16,13 @@
 
 # pylint: disable=g-importing-member, g-bad-import-order, g-import-not-at-top, unused-import
 
-
-from orbax.checkpoint._src.logging import composite_logger
-from orbax.checkpoint._src.logging import abstract_logger
-from orbax.checkpoint._src.logging import standard_logger
-from orbax.checkpoint._src.logging import step_statistics
+from orbax.checkpoint._src.logging.abstract_logger import AbstractLogger
+from orbax.checkpoint._src.logging.composite_logger import CompositeLogger
+from orbax.checkpoint._src.logging.standard_logger import StandardLogger
+from orbax.checkpoint.logging import step_statistics
 
 try:
-  from orbax.checkpoint._src.logging import cloud_logger
+  from orbax.checkpoint._src.logging.cloud_logger import CloudLogger
+  from orbax.checkpoint._src.logging.cloud_logger import CloudLoggerOptions
 except ImportError:
   pass

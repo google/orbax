@@ -748,11 +748,11 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
     Restoration can happen in a variety of modes, depending on which `args` is
     passed:
-      - `args` is not None and not empty. Item names present in `args` will
-        be restored as long as they exist in the checkpoint and have a
-        registered handler.
+      - `args` is not None and not empty. Item names present in `args` will be
+      restored as long as they exist in the checkpoint and have a registered
+      handler.
       - `args` is None or empty. All items in the checkpoint that have a
-        registered handler will be restored.
+      registered handler will be restored.
 
     Args:
       directory: Path to restore from.

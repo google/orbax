@@ -46,6 +46,9 @@ from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.logging import abstract_logger
+from orbax.checkpoint._src.logging import standard_logger
+from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import step as step_lib
@@ -53,9 +56,6 @@ from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency import local_checkpoint_data_debugging
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.experimental.emergency import process_metadata_checkpoint_handler
-from orbax.checkpoint.logging import abstract_logger
-from orbax.checkpoint.logging import standard_logger
-from orbax.checkpoint.logging import step_statistics
 from typing_extensions import Self  # for Python version < 3.11
 
 

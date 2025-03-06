@@ -20,6 +20,8 @@ arrays (e.g. `dtype`).
 - Internal/external mirroring was temporarily broken and a few changes were not
 pushed when intended (since 2-27). However, there are only a few such changes,
 which are reflected in the CHANGELOG.
+- Fix ReadTheDocs breakage and fix a number of formatting issues.
+Refactor `orbax.checkpoint.logging` in service of this objective.
 
 ### Changed
 
@@ -129,8 +131,11 @@ observed.
 ## [0.11.0] - 2024-12-30
 
 ### Fixed
+
 - Resolve default value of Handler.typestr if method missing.
+
 ### Added
+
 - Add announcement for grain version compatibility. See
  https://github.com/google/orbax/issues/1456.
 
@@ -138,17 +143,20 @@ observed.
 ## [0.10.3] - 2024-12-19
 
 ### Added
+
 - `HandlerTypeRegistry` that globally tracks all handler types, which will allow
 `CompositeCheckpointHandler.metadata()` to retrieve item metadata by
 default-constructing `CheckpointHandler`s when they're listed in the saved
 `StepMetadata` but aren't found in the checkpoint.
 
 ### Fixed
+
 - Ignore not-exists and not-dir errors while building step metadata in
  _StandardNameFormat.
 - Fix `Self` import in `replicator_checkpoint_manager.py`.
 
 ### Changed
+
 - Return `StepMetadata` from `CompositeCheckpointHandler.metadata()`.
 
 ## [0.10.2] - 2024-12-04

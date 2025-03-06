@@ -200,10 +200,10 @@ def get_barrier_sync_fn(
       processes.
 
   Returns:
-    No-op function if there is a single JAX process.
-    A barrier synchronization callable which accepts two arguments:
-      - "key": [str] unique barrier id;
-      - "timeout_ms": [int] timeout to use for waiting on the barrier.
+    A no-op function if there is a single JAX process, or
+    A barrier synchronization callable which accepts two arguments: "key": [str]
+    unique barrier id; "timeout_ms": [int] timeout to use for waiting on the
+    barrier.
     Should be called from all JAX processes with the same sync key and will
     block until either 1) all processes have reached the barrier or
     2) the timeout is exceeded.

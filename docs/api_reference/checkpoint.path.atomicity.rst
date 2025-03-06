@@ -5,11 +5,6 @@ Atomicity
 
 .. automodule:: orbax.checkpoint.path.atomicity
 
-TemporaryPath
-------------------------------
-.. autoclass:: TemporaryPath
-  :members:
-
 AtomicRenameTemporaryPath
 ------------------------------
 .. autoclass:: AtomicRenameTemporaryPath

@@ -1,20 +1,16 @@
-sphinx==6.2.1
-sphinx-book-theme>=1.1.2
+sphinx==8.2.3
+sphinx-book-theme==1.1.4
 sphinxcontrib-katex==0.9.0
-sphinxcontrib-bibtex==2.4.2
-sphinxcontrib-applehelp==1.0.3
-sphinxcontrib-devhelp==1.0.2
-sphinxcontrib-htmlhelp==2.0.1
-sphinxcontrib-serializinghtml==1.1.5
-sphinxcontrib-qthelp==1.0.3
-sphinx-autodoc-typehints==1.11.1
-sphinx-design
-docutils==0.18.1
+sphinxcontrib_applehelp==2.0.0
+sphinxcontrib-devhelp==2.0.0
+sphinxcontrib_htmlhelp==2.1.0
+sphinxcontrib_serializinghtml==2.0.0
+docutils==0.21.2
+myst-parser==4.0.1
 
 # Packages used for notebook execution
-IPython==7.23.1
-ipykernel==6.5.0
-myst-nb>=1.0.0
-cached_property
-importlib_resources
-tensorflow>=2.15.0
+ipython==9.0.1
+ipykernel==6.29.5
+myst-nb==1.2.0
+cached_property==2.0.1
+importlib_resources==6.5.2

@@ -46,7 +46,7 @@ homepage = 'http://github.com/google/orbax'
 repository = 'http://github.com/google/orbax'
 
 [project.optional-dependencies]
-all = [
+docs = [
   'tensorflow>=2.15.0',
 ]
 

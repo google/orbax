@@ -17,7 +17,6 @@ py_library(
         ":checkpointers",
         ":future",
         ":handlers",
-        ":logging",
         ":msgpack_utils",
         ":options",
         ":path",
@@ -42,6 +41,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:step",
         "//checkpoint/orbax/checkpoint/metadata",
         "//checkpoint/orbax/checkpoint/serialization",
+        "//orbax/checkpoint/logging",
     ],
 )
 
@@ -54,7 +54,6 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/handlers:checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/handlers:composite_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/handlers:handler_registration",
-        "//checkpoint/orbax/checkpoint/_src/handlers:handler_type_registry",
         "//checkpoint/orbax/checkpoint/_src/handlers:json_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/handlers:proto_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/handlers:pytree_checkpoint_handler",
@@ -114,7 +113,6 @@ py_library(
         ":abstract_checkpoint_manager",
         ":args",
         ":checkpoint_args",
-        ":logging",
         ":options",
         ":utils",
         "//checkpoint/orbax/checkpoint/_src/checkpoint_managers:save_decision_policy",
@@ -126,6 +124,9 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/handlers:handler_registration",
         "//checkpoint/orbax/checkpoint/_src/handlers:json_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/handlers:proto_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/_src/logging:abstract_logger",
+        "//checkpoint/orbax/checkpoint/_src/logging:standard_logger",
+        "//checkpoint/orbax/checkpoint/_src/logging:step_statistics",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint_info",
         "//checkpoint/orbax/checkpoint/_src/metadata:root_metadata_serialization",
@@ -288,18 +289,6 @@ py_library(
 py_library(
     name = "version",
     srcs = ["version.py"],
-)
-
-py_library(
-    name = "logging",
-    srcs = ["logging.py"],
-    deps = [
-        "//checkpoint/orbax/checkpoint/_src/logging:abstract_logger",
-        "//checkpoint/orbax/checkpoint/_src/logging:cloud_logger",  # buildcleaner:keep
-        "//checkpoint/orbax/checkpoint/_src/logging:composite_logger",
-        "//checkpoint/orbax/checkpoint/_src/logging:standard_logger",
-        "//checkpoint/orbax/checkpoint/_src/logging:step_statistics",
-    ],
 )
 
 py_library(

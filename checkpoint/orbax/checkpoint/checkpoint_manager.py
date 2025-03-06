@@ -44,6 +44,9 @@ from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
+from orbax.checkpoint._src.logging import abstract_logger
+from orbax.checkpoint._src.logging import standard_logger
+from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import checkpoint_info
 from orbax.checkpoint._src.metadata import root_metadata_serialization
@@ -53,9 +56,6 @@ from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import deleter
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path import utils as path_utils
-from orbax.checkpoint.logging import abstract_logger
-from orbax.checkpoint.logging import standard_logger
-from orbax.checkpoint.logging import step_statistics
 from typing_extensions import Self  # for Python version < 3.11
 
 

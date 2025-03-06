@@ -65,7 +65,6 @@ class FileOptions:
     path_permission_mode: Path permission mode for step directories, user
       metadata files. e.g. 0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
-        path is supported. default=None.
   """
 
   path_permission_mode: Optional[int] = None

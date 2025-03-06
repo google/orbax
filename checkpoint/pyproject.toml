@@ -29,7 +29,7 @@ dependencies = [
     'jax == 0.5.0',
     'numpy',
     'pyyaml',
-    'tensorstore >= 0.1.68',
+    'tensorstore >= 0.1.71',
     'nest_asyncio',
     'protobuf',
     'humanize',
@@ -46,6 +46,10 @@ homepage = 'http://github.com/google/orbax'
 repository = 'http://github.com/google/orbax'
 
 [project.optional-dependencies]
+docs = [
+  'flax',
+  'google-cloud-logging',
+]
 testing = [
     'google-cloud-logging',
     'mock',

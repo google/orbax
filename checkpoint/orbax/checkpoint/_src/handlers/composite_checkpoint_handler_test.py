@@ -25,12 +25,12 @@ from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
+from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import step
-from orbax.checkpoint.logging import step_statistics
 
 CompositeArgs = composite_checkpoint_handler.CompositeArgs
 JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
@@ -714,7 +714,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         step_metadata.item_handlers,
         {
             'state': StandardCheckpointHandler().typestr(),
-        }
+        },
     )
     expected_elements = ['state']
     self.assertSameElements(
@@ -727,13 +727,13 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         dict(step_metadata.item_metadata),
         {
             'state': None,
-        }
+        },
     )
     self.assertDictEqual(
         step_metadata.item_handlers,
         {
             'state': None,
-        }
+        },
     )
 
   @parameterized.parameters(True, False)
@@ -851,13 +851,13 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     checkpoint.metadata_store(enable_write=True, blocking_write=True).write(
         checkpoint.step_metadata_file_path(self.directory),
-        step_metadata_serialization.serialize(metadata_to_write)
+        step_metadata_serialization.serialize(metadata_to_write),
     )
 
     step_metadata = handler.metadata(self.directory)
     self.assertDictEqual(
         step_metadata.item_handlers,
-        {'state': StandardCheckpointHandler().typestr()}
+        {'state': StandardCheckpointHandler().typestr()},
     )
     self.assertEmpty(dict(step_metadata.item_metadata))
     self.assertDictEqual(step_metadata.metrics, {'loss': 1.0, 'accuracy': 0.5})
@@ -865,7 +865,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         step_metadata.performance_metrics,
         step_statistics.SaveStepStatistics(
             preemption_received_at=1.0,
-        )
+        ),
     )
     self.assertEqual(step_metadata.init_timestamp_nsecs, 1000)
     self.assertEqual(step_metadata.commit_timestamp_nsecs, 2000)
@@ -888,7 +888,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     )
     checkpoint.metadata_store(enable_write=True, blocking_write=True).write(
         checkpoint.step_metadata_file_path(self.directory),
-        step_metadata_serialization.serialize(metadata_to_write)
+        step_metadata_serialization.serialize(metadata_to_write),
     )
 
     state = {'a': 1, 'b': 2}
@@ -905,13 +905,13 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         step_metadata.item_handlers,
         {
             'state': StandardCheckpointHandler().typestr(),
-        }
+        },
     )
     self.assertSameElements(
         step_metadata.item_metadata.keys(),
         [
             'state',
-        ]
+        ],
     )
     self.assertIsNotNone(step_metadata.item_metadata['state'])
 
