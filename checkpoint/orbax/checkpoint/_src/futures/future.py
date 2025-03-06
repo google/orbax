@@ -235,6 +235,10 @@ class _SignalingThread(threading.Thread):
   def join(self, timeout: Optional[float] = None):
     """Waits for the target function to complete."""
     super().join(timeout=timeout)
+    if self.is_alive():
+      raise TimeoutError(
+          f'Thread {self.name} did not complete within {timeout} seconds.'
+      )
     if self._exception is not None:
       raise self._exception
 

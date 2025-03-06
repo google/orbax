@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- V1: `PyTreeHandler`.
 - V1: Introduce Context and its usage as a contextmanager.
 - V1: Add `ArrayStorageOptions` to customize per-leaf saving behavior for
 arrays (e.g. `dtype`).

@@ -76,8 +76,7 @@ class _DefaultAsyncResponse(AsyncResponse[T]):
 
   def result(self, timeout: float | None = None) -> T:
     """Waits for the commit to complete."""
-    self._t.join(timeout=timeout)
-    return self._t.result()
+    return self._t.result(timeout=timeout)
 
 
 class _AsyncResponseAwaitingContractedSignals(AsyncResponse[T]):

@@ -21,5 +21,5 @@ T = TypeVar('T')
 
 class AsyncResponse(Protocol[T]):
 
-  def result(self, timeout: int | None = None) -> T:
+  def result(self, timeout: float | None = None) -> T:
     ...

@@ -85,10 +85,6 @@ class ArrayStorageOptions:
   chunk_byte_size: int | None = None
   shard_axes: tuple[int, ...] = tuple()
 
-  def __post_init__(self):
-    if self.dtype is not None:
-      self.dtype = np.dtype(self.dtype)
-
 
 class CreateArrayStorageOptionsFn(Protocol):
 

@@ -16,8 +16,6 @@
 
 # pylint: disable=missing-class-docstring,protected-access,missing-function-docstring
 
-from typing import cast
-
 from absl.testing import parameterized
 from etils import epath
 import flax
@@ -26,40 +24,19 @@ from jax import numpy as jnp
 import numpy as np
 import optax
 from orbax.checkpoint import test_utils
-from orbax.checkpoint._src.arrays import abstract_arrays
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.tree import utils as tree_utils
 import orbax.checkpoint.experimental.v1 as ocp
+from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
 PyTree = tree_types.PyTree
 
-
-def create_sharded_array(
-    arr: np.ndarray, sharding: jax.sharding.Sharding
-) -> jax.Array:
-  sharding = cast(jax.sharding.NamedSharding, sharding)
-  return test_utils.create_sharded_array(arr, sharding.mesh, sharding.spec)
-
-
-def create_numpy_pytree():
-  pytree = test_utils.setup_pytree()
-  return pytree, jax.tree.map(as_abstract_type, pytree)
-
-
-def create_sharded_pytree():
-  pytree, _, _ = test_utils.setup_sharded_pytree()
-  return pytree, jax.tree.map(as_abstract_type, pytree)
-
-
-def as_abstract_type(value):
-  if isinstance(value, jax.Array):
-    return abstract_arrays.to_shape_dtype_struct(value)
-  elif isinstance(value, np.ndarray):
-    return np.empty_like(value)
-  else:
-    raise ValueError(f'Unsupported type: {type(value)}')
+create_sharded_array = array_test_utils.create_sharded_array
+create_numpy_pytree = array_test_utils.create_numpy_pytree
+create_sharded_pytree = array_test_utils.create_sharded_pytree
+as_abstract_type = array_test_utils.as_abstract_type
 
 
 class SaveLoadTestBase:

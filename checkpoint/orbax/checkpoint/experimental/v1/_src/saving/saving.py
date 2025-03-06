@@ -20,6 +20,7 @@ import threading
 
 from etils import epath
 import jax
+import numpy as np
 import orbax.checkpoint as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
@@ -43,7 +44,7 @@ def _make_v0_save_args(
     )
     save_args = jax.tree.map(
         lambda v: ocp.SaveArgs(
-            dtype=v.dtype,
+            dtype=np.dtype(v.dtype),
             chunk_byte_size=v.chunk_byte_size,
             shard_axes=v.shard_axes,
         ),
@@ -131,7 +132,7 @@ class _SaveResponse(async_types.AsyncResponse[None]):
   def _wait_for_save(self):
     self._checkpointer.wait_until_finished()
 
-  def result(self, timeout: int | None = None) -> None:
+  def result(self, timeout: float | None = None) -> None:
     self._thread.join()
     self._checkpointer.close()
 

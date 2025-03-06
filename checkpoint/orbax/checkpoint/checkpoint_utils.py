@@ -441,32 +441,36 @@ def construct_restore_args(
       value: Any,
       sharding: Optional[jax.sharding.Sharding],
   ) -> type_handlers.RestoreArgs:
-    dtype = value.dtype if hasattr(value, 'dtype') else None
     if isinstance(value, jax.ShapeDtypeStruct):
       if sharding is None:
-        return type_handlers.RestoreArgs(dtype=dtype)
+        return type_handlers.RestoreArgs(dtype=value.dtype)
       else:
-        return _array_restore_args(value, sharding, dtype)
+        return _array_restore_args(value, sharding, value.dtype)
     elif isinstance(value, value_metadata.Metadata):
       if isinstance(value, value_metadata.StringMetadata):
         return type_handlers.RestoreArgs(restore_type=str)
       elif isinstance(value, value_metadata.ScalarMetadata):
-        assert dtype is not None
         return type_handlers.RestoreArgs(
-            restore_type=_python_type_from_dtype(dtype), dtype=dtype
+            restore_type=_python_type_from_dtype(value.dtype), dtype=value.dtype
         )
       elif isinstance(value, value_metadata.ArrayMetadata):
         if sharding is None:
-          return type_handlers.RestoreArgs(restore_type=np.ndarray, dtype=dtype)
+          return type_handlers.RestoreArgs(
+              restore_type=np.ndarray, dtype=value.dtype
+          )
         else:
-          return _array_restore_args(value, sharding, dtype)
+          return _array_restore_args(value, sharding, value.dtype)
       else:
         raise ValueError(f'Unsupported value_metadata class: {type(value)}.')
     elif isinstance(value, STANDARD_ARRAY_TYPES):
-      if not isinstance(value, jax.Array):
-        return type_handlers.RestoreArgs(restore_type=type(value), dtype=dtype)
+      if isinstance(value, np.ndarray):
+        return type_handlers.RestoreArgs(
+            restore_type=type(value), dtype=value.dtype
+        )
+      elif isinstance(value, jax.Array):
+        return _array_restore_args(value, sharding, value.dtype)
       else:
-        return _array_restore_args(value, sharding, dtype)
+        return type_handlers.RestoreArgs(restore_type=type(value))
     elif isinstance(value, str):
       return type_handlers.RestoreArgs(restore_type=str)
     else:

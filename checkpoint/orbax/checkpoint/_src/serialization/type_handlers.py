@@ -743,7 +743,14 @@ class ScalarHandler(NumpyHandler):
     for r in results:
       if r.ndim != 0:
         raise ValueError('Restored result is not a scalar.')
-    return [r.item() for r in results]
+    results = [r.item() for r in results]
+    if args:
+      # Cast to the intended `restore_type` if it is provided.
+      return [
+          a.restore_type(r) if a.restore_type else r
+          for a, r in zip(args, results)
+      ]
+    return results
 
   def memory_size(self, values: Sequence[Scalar]) -> Sequence[Tuple[int, int]]:  # pytype: disable=signature-mismatch
     actual_sizes = [sys.getsizeof(v) for v in values]
