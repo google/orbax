@@ -49,7 +49,6 @@ import asyncio
 import concurrent.futures
 import dataclasses
 from typing import Any, Coroutine, Dict, List, Mapping, MutableSet, Optional, Tuple, Type
-import uuid
 
 from absl import logging
 from etils import epath
@@ -88,9 +87,6 @@ HandlerAwaitableSignal = synchronization.HandlerAwaitableSignal
 
 
 _CONCURRENT_WORKERS = 3
-
-DESCRIPTOR_ITEM_NAME = 'descriptor'
-RESERVED_ITEM_NAMES = [DESCRIPTOR_ITEM_NAME]
 _DIRECTORY_CREATION_SIGNALS = [HandlerAwaitableSignal.ITEM_DIRECTORY_CREATION]
 
 
@@ -187,11 +183,6 @@ def get_legacy_handler_wrapper(
   if isinstance(handler, async_checkpoint_handler.AsyncCheckpointHandler):
     return _AsyncLegacyCheckpointHandlerWrapper(handler)
   return _LegacyCheckpointHandlerWrapper(handler)
-
-
-def _maybe_raise_reserved_item_error(item_name: str):
-  if item_name in RESERVED_ITEM_NAMES:
-    raise ValueError(f'Cannot specify reserved item name: "{item_name}".')
 
 
 @dataclasses.dataclass
@@ -429,7 +420,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
       if item_names:
         for item in item_names:
-          _maybe_raise_reserved_item_error(item)
           if item not in items_and_handlers:
             # If an item is in `item_names`, but not in `items_and_handlers`,
             # there is no way to know what the corresponding handler and args
@@ -440,7 +430,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       # Register all the items and handlers in the handler registry.
       if items_and_handlers:
         for item, handler in items_and_handlers.items():
-          _maybe_raise_reserved_item_error(item)
           if handler is not None and checkpoint_args.has_registered_args(
               handler
           ):
@@ -504,7 +493,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     self._async_options = (
         composite_options.async_options or options_lib.AsyncOptions()
     )
-
     logging.info(
         'Initialized registry %s.',
         self._handler_registry,
@@ -669,7 +657,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
     return result
 
-
   async def async_save(
       self, directory: epath.Path, args: CompositeArgs
   ) -> Optional[List[Future]]:
@@ -694,7 +681,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     save_ops = []
     for item_name, item_directory in self._current_temporary_paths.items():
       arg = args[item_name]
-      _maybe_raise_reserved_item_error(item_name)
       handler = self._get_or_set_handler(item_name, arg)
       if isinstance(handler, AsyncCheckpointHandler):
         save_ops.append(handler.async_save(item_directory.get(), args=arg))
@@ -779,10 +765,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       composite_args_items = {}
       item_handlers = None
       for item_name in existing_items:
-        # Skip reserved items (they were not specifically requested).
-        if item_name in RESERVED_ITEM_NAMES:
-          continue
-
         if item_name not in items_to_handlers:
           item_handlers = (
               item_handlers or self.metadata(directory).item_handlers
