@@ -528,18 +528,6 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     self._checkpoints.delete_if(lambda info: info.step in steps_to_remove)
     self._checkpoint_deleter.delete_steps(steps_to_remove)
 
-    checkpoint_steps_set = set([info.step for info in self._checkpoints])
-    if mesh_consistency.process_metadata_folder(self.directory).exists():
-      metadata_paths_to_remove = [
-          p
-          for p in mesh_consistency.process_metadata_folder(
-              self.directory
-          ).iterdir()
-          if int(p.name) not in checkpoint_steps_set
-      ]
-      for p in metadata_paths_to_remove:
-        p.rmtree()
-
   def local_host_steps(self, read: bool) -> Sequence[int]:
     """Returns steps known to local host."""
     # List of steps present in individual host storage.
