@@ -210,6 +210,16 @@ class Checkpointer(
       ValueError if the provided directory already exists.
     """
     checkpoint_start_time = time.time()
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'Checkpointer:save_start',
+            prefix=self._barrier_sync_key_prefix,
+        ),
+        processes=self._active_processes,
+        record_event_name=(
+            '/jax/checkpoint/write/checkpoint_start_sync_duration_secs'
+        ),
+    )
     directory = epath.Path(directory)
 
     jax.monitoring.record_event('/jax/orbax/write/start')

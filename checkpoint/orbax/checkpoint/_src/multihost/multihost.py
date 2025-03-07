@@ -283,6 +283,7 @@ def sync_global_processes(
     timeout: Optional[int] = None,
     processes: Optional[Set[int]] = None,
     barrier_sync_fn: Optional[BarrierSyncFn] = None,
+    record_event_name: str = '/jax/checkpoint/sync_global_devices_duration_sec',
 ):
   """Barrier to sync concurrent processes.
 
@@ -297,6 +298,8 @@ def sync_global_processes(
       processes.
     barrier_sync_fn: Used as the implementation for the synchronization. If not
       provided, a default implementation is used.
+    record_event_name: The name of the event to record the duration of the
+      synchronization.
   """
   if should_skip_process_sync(processes):
     logging.vlog(
@@ -338,7 +341,7 @@ def sync_global_processes(
   # it does represent how long different processes waited around waiting for
   # other processes to reach a barrier.
   jax.monitoring.record_event_duration_secs(
-      '/jax/checkpoint/sync_global_devices_duration_sec',
+      record_event_name,
       time.time() - sync_start_time,
   )
 

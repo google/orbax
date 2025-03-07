@@ -969,6 +969,15 @@ class _MultisliceCheckpointManager(
       force: bool = False,
   ) -> bool:
     """Returns True if a checkpoint was saved either locally or persistently."""
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'CheckpointManager:save_start',
+            prefix='emergency_checkpoint_manager',
+        ),
+        record_event_name=(
+            '/jax/checkpoint/write/checkpoint_start_sync_duration_secs'
+        ),
+    )
     # TODO: b/330608746 - implement save op on different slices
     persistent_saved = False
     local_saved = False

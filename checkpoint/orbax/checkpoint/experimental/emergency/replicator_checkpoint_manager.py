@@ -245,6 +245,15 @@ class ReplicatorCheckpointManager(
       force: bool = False,
   ) -> bool:
     args = self._validate_and_standardize_args(args)
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'CheckpointManager:save_start',
+            prefix='replicator_checkpoint_manager',
+        ),
+        record_event_name=(
+            '/jax/checkpoint/write/checkpoint_start_sync_duration_secs'
+        ),
+    )
     process_metadata_args = (
         process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
             global_mesh=self._global_mesh,
