@@ -77,7 +77,6 @@ Install from GitHub using the following.
    guides/checkpoint/checkpointing_pytrees
    guides/checkpoint/checkpoint_format
    guides/checkpoint/optimized_checkpointing
-   guides/checkpoint/custom_handlers
    guides/checkpoint/transformations
    guides/checkpoint/preemption_checkpointing
    guides/checkpoint/async_checkpointing
@@ -145,13 +144,6 @@ Checkpointing
       .. card:: Optimized Checkpointing
          :class-card: sd-text-black sd-bg-light
          :link: guides/checkpoint/optimized_checkpointing.html
-
-   .. grid-item::
-      :columns: 6 6 6 4
-
-      .. card:: Custom Handlers
-         :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/custom_handlers.html
 
    .. grid-item::
       :columns: 6 6 6 4
