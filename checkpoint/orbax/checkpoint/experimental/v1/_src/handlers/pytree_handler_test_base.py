@@ -53,7 +53,8 @@ from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
-from orbax.checkpoint.experimental.v1._src.context import options
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -61,7 +62,6 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 PyTree = tree_types.PyTree
 ParamInfo = pytree_checkpoint_handler.ParamInfo
-ArrayStorageOptions = options.ArrayStorageOptions
 
 _SHARDING = '_sharding'
 PYTREE_METADATA_FILE = pytree_checkpoint_handler.PYTREE_METADATA_FILE
@@ -166,7 +166,7 @@ def init_flax_model(model):
 def handler_with_options(
     *,
     create_array_storage_options_fn: (
-        options.CreateArrayStorageOptionsFn | None
+        options_lib.PyTreeOptions.Saving.CreateArrayStorageOptionsFn | None
     ) = None,
     save_concurrent_bytes: int | None = None,
     restore_concurrent_bytes: int | None = None,
@@ -190,17 +190,30 @@ def handler_with_options(
       array_metadata_store
   )
 
+  context = context_lib.Context(
+      array_options=options_lib.ArrayOptions(
+          saving=options_lib.ArrayOptions.Saving(
+              concurrent_bytes=save_concurrent_bytes,
+              use_ocdbt=use_ocdbt,
+              use_zarr3=use_zarr3,
+              ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+              enable_pinned_host_transfer=enable_pinned_host_transfer,
+          ),
+          loading=options_lib.ArrayOptions.Loading(
+              concurrent_bytes=restore_concurrent_bytes,
+              enable_padding_and_truncation=enable_padding_and_truncation,
+          ),
+      ),
+      pytree_options=options_lib.PyTreeOptions(
+          saving=options_lib.PyTreeOptions.Saving(
+              create_array_storage_options_fn=create_array_storage_options_fn,
+              pytree_metadata_options=pytree_metadata_options,
+          )
+      ),
+  )
   handler = PyTreeHandler(
-      create_array_storage_options_fn=create_array_storage_options_fn,
-      save_concurrent_bytes=save_concurrent_bytes,
-      restore_concurrent_bytes=restore_concurrent_bytes,
-      use_ocdbt=use_ocdbt,
-      use_zarr3=use_zarr3,
-      enable_padding_and_truncation=enable_padding_and_truncation,
-      ocdbt_target_data_file_size=ocdbt_target_data_file_size,
-      enable_pinned_host_transfer=enable_pinned_host_transfer,
+      context=context,
       type_handler_registry=type_handler_registry,
-      pytree_metadata_options=pytree_metadata_options,
   )
   try:
     yield handler
@@ -651,7 +664,7 @@ class PyTreeHandlerTestBase:
 
       with handler_with_options(
           use_ocdbt=False,
-          create_array_storage_options_fn=lambda k, v: ArrayStorageOptions(
+          create_array_storage_options_fn=lambda k, v: options_lib.ArrayOptions.Saving.StorageOptions(
               dtype=save_dtype
           ),
       ) as checkpoint_handler:
@@ -1302,7 +1315,7 @@ class PyTreeHandlerTestBase:
       abstract_pytree = jax.tree.map(as_abstract_type, pytree)
 
       create_array_storage_options_fn = (
-          lambda key, value: options.ArrayStorageOptions(
+          lambda key, value: options_lib.ArrayOptions.Saving.StorageOptions(
               chunk_byte_size=chunk_byte_size
           )
       )

@@ -9,7 +9,11 @@ py_library(
 py_library(
     name = "options",
     srcs = ["options.py"],
-    deps = ["//orbax/checkpoint/experimental/v1/_src/tree:types"],
+    deps = [
+        "//checkpoint/orbax/checkpoint/_src/metadata:tree",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//orbax/checkpoint/experimental/v1/_src/tree:types",
+    ],
 )
 
 py_test(

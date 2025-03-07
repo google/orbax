@@ -57,10 +57,27 @@ class Context(epy.ContextManager):
 
   Attributes:
     pytree_options: Options for PyTree checkpointing.
+    array_options: Options for saving and loading array (and array-like
+      objects).
+    async_options: Options for controlling asynchronous behavior.
+    multiprocessing_options: Options for multiprocessing behavior.
+    file_options: Options for working with the file system.
   """
 
   pytree_options: options_lib.PyTreeOptions = dataclasses.field(
       default_factory=options_lib.PyTreeOptions
+  )
+  array_options: options_lib.ArrayOptions = dataclasses.field(
+      default_factory=options_lib.ArrayOptions
+  )
+  async_options: options_lib.AsyncOptions = dataclasses.field(
+      default_factory=options_lib.AsyncOptions
+  )
+  multiprocessing_options: options_lib.MultiprocessingOptions = (
+      dataclasses.field(default_factory=options_lib.MultiprocessingOptions)
+  )
+  file_options: options_lib.FileOptions = dataclasses.field(
+      default_factory=options_lib.FileOptions
   )
 
   def __contextmanager__(self) -> Iterable[Context]:
