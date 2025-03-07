@@ -1151,12 +1151,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     Args:
       step: The step to delete.
+
+    Raises:
+      FileNotFoundError: If the step does not exist.
     """
     if self._options.read_only:
       logging.warning('%s is read only, delete will be skipped', self.directory)
       return
     if step not in self.all_steps():
-      raise ValueError(f'Requested deleting a non-existent step: {step}.')
+      raise FileNotFoundError(
+          f'Requested deleting a non-existent step: {step}.'
+      )
     self._checkpoint_deleter.delete(step)
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
