@@ -28,7 +28,6 @@ from typing import Any, Awaitable, Iterator, List
 from unittest import mock
 
 from absl.testing import parameterized
-import chex
 from etils import epath
 import flax
 import flax.training.train_state
@@ -229,6 +228,7 @@ class PyTreeHandlerTestBase:
           support_rich_types=False
       )
 
+
       # default to use_ocdbt=False, so we can test non-ocdbt handler first
       self.handler = self.enter_context(
           handler_with_options(
@@ -257,10 +257,6 @@ class PyTreeHandlerTestBase:
       """Validate save was performed correctly."""
       actual = checkpoint_handler.load(path, abstract_pytree)
       test_utils.assert_tree_equal(self, expected, actual)
-
-    # TODO(b/301122724) Remove after b/301122724 is implemented.
-    def should_validate_metadata(self) -> bool:
-      return True
 
     def validate_metadata(
         self,
@@ -292,12 +288,15 @@ class PyTreeHandlerTestBase:
               ),
           )
         if isinstance(value, jax.Array):
+          expected_sharding = sharding_metadata.from_jax_sharding(
+              value.sharding
+          )
           expected_chunk_shape = test_utils.get_expected_chunk_shape(value)
           return value_metadata.ArrayMetadata(
               name='',
               directory=None,
               shape=value.shape,
-              sharding=sharding_metadata.from_jax_sharding(value.sharding),
+              sharding=expected_sharding,
               dtype=value.dtype,
               storage=value_metadata.StorageMetadata(
                   chunk_shape=expected_chunk_shape,
@@ -562,26 +561,29 @@ class PyTreeHandlerTestBase:
             checkpoint_handler,
         )
         if use_ocdbt:
-          self.assertContainsSubset(
-              [
-                  '_strings.json',
-                  'ocdbt.process_0',
-                  'ocdbt.process_1',
-              ],
-              [f.name for f in self.directory.iterdir()],
-          )
-        else:
-          self.assertIn(
+          expected_files_and_directories = [
               '_strings.json',
-              [f.name for f in self.directory.iterdir()],
-          )
-        if self.should_validate_metadata():
-          self.validate_metadata(
-              expected_reference_metadata_tree=pytree,
-              actual_metadata=checkpoint_handler.metadata(self.directory),
-              pytree_metadata_options=self.pytree_metadata_options,
-              array_metadata_store=array_metadata_store,
-          )
+              'manifest.ocdbt',
+              'ocdbt.process_0',
+          ]
+        else:
+          expected_files_and_directories = [
+              '_strings.json',
+              'numpy.a',
+              'numpy.b',
+              'numpy.c.a',
+              'numpy.c.e',
+          ]
+        self.assertContainsSubset(
+            expected_files_and_directories,
+            [f.name for f in self.directory.iterdir()],
+        )
+        self.validate_metadata(
+            expected_reference_metadata_tree=pytree,
+            actual_metadata=checkpoint_handler.metadata(self.directory),
+            pytree_metadata_options=self.pytree_metadata_options,
+            array_metadata_store=array_metadata_store,
+        )
 
     @parameterized.product(
         use_ocdbt=(True, False),
@@ -607,13 +609,12 @@ class PyTreeHandlerTestBase:
             pytree,
             checkpoint_handler,
         )
-        if self.should_validate_metadata():
-          self.validate_metadata(
-              expected_reference_metadata_tree=pytree,
-              actual_metadata=checkpoint_handler.metadata(self.directory),
-              pytree_metadata_options=self.pytree_metadata_options,
-              array_metadata_store=array_metadata_store,
-          )
+        self.validate_metadata(
+            expected_reference_metadata_tree=pytree,
+            actual_metadata=checkpoint_handler.metadata(self.directory),
+            pytree_metadata_options=self.pytree_metadata_options,
+            array_metadata_store=array_metadata_store,
+        )
         self.assertTrue((self.directory / '_strings.json').exists())
         with open(self.directory / '_strings.json') as file:
           data = json.load(file)
@@ -629,34 +630,45 @@ class PyTreeHandlerTestBase:
       pytree, abstract_pytree = create_mixed_format_pytree(
           include_scalars=False
       )
+      origin_dtype = np.int64
       save_dtype = np.uint32
       restore_dtype = np.float64
-
-      create_array_storage_options_fn = lambda k, v: ArrayStorageOptions(
-          dtype=save_dtype
-      )
-      with handler_with_options(
-          use_ocdbt=False,
-          create_array_storage_options_fn=create_array_storage_options_fn,
-      ) as checkpoint_handler:
-        checkpoint_handler.save(self.directory, pytree)
 
       def check_dtype(x, dtype):
         if not utils.is_scalar(x):
           self.assertEqual(x.dtype, dtype)
 
-      # Restore without casting.
-      restored = self.handler.load(self.directory)
-      jax.tree.map(lambda x: check_dtype(x, save_dtype), restored)
-
-      def set_dtype(v):
+      def set_dtype(v, dtype):
         if hasattr(v, 'dtype'):
-          setattr(v, 'dtype', restore_dtype)
+          setattr(v, 'dtype', dtype)
         return v
 
-      abstract_pytree = jax.tree.map(set_dtype, abstract_pytree)
-      restored = self.handler.load(self.directory, abstract_pytree)
-      jax.tree.map(lambda x: check_dtype(x, restore_dtype), restored)
+      with self.subTest('check_origin_dtype'):
+        jax.tree.map(functools.partial(check_dtype, dtype=origin_dtype), pytree)
+        jax.tree.map(
+            functools.partial(check_dtype, dtype=origin_dtype), abstract_pytree
+        )
+
+      with handler_with_options(
+          use_ocdbt=False,
+          create_array_storage_options_fn=lambda k, v: ArrayStorageOptions(
+              dtype=save_dtype
+          ),
+      ) as checkpoint_handler:
+        checkpoint_handler.save(self.directory, pytree)
+
+      with self.subTest('check_restore_dtype'):
+        abstract_pytree = jax.tree.map(
+            functools.partial(set_dtype, dtype=restore_dtype), abstract_pytree
+        )
+        restored = self.handler.load(self.directory, abstract_pytree)
+        jax.tree.map(
+            functools.partial(check_dtype, dtype=restore_dtype), restored
+        )
+
+      with self.subTest('check_save_dtype'):
+        restored = self.handler.load(self.directory)
+        jax.tree.map(functools.partial(check_dtype, dtype=save_dtype), restored)
 
     def test_cast_scalar(self):
       pytree = {'a': 5, 'b': 1.2}
@@ -702,13 +714,12 @@ class PyTreeHandlerTestBase:
             self.abstract_pytree,
         )
         test_utils.assert_tree_equal(self, self.pytree, restored)
-        if self.should_validate_metadata():
-          self.validate_metadata(
-              expected_reference_metadata_tree=self.pytree,
-              actual_metadata=checkpoint_handler.metadata(self.directory),
-              pytree_metadata_options=self.pytree_metadata_options,
-              array_metadata_store=array_metadata_store,
-          )
+        self.validate_metadata(
+            expected_reference_metadata_tree=self.pytree,
+            actual_metadata=checkpoint_handler.metadata(self.directory),
+            pytree_metadata_options=self.pytree_metadata_options,
+            array_metadata_store=array_metadata_store,
+        )
 
     def test_save_async(self):
       save_done = threading.Event()
@@ -820,13 +831,12 @@ class PyTreeHandlerTestBase:
           restored = checkpoint_handler.load(self.directory, abstract_state)
           expected_state = state
           test_utils.assert_tree_equal(self, expected_state, restored)
-          if self.should_validate_metadata():
-            self.validate_metadata(
-                expected_reference_metadata_tree=expected_state,
-                actual_metadata=checkpoint_handler.metadata(self.directory),
-                pytree_metadata_options=self.pytree_metadata_options,
-                array_metadata_store=array_metadata_store,
-            )
+          self.validate_metadata(
+              expected_reference_metadata_tree=expected_state,
+              actual_metadata=checkpoint_handler.metadata(self.directory),
+              pytree_metadata_options=self.pytree_metadata_options,
+              array_metadata_store=array_metadata_store,
+          )
 
         with self.subTest('without_abstract_state'):
           if multihost.is_pathways_backend():
@@ -837,13 +847,12 @@ class PyTreeHandlerTestBase:
               keep_empty_nodes=True,
           )
           test_utils.assert_tree_equal(self, expected_state, restored)
-          if self.should_validate_metadata():
-            self.validate_metadata(
-                expected_reference_metadata_tree=expected_state,
-                actual_metadata=checkpoint_handler.metadata(self.directory),
-                pytree_metadata_options=self.pytree_metadata_options,
-                array_metadata_store=array_metadata_store,
-            )
+          self.validate_metadata(
+              expected_reference_metadata_tree=expected_state,
+              actual_metadata=checkpoint_handler.metadata(self.directory),
+              pytree_metadata_options=self.pytree_metadata_options,
+              array_metadata_store=array_metadata_store,
+          )
 
     @parameterized.product(
         use_ocdbt=(
@@ -1108,8 +1117,7 @@ class PyTreeHandlerTestBase:
     def test_reshard(self, save_spec, restore_spec):
       devices = jax.devices()
       len_devices = len(devices)
-      if len_devices < 4:
-        return
+      self.assertGreaterEqual(len_devices, 4)
 
       mesh = jax.sharding.Mesh(
           mesh_utils.create_device_mesh((4, len_devices // 4)), ('x', 'y')
@@ -1165,16 +1173,13 @@ class PyTreeHandlerTestBase:
           'PyTreeCheckpointHandlerTest:delete_zarray'
       )
       self.assertFalse(zarr_path.exists())
-      error_type = (
-          ValueError if multihost.is_pathways_backend() else FileNotFoundError
-      )
-      with self.assertRaises(error_type):
+      with self.assertRaises(FileNotFoundError):
         self.handler.load(
             self.directory,
             self.abstract_pytree,
         )
 
-    def test_without_restore_args(self):
+    def test_without_abstract_pytree(self):
       arr = test_utils.create_sharded_array(
           np.arange(8),
           jax.sharding.Mesh(jax.devices(), ('x',)),
@@ -1621,7 +1626,7 @@ class PyTreeHandlerTestBase:
         tree_with_write_shapes = jax.tree.map(
             lambda m: {'write_shape': m.storage.write_shape}, metadata.tree
         )
-        chex.assert_trees_all_equal(
+        self.assertDictEqual(
             expected_tree_with_write_shapes, tree_with_write_shapes
         )
 
@@ -1657,7 +1662,7 @@ class PyTreeHandlerTestBase:
         tree_with_write_shapes = jax.tree.map(
             lambda m: {'write_shape': m.storage.write_shape}, metadata.tree
         )
-        chex.assert_trees_all_equal(
+        self.assertDictEqual(
             expected_tree_with_write_shapes, tree_with_write_shapes
         )
 
@@ -1695,74 +1700,56 @@ class PyTreeHandlerTestBase:
       self.assertTrue((self.directory / 'array_metadatas').exists())
       if multihost.process_index() == 0:
         array_metadatas = asyncio.run(ARRAY_METADATA_STORE.read(self.directory))
+        self.assertIsInstance(array_metadatas, dict)
+        per_process_metadatas = [
+            array_metadata.SerializedArrayMetadata(
+                param_name='a',
+                write_shape=(8,),
+                chunk_shape=(8,),
+            ),
+            array_metadata.SerializedArrayMetadata(
+                param_name='b',
+                write_shape=(2,),
+                chunk_shape=(2,),
+            ),
+            array_metadata.SerializedArrayMetadata(
+                param_name='c.a',
+                write_shape=(1, 1),
+                chunk_shape=(1, 1),
+            ),
+            array_metadata.SerializedArrayMetadata(
+                param_name='c.e',
+                write_shape=(2, 1),
+                chunk_shape=(2, 1),
+            ),
+            array_metadata.SerializedArrayMetadata(
+                param_name='x',
+                write_shape=(),
+                chunk_shape=(),
+            ),
+            array_metadata.SerializedArrayMetadata(
+                param_name='y',
+                write_shape=(),
+                chunk_shape=(),
+            ),
+        ]
         expected_array_metadatas = {
-            # Expected with use_replica_parallel=False.
-            0: [
-                array_metadata.SerializedArrayMetadata(
-                    param_name='a',
-                    write_shape=(8,),
-                    chunk_shape=(8,),
-                ),
-                array_metadata.SerializedArrayMetadata(
-                    param_name='b',
-                    write_shape=(2,),
-                    chunk_shape=(2,),
-                ),
-                array_metadata.SerializedArrayMetadata(
-                    param_name='c.a',
-                    write_shape=(1, 1),
-                    chunk_shape=(1, 1),
-                ),
-                array_metadata.SerializedArrayMetadata(
-                    param_name='c.e',
-                    write_shape=(2, 1),
-                    chunk_shape=(2, 1),
-                ),
-                array_metadata.SerializedArrayMetadata(
-                    param_name='x',
-                    write_shape=(),
-                    chunk_shape=(),
-                ),
-                array_metadata.SerializedArrayMetadata(
-                    param_name='y',
-                    write_shape=(),
-                    chunk_shape=(),
-                ),
-            ],
-            1: [
-                array_metadata.SerializedArrayMetadata(
-                    param_name='a',
-                    write_shape=(8,),
-                    chunk_shape=(8,),
-                ),
-                array_metadata.SerializedArrayMetadata(
-                    param_name='b',
-                    write_shape=(2,),
-                    chunk_shape=(2,),
-                ),
-                array_metadata.SerializedArrayMetadata(
-                    param_name='c.a',
-                    write_shape=(1, 1),
-                    chunk_shape=(1, 1),
-                ),
-                array_metadata.SerializedArrayMetadata(
-                    param_name='c.e',
-                    write_shape=(2, 1),
-                    chunk_shape=(2, 1),
-                ),
-                array_metadata.SerializedArrayMetadata(
-                    param_name='x',
-                    write_shape=(),
-                    chunk_shape=(),
-                ),
-                array_metadata.SerializedArrayMetadata(
-                    param_name='y',
-                    write_shape=(),
-                    chunk_shape=(),
-                ),
-            ],
+            idx: per_process_metadatas
+            for idx in range(multihost.process_count())
         }
-        self.assertEqual(expected_array_metadatas, array_metadatas)
+        self.assertSameElements(
+            expected_array_metadatas.keys(), array_metadatas.keys()
+        )
+        for process_index in expected_array_metadatas:
+          self.assertEqual(  # pylint: disable=g-generic-assert
+              sorted(
+                  expected_array_metadatas[process_index],
+                  key=lambda x: x.param_name,
+              ),
+              sorted(
+                  array_metadatas[process_index], key=lambda x: x.param_name
+              ),
+          )
 
     @parameterized.product(use_ocdbt=(True, False))
     def test_save_with_missing_array_metadata_file(self, use_ocdbt: bool):

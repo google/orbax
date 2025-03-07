@@ -36,6 +36,7 @@ py_library(
         "//orbax/checkpoint/experimental/v1/_src/context:options",
         "//orbax/checkpoint/experimental/v1/_src/testing:array_utils",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",
+        "//orbax/checkpoint/google:pathways_type_handlers",
     ],
 )
 
