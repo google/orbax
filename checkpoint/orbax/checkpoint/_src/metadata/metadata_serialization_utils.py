@@ -26,3 +26,17 @@ def validate_type(obj: Any, field_type: type[Any] | Sequence[type[Any]]):
       )
   elif not isinstance(obj, field_type):
     raise ValueError(f'Object must be of type {field_type}, got {type(obj)}.')
+
+
+def validate_and_process_custom_metadata(
+    custom_metadata: Any,
+) -> dict[str, Any]:
+  """Validates and processes custom field."""
+  if custom_metadata is None:
+    return {}
+
+  validate_type(custom_metadata, dict)
+  for k in custom_metadata:
+    validate_type(k, str)
+  return custom_metadata
+

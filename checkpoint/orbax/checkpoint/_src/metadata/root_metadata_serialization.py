@@ -31,15 +31,11 @@ def serialize(metadata: RootMetadata) -> SerializedMetadata:
 
 def deserialize(metadata_dict: SerializedMetadata) -> RootMetadata:
   """Deserializes `metadata_dict` to `RootMetadata`."""
-  validated_metadata_dict = {}
-
-  if 'custom_metadata' in metadata_dict:
-    utils.validate_type(metadata_dict['custom_metadata'], dict)
-    for k in metadata_dict.get('custom_metadata', {}) or {}:
-      utils.validate_type(k, str)
-  validated_metadata_dict['custom_metadata'] = metadata_dict.get(
-      'custom_metadata', {}
-  )
+  validated_metadata_dict = {
+      'custom_metadata': utils.validate_and_process_custom_metadata(
+          metadata_dict.get('custom_metadata', None)
+      ),
+  }
 
   for k in metadata_dict:
     if k not in validated_metadata_dict:
