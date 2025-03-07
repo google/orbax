@@ -1,5 +1,5 @@
 Metadata Utilities
-======================================
+============================================================================
 
 .. currentmodule:: orbax.checkpoint.metadata
 
@@ -7,7 +7,7 @@ Metadata Utilities
 
 
 Tree Metadata
-------------------------
+------------------------------------------------
 
 .. autoclass:: ArrayMetadata
   :members:
@@ -23,7 +23,7 @@ Tree Metadata
 
 
 Sharding Metadata
-------------------------
+------------------------------------------------
 
 .. autoclass:: ShardingMetadata
   :members:

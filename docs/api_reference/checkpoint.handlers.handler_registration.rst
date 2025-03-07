@@ -1,5 +1,5 @@
 Handler Registration
-======================================
+============================================================================
 
 .. currentmodule:: orbax.checkpoint.handlers.handler_registration
 

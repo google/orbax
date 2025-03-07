@@ -1,5 +1,5 @@
 CheckpointHandlers
-======================================
+============================================================================
 
 .. currentmodule:: orbax.checkpoint.handlers
 
@@ -7,17 +7,17 @@ CheckpointHandlers
 
 
 CheckpointHandler
-------------------------------
+------------------------------------------------------------
 .. autoclass:: CheckpointHandler
   :members:
 
 AsyncCheckpointHandler
----------------------------------
+------------------------------------------------------------------
 .. autoclass:: AsyncCheckpointHandler
   :members:
 
 StandardCheckpointHandler
-----------------------------------
+--------------------------------------------------------------------
 .. autoclass:: StandardCheckpointHandler
   :members:
 
@@ -28,7 +28,7 @@ StandardCheckpointHandler
   :members:
 
 PyTreeCheckpointHandler
---------------------------------
+----------------------------------------------------------------
 .. autoclass:: PyTreeCheckpointHandler
   :members:
 
@@ -39,7 +39,7 @@ PyTreeCheckpointHandler
   :members:
 
 CompositeCheckpointHandler
------------------------------
+----------------------------------------------------------
 .. autoclass:: CompositeCheckpointHandler
   :members:
 
@@ -50,7 +50,7 @@ CompositeCheckpointHandler
   :members:
 
 JsonCheckpointHandler
------------------------------
+----------------------------------------------------------
 .. autoclass:: JsonCheckpointHandler
   :members:
 
@@ -62,7 +62,7 @@ JsonCheckpointHandler
 
 
 ArrayCheckpointHandler
------------------------------
+----------------------------------------------------------
 .. autoclass:: ArrayCheckpointHandler
   :members:
 
@@ -74,7 +74,7 @@ ArrayCheckpointHandler
 
 
 ProtoCheckpointHandler
------------------------------
+----------------------------------------------------------
 .. autoclass:: ProtoCheckpointHandler
   :members:
 
@@ -86,7 +86,7 @@ ProtoCheckpointHandler
 
 
 JaxRandomKeyCheckpointHandler
------------------------------
+----------------------------------------------------------
 .. autoclass:: JaxRandomKeyCheckpointHandler
   :members: save, async_save, restore
 
@@ -97,7 +97,7 @@ JaxRandomKeyCheckpointHandler
   :members:
 
 NumpyRandomKeyCheckpointHandler
--------------------------------
+--------------------------------------------------------------
 .. autoclass:: NumpyRandomKeyCheckpointHandler
   :members: save, async_save, restore
 

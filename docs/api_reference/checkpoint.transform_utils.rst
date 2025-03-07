@@ -1,5 +1,5 @@
 PyTree Transformations
-======================================
+============================================================================
 
 .. currentmodule:: orbax.checkpoint.transform_utils
 

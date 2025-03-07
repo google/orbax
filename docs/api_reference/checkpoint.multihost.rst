@@ -1,5 +1,5 @@
-Multi-host Utilities
-======================================
+Multi--host Utilities
+============================================================================
 
 .. currentmodule:: orbax.checkpoint.multihost
 

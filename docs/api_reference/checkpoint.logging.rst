@@ -1,5 +1,5 @@
 Checkpoint logging
-======================================
+============================================================================
 
 .. currentmodule:: orbax.checkpoint.logging
 
@@ -7,26 +7,26 @@ Checkpoint logging
 
 
 AbstractLogger
-------------------------
+------------------------------------------------
 .. autoclass:: AbstractLogger
   :members:
 
 CompositeLogger
-------------------------
+------------------------------------------------
 .. autoclass:: CompositeLogger
   :members:
 
 StandardLogger
-------------------------
+------------------------------------------------
 .. autoclass:: StandardLogger
   :members:
 
 CloudLogger
-------------------------
+------------------------------------------------
 .. autoclass:: CloudLogger
   :members:
 
 CloudLoggerOptions
-------------------------
+------------------------------------------------
 .. autoclass:: CloudLoggerOptions
   :members:

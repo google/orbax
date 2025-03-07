@@ -1,12 +1,12 @@
 TypeHandlers
-======================================
+============================================================================
 
 .. currentmodule:: orbax.checkpoint.type_handlers
 
 .. automodule:: orbax.checkpoint.type_handlers
 
 Arguments for PyTreeCheckpointHandler
--------------------------------------
+--------------------------------------------------------------------------
 .. autoclass:: SaveArgs
   :members:
 
@@ -17,37 +17,37 @@ Arguments for PyTreeCheckpointHandler
   :members:
 
 TypeHandler
-------------------------
+------------------------------------------------
 .. autoclass:: TypeHandler
   :members:
 
 NumpyHandler
-------------------------
+------------------------------------------------
 .. autoclass:: NumpyHandler
   :members:
 
 ScalarHandler
-------------------------
+------------------------------------------------
 .. autoclass:: ScalarHandler
   :members:
 
 ArrayHandler
-------------------------
+------------------------------------------------
 .. autoclass:: ArrayHandler
   :members:
 
 SingleReplicaArrayHandler
-------------------------
+------------------------------------------------
 .. autoclass:: SingleReplicaArrayHandler
   :members:
 
 StringHandler
-------------------------
+------------------------------------------------
 .. autoclass:: StringHandler
   :members:
 
 Tensorstore functions
-------------------------
+------------------------------------------------
 .. autofunction:: is_ocdbt_checkpoint
 .. autofunction:: merge_ocdbt_per_process_files
 .. autofunction:: get_json_tspec_write
@@ -57,7 +57,7 @@ Tensorstore functions
 .. autofunction:: get_cast_tspec_deserialize
 
 TypeHandler registry
-------------------------
+------------------------------------------------
 .. autoclass:: TypeHandlerRegistry
 .. autofunction:: create_type_handler_registry
 .. autofunction:: register_type_handler

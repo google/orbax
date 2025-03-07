@@ -1,22 +1,22 @@
 CheckpointArgs
-======================================
+============================================================================
 
 .. currentmodule:: orbax.checkpoint.args
 
 .. automodule:: orbax.checkpoint.args
 
 CheckpointArgs
-------------------------------
+------------------------------------------------------------
 .. autoclass:: CheckpointArgs
   :members:
 
 Composite
-------------------------------
+------------------------------------------------------------
 .. autoclass:: Composite
   :members:
 
 Standard PyTree
-------------------------------
+------------------------------------------------------------
 .. autoclass:: StandardSave
   :members:
 
@@ -24,7 +24,7 @@ Standard PyTree
   :members:
 
 Generic PyTree
-------------------------------
+------------------------------------------------------------
 .. autoclass:: PyTreeSave
   :members:
 
@@ -32,7 +32,7 @@ Generic PyTree
   :members:
 
 Array
-------------------------------
+------------------------------------------------------------
 .. autoclass:: ArraySave
   :members:
 
@@ -40,7 +40,7 @@ Array
   :members:
 
 JSON
-------------------------------
+------------------------------------------------------------
 .. autoclass:: JsonSave
   :members:
 
@@ -48,7 +48,7 @@ JSON
   :members:
 
 Proto
-------------------------------
+------------------------------------------------------------
 .. autoclass:: ProtoSave
   :members:
 
@@ -56,7 +56,7 @@ Proto
   :members:
 
 JaxRandomKey
-------------------------------
+------------------------------------------------------------
 .. autoclass:: JaxRandomKeySave
   :members:
 
@@ -64,7 +64,7 @@ JaxRandomKey
   :members:
 
 NumpyRandomKey
-------------------------------
+------------------------------------------------------------
 .. autoclass:: NumpyRandomKeySave
   :members:
 
@@ -72,7 +72,7 @@ NumpyRandomKey
   :members:
 
 Utilities
-------------------------------
+------------------------------------------------------------
 
 .. autofunction:: get_registered_handler_cls
 .. autofunction:: register_with_handler

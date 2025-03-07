@@ -1,5 +1,5 @@
 Checkpointing Utilities
-======================================
+============================================================================
 
 .. currentmodule:: orbax.checkpoint.checkpoint_utils
 
