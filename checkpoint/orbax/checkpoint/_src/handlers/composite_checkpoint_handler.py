@@ -49,7 +49,6 @@ import asyncio
 import concurrent.futures
 import dataclasses
 from typing import Any, Coroutine, Dict, List, Mapping, MutableSet, Optional, Tuple, Type
-import uuid
 
 from absl import logging
 from etils import epath
@@ -92,7 +91,6 @@ _CONCURRENT_WORKERS = 3
 DESCRIPTOR_ITEM_NAME = 'descriptor'
 RESERVED_ITEM_NAMES = [DESCRIPTOR_ITEM_NAME]
 _DIRECTORY_CREATION_SIGNALS = [HandlerAwaitableSignal.ITEM_DIRECTORY_CREATION]
-
 
 # TODO(b/295899152) Clean up when users are all registering `CheckpointArgs`.
 class _LegacyCheckpointHandlerWrapper(checkpoint_handler.CheckpointHandler):
@@ -662,13 +660,10 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         self._get_item_temporary_directory(directory, item_name)
         for item_name in item_names
     ]
-    result = {
+    return {
         item_name: item_directory
         for item_name, item_directory in zip(item_names, item_temporary_paths)
     }
-
-    return result
-
 
   async def async_save(
       self, directory: epath.Path, args: CompositeArgs
