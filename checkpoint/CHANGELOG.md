@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- #v1 Refactor `Context` and expand global options.
+- #v1 Add `CheckpointMetadata` definitions.
+
 ## [0.11.8] - 2025-03-07
 
 ### Changed
