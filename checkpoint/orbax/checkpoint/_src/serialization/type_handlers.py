@@ -59,6 +59,7 @@ RestoreArgs: TypeAlias = types.RestoreArgs
 TypeHandler: TypeAlias = types.TypeHandler
 TypeHandlerRegistry: TypeAlias = types.TypeHandlerRegistry
 Pytree = Any
+PLACEHOLDER = ...
 
 Layout = layout.Layout
 Shape = arrays_types.Shape
@@ -1694,6 +1695,34 @@ class StringHandler(types.TypeHandler):
     return list(zip(write_sizes, read_sizes))
 
 
+class PlaceholderHandler(types.TypeHandler):
+  """TypeHandler for placeholders."""
+
+  def typestr(self) -> str:
+    return 'placeholder'
+
+  async def metadata(self, infos: Sequence[types.ParamInfo]) -> Sequence[Any]:
+    raise NotImplementedError('Placeholders do not have metadata.')
+
+  async def serialize(
+      self,
+      values: Sequence[str],
+      infos: Sequence[types.ParamInfo],
+      args: Sequence[types.SaveArgs] | None = None,
+  ) -> Sequence[future.Future]:
+    """See superclass documentation."""
+    raise NotImplementedError('Placeholders cannot be serialized.')
+
+  async def deserialize(
+      self,
+      infos: Sequence[ParamInfo],
+      args: Sequence[RestoreArgs] | None = None,
+  ) -> Sequence[Any]:
+    """See superclass documentation."""
+    del args
+    return [PLACEHOLDER] * len(infos)
+
+
 class _TypeHandlerRegistryImpl(types.TypeHandlerRegistry):
   """The implementation for TypeHandlerRegistry."""
 
@@ -1799,6 +1828,7 @@ _DEFAULT_TYPE_HANDLERS = tuple([
     (np.ndarray, NumpyHandler()),
     (jax.Array, ArrayHandler()),
     (str, StringHandler()),
+    (type(PLACEHOLDER), PlaceholderHandler()),
 ])
 
 

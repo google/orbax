@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - V1: Introduce Context and its usage as a contextmanager.
 - V1: Add `ArrayStorageOptions` to customize per-leaf saving behavior for
 arrays (e.g. `dtype`).
+- `PlaceholderHandler` type handler for partial restoration project. Placeholder
+values will not be loaded during checkpoint restoration.
 
 ### Fixed
 
