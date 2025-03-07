@@ -65,8 +65,7 @@ def serialize(metadata: StepMetadata) -> SerializedMetadata:
       'performance_metrics': float_metrics,
       'init_timestamp_nsecs': metadata.init_timestamp_nsecs,
       'commit_timestamp_nsecs': metadata.commit_timestamp_nsecs,
-      # Change name from `custom_metadata` to `custom` for serialization.
-      'custom': metadata.custom_metadata,
+      'custom_metadata': metadata.custom_metadata,
   }
 
 
@@ -137,10 +136,6 @@ def serialize_for_update(**kwargs) -> SerializedMetadata:
     if k not in validated_kwargs:
       raise ValueError('Provided metadata contains unknown key %s.' % k)
 
-  # Change name from `custom_metadata` to `custom` for serialization.
-  if 'custom_metadata' in validated_kwargs:
-    validated_kwargs['custom'] = validated_kwargs.pop('custom_metadata')
-
   return validated_kwargs
 
 
@@ -204,26 +199,27 @@ def deserialize(
     utils.validate_type(commit_timestamp_nsecs, int)
   validated_metadata_dict['commit_timestamp_nsecs'] = commit_timestamp_nsecs
 
-  custom = metadata_dict.get('custom', None)
-  if custom is not None:
-    utils.validate_type(custom, dict)
-    for k in custom:
+  custom_metadata = metadata_dict.get('custom_metadata', None)
+  if custom_metadata is not None:
+    utils.validate_type(custom_metadata, dict)
+    for k in custom_metadata:
       utils.validate_type(k, str)
-  validated_metadata_dict['custom'] = custom or {}
+  validated_metadata_dict['custom_metadata'] = custom_metadata or {}
   for k in metadata_dict:
     if k not in validated_metadata_dict:
-      if 'custom' in metadata_dict and metadata_dict['custom']:
+      if (
+          'custom_metadata' in metadata_dict
+          and metadata_dict['custom_metadata']
+      ):
         raise ValueError(
-            'Provided metadata contains unknown key %s, and the custom field '
-            'is already defined.' % k
+            'Provided metadata contains unknown key %s, and the custom_metadata'
+            ' field is already defined.' % k
         )
       logging.warning(
-          'Provided metadata contains unknown key %s. Adding it to custom.', k
+          'Provided metadata contains unknown key %s. Adding it to'
+          ' custom_metadata.',
+          k,
       )
-      validated_metadata_dict['custom'][k] = metadata_dict[k]
-  # Change name from `custom` to `custom_metadata` for deserialization.
-  validated_metadata_dict['custom_metadata'] = validated_metadata_dict.pop(
-      'custom'
-  )
+      validated_metadata_dict['custom_metadata'][k] = metadata_dict[k]
 
   return StepMetadata(**validated_metadata_dict)

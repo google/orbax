@@ -297,7 +297,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
   ):
     self.write_metadata_store(blocking_write).update(
         file_path=self.get_metadata_file_path(metadata_class),
-        custom={'a': 1},
+        custom_metadata={'a': 1},
     )
 
     self.write_metadata_store(blocking_write).wait_until_finished()
@@ -329,7 +329,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
 
     self.write_metadata_store(blocking_write).update(
         file_path=self.get_metadata_file_path(StepMetadata),
-        custom={'a': 1},
+        custom_metadata={'a': 1},
     )
 
     self.write_metadata_store(blocking_write).wait_until_finished()
@@ -455,7 +455,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
     # update validations
     self.write_metadata_store(blocking_write=False).update(
         file_path=self.get_metadata_file_path(metadata_class),
-        custom={'a': 3},
+        custom_metadata={'a': 3},
     )
     self.write_metadata_store(blocking_write=False).wait_until_finished()
     serialized_metadata = self.read_metadata_store(blocking_write=False).read(
@@ -500,8 +500,8 @@ class CheckpointMetadataTest(parameterized.TestCase):
     _ = pickle.dumps(self.read_metadata_store(blocking_write))
 
   @parameterized.parameters(
-      ({'custom': list()},),
-      ({'custom': {int(): None}},),
+      ({'custom_metadata': list()},),
+      ({'custom_metadata': {int(): None}},),
   )
   def test_deserialize_wrong_types_root_metadata(
       self, wrong_metadata: checkpoint.SerializedMetadata
@@ -519,8 +519,8 @@ class CheckpointMetadataTest(parameterized.TestCase):
       ({'performance_metrics': {str(): int()}},),
       ({'init_timestamp_nsecs': float()},),
       ({'commit_timestamp_nsecs': float()},),
-      ({'custom': list()},),
-      ({'custom': {int(): None}},),
+      ({'custom_metadata': list()},),
+      ({'custom_metadata': {int(): None}},),
   )
   def test_deserialize_wrong_types_step_metadata(
       self, wrong_metadata: checkpoint.SerializedMetadata
@@ -580,7 +580,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
       ({'performance_metrics': 1}, dict, int),
       ({'init_timestamp_nsecs': 'a'}, int, str),
       ({'commit_timestamp_nsecs': 'a'}, int, str),
-      ({'custom': 1}, dict, int),
+      ({'custom_metadata': 1}, dict, int),
   )
   def test_validate_field_wrong_type(
       self, step_metadata, expected_field_type, wrong_field_type
@@ -609,7 +609,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
       ({'item_handlers': {1: 'a'}}, str, int),
       ({'metrics': {1: 'a'}}, str, int),
       ({'performance_metrics': {1: 1.0}}, str, int),
-      ({'custom': {1: 'a'}}, str, int),
+      ({'custom_metadata': {1: 'a'}}, str, int),
   )
   def test_validate_dict_entry_wrong_key_type(
       self, step_metadata, expected_key_type, wrong_key_type
@@ -642,7 +642,9 @@ class CheckpointMetadataTest(parameterized.TestCase):
   ):
     expected_kwargs = kwargs.copy()
     if 'custom_metadata' in expected_kwargs:
-      expected_kwargs['custom'] = expected_kwargs.pop('custom_metadata')
+      expected_kwargs['custom_metadata'] = expected_kwargs.pop(
+          'custom_metadata'
+      )
     self.assertEqual(
         step_metadata_serialization.serialize_for_update(**kwargs),
         expected_kwargs,
