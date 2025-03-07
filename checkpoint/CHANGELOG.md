@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.8] - 2025-03-07
+
+### Changed
+
+- Set JAX version requirement back to >= 0.5.0.
+
 ## [0.11.7] - 2025-03-06
 
 ### Added
