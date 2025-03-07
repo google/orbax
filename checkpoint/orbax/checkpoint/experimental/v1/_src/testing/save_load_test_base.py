@@ -293,11 +293,15 @@ class SaveLoadTestBase:
       }
 
       create_array_storage_options_fn = (
-          lambda k, v: ocp.options.ArrayStorageOptions(dtype=save_dtype)
+          lambda k, v: ocp.options.ArrayOptions.Saving.StorageOptions(
+              dtype=save_dtype
+          )
       )
       with ocp.Context(
           pytree_options=ocp.options.PyTreeOptions(
-              create_array_storage_options_fn=create_array_storage_options_fn
+              saving=ocp.options.PyTreeOptions.Saving(
+                  create_array_storage_options_fn=create_array_storage_options_fn
+              )
           )
       ):
         ocp.save_pytree(self.directory, tree)
