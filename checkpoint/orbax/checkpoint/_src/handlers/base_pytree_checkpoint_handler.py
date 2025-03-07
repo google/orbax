@@ -301,8 +301,7 @@ class BasePyTreeCheckpointHandler(
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2.
       multiprocessing_options: See orbax.checkpoint.options.
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
-        specified, the global type handler registry will be used. # BEGIN
-      enable_descriptor: If True, logs a Descriptor proto that contains lineage
+        specified, the global type handler registry will be used.
       enable_post_merge_validation: If True, enables validation of the
         parameters after the finalize step.
       pytree_metadata_options: `PyTreeMetadataOptions` to manage metadata.
@@ -332,8 +331,10 @@ class BasePyTreeCheckpointHandler(
         '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
     )
     logging.info(
-        'Created BasePyTreeCheckpointHandler: pytree_metadata_options=%s,'
-        ' array_metadata_store=%s',
+        'Created BasePyTreeCheckpointHandler: use_ocdbt=%s, use_zarr3=%s,'
+        ' pytree_metadata_options=%s, array_metadata_store=%s',
+        self._use_ocdbt,
+        self._use_zarr3,
         self._pytree_metadata_options,
         self._array_metadata_store,
     )
