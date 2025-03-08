@@ -1084,10 +1084,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     is_saving_in_progress = self.is_saving_in_progress()
     reached_preemption = self.reached_preemption(step)
     previous_step_infos = [
-        save_decision_policy_lib.StepInfo(step=ckpt.step)
+        save_decision_policy_lib.StepInfo(step=ckpt.step, time=ckpt.time)
         for ckpt in self._checkpoints
     ]
-    current_step_info = save_decision_policy_lib.StepInfo(step=step)
+    current_step_info = save_decision_policy_lib.StepInfo(
+        step=step, time=datetime.datetime.now(tz=datetime.timezone.utc),
+    )
     context = save_decision_policy_lib.DecisionContext(
         is_saving_in_progress=is_saving_in_progress,
         reached_preemption=reached_preemption,
