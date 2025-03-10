@@ -157,6 +157,42 @@ class SaveLoadTestBase:
             loaded = ocp.load_pytree(self.directory / k)
             test_utils.assert_tree_equal(self, [v], loaded)
 
+    def test_leaf_change_type(self):
+      mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
+      sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+      numpy_arr = np.arange(16)
+      jax_arr = create_sharded_array(numpy_arr, sharding)
+
+      with self.subTest('numpy_to_jax'):
+        subdir = 'numpy'
+        ocp.save_pytree(self.directory / subdir, [numpy_arr])
+        if not multihost.is_pathways_backend():
+          test_utils.assert_tree_equal(
+              self, [numpy_arr], ocp.load_pytree(self.directory / subdir)
+          )
+        test_utils.assert_tree_equal(
+            self,
+            [jax_arr],
+            ocp.load_pytree(
+                self.directory / subdir, [as_abstract_type(jax_arr)]
+            ),
+        )
+
+      with self.subTest('jax_to_numpy'):
+        subdir = 'jax'
+        ocp.save_pytree(self.directory / subdir, [jax_arr])
+        if not multihost.is_pathways_backend():
+          test_utils.assert_tree_equal(
+              self, [jax_arr], ocp.load_pytree(self.directory / subdir)
+          )
+        test_utils.assert_tree_equal(
+            self,
+            [numpy_arr],
+            ocp.load_pytree(
+                self.directory / subdir, [as_abstract_type(numpy_arr)]
+            ),
+        )
+
     def test_empty_array(self):
       value = np.ones(shape=(0,))
       with self.assertRaisesRegex(ValueError, 'zero size'):
