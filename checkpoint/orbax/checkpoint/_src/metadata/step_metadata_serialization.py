@@ -147,17 +147,11 @@ def deserialize(
   """Deserializes `metadata_dict` and other kwargs to `StepMetadata`."""
   validated_metadata_dict = {}
 
-  item_handlers = metadata_dict.get('item_handlers', None)
-  if item_handlers is not None:
-    utils.validate_type(item_handlers, [dict, str])
-    if isinstance(item_handlers, CompositeCheckpointHandlerTypeStrs):
-      for k in metadata_dict.get('item_handlers', {}) or {}:
-        utils.validate_type(k, str)
-      validated_metadata_dict['item_handlers'] = item_handlers
-    elif isinstance(item_handlers, CheckpointHandlerTypeStr):
-      validated_metadata_dict['item_handlers'] = item_handlers
-  else:
-    validated_metadata_dict['item_handlers'] = None
+  validated_metadata_dict['item_handlers'] = (
+      utils.validate_and_process_item_handlers(
+          metadata_dict.get('item_handlers', None)
+      )
+  )
 
   if isinstance(item_metadata, CompositeItemMetadata):
     validated_metadata_dict['item_metadata'] = {}

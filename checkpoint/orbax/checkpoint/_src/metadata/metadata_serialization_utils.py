@@ -16,6 +16,14 @@
 
 from typing import Any, Sequence
 
+from orbax.checkpoint._src.metadata import checkpoint
+
+
+CompositeCheckpointHandlerTypeStrs = (
+    checkpoint.CompositeCheckpointHandlerTypeStrs
+)
+CheckpointHandlerTypeStr = checkpoint.CheckpointHandlerTypeStr
+
 
 def validate_type(obj: Any, field_type: type[Any] | Sequence[type[Any]]):
   if isinstance(field_type, Sequence):
@@ -26,6 +34,22 @@ def validate_type(obj: Any, field_type: type[Any] | Sequence[type[Any]]):
       )
   elif not isinstance(obj, field_type):
     raise ValueError(f'Object must be of type {field_type}, got {type(obj)}.')
+
+
+def validate_and_process_item_handlers(
+    item_handlers: Any,
+) -> CompositeCheckpointHandlerTypeStrs | CheckpointHandlerTypeStr | None:
+  """Validates and processes item_handlers field."""
+  if item_handlers is None:
+    return None
+
+  validate_type(item_handlers, [dict, str])
+  if isinstance(item_handlers, CompositeCheckpointHandlerTypeStrs):
+    for k in item_handlers or {}:
+      validate_type(k, str)
+    return item_handlers
+  elif isinstance(item_handlers, CheckpointHandlerTypeStr):
+    return item_handlers
 
 
 def validate_and_process_custom_metadata(
@@ -39,4 +63,3 @@ def validate_and_process_custom_metadata(
   for k in custom_metadata:
     validate_type(k, str)
   return custom_metadata
-

@@ -110,6 +110,7 @@ py_library(
 py_library(
     name = "metadata_serialization_utils",
     srcs = ["metadata_serialization_utils.py"],
+    deps = [":checkpoint"],
 )
 
 py_library(
