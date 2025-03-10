@@ -22,9 +22,12 @@ from etils import epath
 import orbax.checkpoint as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
+from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+
+PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
 
 
 def save_pytree(
@@ -55,14 +58,16 @@ def save_pytree(
   context = context_lib.get_context()
 
   handler_registry = ocp.handlers.create_default_handler_registry(
-      pytree=pytree_handler.create_v0_handler(context)
+      **{PYTREE_CHECKPOINTABLE_KEY: pytree_handler.create_v0_handler(context)}
   )
   ckptr = ocp.Checkpointer(
       ocp.CompositeCheckpointHandler(handler_registry=handler_registry)
   )
-  args = ocp.args.Composite(
-      pytree=pytree_handler.create_v0_save_args(context, pytree)
-  )
+  args = ocp.args.Composite(**{
+      PYTREE_CHECKPOINTABLE_KEY: pytree_handler.create_v0_save_args(
+          context, pytree
+      )
+  })
   ckptr.save(directory, args=args, force=force, custom_metadata=custom_metadata)
 
 
@@ -123,14 +128,16 @@ def save_pytree_async(
   context = context_lib.get_context()
 
   handler_registry = ocp.handlers.create_default_handler_registry(
-      pytree=pytree_handler.create_v0_handler(context)
+      **{PYTREE_CHECKPOINTABLE_KEY: pytree_handler.create_v0_handler(context)}
   )
   ckptr = ocp.AsyncCheckpointer(
       ocp.CompositeCheckpointHandler(handler_registry=handler_registry)
   )
-  args = ocp.args.Composite(
-      pytree=pytree_handler.create_v0_save_args(context, pytree)
-  )
+  args = ocp.args.Composite(**{
+      PYTREE_CHECKPOINTABLE_KEY: pytree_handler.create_v0_save_args(
+          context, pytree
+      )
+  })
   directory = epath.Path(directory)
   ckptr.save(directory, args=args, force=force, custom_metadata=custom_metadata)
   return _SaveResponse(ckptr)
