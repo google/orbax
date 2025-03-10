@@ -56,6 +56,8 @@ class ServingConfig:
   # with this serving config. If unspecified, the `JaxModule` should have
   # exactly one method which will be used.
   method_key: Optional[str] = None
+  # Options passed to the Orbax Model export.
+  obm_kwargs: Optional[Mapping[str, Any]] = None
 
   def get_signature_keys(self) -> Sequence[str]:
     if isinstance(self.signature_key, str):

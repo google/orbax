@@ -53,9 +53,11 @@ message BatchOptions {
   // The component of the model to batch.
   enum BatchComponent {
     BATCH_COMPONENT_UNSPECIFIED = 0;
+    // No batching.
+    NO_BATCHING = 1;
     // The model function corresponding to `model_function_name` in the
     // orchestration.
-    MODEL_FUNCTION = 1;
+    MODEL_FUNCTION = 2;
   }
 
   // The component of the model to batch.
