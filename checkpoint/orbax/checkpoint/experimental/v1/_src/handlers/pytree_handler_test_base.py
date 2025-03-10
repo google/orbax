@@ -1649,7 +1649,11 @@ class PyTreeHandlerTestBase:
         checkpoint_handler.save(self.directory, self.pytree)
 
         expected_tree_with_write_shapes = {
-            'a': {'write_shape': (8,)},
+            'a': {
+                'write_shape': test_utils.get_expected_chunk_shape(
+                    self.pytree['a']
+                )
+            },
             'b': {'write_shape': (2,)},
             'c': {
                 'a': {'write_shape': (1, 1)},
@@ -1698,14 +1702,18 @@ class PyTreeHandlerTestBase:
         )
 
       self.assertTrue((self.directory / 'array_metadatas').exists())
-      if multihost.process_index() == 0:
+      if multihost.is_primary_host(0):
         array_metadatas = asyncio.run(ARRAY_METADATA_STORE.read(self.directory))
         self.assertIsInstance(array_metadatas, dict)
         per_process_metadatas = [
             array_metadata.SerializedArrayMetadata(
                 param_name='a',
-                write_shape=(8,),
-                chunk_shape=(8,),
+                write_shape=test_utils.get_expected_chunk_shape(
+                    self.pytree['a']
+                ),
+                chunk_shape=test_utils.get_expected_chunk_shape(
+                    self.pytree['a']
+                ),
             ),
             array_metadata.SerializedArrayMetadata(
                 param_name='b',
@@ -1733,9 +1741,9 @@ class PyTreeHandlerTestBase:
                 chunk_shape=(),
             ),
         ]
+        processes = range(multihost.process_count())
         expected_array_metadatas = {
-            idx: per_process_metadatas
-            for idx in range(multihost.process_count())
+            idx: per_process_metadatas for idx in processes
         }
         self.assertSameElements(
             expected_array_metadatas.keys(), array_metadatas.keys()

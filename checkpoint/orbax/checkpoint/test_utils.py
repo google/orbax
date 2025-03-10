@@ -752,7 +752,7 @@ def assert_every_n_is_x_apart(testclass, values, n, x):
 
 
 def get_expected_chunk_shape(
-    arr: jax.Array, *, use_replica_parallel: bool = False
+    arr: jax.Array, *, use_replica_parallel: bool = True
 ) -> tuple[int, ...]:
   """Expected chunk shape for an array, accounting for replica-parallel."""
   if not use_replica_parallel:

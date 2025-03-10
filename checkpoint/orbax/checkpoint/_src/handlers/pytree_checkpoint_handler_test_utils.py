@@ -2153,7 +2153,7 @@ class PyTreeCheckpointHandlerTestBase:
         )
 
         expected_tree_with_write_shapes = {
-            'a': {'write_shape': (8,)},
+            'a': {'write_shape': (1,)},
             'b': {'write_shape': (2,)},
             'c': {
                 'a': {'write_shape': (1, 1)},
@@ -2212,12 +2212,11 @@ class PyTreeCheckpointHandlerTestBase:
       if multihost.process_index() == 0:
         array_metadatas = await ARRAY_METADATA_STORE.read(self.directory)
         expected_array_metadatas = {
-            # Expected with use_replica_parallel=False.
             0: [
                 array_metadata.SerializedArrayMetadata(
                     param_name='new_key.a',
-                    write_shape=(8,),
-                    chunk_shape=(8,),
+                    write_shape=(1,),
+                    chunk_shape=(1,),
                 ),
                 array_metadata.SerializedArrayMetadata(
                     param_name='new_key.b',
@@ -2238,8 +2237,8 @@ class PyTreeCheckpointHandlerTestBase:
             1: [
                 array_metadata.SerializedArrayMetadata(
                     param_name='new_key.a',
-                    write_shape=(8,),
-                    chunk_shape=(8,),
+                    write_shape=(1,),
+                    chunk_shape=(1,),
                 ),
                 array_metadata.SerializedArrayMetadata(
                     param_name='new_key.b',
