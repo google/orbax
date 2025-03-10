@@ -1036,7 +1036,6 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     state_handler.close.assert_called_once()
     metadata_handler.close.assert_called_once()
 
-
   def test_items_exist_final(self):
     handler = CompositeCheckpointHandler('state', 'metadata')
     state = {'a': 1, 'b': 2}
