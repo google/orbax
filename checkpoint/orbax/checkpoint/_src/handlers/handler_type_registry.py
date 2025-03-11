@@ -35,7 +35,8 @@ class HandlerTypeRegistry:
       handler_typestr = handler_type.typestr()
     except AttributeError:
       handler_typestr = f'{handler_type.__module__}.{handler_type.__qualname__}'
-      logging.info(
+      logging.vlog(
+          1,
           'Handler class %s does not have a typestr method. '
           'Using the default typestr value "%s" instead.',
           handler_type,
@@ -59,7 +60,8 @@ class HandlerTypeRegistry:
         )
       # If both fully-qualified-name and type ref are the same then skip.
       if previous_handler_type == handler_type:
-        logging.info(
+        logging.vlog(
+            1,
             'Handler "%s" already exists in the registry with associated type'
             ' %s. Skipping registration.',
             handler_typestr,
@@ -68,7 +70,8 @@ class HandlerTypeRegistry:
         return
       # If fully-qualified-name is the same but type ref has changed then
       # it is okay to overwrite registry with the new type ref.
-      logging.info(
+      logging.vlog(
+          1,
           'Handler "%s" already exists in the registry with associated type'
           ' %s. Overwriting it as the module was recreated (likely from '
           'Colab reload',
