@@ -1260,7 +1260,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         ),
         processes=self._multiprocessing_options.active_processes,
         record_event_name=(
-            '/jax/checkpoint/write/checkpoint_start_sync_duration_secs'
+            '/jax/orbax/write/checkpoint_start_sync_duration_secs'
         ),
     )
 

@@ -251,7 +251,7 @@ class ReplicatorCheckpointManager(
             prefix='replicator_checkpoint_manager',
         ),
         record_event_name=(
-            '/jax/checkpoint/write/checkpoint_start_sync_duration_secs'
+            '/jax/orbax/write/checkpoint_start_sync_duration_secs'
         ),
     )
     process_metadata_args = (

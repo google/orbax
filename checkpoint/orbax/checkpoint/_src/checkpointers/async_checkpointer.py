@@ -505,7 +505,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         ),
         processes=self._active_processes,
         record_event_name=(
-            '/jax/checkpoint/write/checkpoint_start_sync_duration_secs'
+            '/jax/orbax/write/checkpoint_start_sync_duration_secs'
         ),
     )
     directory = epath.Path(directory)

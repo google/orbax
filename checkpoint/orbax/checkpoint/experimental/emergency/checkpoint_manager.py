@@ -975,7 +975,7 @@ class _MultisliceCheckpointManager(
             prefix='emergency_checkpoint_manager',
         ),
         record_event_name=(
-            '/jax/checkpoint/write/checkpoint_start_sync_duration_secs'
+            '/jax/orbax/write/checkpoint_start_sync_duration_secs'
         ),
     )
     # TODO: b/330608746 - implement save op on different slices
