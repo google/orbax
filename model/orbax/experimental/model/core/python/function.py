@@ -56,6 +56,8 @@ class ShloDType(enum.Enum):  # pylint: disable=missing-class-docstring
   f8_e5m2 = 20
   f8_e5m2fnuz = 21
 
+  str = 100
+
 
 _NP_DTYPE_TO_SHLO_DTYPE: dict[np.dtype[Any], ShloDType] = {
     np.dtype(np.bool): ShloDType.bool,

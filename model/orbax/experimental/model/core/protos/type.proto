@@ -107,4 +107,6 @@ enum DType {
   f8_e4m3fnuz = 20;
   f8_e5m2 = 21;
   f8_e5m2fnuz = 22;
+
+  str = 100;
 }

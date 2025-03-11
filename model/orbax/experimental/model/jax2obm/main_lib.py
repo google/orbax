@@ -114,7 +114,10 @@ def convert_to_shlo_fn(
   main_lib_test.py file.
 
   Args:
-    fun_jax: The JAX function to be converted.
+    fun_jax: The JAX function to be converted. It should be a jitted function.
+      If it's not, we will jit it by simply `jax.jit(fun_jax)`, which means
+      `fun_jax` can not contain any sharding annotations that are not
+      "FullyReplicated".
     args_spec: A sequence of pytrees of {class}`jax.ShapeDtypeStruct`, or values
       with `.shape` and `.dtype` attributes, or result of calling
       `jax_export.symbolic_args_specs()`. These will be used to trace the
@@ -138,6 +141,9 @@ def convert_to_shlo_fn(
   Returns:
     An Orbax Model `ShloFunction`.
   """
+  if not hasattr(fun_jax, "trace"):
+    fun_jax = jax.jit(fun_jax)
+
   create_exported = utils.make_jax_exported_creator(
       fun_jax,
       native_serialization_platforms,

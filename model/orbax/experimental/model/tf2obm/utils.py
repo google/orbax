@@ -22,8 +22,31 @@ import tensorflow as tf
 
 
 def tf_dtype_to_obm(t: tf.DType) -> obm.ShloDType:
+  """Converts a TensorFlow dtype to an OBM ShloDType.
+
+  Args:
+    t: The TensorFlow dtype to convert.
+
+  Returns:
+    The corresponding OBM ShloDType.
+
+  Raises:
+    ValueError: If the TensorFlow dtype cannot be converted to an OBM ShloDType.
+  """
+  if t == tf.string:
+    return obm.ShloDType.str
+  if t in (tf.resource, tf.variant):
+    raise ValueError(
+        f'Can\'t convert TF dtype {t} to OBM.'
+    )
   np_dtype = t.as_numpy_dtype()
-  np_dtype = np.dtype(np_dtype)
+  try:
+    np_dtype = np.dtype(np_dtype)
+  except Exception as err:
+    raise ValueError(
+        f'Failed to create a numpy.dtype object from {np_dtype} of type '
+        f'{type(np_dtype)} . The original TF dtype was {t} of type {type(t)} .'
+    ) from err
   return obm.np_dtype_to_shlo_dtype(np_dtype)
 
 
@@ -42,7 +65,12 @@ TfSignature = obm.Tree[Any]
 
 
 def tf_signature_to_obm_spec(tree: TfSignature) -> obm.Tree[obm.ShloTensorSpec]:
-  return obm.tree_util.tree_map(tf_tensor_spec_to_obm, tree)
+  try:
+    return obm.tree_util.tree_map(tf_tensor_spec_to_obm, tree)
+  except Exception as err:
+    raise ValueError(
+        f'Failed to convert TF signature {tree} of type {type(tree)} to OBM.'
+    ) from err
 
 
 def get_input_signature(

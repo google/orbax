@@ -37,6 +37,7 @@ _SHLO_DTYPE_TO_MANIFEST_DTYPE: dict[ShloDType, type_pb2.DType] = {
     ShloDType.f32: type_pb2.DType.f32,
     ShloDType.f64: type_pb2.DType.f64,
     ShloDType.bf16: type_pb2.DType.bf16,
+    ShloDType.str: type_pb2.DType.str,
 }
 
 
