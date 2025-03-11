@@ -116,7 +116,6 @@ py_library(
 py_library(
     name = "pytree_metadata_options",
     srcs = ["pytree_metadata_options.py"],
-    deps = ["//checkpoint/orbax/checkpoint/_src/tree:utils"],
 )
 
 py_library(

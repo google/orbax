@@ -6,7 +6,7 @@ py_library(
     deps = [
         "//orbax/checkpoint",
         "//orbax/checkpoint/experimental/v1/_src/context",
-        "//orbax/checkpoint/experimental/v1/_src/context:options",
+        "//orbax/checkpoint/experimental/v1/_src/handlers:pytree_handler",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
         "//orbax/checkpoint/experimental/v1/_src/synchronization:types",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",

@@ -16,15 +16,10 @@
 
 import orbax.checkpoint as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
-
-
-def _get_concurrent_gb(concurrent_bytes: int | None) -> int | None:
-  if concurrent_bytes:
-    return max(int(concurrent_bytes / 1e9), 1)
-  return None
 
 
 def load_pytree(
@@ -57,27 +52,18 @@ def load_pytree(
   """
   context = context_lib.get_context()
 
-  if context.pytree_options.partial_load:
+  if context.pytree_options.loading.partial_load:
     raise NotImplementedError('Partial loading is not yet supported.')
 
 
   handler_registry = ocp.handlers.create_default_handler_registry(
-      pytree=ocp.PyTreeCheckpointHandler(
-          restore_concurrent_gb=_get_concurrent_gb(
-              context.pytree_options.restore_concurrent_bytes
-          ),
-      )
+      pytree=pytree_handler.create_v0_handler(context)
   )
   ckptr = ocp.Checkpointer(
       ocp.CompositeCheckpointHandler(handler_registry=handler_registry)
   )
   args = ocp.args.Composite(
-      pytree=ocp.args.PyTreeRestore(
-          abstract_pytree,
-          restore_args=ocp.checkpoint_utils.construct_restore_args(
-              abstract_pytree
-          ),
-      )
+      pytree=pytree_handler.create_v0_restore_args(context, abstract_pytree)
   )
   return ckptr.restore(directory, args=args).pytree
 

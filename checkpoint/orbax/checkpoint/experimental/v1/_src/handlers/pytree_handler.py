@@ -21,15 +21,15 @@ from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint import checkpoint_utils
-from orbax.checkpoint import options as options_lib
+from orbax.checkpoint import options as v0_options_lib
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
-from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handlers
-from orbax.checkpoint.experimental.v1._src.context import options
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
@@ -41,15 +41,17 @@ CheckpointableHandler = handler_types.CheckpointableHandler
 PyTree = tree_types.PyTree
 
 
-def _get_legacy_compatible_save_args(
+def _get_v0_save_args(
     checkpointable: PyTree,
-    create_array_storage_options_fn: options.CreateArrayStorageOptionsFn | None,
+    create_array_storage_options_fn: (
+        options_lib.PyTreeOptions.Saving.CreateArrayStorageOptionsFn | None
+    ),
 ) -> PyTree | None:
   """Returns save args that are compatible with the V0 API."""
   if create_array_storage_options_fn is None:
     return None
 
-  def _leaf_get_legacy_compatible_save_args(k, v):
+  def _leaf_get_v0_save_args(k, v):
     array_storage_options = create_array_storage_options_fn(k, v)
     save_dtype = (
         np.dtype(array_storage_options.dtype)
@@ -62,8 +64,70 @@ def _get_legacy_compatible_save_args(
         shard_axes=array_storage_options.shard_axes,
     )
 
-  return jax.tree.map_with_path(
-      _leaf_get_legacy_compatible_save_args, checkpointable
+  return jax.tree.map_with_path(_leaf_get_v0_save_args, checkpointable)
+
+
+def create_v0_handler(
+    context: context_lib.Context,
+    *,
+    type_handler_registry: type_handlers.TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
+    array_metadata_validator: array_metadata_store_lib.Validator = array_metadata_store_lib.Validator(),
+) -> base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler:
+  """Creates a V0 handler from a V1 context."""
+  return base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler(
+      save_concurrent_bytes=context.array_options.saving.concurrent_bytes,
+      restore_concurrent_bytes=context.array_options.loading.concurrent_bytes,
+      use_ocdbt=context.array_options.saving.use_ocdbt,
+      use_zarr3=context.array_options.saving.use_zarr3,
+      multiprocessing_options=v0_options_lib.MultiprocessingOptions(
+          primary_host=context.multiprocessing_options.primary_host,
+          active_processes=context.multiprocessing_options.active_processes,
+          barrier_sync_key_prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+      ),
+      type_handler_registry=type_handler_registry,
+      enable_post_merge_validation=context.array_options.saving.enable_post_merge_validation,
+      pytree_metadata_options=context.pytree_options.saving.pytree_metadata_options,
+      array_metadata_validator=array_metadata_validator,
+  )
+
+
+def create_v0_save_args(
+    context: context_lib.Context,
+    checkpointable: PyTree,
+) -> base_pytree_checkpoint_handler.BasePyTreeSaveArgs:
+  """Creates v0 CheckpointArgs for saving."""
+  return base_pytree_checkpoint_handler.BasePyTreeSaveArgs(
+      item=checkpointable,
+      save_args=_get_v0_save_args(
+          checkpointable,
+          context.pytree_options.saving.create_array_storage_options_fn,
+      ),
+      ocdbt_target_data_file_size=context.array_options.saving.ocdbt_target_data_file_size,
+      enable_pinned_host_transfer=context.array_options.saving.enable_pinned_host_transfer,
+  )
+
+
+def create_v0_restore_args(
+    context: context_lib.Context,
+    abstract_checkpointable: PyTree | None,
+) -> base_pytree_checkpoint_handler.BasePyTreeRestoreArgs:
+  """Creates v0 CheckpointArgs for restoration."""
+
+  def _set_enable_padding_and_truncation(a):
+    if not isinstance(a, type_handlers.ArrayRestoreArgs):
+      return a
+    return dataclasses.replace(
+        a,
+        strict=not context.array_options.loading.enable_padding_and_truncation,
+    )
+
+  restore_args = checkpoint_utils.construct_restore_args(
+      abstract_checkpointable
+  )
+  restore_args = jax.tree.map(_set_enable_padding_and_truncation, restore_args)
+  return base_pytree_checkpoint_handler.BasePyTreeRestoreArgs(
+      item=abstract_checkpointable,
+      restore_args=restore_args,
   )
 
 
@@ -76,47 +140,23 @@ class PyTreeHandler(
 ):
   """An implementation of `CheckpointableHandler` for PyTrees."""
 
-  # TODO(b/398249409): Currently `PyTreeHandler` is not used by higher-level
-  # code. Many of the options here need to be moved to the `Context`.
   def __init__(
       self,
       *,
-      create_array_storage_options_fn: (
-          options.CreateArrayStorageOptionsFn | None
-      ) = None,
-      save_concurrent_bytes: int | None = None,
-      restore_concurrent_bytes: int | None = None,
-      use_ocdbt: bool = True,
-      use_zarr3: bool = True,
-      enable_padding_and_truncation: bool = False,
-      ocdbt_target_data_file_size: int | None = None,
-      enable_pinned_host_transfer: bool = False,
-      multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
+      context: context_lib.Context | None = None,
       type_handler_registry: type_handlers.TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
-      enable_post_merge_validation: bool = True,
-      pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
-          tree_metadata.PYTREE_METADATA_OPTIONS
-      ),
       array_metadata_validator: array_metadata_store_lib.Validator = (
           array_metadata_store_lib.Validator()
       ),
   ):
-    self._handler_impl = base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler(
-        save_concurrent_bytes=save_concurrent_bytes,
-        restore_concurrent_bytes=restore_concurrent_bytes,
-        use_ocdbt=use_ocdbt,
-        use_zarr3=use_zarr3,
-        multiprocessing_options=multiprocessing_options,
+    context = context_lib.get_context(context)
+    self._context = context
+    self._multiprocessing_options = context.multiprocessing_options
+    self._handler_impl = create_v0_handler(
+        context,
         type_handler_registry=type_handler_registry,
-        enable_post_merge_validation=enable_post_merge_validation,
-        pytree_metadata_options=pytree_metadata_options,
         array_metadata_validator=array_metadata_validator,
     )
-    self._create_array_storage_options_fn = create_array_storage_options_fn
-    self._ocdbt_target_data_file_size = ocdbt_target_data_file_size
-    self._enable_pinned_host_transfer = enable_pinned_host_transfer
-    self._multiprocessing_options = multiprocessing_options
-    self._enable_padding_and_truncation = enable_padding_and_truncation
 
   def _finalize(self, directory: path_types.Path):
     if multihost.is_primary_host(self._multiprocessing_options.primary_host):
@@ -152,14 +192,7 @@ class PyTreeHandler(
     directory = epath.Path(directory)
     commit_futures = await self._handler_impl.async_save(
         directory,
-        args=base_pytree_checkpoint_handler.BasePyTreeSaveArgs(
-            item=checkpointable,
-            save_args=_get_legacy_compatible_save_args(
-                checkpointable, self._create_array_storage_options_fn
-            ),
-            ocdbt_target_data_file_size=self._ocdbt_target_data_file_size,
-            enable_pinned_host_transfer=self._enable_pinned_host_transfer,
-        ),
+        args=create_v0_save_args(self._context, checkpointable),
     )
     assert commit_futures
 
@@ -176,26 +209,10 @@ class PyTreeHandler(
       directory: path_types.Path,
       abstract_checkpointable: PyTree | None = None,
   ) -> PyTree:
-
-    def _set_enable_padding_and_truncation(a):
-      if not isinstance(a, type_handlers.ArrayRestoreArgs):
-        return a
-      return dataclasses.replace(
-          a,
-          strict=not self._enable_padding_and_truncation,
-      )
-
-    restore_args = checkpoint_utils.construct_restore_args(
-        abstract_checkpointable
+    return self._handler_impl.restore(
+        directory,
+        args=create_v0_restore_args(self._context, abstract_checkpointable),
     )
-    restore_args = jax.tree.map(
-        _set_enable_padding_and_truncation, restore_args
-    )
-    args = base_pytree_checkpoint_handler.BasePyTreeRestoreArgs(
-        item=abstract_checkpointable,
-        restore_args=restore_args,
-    )
-    return self._handler_impl.restore(directory, args=args)
 
   async def load(
       self,

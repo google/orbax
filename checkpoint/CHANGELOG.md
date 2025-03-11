@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Re-enable `replica_parallel` feature. This was previously disabled due to
 performance concerns, but these have been identified as relating to the
 `pinned_host_transfer` feature instead.
+- #v1 Refactor `Context` and expand global options.
 
 ## [0.11.8] - 2025-03-07
 
