@@ -14,6 +14,7 @@ performance concerns, but these have been identified as relating to the
 `pinned_host_transfer` feature instead.
 - #v1 Refactor `Context` and expand global options.
 - #v1 Add `CheckpointMetadata` definitions.
+- Enable `ArrayMetadata` persistence globally.
 
 ## [0.11.8] - 2025-03-07
 
