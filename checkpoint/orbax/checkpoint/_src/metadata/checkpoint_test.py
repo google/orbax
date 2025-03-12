@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import itertools
 import pickle
 from typing import Any, Callable
 
@@ -174,11 +173,9 @@ class CheckpointMetadataTest(parameterized.TestCase):
         self.directory / checkpoint._LEGACY_ROOT_METADATA_FILENAME,
     )
 
-  @parameterized.parameters(
-      itertools.product(
-          [True, False],
-          [StepMetadata, RootMetadata],
-      )
+  @parameterized.product(
+      blocking_write=[True, False],
+      metadata_class=[StepMetadata, RootMetadata],
   )
   def test_write_unknown_file_path(
       self,
@@ -208,11 +205,9 @@ class CheckpointMetadataTest(parameterized.TestCase):
           self.read_metadata_store(blocking_write).read('unknown_metadata_path')
       )
 
-  @parameterized.parameters(
-      itertools.product(
-          [True, False],
-          [StepMetadata, RootMetadata],
-      )
+  @parameterized.product(
+      blocking_write=[True, False],
+      metadata_class=[StepMetadata, RootMetadata],
   )
   def test_read_default_values(
       self,
@@ -236,11 +231,9 @@ class CheckpointMetadataTest(parameterized.TestCase):
         metadata,
     )
 
-  @parameterized.parameters(
-      itertools.product(
-          [True, False],
-          [StepMetadata, RootMetadata],
-      )
+  @parameterized.product(
+      blocking_write=[True, False],
+      metadata_class=[StepMetadata, RootMetadata],
   )
   def test_read_with_values(
       self,
@@ -264,11 +257,9 @@ class CheckpointMetadataTest(parameterized.TestCase):
         metadata,
     )
 
-  @parameterized.parameters(
-      itertools.product(
-          [True, False],
-          [StepMetadata, RootMetadata],
-      )
+  @parameterized.product(
+      blocking_write=[True, False],
+      metadata_class=[StepMetadata, RootMetadata],
   )
   def test_read_corrupt_json_data(
       self,
@@ -284,11 +275,9 @@ class CheckpointMetadataTest(parameterized.TestCase):
         )
     )
 
-  @parameterized.parameters(
-      itertools.product(
-          [True, False],
-          [StepMetadata, RootMetadata],
-      )
+  @parameterized.product(
+      blocking_write=[True, False],
+      metadata_class=[StepMetadata, RootMetadata],
   )
   def test_update_without_prior_data(
       self,
@@ -312,11 +301,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
         ),
     )
 
-  @parameterized.parameters(
-      itertools.product(
-          [True, False],
-      )
-  )
+  @parameterized.parameters(True, False)
   def test_update_with_prior_data(
       self,
       blocking_write: bool,
@@ -345,11 +330,9 @@ class CheckpointMetadataTest(parameterized.TestCase):
         ),
     )
 
-  @parameterized.parameters(
-      itertools.product(
-          [True, False],
-          [StepMetadata, RootMetadata],
-      )
+  @parameterized.product(
+      blocking_write=[True, False],
+      metadata_class=[StepMetadata, RootMetadata],
   )
   def test_update_with_unknown_kwargs(
       self,
@@ -378,11 +361,9 @@ class CheckpointMetadataTest(parameterized.TestCase):
         ),
     )
 
-  @parameterized.parameters(
-      itertools.product(
-          [True, False],
-          [StepMetadata, RootMetadata],
-      )
+  @parameterized.product(
+      blocking_write=[True, False],
+      metadata_class=[StepMetadata, RootMetadata],
   )
   def test_write_with_read_only_store_is_no_op(
       self,
