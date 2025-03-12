@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `default_sharding` option to `StandardRestoreArgs` to support restoring on
+different topologies easily.
+
 ### Changed
 
 - Re-enable `replica_parallel` feature. This was previously disabled due to
@@ -15,6 +20,8 @@ performance concerns, but these have been identified as relating to the
 - #v1 Refactor `Context` and expand global options.
 - #v1 Add `CheckpointMetadata` definitions.
 - Enable `ArrayMetadata` persistence globally.
+- Use `SingleDeviceSharding` as default sharding when restoring on different
+topologies in StandardCheckpointHandler instead of throwing an error.
 
 ## [0.11.8] - 2025-03-07
 
