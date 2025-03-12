@@ -153,13 +153,9 @@ def deserialize(
       )
   )
 
-  if isinstance(item_metadata, CompositeItemMetadata):
-    validated_metadata_dict['item_metadata'] = {}
-    for k, v in item_metadata.items():
-      utils.validate_type(k, str)
-      validated_metadata_dict['item_metadata'][k] = v
-  else:
-    validated_metadata_dict['item_metadata'] = item_metadata
+  validated_metadata_dict['item_metadata'] = (
+      utils.validate_and_process_item_metadata(item_metadata)
+  )
 
   serialized_metrics = metadata_dict.get('metrics', None)
   if serialized_metrics is not None:

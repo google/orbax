@@ -23,6 +23,8 @@ CompositeCheckpointHandlerTypeStrs = (
     checkpoint.CompositeCheckpointHandlerTypeStrs
 )
 CheckpointHandlerTypeStr = checkpoint.CheckpointHandlerTypeStr
+CompositeItemMetadata = checkpoint.CompositeItemMetadata
+SingleItemMetadata = checkpoint.SingleItemMetadata
 
 
 def validate_type(obj: Any, field_type: type[Any] | Sequence[type[Any]]):
@@ -50,6 +52,22 @@ def validate_and_process_item_handlers(
     return item_handlers
   elif isinstance(item_handlers, CheckpointHandlerTypeStr):
     return item_handlers
+
+
+def validate_and_process_item_metadata(
+    item_metadata: Any,
+) -> CompositeItemMetadata | SingleItemMetadata | None:
+  """Validates and processes item_metadata field."""
+  if item_metadata is None:
+    return None
+
+  if isinstance(item_metadata, CompositeItemMetadata):
+    validate_type(item_metadata, dict)
+    for k in item_metadata:
+      validate_type(k, str)
+    return item_metadata
+  else:
+    return item_metadata
 
 
 def validate_and_process_custom_metadata(
