@@ -49,7 +49,6 @@ import asyncio
 import concurrent.futures
 import dataclasses
 from typing import Any, Coroutine, Dict, List, Mapping, MutableSet, Optional, Tuple, Type
-import uuid
 
 from absl import logging
 from etils import epath
@@ -504,7 +503,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     self._async_options = (
         composite_options.async_options or options_lib.AsyncOptions()
     )
-
     logging.info(
         'Initialized registry %s.',
         self._handler_registry,
@@ -668,7 +666,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     }
 
     return result
-
 
   async def async_save(
       self, directory: epath.Path, args: CompositeArgs

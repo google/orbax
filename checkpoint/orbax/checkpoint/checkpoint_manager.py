@@ -108,14 +108,6 @@ def _metrics_file_exists(metrics_item_path: epath.Path) -> bool:
   )
 
 
-def _descriptor_file_exists(descriptor_item_path: epath.Path) -> bool:
-  """True if item directory AND actual file both exist."""
-  return (
-      descriptor_item_path.exists()
-      and (descriptor_item_path / f'{DESCRIPTOR_ITEM_NAME}.pbtxt').exists()
-  )
-
-
 class StepAlreadyExistsError(ValueError):
   """Raised when a step is already present for a save request."""
 
