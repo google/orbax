@@ -49,8 +49,8 @@ class ShardingTest(absltest.TestCase):
     )
     compare.assertProtoEqual(
         self,
-        device_mesh,
         expected_device_mesh,
+        device_mesh,
     )
 
   def test_jax_mesh_to_obm_device_assignment_by_coords(self):
@@ -176,8 +176,8 @@ class ShardingTest(absltest.TestCase):
     )
     compare.assertProtoEqual(
         self,
-        device_assignment_by_coords,
         expected_device_assignment_by_coords,
+        device_assignment_by_coords,
     )
 
 

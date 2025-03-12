@@ -588,8 +588,8 @@ class MainLibTest(parameterized.TestCase):
     )
     compare.assertProtoEqual(
         self,
-        manifest_proto,
         expected_manifest_proto,
+        manifest_proto,
         ignored_fields=[
             'objects.function.body.stable_hlo_body.stable_hlo.inlined_bytes'
         ],

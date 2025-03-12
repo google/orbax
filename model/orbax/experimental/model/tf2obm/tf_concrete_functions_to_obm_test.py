@@ -498,8 +498,8 @@ class TfConcreteFunctionsToObmTest(
     )
     compare.assertProtoEqual(
         self,
-        manifest_proto,
         expected_manifest_proto,
+        manifest_proto,
     )
 
     pre_processor_proto = (
@@ -526,8 +526,8 @@ class TfConcreteFunctionsToObmTest(
     )
     compare.assertProtoEqual(
         self,
-        pre_processor_proto,
         expected_pre_processor_proto,
+        pre_processor_proto,
     )
 
     post_processor_proto = (
@@ -554,8 +554,8 @@ class TfConcreteFunctionsToObmTest(
     )
     compare.assertProtoEqual(
         self,
-        post_processor_proto,
         expected_post_processor_proto,
+        post_processor_proto,
     )
 
     loaded_tf_module = tf.saved_model.load(saved_model_abs_path)
