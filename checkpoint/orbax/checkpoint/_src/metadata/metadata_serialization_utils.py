@@ -125,6 +125,17 @@ def validate_and_process_init_timestamp_nsecs(
   return init_timestamp_nsecs
 
 
+def validate_and_process_commit_timestamp_nsecs(
+    commit_timestamp_nsecs: Any,
+) -> int | None:
+  """Validates and processes commit_timestamp_nsecs field."""
+  if commit_timestamp_nsecs is None:
+    return None
+
+  validate_type(commit_timestamp_nsecs, int)
+  return commit_timestamp_nsecs
+
+
 def validate_and_process_custom_metadata(
     custom_metadata: Any,
 ) -> dict[str, Any]:
