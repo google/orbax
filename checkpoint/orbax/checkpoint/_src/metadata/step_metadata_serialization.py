@@ -167,10 +167,11 @@ def deserialize(
       )
   )
 
-  init_timestamp_nsecs = metadata_dict.get('init_timestamp_nsecs', None)
-  if init_timestamp_nsecs is not None:
-    utils.validate_type(init_timestamp_nsecs, int)
-  validated_metadata_dict['init_timestamp_nsecs'] = init_timestamp_nsecs
+  validated_metadata_dict['init_timestamp_nsecs'] = (
+      utils.validate_and_process_init_timestamp_nsecs(
+          metadata_dict.get('init_timestamp_nsecs', None)
+      )
+  )
 
   commit_timestamp_nsecs = metadata_dict.get('commit_timestamp_nsecs', None)
   if commit_timestamp_nsecs is not None:
