@@ -516,7 +516,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
       ({'metrics': {int(): None}},),
       ({'performance_metrics': list()},),
       ({'performance_metrics': {int(): float()}},),
-      ({'performance_metrics': {str(): int()}},),
       ({'init_timestamp_nsecs': float()},),
       ({'commit_timestamp_nsecs': float()},),
       ({'custom_metadata': list()},),
@@ -577,7 +576,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
 
   @parameterized.parameters(
       ({'metrics': 1}, dict, int),
-      ({'performance_metrics': 1}, dict, int),
       ({'init_timestamp_nsecs': 'a'}, int, str),
       ({'commit_timestamp_nsecs': 'a'}, int, str),
       ({'custom_metadata': 1}, dict, int),
@@ -593,6 +591,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
 
   @parameterized.parameters(
       ({'item_handlers': 1}, int),
+      ({'performance_metrics': 1}, int),
   )
   def test_validate_field_sequence_wrong_type(
       self, step_metadata, wrong_field_type
@@ -617,18 +616,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
     with self.assertRaisesRegex(
         ValueError,
         f'Object must be of type {expected_key_type}, got {wrong_key_type}.',
-    ):
-      self.deserialize_metadata(StepMetadata, step_metadata)
-
-  @parameterized.parameters(
-      ({'performance_metrics': {'a': 1}}, float, int),
-  )
-  def test_validate_dict_entry_wrong_value_type(
-      self, step_metadata, expected_value_type, wrong_value_type
-  ):
-    with self.assertRaisesRegex(
-        ValueError,
-        f'Object must be of type {expected_value_type}, got {wrong_value_type}',
     ):
       self.deserialize_metadata(StepMetadata, step_metadata)
 

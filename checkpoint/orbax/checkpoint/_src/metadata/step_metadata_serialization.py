@@ -161,14 +161,10 @@ def deserialize(
       metadata_dict.get('metrics', None), metrics
   )
 
-  performance_metrics = metadata_dict.get('performance_metrics', None)
-  if performance_metrics is not None:
-    utils.validate_type(performance_metrics, dict)
-    for k in performance_metrics:
-      utils.validate_type(k, str)
-      utils.validate_type(performance_metrics[k], float)
   validated_metadata_dict['performance_metrics'] = StepStatistics(
-      **(performance_metrics or {})
+      **utils.validate_and_process_performance_metrics(
+          metadata_dict.get('performance_metrics', None)
+      )
   )
 
   init_timestamp_nsecs = metadata_dict.get('init_timestamp_nsecs', None)

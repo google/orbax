@@ -14,8 +14,10 @@
 
 """Utilities for serializing and deserializing metadata."""
 
+import dataclasses
 from typing import Any, Optional, Sequence
 
+from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.metadata import checkpoint
 
 
@@ -25,6 +27,7 @@ CompositeCheckpointHandlerTypeStrs = (
 CheckpointHandlerTypeStr = checkpoint.CheckpointHandlerTypeStr
 CompositeItemMetadata = checkpoint.CompositeItemMetadata
 SingleItemMetadata = checkpoint.SingleItemMetadata
+StepStatistics = step_statistics.SaveStepStatistics
 
 
 def validate_type(obj: Any, field_type: type[Any] | Sequence[type[Any]]):
@@ -88,6 +91,27 @@ def validate_and_process_metrics(
       validated_metrics[k] = v
 
   return validated_metrics
+
+
+def validate_and_process_performance_metrics(
+    performance_metrics: Any,
+) -> dict[str, float]:
+  """Validates and processes performance_metrics field."""
+  if performance_metrics is None:
+    return {}
+
+  validate_type(performance_metrics, [dict, StepStatistics])
+  if isinstance(performance_metrics, StepStatistics):
+    performance_metrics = dataclasses.asdict(performance_metrics)
+
+  for k in performance_metrics:
+    validate_type(k, str)
+
+  return {
+      metric: val
+      for metric, val in performance_metrics.items()
+      if isinstance(val, float)
+  }
 
 
 def validate_and_process_custom_metadata(
