@@ -512,7 +512,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
   @parameterized.parameters(
       ({'item_handlers': list()},),
       ({'item_handlers': {int(): None}},),
-      ({'metrics': list()},),
+      ({'metrics': [int()]},),
       ({'metrics': {int(): None}},),
       ({'performance_metrics': list()},),
       ({'performance_metrics': {int(): float()}},),
@@ -566,7 +566,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
   @parameterized.parameters(
       ('metrics', 1, dict, int),
   )
-  def test_validate_type_wrong_type(
+  def test_deserialize_metrics_kwarg(
       self, kwarg_name, kwarg_value, expected_type, wrong_type
   ):
     with self.assertRaisesRegex(

@@ -14,7 +14,7 @@
 
 """Utilities for serializing and deserializing metadata."""
 
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 from orbax.checkpoint._src.metadata import checkpoint
 
@@ -68,6 +68,26 @@ def validate_and_process_item_metadata(
     return item_metadata
   else:
     return item_metadata
+
+
+def validate_and_process_metrics(
+    metrics: Any, additional_metrics: Optional[Any] = None
+) -> dict[str, Any]:
+  """Validates and processes metrics field."""
+  metrics = metrics or {}
+
+  validate_type(metrics, dict)
+  for k in metrics:
+    validate_type(k, str)
+  validated_metrics = metrics.copy()
+
+  if additional_metrics is not None:
+    validate_type(additional_metrics, dict)
+    for k, v in additional_metrics.items():
+      validate_type(k, str)
+      validated_metrics[k] = v
+
+  return validated_metrics
 
 
 def validate_and_process_custom_metadata(

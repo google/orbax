@@ -157,17 +157,9 @@ def deserialize(
       utils.validate_and_process_item_metadata(item_metadata)
   )
 
-  serialized_metrics = metadata_dict.get('metrics', None)
-  if serialized_metrics is not None:
-    utils.validate_type(serialized_metrics, dict)
-    for k in serialized_metrics:
-      utils.validate_type(k, str)
-  validated_metadata_dict['metrics'] = serialized_metrics or {}
-  if metrics is not None:
-    utils.validate_type(metrics, dict)
-    for k, v in metrics.items():
-      utils.validate_type(k, str)
-      validated_metadata_dict['metrics'][k] = v
+  validated_metadata_dict['metrics'] = utils.validate_and_process_metrics(
+      metadata_dict.get('metrics', None), metrics
+  )
 
   performance_metrics = metadata_dict.get('performance_metrics', None)
   if performance_metrics is not None:
