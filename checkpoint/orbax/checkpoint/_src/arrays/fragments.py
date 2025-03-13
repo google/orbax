@@ -19,25 +19,26 @@ relationship to a mesh of devices, or to other fragments.
 """
 
 import dataclasses
-from typing import Sequence
+from typing import Optional, Sequence, TypeAlias
 
 import jax
 import numpy as np
 from orbax.checkpoint._src.arrays import numpy_utils as np_utils
 from orbax.checkpoint._src.arrays import types
 
-Shape = types.Shape
-Index = types.Index
+Shape: TypeAlias = types.Shape
+Index: TypeAlias = types.Index
+NpIndex: TypeAlias = np.ndarray  # shape=[{rank}, 3], dtype=int
 
 
-def _ndarray_from_index(idx: Index) -> np.ndarray:
+def _ndarray_from_index(idx: Index) -> NpIndex:
   if idx:
     return np.stack([np_utils.int_tuple_from_slice(s) for s in idx])
   else:
     return np.empty([0, 3], dtype=int)
 
 
-def _index_from_ndarray(a: np.ndarray) -> Index:
+def _index_from_ndarray(a: NpIndex) -> Index:
   return tuple(slice(*xs) for xs in a)
 
 
@@ -54,14 +55,14 @@ class Fragment:
       abstract.
   """
 
-  np_index: np.ndarray  # shape=[{rank}, 3], dtype=int
+  np_index: NpIndex  # shape=[{rank}, 3], dtype=int
   value: np.ndarray | None = None
 
   def __init__(
       self,
       *,
       index: Index | None = None,
-      np_index: np.ndarray | None = None,
+      np_index: NpIndex | None = None,
       value: np.ndarray | None = None,
   ):
     if value is not None and not isinstance(value, np.ndarray):
@@ -79,9 +80,9 @@ class Fragment:
             f'Fragment index must be a tuple of slices, got {type(index)}.'
         )
       np_index = _ndarray_from_index(index)
-    elif not isinstance(np_index, np.ndarray):
+    elif not isinstance(np_index, NpIndex):
       raise TypeError(
-          f'Fragment np_index must be an np.ndarray , got {type(np_index)}.'
+          f'Fragment np_index must be an np.ndarray, got {type(np_index)}.'
       )
 
     object.__setattr__(self, 'value', value)
@@ -155,10 +156,40 @@ class Fragment:
   def nbytes_astype(self, dtype: np.dtype) -> int:
     return np.prod([dtype.itemsize, *self.shape])
 
-  def offset_by(self, delta: np.ndarray) -> 'Fragment':
+  def offset_by(
+      self,
+      delta: np.ndarray,  # shape=[{rank}], dtype=int
+  ) -> 'Fragment':
     out_idx = self.np_index.copy()
     out_idx[:, :2] += np.expand_dims(delta, axis=1)
     return Fragment(np_index=out_idx, value=self.value)
+
+  def slice(
+      self,
+      np_index: NpIndex,  # shape=[{rank}, 3], dtype=int
+  ) -> Optional['Fragment']:
+    """Slices this fragment to find the part that overlaps the given NpIndex."""
+    if (self.step != 1).any() or (np_index[:, 2] != 1).any():
+      raise NotImplementedError('Coming ... soon?')
+
+    slice_shape = np_index[:, 1] - np_index[:, 0]
+    out = self.offset_by(-np_index[:, 0])
+    start = out.start[:] = np.maximum(out.start, 0)
+    stop = out.stop[:] = np.minimum(out.stop, slice_shape)
+    if not (start < stop).all():
+      return None
+    if (value := self.value) is None:
+      return out
+    else:
+      value_fragment = Fragment(
+          np_index=np.stack([
+              np.maximum(self.start, np_index[:, 0]),
+              np.minimum(self.stop, np_index[:, 1]),
+              np_index[:, 2],
+          ], axis=1)
+      ).offset_by(-self.start)
+      out_value = value[value_fragment.index or ...]
+      return dataclasses.replace(out, value=out_value)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -222,6 +253,34 @@ class Fragments:
     for f in non_degenerate_fragments:
       result[f.index] = f.value
     return result
+
+  def slice(
+      self,
+      index: NpIndex | Index,  # shape=[{rank}, 3], dtype=int
+  ) -> 'Fragments':
+    """Returns a slice of this object."""
+    if not isinstance(index, np.ndarray):
+      index = np_utils.resolve_slice(index, self.shape)
+      index = _ndarray_from_index(index)
+
+    if not (index[:, 2] == 1).all():
+      raise NotImplementedError('Coming ... soon?')
+    sliced_shape = np.minimum(self.shape, index[:, 1]) - index[:, 0]
+    if (sliced_shape < 0).any():
+      raise ValueError(
+          f'Attempt to slice Fragments of shape {self.shape} '
+          f'with out-of-bounds index {_index_from_ndarray(index)}'
+      )
+
+    return Fragments(
+        tuple(d.item() for d in sliced_shape),
+        self.dtype,
+        [
+            f
+            for f in [fragment.slice(index) for fragment in self.fragments]
+            if f is not None
+        ],
+    )
 
 
 def _is_full(fragments: Fragments) -> bool:

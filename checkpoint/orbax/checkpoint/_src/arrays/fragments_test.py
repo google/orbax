@@ -124,6 +124,62 @@ class FragmentTest(absltest.TestCase):
         ),
     )
 
+  def test_slice(self):
+    full_value = np.arange(8 * 9).reshape((8, 9))
+    fragment_index = np.s_[4:8:1, 3:9:1]
+
+    f = Fragment(
+        index=fragment_index,
+        value=full_value[fragment_index])
+
+    with self.subTest('fully_within_fragment_index'):
+      slice_index = np.s_[5:7:1, 4:8:1]
+      s = f.slice(array_fragments._ndarray_from_index(slice_index))
+      self.assertEqual(
+          Fragment(index=np.s_[0:2:1, 0:4:1], value=full_value[slice_index]),
+          s
+      )
+
+    with self.subTest('fully_enclosing_fragment_index'):
+      slice_index = np.s_[2:10:1, 1:11:1]
+      s = f.slice(array_fragments._ndarray_from_index(slice_index))
+      self.assertEqual(
+          Fragment(index=np.s_[2:6:1, 2:8:1], value=f.value),
+          s
+      )
+
+    with self.subTest('spanning_fragment_start'):
+      slice_index = np.s_[2:6:1, 2:4:1]
+      s = f.slice(array_fragments._ndarray_from_index(slice_index))
+      self.assertEqual(
+          Fragment(index=np.s_[2:4:1, 1:2:1], value=f.value[:2, :1]),
+          s
+      )
+
+    with self.subTest('spanning_fragment_stop'):
+      slice_index = np.s_[6:10:1, 6:10:1]
+      s = f.slice(array_fragments._ndarray_from_index(slice_index))
+      self.assertEqual(
+          Fragment(index=np.s_[0:2:1, 0:3:1], value=f.value[2:, 3:]),
+          s
+      )
+
+    with self.subTest('with_no_overlap'):
+      self.assertIsNone(
+          f.slice(array_fragments._ndarray_from_index(np.s_[10:12:1, 10:12:1]))
+      )
+      # This is within the bounds of the fragment but spans no elements.
+      self.assertIsNone(
+          f.slice(array_fragments._ndarray_from_index(np.s_[6:6:1, 3:9:1]))
+      )
+
+    with self.subTest('rank_0'):
+      s = Fragment(index=(), value=np.ones([])).slice(
+          np.zeros([0, 3], dtype=int))
+      self.assertIsNotNone(s)
+      self.assertEqual((), s.index)
+      self.assertIsInstance(s.value, np.ndarray)
+
 
 class FragmentsTest(absltest.TestCase):
 
@@ -198,6 +254,30 @@ class FragmentsTest(absltest.TestCase):
         ],
     )
     self.assertEqual(((1 * 1) + (2 * 2)) * 4, fragments.addressable_nbytes)
+
+  def test_slice(self):
+    full_value = np.arange(5 * 5).reshape((5, 5))
+    fragments = Fragments(
+        shape=(5, 5),
+        dtype=np.dtype(np.float32),
+        fragments=[
+            Fragment(index=np.s_[1:2:1, 3:4:1], value=full_value[1:2, 3:4]),
+            Fragment(index=np.s_[3:5:1, 0:2:1], value=full_value[3:5, 0:2]),
+        ],
+    )
+
+    sliced = fragments.slice(np.s_[2:4:1, 0:5:1])
+    self.assertEqual(
+        Fragments(
+            shape=(2, 5),
+            dtype=np.dtype(np.float32),
+            fragments=[
+                # (The first fragment is entirely sliced away.)
+                Fragment(index=np.s_[1:2:1, 0:2:1], value=full_value[3:4, 0:2]),
+            ],
+        ),
+        sliced,
+    )
 
 
 class FragmentsToArrayTest(absltest.TestCase):
