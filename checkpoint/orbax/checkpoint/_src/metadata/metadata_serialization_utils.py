@@ -17,6 +17,7 @@
 import dataclasses
 from typing import Any, Optional, Sequence
 
+from absl import logging
 from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.metadata import checkpoint
 
@@ -147,3 +148,17 @@ def validate_and_process_custom_metadata(
   for k in custom_metadata:
     validate_type(k, str)
   return custom_metadata
+
+
+def process_unknown_key(key: str, metadata_dict: dict[str, Any]) -> Any:
+  if 'custom_metadata' in metadata_dict and metadata_dict['custom_metadata']:
+    raise ValueError(
+        'Provided metadata contains unknown key %s, and the custom_metadata'
+        ' field is already defined.' % key
+    )
+  logging.warning(
+      'Provided metadata contains unknown key %s. Adding it to'
+      ' custom_metadata.',
+      key,
+  )
+  return metadata_dict[key]

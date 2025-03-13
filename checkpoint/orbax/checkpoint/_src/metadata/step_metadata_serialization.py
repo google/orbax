@@ -17,7 +17,6 @@
 import dataclasses
 from typing import Any
 
-from absl import logging
 from etils import epath
 from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.metadata import checkpoint
@@ -187,19 +186,8 @@ def deserialize(
 
   for k in metadata_dict:
     if k not in validated_metadata_dict:
-      if (
-          'custom_metadata' in metadata_dict
-          and metadata_dict['custom_metadata']
-      ):
-        raise ValueError(
-            'Provided metadata contains unknown key %s, and the custom_metadata'
-            ' field is already defined.' % k
-        )
-      logging.warning(
-          'Provided metadata contains unknown key %s. Adding it to'
-          ' custom_metadata.',
-          k,
+      validated_metadata_dict['custom_metadata'][k] = utils.process_unknown_key(
+          k, metadata_dict
       )
-      validated_metadata_dict['custom_metadata'][k] = metadata_dict[k]
 
   return StepMetadata(**validated_metadata_dict)

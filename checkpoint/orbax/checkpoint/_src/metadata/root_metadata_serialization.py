@@ -14,7 +14,6 @@
 
 """Internal IO utilities for metadata of a checkpoint at root level."""
 
-from absl import logging
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import metadata_serialization_utils as utils
 
@@ -39,19 +38,8 @@ def deserialize(metadata_dict: SerializedMetadata) -> RootMetadata:
 
   for k in metadata_dict:
     if k not in validated_metadata_dict:
-      if (
-          'custom_metadata' in metadata_dict
-          and metadata_dict['custom_metadata']
-      ):
-        raise ValueError(
-            'Provided metadata contains unknown key %s, and the custom_metadata'
-            ' field is already defined.' % k
-        )
-      logging.warning(
-          'Provided metadata contains unknown key %s. Adding it to'
-          ' custom_metadata.',
-          k,
+      validated_metadata_dict['custom_metadata'][k] = utils.process_unknown_key(
+          k, metadata_dict
       )
-      validated_metadata_dict['custom_metadata'][k] = metadata_dict[k]
 
   return RootMetadata(**validated_metadata_dict)
