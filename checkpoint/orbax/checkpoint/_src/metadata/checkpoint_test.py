@@ -621,7 +621,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
   @parameterized.parameters(
       ({'item_handlers': list()},),
       ({'item_handlers': {int(): None}},),
-      ({'metrics': list()},),
+      ({'metrics': [int()]},),
       ({'metrics': {int(): None}},),
       ({'performance_metrics': list()},),
       ({'init_timestamp_nsecs': float()},),

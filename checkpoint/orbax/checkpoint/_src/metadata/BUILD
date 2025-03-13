@@ -72,7 +72,7 @@ py_library(
     name = "checkpoint",
     srcs = ["checkpoint.py"],
     deps = [
-        "//checkpoint/orbax/checkpoint/_src:composite",
+        ":metadata_serialization_utils",
         "//checkpoint/orbax/checkpoint/_src/logging:step_statistics",
     ],
 )
@@ -111,7 +111,7 @@ py_library(
     name = "metadata_serialization_utils",
     srcs = ["metadata_serialization_utils.py"],
     deps = [
-        ":checkpoint",
+        "//checkpoint/orbax/checkpoint/_src:composite",
         "//checkpoint/orbax/checkpoint/_src/logging:step_statistics",
     ],
 )
