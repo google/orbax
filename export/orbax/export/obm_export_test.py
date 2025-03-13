@@ -26,6 +26,7 @@ from orbax.export import constants
 from orbax.export import jax_module
 from orbax.export import obm_export
 from orbax.export import serving_config as osc
+from orbax.export import utils
 from orbax.export.modules import obm_module
 import tensorflow as tf
 
