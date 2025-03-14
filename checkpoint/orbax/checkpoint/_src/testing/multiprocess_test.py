@@ -161,8 +161,7 @@ def _main(argv):
         f"--jax_num_tasks={num_processes}",
         f"--jax_task_id={i}",
         f"--jax_controller_address=localhost:{jax_port}",
-        "--jax_heartbeat_interval=1s",
-        "--jax_max_missing_heartbeats=3",
+        "--jax_heartbeat_timeout=3s",
         f"--jax_distributed_shutdown_timeout={_WORKER_SHUTDOWN_TIMEOUT.value}s",
         "--vmodule=client=10,service=10",
     ]
