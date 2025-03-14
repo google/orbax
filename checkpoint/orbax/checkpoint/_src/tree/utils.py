@@ -14,7 +14,7 @@
 
 """Tree utilities."""
 
-from typing import Any, Callable, Optional, Tuple, Union
+from typing import Any, Callable, Mapping, NamedTuple, Optional, Tuple, Union
 
 import jax
 from orbax.checkpoint._src.arrays import abstract_arrays
@@ -22,6 +22,13 @@ from orbax.checkpoint._src.tree import types as tree_types
 
 
 PyTree = tree_types.PyTree
+PyTreeKey = (
+    jax.tree_util.SequenceKey
+    | jax.tree_util.DictKey
+    | jax.tree_util.GetAttrKey
+    | jax.tree_util.FlattenedIndexKey
+)
+PyTreePath = tuple[PyTreeKey, ...]
 
 to_shape_dtype_struct = abstract_arrays.to_shape_dtype_struct
 
@@ -311,3 +318,132 @@ def get_param_names(
       item,
       is_leaf=is_leaf,
   )
+
+
+def tree_flatten_with_path_one_level(
+    x: Any,
+) -> tuple[list[tuple[PyTreePath, Any]], jax.tree_util.PyTreeDef]:
+  return jax.tree_util.tree_flatten_with_path(x, is_leaf=lambda y: y is not x)
+
+
+class Diff(NamedTuple):
+  lhs: Any
+  rhs: Any
+
+
+def tree_difference(
+    a, b, leaf_equality_fn: Callable[[Any, Any], bool] | None = None
+):
+  """Recursively compute differences in tree structure.
+
+  Lists, tuples, named tuples, mappings and custom PyTree nodes are treated
+  as internal nodes and compared element-wise. Other types are treated as
+  leaf nodes and compared by type or using a custom equality function, if
+  one is provided.
+
+  All leaves of a subtree must be equal according to the equality function to
+  avoid being reported as differences.
+
+  The result is a tree that is structurally a prefix of both the inputs.
+  Differences in equality of leaf nodes, sequence length or mapping key set at
+  corresponding nodes of the two inputs are summarized as `Diff` instances at
+  the resulting node in the output.
+
+  Map values that do not differ are omitted from the output; sequence elements
+  that do not differ are represented as None.
+
+  For example:
+  ```
+  first  = {'x': [1, 2, 3], 'y': 'same', 'z': {'p': {}, 'q': 4, 'r': 6}}
+  second = {'x': [1, 3],    'y': 'same', 'z': {'p': {}, 'q': 5, 's': 6}}
+  tree_difference(first, second) == {
+      'x': Diff(lhs=(list, 3), rhs=(list, 2)),
+      'z': {'r': Diff(lhs=6, rhs=None), 's': Diff(lhs=None, rhs=6)},
+  }
+  ```
+
+  Args:
+    a: The first object to compare.
+    b: The second object to compare.
+    leaf_equality_fn: Optional equality function to apply between corresponding
+      leaves of the two data structures. If None, leaf nodes are considered
+      equal if they are of the same type.
+
+  Returns:
+    A tree summarizing the structural differences between the arguments, or
+    `None` if there are no such differences.
+  """
+  if leaf_equality_fn is None:
+
+    def _eq_type(a, b):
+      return type(a) is type(b)
+
+    leaf_equality_fn = _eq_type
+
+  is_leaf = lambda t: jax.tree_util.all_leaves([t])
+
+  if is_leaf(a) and is_leaf(b):
+    # `a` and `b` are leaf nodes; compare using equality function.
+    if leaf_equality_fn(a, b):
+      return None
+    else:
+      return Diff(lhs=a, rhs=b)
+
+  if type(a) is not type(b):
+    # Can't check if either node is nested if the node types are different.
+    return Diff(lhs=type(a), rhs=type(b))
+
+  if isinstance_of_namedtuple(a):
+    diffs = type(a)(
+        *(tree_difference(aa, bb, leaf_equality_fn) for aa, bb in zip(a, b))
+    )
+    return None if all(d is None for d in diffs) else diffs
+  elif isinstance(a, (list, tuple)):
+    if len(a) != len(b):
+      return Diff(lhs=(type(a), len(a)), rhs=(type(b), len(b)))
+    diffs = type(a)(
+        tree_difference(aa, bb, leaf_equality_fn) for aa, bb in zip(a, b)
+    )
+    return None if all(d is None for d in diffs) else diffs
+  elif isinstance(a, Mapping):
+    diffs = {
+        k: diff
+        for k, diff in (
+            (k, tree_difference(a[k], b[k], leaf_equality_fn))
+            for k in a
+            if k in b
+        )
+        if diff is not None
+    }
+    diffs.update((k, Diff(lhs=v, rhs=None)) for k, v in a.items() if k not in b)
+    diffs.update((k, Diff(lhs=None, rhs=v)) for k, v in b.items() if k not in a)
+
+    return diffs or None
+  else:
+    # Custom PyTree nodes. This is limited to the case where `a` and `b` have
+    # the same list of children, because `unflatten` requires a `tree_def` that
+    # has come from one of them or the other. It's not clear that there's any
+    # way to remove that limitation.
+    a_keys_and_children, a_tree_def = tree_flatten_with_path_one_level(a)
+    b_keys_and_children, b_tree_def = tree_flatten_with_path_one_level(b)
+    del b_tree_def
+    a = {k: v for k, v in a_keys_and_children}
+    b = {k: v for k, v in b_keys_and_children}
+    diffs = {
+        k: diff
+        for k, diff in (
+            (k, tree_difference(a[k], b[k], leaf_equality_fn))
+            for k in a
+            if k in b
+        )
+        if diff is not None
+    }
+
+    diffs.update((k, Diff(lhs=v, rhs=None)) for k, v in a.items() if k not in b)
+    diffs.update((k, Diff(lhs=None, rhs=v)) for k, v in b.items() if k not in a)
+    if diffs:
+      return jax.tree.unflatten(
+          a_tree_def, [diffs.get(k) for k, _ in a_keys_and_children]
+      )
+
+    return None

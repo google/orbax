@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ocp.tree.utils.tree_difference()` to compute differences between PyTrees.
+
 ### Changed
 
 - Re-enable `replica_parallel` feature. This was previously disabled due to

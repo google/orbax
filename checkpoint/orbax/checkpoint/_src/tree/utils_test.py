@@ -14,7 +14,7 @@
 
 """Test for utils module."""
 
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, NamedTuple, Sequence
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -26,6 +26,20 @@ import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.testing import test_tree_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
+
+
+Diff = tree_utils.Diff
+
+
+class Record(NamedTuple):
+  first: Any
+  second: Any
+
+
+def _as_string_equality(a, b) -> bool:
+  if a is None or b is None:
+    return a == b
+  return str(a) == str(b)
 
 
 # TODO: b/365169723 - Add tests: PyTreeMetadataOptions.support_rich_types=True.
@@ -262,6 +276,162 @@ class UtilsTest(parameterized.TestCase):
   def test_non_named_tuple_type_detection(self, nt):
     self.assertFalse(tree_utils.isinstance_of_namedtuple(nt))
     self.assertFalse(tree_utils.issubclass_of_namedtuple(type(nt)))
+
+
+class TreeDifferenceTest(parameterized.TestCase):
+
+  def test_doc_example(self):
+    first = {'x': [1, 2, 3], 'y': 'same', 'z': {'p': {}, 'q': 4, 'r': 6}}
+    second = {'x': [1, 3], 'y': 'same', 'z': {'p': {}, 'q': 5, 's': 6}}
+    actual = tree_utils.tree_difference(first, second)
+    expected = {
+        'x': Diff(lhs=(list, 3), rhs=(list, 2)),
+        'z': {
+            'r': Diff(lhs=6, rhs=None),
+            's': Diff(lhs=None, rhs=6),
+        },
+    }
+    self.assertEqual(actual, expected)
+
+  def test_doc_example_using_object_equality(self):
+    first = {'x': [1, 2, 3], 'y': 'same', 'z': {'p': {}, 'q': 4, 'r': 6}}
+    second = {'x': [1, 2, 3], 'y': 'same', 'z': {'p': {}, 'q': 4, 's': 6}}
+    leaf_equality_fn = lambda x, y: x == y
+
+    actual = tree_utils.tree_difference(first, second, leaf_equality_fn)
+    expected = {'z': {'r': Diff(lhs=6, rhs=None), 's': Diff(lhs=None, rhs=6)}}
+    self.assertEqual(actual, expected)
+
+  @parameterized.parameters([
+      ((),),
+      ([],),
+      ({},),
+      ((1, 2, 3),),  # tuples of same elements.
+      (
+          (1, 2, 3),
+          (2, 3, 4),
+      ),  # tuples of same length using type equality.
+      ([1, 2, 3],),
+      (
+          [1, 2, 3],
+          [2, 3, 4],
+      ),  # lists of same length using type equality.
+      ({'one': 1, 'two': 2, 'three': 3},),
+      (Record(first=1, second=2),),
+  ])
+  def test_match_returns_none(self, lhs, rhs=None):
+    if rhs is None:
+      rhs = lhs
+    self.assertIsNone(tree_utils.tree_difference(lhs, rhs))
+
+  @parameterized.parameters([
+      ('abc', 'abc'),
+      (123, 123),
+      (123, '123'),
+      ('123', 123),
+  ])
+  def test_match_returns_none_custom_equality_fn(self, lhs, rhs):
+    self.assertIsNone(tree_utils.tree_difference(lhs, rhs, _as_string_equality))
+
+  @parameterized.parameters([('abc', 'bcd'), (123, 234), (123, '123')])
+  def test_match_returns_diff_custom_equality_fn(self, lhs, rhs):
+    self.assertEqual(
+        tree_utils.tree_difference(lhs, rhs, lambda x, y: x == y),
+        Diff(lhs=lhs, rhs=rhs),
+    )
+
+  def test_named_tuples_are_compared_fieldwise(self):
+    self.assertEqual(
+        tree_utils.tree_difference(
+            Record(first=3, second=4), Record(first=5, second='four')
+        ),
+        Record(first=None, second=Diff(lhs=4, rhs='four')),
+    )
+
+  def test_named_tuples_are_compared_fieldwise_custom_equality_fn(self):
+    self.assertEqual(
+        tree_utils.tree_difference(
+            Record(first='3', second=4),
+            Record(first=3, second='four'),
+            _as_string_equality,
+        ),
+        Record(first=None, second=Diff(lhs=4, rhs='four')),
+    )
+
+  @parameterized.product(
+      sequence_type=[tuple, list], eq_fn=[None, lambda x, y: x == y]
+  )
+  def test_length_difference_is_reported_as_pair_of_type_and_length(
+      self, sequence_type, eq_fn
+  ):
+    s = sequence_type
+    self.assertEqual(
+        tree_utils.tree_difference(s([1, 2, 3]), s(['one', 'two']), eq_fn),
+        Diff(lhs=(s, 3), rhs=(s, 2)),
+    )
+
+  @parameterized.parameters([
+      (tuple,),
+      (list,),
+  ])
+  def test_element_difference_is_none_at_matching_indices(self, sequence_type):
+    s = sequence_type
+    self.assertEqual(
+        tree_utils.tree_difference(s([1, 2, 3]), s([1, 'two', 2])),
+        s([None, Diff(lhs=2, rhs='two'), None]),
+    )
+
+  @parameterized.parameters([
+      (tuple,),
+      (list,),
+  ])
+  def test_element_difference_is_none_at_matching_indices_custom_equality_fn(
+      self, sequence_type
+  ):
+    s = sequence_type
+    leaf_equality_fn = _as_string_equality
+
+    self.assertEqual(
+        tree_utils.tree_difference(
+            s([1, 2, 3]), s([1, 'two', '3']), leaf_equality_fn
+        ),
+        s([None, Diff(lhs=2, rhs='two'), None]),
+    )
+
+  def test_mapping_difference_only_contains_mismatched_elements(self):
+    self.assertEqual(
+        tree_utils.tree_difference(
+            {'one': 1, 'two': 2, 'three': 3},
+            {'one': 1, 'two': 'two', 'three': 3},
+        ),
+        {'two': Diff(lhs=2, rhs='two')},
+    )
+
+  def test_difference_with_custom_pytree_node(self):
+    @flax.struct.dataclass
+    class NewModel(flax.struct.PyTreeNode):
+      x: Any
+      y: Any
+
+    self.assertEqual(
+        tree_utils.tree_difference(
+            NewModel(
+                x=jax.ShapeDtypeStruct(shape=(16,), dtype=np.int64),
+                y=Ellipsis,
+            ),
+            NewModel(
+                x=jax.ShapeDtypeStruct(shape=(16,), dtype=np.int64),
+                y=jax.ShapeDtypeStruct(shape=(16,), dtype=np.float64),
+            ),
+        ),
+        NewModel(
+            x=None,
+            y=Diff(
+                lhs=Ellipsis,
+                rhs=jax.ShapeDtypeStruct(shape=(16,), dtype=np.float64),
+            ),
+        ),
+    )
 
 
 if __name__ == '__main__':
