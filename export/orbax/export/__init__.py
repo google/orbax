@@ -17,6 +17,7 @@
 # pylint: disable=g-importing-member
 from orbax.export import config
 from orbax.export import constants
+from orbax.export import obm_configs
 from orbax.export import typing
 from orbax.export import utils
 from orbax.export.dtensor_utils import dtensor_initialized

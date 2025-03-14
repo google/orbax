@@ -24,6 +24,7 @@ from jax.experimental import mesh_utils
 import jax.numpy as jnp
 from orbax.export import constants
 from orbax.export import jax_module
+from orbax.export import obm_configs
 from orbax.export import obm_export
 from orbax.export import serving_config as osc
 from orbax.export import utils
