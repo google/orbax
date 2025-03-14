@@ -80,6 +80,9 @@ CHECKPOINT_PATH = 'checkpoint_path'
 # attribute on the OrbaxModule.
 WEIGHTS_NAME = 'weights_name'
 
+# Jax2obm_kwargs key for input polymorphic constraints.
+POLYMORPHIC_CONSTRAINTS = 'polymorphic_constraints'
+
 # Default weights name to use if a checkpoint path is provided but a weights_
 # name kwarg was not provided in the jax2obm_kwargs.
 DEFAULT_WEIGHTS_NAME = 'weights'
