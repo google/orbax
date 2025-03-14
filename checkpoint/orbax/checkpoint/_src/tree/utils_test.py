@@ -280,7 +280,7 @@ class UtilsTest(parameterized.TestCase):
 
 class TreeDifferenceTest(parameterized.TestCase):
 
-  def test_doc_example(self):
+  def test_tree_difference(self):
     first = {'x': [1, 2, 3], 'y': 'same', 'z': {'p': {}, 'q': 4, 'r': 6}}
     second = {'x': [1, 3], 'y': 'same', 'z': {'p': {}, 'q': 5, 's': 6}}
     actual = tree_utils.tree_difference(first, second)
@@ -293,12 +293,14 @@ class TreeDifferenceTest(parameterized.TestCase):
     }
     self.assertEqual(actual, expected)
 
-  def test_doc_example_using_object_equality(self):
+  def test_object_equality(self):
     first = {'x': [1, 2, 3], 'y': 'same', 'z': {'p': {}, 'q': 4, 'r': 6}}
     second = {'x': [1, 2, 3], 'y': 'same', 'z': {'p': {}, 'q': 4, 's': 6}}
     leaf_equality_fn = lambda x, y: x == y
 
-    actual = tree_utils.tree_difference(first, second, leaf_equality_fn)
+    actual = tree_utils.tree_difference(
+        first, second, leaves_equal=leaf_equality_fn
+    )
     expected = {'z': {'r': Diff(lhs=6, rhs=None), 's': Diff(lhs=None, rhs=6)}}
     self.assertEqual(actual, expected)
 
@@ -320,8 +322,7 @@ class TreeDifferenceTest(parameterized.TestCase):
       (Record(first=1, second=2),),
   ])
   def test_match_returns_none(self, lhs, rhs=None):
-    if rhs is None:
-      rhs = lhs
+    rhs = rhs or lhs
     self.assertIsNone(tree_utils.tree_difference(lhs, rhs))
 
   @parameterized.parameters([
@@ -331,12 +332,14 @@ class TreeDifferenceTest(parameterized.TestCase):
       ('123', 123),
   ])
   def test_match_returns_none_custom_equality_fn(self, lhs, rhs):
-    self.assertIsNone(tree_utils.tree_difference(lhs, rhs, _as_string_equality))
+    self.assertIsNone(
+        tree_utils.tree_difference(lhs, rhs, leaves_equal=_as_string_equality)
+    )
 
   @parameterized.parameters([('abc', 'bcd'), (123, 234), (123, '123')])
   def test_match_returns_diff_custom_equality_fn(self, lhs, rhs):
     self.assertEqual(
-        tree_utils.tree_difference(lhs, rhs, lambda x, y: x == y),
+        tree_utils.tree_difference(lhs, rhs, leaves_equal=lambda x, y: x == y),
         Diff(lhs=lhs, rhs=rhs),
     )
 
@@ -353,7 +356,7 @@ class TreeDifferenceTest(parameterized.TestCase):
         tree_utils.tree_difference(
             Record(first='3', second=4),
             Record(first=3, second='four'),
-            _as_string_equality,
+            leaves_equal=_as_string_equality,
         ),
         Record(first=None, second=Diff(lhs=4, rhs='four')),
     )
@@ -366,14 +369,13 @@ class TreeDifferenceTest(parameterized.TestCase):
   ):
     s = sequence_type
     self.assertEqual(
-        tree_utils.tree_difference(s([1, 2, 3]), s(['one', 'two']), eq_fn),
+        tree_utils.tree_difference(
+            s([1, 2, 3]), s(['one', 'two']), leaves_equal=eq_fn
+        ),
         Diff(lhs=(s, 3), rhs=(s, 2)),
     )
 
-  @parameterized.parameters([
-      (tuple,),
-      (list,),
-  ])
+  @parameterized.parameters(tuple, list)
   def test_element_difference_is_none_at_matching_indices(self, sequence_type):
     s = sequence_type
     self.assertEqual(
@@ -381,10 +383,7 @@ class TreeDifferenceTest(parameterized.TestCase):
         s([None, Diff(lhs=2, rhs='two'), None]),
     )
 
-  @parameterized.parameters([
-      (tuple,),
-      (list,),
-  ])
+  @parameterized.parameters(tuple, list)
   def test_element_difference_is_none_at_matching_indices_custom_equality_fn(
       self, sequence_type
   ):
@@ -393,7 +392,7 @@ class TreeDifferenceTest(parameterized.TestCase):
 
     self.assertEqual(
         tree_utils.tree_difference(
-            s([1, 2, 3]), s([1, 'two', '3']), leaf_equality_fn
+            s([1, 2, 3]), s([1, 'two', '3']), leaves_equal=leaf_equality_fn
         ),
         s([None, Diff(lhs=2, rhs='two'), None]),
     )
@@ -431,6 +430,38 @@ class TreeDifferenceTest(parameterized.TestCase):
                 rhs=jax.ShapeDtypeStruct(shape=(16,), dtype=np.float64),
             ),
         ),
+    )
+
+  def test_tree_difference_is_leaf(self):
+    def custom_is_leaf(x):
+      return isinstance(x, int), isinstance(x, list)
+
+    first = {
+        'x': 0,
+        'y': [0],
+        'z': {'p': 0, 'q': [0, 1]},
+        'w': [0, [1, 2], [3], 4],
+    }
+    second = {
+        'x': 1,
+        'y': [1, 2],
+        'z': {'p': 1, 'q': [2]},
+        'w': [5, [6], [7], 8],
+    }
+
+    self.assertEqual(
+        tree_utils.tree_difference(first, second),
+        {
+            'y': Diff(lhs=(list, 1), rhs=(list, 2)),
+            'z': {
+                'q': Diff(lhs=(list, 2), rhs=(list, 1)),
+            },
+            'w': [None, Diff(lhs=(list, 2), rhs=(list, 1)), None, None],
+        },
+    )
+
+    self.assertIsNone(
+        tree_utils.tree_difference(first, second, is_leaf=custom_is_leaf)
     )
 
 
