@@ -373,6 +373,36 @@ def _python_type_from_dtype(dtype):
     return type(dtype(0).item())
 
 
+def construct_restore_args_with_default_sharding(
+    target: tree_metadata.TreeMetadata,
+    default_sharding: jax.sharding.Sharding,
+) -> PyTree:
+  """Creates restore_args given a target TreeMetadata with sharding overrides if required.
+
+  Overrides the sharding in `target` with `default_sharding` if the sharding
+  in `target` is not compatible with the current device mesh.
+
+  Args:
+    target: The returned TreeMetadata will match the structure of `target`.
+    default_sharding: The sharding to use as default if the sharding in `target`
+      fails to load from the checkpoint.
+
+  Returns:
+    A PyTree matching target of RestoreArgs (or ArrayRestoreArgs) objects.
+  """
+
+  def _maybe_override_sharding(value):
+    if isinstance(value, value_metadata.ArrayMetadata) and value.sharding:
+      try:
+        return value.sharding.to_jax_sharding()
+      except ValueError:
+        return default_sharding
+    return None
+
+  sharding_tree = jax.tree.map(_maybe_override_sharding, target)
+  return construct_restore_args(target, sharding_tree)
+
+
 def construct_restore_args(
     target: PyTree,
     sharding_tree: Optional[PyTree] = None,

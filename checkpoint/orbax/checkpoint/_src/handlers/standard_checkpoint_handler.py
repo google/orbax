@@ -228,8 +228,14 @@ class StandardCheckpointHandler(
           ' present topology to be the same one as the checkpoint was saved'
           ' under.'
       )
-      restore_args = checkpoint_utils.construct_restore_args(
-          self.metadata(directory)
+      default_sharding = args.default_sharding
+      if default_sharding is None:
+        default_sharding = jax.sharding.SingleDeviceSharding(jax.devices()[0])
+      restore_args = (
+          checkpoint_utils.construct_restore_args_with_default_sharding(
+              self.metadata(directory),
+              default_sharding=default_sharding,
+          )
       )
 
     def _replace_strict(
@@ -309,11 +315,14 @@ class StandardRestoreArgs(CheckpointArgs):
         the stored array shape does not match the target shape. Otherwise,
         raises an error.
     support_layout: if True, restores with the layouts in `item`.
+    default_sharding: Overrides the sharding in the checkpoint
+        if the saved sharding fails to load from the checkpoint.
   """
 
   item: Optional[PyTree] = None
   strict: bool = True
   support_layout: bool = False
+  default_sharding: Optional[jax.sharding.Sharding] = None
 
   def __post_init__(self):
     if isinstance(self.item, tree_metadata.TreeMetadata):

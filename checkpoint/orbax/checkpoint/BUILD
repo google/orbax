@@ -249,6 +249,7 @@ py_test(
         ":utils",
         "//checkpoint/orbax/checkpoint/_src/checkpointers:pytree_checkpointer",
         "//checkpoint/orbax/checkpoint/_src/handlers:pytree_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/_src/metadata:sharding",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
         "//checkpoint/orbax/checkpoint/_src/path:step",
     ],
