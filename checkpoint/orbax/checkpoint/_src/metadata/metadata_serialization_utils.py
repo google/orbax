@@ -15,23 +15,21 @@
 """Utilities for serializing and deserializing metadata."""
 
 import dataclasses
-from typing import Any, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence, TypeAlias
 
 from absl import logging
+from orbax.checkpoint._src import composite
 from orbax.checkpoint._src.logging import step_statistics
-from orbax.checkpoint._src.metadata import checkpoint
 
 
-CompositeCheckpointHandlerTypeStrs = (
-    checkpoint.CompositeCheckpointHandlerTypeStrs
-)
-CheckpointHandlerTypeStr = checkpoint.CheckpointHandlerTypeStr
-CompositeItemMetadata = checkpoint.CompositeItemMetadata
-SingleItemMetadata = checkpoint.SingleItemMetadata
+CompositeCheckpointHandlerTypeStrs: TypeAlias = Mapping
+CheckpointHandlerTypeStr = str
+CompositeItemMetadata = composite.Composite
+SingleItemMetadata = Any
 StepStatistics = step_statistics.SaveStepStatistics
 
 
-def validate_type(obj: Any, field_type: type[Any] | Sequence[type[Any]]):
+def _validate_type(obj: Any, field_type: type[Any] | Sequence[type[Any]]):
   if isinstance(field_type, Sequence):
     if not any(isinstance(obj, f_type) for f_type in field_type):
       raise ValueError(
@@ -44,15 +42,19 @@ def validate_type(obj: Any, field_type: type[Any] | Sequence[type[Any]]):
 
 def validate_and_process_item_handlers(
     item_handlers: Any,
-) -> CompositeCheckpointHandlerTypeStrs | CheckpointHandlerTypeStr | None:
+) -> (
+    CompositeCheckpointHandlerTypeStrs[str, Any]
+    | CheckpointHandlerTypeStr
+    | None
+):
   """Validates and processes item_handlers field."""
   if item_handlers is None:
     return None
 
-  validate_type(item_handlers, [dict, str])
+  _validate_type(item_handlers, [dict, str])
   if isinstance(item_handlers, CompositeCheckpointHandlerTypeStrs):
     for k in item_handlers or {}:
-      validate_type(k, str)
+      _validate_type(k, str)
     return item_handlers
   elif isinstance(item_handlers, CheckpointHandlerTypeStr):
     return item_handlers
@@ -66,9 +68,8 @@ def validate_and_process_item_metadata(
     return None
 
   if isinstance(item_metadata, CompositeItemMetadata):
-    validate_type(item_metadata, dict)
     for k in item_metadata:
-      validate_type(k, str)
+      _validate_type(k, str)
     return item_metadata
   else:
     return item_metadata
@@ -80,15 +81,15 @@ def validate_and_process_metrics(
   """Validates and processes metrics field."""
   metrics = metrics or {}
 
-  validate_type(metrics, dict)
+  _validate_type(metrics, dict)
   for k in metrics:
-    validate_type(k, str)
+    _validate_type(k, str)
   validated_metrics = metrics.copy()
 
   if additional_metrics is not None:
-    validate_type(additional_metrics, dict)
+    _validate_type(additional_metrics, dict)
     for k, v in additional_metrics.items():
-      validate_type(k, str)
+      _validate_type(k, str)
       validated_metrics[k] = v
 
   return validated_metrics
@@ -101,12 +102,12 @@ def validate_and_process_performance_metrics(
   if performance_metrics is None:
     return {}
 
-  validate_type(performance_metrics, [dict, StepStatistics])
+  _validate_type(performance_metrics, [dict, StepStatistics])
   if isinstance(performance_metrics, StepStatistics):
     performance_metrics = dataclasses.asdict(performance_metrics)
 
   for k in performance_metrics:
-    validate_type(k, str)
+    _validate_type(k, str)
 
   return {
       metric: val
@@ -122,7 +123,7 @@ def validate_and_process_init_timestamp_nsecs(
   if init_timestamp_nsecs is None:
     return None
 
-  validate_type(init_timestamp_nsecs, int)
+  _validate_type(init_timestamp_nsecs, int)
   return init_timestamp_nsecs
 
 
@@ -133,7 +134,7 @@ def validate_and_process_commit_timestamp_nsecs(
   if commit_timestamp_nsecs is None:
     return None
 
-  validate_type(commit_timestamp_nsecs, int)
+  _validate_type(commit_timestamp_nsecs, int)
   return commit_timestamp_nsecs
 
 
@@ -144,9 +145,9 @@ def validate_and_process_custom_metadata(
   if custom_metadata is None:
     return {}
 
-  validate_type(custom_metadata, dict)
+  _validate_type(custom_metadata, dict)
   for k in custom_metadata:
-    validate_type(k, str)
+    _validate_type(k, str)
   return custom_metadata
 
 
