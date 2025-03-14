@@ -148,7 +148,7 @@ class ReplicatorCheckpointManager(
         step_name_format=options.step_name_format,
         should_save_fn=options.should_save_fn,
         multiprocessing_options=multiprocessing_options,
-        create=False,
+        create=True,
         cleanup_tmp_directories=False,  # Handled separately below.
         enable_background_delete=False,
         enable_async_checkpointing=True,

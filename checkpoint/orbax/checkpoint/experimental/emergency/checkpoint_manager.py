@@ -1437,6 +1437,10 @@ class CheckpointManager(
     self._slice_count = multislice.slice_count(
         global_mesh, replica_axis_index=options.replica_axis_index
     )
+    checkpoint_manager._create_root_directory(
+        persistent_directory,
+        multiprocessing_options=checkpoint_manager.MultiprocessingOptions(),
+    )
     if self._slice_count <= 0:
       raise ValueError(
           'Slice count must be positive, but got'
