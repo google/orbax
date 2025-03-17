@@ -719,6 +719,17 @@ class BasePyTreeCheckpointHandler(
     # Prep for restore.
     if item is None:
       item = value_metadata_tree
+    else:
+      num_leaves = lambda tree: len(
+          jax.tree_util.tree_leaves(tree, is_leaf=tree_utils.is_empty_or_leaf)
+      )
+      if num_leaves(value_metadata_tree) != num_leaves(item):
+        raise ValueError(
+            'User-provided restore item and on-disk value metadata tree'
+            ' structures do not match.\n\titem: '
+            f' {jax.tree.flatten_with_path(item)}\n\tvalue metadata tree:'
+            f' {jax.tree.flatten_with_path(value_metadata_tree)}'
+        )
     restore_args = _fill_missing_save_or_restore_args(
         item, restore_args, mode='restore'
     )
