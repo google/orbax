@@ -18,7 +18,6 @@
 
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy
 from orbax.checkpoint._src.checkpoint_managers.save_decision_policy import (
-    StepInfo,
     SaveDecisionPolicy,
     FixedIntervalPolicy,
     InitialSavePolicy,

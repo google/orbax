@@ -168,8 +168,8 @@ class _ShouldSaveFnPolicy(save_decision_policy_lib.SaveDecisionPolicy):
 
   def should_save(
       self,
-      step: save_decision_policy_lib.StepInfo,
-      previous_steps: Sequence[save_decision_policy_lib.StepInfo],
+      step: checkpoint_info.CheckpointInfo,
+      previous_steps: Sequence[checkpoint_info.CheckpointInfo],
       *,
       context: save_decision_policy_lib.DecisionContext,
   ) -> bool:
@@ -1075,19 +1075,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     is_saving_in_progress = self.is_saving_in_progress()
     reached_preemption = self.reached_preemption(step)
-    previous_step_infos = [
-        save_decision_policy_lib.StepInfo(step=ckpt.step, time=ckpt.time)
-        for ckpt in self._checkpoints
-    ]
-    current_step_info = save_decision_policy_lib.StepInfo(
+    current_step_info = checkpoint_info.CheckpointInfo(
         step=step, time=datetime.datetime.now(tz=datetime.timezone.utc),
+        metrics=None
     )
     context = save_decision_policy_lib.DecisionContext(
         is_saving_in_progress=is_saving_in_progress,
         reached_preemption=reached_preemption,
     )
     return self._save_decision_policy.should_save(
-        current_step_info, previous_steps=previous_step_infos, context=context
+        current_step_info, previous_steps=self._checkpoints, context=context
     )
 
   def _get_save_directory(
