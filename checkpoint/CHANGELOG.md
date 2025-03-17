@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.9] - 2025-03-17
+
 ### Added
 
 - `ocp.tree.utils.tree_difference()` to compute differences between PyTrees.
@@ -19,6 +21,7 @@ performance concerns, but these have been identified as relating to the
 - #v1 Refactor `Context` and expand global options.
 - #v1 Add `CheckpointMetadata` definitions.
 - Enable `ArrayMetadata` persistence globally.
+- #emergency-checkpoint Create root directory automatically.
 
 ## [0.11.8] - 2025-03-07
 
