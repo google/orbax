@@ -57,7 +57,7 @@ class ServingConfig:
   # exactly one method which will be used.
   method_key: Optional[str] = None
   # Options passed to the Orbax Model export.
-  obm_kwargs: Optional[Mapping[str, Any]] = None
+  obm_kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
   def get_signature_keys(self) -> Sequence[str]:
     if isinstance(self.signature_key, str):
