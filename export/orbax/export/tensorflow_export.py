@@ -15,6 +15,7 @@
 """Export class that implements the save and load abstract class defined in Export Base for use with the TensorFlow SavedModel export format."""
 
 from typing import Any, Callable, Mapping, Sequence
+
 from absl import logging
 from etils.epy import reraise_utils
 from orbax.export import config
@@ -24,6 +25,7 @@ from orbax.export import serving_config as osc
 from orbax.export import utils
 import tensorflow as tf
 
+from .security.bcid.tree_verity.public.python import tree_verity
 
 obx_export_config = config.config
 maybe_reraise = reraise_utils.maybe_reraise
@@ -69,6 +71,7 @@ class TensorFlowExport(export_base.ExportBase):
           'save_options must be of type tf.saved_model.SaveOptions. Got type: '
           f'{type(save_options)}'
       )
+
     save_options.experimental_custom_gradients = (
         self._computation_module.with_gradient
     )

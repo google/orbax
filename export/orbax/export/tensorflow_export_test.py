@@ -163,8 +163,21 @@ class TensorFlowExportTest(tf.test.TestCase, parameterized.TestCase):
           ],
           expected_keys=['serving_default'],
       ),
+      dict(
+          testcase_name='with tree verity',
+          serving_configs=[
+              sc.ServingConfig(
+                  'without_processors',
+                  input_signature=[tf.TensorSpec((), tf.dtypes.int32)],
+              ),
+          ],
+          expected_keys=['without_processors'],
+          tree_verity_options=tree_verity.TreeVerityOptions(
+              attestation_signing=tree_verity.AttestationSigning.SIGNING_HASH_ONLY
+          ),
+      ),
   )
-  def test_save(self, serving_configs, expected_keys):
+  def test_save(self, serving_configs, expected_keys, tree_verity_options=None):
     module = jax_module.JaxModule(
         {'bias': jnp.array(1)}, lambda p, x: x + p['bias']
     )
@@ -173,6 +186,7 @@ class TensorFlowExportTest(tf.test.TestCase, parameterized.TestCase):
     tfe.save(
         self._output_dir,
         serving_signatures=serving_signatures,
+        tree_verity_options=tree_verity_options,
     )
     loaded = tf.saved_model.load(self._output_dir, ['serve'])
     self.assertCountEqual(expected_keys, loaded.signatures.keys())
