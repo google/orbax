@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.9] - 2025-03-17
+
 ### Added
 
 - `ocp.tree.utils.tree_difference()` to compute differences between PyTrees.
