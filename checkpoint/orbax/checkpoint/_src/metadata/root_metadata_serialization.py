@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Internal IO utilities for metadata of a checkpoint at root level."""
+import dataclasses
 
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import metadata_serialization_utils as utils
@@ -23,17 +24,27 @@ RootMetadata = checkpoint.RootMetadata
 
 def serialize(metadata: RootMetadata) -> SerializedMetadata:
   """Serializes `metadata` to a dictionary."""
-  return {
-      'custom_metadata': metadata.custom_metadata,
+  serialized_fields = {
+      field.name: field.metadata['processor'](getattr(metadata, field.name))
+      for field in dataclasses.fields(metadata)
   }
+
+  return serialized_fields
 
 
 def deserialize(metadata_dict: SerializedMetadata) -> RootMetadata:
   """Deserializes `metadata_dict` to `RootMetadata`."""
+  fields = dataclasses.fields(RootMetadata)
+  field_names = {field.name for field in fields}
+
+  field_processor_args = {
+      field_name: (metadata_dict.get(field_name, None),)
+      for field_name in field_names
+  }
+
   validated_metadata_dict = {
-      'custom_metadata': utils.validate_and_process_custom_metadata(
-          metadata_dict.get('custom_metadata', None)
-      ),
+      field.name: field.metadata['processor'](*field_processor_args[field.name])
+      for field in fields
   }
 
   for k in metadata_dict:

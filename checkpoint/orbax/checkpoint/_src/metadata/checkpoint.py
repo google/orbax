@@ -15,25 +15,26 @@
 """Manages metadata of checkpoints at root and step level (not item level)."""
 
 from __future__ import annotations
+
 import concurrent.futures
 import dataclasses
 import json
 import threading
-from typing import Any, Mapping, Protocol, TypeAlias, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from absl import logging
 from etils import epath
-from orbax.checkpoint._src import composite
 from orbax.checkpoint._src.logging import step_statistics
+from orbax.checkpoint._src.metadata import metadata_serialization_utils as utils
 
 _STEP_METADATA_FILENAME = '_CHECKPOINT_METADATA'
 _ROOT_METADATA_FILENAME = '_ROOT_METADATA'
 _LEGACY_ROOT_METADATA_FILENAME = 'metadata'
 
-CompositeCheckpointHandlerTypeStrs: TypeAlias = Mapping
-CheckpointHandlerTypeStr = str
-CompositeItemMetadata = composite.Composite
-SingleItemMetadata = Any
+CompositeCheckpointHandlerTypeStrs = utils.CompositeCheckpointHandlerTypeStrs
+CheckpointHandlerTypeStr = utils.CheckpointHandlerTypeStr
+CompositeItemMetadata = utils.CompositeItemMetadata
+SingleItemMetadata = utils.SingleItemMetadata
 StepStatistics = step_statistics.SaveStepStatistics
 SerializedMetadata = TypeVar('SerializedMetadata', bound=dict[str, Any])
 
@@ -85,15 +86,36 @@ class StepMetadata:
 
   item_handlers: (
       dict[str, CheckpointHandlerTypeStr] | CheckpointHandlerTypeStr | None
-  ) = None
-  item_metadata: CompositeItemMetadata | SingleItemMetadata | None = None
-  metrics: dict[str, Any] = dataclasses.field(default_factory=dict)
-  performance_metrics: StepStatistics = dataclasses.field(
-      default_factory=StepStatistics
+  ) = dataclasses.field(
+      default=None,
+      metadata={'processor': utils.validate_and_process_item_handlers},
   )
-  init_timestamp_nsecs: int | None = None
-  commit_timestamp_nsecs: int | None = None
-  custom_metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
+  item_metadata: CompositeItemMetadata | SingleItemMetadata | None = (
+      dataclasses.field(
+          default=None,
+          metadata={'processor': utils.validate_and_process_item_metadata},
+      )
+  )
+  metrics: dict[str, Any] = dataclasses.field(
+      default_factory=dict,
+      metadata={'processor': utils.validate_and_process_metrics},
+  )
+  performance_metrics: StepStatistics = dataclasses.field(
+      default_factory=StepStatistics,
+      metadata={'processor': utils.validate_and_process_performance_metrics},
+  )
+  init_timestamp_nsecs: int | None = dataclasses.field(
+      default=None,
+      metadata={'processor': utils.validate_and_process_init_timestamp_nsecs},
+  )
+  commit_timestamp_nsecs: int | None = dataclasses.field(
+      default=None,
+      metadata={'processor': utils.validate_and_process_commit_timestamp_nsecs},
+  )
+  custom_metadata: dict[str, Any] = dataclasses.field(
+      default_factory=dict,
+      metadata={'processor': utils.validate_and_process_custom_metadata},
+  )
 
 
 @dataclasses.dataclass
@@ -107,7 +129,8 @@ class RootMetadata:
   """
 
   custom_metadata: dict[str, Any] | None = dataclasses.field(
-      default_factory=dict
+      default_factory=dict,
+      metadata={'processor': utils.validate_and_process_custom_metadata},
   )
 
 
