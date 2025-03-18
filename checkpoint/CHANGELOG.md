@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `fallback_sharding` option to `StandardRestoreArgs` to support restoring
+on different topologies easily.
+
 ## [0.11.9] - 2025-03-17
 
 ### Added

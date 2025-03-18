@@ -30,7 +30,11 @@ import numpy as np
 import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
+from orbax.checkpoint._src.metadata import sharding as sharding_metadata
+from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handlers
 
@@ -40,6 +44,8 @@ PyTree = Any
 SaveArgs = type_handlers.SaveArgs
 StandardRestoreArgs = standard_checkpoint_handler.StandardRestoreArgs
 StandardSaveArgs = standard_checkpoint_handler.StandardSaveArgs
+ArrayRestoreArgs = pytree_checkpoint_handler.ArrayRestoreArgs
+RestoreArgs = pytree_checkpoint_handler.RestoreArgs
 
 
 class StandardCheckpointHandler(
@@ -400,3 +406,57 @@ class StandardCheckpointHandlerTestBase:
       )
       metadata = self.handler.metadata(self.directory)
       self.assertEqual(metadata.custom_metadata, custom_metadata)
+
+    def test_construct_restore_args_with_fallback_sharding(self):
+      invalid_sharding_metadata = sharding_metadata.NamedShardingMetadata(
+          shape=np.array([2, 4]),
+          axis_names=['x'],
+          partition_spec=(jax.sharding.PartitionSpec('x'),),
+          device_mesh=sharding_metadata.DeviceMetadataMesh.from_dict(
+              {'mesh': {'id': 1000}}
+          ),
+      )
+      fallback_sharding = jax.sharding.NamedSharding(
+          mesh=jax.sharding.Mesh(jax.devices(), ('x',)),
+          spec=jax.sharding.PartitionSpec('x'),
+      )
+      pytree = tree_metadata.build_default_tree_metadata({
+          'a': value_metadata.ScalarMetadata(
+              name='', directory=epath.Path(''), dtype=jnp.int32
+          ),
+          'b': value_metadata.ArrayMetadata(
+              name='',
+              directory=epath.Path(''),
+              shape=(2, 4),
+              sharding=None,
+              dtype=jnp.float64,
+          ),
+          'c': value_metadata.ArrayMetadata(
+              name='',
+              directory=epath.Path(''),
+              shape=(2, 4),
+              sharding=invalid_sharding_metadata,
+              dtype=jnp.float64,
+          ),
+      })
+      expected_restore_args = {
+          'a': RestoreArgs(restore_type=int, dtype=jnp.int32),
+          'b': RestoreArgs(restore_type=np.ndarray, dtype=jnp.float64),
+          'c': ArrayRestoreArgs(
+              restore_type=jax.Array,
+              sharding=fallback_sharding,
+              global_shape=(2, 4),
+              dtype=jnp.float64,
+          ),
+      }
+
+      restore_args = standard_checkpoint_handler._construct_restore_args(
+          pytree, fallback_sharding
+      )
+
+      self.assertSameElements(expected_restore_args.keys(), restore_args.keys())
+      with self.subTest(name='array_restore_args'):
+        self.assertEqual(expected_restore_args['c'], restore_args['c'])
+      with self.subTest(name='restore_args'):
+        self.assertEqual(expected_restore_args['a'], restore_args['a'])
+        self.assertEqual(expected_restore_args['b'], restore_args['b'])

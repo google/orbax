@@ -32,6 +32,7 @@ from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 
@@ -228,8 +229,9 @@ class StandardCheckpointHandler(
           ' present topology to be the same one as the checkpoint was saved'
           ' under.'
       )
-      restore_args = checkpoint_utils.construct_restore_args(
-          self.metadata(directory)
+      restore_args = _construct_restore_args(
+          self.metadata(directory),
+          args.fallback_sharding,
       )
 
     def _replace_strict(
@@ -285,6 +287,41 @@ class StandardSaveArgs(CheckpointArgs):
       raise ValueError('Cannot save TreeMetadata.')
 
 
+def _construct_restore_args(
+    target: tree_metadata.TreeMetadata,
+    fallback_sharding: Optional[jax.sharding.Sharding],
+) -> PyTree:
+  """Creates restore_args given a target TreeMetadata with sharding overrides if required.
+
+  Overrides the sharding in `target` with `default_sharding` if the sharding
+  in `target` is not compatible with the current device mesh.
+
+  Args:
+    target: The returned TreeMetadata will match the structure of `target`.
+    fallback_sharding: If provided, this sharding is used as fallback if the
+      sharding in `target` fails to load from the checkpoint.
+
+  Returns:
+    A PyTree matching target of RestoreArgs (or ArrayRestoreArgs) objects.
+  """
+  if fallback_sharding is None:
+    return checkpoint_utils.construct_restore_args(target)
+
+  def _maybe_override_sharding(value):
+    if (
+        isinstance(value, value_metadata.ArrayMetadata)
+        and value.sharding is not None
+    ):
+      try:
+        return value.sharding.to_jax_sharding()
+      except ValueError:
+        return fallback_sharding
+    return None
+
+  sharding_tree = jax.tree.map(_maybe_override_sharding, target)
+  return checkpoint_utils.construct_restore_args(target, sharding_tree)
+
+
 @register_with_handler(StandardCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
 class StandardRestoreArgs(CheckpointArgs):
@@ -309,11 +346,14 @@ class StandardRestoreArgs(CheckpointArgs):
         the stored array shape does not match the target shape. Otherwise,
         raises an error.
     support_layout: if True, restores with the layouts in `item`.
+    fallback_sharding: If provided, this sharding will be used as a fallback
+        if the saved sharding fails to load from the checkpoint.
   """
 
   item: Optional[PyTree] = None
   strict: bool = True
   support_layout: bool = False
+  fallback_sharding: Optional[jax.sharding.Sharding] = None
 
   def __post_init__(self):
     if isinstance(self.item, tree_metadata.TreeMetadata):
