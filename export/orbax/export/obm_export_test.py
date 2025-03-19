@@ -14,7 +14,6 @@
 
 import contextlib
 import os
-from typing import cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
