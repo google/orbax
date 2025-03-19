@@ -4,17 +4,28 @@ package orbax_model_simple_orchestration;
 
 import "orbax/experimental/model/core/protos/type.proto";
 
-// TODO(wangpeng): Allow multiple
-//   (signature, pre_processor_name, post_processor_name)
-//   tuples (each associated with a name), sharing the same
-//   (model_function_name, weights_name).
+// Multiple orchestration pipelines.
+//
+// A pipeline consists of a model function, a (optional) pre-processor and
+// a (optional) post-processor.
+message Pipelines {
+  // A map from pipeline name to pipeline.
+  //
+  // Pipeline names usually correspond to Servo service names, such as
+  // "serving_default".
+  map<string, SimpleOrchestration> name_to_pipeline = 1;
+}
+
+// An orchestration pipeline.
+//
+// TODO(wangpeng): Consider renaming it to `Pipeline`.
 message SimpleOrchestration {
   // The overall (input and output) signature of the orchestration pipeline.
-
+  //
   // The overall input signature will be the input signature of the
   // pre-processor if present, otherwise the input signature of the model
   // function minus the weights argument.
-
+  //
   // The overall output signature will be the output signature of the
   // post-processor if present, otherwise the output signature of the model
   // function.
