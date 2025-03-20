@@ -401,6 +401,7 @@ async def _read_array_index_and_device_put(
     byte_limiter: ByteLimiter,
     strict: bool,
     dll: Optional[layout.DeviceLocalLayout],
+    memory_kind: Optional[str],
 ) -> list[jax.Array]:
   """Callback that reads an array index and places on the devices."""
   for sl in index:
@@ -450,11 +451,10 @@ async def _read_array_index_and_device_put(
           f' TensorStore details: {t.spec}.'
       ) from e
     for device in devices:
-      result.append(
-          jax.device_put(
-              shard, Layout(dll, jax.sharding.SingleDeviceSharding(device))
-          )
+      sharding = jax.sharding.SingleDeviceSharding(
+          device, memory_kind=memory_kind
       )
+      result.append(jax.device_put(shard, Layout(dll, sharding)))
   return result
 
 
@@ -496,6 +496,7 @@ async def read_and_create_array(
           byte_limiter=byte_limiter,
           strict=strict,
           dll=dll,
+          memory_kind=sharding.memory_kind,
       )
       for idx, devices in local_indices_devices_map.items()
   ]

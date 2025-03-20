@@ -7,10 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.10] - 2025-03-20
+
 ### Added
 
 - Add `fallback_sharding` option to `StandardRestoreArgs` to support restoring
 on different topologies easily.
+
+### Fixed
+
+- Fix pinned_host loading by ensuring `memory_kind` is carried through when creating in-memory buffers.
 
 ## [0.11.9] - 2025-03-17
 
