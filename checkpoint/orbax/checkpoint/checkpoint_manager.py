@@ -353,6 +353,14 @@ class CheckpointManagerOptions:
   ] = None
 
   def __post_init__(self):
+    if (
+        self.single_host_load_and_broadcast
+        and self.multiprocessing_options.primary_host is None
+    ):
+      raise ValueError(
+          '`CheckpointManagerOptions.single_host_load_and_broadcast=True`'
+          ' requires `multiprocessing_options.primary_host` to be set.'
+      )
     if self.best_mode not in ('min', 'max'):
       msg = (
           "`CheckpointManagerOptions.best_mode` must be one of None, 'min' "
@@ -739,6 +747,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         or step_lib.standard_name_format(
             step_prefix=self._options.step_prefix,
             step_format_fixed_length=self._options.step_format_fixed_length,
+            single_host_load_and_broadcast=(
+                self._options.single_host_load_and_broadcast
+            ),
         )
     )
 
@@ -1076,8 +1087,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     is_saving_in_progress = self.is_saving_in_progress()
     reached_preemption = self.reached_preemption(step)
     current_step_info = checkpoint_info.CheckpointInfo(
-        step=step, time=datetime.datetime.now(tz=datetime.timezone.utc),
-        metrics=None
+        step=step,
+        time=datetime.datetime.now(tz=datetime.timezone.utc),
+        metrics=None,
     )
     context = save_decision_policy_lib.DecisionContext(
         is_saving_in_progress=is_saving_in_progress,
