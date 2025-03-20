@@ -10,8 +10,12 @@ py_library(
     name = "options",
     srcs = ["options.py"],
     deps = [
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src/metadata:tree",
         "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
+        "//orbax/checkpoint/experimental/v1/_src/handlers:registration",
+        "//orbax/checkpoint/experimental/v1/_src/handlers:types",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",
     ],
 )

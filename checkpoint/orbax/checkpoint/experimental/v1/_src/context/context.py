@@ -79,6 +79,9 @@ class Context(epy.ContextManager):
   file_options: options_lib.FileOptions = dataclasses.field(
       default_factory=options_lib.FileOptions
   )
+  checkpointables_options: options_lib.CheckpointablesOptions = (
+      dataclasses.field(default_factory=options_lib.CheckpointablesOptions)
+  )
 
   def __contextmanager__(self) -> Iterable[Context]:
     token = _CONTEXT.set(self)
