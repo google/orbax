@@ -71,6 +71,7 @@ CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
 get_param_names = tree_utils.get_param_names
 PYTREE_METADATA_FILE = format_utils.PYTREE_METADATA_FILE
+PLACEHOLDER = type_handlers.PLACEHOLDER
 
 DEFAULT_CONCURRENT_GB = 96
 
@@ -172,7 +173,9 @@ def batched_serialization_requests(
     if info.skip_deserialize:
       return
 
-    if isinstance(arg, RestoreArgs):
+    if info.is_placeholder:
+      type_for_registry_lookup = 'placeholder'
+    elif isinstance(arg, RestoreArgs):
       assert isinstance(value, tree_metadata.ValueMetadataEntry), type(value)
       metadata_restore_type = value.value_type
       requested_restore_type = arg.restore_type or metadata_restore_type
@@ -380,9 +383,10 @@ class BasePyTreeCheckpointHandler(
     ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
 
     def _param_info(name, value):
-      skip_deserialize = False
       if isinstance(value, tree_metadata.ValueMetadataEntry):
         skip_deserialize = value.skip_deserialize
+      else:
+        skip_deserialize = False
       return ParamInfo(
           name=name,
           path=(directory / name),
@@ -398,6 +402,7 @@ class BasePyTreeCheckpointHandler(
               value, self._type_handler_registry, self._pytree_metadata_options
           ),
           raise_array_data_missing_error=raise_array_data_missing_error,
+          is_placeholder=(value is PLACEHOLDER),
       )
 
     return jax.tree.map(
@@ -719,6 +724,27 @@ class BasePyTreeCheckpointHandler(
     # Prep for restore.
     if item is None:
       item = value_metadata_tree
+    else:
+      # is_empty_or_leaf is necessary here to treat empty nodes (e.g. empty
+      # dicts, lists, custom nodes) as leaves, as they do not contain any
+      # actual data to be restored, but are needed to maintain the structure.
+      serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
+      diff = tree_utils.tree_difference(
+          serialized_item,
+          value_metadata_tree,
+          is_leaf=tree_utils.is_empty_or_leaf,
+          leaves_equal=lambda a, b: True,
+      )
+      if diff is not None:
+        raise ValueError(
+            'User-provided restore item and on-disk value metadata tree'
+            f' structures do not match: {diff}'
+        )
+      value_metadata_tree = jax.tree.map(
+          lambda v, i: PLACEHOLDER if i is PLACEHOLDER else v,
+          value_metadata_tree,
+          serialized_item,
+      )
     restore_args = _fill_missing_save_or_restore_args(
         item, restore_args, mode='restore'
     )

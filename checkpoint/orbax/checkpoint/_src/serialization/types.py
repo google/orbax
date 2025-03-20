@@ -119,6 +119,9 @@ class ParamInfo:
     from tree metadata and should be the same across all parameters.
   write_shape:
     Shape of the array shard. Used in the subchunking context.
+  is_placeholder:
+    True if the parameter is a placeholder, which means the user chose to skip
+    the parameter during restoration.
   """
 
   name: Optional[str] = None
@@ -134,6 +137,7 @@ class ParamInfo:
   enable_pinned_host_transfer: bool = False
   raise_array_data_missing_error: bool = True
   write_shape: arrays_types.Shape | None = None
+  is_placeholder: bool = False
 
 
 @dataclasses.dataclass
