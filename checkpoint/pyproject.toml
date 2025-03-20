@@ -57,6 +57,7 @@ testing = [
     'pytest',
     'pytest-xdist',
     'chex',
+    'aiofiles',
 ]
 
 [tool.flit.sdist]
