@@ -67,7 +67,8 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
       input_polymorphic_shape: the polymorhpic shape for the inputs of
         ``apply_fn``. If ``apply_fn`` is a mapping, ``input_polymorphic_shape``
         must be a mapping of method key to the input polymorphic shape for the
-        method.
+        method. Currently input_polymorphic_shape is only relevant for TF
+        SavedModel export.
       jax2tf_kwargs: options passed to jax2tf. ``polymorphic_shape`` is inferred
         from ``input_polymorphic_shape`` and should not be set.
         ``with_gradient``, if set, should be consistent with the ``trainable``
@@ -103,7 +104,6 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
       self._export_module = obm_module.ObmModule(
           params=params,
           apply_fn=apply_fn,
-          input_polymorphic_shape=input_polymorphic_shape,
           jax2obm_kwargs=jax2obm_kwargs,
       )
     else:

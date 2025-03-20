@@ -19,13 +19,10 @@ from typing import Any, Callable, Dict, Mapping, Sequence, Tuple, cast
 
 from absl import logging
 import jax
-from jax import export as jax_export
 from orbax.export import constants
 from orbax.export import export_base
 from orbax.export import jax_module
-from orbax.export import obm_configs
 from orbax.export import serving_config as osc
-from orbax.export import utils
 from orbax.export.modules import obm_module
 from orbax.export.typing import PyTree
 import tensorflow as tf

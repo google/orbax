@@ -40,12 +40,10 @@ _VERSIONS = (
 class ExportManagerObmTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.named_parameters(
-      (f'_{idx}', jax_module_version, export_manager_version)
-      for idx, (jax_module_version, export_manager_version) in enumerate(
-          (_VERSIONS, reversed(_VERSIONS))
-      )
+      (f'_{idx}', jax_module_version)
+      for idx, (jax_module_version) in enumerate((_VERSIONS))
   )
-  def test_versions_mismatch(self, jax_module_version, export_manager_version):
+  def test_versions_mismatch(self, jax_module_version):
     tensor_spec = jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32)
     with self.assertRaisesRegex(
         ValueError,
@@ -63,7 +61,6 @@ class ExportManagerObmTest(parameterized.TestCase, tf.test.TestCase):
                   input_signature=[tensor_spec],
               )
           ],
-          version=export_manager_version,
       )
 
 
