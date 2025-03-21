@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package orbax_export_orchestration;
+
+// Multiple orchestration pipelines.
+//
+// A pipeline consists of a model function, a (optional) pre-processor and
+// a (optional) post-processor.
+message Pipelines {
+  // A map from pipeline name to pipeline.
+  //
+  // Pipeline names usually correspond to Servo service names, such as
+  // "serving_default".
+  map<string, Pipeline> name_to_pipeline = 1;
+}
+
+// An orchestration pipeline.
+message Pipeline {
+
+  // The name (in manifest) of the pre-processor function.
+  optional string pre_processor_name = 20;
+
+  // The name (in manifest) of the model function.
+  string model_function_name = 30;
+
+  // The name (in manifest) of the value representing the weights PyTree.
+  //
+  // This PyTree will be given as the 1st arg to the model function.
+  //
+  // In the short term when we don't support PyTree,
+  // (the value whose name is) `weights_name` will be a tuple
+  // of tensors, and the model function will take in a flat list
+  // (often longer than 2) of tensors. In that case, we will interpret
+  // "the 1st arg" above as "the left-most args", i.e. we will retrieve the
+  // individual tensors from `weights_name`, and feed them as the
+  // left-most arguments to the model function.
+  //
+  // # TODO(b/329305005): Remove this hacky interpretation once we support
+  //   PyTree.
+  string weights_name = 40;
+
+  // The name (in manifest) of the post-processor function.
+  optional string post_processor_name = 50;
+
+  // The batch options for the model. If not set, the model will not be batched.
+  optional BatchOptions batch_options = 60;
+}
+
+message BatchOptions {
+  // The component of the model to batch.
+  enum BatchComponent {
+    BATCH_COMPONENT_UNSPECIFIED = 0;
+    // No batching.
+    NO_BATCHING = 1;
+    // The model function corresponding to `model_function_name` in the
+    // orchestration.
+    MODEL_FUNCTION = 2;
+  }
+
+  // The component of the model to batch.
+  BatchComponent batch_component = 1;
+
+  // The maximum allowed batch size for any input.
+  int32 max_batch_size = 2;
+
+  // Maximum number of microseconds to wait before outputting an incomplete
+  // batch.
+  int32 batch_timeout_micros = 3;
+
+  // Optional list of allowed batch sizes. If left empty, all batch sizes no
+  // larger than `max_batch_size` are allowed. Otherwise, supplies a list of
+  // batch sizes, causing the op to pad batches up to one of those sizes. The
+  // entries must increase monotonically, and the final entry must equal
+  // `max_batch_size`.
+  repeated int32 allowed_batch_sizes = 4;
+
+  // If false, an input task with a large size will be split into multiple
+  // smaller batch tasks and possibly put into different batches for processing.
+  // If true, each input task is put into one batch as a whole for processing.
+  // More padding will be needed.
+  bool disable_large_batch_splitting = 5;
+}
