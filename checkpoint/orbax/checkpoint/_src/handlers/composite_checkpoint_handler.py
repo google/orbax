@@ -70,6 +70,7 @@ from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
 
+
 CheckpointArgs = checkpoint_args.CheckpointArgs
 Future = future.Future
 CheckpointArgs = checkpoint_args.CheckpointArgs
@@ -827,12 +828,15 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     # async-compatible barrier function.
     for item_name in sorted(args.keys()):
       arg = args[item_name]
-      if item_name not in existing_items:
+      handler = self._get_or_set_handler(item_name, arg)
+      if item_name not in existing_items and not hasattr(
+          handler,
+          'supports_restore_from_alternate_path',  # TODO(b/404987377): cleanup
+      ):
         raise KeyError(
             f'Item "{item_name}" was not found in the checkpoint. Available'
             f' items: {existing_items}'
         )
-      handler = self._get_or_set_handler(item_name, arg)
       restored[item_name] = handler.restore(
           self._get_item_directory(directory, item_name), args=arg
       )
