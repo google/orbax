@@ -38,7 +38,6 @@ def get_shape_dtype_struct(jax_pytree):
 
 def jax_exported_to_shlo_fn(
     exported: jax_export.Exported,
-    flatten_signature: bool = False,
 ) -> obm.ShloFunction:
   """Converts a `jax.export.Exported` to an Orbax Model `ShloFunction`."""
 
@@ -54,14 +53,14 @@ def jax_exported_to_shlo_fn(
       jax_specific_info._to_shlo_spec_tree_and_refinement_tuple(
           exported.in_avals,
           in_shardings_hlo,
-          exported.in_tree if not flatten_signature else None,
+          exported.in_tree,
       )
   )
   shlo_out_sig, jax_out_sig_refinements = (
       jax_specific_info._to_shlo_spec_tree_and_refinement_tuple(
           exported.out_avals,
           out_shardings_hlo,
-          exported.out_tree if not flatten_signature else None,
+          exported.out_tree,
       )
   )
 
@@ -106,7 +105,6 @@ def convert_to_shlo_fn(
     native_serialization_disabled_checks: Sequence[
         jax_export.DisabledSafetyCheck
     ] = (),
-    flatten_signature: bool = False,
 ) -> obm.ShloFunction:
   """Converts a JAX function to an Orbax Model `ShloFunction`.
 
@@ -134,9 +132,6 @@ def convert_to_shlo_fn(
     native_serialization_disabled_checks: A sequence of safety checks to
       disable. Example can be found in
       https://jax.readthedocs.io/en/latest/_autosummary/jax.export.DisabledSafetyCheck.html#jax.export.DisabledSafetyCheck
-    flatten_signature: If True, the input and output signatures of the
-      `ShloFunction` will be flattened to tuple. Otherwise, the PyTree structure
-      will be kept.
 
   Returns:
     An Orbax Model `ShloFunction`.
@@ -153,7 +148,7 @@ def convert_to_shlo_fn(
   utils.assert_jax_trace_state_is_clean()
 
   exported = create_exported(*args_spec, **kwargs_spec)
-  return jax_exported_to_shlo_fn(exported, flatten_signature)
+  return jax_exported_to_shlo_fn(exported)
 
 
 # TODO(b/356174487): add more check and support for checkpointing.

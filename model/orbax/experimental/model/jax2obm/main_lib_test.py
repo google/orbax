@@ -40,18 +40,16 @@ os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
 class MainLibTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
-      ('_default', False, None, False),
-      ('_flatten_signature', True, None, False),
+      ('_default', None, False),
       (
           '_native_cpu_serialization',
-          False,
           [constants.OrbaxNativeSerializationType.CPU],
           False,
       ),
-      ('_polymorphic_shape', False, None, True),
+      ('_polymorphic_shape', None, True),
   )
   def test_sharded_jax_e2e(
-      self, flatten_signature, native_serialization_platforms, polymorphic_shape
+      self, native_serialization_platforms, polymorphic_shape
   ):
 
     def jax_model_fn(params, x):
@@ -103,7 +101,6 @@ class MainLibTest(parameterized.TestCase):
         (params_args_spec, input_args_spec),
         {},
         native_serialization_platforms=native_serialization_platforms,
-        flatten_signature=flatten_signature,
     )
     obm_module = obm.Module()
     model_function_name = 'my_model_fn'
@@ -133,9 +130,6 @@ class MainLibTest(parameterized.TestCase):
                 obm.simple_orchestration.create(
                     signature=obm.simple_orchestration.calculate_signature(
                         model_function_signature=em_shlo_fn.signature,
-                        num_of_weights=None
-                        if not flatten_signature
-                        else len(obm.tree_util.flatten(params_args_spec)),
                     ),
                     model_function_name=model_function_name,
                     weights_name=weights_name,
@@ -164,345 +158,197 @@ class MainLibTest(parameterized.TestCase):
       """
       batch_size = 'size: 8'
 
-    if flatten_signature:
-      # Expected function signature (depending on flatten_signature)
-      expected_signature_text = """
-        signature {
-          input {
-            tuple {
-              elements {
-                leaf {
-                  tensor_type {
-                    shape {
-                      shape_with_known_rank {
-                        dimension_sizes {
-                          size: 4
-                        }
-                        dimension_sizes {
-                          size: 4
-                        }
-                      }
-                    }
-                    dtype: f32
-                    sharding {
-                      type: OTHER
-                      tile_assignment_dimensions: 4
-                      tile_assignment_dimensions: 1
-                      tile_assignment_dimensions: 2
-                      replicate_on_last_tile_dim: true
-                      iota_reshape_dims: 8
-                      iota_transpose_perm: 0
-                    }
-                  }
-                }
-              }
-              elements {
-                leaf {
-                  tensor_type {
-                    shape {
-                      shape_with_known_rank {
-                        dimension_sizes {
-                          size: 4
-                        }
-                        dimension_sizes {
-                          size: 16
-                        }
-                      }
-                    }
-                    dtype: f32
-                    sharding {
-                      type: OTHER
-                      tile_assignment_dimensions: 4
-                      tile_assignment_dimensions: 2
-                      iota_reshape_dims: 8
-                      iota_transpose_perm: 0
-                    }
-                  }
-                }
-              }
-              elements {
-                leaf {
-                  tensor_type {
-                    shape {
-                      shape_with_known_rank {
-                        dimension_sizes {
-                          size: 8
-                        }
-                        dimension_sizes {
-                          size: 4
-                        }
-                      }
-                    }
-                    dtype: f32
-                    sharding {
-                      type: OTHER
-                      tile_assignment_dimensions: 4
-                      tile_assignment_dimensions: 1
-                      tile_assignment_dimensions: 2
-                      replicate_on_last_tile_dim: true
-                      iota_reshape_dims: 8
-                      iota_transpose_perm: 0
-                    }
-                  }
-                }
-              }
-            }
-          }
-          output {
-            tuple {
-              elements {
-                leaf {
-                  tensor_type {
-                    shape {
-                      shape_with_known_rank {
-                        dimension_sizes {
-                          size: 8
-                        }
-                        dimension_sizes {
-                          size: 16
-                        }
-                      }
-                    }
-                    dtype: f32
-                  }
-                }
-              }
-            }
-          }
-        }
-      """
-
-      expected_orchestration_signature_text = """
-        signature {
-          input {
-            tuple {
-              elements {
-                leaf {
-                  tensor_type {
-                    shape {
-                      shape_with_known_rank {
-                        dimension_sizes {
-                          size: 8
-                        }
-                        dimension_sizes {
-                          size: 4
-                        }
-                      }
-                    }
-                    dtype: f32
-                    sharding {
-                      type: OTHER
-                      tile_assignment_dimensions: 4
-                      tile_assignment_dimensions: 1
-                      tile_assignment_dimensions: 2
-                      replicate_on_last_tile_dim: true
-                      iota_reshape_dims: 8
-                      iota_transpose_perm: 0
-                    }
-                  }
-                }
-              }
-            }
-          }
-          output {
-            tuple {
-              elements {
-                leaf {
-                  tensor_type {
-                    shape {
-                      shape_with_known_rank {
-                        dimension_sizes {
-                          size: 8
-                        }
-                        dimension_sizes {
-                          size: 16
-                        }
-                      }
-                    }
-                    dtype: f32
-                  }
-                }
-              }
-            }
-          }
-        }
-      """
-    else:
-      expected_signature_text = """
-        signature {
-          input {
-            tuple {
-              elements {
-                tuple {
-                  elements {
-                    dict {
-                      string_to_type {
-                        key: "a"
-                        value {
-                          leaf {
-                            tensor_type {
-                              shape {
-                                shape_with_known_rank {
-                                  dimension_sizes {
-                                    size: 4
-                                  }
-                                  dimension_sizes {
-                                    size: 4
-                                  }
+    expected_signature_text = (
+        """
+      signature {
+        input {
+          tuple {
+            elements {
+              tuple {
+                elements {
+                  dict {
+                    string_to_type {
+                      key: "a"
+                      value {
+                        leaf {
+                          tensor_type {
+                            shape {
+                              shape_with_known_rank {
+                                dimension_sizes {
+                                  size: 4
+                                }
+                                dimension_sizes {
+                                  size: 4
                                 }
                               }
-                              dtype: f32
-                              sharding {
-                                type: OTHER
-                                tile_assignment_dimensions: 4
-                                tile_assignment_dimensions: 1
-                                tile_assignment_dimensions: 2
-                                replicate_on_last_tile_dim: true
-                                iota_reshape_dims: 8
-                                iota_transpose_perm: 0
-                              }
+                            }
+                            dtype: f32
+                            sharding {
+                              type: OTHER
+                              tile_assignment_dimensions: 4
+                              tile_assignment_dimensions: 1
+                              tile_assignment_dimensions: 2
+                              replicate_on_last_tile_dim: true
+                              iota_reshape_dims: 8
+                              iota_transpose_perm: 0
                             }
                           }
                         }
                       }
-                      string_to_type {
-                        key: "b"
-                        value {
-                          leaf {
-                            tensor_type {
-                              shape {
-                                shape_with_known_rank {
-                                  dimension_sizes {
-                                    size: 4
-                                  }
-                                  dimension_sizes {
-                                    size: 16
-                                  }
+                    }
+                    string_to_type {
+                      key: "b"
+                      value {
+                        leaf {
+                          tensor_type {
+                            shape {
+                              shape_with_known_rank {
+                                dimension_sizes {
+                                  size: 4
+                                }
+                                dimension_sizes {
+                                  size: 16
                                 }
                               }
-                              dtype: f32
-                              sharding {
-                                type: OTHER
-                                tile_assignment_dimensions: 4
-                                tile_assignment_dimensions: 2
-                                iota_reshape_dims: 8
-                                iota_transpose_perm: 0
-                              }
+                            }
+                            dtype: f32
+                            sharding {
+                              type: OTHER
+                              tile_assignment_dimensions: 4
+                              tile_assignment_dimensions: 2
+                              iota_reshape_dims: 8
+                              iota_transpose_perm: 0
                             }
                           }
-                        }
-                      }
-                    }
-                  }
-                  elements {
-                    leaf {
-                      tensor_type {
-                        shape {
-                          shape_with_known_rank {
-                            dimension_sizes {
-                              """ + batch_size + """
-                            }
-                            dimension_sizes {
-                              size: 4
-                            }
-                          }
-                        }
-                        dtype: f32
-                        sharding {
-                          type: OTHER
-                          """ + sharding_dims + """
-                          replicate_on_last_tile_dim: true
-                          iota_reshape_dims: 8
-                          iota_transpose_perm: 0
                         }
                       }
                     }
                   }
                 }
-              }
-              elements {
-                dict {
+                elements {
+                  leaf {
+                    tensor_type {
+                      shape {
+                        shape_with_known_rank {
+                          dimension_sizes {
+                            """
+        + batch_size
+        + """
+                          }
+                          dimension_sizes {
+                            size: 4
+                          }
+                        }
+                      }
+                      dtype: f32
+                      sharding {
+                        type: OTHER
+                        """
+        + sharding_dims
+        + """
+                        replicate_on_last_tile_dim: true
+                        iota_reshape_dims: 8
+                        iota_transpose_perm: 0
+                      }
+                    }
+                  }
                 }
               }
             }
-          }
-          output {
-            leaf {
-              tensor_type {
-                shape {
-                  shape_with_known_rank {
-                    dimension_sizes {
-                      """ + batch_size + """
-                    }
-                    dimension_sizes {
-                      size: 16
-                    }
-                  }
-                }
-                dtype: f32
+            elements {
+              dict {
               }
             }
           }
         }
-      """
+        output {
+          leaf {
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    """
+        + batch_size
+        + """
+                  }
+                  dimension_sizes {
+                    size: 16
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+        }
+      }
+    """
+    )
 
-      expected_orchestration_signature_text = """
-        signature {
-          input {
-            tuple {
-              elements {
-                tuple {
-                  elements {
-                    leaf {
-                      tensor_type {
-                        shape {
-                          shape_with_known_rank {
-                            dimension_sizes {
-                              """ + batch_size + """
-                            }
-                            dimension_sizes {
-                              size: 4
-                            }
+    expected_orchestration_signature_text = (
+        """
+      signature {
+        input {
+          tuple {
+            elements {
+              tuple {
+                elements {
+                  leaf {
+                    tensor_type {
+                      shape {
+                        shape_with_known_rank {
+                          dimension_sizes {
+                            """
+        + batch_size
+        + """
+                          }
+                          dimension_sizes {
+                            size: 4
                           }
                         }
-                        dtype: f32
-                        sharding {
-                          type: OTHER
-                          """ + sharding_dims + """
-                          replicate_on_last_tile_dim: true
-                          iota_reshape_dims: 8
-                          iota_transpose_perm: 0
-                        }
+                      }
+                      dtype: f32
+                      sharding {
+                        type: OTHER
+                        """
+        + sharding_dims
+        + """
+                        replicate_on_last_tile_dim: true
+                        iota_reshape_dims: 8
+                        iota_transpose_perm: 0
                       }
                     }
                   }
                 }
               }
-              elements {
-                dict {
-                }
-              }
             }
-          }
-          output {
-            leaf {
-              tensor_type {
-                shape {
-                  shape_with_known_rank {
-                    dimension_sizes {
-                      """ + batch_size + """
-                    }
-                    dimension_sizes {
-                      size: 16
-                    }
-                  }
-                }
-                dtype: f32
+            elements {
+              dict {
               }
             }
           }
         }
-      """
+        output {
+          leaf {
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    """
+        + batch_size
+        + """
+                  }
+                  dimension_sizes {
+                    size: 16
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+        }
+      }
+    """
+    )
 
     jax_supplemental_filename = f'{model_function_name}_supplemental.pb'
 
