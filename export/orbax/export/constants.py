@@ -57,11 +57,6 @@ PSPECS = 'pspecs'
 # converting the jax function to an obm function.
 NATIVE_SERIALIZATION_PLATFORMS = 'native_serialization_platforms'
 
-# Jax2obm_kwargs key for whether to flatten the signature of the function
-# during conversion.
-# TODO(wangpeng): Remove this flag by fixing it to False.
-FLATTEN_SIGNATURE = 'flatten_signature'
-
 # Jax2obm_kwargs key for whether the Orbax Model path should support TF
 # resources (e.g. `tf.Variable`, `tf.lookup.StaticHashTable`, vocabulary tables,
 # embedding tables, etc).

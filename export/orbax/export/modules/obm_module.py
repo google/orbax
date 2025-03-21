@@ -50,8 +50,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       input_polymorphic_shape: polymorhpic shape for the inputs of `apply_fn`.
       jax2obm_kwargs: A dictionary of kwargs to pass to the jax2obm conversion
         library. Accepted arguments to jax2obm_kwargs are
-        'native_serialization_platforms', 'flatten_signature', 'weights_name'and
-        'checkpoint_path'.
+        'native_serialization_platforms', 'weights_name'and 'checkpoint_path'.
     """
 
     # It is possible for jax2obm_kwargs to be None if the key is present.
@@ -85,11 +84,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         jax2obm_kwargs
     )
 
-    self._flatten_signature = (
-        jax2obm_kwargs[constants.FLATTEN_SIGNATURE]
-        if constants.FLATTEN_SIGNATURE in jax2obm_kwargs
-        else False
-    )
     self._support_tf_resources = jax2obm_kwargs.get(
         constants.OBM_SUPPORT_TF_RESOURCES, None
     )
@@ -158,11 +152,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
   ) -> Optional[Sequence[constants.OrbaxNativeSerializationType]]:
     """Returns the native serialization platform."""
     return self._native_serialization_platforms
-
-  @property
-  def flatten_signature(self) -> bool:
-    """Returns the flatten signature."""
-    return self._flatten_signature
 
   @property
   def export_version(self) -> constants.ExportModelType:
