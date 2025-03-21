@@ -55,7 +55,7 @@ class Metadata:
 class StorageMetadata:
   """Metadata describing how arrays are stored in a checkpoint."""
 
-  chunk_shape: Optional[tuple[int, ...]]
+  chunk_shape: arrays_types.Shape | None
   write_shape: arrays_types.Shape | None = None
 
 

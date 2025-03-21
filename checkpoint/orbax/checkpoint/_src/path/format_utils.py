@@ -47,7 +47,7 @@ def _has_tensorstore_data_files(path: epath.Path) -> bool:
   return is_ocdbt_checkpoint(path) or any(_has_zarray_files(path))
 
 
-def _is_pytree_checkpoint(path: epath.Path) -> bool:
+def is_pytree_checkpoint(path: epath.Path) -> bool:
   return (
       _has_pytree_metadata_file(path) and _has_tensorstore_data_files(path)
   ) or (
@@ -95,15 +95,18 @@ def is_orbax_checkpoint(path: epath.PathLike) -> bool:
     raise NotADirectoryError(f'Checkpoint path {path} is not a directory.')
   metadata_store = checkpoint_metadata.metadata_store(enable_write=False)
   # Path points to a single step checkpoint with valid metadata.
-  if metadata_store.read(path) is not None:
+  if (
+      metadata_store.read(checkpoint_metadata.step_metadata_file_path(path))
+      is not None
+  ):
     return True
 
   # Path points to valid PyTree checkpoint without newer metadata.
-  if _is_pytree_checkpoint(path):
+  if is_pytree_checkpoint(path):
     return True
 
   # Path points to a root directory containing a valid PyTree checkpoint.
-  if any([_is_pytree_checkpoint(p) for p in path.iterdir()]):
+  if any([is_pytree_checkpoint(p) for p in path.iterdir()]):
     return True
 
   return False
