@@ -332,7 +332,11 @@ class Diff(NamedTuple):
 
 
 def tree_difference(
-    a, b, leaf_equality_fn: Callable[[Any, Any], bool] | None = None
+    a: PyTree,
+    b: PyTree,
+    *,
+    is_leaf: Callable[[PyTree], bool] | None = None,
+    leaves_equal: Callable[[PyTree, PyTree], bool] | None = None,
 ):
   """Recursively compute differences in tree structure.
 
@@ -365,7 +369,9 @@ def tree_difference(
   Args:
     a: The first object to compare.
     b: The second object to compare.
-    leaf_equality_fn: Optional equality function to apply between corresponding
+    is_leaf: Optional function to determine if a node is a leaf. If None,
+      defaults to `jax.tree_util.all_leaves`.
+    leaves_equal: Optional equality function to apply between corresponding
       leaves of the two data structures. If None, leaf nodes are considered
       equal if they are of the same type.
 
@@ -373,18 +379,12 @@ def tree_difference(
     A tree summarizing the structural differences between the arguments, or
     `None` if there are no such differences.
   """
-  if leaf_equality_fn is None:
-
-    def _eq_type(a, b):
-      return type(a) is type(b)
-
-    leaf_equality_fn = _eq_type
-
-  is_leaf = lambda t: jax.tree_util.all_leaves([t])
+  is_leaf = is_leaf or (lambda t: jax.tree_util.all_leaves([t]))
+  leaves_equal = leaves_equal or (lambda a, b: type(a) is type(b))
 
   if is_leaf(a) and is_leaf(b):
     # `a` and `b` are leaf nodes; compare using equality function.
-    if leaf_equality_fn(a, b):
+    if leaves_equal(a, b):
       return None
     else:
       return Diff(lhs=a, rhs=b)
@@ -394,22 +394,29 @@ def tree_difference(
     return Diff(lhs=type(a), rhs=type(b))
 
   if isinstance_of_namedtuple(a):
-    diffs = type(a)(
-        *(tree_difference(aa, bb, leaf_equality_fn) for aa, bb in zip(a, b))
-    )
+    diffs = type(a)(*(
+        tree_difference(aa, bb, is_leaf=is_leaf, leaves_equal=leaves_equal)
+        for aa, bb in zip(a, b)
+    ))
     return None if all(d is None for d in diffs) else diffs
   elif isinstance(a, (list, tuple)):
     if len(a) != len(b):
       return Diff(lhs=(type(a), len(a)), rhs=(type(b), len(b)))
     diffs = type(a)(
-        tree_difference(aa, bb, leaf_equality_fn) for aa, bb in zip(a, b)
+        tree_difference(aa, bb, is_leaf=is_leaf, leaves_equal=leaves_equal)
+        for aa, bb in zip(a, b)
     )
     return None if all(d is None for d in diffs) else diffs
   elif isinstance(a, Mapping):
     diffs = {
         k: diff
         for k, diff in (
-            (k, tree_difference(a[k], b[k], leaf_equality_fn))
+            (
+                k,
+                tree_difference(
+                    a[k], b[k], is_leaf=is_leaf, leaves_equal=leaves_equal
+                ),
+            )
             for k in a
             if k in b
         )
@@ -425,14 +432,18 @@ def tree_difference(
     # has come from one of them or the other. It's not clear that there's any
     # way to remove that limitation.
     a_keys_and_children, a_tree_def = tree_flatten_with_path_one_level(a)
-    b_keys_and_children, b_tree_def = tree_flatten_with_path_one_level(b)
-    del b_tree_def
+    b_keys_and_children, _ = tree_flatten_with_path_one_level(b)
     a = {k: v for k, v in a_keys_and_children}
     b = {k: v for k, v in b_keys_and_children}
     diffs = {
         k: diff
         for k, diff in (
-            (k, tree_difference(a[k], b[k], leaf_equality_fn))
+            (
+                k,
+                tree_difference(
+                    a[k], b[k], is_leaf=is_leaf, leaves_equal=leaves_equal
+                ),
+            )
             for k in a
             if k in b
         )
