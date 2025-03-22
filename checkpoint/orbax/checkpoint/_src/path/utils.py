@@ -22,6 +22,20 @@ from etils import epath
 
 
 
+_GCS_PATH_PREFIX = ('gs://',)
+
+
+def is_gcs_path(path: epath.Path) -> bool:
+  return path.as_posix().startswith(_GCS_PATH_PREFIX)
+
+
+def get_storage_type(path: epath.Path) -> str:
+  if is_gcs_path(path):
+    return 'gcs'
+  else:
+    return 'local'
+
+
 class Timer(object):
   """A simple timer to measure the time it takes to run a function."""
 
