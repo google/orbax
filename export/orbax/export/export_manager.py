@@ -38,7 +38,6 @@ class ExportManager:
       self,
       module: jax_module.JaxModule,
       serving_configs: Sequence[osc.ServingConfig],
-      version: constants.ExportModelType = constants.ExportModelType.TF_SAVEDMODEL,
   ):
     """ExportManager constructor.
 
@@ -49,13 +48,7 @@ class ExportManager:
       version: the version of the export format to use. Defaults to
         TF_SAVEDMODEL.
     """
-    if version != module.export_version:
-      raise ValueError(
-          '`version` and `module.export_version()`'
-          f' must be the same. The former is {version}. The latter is '
-          f'{module.export_version}.'
-      )
-    self._version = version
+    self._version = module.export_version
     self._jax_module = module
     if self._version == constants.ExportModelType.ORBAX_MODEL:
       self._serialization_functions = obm_export.ObmExport(
