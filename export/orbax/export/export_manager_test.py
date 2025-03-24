@@ -96,6 +96,7 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
             export_version=constants.ExportModelType.ORBAX_MODEL,
         ),
         serving_config,
+        constants.ExportModelType.ORBAX_MODEL,
     )
 
     with self.assertRaises(TypeError):
@@ -139,6 +140,7 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
             export_version=constants.ExportModelType.ORBAX_MODEL,
         ),
         serving_config,
+        constants.ExportModelType.ORBAX_MODEL,
     )
 
     with self.assertRaises(NotImplementedError):
