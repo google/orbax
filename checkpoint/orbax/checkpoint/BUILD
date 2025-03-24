@@ -193,7 +193,10 @@ py_library(
 py_library(
     name = "future",
     srcs = ["future.py"],
-    deps = ["//checkpoint/orbax/checkpoint/_src/futures:future"],
+    deps = [
+        "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
+    ],
 )
 
 py_library(
