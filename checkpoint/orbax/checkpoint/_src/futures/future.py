@@ -36,8 +36,11 @@ def _get_unique_barrier_key(
   Args:
     signal: The signal to generate a barrier key for.
     operation_id: The operation id to use as a suffix for the barrier key.
+
+  Returns:
+    A unique barrier key for the signal with operation id as key directory.
   """
-  return multihost.unique_barrier_key(signal.value, suffix=operation_id)
+  return f'{operation_id}/{signal.value}'
 
 
 def get_awaitable_signals_from_contract() -> (
@@ -87,6 +90,16 @@ def add_to_awaitable_signals_contract(
       synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id(),
   )
   client.key_value_set(barrier_key, keys, allow_overwrite=True)
+
+
+def remove_all_awaitable_signals(operation_id: str | None = None):
+  """Removes all awaitable signals for the current or the given operation id."""
+  operation_id = (
+      operation_id
+      or synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
+  )
+  client = multihost.get_jax_distributed_client()
+  client.key_value_delete(f'{operation_id}/')
 
 
 class Future(Protocol):
@@ -221,7 +234,9 @@ class _SignalingThread(threading.Thread):
       )
       barrier_key = _get_unique_barrier_key(signal, self._operation_id)
       client = multihost.get_jax_distributed_client()
-      client.key_value_set(barrier_key, _SIGNAL_ACTION_SUCCESS)
+      client.key_value_set(
+          barrier_key, _SIGNAL_ACTION_SUCCESS, allow_overwrite=True
+      )
 
   def run(self):
     """Runs the target function after waiting for signals."""

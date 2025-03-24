@@ -365,6 +365,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   ) -> Callable[[], None]:
     # Directory is the final directory.
 
+    current_operation_id = (
+        synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
+    )
+
     def _callback() -> None:
       if utils.is_primary_host(self._primary_host):
         # Update StepMetadata after the handler save is complete.
@@ -410,6 +414,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           time.time() - checkpoint_start_time,
           tmpdir.get_final(),
       )
+      # Clean up all awaitable signals for the current operation id as they are
+      # no longer needed.
+      if self._create_directories_asynchronously:
+        future.remove_all_awaitable_signals(current_operation_id)
 
     return _callback
 
@@ -421,8 +429,6 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       **kwargs,
   ):
     directory = tmpdir.get_final()
-    self.synchronize_next_awaitable_signal_operation_id()
-
     jax.monitoring.record_event('/jax/orbax/write/async/start')
     logging.info(
         '[process=%s] Started async saving checkpoint to %s.',
@@ -510,10 +516,11 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
     directory = epath.Path(directory)
     tmpdir = self.get_temporary_path(directory)
+    self.wait_until_finished()
+    self.synchronize_next_awaitable_signal_operation_id()
     on_commit_callback = self._make_on_commit_callback(
         tmpdir, custom_metadata, checkpoint_start_time
     )
-    self.wait_until_finished()
     commit_ops = asyncio_utils.run_sync(
         self._save(
             tmpdir,
