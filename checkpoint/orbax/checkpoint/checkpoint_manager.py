@@ -950,12 +950,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     all_item_handlers[METRIC_ITEM_NAME] = self._metrics_handler
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
+    async_options = options.async_options or AsyncOptions()
+    async_options.create_directories_asynchronously &= (
+        options.enable_async_checkpointing
+    )
     return self._configure_checkpointer_common(
         CompositeCheckpointHandler(
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 multiprocessing_options=options.multiprocessing_options,
                 file_options=options.file_options,
-                async_options=options.async_options,
+                async_options=async_options,
             ),
             **all_item_handlers,
         ),
@@ -979,11 +983,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
+    async_options = options.async_options or AsyncOptions()
+    async_options.create_directories_asynchronously &= (
+        options.enable_async_checkpointing
+    )
     return self._configure_checkpointer_common(
         CompositeCheckpointHandler(
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 multiprocessing_options=options.multiprocessing_options,
-                async_options=options.async_options,
+                async_options=async_options,
             ),
             handler_registry=handler_registry,
         ),
@@ -1076,8 +1084,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     is_saving_in_progress = self.is_saving_in_progress()
     reached_preemption = self.reached_preemption(step)
     current_step_info = checkpoint_info.CheckpointInfo(
-        step=step, time=datetime.datetime.now(tz=datetime.timezone.utc),
-        metrics=None
+        step=step,
+        time=datetime.datetime.now(tz=datetime.timezone.utc),
+        metrics=None,
     )
     context = save_decision_policy_lib.DecisionContext(
         is_saving_in_progress=is_saving_in_progress,
