@@ -302,8 +302,7 @@ def sync_global_processes(
       synchronization.
   """
   if should_skip_process_sync(processes):
-    logging.vlog(
-        1,
+    logging.info(
         '[process=%s][thread=%s] Skipping global process sync, barrier'
         ' name: %s',
         process_index(),
@@ -316,16 +315,14 @@ def sync_global_processes(
   # Temporarily default to existing behavior to minimize risk of breakage.
   if processes is None:
     key = _unique_barrier_key(name)
-    logging.vlog(
-        1,
+    logging.info(
         '[process=%s][thread=%s] Begin jax/sync_global_devices("%s")',
         process_index(),
         threading.current_thread().name,
         key,
     )
     multihost_utils.sync_global_devices(key)
-    logging.vlog(
-        1,
+    logging.info(
         '[process=%s][thread=%s] Done jax/sync_global_devices("%s"): %s secs',
         process_index(),
         threading.current_thread().name,
