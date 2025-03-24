@@ -2399,3 +2399,43 @@ class PyTreeCheckpointHandlerTestBase:
       )
       expected = dict(arr=jax.device_put(np.ones((1024, 512)), sharding))
       self.validate_restore(expected, restored)
+
+    @parameterized.product(
+        use_ocdbt=(True, False),
+        reference_item=(
+            {
+                'a': 0,
+                'b': 0,
+                'c': {
+                    'e': 0,
+                },
+            },
+            {
+                'a': 0,
+                'c': {
+                    'a': 0,
+                    'e': 0,
+                },
+            },
+            {
+                'a': 0,
+                'b': 0,
+            },
+        ),
+    )
+    def test_restore_item_has_missing_leaves(
+        self, use_ocdbt: bool, reference_item: dict[str, Any]
+    ):
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=use_ocdbt,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as handler:
+        handler.save(self.directory, args=PyTreeSaveArgs(self.pytree))
+
+        with self.assertRaisesRegex(
+            ValueError, 'User-provided restore item and on-disk value'
+        ):
+          handler.restore(
+              self.directory,
+              item=reference_item,
+          )

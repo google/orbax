@@ -362,17 +362,17 @@ class SaveLoadTestBase:
       with self.subTest('subset_of_keys'):
         abstract_pytree = dict(self.abstract_pytree)
         del abstract_pytree['a'], abstract_pytree['b']
-        with self.assertRaisesRegex(ValueError, 'Dict key mismatch'):
+        with self.assertRaisesRegex(ValueError, 'User-provided restore item'):
           ocp.load_pytree(self.directory, abstract_pytree)
 
       with self.subTest('superset_of_keys'):
         abstract_pytree = dict(self.abstract_pytree)
         abstract_pytree['z'] = as_abstract_type(np.arange(16))
-        with self.assertRaisesRegex(ValueError, 'Dict key mismatch'):
+        with self.assertRaisesRegex(ValueError, 'User-provided restore item'):
           ocp.load_pytree(self.directory, abstract_pytree)
 
       with self.subTest('renamed_key'):
         abstract_pytree = dict(self.abstract_pytree)
         abstract_pytree['z'] = abstract_pytree.pop('a')
-        with self.assertRaisesRegex(ValueError, 'Dict key mismatch'):
+        with self.assertRaisesRegex(ValueError, 'User-provided restore item'):
           ocp.load_pytree(self.directory, abstract_pytree)

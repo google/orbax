@@ -719,6 +719,22 @@ class BasePyTreeCheckpointHandler(
     # Prep for restore.
     if item is None:
       item = value_metadata_tree
+    else:
+      # is_empty_or_leaf is necessary here to treat empty nodes (e.g. empty
+      # dicts, lists, custom nodes) as leaves, as they do not contain any
+      # actual data to be restored, but are needed to maintain the structure.
+      serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
+      diff = tree_utils.tree_difference(
+          serialized_item,
+          value_metadata_tree,
+          is_leaf=tree_utils.is_empty_or_leaf,
+          leaves_equal=lambda a, b: True,
+      )
+      if diff is not None:
+        raise ValueError(
+            'User-provided restore item and on-disk value metadata tree'
+            f' structures do not match: {diff}'
+        )
     restore_args = _fill_missing_save_or_restore_args(
         item, restore_args, mode='restore'
     )
