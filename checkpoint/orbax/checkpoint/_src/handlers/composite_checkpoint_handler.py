@@ -698,7 +698,10 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         save_ops.append(handler.async_save(item_directory.get(), args=arg))
       else:
         # Blocking save.
-        handler.save(item_directory.get(), args=arg)
+        handler_async_save = asyncio_utils.as_async_function(handler.save)
+        future.CommitFutureAwaitingContractedSignals(
+            handler_async_save(item_directory.get(), args=arg)
+        ).result()
 
     commit_futures.extend(
         jax.tree.flatten(await asyncio.gather(*save_ops))[0] or []
