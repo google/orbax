@@ -335,7 +335,7 @@ class CheckpointManagerOptions:
   create: bool = True
   cleanup_tmp_directories: bool = False
   save_on_steps: Optional[Container[int]] = None
-  single_host_load_and_broadcast: bool = False
+  single_host_load_and_broadcast: bool = True
   todelete_subdir: Optional[str] = None
   enable_background_delete: bool = False
   read_only: bool = False
@@ -353,6 +353,15 @@ class CheckpointManagerOptions:
   ] = None
 
   def __post_init__(self):
+    if (
+        self.single_host_load_and_broadcast
+        and self.multiprocessing_options.primary_host is None
+    ):
+      raise ValueError(
+          '`CheckpointManagerOptions.single_host_load_and_broadcast=True`'
+          ' requires `multiprocessing_options.primary_host` to be set to'
+          ' not-None value.'
+      )
     if self.best_mode not in ('min', 'max'):
       msg = (
           "`CheckpointManagerOptions.best_mode` must be one of None, 'min' "
@@ -739,6 +748,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         or step_lib.standard_name_format(
             step_prefix=self._options.step_prefix,
             step_format_fixed_length=self._options.step_format_fixed_length,
+            single_host_load_and_broadcast=(
+                self._options.single_host_load_and_broadcast
+            ),
         )
     )
 

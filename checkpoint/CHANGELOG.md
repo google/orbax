@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Improve `NameFormat.find_all` performance using
+ `single_host_load_and_broadcast` strategy.
+
 ## [0.11.10] - 2025-03-20
 
 ### Added
