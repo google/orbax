@@ -1091,6 +1091,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     context = save_decision_policy_lib.DecisionContext(
         is_saving_in_progress=is_saving_in_progress,
         reached_preemption=reached_preemption,
+        primary_host=self._multiprocessing_options.primary_host,
     )
     return self._save_decision_policy.should_save(
         current_step_info, previous_steps=self._checkpoints, context=context

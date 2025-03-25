@@ -18,7 +18,9 @@ import dataclasses
 import datetime
 import typing
 from typing import Container, Protocol, Sequence
+from orbax.checkpoint import utils
 from orbax.checkpoint._src.metadata import checkpoint_info
+from orbax.checkpoint._src.multihost import multihost
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -27,6 +29,7 @@ class DecisionContext:
 
   is_saving_in_progress: bool
   reached_preemption: bool
+  primary_host: int
 
 
 @typing.runtime_checkable
@@ -100,9 +103,17 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
       return False
     if not previous_steps or self.minimum_interval_secs is None:
       return True
-    return step.time - previous_steps[-1].time >= datetime.timedelta(
-        seconds=self.minimum_interval_secs
+    save_result = False
+    is_primary_host = utils.is_primary_host(context.primary_host)
+    # Make time based decision only on primary host and broadcast to all hosts.
+    if is_primary_host:
+      save_result = step.time - previous_steps[-1].time >= datetime.timedelta(
+          seconds=self.minimum_interval_secs
+      )
+    save_result = bool(
+        multihost.broadcast_one_to_all(save_result, is_source=is_primary_host)
     )
+    return save_result
 
 
 class PreemptionCheckpointingPolicy(SaveDecisionPolicy):
