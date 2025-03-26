@@ -15,7 +15,8 @@
 """Orbax step storage entities."""
 
 import abc
-import concurrent
+from collections.abc import Iterable
+from concurrent import futures
 import dataclasses
 import datetime
 import functools
@@ -167,7 +168,7 @@ def build_step_path(
 
 
 def build_step_metadatas(
-    step_paths: Iterator[epath.Path],
+    step_paths: Iterable[epath.Path],
     build_metadata: Callable[[epath.Path], Optional[MetadataT]],
 ) -> Iterator[MetadataT]:
   """Yields filtered metadata mapped with `step_paths`.
@@ -180,11 +181,11 @@ def build_step_metadatas(
   Yields:
     Step metadata.
   """
-  with concurrent.futures.ThreadPoolExecutor() as executor:
+  with futures.ThreadPoolExecutor() as executor:
     metadata_futures = [
         executor.submit(build_metadata, step_path) for step_path in step_paths
     ]
-    for future in concurrent.futures.as_completed(metadata_futures):
+    for future in futures.as_completed(metadata_futures):
       metadata = future.result()
       if metadata is not None:
         yield metadata
@@ -301,10 +302,14 @@ class _StandardNameFormat(NameFormat[Metadata]):
       appended before applying it.
     step_format_fixed_length: Optional length of the zero padded step. e.g. 6
       for 000123.
+    single_host_load_and_broadcast: If True, the jax process=0 will list all
+      steps and broadcast them to all other processes. NOTE: Ignored if jax
+      backend is not multi controller.
   """
 
   step_prefix: Optional[str] = None
   step_format_fixed_length: Optional[int] = None
+  single_host_load_and_broadcast: bool = False
 
   def build_name(self, step: int) -> str:
     """Returns `(prefix_)?(zero padding)?step` name."""
@@ -345,8 +350,93 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
     return Metadata(step=step_, path=step_path)
 
+  def _find_all_with_single_host_load_and_broadcast(
+      self, base_path: epath.PathLike
+  ) -> Iterator[Metadata]:
+    """Returns metadata by validating and broadcasting from primary host.
+
+    Even though step_paths are gathered on all hosts, the validation and
+    extraction of step numbers of complete checkpoints is done only on the
+    primary host (this involves multiple file I/O operations and arguably
+    improves performance by reducing QPS to underlying storages like GCS). The
+    step numbers are then broadcast to all hosts. In the end, all hosts build
+    the metadata from step numbers and return.
+
+    Args:
+      base_path: Root path under which step folders are placed.
+    """
+    process_index = multihost.process_index()
+    time_start = time.time()
+    # <step_prefix>_?<0 padding>?*
+    step_paths = list(
+        epath.Path(base_path).glob(
+            f'{step_prefix_with_underscore(self.step_prefix)}*'
+        )
+    )
+    if not step_paths:
+      logging.info(
+          '[process=%s][single_host_load_and_broadcast] No steps found,'
+          ' root_dir=%s',
+          process_index,
+          base_path,
+      )
+      return iter([])
+    time_glob_list = time.time()
+    base_path = epath.Path(base_path)
+    max_steps = len(step_paths)
+    padded_step_list = np.array([-1] * max_steps)
+    # Read the step list only on the primary host, and then broadcast the list.
+    # This minimizes queries to underlying storages like GCS when number of
+    # steps is large.
+    is_primary_host = multihost.process_index() == 0
+    if is_primary_host:
+      steps = []
+      with futures.ThreadPoolExecutor() as executor:
+        metadata_futures = [
+            executor.submit(self._build_metadata, step_path)  # File IO
+            for step_path in step_paths
+        ]
+        for future in futures.as_completed(metadata_futures):
+          metadata = future.result()
+          if metadata is not None:
+            steps.append(metadata.step)
+      steps.sort()
+      steps = np.array(steps)
+      assert len(steps) <= max_steps
+      padded_step_list[0 : len(steps)] = steps
+    padded_step_list = multihost.broadcast_one_to_all(
+        padded_step_list, is_source=is_primary_host
+    )
+    paths_to_step_dict: dict[epath.Path, int] = {
+        base_path / self.build_name(step): step
+        for step in padded_step_list
+        if step >= 0
+    }
+    metadatas = build_step_metadatas(
+        paths_to_step_dict.keys(),
+        lambda step_path: Metadata(
+            step=paths_to_step_dict[step_path], path=step_path
+        ),
+    )
+    time_build_metadata = time.time()
+    logging.info(
+        '[process=%s][single_host_load_and_broadcast] Found #steps=%s,'
+        ' root_dir=%s, time_taken_to_glob=%ss,'
+        ' time_taken_to_build_metadata=%ss, total_time=%ss',
+        process_index,
+        len(paths_to_step_dict),
+        base_path,
+        time_glob_list - time_start,
+        time_build_metadata - time_glob_list,
+        time_build_metadata - time_start,
+    )
+    return metadatas
+
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps matching with name_format attributes."""
+    if multihost.process_count() > 1 and self.single_host_load_and_broadcast:
+      return self._find_all_with_single_host_load_and_broadcast(base_path)
+
     # <step_prefix>_?<0 padding>?*
     step_paths = epath.Path(base_path).glob(
         f'{step_prefix_with_underscore(self.step_prefix)}*'
@@ -368,8 +458,10 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
 
 def standard_name_format(
+    *,
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
+    single_host_load_and_broadcast: bool = False,
 ) -> NameFormat[Metadata]:
   """Returns NameFormat for 'standard' steps for common Orbax use cases.
 
@@ -386,10 +478,18 @@ def standard_name_format(
       appended before applying it.
     step_format_fixed_length: Optional length of the zero padded step. e.g. 6
       for 000123.
+    single_host_load_and_broadcast: If True, the jax process=0 will list all
+      steps and broadcast them to all other processes. NOTE: Ignored if jax
+      backend is not multi controller.
   """
+  logging.info(
+      'Creating standard_name_format with single_host_load_and_broadcast=%s,'
+      ' step_prefix=%s, step_format_fixed_length=%s'
+  )
   return _StandardNameFormat(
       step_prefix=step_prefix,
       step_format_fixed_length=step_format_fixed_length,
+      single_host_load_and_broadcast=single_host_load_and_broadcast,
   )
 
 
@@ -697,14 +797,14 @@ def checkpoint_steps_paths(
   if not checkpoint_dir.exists():
     raise ValueError(f'Path {checkpoint_dir} does not exist.')
 
-  with concurrent.futures.ThreadPoolExecutor() as executor:
-    futures = {
+  with futures.ThreadPoolExecutor() as executor:
+    fs = {
         step_dir: executor.submit(
             _is_legacy_finalized_step_checkpoint, step_dir
         )
         for step_dir in checkpoint_dir.iterdir()
     }
-    return [step_dir for step_dir, future in futures.items() if future.result()]
+    return [step_dir for step_dir, future in fs.items() if future.result()]
 
 
 def checkpoint_steps(
