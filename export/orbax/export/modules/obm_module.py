@@ -84,12 +84,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         jax2obm_kwargs
     )
 
-    self._support_tf_resources = jax2obm_kwargs.get(
-        constants.OBM_SUPPORT_TF_RESOURCES, None
-    )
-    if self._support_tf_resources is None:
-      self._support_tf_resources = False
-
     self._params_args_spec = params
 
     self._checkpoint_path: str = None
@@ -157,10 +151,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
   def export_version(self) -> constants.ExportModelType:
     """Returns the export version."""
     return constants.ExportModelType.ORBAX_MODEL
-
-  def support_tf_resources(self) -> bool:
-    """Returns True if the model supports TF resources."""
-    return self._support_tf_resources
 
   @property
   def model_params(self) -> PyTree:
