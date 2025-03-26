@@ -100,6 +100,12 @@ def remove_all_awaitable_signals(operation_id: str | None = None):
   )
   client = multihost.get_jax_distributed_client()
   client.key_value_delete(f'{operation_id}/')
+  logging.vlog(
+      1,
+      '[process=%s] Removed all awaitable signals for operation id: %s.',
+      multihost.process_index(),
+      operation_id,
+  )
 
 
 class Future(Protocol):

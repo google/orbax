@@ -179,6 +179,12 @@ class Checkpointer(
         timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
         processes=self._active_processes,
     )
+    logging.vlog(
+        1,
+        '[process=%s] Synchronized next awaitable signal operation id to %s',
+        multihost.process_index(),
+        synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id(),
+    )
 
   def save(
       self,
