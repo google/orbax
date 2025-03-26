@@ -14,6 +14,8 @@
 
 """Futures that can be used for signaling for synchronization."""
 
+import asyncio
+import functools
 import threading
 import time
 from typing import Any, Callable, Coroutine, Optional, Sequence
@@ -26,6 +28,19 @@ from orbax.checkpoint._src.multihost import multihost
 from typing_extensions import Protocol
 
 _SIGNAL_ACTION_SUCCESS = 'signal_action_success'
+
+
+def make_async(sync_func):
+  """Wrap a synchronous callable to allow awaiting it."""
+
+  @functools.wraps(sync_func)
+  async def async_func(*args, loop=None, executor=None, **kwargs):
+    if loop is None:
+      loop = asyncio.get_event_loop()
+    partial_func = functools.partial(sync_func, *args, **kwargs)
+    return await loop.run_in_executor(executor, partial_func)
+
+  return async_func
 
 
 def _get_unique_barrier_key(
@@ -100,6 +115,11 @@ def remove_all_awaitable_signals(operation_id: str | None = None):
   )
   client = multihost.get_jax_distributed_client()
   client.key_value_delete(f'{operation_id}/')
+  logging.info(
+      '[process=%s] Removed all awaitable signals for operation id: %s.',
+      multihost.process_index(),
+      operation_id,
+  )
 
 
 class Future(Protocol):
@@ -207,11 +227,20 @@ class _SignalingThread(threading.Thread):
         or synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
     )
 
+    logging.info(
+        '[process=%s][thread=%s] Created _SignalingThread with operation id %s'
+        ' waiting for signals %s and sending signals %s',
+        multihost.process_index(),
+        threading.current_thread().name,
+        self._operation_id,
+        ','.join(str(signal.value) for signal in self._receive_signals),
+        ','.join(str(signal.value) for signal in self._send_signals),
+    )
+
   def _wait_for_signals(self):
     """Waits for signals to be set."""
     for signal in self._receive_signals:
-      logging.vlog(
-          1,
+      logging.info(
           '[process=%d][thread=%s] Waiting for <%s> timeout: %d secs to be set',
           multihost.process_index(),
           threading.current_thread().name,
@@ -225,8 +254,7 @@ class _SignalingThread(threading.Thread):
   def _set_signals(self):
     """Sets the barrier keys for the signals using send_signals."""
     for signal in self._send_signals:
-      logging.vlog(
-          1,
+      logging.info(
           '[process=%d][thread=%s] Signalling completion of <%s>.',
           multihost.process_index(),
           threading.current_thread().name,
