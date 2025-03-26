@@ -28,6 +28,8 @@ import tensorstore as ts
 
 PyTreeCheckpointHandler = test_utils.PyTreeCheckpointHandler
 
+jax.config.update('jax_enable_x64', True)
+
 
 class SingleHostTest(parameterized.TestCase):
 
