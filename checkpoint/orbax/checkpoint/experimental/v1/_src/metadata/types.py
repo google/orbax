@@ -33,6 +33,9 @@ class PyTreeMetadata:
       checkpointed PyTree. By "serialized", we mean that the PyTree has been
       converted to a standardized representation, with all container nodes
       represented as standard types (e.g., tuple, list, dict, etc.). The leaves
+      of the tree are individual parameter metadatas.
+  """
+  pytree: tree_types.PyTreeOf[Any]
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

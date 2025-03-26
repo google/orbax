@@ -29,6 +29,9 @@ from orbax.checkpoint.experimental.v1._src.loading.loading import (
     load_pytree,
     load_pytree_async,
 )
+from orbax.checkpoint.experimental.v1._src.metadata.loading import (
+    pytree_metadata,
+)
 from orbax.checkpoint.experimental.v1._src.saving.saving import (
     save_pytree,
     save_pytree_async,
