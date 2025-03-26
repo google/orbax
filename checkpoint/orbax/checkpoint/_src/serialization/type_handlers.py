@@ -60,6 +60,7 @@ TypeHandler: TypeAlias = types.TypeHandler
 TypeHandlerRegistry: TypeAlias = types.TypeHandlerRegistry
 Pytree = Any
 PLACEHOLDER = ...
+PLACEHOLDER_TYPESTR = 'placeholder'
 
 Layout = layout.Layout
 Shape = arrays_types.Shape
@@ -1694,11 +1695,15 @@ class StringHandler(types.TypeHandler):
     return list(zip(write_sizes, read_sizes))
 
 
+def is_placeholder(value: Any) -> bool:
+  return value is PLACEHOLDER
+
+
 class PlaceholderHandler(types.TypeHandler):
   """TypeHandler for placeholders."""
 
   def typestr(self) -> str:
-    return 'placeholder'
+    return PLACEHOLDER_TYPESTR
 
   async def metadata(self, infos: Sequence[types.ParamInfo]) -> Sequence[Any]:
     raise NotImplementedError('Placeholders do not have metadata.')

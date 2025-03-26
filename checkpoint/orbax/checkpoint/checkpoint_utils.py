@@ -36,6 +36,7 @@ PyTree = Any
 STANDARD_ARRAY_TYPES = (int, float, np.ndarray, jax.Array)
 _SNAPSHOTS = '_SNAPSHOTS'
 Layout = layout.Layout
+PLACEHOLDER = type_handlers.PLACEHOLDER
 
 
 def _init_step_name_format(
@@ -473,6 +474,8 @@ def construct_restore_args(
         return type_handlers.RestoreArgs(restore_type=type(value))
     elif isinstance(value, str):
       return type_handlers.RestoreArgs(restore_type=str)
+    elif type_handlers.is_placeholder(value):
+      return type_handlers.RestoreArgs(restore_type=type(PLACEHOLDER))
     else:
       raise ValueError(f'Unsupported type: {type(value)}')
 

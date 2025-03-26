@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add `fallback_sharding` option to `StandardRestoreArgs` to support restoring
 on different topologies easily.
+- `Placeholder` value that can be used during `PyTreeCheckpointHandler` restoration to partially restore a PyTree.
 
 ### Fixed
 

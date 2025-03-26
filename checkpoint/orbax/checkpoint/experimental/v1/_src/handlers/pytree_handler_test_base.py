@@ -66,6 +66,7 @@ ParamInfo = pytree_checkpoint_handler.ParamInfo
 _SHARDING = '_sharding'
 PYTREE_METADATA_FILE = pytree_checkpoint_handler.PYTREE_METADATA_FILE
 ARRAY_METADATA_STORE = array_metadata_store_lib.Store()
+PLACEHOLDER = type_handlers.PLACEHOLDER
 
 create_sharded_array = array_test_utils.create_sharded_array
 create_numpy_pytree = array_test_utils.create_numpy_pytree
@@ -1939,3 +1940,59 @@ class PyTreeHandlerTestBase:
             ValueError, 'User-provided restore item and on-disk value'
         ):
           handler.load(self.directory, reference_item)
+
+    @parameterized.product(use_ocdbt=(True, False))
+    def test_partial_restore_with_placeholder(self, use_ocdbt: bool):
+      """Test saving and restoring placeholder."""
+      with handler_with_options(
+          use_ocdbt=use_ocdbt,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        save_handler.save(self.directory, self.pytree)
+
+      with self.subTest('success'):
+        reference_item = self.abstract_pytree.copy()
+        reference_item['b'] = PLACEHOLDER
+        reference_item['c']['e'] = PLACEHOLDER
+
+        expected = self.pytree.copy()
+        expected['b'] = PLACEHOLDER
+        expected['c']['e'] = PLACEHOLDER
+
+        with handler_with_options(
+            use_ocdbt=use_ocdbt,
+            array_metadata_store=array_metadata_store_lib.Store(),
+        ) as restore_handler:
+          restored = restore_handler.load(
+              self.directory,
+              reference_item,
+          )
+          test_utils.assert_tree_equal(self, expected, restored)
+
+      with self.subTest('missing_leaf'):
+        reference_item = self.abstract_pytree.copy()
+        reference_item['b'] = PLACEHOLDER
+        reference_item['c']['e'] = PLACEHOLDER
+        del reference_item['c']['a']
+
+        with handler_with_options(
+            use_ocdbt=use_ocdbt,
+            array_metadata_store=array_metadata_store_lib.Store(),
+        ) as restore_handler:
+          with self.assertRaisesRegex(
+              ValueError, 'User-provided restore item and on-disk value'
+          ):
+            restore_handler.load(self.directory, reference_item)
+
+      with self.subTest('non_leaf_placeholder'):
+        reference_item = self.abstract_pytree.copy()
+        reference_item['c'] = PLACEHOLDER
+
+        with handler_with_options(
+            use_ocdbt=use_ocdbt,
+            array_metadata_store=array_metadata_store_lib.Store(),
+        ) as restore_handler:
+          with self.assertRaisesRegex(
+              ValueError, 'User-provided restore item and on-disk value'
+          ):
+            restore_handler.load(self.directory, reference_item)

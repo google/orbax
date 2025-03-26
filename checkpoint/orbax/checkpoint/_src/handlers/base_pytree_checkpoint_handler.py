@@ -71,6 +71,8 @@ CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
 get_param_names = tree_utils.get_param_names
 PYTREE_METADATA_FILE = format_utils.PYTREE_METADATA_FILE
+PLACEHOLDER = type_handlers.PLACEHOLDER
+PLACEHOLDER_TYPESTR = type_handlers.PLACEHOLDER_TYPESTR
 
 DEFAULT_CONCURRENT_GB = 96
 
@@ -380,9 +382,12 @@ class BasePyTreeCheckpointHandler(
     ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
 
     def _param_info(name, value):
-      skip_deserialize = False
       if isinstance(value, tree_metadata.ValueMetadataEntry):
         skip_deserialize = value.skip_deserialize
+      elif isinstance(value, type(PLACEHOLDER)):
+        skip_deserialize = True
+      else:
+        skip_deserialize = False
       return ParamInfo(
           name=name,
           path=(directory / name),
@@ -593,9 +598,12 @@ class BasePyTreeCheckpointHandler(
     # Add in empty nodes from the metadata tree.
     for key in flat_metadata.keys():
       if key not in flat_restored:
-        flat_restored[key] = empty_values.get_empty_value_from_typestr(
-            flat_metadata[key].value_type, self._pytree_metadata_options
-        )
+        if type_handlers.is_placeholder(flat_metadata[key]):
+          flat_restored[key] = type_handlers.PLACEHOLDER
+        else:
+          flat_restored[key] = empty_values.get_empty_value_from_typestr(
+              flat_metadata[key].value_type, self._pytree_metadata_options
+          )
     # Restore using `item` as the target structure. If there are any custom
     # nodes (e.g. optax.EmptyState), these will replace None values in
     # flat_restored.
@@ -735,6 +743,11 @@ class BasePyTreeCheckpointHandler(
             'User-provided restore item and on-disk value metadata tree'
             f' structures do not match: {diff}'
         )
+      value_metadata_tree = jax.tree.map(
+          lambda v, i: PLACEHOLDER if type_handlers.is_placeholder(i) else v,
+          value_metadata_tree,
+          serialized_item,
+      )
     restore_args = _fill_missing_save_or_restore_args(
         item, restore_args, mode='restore'
     )

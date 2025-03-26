@@ -220,6 +220,7 @@ class PyTreeHandler(
       abstract_checkpointable: PyTree | None = None,
   ) -> Awaitable[PyTree]:
     directory = epath.Path(directory)
+    # TODO(b/406252214): Add validation for PyTrees and abstract PyTrees.
     return self._background_load(directory, abstract_checkpointable)
 
   async def metadata(self, directory: path_types.PathLike) -> PyTree:
