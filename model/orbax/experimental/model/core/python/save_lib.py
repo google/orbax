@@ -25,20 +25,21 @@ from typing import Optional
 from absl import logging
 from orbax.experimental.model.core.python import file_utils
 from orbax.experimental.model.core.python import manifest_constants
-from orbax.experimental.model.core.python import module
+from orbax.experimental.model.core.python import polymorphic_function
 from orbax.experimental.model.core.python import unstructured_data
 from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
 from orbax.experimental.model.core.python.concrete_function import Variable
 from orbax.experimental.model.core.python.manifest_util import build_manifest_proto
+from orbax.experimental.model.core.python.saveable import Saveable
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredData
 from orbax.experimental.model.core.python.util import object_identity
 
-PolymorphicFunction = module.PolymorphicFunction
-Module = module.Module
+
+PolymorphicFunction = polymorphic_function.PolymorphicFunction
 
 
 def named_variables_and_functions(
-    m: Module,
+    m: dict[str, Saveable],
 ) -> tuple[Mapping[Variable, str], Mapping[ConcreteFunction, str]]:
   """Returns all variables and functions in the Module."""
   # TODO(b/328686396): Improve naming. The function names are used to name the
@@ -49,7 +50,7 @@ def named_variables_and_functions(
   named_vars = object_identity.ObjectIdentityDictionary()
   # Maps ConcreteFunction -> string names
   named_functions = object_identity.ObjectIdentityDictionary()
-  to_visit = list(m.get_dict().items())
+  to_visit = list(m.items())
   while to_visit:
     key, child = to_visit.pop()
     if isinstance(child, ConcreteFunction):
@@ -146,7 +147,7 @@ def _save_supplementals(
 
 
 def save(
-    m: Module,
+    m: dict[str, Saveable],
     path: str,
     options: Optional[SaveOptions] = None,
 ) -> None:

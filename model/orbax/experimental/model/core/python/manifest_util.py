@@ -18,9 +18,9 @@
 from typing import Mapping
 from absl import logging
 from orbax.experimental.model.core.protos import manifest_pb2
-from orbax.experimental.model.core.python import module
 from orbax.experimental.model.core.python import unstructured_data
 from orbax.experimental.model.core.python.function import Function
+from orbax.experimental.model.core.python.saveable import Saveable
 from orbax.experimental.model.core.python.serializable_function import SerializableFunction
 from orbax.experimental.model.core.python.shlo_function import ShloFunction
 from orbax.experimental.model.core.python.type_proto_util import to_function_signature_proto
@@ -80,7 +80,7 @@ def build_function(fn: Function, path: str, name: str) -> manifest_pb2.Function:
 
 
 def build_manifest_proto(
-    em_module: module.Module,
+    em_module: dict[str, Saveable],
     path: str,
     supplemental_info: (
         UnstructuredData | Mapping[str, UnstructuredData] | None
@@ -88,7 +88,7 @@ def build_manifest_proto(
 ) -> manifest_pb2.Manifest:
   """Builds a Manifest proto from EM functions."""
   manifest_proto = manifest_pb2.Manifest()
-  for name, obj in em_module.get_dict().items():
+  for name, obj in em_module.items():
     if isinstance(obj, Function):
       fn = obj
       fn_proto = build_function(fn, path, name)

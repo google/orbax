@@ -62,10 +62,10 @@ class JaxToPolymorphicFunctionTest(parameterized.TestCase):
     em_fn = obm.function(
         lambda inputs: em_fn_(inputs, em_params), input_signature=input_spec
     )
-    obm_module = obm.Module()
+    obm_module = dict()
     # TODO(b/328686660): Test saving polymorphic function `forward_fn`.
     # obm_module.forward_fn = em_fn
-    obm_module.concrete_forward_fn = em_fn.get_concrete_function(input_spec)
+    obm_module['concrete_forward_fn'] = em_fn.get_concrete_function(input_spec)
 
     save_path = os.path.join(self.create_tempdir())
     obm.save(obm_module, save_path)

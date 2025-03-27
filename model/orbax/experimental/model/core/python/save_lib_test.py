@@ -25,7 +25,6 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.experimental.model.core.protos.saved_model import types_pb2
 from orbax.experimental.model.core.python import concrete_function
-from orbax.experimental.model.core.python import module
 from orbax.experimental.model.core.python import save_lib
 from orbax.experimental.model.core.python import signature
 from orbax.experimental.model.core.python.concrete_function import dtype_from_np_dtype

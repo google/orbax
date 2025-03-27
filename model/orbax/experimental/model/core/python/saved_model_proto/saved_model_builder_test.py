@@ -21,7 +21,6 @@ from jax import export as jax_export
 import jax.numpy as jnp
 import numpy as np
 from orbax.experimental.model.core.python import concrete_function
-from orbax.experimental.model.core.python import module
 from orbax.experimental.model.core.python import save_lib
 from orbax.experimental.model.core.python import shlo_function
 from orbax.experimental.model.core.python import signature
@@ -92,15 +91,15 @@ class SavedModelBuilderTest(absltest.TestCase):
         captured_vars=(Variable(Tensor(np.asarray(myvar))),),
     )
 
-    m = module.Module()
-    m.add_concrete_function("add", func)
+    m = dict()
+    m["add"] = func
     builder = saved_model_builder.SavedModelProtoBuilder()
     named_vars, named_functions = save_lib.named_variables_and_functions(m)
     for variable, name in named_vars.items():
       builder.add_variable(variable, name)
     for fn, name in named_functions.items():
       builder.add_function(fn, name)
-    builder.add_function_alias({"tpu_func": m.add}, named_functions)
+    builder.add_function_alias({"tpu_func": m["add"]}, named_functions)
     proto = builder.build()
 
     self.assertEqual(

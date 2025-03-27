@@ -274,19 +274,15 @@ class ObmToJaxTest(parameterized.TestCase):
         {},
     )
 
-    obm_module = obm.Module()
+    obm_module = dict()
     model_function_name = 'my_model_fn'
-    setattr(obm_module, model_function_name, obm_shlo_fn)
+    obm_module[model_function_name] = obm_shlo_fn
 
     weights_name = 'my_weights'
     checkpoint_path = 'my_checkpoint/'
-    setattr(
-        obm_module,
-        weights_name,
-        main_lib.convert_path_to_value(
-            checkpoint_path,
-            mime_type='orbax_checkpoint',
-        ),
+    obm_module[weights_name] = main_lib.convert_path_to_value(
+        checkpoint_path,
+        mime_type='orbax_checkpoint',
     )
 
     save_dir_path = os.path.join(self.create_tempdir())
@@ -425,10 +421,10 @@ class ObmToJaxTest(parameterized.TestCase):
         {},
     )
 
-    obm_module = obm.Module()
+    obm_module = dict()
 
     model_function_name = 'mnist_forward_fn'
-    setattr(obm_module, model_function_name, obm_shlo_fn)
+    obm_module[model_function_name] = obm_shlo_fn
     save_dir_path = os.path.join(self.create_tempdir())
 
     # Save the params to orbax checkpoint, which will be loaded later.
@@ -437,13 +433,9 @@ class ObmToJaxTest(parameterized.TestCase):
     checkpointer = ocp.Checkpointer(ocp.StandardCheckpointHandler())
     checkpointer.save(checkpoint_abs_path, params)
     weights_name = 'my_weights'
-    setattr(
-        obm_module,
-        weights_name,
-        main_lib.convert_path_to_value(
-            checkpoint_path,
-            mime_type='orbax_checkpoint',
-        ),
+    obm_module[weights_name] = main_lib.convert_path_to_value(
+        checkpoint_path,
+        mime_type='orbax_checkpoint',
     )
 
     obm.save(

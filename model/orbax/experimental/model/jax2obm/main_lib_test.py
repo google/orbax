@@ -102,21 +102,17 @@ class MainLibTest(parameterized.TestCase):
         {},
         native_serialization_platforms=native_serialization_platforms,
     )
-    obm_module = obm.Module()
+    obm_module = dict()
     model_function_name = 'my_model_fn'
-    setattr(obm_module, model_function_name, em_shlo_fn)
+    obm_module[model_function_name] = em_shlo_fn
 
     save_dir_path = os.path.join(self.create_tempdir())
 
     weights_name = 'my_weights'
     checkpoint_path = 'my_checkpoint/'
-    setattr(
-        obm_module,
-        weights_name,
-        main_lib.convert_path_to_value(
-            checkpoint_path,
-            mime_type='orbax_checkpoint',
-        ),
+    obm_module[weights_name] = main_lib.convert_path_to_value(
+        checkpoint_path,
+        mime_type='orbax_checkpoint',
     )
 
     supplemental_filename = 'my_orchestration.pb'
@@ -576,17 +572,17 @@ class MainLibTest(parameterized.TestCase):
         {},
     )
 
-    obm_module = obm.Module()
+    obm_module = dict()
 
     model_function_name = 'mnist_forward_fn'
-    setattr(obm_module, model_function_name, em_shlo_fn)
+    obm_module[model_function_name] = em_shlo_fn
     save_dir_path = os.path.join(self.create_tempdir())
 
     checkpoint_path = 'my_checkpoint/'
     checkpoint_abs_path = os.path.join(save_dir_path, checkpoint_path)
     checkpointer = ocp.Checkpointer(ocp.StandardCheckpointHandler())
     checkpointer.save(checkpoint_abs_path, params)
-    obm_module.my_weights = main_lib.convert_path_to_value(
+    obm_module['my_weights'] = main_lib.convert_path_to_value(
         checkpoint_path,
         mime_type='orbax_checkpoint',
     )

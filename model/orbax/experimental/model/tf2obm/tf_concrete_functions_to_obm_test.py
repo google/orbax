@@ -287,13 +287,13 @@ class TfConcreteFunctionsToObmTest(
     )
 
     # Saves manifest.pb
-    em_module = obm.Module()
+    em_module = dict()
 
     pre_processor_name = "my_pre_processor"
-    setattr(em_module, pre_processor_name, pre_processor)
+    em_module[pre_processor_name] = pre_processor
 
     post_processor_name = "my_post_processor"
-    setattr(em_module, post_processor_name, post_processor)
+    em_module[post_processor_name] = post_processor
 
     obm.save(
         em_module,
