@@ -29,6 +29,7 @@ from orbax.checkpoint._src.tree import utils as tree_utils
 
 
 Diff = tree_utils.Diff
+PyTree = tree_utils.PyTree
 
 
 class Record(NamedTuple):
@@ -277,6 +278,96 @@ class UtilsTest(parameterized.TestCase):
     self.assertFalse(tree_utils.isinstance_of_namedtuple(nt))
     self.assertFalse(tree_utils.issubclass_of_namedtuple(type(nt)))
 
+  @parameterized.parameters(
+      (
+          {'a': 1, 'b': [2, {'c': 3}]},
+          {'a': 100, 'b': [200, {'c': 300}]},
+          {'a': 1, 'b': [2, {'c': 3}]},
+      ),
+      (
+          {'a': 1, 'b': [2, {'c': 3, 'd': 4}], 'e': 5},
+          {'a': 100, 'b': [200, {'c': 300}]},
+          {'a': 1, 'b': [2, {'c': 3}]},
+      ),
+      (
+          {'a': (1, 2), 'b': {'c': 3, 'd': 4}},
+          {'a': [100, 200], 'b': {'c': 300}},
+          {'a': [1, 2], 'b': {'c': 3}},
+      ),
+      (
+          {'a': 1, 'b': 2},
+          {},
+          {},
+      ),
+      (
+          {},
+          {},
+          {},
+      ),
+  )
+  def test_filter_by_structure(
+      self, source: PyTree, target: PyTree, expected: PyTree
+  ):
+    self.assertDictEqual(
+        expected, tree_utils.filter_by_structure(source, target)
+    )
+
+  @parameterized.parameters(
+      int,
+      float,
+      complex,
+      str,
+      bytes,
+      bool,
+      np.int32,
+      np.float32,
+  )
+  def test_filter_by_structure_leaves(self, val_type: Any):
+    val = val_type()
+    self.assertEqual(val, tree_utils.filter_by_structure(val, val))
+
+  def test_filter_by_structure_extra_path_in_target(self):
+    source = {'a': 1, 'b': [2, {'c': 3}]}
+
+    target = {'a': 100, 'b': [200, {'c': 300, 'd': 400}], 'e': 500}
+    with self.assertRaisesRegex(ValueError, 'Path "b.1.d" exists in target'):
+      tree_utils.filter_by_structure(source, target)
+
+    target = {'a': 100, 'b': [200, {'c': 300}], 'e': 500}
+    with self.assertRaisesRegex(ValueError, 'Path "e" exists in target'):
+      tree_utils.filter_by_structure(source, target)
+
+  def test_filter_by_structure_empty_source(self):
+    source = {}
+    target = {'a': 1, 'b': 2}
+    with self.assertRaisesRegex(ValueError, 'Path "a" exists in target'):
+      tree_utils.filter_by_structure(source, target)
+
+  def test_filter_by_structure_mismatch_target_structure(self):
+    source = 10
+    target = {'a': 20}
+    with self.assertRaisesRegex(ValueError, 'Path "a" exists in target'):
+      tree_utils.filter_by_structure(source, target)
+
+  def test_filter_by_structure_mismatch_source_structure(self):
+    source = {'a': 10}
+    target = 20
+    with self.assertRaisesRegex(ValueError, 'Path "" exists in target'):
+      tree_utils.filter_by_structure(source, target)
+
+  def test_filter_by_structure_v2_custom_node(self):
+    @flax.struct.dataclass
+    class SimpleData:
+      x: int
+      y: str
+
+    source = {'data': SimpleData(x=1, y='hello'), 'other': 10}
+    target = {'data': SimpleData(x=100, y='world')}
+    expected = {'data': SimpleData(x=1, y='hello')}
+
+    result = tree_utils.filter_by_structure(source, target)
+    test_utils.assert_tree_equal(self, expected, result)
+
 
 class TreeDifferenceTest(parameterized.TestCase):
 
@@ -434,7 +525,8 @@ class TreeDifferenceTest(parameterized.TestCase):
     )
 
   def test_uses_is_leaf_to_recognize_leaves(self):
-    def custom_is_leaf(x: tree_utils.PyTree) -> bool:
+
+    def custom_is_leaf(x: PyTree) -> bool:
       return isinstance(x, int) or isinstance(x, list)
 
     first = {

@@ -458,3 +458,32 @@ def tree_difference(
       )
 
     return None
+
+
+def filter_by_structure(source: PyTree, target: PyTree) -> PyTree:
+  """Filters a `source` PyTree to match the structure of a `target` PyTree.
+
+  Args:
+    source: The PyTree to filter.
+    target: The target PyTree to match the structure of.
+
+  Returns:
+    A PyTree with the same structure as `target`, but with values from
+    `source`.
+  """
+  source_flat = to_flat_dict(source, sep=None)
+
+  def _get_value_from_source(path: PyTreePath, target_leaf: Any):
+    """Maps target path/leaf to source value."""
+    del target_leaf  # Unused, we only care about the target structure.
+    tuple_key = tuple_path_from_keypath(path)
+    if tuple_key in source_flat:
+      return source_flat[tuple_key]
+    else:
+      path_str = '.'.join(tuple_key)
+      raise ValueError(
+          f'Path "{path_str}" exists in target structure but not found in '
+          'source PyTree.'
+      )
+
+  return jax.tree_util.tree_map_with_path(_get_value_from_source, target)
