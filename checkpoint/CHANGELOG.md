@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - #v1 Add metadata free functions.
+- `filter_by_structure` utility function for matching PyTree structures.
 
 ## [0.11.10] - 2025-03-20
 
