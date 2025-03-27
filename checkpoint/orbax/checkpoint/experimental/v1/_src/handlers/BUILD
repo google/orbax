@@ -1,5 +1,3 @@
-load("//devtools/python/blaze:pytype.bzl", "pytype_strict_library", pytype_strict_test = "pytype_strict_contrib_test")
-
 package(default_visibility = ["//visibility:public"])
 
 py_library(
@@ -8,6 +6,15 @@ py_library(
     deps = [
         "//orbax/checkpoint/experimental/v1/_src/path:types",
         "//orbax/checkpoint/experimental/v1/_src/synchronization:types",
+    ],
+)
+
+py_test(
+    name = "types_test",
+    srcs = ["types_test.py"],
+    deps = [
+        ":types",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
     ],
 )
 
@@ -45,6 +52,7 @@ py_library(
     name = "pytree_handler",
     srcs = ["pytree_handler.py"],
     deps = [
+        ":registration",
         ":types",
         "//checkpoint/orbax/checkpoint:checkpoint_utils",
         "//checkpoint/orbax/checkpoint:options",
@@ -57,7 +65,51 @@ py_library(
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/context:options",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
-        "//orbax/checkpoint/experimental/v1/_src/synchronization:types",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",
+    ],
+)
+
+py_library(
+    name = "registration",
+    srcs = ["registration.py"],
+    deps = [":types"],
+)
+
+py_library(
+    name = "composite_handler",
+    srcs = ["composite_handler.py"],
+    deps = [
+        ":registration",
+        "//checkpoint/orbax/checkpoint/_src:composite",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+        "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+    ],
+)
+
+py_test(
+    name = "registration_test",
+    srcs = ["registration_test.py"],
+    deps = [
+        ":registration",
+        ":types",
+        "//orbax/checkpoint/experimental/v1/_src/testing:handler_utils",
+    ],
+)
+
+py_test(
+    name = "composite_handler_test",
+    srcs = ["composite_handler_test.py"],
+    deps = [
+        ":composite_handler",
+        ":pytree_handler",
+        ":registration",
+        ":types",
+        "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+        "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//orbax/checkpoint/experimental/v1/_src/testing:handler_utils",
     ],
 )
