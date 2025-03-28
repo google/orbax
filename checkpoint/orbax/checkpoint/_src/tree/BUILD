@@ -22,6 +22,7 @@ py_test(
     deps = [
         ":utils",
         "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//checkpoint/orbax/checkpoint/_src/testing:test_tree_utils",
     ],
 )

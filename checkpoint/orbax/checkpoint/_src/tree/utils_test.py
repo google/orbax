@@ -15,6 +15,7 @@
 """Test for utils module."""
 
 from typing import Any, Mapping, NamedTuple, Sequence
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -24,6 +25,7 @@ import jax
 import numpy as np
 import optax
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import test_tree_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
 
@@ -463,6 +465,245 @@ class TreeDifferenceTest(parameterized.TestCase):
 
     self.assertIsNone(
         tree_utils.tree_difference(first, second, is_leaf=custom_is_leaf)
+    )
+
+
+@flax.struct.dataclass
+class FlaxRecord:
+  alpha: Any
+  beta: Any
+
+
+@flax.struct.dataclass
+class FlaxWiderRecord:
+  alpha: Any
+  beta: Any
+  gamma: Any
+
+
+class TreeTrimTest(parameterized.TestCase):
+
+  def test_recursively_trims_structure_to_match_template(self):
+    structure = {
+        'a': 1,
+        'b': [2, {'c': [3, 3.25, 3.5, 3.75], 'd': 4}],
+        'e': (5, 6),
+    }
+    template = {
+        # drop ('a',)
+        'b': [4, {'d': 16}],  # drop ('b', 1, 'c')
+        'e': (25, 36),
+    }
+
+    dropped_subtree_callback = mock.Mock()
+    trimmed_structure = tree_utils.tree_trim(
+        template, structure, trimmed_structure_callback=dropped_subtree_callback
+    )
+
+    jax.tree.map(
+        lambda x, xx: self.assertEqual(x * x, xx), trimmed_structure, template
+    )
+
+    self.assertCountEqual(
+        [mock.call(('a',), 1), mock.call(('b', 1, 'c'), [3, 3.25, 3.5, 3.75])],
+        dropped_subtree_callback.call_args_list,
+    )
+
+  def test_does_not_copy_leaves(self):
+    structure = {
+        'a': np.asarray(1),
+        'b': [
+            np.asarray(2),
+            {
+                'c': [
+                    np.asarray(3),
+                    np.asarray(3.25),
+                    np.asarray(3.5),
+                    np.asarray(3.75),
+                ],
+                'd': np.asarray(4),
+            },
+        ],
+        'e': (np.asarray(5), np.asarray(6)),
+    }
+    template = {
+        # drop ('a',)
+        'b': [4, {'d': 16}],  # drop ('b', 1, 'c')
+        'e': (25, 36),
+    }
+
+    trimmed_structure = tree_utils.tree_trim(template, structure)
+    self.assertIs(structure['b'][0], trimmed_structure['b'][0])
+    self.assertIs(structure['b'][1]['d'], trimmed_structure['b'][1]['d'])
+    self.assertIs(structure['e'][0], trimmed_structure['e'][0])
+    self.assertIs(structure['e'][1], trimmed_structure['e'][1])
+
+  def test_preserves_mapping_type_specified_in_template(self):
+
+    class MyDict(dict):
+      pass
+
+    structure = [dict(a=1, b=2, c=3)]
+    template = [MyDict(a=1, b=4)]  # drop (0, 'c')
+
+    dropped_subtree_callback = mock.Mock()
+    trimmed_structure = tree_utils.tree_trim(
+        template, structure, trimmed_structure_callback=dropped_subtree_callback
+    )
+
+    self.assertIsInstance(trimmed_structure[0], MyDict)
+
+    self.assertCountEqual(
+        [mock.call((0, 'c'), 3)],
+        dropped_subtree_callback.call_args_list,
+    )
+
+  def test_preserves_named_tuple_type_specified_in_template(self):
+    class MyNamedTuple(NamedTuple):
+      a: int
+
+    structure = {'a': 1, 'b': (2,), 'c': 3}
+    template = {'b': MyNamedTuple(a=4), 'c': 9}  # drop ('a',)
+
+    dropped_subtree_callback = mock.Mock()
+    trimmed_structure = tree_utils.tree_trim(
+        template, structure, trimmed_structure_callback=dropped_subtree_callback
+    )
+
+    self.assertIsInstance(trimmed_structure['b'], MyNamedTuple)
+
+    self.assertCountEqual(
+        [mock.call(('a',), 1)],
+        dropped_subtree_callback.call_args_list,
+    )
+
+  def test_can_trim_dict_structure_with_named_tuple_template(self):
+    # `tree_proto` encodes `NamedTuple` instances as dictionaries:
+    # 
+    #
+    # Consequently, this case is important for safely loading state
+    # (particularly optimiser state) that contains `NamedTuple` nodes when
+    # `want_rich_internal_node_types=False` has been passed to
+    # `checkpoint.load_index()` (which is encouraged).
+    class MyNamedTuple(NamedTuple):
+      x: int
+      y: float
+
+    structure = {'a': 1, 'b': {'x': 2, 'y': 5.0, 'q': 'dropme'}, 'c': 3}
+    template = {
+        'b': MyNamedTuple(x=4, y=3.0),
+        'c': 9,
+    }  # drop ('a',), ('b', 'q')
+
+    dropped_subtree_callback = mock.Mock()
+    trimmed_structure = tree_utils.tree_trim(
+        template, structure, trimmed_structure_callback=dropped_subtree_callback
+    )
+
+    self.assertIsInstance(trimmed_structure['b'], MyNamedTuple)
+
+    self.assertCountEqual(
+        [mock.call(('a',), 1), mock.call(('b', 'q'), 'dropme')],
+        dropped_subtree_callback.call_args_list,
+    )
+
+    with self.subTest('requires_all_named_tuple_fields'):
+      del structure['b']['x']
+      with self.assertRaisesRegex(
+          ValueError, r'\(\'b\',\): missing 1 keys, including: \[\'x\'\]'
+      ):
+        tree_utils.tree_trim(template, structure)
+
+  def test_can_trim_flax_struct_with_other_flax_struct(self):
+    structure = FlaxWiderRecord(
+        alpha=[1, 2],
+        beta={'three': 3, 'four': 4},
+        gamma=[5, 6],
+    )
+    template = FlaxRecord(
+        alpha=[9, 9],
+        beta={'three': 9},  # drop 'four'
+        # Also drop 'gamma'
+    )
+
+    dropped_subtree_callback = mock.Mock()
+    trimmed_structure = tree_utils.tree_trim(
+        template, structure, trimmed_structure_callback=dropped_subtree_callback
+    )
+
+    self.assertIsInstance(trimmed_structure, FlaxRecord)
+    self.assertSameStructure(
+        FlaxRecord(
+            alpha=[1, 2],
+            beta={'three': 3},
+        ),
+        trimmed_structure,
+    )
+
+    self.assertCountEqual(
+        [mock.call(('.gamma',), [5, 6]), mock.call(('.beta', 'four'), 4)],
+        dropped_subtree_callback.call_args_list,
+    )
+
+  @parameterized.parameters([
+      ({}, 1),
+      (1, {}),
+      ([], 1),
+      (1, []),
+      ([], {}),
+      ({}, []),
+  ])
+  def test_raises_if_nodes_have_mismatched_types(self, template, structure):
+    with self.assertRaisesRegex(TypeError, r'\(\'a\',\): type mismatch'):
+      tree_utils.tree_trim({'a': template}, {'a': structure})
+
+  def test_raises_if_structure_is_missing_keys(self):
+    with self.assertRaisesRegex(
+        ValueError, r'\(\'a\',\): missing 1 keys, including: \[\'b\'\]'
+    ):
+      tree_utils.tree_trim({'a': {'b': 1}}, {'a': {}})
+
+  def test_non_strict_inserts_placeholders_if_structure_is_missing_keys(self):
+    ph = type_handlers.PLACEHOLDER
+
+    self.assertSameStructure(
+        {'a': {'b': (ph, ph)}},
+        tree_utils.tree_trim({'a': {'b': (1, 2)}}, {'a': {}}, strict=False),
+    )
+    self.assertSameStructure(
+        Record((ph, ph), [ph, ph]),
+        tree_utils.tree_trim(Record((1, 2), [3, 4]), {}, strict=False),
+    )
+
+  def test_raises_if_sequence_lengths_do_not_match(self):
+    with self.assertRaisesRegex(
+        ValueError, r'\(\'a\',\): length mismatch: 2 vs 1'
+    ):
+      tree_utils.tree_trim({'a': [1, 2]}, {'a': [1]})
+
+  def test_handles_none_leaves_in_template(self):
+    dropped_subtree_callback = mock.Mock()
+    trimmed = tree_utils.tree_trim(
+        template={'a': None, 'b': None, 'c': None},
+        structure={'a': None, 'b': {'x': 2, 'y': 3}, 'c': 12},
+        strict=False,
+        trimmed_structure_callback=dropped_subtree_callback,
+    )
+    self.assertSameStructure(
+        {'a': None, 'b': None, 'c': None},
+        trimmed,
+    )
+    self.assertSameStructure(
+        {'a': None, 'b': None, 'c': None},
+        trimmed,
+    )
+    self.assertCountEqual(
+        [
+            mock.call(('b', 'x'), 2),
+            mock.call(('b', 'y'), 3),
+            mock.call(('c',), 12),
+        ],
+        dropped_subtree_callback.call_args_list,
     )
 
 
