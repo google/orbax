@@ -1941,6 +1941,36 @@ class PyTreeHandlerTestBase:
         ):
           handler.load(self.directory, reference_item)
 
+    def test_partial_restore_with_placeholder_simple(self):
+      original_item = {
+          'a': np.arange(8),
+          'b': np.arange(8),
+          'c': {
+              'a': np.arange(8),
+              'e': np.arange(8),
+          },
+      }
+      reference_item = jax.tree.map(as_abstract_type, original_item)
+      reference_item['b'] = PLACEHOLDER
+      reference_item['c']['e'] = PLACEHOLDER
+      expected = {
+          'a': original_item['a'],
+          'b': PLACEHOLDER,
+          'c': {
+              'a': original_item['c']['a'],
+              'e': PLACEHOLDER,
+          },
+      }
+
+      simple_dir = epath.Path(
+          self.create_tempdir(name='simple_placeholder_dir').full_path
+      )
+
+      handler = PyTreeHandler()
+      handler.save(simple_dir, original_item)
+      restored = handler.load(simple_dir, reference_item)
+      test_utils.assert_tree_equal(self, expected, restored)
+
     @parameterized.product(use_ocdbt=(True, False))
     def test_partial_restore_with_placeholder(self, use_ocdbt: bool):
       """Test saving and restoring placeholder."""
@@ -1963,10 +1993,7 @@ class PyTreeHandlerTestBase:
             use_ocdbt=use_ocdbt,
             array_metadata_store=array_metadata_store_lib.Store(),
         ) as restore_handler:
-          restored = restore_handler.load(
-              self.directory,
-              reference_item,
-          )
+          restored = restore_handler.load(self.directory, reference_item)
           test_utils.assert_tree_equal(self, expected, restored)
 
       with self.subTest('missing_leaf'):
