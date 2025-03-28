@@ -35,6 +35,7 @@ from orbax.checkpoint._src.multihost import multihost
 
 _GCS_PATH_PREFIX = ('gs://',)
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
+_CHECKPOINT_METADATA_FOLDER = '_CHECKPOINT_METADATA'
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 # prefix_1000.orbax-checkpoint-tmp-1010101
 # OR
@@ -585,6 +586,11 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
     return False
   if TMP_DIR_SUFFIX in path.name:
     return False
+  if (
+      'metadata' not in path.name
+      and not (path / _CHECKPOINT_METADATA_FOLDER).exists()
+  ):
+    return False
   return True
 
 
@@ -733,18 +739,25 @@ def checkpoint_steps(
 
 
 def any_checkpoint_step(checkpoint_dir: epath.PathLike) -> Optional[int]:
-  """Returns any finalized checkpoint step in the directory or None.
-
-  This avoids iterating over the entire directory.
+  """Returns any (preferbaly the latest) finalized checkpoint step in the directory or None.
 
   Args:
     checkpoint_dir: Checkpoint directory.
 
   Returns:
-    Any finalized checkpoint step in the directory or None.
+    Latest finalized checkpoint step in the directory or None.
   """
   checkpoint_dir = epath.Path(checkpoint_dir)
+  valid_steps = []
   for s in checkpoint_dir.iterdir():
     if _is_legacy_finalized_step_checkpoint(s):
-      return step_from_checkpoint_name(s.name)
+      valid_steps.append(step_from_checkpoint_name(s.name))
+      logging.info('Found valid checkpoint step: %s', s.name)
+    else:
+      logging.info('Skipping invalid checkpoint: %s', s.name)
+
+  if valid_steps:
+    logging.info('Attempting to load checkpoint step: %s', max(valid_steps))
+    return max(valid_steps)
+
   return None
