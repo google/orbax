@@ -315,7 +315,7 @@ class CommitFuture(Future):
 
   def result(self, timeout: Optional[float] = None) -> Any:
     """Waits for the commit to complete."""
-    return self._t.join(timeout=timeout)
+    return self._t.result(timeout=timeout)
 
 
 class CommitFutureAwaitingContractedSignals(Future):
