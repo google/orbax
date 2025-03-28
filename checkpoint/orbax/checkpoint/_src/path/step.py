@@ -35,6 +35,7 @@ from orbax.checkpoint._src.multihost import multihost
 
 _GCS_PATH_PREFIX = ('gs://',)
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
+_CHECKPOINT_METADATA_FOLDER = '_CHECKPOINT_METADATA'
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 # prefix_1000.orbax-checkpoint-tmp-1010101
 # OR
@@ -584,6 +585,11 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
 
     return False
   if TMP_DIR_SUFFIX in path.name:
+    return False
+  if (
+      'metadata' not in path.name
+      and not (path / _CHECKPOINT_METADATA_FOLDER).exists()
+  ):
     return False
   return True
 
