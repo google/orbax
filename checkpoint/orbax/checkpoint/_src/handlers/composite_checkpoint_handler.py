@@ -852,7 +852,12 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       items_to_handlers: dict[str, CheckpointHandler | None],
   ) -> dict[str, checkpoint.CheckpointHandlerTypeStr | None]:
     if saved_metadata.item_handlers is not None:
-      assert isinstance(saved_metadata.item_handlers, dict)
+      if not isinstance(saved_metadata.item_handlers, dict):
+        raise ValueError(
+            'StepMetadata.item_handlers must be a dict, but is a'
+            f' {type(saved_metadata.item_handlers)}. This likely indicates that'
+            ' the checkpoint was saved using a non-composite handler.'
+        )
       # Keep relevant non-None handler typestrs from on-disk metadata.
       item_handlers: dict[str, checkpoint.CheckpointHandlerTypeStr] = (
           saved_metadata.item_handlers

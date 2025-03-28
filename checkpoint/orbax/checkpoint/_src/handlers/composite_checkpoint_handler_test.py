@@ -1113,6 +1113,20 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
           handler_registry=handler_registry,
       )
 
+  def test_item_handlers_not_dict_raises_error(self):
+    handler = CompositeCheckpointHandler('state', 'metadata')
+    metadata_to_write = checkpoint.StepMetadata(
+        item_handlers='not_a_dict',
+    )
+    checkpoint.metadata_store(enable_write=True, blocking_write=True).write(
+        checkpoint.step_metadata_file_path(self.directory),
+        step_metadata_serialization.serialize(metadata_to_write),
+    )
+    with self.assertRaisesRegex(
+        ValueError, 'StepMetadata.item_handlers must be a dict'
+    ):
+      handler.metadata(self.directory)
+
 
 if __name__ == '__main__':
   absltest.main()
