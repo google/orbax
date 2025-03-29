@@ -35,6 +35,7 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import threading as threading_lib
+from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.checkpointers import async_checkpointer
@@ -206,6 +207,30 @@ def _get_default_save_decision_policy(
   return save_decision_policy_lib.AnySavePolicy(save_interval_policies)
 
 
+def _get_default_preservation_policy(
+    options: CheckpointManagerOptions,
+) -> preservation_policy_lib.PreservationPolicy:
+  """Creates a default policy from CheckpointManagerOptions."""
+  preservation_policies = []
+  if options.should_save_fn is not None:
+    preservation_policies.append(_ShouldSaveFnPolicy(options.should_save_fn))
+    preservation_policies.append(
+        preservation_policy_lib.PreemptionCheckpointingPolicy()
+    )
+  else:
+    if options.save_interval_steps is not None:
+      preservation_policies.append(
+          preservation_policy_lib.EveryNSteps(
+              options.save_interval_steps
+          )
+      )
+    if options.save_on_steps is not None:
+      preservation_policies.append(
+          preservation_policy_lib.CustomSteps(options.save_on_steps)
+      )
+  return preservation_policy_lib.JointPreservationPolicy(preservation_policies)
+
+
 # TODO(b/268051457) Clean up when no longer depended upon by internal users.
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
   return isinstance(
@@ -350,6 +375,9 @@ class CheckpointManagerOptions:
   temporary_path_class: Optional[Type[atomicity_types.TemporaryPath]] = None
   save_decision_policy: Optional[
       save_decision_policy_lib.SaveDecisionPolicy
+  ] = None
+  preservation_policy: Optional[
+      preservation_policy_lib.PreservationPolicy
   ] = None
 
   def __post_init__(self):
@@ -610,6 +638,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._save_decision_policy = (
         self._options.save_decision_policy
         or _get_default_save_decision_policy(self._options)
+    )
+    self._preservation_policy = (
+        self._options.preservation_policy
+        or _get_default_preservation_policy(self._options)
     )
 
     if self._options.best_mode not in ['min', 'max']:
