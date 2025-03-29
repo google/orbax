@@ -57,7 +57,7 @@ EmValPyTree = TypeVar(
 
 
 # TODO(b/332755537): Support argument `with_gradient: bool` in `convert`.
-def convert(
+def convert_polymorphic_fn(
     fun_jax: Callable[..., utils.JaxArrayPyTree],
     *,
     polymorphic_shapes: str | None = None,
