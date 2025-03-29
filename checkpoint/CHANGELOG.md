@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - #v1 Add metadata free functions.
+- #v1 Add CheckpointableHandlerRegistry and handler resolution functions.
 
 ## [0.11.10] - 2025-03-20
 

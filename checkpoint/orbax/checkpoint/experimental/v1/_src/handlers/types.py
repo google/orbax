@@ -14,20 +14,19 @@
 
 """Defines types for `CheckpointableHandler`."""
 
-from typing import Awaitable, Protocol, TypeVar
+from typing import Awaitable, Protocol, Type, TypeVar
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 
 
 T = TypeVar('T')
 AbstractT = TypeVar('AbstractT')
-MetadataT = TypeVar('MetadataT')
 
 PathLike = path_types.PathLike
 AsyncResponse = async_types.AsyncResponse
 
 
-class CheckpointableHandler(Protocol[T, AbstractT, MetadataT]):
+class CheckpointableHandler(Protocol[T, AbstractT]):
   """An interface that defines save/load logic for a `checkpointable` object.
 
   NOTE: Prefer to use `Checkpointable` interface when possible.
@@ -121,23 +120,56 @@ class CheckpointableHandler(Protocol[T, AbstractT, MetadataT]):
     """
     ...
 
-  async def metadata(
-      self, directory: path_types.PathLike
-  ) -> MetadataT:
+  async def metadata(self, directory: path_types.PathLike) -> AbstractT:
     """Returns the metadata for the given `directory`.
 
     The logic in this method must be executed fully in the main thread; metadata
     access is expected to be cheap and fast.
 
+    In many cases it is desirable to return additional metadata properties
+    beyond the limited set in `AbstractT`. In this case, `AbstractT` should
+    be subclasses, and this subclass can be returned from `metadata`.
+
     Args:
       directory: The directory where the checkpoint is located.
 
     Returns:
-      MetadataT: The metadata is an `MetadataT`,
-      which is the abstract representation of
-      the checkpointable. `MetadataT` differs from `AbstractT` in that it may
-      contain additional properties that cannot be directly consumed to
-      customize loading behavior, but are nevertheless present and useful
-      to know about in some cases.
+      AbstractT: The metadata is an `AbstractT`, which is the abstract
+      representation of the checkpointable.
     """
     ...
+
+  def is_handleable(self, checkpointable: T) -> bool:
+    """Returns whether the handler can handle the given checkpointable.
+
+    The method should return `True` if it is possible to save such an object.
+
+    Args:
+      checkpointable: Either a concrete checkpointable, for saving.
+
+    Returns:
+      True if the handler can handle the given checkpointable.
+    """
+    ...
+
+  def is_abstract_handleable(self, abstract_checkpointable: AbstractT) -> bool:
+    """Returns whether the handler can handle the abstract checkpointable.
+
+    The method should return `True` if it is possible
+    to use such an object for loading a concrete `T`. Note that `None` is
+    always considered handleable for loading. If an implementation defines
+    `AbstractT` as `None`, then this method should only return True for values
+    of `None`.
+
+    Args:
+      abstract_checkpointable: An abstract checkpointable, for loading.
+
+    Returns:
+      True if the handler can handle the given checkpointable.
+    """
+    ...
+
+
+def typestr(handler_cls: Type[CheckpointableHandler]) -> str:
+  """A name for the handler class that uniquely identifies it."""
+  return f'{handler_cls.__module__}.{handler_cls.__qualname__}'
