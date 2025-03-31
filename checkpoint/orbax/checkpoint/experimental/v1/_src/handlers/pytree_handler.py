@@ -14,8 +14,10 @@
 
 """Implementation of `CheckpointableHandler` for PyTrees."""
 
+from __future__ import annotations
+
 import dataclasses
-from typing import Awaitable, Sequence
+from typing import Any, Awaitable, Sequence
 
 from etils import epath
 import jax
@@ -30,15 +32,16 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
+from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 PathLike = path_types.PathLike
-AsyncResponse = async_types.AsyncResponse
 CheckpointableHandler = handler_types.CheckpointableHandler
 PyTree = tree_types.PyTree
+
+PYTREE_CHECKPOINTABLE_KEY = 'pytree'
 
 
 def _get_v0_save_args(
@@ -131,13 +134,8 @@ def create_v0_restore_args(
   )
 
 
-class PyTreeHandler(
-    CheckpointableHandler[
-        PyTree,
-        PyTree,
-        PyTree,
-    ]
-):
+@registration.register_handler
+class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
   """An implementation of `CheckpointableHandler` for PyTrees."""
 
   def __init__(
@@ -169,22 +167,21 @@ class PyTreeHandler(
       commit_futures: Sequence[future.Future],
       operation_id: str,
   ):
+    active_processes = self._multiprocessing_options.active_processes or set(
+        range(multihost.process_count())
+    )
     for f in commit_futures:
       f.result()
     # Global sync to ensure all participating processes have completed their
     # save operations before proceeding to finalize.
     barrier_name = f'save_and_finalize_{operation_id}_commit_complete'
-    multihost.sync_global_processes(
-        barrier_name, processes=self._multiprocessing_options.active_processes
-    )
+    multihost.sync_global_processes(barrier_name, processes=active_processes)
     # Finalize.
     self._finalize(directory)
     # Global sync to ensure all hosts are aware that the finalize operation
     # has completed before returning to the user.
     barrier_name = f'save_and_finalize_{operation_id}_finalize_complete'
-    multihost.sync_global_processes(
-        barrier_name, processes=self._multiprocessing_options.active_processes
-    )
+    multihost.sync_global_processes(barrier_name, processes=active_processes)
 
   async def save(
       self, directory: path_types.PathLike, checkpointable: PyTree
@@ -200,6 +197,9 @@ class PyTreeHandler(
     operation_id = (
         synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
     )
+    # Needed to differentiate between different handlers when we have multiple
+    # PyTreeHandlers performing a save.
+    operation_id = f'{operation_id}.{directory.name}'
     return self._background_save(
         directory, commit_futures=commit_futures, operation_id=operation_id
     )
@@ -226,3 +226,43 @@ class PyTreeHandler(
   async def metadata(self, directory: path_types.PathLike) -> PyTree:
     directory = epath.Path(directory)
     return self._handler_impl.metadata(directory)
+
+  def _is_handleable_leaf(self, leaf: Any) -> bool:
+    return (
+        isinstance(leaf, np.ndarray)
+        or isinstance(leaf, jax.Array)
+        or isinstance(leaf, int)
+        or isinstance(leaf, float)
+        or isinstance(leaf, str)
+    )
+
+  def _is_handleable_abstract_leaf(self, leaf: Any) -> bool:
+    return (
+        isinstance(leaf, np.ndarray)
+        or isinstance(leaf, jax.ShapeDtypeStruct)
+        or isinstance(leaf, int)
+        or isinstance(leaf, float)
+        or isinstance(leaf, str)
+    )
+
+  def is_handleable(self, checkpointable: PyTree) -> bool:
+    try:
+      return jax.tree.reduce(
+          lambda a, b: self._is_handleable_leaf(a)
+          and self._is_handleable_leaf(b),
+          checkpointable,
+          initializer=True,
+      )
+    except Exception:  # pylint: disable=broad-exception-caught
+      return False
+
+  def is_abstract_handleable(self, abstract_checkpointable: PyTree) -> bool:
+    try:
+      return jax.tree.reduce(
+          lambda a, b: self._is_handleable_abstract_leaf(a)
+          and self._is_handleable_abstract_leaf(b),
+          abstract_checkpointable,
+          initializer=True,
+      )
+    except Exception:  # pylint: disable=broad-exception-caught
+      return False
