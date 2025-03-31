@@ -17,12 +17,14 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 from typing import Any, Awaitable, Type
 
 import aiofiles
 from etils import epath
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+
 
 # pylint: disable=missing-class-docstring
 
@@ -36,15 +38,16 @@ class DataclassHandler:
   ):
     directory = epath.Path(directory)
     async with aiofiles.open(directory / 'foo.txt', 'w') as f:
-      await f.write(str(dict(checkpointable)))
+      contents = json.dumps(dataclasses.asdict(checkpointable))
+      await f.write(contents)
 
   async def background_load(
       self, directory: path_types.PathLike, checkpointable_type: Type[Any]
   ) -> Any:
     directory = epath.Path(directory)
     async with aiofiles.open(directory / 'foo.txt', 'r') as f:
-      r = await f.read()
-      return checkpointable_type(*r.values())
+      contents = json.loads(await f.read())
+      return checkpointable_type(*contents.values())
 
 
 @dataclasses.dataclass

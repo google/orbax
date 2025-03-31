@@ -75,12 +75,41 @@ py_library(
     deps = [":types"],
 )
 
+py_library(
+    name = "composite_handler",
+    srcs = ["composite_handler.py"],
+    deps = [
+        ":registration",
+        "//checkpoint/orbax/checkpoint/_src:composite",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+        "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+    ],
+)
+
 py_test(
     name = "registration_test",
     srcs = ["registration_test.py"],
     deps = [
         ":registration",
         ":types",
+        "//orbax/checkpoint/experimental/v1/_src/testing:handler_utils",
+    ],
+)
+
+py_test(
+    name = "composite_handler_test",
+    srcs = ["composite_handler_test.py"],
+    deps = [
+        ":composite_handler",
+        ":pytree_handler",
+        ":registration",
+        ":types",
+        "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
+        "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
         "//orbax/checkpoint/experimental/v1/_src/testing:handler_utils",
     ],
 )

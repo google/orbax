@@ -989,16 +989,7 @@ class BasePyTreeCheckpointHandler(
         custom_metadata=internal_tree_metadata.custom_metadata,
     )
 
-  def finalize(self, directory: epath.Path) -> None:
-    """Finalization step.
-
-    Called automatically by the Checkpointer/AsyncCheckpointer just before the
-    checkpoint is considered "finalized" in the sense of ensuring atomicity. See
-    documentation for `type_handlers.merge_ocdbt_per_process_files`.
-
-    Args:
-      directory: Path where the checkpoint is located.
-    """
+  async def _finalize_async(self, directory: epath.Path) -> None:
     finalize_coros = []
     if self._array_metadata_store is not None:
       if self._primary_host is None:
@@ -1034,10 +1025,19 @@ class BasePyTreeCheckpointHandler(
 
     finalize_coros.append(merge_ocdbt_per_process_files())
 
-    async def _fn():
-      await asyncio.gather(*finalize_coros)
+    await asyncio.gather(*finalize_coros)
 
-    asyncio_utils.run_sync(_fn())
+  def finalize(self, directory: epath.Path) -> None:
+    """Finalization step.
+
+    Called automatically by the Checkpointer/AsyncCheckpointer just before the
+    checkpoint is considered "finalized" in the sense of ensuring atomicity. See
+    documentation for `type_handlers.merge_ocdbt_per_process_files`.
+
+    Args:
+      directory: Path where the checkpoint is located.
+    """
+    asyncio_utils.run_sync(self._finalize_async(directory))
 
 
 @register_with_handler(BasePyTreeCheckpointHandler, for_save=True)

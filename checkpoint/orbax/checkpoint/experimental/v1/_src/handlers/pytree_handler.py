@@ -156,9 +156,9 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
         array_metadata_validator=array_metadata_validator,
     )
 
-  def _finalize(self, directory: path_types.Path):
+  async def _finalize(self, directory: path_types.Path):
     if multihost.is_primary_host(self._multiprocessing_options.primary_host):
-      self._handler_impl.finalize(directory)
+      await self._handler_impl._finalize_async(directory)  # pylint: disable=protected-access
 
   async def _background_save(
       self,
@@ -177,7 +177,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     barrier_name = f'save_and_finalize_{operation_id}_commit_complete'
     multihost.sync_global_processes(barrier_name, processes=active_processes)
     # Finalize.
-    self._finalize(directory)
+    await self._finalize(directory)
     # Global sync to ensure all hosts are aware that the finalize operation
     # has completed before returning to the user.
     barrier_name = f'save_and_finalize_{operation_id}_finalize_complete'
