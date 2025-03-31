@@ -1881,11 +1881,13 @@ class PyTreeHandlerTestBase:
         restored = load_handler.load(self.directory)
         test_utils.assert_tree_equal(self, pytree, restored)
 
-    def test_pinned_host_loading(self):
-      if multihost.is_pathways_backend():
-        # TODO(b/404915487): Reenable when possible.
-        self.skipTest('Disabled due to b/404915487.')
-      pytree = dict(arr=np.ones((1024, 512)))
+    @parameterized.parameters(
+        (np.float32,),
+        (np.float64,),
+    )
+    def test_pinned_host_loading(self, dtype):
+      arr = np.ones((1024, 512), dtype=dtype)
+      pytree = dict(arr=arr)
       self.handler.save(self.directory, pytree)
 
       mesh = jax.sharding.Mesh(
@@ -1901,7 +1903,7 @@ class PyTreeHandlerTestBase:
           )
       )
       restored = self.handler.load(self.directory, abstract_pytree)
-      expected = dict(arr=jax.device_put(np.ones((1024, 512)), sharding))
+      expected = dict(arr=jax.device_put(arr, sharding))
       test_utils.assert_tree_equal(self, expected, restored)
 
     @parameterized.product(
