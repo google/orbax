@@ -31,3 +31,9 @@ from orbax.checkpoint._src.tree.utils import (
     from_flat_dict,
     to_shape_dtype_struct,
 )
+from orbax.checkpoint._src.tree.parts_of import (
+    PartsOf,
+    PLACEHOLDER,
+    Placeholder,
+    Error,
+)

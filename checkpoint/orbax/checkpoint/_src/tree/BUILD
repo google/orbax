@@ -25,3 +25,22 @@ py_test(
         "//checkpoint/orbax/checkpoint/_src/testing:test_tree_utils",
     ],
 )
+
+py_library(
+    name = "parts_of",
+    srcs = ["parts_of.py"],
+    visibility = [
+        "//learning/deepmind/jax/roc:users",
+        "//orbax/checkpoint/experimental/model_surgery:__pkg__",
+    ],
+    deps = [":utils"],
+)
+
+py_test(
+    name = "parts_of_test",
+    srcs = ["parts_of_test.py"],
+    deps = [
+        ":parts_of",
+        "//testing/pybase:parameterized",
+    ],
+)
