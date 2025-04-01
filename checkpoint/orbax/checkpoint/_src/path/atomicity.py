@@ -539,6 +539,13 @@ async def _create_paths(
       '/jax/orbax/write/directory_creation_secs',
       directory_creation_secs,
   )
+  # TODO(mridulsahu): Adding a new metric to track only async directory creation
+  # time for savings. This can eventually be removed once we completely disable
+  # sync directory creation.
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/write/async_directory_creation_secs',
+      directory_creation_secs,
+  )
   logging.vlog(
       1,
       'Asynchronous directory creation took %s seconds',
@@ -558,7 +565,8 @@ def on_commit_callback(
   Args:
     tmp_dir: A temporary checkpoint directory, where the checkpoint data is
       currently saved.
-    checkpoint_start_time: The time at which checkpoint saving began.
+    checkpoint_start_time: The time at which checkpoint saving began. # BEGIN
+    tree_verity_options: Options to configure checkpoint signing and integrity
   """
   tmp_dir.finalize(
   )
