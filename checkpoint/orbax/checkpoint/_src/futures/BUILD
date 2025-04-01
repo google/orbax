@@ -20,3 +20,9 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/multihost",
     ],
 )
+
+py_library(
+    name = "signaling_client",
+    srcs = ["signaling_client.py"],
+    deps = ["//checkpoint/orbax/checkpoint/_src/multihost"],
+)
