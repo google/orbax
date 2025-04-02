@@ -15,8 +15,24 @@ py_library(
     name = "future",
     srcs = ["future.py"],
     deps = [
+        ":signaling_client",
         ":synchronization",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+    ],
+)
+
+py_library(
+    name = "signaling_client",
+    srcs = ["signaling_client.py"],
+    deps = ["//checkpoint/orbax/checkpoint/_src/multihost"],
+)
+
+py_test(
+    name = "signaling_client_test",
+    srcs = ["signaling_client_test.py"],
+    deps = [
+        ":signaling_client",
         "//checkpoint/orbax/checkpoint/_src/multihost",
     ],
 )

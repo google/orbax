@@ -19,8 +19,8 @@ import time
 from typing import Any, Callable, Coroutine, Optional, Sequence
 
 from absl import logging
-import jax
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.futures import signaling_client
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.multihost import multihost
 from typing_extensions import Protocol
@@ -43,28 +43,43 @@ def _get_unique_barrier_key(
   return f'{operation_id}/{signal.value}'
 
 
-def get_awaitable_signals_from_contract() -> (
-    Sequence[synchronization.HandlerAwaitableSignal]
-):
+def get_awaitable_signals_from_contract(
+    operation_id: str | None = None,
+) -> Sequence[synchronization.HandlerAwaitableSignal]:
   """Gets the awaitable signals that may be sent for the current operation id.
+
+  Args:
+    operation_id: The operation id to use for the barrier keys. If None, the
+      current operation id is used.
 
   Returns:
     A list of awaitable signals that may be sent for the current operation id.
   """
-  client = multihost.get_jax_distributed_client()
+  client = signaling_client.get_signaling_client()
+  operation_id = (
+      operation_id
+      or synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
+  )
   barrier_key = _get_unique_barrier_key(
       synchronization.HandlerAwaitableSignal.AWAITABLE_SIGNALS_CONTRACT,
-      synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id(),
+      operation_id,
   )
-  try:
-    values_str = str(client.key_value_try_get(barrier_key))
+  values_str = client.key_value_try_get(barrier_key)
+  if values_str is None:
+    # If the key is not found, then there are no awaitable signals yet.
+    return []
+  else:
+    logging.vlog(
+        1,
+        '[process=%s][operation_id=%s] Got Awaitable signals: %s.',
+        multihost.process_index(),
+        operation_id,
+        values_str,
+    )
     return [
         synchronization.HandlerAwaitableSignal(value)
         for value in values_str.split(',')
     ]
-  except jax.errors.JaxRuntimeError:
-    # If the key is not found, then there are no awaitable signals yet.
-    return []
 
 
 def add_to_awaitable_signals_contract(
@@ -84,12 +99,22 @@ def add_to_awaitable_signals_contract(
   current_signals = list(get_awaitable_signals_from_contract())
   current_signals.extend(signals)
   keys = ','.join([current_signal.value for current_signal in current_signals])
-  client = multihost.get_jax_distributed_client()
+  client = signaling_client.get_signaling_client()
+  operation_id = (
+      synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
+  )
   barrier_key = _get_unique_barrier_key(
       synchronization.HandlerAwaitableSignal.AWAITABLE_SIGNALS_CONTRACT,
-      synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id(),
+      operation_id,
   )
   client.key_value_set(barrier_key, keys, allow_overwrite=True)
+  logging.vlog(
+      1,
+      '[process=%s][operation_id=%s] Added awaitable signals: %s.',
+      multihost.process_index(),
+      operation_id,
+      keys,
+  )
 
 
 def remove_all_awaitable_signals(operation_id: str | None = None):
@@ -98,7 +123,7 @@ def remove_all_awaitable_signals(operation_id: str | None = None):
       operation_id
       or synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
   )
-  client = multihost.get_jax_distributed_client()
+  client = signaling_client.get_signaling_client()
   client.key_value_delete(f'{operation_id}/')
   logging.vlog(
       1,
@@ -156,7 +181,8 @@ class ChainedFuture:
               ' {:.2f} seconds.'.format(k, n, time_elapsed)
           )
     time_elapsed = time.time() - start
-    logging.info(
+    logging.vlog(
+        1,
         'ChainedFuture completed %d/%d futures in %.2f seconds.',
         n,
         n,
@@ -218,14 +244,16 @@ class _SignalingThread(threading.Thread):
     for signal in self._receive_signals:
       logging.vlog(
           1,
-          '[process=%d][thread=%s] Waiting for <%s> timeout: %d secs to be set',
+          '[process=%d][thread=%s][operation_id=%s] Waiting for <%s> timeout:'
+          ' %d secs to be set',
           multihost.process_index(),
           threading.current_thread().name,
+          self._operation_id,
           signal.value,
           self._timeout_secs,
       )
       barrier_key = _get_unique_barrier_key(signal, self._operation_id)
-      client = multihost.get_jax_distributed_client()
+      client = signaling_client.get_signaling_client()
       client.blocking_key_value_get(barrier_key, self._timeout_secs * 1000)
 
   def _set_signals(self):
@@ -233,13 +261,15 @@ class _SignalingThread(threading.Thread):
     for signal in self._send_signals:
       logging.vlog(
           1,
-          '[process=%d][thread=%s] Signalling completion of <%s>.',
+          '[process=%d][thread=%s][operation_id=%s] Signalling completion of'
+          ' <%s>.',
           multihost.process_index(),
           threading.current_thread().name,
+          self._operation_id,
           signal.value,
       )
       barrier_key = _get_unique_barrier_key(signal, self._operation_id)
-      client = multihost.get_jax_distributed_client()
+      client = signaling_client.get_signaling_client()
       client.key_value_set(
           barrier_key, _SIGNAL_ACTION_SUCCESS, allow_overwrite=True
       )
@@ -340,8 +370,7 @@ class CommitFutureAwaitingContractedSignals(Future):
     """Constructor.
 
     Synchronously gets all awaitable signals in the contract and waits to
-    receive them in background before proceeding with the commit if JAX
-    distributed client is initialized.
+    receive them in background before proceeding with the commit.
 
     Args:
       coro: The coroutine to run.
@@ -352,9 +381,9 @@ class CommitFutureAwaitingContractedSignals(Future):
         current operation id is used.
     """
     super().__init__()
-    receive_signals = []
-    if multihost.is_jax_distributed_client_initialized():
-      receive_signals = get_awaitable_signals_from_contract()
+    receive_signals = get_awaitable_signals_from_contract(
+        operation_id=operation_id
+    )
     self._f = CommitFuture(
         coro,
         name=name,
