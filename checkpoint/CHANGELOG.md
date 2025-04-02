@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - #v1 Add `CompositeHandler`, similar to the current
 `CompositeCheckpointHandler`, but different in the sense that it will not be
 visible to the user and is solely a helper layer for save/load functions.
+- #v1 Implement `save/load_checkpointables` in terms of V0 APIs. Resolve
+handlers for checkpointables using V1 APIs.
 - `ocp.PLACEHOLDER` for partial restoration.
 - `tree_trim` utility function for matching PyTree structures.
 

@@ -413,8 +413,10 @@ def create_sharded_array(arr, mesh, mesh_axes):
 def print_directory(directory: epath.PathLike, level: int = 0):
   """Prints a directory tree for debugging purposes."""
   directory = epath.Path(directory)
-  assert directory.exists()
-  assert directory.is_dir()
+  if not directory.exists():
+    raise ValueError(f'Directory {directory} does not exist.')
+  if not directory.is_dir():
+    raise ValueError(f'Directory {directory} is not a directory.')
   level_str = '..' * level
   if level == 0:
     logging.info('Printing directory tree: %s/', directory)

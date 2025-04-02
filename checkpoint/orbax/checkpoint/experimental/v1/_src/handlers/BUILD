@@ -88,6 +88,18 @@ py_library(
     ],
 )
 
+py_library(
+    name = "compatibility",
+    srcs = ["compatibility.py"],
+    deps = [
+        ":types",
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
+        "//checkpoint/orbax/checkpoint/_src/handlers:async_checkpoint_handler",
+    ],
+)
+
 py_test(
     name = "registration_test",
     srcs = ["registration_test.py"],

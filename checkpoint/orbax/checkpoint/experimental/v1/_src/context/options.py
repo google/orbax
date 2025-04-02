@@ -20,8 +20,12 @@ import dataclasses
 from typing import Any, Callable, Protocol
 
 import numpy as np
+from orbax.checkpoint import options as v0_options_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint.experimental.v1._src.handlers import registration
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
@@ -40,6 +44,13 @@ class AsyncOptions:
   timeout_secs: int = 600  # 10 minutes.
   post_finalization_callback: Callable[[], None] | None = None
   create_directories_asynchronously: bool = False
+
+  def v0(self) -> v0_options_lib.AsyncOptions:
+    return v0_options_lib.AsyncOptions(
+        timeout_secs=self.timeout_secs,
+        post_finalization_callback=self.post_finalization_callback,
+        create_directories_asynchronously=self.create_directories_asynchronously,
+    )
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -68,7 +79,15 @@ class MultiprocessingOptions:
   barrier_sync_fn: multihost.BarrierSyncFn | None = None
   barrier_sync_key_prefix: str | None = None
 
+  def v0(self) -> v0_options_lib.MultiprocessingOptions:
+    return v0_options_lib.MultiprocessingOptions(
+        primary_host=self.primary_host,
+        active_processes=self.active_processes,
+        barrier_sync_key_prefix=self.barrier_sync_key_prefix,
+    )
 
+
+# pyformat: disable
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class FileOptions:
   """Options used to configure checkpoint directories and files.
@@ -77,10 +96,22 @@ class FileOptions:
     path_permission_mode: Path permission mode for step directories, user
       metadata files. e.g. 0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
+        path is supported. default=None.
+    temporary_path_class: A class that is used to create and finallize temporary
+      paths, and to ensure atomicity.
   """
 
   path_permission_mode: int | None = None
+  temporary_path_class: atomicity_types.TemporaryPath | None = None
 
+
+  def v0(self) -> v0_options_lib.FileOptions:
+    return v0_options_lib.FileOptions(
+        path_permission_mode=self.path_permission_mode,
+    )
+
+
+# pyformat: enable
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -220,3 +251,58 @@ class ArrayOptions:
 
   saving: Saving = dataclasses.field(default_factory=Saving)
   loading: Loading = dataclasses.field(default_factory=Loading)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class CheckpointablesOptions:
+  """Options used to configure `checkpointables` save/load behavior.
+
+  Primarily intended for registering custom `CheckpointableHandler` classes. You
+  can specify a registry directly, or use `create_with_handlers`. For example::
+
+    checkpointables_options = (
+      ocp.options.CheckpointablesOptions.create_with_handlers(
+          FooHandler(),
+          bar=BarHandler(),
+      )
+    )
+    with ocp.Context(checkpointables_options=checkpointables_options)):
+      ocp.save_checkpointables(directory, dict(foo=Foo(...), bar=Bar(...)))
+
+  In this example, `FooHandler` is registered generically, which means that any
+  checkpointable that is handleable by `FooHandler` can be saved/loaded (a
+  `Foo` object in this case). In contrast, `BarHandler` is explicitly tied to
+  the name `bar`, which means that only a checkpointable that is both handleable
+  by `BarHandler` and has the name `bar` can handled by this `BarHandler`.
+
+  Recall that a global registry also exists, containing core handlers like
+  `PyTreeHandler` and `JsonHandler`. Use `ocp.handlers.register_handler` to
+  register a handler globally.
+
+  Note that registration order matters. For example, if saving a dict containing
+  only strings, both `JsonHandler` and `PyTreeHandler` are capable of handling
+  this object, but `JsonHandler` will be selected first because it is registered
+  first.
+
+  Attributes:
+    registry: A `CheckpointableHandlerRegistry` that is used to resolve
+      `CheckpointableHandler` classes for each provided `checkpointable` during
+      saving and loading.
+  """
+
+  registry: registration.CheckpointableHandlerRegistry = dataclasses.field(
+      default=registration.global_registry()
+  )
+
+  @classmethod
+  def create_with_handlers(
+      cls,
+      *handlers: handler_types.CheckpointableHandler,
+      **named_handlers: handler_types.CheckpointableHandler,
+  ) -> CheckpointablesOptions:
+    registry = registration.local_registry()
+    for handler in handlers:
+      registry.add(handler, None)
+    for name, handler in named_handlers.items():
+      registry.add(handler, name)
+    return cls(registry=registry)

@@ -20,6 +20,10 @@ from orbax.checkpoint.experimental.v1._src.handlers.types import (
     CheckpointableHandler,
 )
 
+from orbax.checkpoint.experimental.v1._src.handlers.pytree_handler import (
+    PyTreeHandler,
+)
+
 from orbax.checkpoint.experimental.v1._src.handlers.registration import (
     CheckpointableHandlerRegistry,
     global_registry,

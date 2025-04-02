@@ -200,7 +200,7 @@ class DictHandler(handler_types.CheckpointableHandler[BasicDict, None]):
       checkpointable: BasicDict,
   ) -> Awaitable[None]:
     directory = epath.Path(directory)
-    async with aiofiles.open(directory / 'foo.txt', 'w') as f:
+    async with aiofiles.open(directory / 'data.txt', 'w') as f:
       await f.write(str(dict(checkpointable)))
     return self._background_save()
 
@@ -210,7 +210,7 @@ class DictHandler(handler_types.CheckpointableHandler[BasicDict, None]):
       abstract_checkpointable: None = None,
   ) -> Awaitable[BasicDict]:
     directory = epath.Path(directory)
-    async with aiofiles.open(directory / 'foo.txt', 'r') as f:
+    async with aiofiles.open(directory / 'data.txt', 'r') as f:
       r = await f.read()
       result = dict(**r)
     return self._background_load(result)

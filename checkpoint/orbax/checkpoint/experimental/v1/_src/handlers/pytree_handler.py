@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 from typing import Any, Awaitable, Sequence
 
@@ -266,3 +267,20 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       )
     except Exception:  # pylint: disable=broad-exception-caught
       return False
+
+
+@contextlib.contextmanager
+def pytree_handler_context():
+  """Creates a context where only `PyTreeHandler` is registered."""
+  context = context_lib.get_context()
+  # TODO(b/398310070): Verify behavior with nested Contexts.
+  checkpointables_options = options_lib.CheckpointablesOptions(
+      registry=registration.local_registry(include_global_registry=False).add(
+          PyTreeHandler(context=context),
+          PYTREE_CHECKPOINTABLE_KEY,
+      )
+  )
+  with dataclasses.replace(
+      context, checkpointables_options=checkpointables_options
+  ) as new_context:
+    yield new_context

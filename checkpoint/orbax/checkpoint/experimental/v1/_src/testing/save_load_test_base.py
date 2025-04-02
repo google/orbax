@@ -16,6 +16,8 @@
 
 # pylint: disable=missing-class-docstring,protected-access,missing-function-docstring
 
+from __future__ import annotations
+
 from absl.testing import parameterized
 from etils import epath
 import flax
@@ -28,6 +30,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.tree import utils as tree_utils
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
+from orbax.checkpoint.experimental.v1._src.testing import handler_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
@@ -37,6 +40,13 @@ create_sharded_array = array_test_utils.create_sharded_array
 create_numpy_pytree = array_test_utils.create_numpy_pytree
 create_sharded_pytree = array_test_utils.create_sharded_pytree
 as_abstract_type = array_test_utils.as_abstract_type
+
+PYTREE_CHECKPOINTABLE_KEY = 'pytree'
+
+Foo = handler_utils.Foo
+Bar = handler_utils.Bar
+AbstractFoo = handler_utils.AbstractFoo
+AbstractBar = handler_utils.AbstractBar
 
 
 class SaveLoadTestBase:
@@ -49,8 +59,8 @@ class SaveLoadTestBase:
       self.directory = (
           epath.Path(self.create_tempdir(name='saving_test').full_path) / 'ckpt'
       )
-      self.pytree, self.abstract_pytree = create_numpy_pytree()
-      self.numpy_pytree, self.abstract_numpy_pytree = create_sharded_pytree()
+      self.pytree, self.abstract_pytree = create_sharded_pytree()
+      self.numpy_pytree, self.abstract_numpy_pytree = create_numpy_pytree()
 
       test_utils.set_tensorstore_driver_for_test()
       test_utils.sync_global_processes('SavingTest:setup_complete')
@@ -81,18 +91,25 @@ class SaveLoadTestBase:
 
     @parameterized.parameters((True,), (False,))
     def test_load_default(self, use_async):
+      if multihost.is_pathways_backend():
+        self.skipTest('Must provide abstract_pytree for Pathways.')
       self.save_and_wait(self.directory, self.pytree, use_async=use_async)
       loaded = self.load_and_wait(self.directory, use_async=use_async)
       test_utils.assert_tree_equal(self, self.pytree, loaded)
 
     def test_save_pytree_async(self):
       response = ocp.save_pytree_async(self.directory, self.pytree)
+      manifest_file = (
+          self.directory / PYTREE_CHECKPOINTABLE_KEY / 'manifest.ocdbt'
+      )
+      self.assertFalse(manifest_file.exists())
       self.assertFalse(self.directory.exists())  # Not finalized yet.
       # But a tmp dir should have been created.
       self.assertNotEmpty(list(self.directory.parent.iterdir()))
       response.result()
       self.assertTrue(self.directory.exists())
-      loaded = ocp.load_pytree(self.directory)
+      self.assertTrue(manifest_file.exists())
+      loaded = ocp.load_pytree(self.directory, self.abstract_pytree)
       test_utils.assert_tree_equal(self, self.pytree, loaded)
 
     @parameterized.parameters(
@@ -376,3 +393,162 @@ class SaveLoadTestBase:
         abstract_pytree['z'] = abstract_pytree.pop('a')
         with self.assertRaisesRegex(ValueError, 'User-provided restore item'):
           ocp.load_pytree(self.directory, abstract_pytree)
+
+    def test_multiple_pytrees(self):
+      checkpointables = {
+          'pytree': self.pytree,
+          'numpy_pytree': self.numpy_pytree,
+      }
+      abstract_checkpointables = {
+          'pytree': self.abstract_pytree,
+          'numpy_pytree': self.abstract_numpy_pytree,
+      }
+      ocp.save_checkpointables(
+          self.directory,
+          checkpointables,
+      )
+      with self.subTest('load_checkpointables'):
+        loaded = ocp.load_checkpointables(
+            self.directory, abstract_checkpointables
+        )
+        test_utils.assert_tree_equal(self, checkpointables, loaded)
+      with self.subTest('load_pytree'):
+        loaded = ocp.load_pytree(self.directory, self.abstract_pytree)
+        test_utils.assert_tree_equal(self, self.pytree, loaded)
+      with self.subTest('load_numpy_pytree'):
+        loaded = ocp.load_checkpointables(
+            self.directory, {'numpy_pytree': self.abstract_numpy_pytree}
+        )
+        self.assertSameElements(loaded.keys(), ['numpy_pytree'])
+        test_utils.assert_tree_equal(
+            self, self.numpy_pytree, loaded['numpy_pytree']
+        )
+      with self.subTest('load_numpy_pytree_no_abstract'):
+        loaded = ocp.load_checkpointables(
+            self.directory, {'numpy_pytree': None}
+        )
+        self.assertSameElements(loaded.keys(), ['numpy_pytree'])
+        test_utils.assert_tree_equal(
+            self, self.numpy_pytree, loaded['numpy_pytree']
+        )
+      with self.subTest('load_numpy_pytree_and_shard'):
+        loaded = ocp.load_checkpointables(
+            self.directory, {'numpy_pytree': self.abstract_pytree}
+        )
+        self.assertSameElements(loaded.keys(), ['numpy_pytree'])
+        test_utils.assert_tree_equal(self, self.pytree, loaded['numpy_pytree'])
+
+    def test_missing_keys(self):
+      ocp.handlers.register_handler(handler_utils.BazHandler)
+      checkpointables = {
+          'numpy_pytree': self.numpy_pytree,
+          'baz': handler_utils.Baz(123, 'hi'),
+      }
+      ocp.save_checkpointables(self.directory, checkpointables)
+
+      with self.subTest('load_pytree'):
+        with self.assertRaisesRegex(
+            FileNotFoundError, 'does not contain a PyTree checkpointable'
+        ):
+          ocp.load_pytree(self.directory)
+
+      with self.subTest('load_checkpointables'):
+        with self.assertRaisesRegex(
+            KeyError, 'Checkpointable "foo" was not found'
+        ):
+          ocp.load_checkpointables(
+              self.directory, {'foo': handler_utils.AbstractFoo()}
+          )
+
+    def test_custom_checkpointables(self):
+      checkpointables_options = (
+          ocp.options.CheckpointablesOptions.create_with_handlers(
+              handler_utils.FooHandler(),
+              handler_utils.BarHandler(),
+          )
+      )
+      self.enter_context(
+          ocp.Context(checkpointables_options=checkpointables_options)
+      )
+      checkpointables = {
+          'pytree': self.numpy_pytree,
+          'foo': Foo(123, 'hi'),
+          'bar': Bar(456, 'bye'),
+      }
+      ocp.save_checkpointables(self.directory, checkpointables)
+      with self.subTest('load'):
+        loaded = ocp.load_checkpointables(self.directory)
+        self.assertSameElements(loaded.keys(), ['pytree', 'foo', 'bar'])
+        test_utils.assert_tree_equal(
+            self, checkpointables['pytree'], loaded['pytree']
+        )
+        self.assertEqual(checkpointables['foo'], loaded['foo'])
+        self.assertEqual(checkpointables['bar'], loaded['bar'])
+      with self.subTest('load_with_abstract_checkpointables'):
+        abstract_checkpointables = {
+            'pytree': self.abstract_pytree,
+            'foo': AbstractFoo(),
+            'bar': AbstractBar(),
+        }
+        loaded = ocp.load_checkpointables(
+            self.directory, abstract_checkpointables
+        )
+        self.assertSameElements(loaded.keys(), ['pytree', 'foo', 'bar'])
+        test_utils.assert_tree_equal(self, self.pytree, loaded['pytree'])
+        self.assertEqual(checkpointables['foo'], loaded['foo'])
+        self.assertEqual(checkpointables['bar'], loaded['bar'])
+      with self.subTest('load_with_abstract_checkpointables_none_values'):
+        abstract_checkpointables = {
+            'pytree': None,
+            'foo': None,
+            'bar': None,
+        }
+        loaded = ocp.load_checkpointables(
+            self.directory, abstract_checkpointables
+        )
+        self.assertSameElements(loaded.keys(), ['pytree', 'foo', 'bar'])
+        test_utils.assert_tree_equal(
+            self, checkpointables['pytree'], loaded['pytree']
+        )
+        self.assertEqual(checkpointables['foo'], loaded['foo'])
+        self.assertEqual(checkpointables['bar'], loaded['bar'])
+      with self.subTest('load_partial'):
+        abstract_checkpointables = {
+            'foo': None,
+        }
+        loaded = ocp.load_checkpointables(
+            self.directory, abstract_checkpointables
+        )
+        self.assertSameElements(loaded.keys(), ['foo'])
+        self.assertEqual(checkpointables['foo'], loaded['foo'])
+      with self.subTest('load_with_switched_abstract_checkpointables'):
+        abstract_checkpointables = {
+            'foo': AbstractBar(),
+            'bar': AbstractFoo(),
+        }
+        loaded = ocp.load_checkpointables(
+            self.directory, abstract_checkpointables
+        )
+        self.assertSameElements(loaded.keys(), ['foo', 'bar'])
+        self.assertEqual(Bar(123, 'hi'), loaded['foo'])
+        self.assertEqual(Foo(456, 'bye'), loaded['bar'])
+
+    def test_save_checkpointables_ambiguous_resolution(self):
+      checkpointables = {
+          'one': {'a': 1, 'b': 2},
+          'two': {'c': 3, 'd': 4},
+      }
+      directory = self.directory
+      checkpointables_options = (
+          ocp.options.CheckpointablesOptions.create_with_handlers(
+              one=handler_utils.DictHandler(),
+          )
+      )
+      self.enter_context(
+          ocp.Context(checkpointables_options=checkpointables_options)
+      )
+      ocp.save_checkpointables(
+          directory, checkpointables
+      )
+      self.assertTrue((directory / 'one' / 'data.txt').exists())
+      self.assertFalse((directory / 'two' / 'data.txt').exists())

@@ -76,7 +76,7 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
   returning an `Awaitable` function (which itself may return a result).
 
   Let's look at some suggestions on how to implement a `CheckpointableHandler`.
-  TODO(b/398249409) Include more details on implementing this Protocol.
+  TODO(b/398249409): Include more details on implementing this Protocol.
 
   First, take a look at
   orbax/checkpoint/experimental/v1/_src/testing/handler_utils.py
@@ -137,6 +137,13 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
     Save should perform any operations that need to block the main thread, such
     as device-to-host copying of on-device arrays. It then creates a background
     operation to continue writing the object to the storage location.
+
+    IMPORTANT: Do not assume that `directory` already exists at the start of
+    this method. All directories are created by upper layers of the Orbax
+    library, for performance reasons in a multihost setting and because upper
+    layers also need to modify the directories. Before engaging in any
+    filesystem operations, wait for the directory to exist TODO(b/398249409):
+    Provide details.
 
     Args:
       directory: The directory to save the checkpoint to.
