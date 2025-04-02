@@ -14,14 +14,18 @@
 
 """Tree utilities."""
 
-from typing import Any, Callable, Mapping, NamedTuple, Optional, Tuple, Union
+from typing import Any, Callable, Generic, Mapping, NamedTuple, Optional, Protocol, Tuple, TypeVar, Union
 
 import jax
 from orbax.checkpoint._src.arrays import abstract_arrays
-from orbax.checkpoint._src.tree import types as tree_types
 
 
-PyTree = tree_types.PyTree
+T = TypeVar('T')
+
+PyTree = Any
+# This won't help the type checker but at least allows us to use types to
+# document things like `PyTreeOf[ArrayDesc]`.
+PyTreeOf = PyTree | T
 PyTreeKey = (
     jax.tree_util.SequenceKey
     | jax.tree_util.DictKey
@@ -458,3 +462,57 @@ def tree_difference(
       )
 
     return None
+
+
+class TrimmedStructureCallback(Protocol, Generic[T]):
+
+  def __call__(
+      self,
+      path: tuple[str | int, ...],
+      structure: PyTreeOf[T],
+  ) -> None:
+    ...
+
+
+# TODO: b/407092826 - Substitute for full PartsOf version later.
+def tree_trim(
+    template: PyTreeOf[Any],
+    structure: PyTreeOf[T],
+    *,
+    trimmed_structure_callback: TrimmedStructureCallback[T] | None = None,
+    strict: bool = True,
+) -> PyTreeOf[T]:
+  """Removes nodes in `structure` so that its shape matches that of `template`.
+
+  Args:
+    template: The tree whose shape is to be matched.
+    structure: The tree to be trimmed.
+    trimmed_structure_callback: If present, will be called with the path to, and
+      value of, any node that is removed from `structure`.
+    strict: Require every element of `template` to be matched by an element of
+      `structure`.
+
+  Returns:
+    A PyTree with the same structure as `template`, but with values from
+    `structure`.
+  """
+  del trimmed_structure_callback  # Unused.
+  if not strict:
+    raise NotImplementedError('Non-strict mode is not implemented yet.')
+
+  structure_flat = to_flat_dict(structure, sep=None)
+
+  def _get_value_from_structure(path: PyTreePath, template_leaf: Any):
+    """Maps template path/leaf to structure value."""
+    del template_leaf  # Unused, we only care about the template tree structure.
+    tuple_key = tuple_path_from_keypath(path)
+    if tuple_key in structure_flat:
+      return structure_flat[tuple_key]
+    else:
+      path_str = '.'.join(tuple_key)
+      raise ValueError(
+          f'Path "{path_str}" exists in template but not found in structure '
+          'PyTree.'
+      )
+
+  return jax.tree_util.tree_map_with_path(_get_value_from_structure, template)

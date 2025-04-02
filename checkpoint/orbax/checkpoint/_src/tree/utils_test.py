@@ -29,6 +29,7 @@ from orbax.checkpoint._src.tree import utils as tree_utils
 
 
 Diff = tree_utils.Diff
+PyTree = tree_utils.PyTree
 
 
 class Record(NamedTuple):
@@ -277,6 +278,94 @@ class UtilsTest(parameterized.TestCase):
     self.assertFalse(tree_utils.isinstance_of_namedtuple(nt))
     self.assertFalse(tree_utils.issubclass_of_namedtuple(type(nt)))
 
+  @parameterized.parameters(
+      (
+          {'a': 100, 'b': [200, {'c': 300}]},
+          {'a': 1, 'b': [2, {'c': 3}]},
+          {'a': 1, 'b': [2, {'c': 3}]},
+      ),
+      (
+          {'a': 100, 'b': [200, {'c': 300}]},
+          {'a': 1, 'b': [2, {'c': 3, 'd': 4}], 'e': 5},
+          {'a': 1, 'b': [2, {'c': 3}]},
+      ),
+      (
+          {'a': [100, 200], 'b': {'c': 300}},
+          {'a': (1, 2), 'b': {'c': 3, 'd': 4}},
+          {'a': [1, 2], 'b': {'c': 3}},
+      ),
+      (
+          {},
+          {'a': 1, 'b': 2},
+          {},
+      ),
+      (
+          {},
+          {},
+          {},
+      ),
+  )
+  def test_tree_trim_valid(
+      self, template: PyTree, structure: PyTree, expected: PyTree
+  ):
+    self.assertDictEqual(expected, tree_utils.tree_trim(template, structure))
+
+  @parameterized.parameters(
+      int,
+      float,
+      complex,
+      str,
+      bytes,
+      bool,
+      np.int32,
+      np.float32,
+  )
+  def test_tree_trim_leaves(self, val_type: Any):
+    val = val_type()
+    self.assertEqual(val, tree_utils.tree_trim(val, val))
+
+  def test_tree_trim_extra_path_in_structure(self):
+    structure = {'a': 1, 'b': [2, {'c': 3}]}
+
+    template = {'a': 100, 'b': [200, {'c': 300, 'd': 400}], 'e': 500}
+    with self.assertRaisesRegex(ValueError, 'Path "b.1.d" exists in template'):
+      tree_utils.tree_trim(template, structure)
+
+    template = {'a': 100, 'b': [200, {'c': 300}], 'e': 500}
+    with self.assertRaisesRegex(ValueError, 'Path "e" exists in template'):
+      tree_utils.tree_trim(template, structure)
+
+  def test_tree_trim_empty_template(self):
+    structure = {}
+    template = {'a': 1, 'b': 2}
+    with self.assertRaisesRegex(ValueError, 'Path "a" exists in template'):
+      tree_utils.tree_trim(template, structure)
+
+  def test_tree_trim_mismatch_structure(self):
+    structure = 10
+    template = {'a': 20}
+    with self.assertRaisesRegex(ValueError, 'Path "a" exists in template'):
+      tree_utils.tree_trim(template, structure)
+
+  def test_tree_trim_mismatch_template(self):
+    structure = {'a': 10}
+    template = 20
+    with self.assertRaisesRegex(ValueError, 'Path "" exists in template'):
+      tree_utils.tree_trim(template, structure)
+
+  def test_tree_trim_v2_custom_node(self):
+    @flax.struct.dataclass
+    class SimpleData:
+      x: int
+      y: str
+
+    structure = {'data': SimpleData(x=1, y='hello'), 'other': 10}
+    template = {'data': SimpleData(x=100, y='world')}
+    expected = {'data': SimpleData(x=1, y='hello')}
+
+    result = tree_utils.tree_trim(template, structure)
+    test_utils.assert_tree_equal(self, expected, result)
+
 
 class TreeDifferenceTest(parameterized.TestCase):
 
@@ -434,7 +523,8 @@ class TreeDifferenceTest(parameterized.TestCase):
     )
 
   def test_uses_is_leaf_to_recognize_leaves(self):
-    def custom_is_leaf(x: tree_utils.PyTree) -> bool:
+
+    def custom_is_leaf(x: PyTree) -> bool:
       return isinstance(x, int) or isinstance(x, list)
 
     first = {
