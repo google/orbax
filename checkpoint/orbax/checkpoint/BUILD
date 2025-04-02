@@ -39,6 +39,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/handlers:standard_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/path:step",
+        "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//checkpoint/orbax/checkpoint/metadata",
         "//checkpoint/orbax/checkpoint/serialization",
         "//orbax/checkpoint/logging",
