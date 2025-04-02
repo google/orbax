@@ -9,3 +9,12 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/multihost",
     ],
 )
+
+py_library(
+    name = "preservation_policy",
+    srcs = ["preservation_policy.py"],
+    deps = [
+        "//checkpoint/orbax/checkpoint:options",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint_info",
+    ],
+)

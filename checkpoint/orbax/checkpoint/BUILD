@@ -138,6 +138,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:step",
         "//checkpoint/orbax/checkpoint/_src/path:utils",
         "//orbax/checkpoint/_src:threading",
+        "//orbax/checkpoint/_src/checkpoint_managers:preservation_policy",
     ],
 )
 
@@ -279,6 +280,17 @@ py_test(
     ],
 )
 
+py_test(
+    name = "preservation_policy_test",
+    srcs = ["preservation_policy_test.py"],
+    deps = [
+        ":args",
+        ":checkpoint_manager",
+        ":test_utils",
+        "//orbax/checkpoint/_src/checkpoint_managers:preservation_policy",
+    ],
+)
+
 py_library(
     name = "conftest",
     srcs = ["conftest.py"],
@@ -352,5 +364,6 @@ py_library(
         ":abstract_checkpoint_manager",
         ":checkpoint_manager",
         "//checkpoint/orbax/checkpoint/_src/checkpoint_managers:save_decision_policy",
+        "//orbax/checkpoint/_src/checkpoint_managers:preservation_policy",
     ],
 )
