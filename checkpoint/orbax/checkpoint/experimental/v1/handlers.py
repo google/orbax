@@ -16,12 +16,16 @@
 
 # pylint: disable=g-importing-member, g-multiple-import, unused-import, g-bad-import-order
 
+import orbax.checkpoint.experimental.v1._src.handlers.global_registration
 from orbax.checkpoint.experimental.v1._src.handlers.types import (
     CheckpointableHandler,
 )
 
 from orbax.checkpoint.experimental.v1._src.handlers.pytree_handler import (
     PyTreeHandler,
+)
+from orbax.checkpoint.experimental.v1._src.handlers.proto_handler import (
+    ProtoHandler,
 )
 
 from orbax.checkpoint.experimental.v1._src.handlers.registration import (

@@ -37,6 +37,11 @@ def get_context(default: Context | None = None) -> Context:
   return _CONTEXT.get(default)
 
 
+def local_context() -> Context:
+  """Returns a local copy of the current `Context`."""
+  return dataclasses.replace(get_context())
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Context(epy.ContextManager):
   """Context for customized checkpointing.

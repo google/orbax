@@ -15,6 +15,7 @@
 """Tests for checkpointing with Context."""
 
 from concurrent import futures
+import dataclasses
 from absl.testing import absltest
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -120,6 +121,34 @@ class ContextTest(absltest.TestCase):
             ArrayOptions(saving=ArrayOptions.Saving(use_ocdbt=False)),
         )
 
+      ctx = fake_checkpoint_operation()
+      self.assertEqual(
+          ctx.array_options,
+          ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False)),
+      )
+
+  def test_local_context(self):
+    with ocp.Context(
+        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False))
+    ):
+      ctx = fake_checkpoint_operation()
+      self.assertEqual(
+          ctx.array_options,
+          ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False)),
+      )
+      with dataclasses.replace(
+          context_lib.local_context(),
+          array_options=ArrayOptions(
+              saving=ArrayOptions.Saving(use_ocdbt=False, use_zarr3=True)
+          ),
+      ):
+        ctx = fake_checkpoint_operation()
+        self.assertEqual(
+            ctx.array_options,
+            ArrayOptions(
+                saving=ArrayOptions.Saving(use_ocdbt=False, use_zarr3=True)
+            ),
+        )
       ctx = fake_checkpoint_operation()
       self.assertEqual(
           ctx.array_options,

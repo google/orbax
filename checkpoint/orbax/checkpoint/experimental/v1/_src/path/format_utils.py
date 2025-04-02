@@ -26,8 +26,10 @@ from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
-
 PYTREE_CHECKPOINTABLE_KEY = 'pytree'
+
+RESERVED_CHECKPOINTABLE_KEYS = frozenset({
+})
 
 
 def validate_pytree_checkpoint(path: path_types.PathLike):

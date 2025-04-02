@@ -90,7 +90,7 @@ HandlerAwaitableSignal = synchronization.HandlerAwaitableSignal
 _CONCURRENT_WORKERS = 3
 
 DESCRIPTOR_ITEM_NAME = 'descriptor'
-RESERVED_ITEM_NAMES = [DESCRIPTOR_ITEM_NAME]
+RESERVED_ITEM_NAMES = []
 _DIRECTORY_CREATION_SIGNALS = [HandlerAwaitableSignal.ITEM_DIRECTORY_CREATION]
 
 
