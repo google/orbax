@@ -26,7 +26,6 @@ py_library(
         "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint:utils",
         "//checkpoint/orbax/checkpoint/_src/arrays:abstract_arrays",
-        "//checkpoint/orbax/checkpoint/_src/handlers:proto_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/handlers:pytree_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata",
         "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata_store",
@@ -64,6 +63,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/context:options",
+        "//orbax/checkpoint/experimental/v1/_src/metadata:types",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",
     ],
@@ -100,6 +100,39 @@ py_library(
     ],
 )
 
+py_library(
+    name = "proto_handler",
+    srcs = ["proto_handler.py"],
+    deps = [
+        ":types",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+    ],
+)
+
+py_library(
+    name = "global_registration",
+    srcs = ["global_registration.py"],
+    deps = [
+        ":descriptor_handler",
+        ":proto_handler",
+        ":pytree_handler",
+        ":registration",
+        "//orbax/checkpoint/experimental/v1/_src/path:format_utils",
+    ],
+)
+
+py_library(
+    name = "descriptor_handler",
+    srcs = ["descriptor_handler.py"],
+    deps = [
+        ":proto_handler",
+        ":types",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+    ],
+)
+
 py_test(
     name = "registration_test",
     srcs = ["registration_test.py"],
@@ -115,6 +148,7 @@ py_test(
     srcs = ["composite_handler_test.py"],
     deps = [
         ":composite_handler",
+        ":global_registration",
         ":pytree_handler",
         ":registration",
         ":types",

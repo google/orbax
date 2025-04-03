@@ -39,7 +39,6 @@ import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.arrays import abstract_arrays
-from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
@@ -58,7 +57,6 @@ from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
-
 
 PyTree = tree_types.PyTree
 ParamInfo = pytree_checkpoint_handler.ParamInfo
@@ -337,9 +335,7 @@ class PyTreeHandlerTestBase:
           expected_reference_metadata_tree,
           is_leaf=tree_utils.is_empty_or_leaf,
       )
-      test_utils.assert_tree_equal(
-          self, expected_metadata, actual_metadata.tree
-      )
+      test_utils.assert_tree_equal(self, expected_metadata, actual_metadata)
 
     def test_get_param_names(self):
       param_names = pytree_checkpoint_handler.get_param_names(self.pytree)
@@ -1391,7 +1387,6 @@ class PyTreeHandlerTestBase:
       expected = {'a': 4}
       self.assertEqual(restored, expected)
 
-
     def test_empty_custom_node(self):
 
       class PyTreeDict(dict):
@@ -1601,7 +1596,7 @@ class PyTreeHandlerTestBase:
         self.assertFalse((self.directory / 'array_metadatas').exists())
         metadata = checkpoint_handler.metadata(self.directory)
         metadata_without_directory = jax.tree.map(
-            lambda m: dataclasses.replace(m, directory=None), metadata.tree
+            lambda m: dataclasses.replace(m, directory=None), metadata
         )
         self.assertEqual(
             expected_metadata_without_directory,
@@ -1638,7 +1633,7 @@ class PyTreeHandlerTestBase:
         }
         metadata = checkpoint_handler.metadata(self.directory)
         tree_with_write_shapes = jax.tree.map(
-            lambda m: {'write_shape': m.storage.write_shape}, metadata.tree
+            lambda m: {'write_shape': m.storage.write_shape}, metadata
         )
         self.assertDictEqual(
             expected_tree_with_write_shapes, tree_with_write_shapes
@@ -1678,7 +1673,7 @@ class PyTreeHandlerTestBase:
         }
         metadata = checkpoint_handler.metadata(self.directory)
         tree_with_write_shapes = jax.tree.map(
-            lambda m: {'write_shape': m.storage.write_shape}, metadata.tree
+            lambda m: {'write_shape': m.storage.write_shape}, metadata
         )
         self.assertDictEqual(
             expected_tree_with_write_shapes, tree_with_write_shapes

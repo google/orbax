@@ -15,27 +15,19 @@
 """Metadata describing checkpoints."""
 
 import dataclasses
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeAlias, TypeVar
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
 CheckpointableMetadataT = TypeVar('CheckpointableMetadataT')
 
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class PyTreeMetadata:
-  """Represents the metadata for a PyTree.
-
-  See `CheckpointMetadata` to further understand how this is used.
-
-  Attributes:
-    pytree: A serialized PyTree structure with the same structure as the
-      checkpointed PyTree. By "serialized", we mean that the PyTree has been
-      converted to a standardized representation, with all container nodes
-      represented as standard types (e.g., tuple, list, dict, etc.). The leaves
-      of the tree are individual parameter metadatas.
-  """
-  pytree: tree_types.PyTreeOf[Any]
+# Metadata describing a PyTree checkpoint.
+# A serialized PyTree structure with the same structure as the
+# checkpointed PyTree. By "serialized", we mean that the PyTree has been
+# converted to a standardized representation, with all container nodes
+# represented as standard types (e.g., tuple, list, dict, etc.). The leaves
+# of the tree are individual parameter metadatas.
+PyTreeMetadata: TypeAlias = tree_types.PyTreeOf[tree_types.AbstractLeafType]
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -78,7 +70,7 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
   """
-  metadata: CheckpointableMetadataT | None = None
+  metadata: CheckpointableMetadataT
   init_timestamp_nsecs: int | None = None
   commit_timestamp_nsecs: int | None = None
   custom_metadata: tree_types.JsonType | None = None
