@@ -4,10 +4,7 @@ py_library(
     name = "saving",
     srcs = ["saving.py"],
     deps = [
-        "//checkpoint/orbax/checkpoint/_src/checkpointers:async_checkpointer",
-        "//checkpoint/orbax/checkpoint/_src/handlers:composite_checkpoint_handler",
-        "//checkpoint/orbax/checkpoint/_src/handlers:handler_registration",
-        "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//orbax/checkpoint",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/handlers:compatibility",
         "//orbax/checkpoint/experimental/v1/_src/handlers:pytree_handler",

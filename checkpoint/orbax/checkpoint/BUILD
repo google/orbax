@@ -42,7 +42,6 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//checkpoint/orbax/checkpoint/metadata",
         "//checkpoint/orbax/checkpoint/serialization",
-        "//orbax/checkpoint/experimental/v1",
         "//orbax/checkpoint/logging",
     ],
 )

@@ -17,10 +17,7 @@
 from typing import Any
 
 from etils import epath
-from orbax.checkpoint._src.checkpointers import checkpointer
-from orbax.checkpoint._src.handlers import composite_checkpoint_handler
-from orbax.checkpoint._src.handlers import handler_registration
-from orbax.checkpoint._src.multihost import multihost
+import orbax.checkpoint as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
@@ -159,9 +156,7 @@ def load_checkpointables_async(
 
 def get_v0_checkpointer_and_args(
     directory: path_types.Path, abstract_checkpointables: dict[str, Any] | None
-) -> tuple[
-    checkpointer.Checkpointer, composite_checkpoint_handler.CompositeArgs
-]:
+) -> tuple[ocp.Checkpointer, ocp.args.Composite]:
   """Construct V0 Checkpointer and Args for loading."""
   context = context_lib.get_context()
   abstract_checkpointables = abstract_checkpointables or {}
@@ -181,15 +176,13 @@ def get_v0_checkpointer_and_args(
       name: handler_compatibility.get_compatibility_handler(handler)
       for name, handler in handlers.items()
   }
-  handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+  handler_registry = ocp.handlers.DefaultCheckpointHandlerRegistry()
   for name, handler in compatibility_handlers.items():
     handler_registry.add(name, handler_compatibility.Args, handler)
-  ckptr = checkpointer.Checkpointer(
-      composite_checkpoint_handler.CompositeCheckpointHandler(
-          handler_registry=handler_registry
-      )
+  ckptr = ocp.Checkpointer(
+      ocp.CompositeCheckpointHandler(handler_registry=handler_registry)
   )
-  args = composite_checkpoint_handler.CompositeArgs(**{
+  args = ocp.args.Composite(**{
       name: handler_compatibility.Args(checkpointable)
       for name, checkpointable in abstract_checkpointables.items()
   })
