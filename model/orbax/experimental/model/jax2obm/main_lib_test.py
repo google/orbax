@@ -14,6 +14,7 @@
 
 import os
 
+from absl.testing import absltest
 from absl.testing import parameterized
 import flax.linen as nn
 import jax
@@ -28,10 +29,11 @@ from orbax.experimental.model.jax2obm import constants
 from orbax.experimental.model.jax2obm import jax_specific_info
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 from orbax.experimental.model.jax2obm import main_lib
+from orbax.export import oex_orchestration
+from orbax.export.oex_orchestration import oex_orchestration_pb2
 
 from tensorflow.python.util.protobuf import compare
 from google.protobuf import text_format
-from absl.testing import absltest
 
 
 os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
@@ -123,8 +125,8 @@ class MainLibTest(parameterized.TestCase):
         obm.SaveOptions(
             version=2,
             supplemental_info=obm.SupplementalInfo(
-                obm.simple_orchestration.create(
-                    signature=obm.simple_orchestration.calculate_signature(
+                oex_orchestration.create(
+                    signature=oex_orchestration.calculate_signature(
                         model_function_signature=em_shlo_fn.signature,
                     ),
                     model_function_name=model_function_name,
@@ -416,10 +418,10 @@ class MainLibTest(parameterized.TestCase):
         + """\"
           }
           mime_type: \""""
-        + obm.CURRENT_SIMPLE_ORCHESTRATION_MIME_TYPE
+        + oex_orchestration.CURRENT_OEX_ORCHESTRATION_MIME_TYPE
         + """\"
           version: \""""
-        + obm.CURRENT_SIMPLE_ORCHESTRATION_VERSION
+        + oex_orchestration.CURRENT_OEX_ORCHESTRATION_VERSION
         + """\"
         }
       }
@@ -449,9 +451,9 @@ class MainLibTest(parameterized.TestCase):
         ].function.body.stable_hlo_body.stable_hlo.inlined_bytes,
     )
 
-    orchestration_proto = obm.simple_orchestration_pb2.SimpleOrchestration()
+    pipeline_proto = oex_orchestration_pb2.Pipeline()
     with open(os.path.join(save_dir_path, supplemental_filename), 'rb') as f:
-      orchestration_proto.ParseFromString(f.read())
+      pipeline_proto.ParseFromString(f.read())
     expected_orchestration_proto_text = (
         expected_orchestration_signature_text + f"""
       model_function_name: "{model_function_name}"
@@ -460,10 +462,10 @@ class MainLibTest(parameterized.TestCase):
     )
     expected_orchestration_proto = text_format.Parse(
         expected_orchestration_proto_text,
-        obm.simple_orchestration_pb2.SimpleOrchestration(),
+        oex_orchestration_pb2.Pipeline(),
     )
     compare.assertProtoEqual(
-        self, expected_orchestration_proto, orchestration_proto
+        self, expected_orchestration_proto, pipeline_proto
     )
 
     jax_supplemental_proto = jax_supplemental_pb2.Function()

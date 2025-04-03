@@ -17,6 +17,7 @@
 import os
 from typing import Sequence
 
+from absl.testing import absltest
 from absl.testing import parameterized
 import flax.linen as nn
 import jax
@@ -30,8 +31,8 @@ from orbax.experimental.model import core as obm
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 from orbax.experimental.model.jax2obm import main_lib
 from orbax.experimental.model.jax2obm import obm_to_jax
-
-from absl.testing import absltest
+from orbax.export import oex_orchestration
+from orbax.export.oex_orchestration import oex_orchestration_pb2
 
 F0 = jax_supplemental_pb2.DTypeRefinement.f0
 DType = obm.ShloDType
@@ -294,8 +295,8 @@ class ObmToJaxTest(parameterized.TestCase):
         obm.SaveOptions(
             version=2,
             supplemental_info=obm.SupplementalInfo(
-                obm.simple_orchestration.create(
-                    signature=obm.simple_orchestration.calculate_signature(
+                oex_orchestration.create(
+                    signature=oex_orchestration.calculate_signature(
                         model_function_signature=obm_shlo_fn.signature
                     ),
                     model_function_name=model_function_name,
@@ -322,12 +323,12 @@ class ObmToJaxTest(parameterized.TestCase):
     orch_filename = (
         manifest_proto.supplemental_info.single.file_system_location.string_path
     )
-    orch_proto = obm.simple_orchestration_pb2.SimpleOrchestration()
+    pipeline_proto = oex_orchestration_pb2.Pipeline()
     with open(os.path.join(save_dir_path, orch_filename), 'rb') as f:
-      orch_proto.ParseFromString(f.read())
+      pipeline_proto.ParseFromString(f.read())
 
     # Loads the model function
-    loaded_model_function_name = orch_proto.model_function_name
+    loaded_model_function_name = pipeline_proto.model_function_name
     loaded_obm_function = manifest_proto.objects[
         loaded_model_function_name
     ].function
@@ -444,8 +445,8 @@ class ObmToJaxTest(parameterized.TestCase):
         obm.SaveOptions(
             version=2,
             supplemental_info=obm.SupplementalInfo(
-                obm.simple_orchestration.create(
-                    signature=obm.simple_orchestration.calculate_signature(
+                oex_orchestration.create(
+                    signature=oex_orchestration.calculate_signature(
                         model_function_signature=obm_shlo_fn.signature
                     ),
                     model_function_name=model_function_name,
@@ -473,12 +474,12 @@ class ObmToJaxTest(parameterized.TestCase):
     orch_filename = (
         manifest_proto.supplemental_info.single.file_system_location.string_path
     )
-    orch_proto = obm.simple_orchestration_pb2.SimpleOrchestration()
+    pipeline_proto = oex_orchestration_pb2.Pipeline()
     with open(os.path.join(save_dir_path, orch_filename), 'rb') as f:
-      orch_proto.ParseFromString(f.read())
+      pipeline_proto.ParseFromString(f.read())
 
     # Loads the model function
-    loaded_model_function_name = orch_proto.model_function_name
+    loaded_model_function_name = pipeline_proto.model_function_name
     loaded_obm_function = manifest_proto.objects[
         loaded_model_function_name
     ].function
@@ -501,7 +502,7 @@ class ObmToJaxTest(parameterized.TestCase):
 
     # Restore/load the params from the saved orbax checkpoint,
     # this will be fed into the deserialized jax function only.
-    loaded_weights_name = orch_proto.weights_name
+    loaded_weights_name = pipeline_proto.weights_name
     loaded_checkpoint_path = manifest_proto.objects[
         loaded_weights_name
     ].value.external.data.file_system_location.string_path
