@@ -15,8 +15,6 @@
 """Provides definitions for AggregateHandler and implementations."""
 
 import abc
-from concurrent import futures
-import functools
 from typing import Any, Optional
 
 from etils import epath
@@ -67,7 +65,6 @@ class MsgpackHandler(AggregateHandler):
           tree_metadata.PYTREE_METADATA_OPTIONS
       ),
   ):
-    self._executor = futures.ThreadPoolExecutor(max_workers=1)
     self._primary_host = primary_host
     self._pytree_metadata_options = pytree_metadata_options
 
@@ -76,7 +73,7 @@ class MsgpackHandler(AggregateHandler):
   ) -> orbax_future.Future:
     """See superclass documentation."""
 
-    def _serialize_fn(x):
+    async def _serialize_fn(x):
       if utils.is_primary_host(self._primary_host):
         if self._pytree_metadata_options.support_rich_types:
           raise NotImplementedError(
@@ -91,9 +88,10 @@ class MsgpackHandler(AggregateHandler):
         # Explicit "copy" phase is not needed because msgpack only contains
         # basic types and numpy arrays.
         return path.write_bytes(msgpack)
-      return 0
 
-    return self._executor.submit(functools.partial(_serialize_fn, item))
+    return orbax_future.CommitFutureAwaitingContractedSignals(
+        _serialize_fn(item)
+    )
 
   def deserialize(self, path: epath.Path) -> PyTree:
     """See superclass documentation."""
@@ -105,4 +103,4 @@ class MsgpackHandler(AggregateHandler):
 
   def close(self):
     """See superclass documentation."""
-    self._executor.shutdown()
+    pass

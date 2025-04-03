@@ -19,6 +19,7 @@ from etils import epath
 from jax import numpy as jnp
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
@@ -61,8 +62,10 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.directory = epath.Path(self.create_tempdir(name='test_dir'))
+    synchronization.HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
 
   def save(self, handler, directory, *args, **kwargs):
+    synchronization.HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
     handler.save(directory, *args, **kwargs)
     if multihost.process_index() == 0:
       handler.finalize(directory)
@@ -928,8 +931,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertFalse((self.directory / 'state').exists())
     existing_items = handler._existing_items(self.directory)
     item_names = [
-        item_dir.split(step.TMP_DIR_SUFFIX, 1)[0]
-        for item_dir in existing_items
+        item_dir.split(step.TMP_DIR_SUFFIX, 1)[0] for item_dir in existing_items
     ]
     self.assertIn('state', item_names)
 
@@ -942,7 +944,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         step_metadata.item_handlers,
         {
             'state': StandardCheckpointHandler().typestr(),
-        }
+        },
     )
     self.assertIsNotNone(step_metadata.item_metadata['state'])
 
@@ -959,8 +961,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertFalse((self.directory / 'state').exists())
     existing_items = handler._existing_items(self.directory)
     item_names = [
-        item_dir.split(step.TMP_DIR_SUFFIX, 1)[0]
-        for item_dir in existing_items
+        item_dir.split(step.TMP_DIR_SUFFIX, 1)[0] for item_dir in existing_items
     ]
     self.assertIn('state', item_names)
 

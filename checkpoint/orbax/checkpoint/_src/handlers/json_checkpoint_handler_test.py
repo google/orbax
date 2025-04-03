@@ -44,9 +44,9 @@ class TestJsonCheckpointHandler(JsonCheckpointHandler):
     self._handler = json_checkpoint_handler.JsonCheckpointHandler
     self._filename = filename or 'metadata'
 
-  def _save_fn(self, x, directory):
+  async def _save_fn(self, x, directory):
     time.sleep(5)
-    return super()._save_fn(x, directory)
+    await super()._save_fn(x, directory)
 
 
 class JsonCheckpointHandlerTest(absltest.TestCase):

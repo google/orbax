@@ -23,6 +23,7 @@ from typing import Any, List, Mapping, Optional, Tuple, Union
 from etils import epath
 import jax
 from orbax.checkpoint import checkpoint_args
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import array_checkpoint_handler
@@ -62,7 +63,14 @@ class BaseRandomKeyCheckpointHandler(
     """
     self._key_name = key_name
     self._key_metadata = f'{self._key_name}_metadata'
-    self._handler = CompositeCheckpointHandler()
+    composite_options = composite_checkpoint_handler.CompositeOptions(
+        async_options=options_lib.AsyncOptions(
+            create_directories_asynchronously=False
+        )
+    )
+    self._handler = CompositeCheckpointHandler(
+        composite_options=composite_options
+    )
 
   @abc.abstractmethod
   def checkpoint_save_args(

@@ -40,6 +40,7 @@ py_test(
         ":standard_checkpoint_handler",
         "//checkpoint/orbax/checkpoint:args",
         "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint/_src/futures:synchronization",
         "//checkpoint/orbax/checkpoint/_src/logging:step_statistics",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
@@ -83,7 +84,6 @@ py_library(
         "//checkpoint/orbax/checkpoint:utils",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/futures:future",
-        "//checkpoint/orbax/checkpoint/_src/futures:synchronization",
         "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata_store",
         "//checkpoint/orbax/checkpoint/_src/metadata:empty_values",
         "//checkpoint/orbax/checkpoint/_src/metadata:tree",
@@ -229,6 +229,7 @@ py_library(
         ":json_checkpoint_handler",
         ":pytree_checkpoint_handler",
         "//checkpoint/orbax/checkpoint:checkpoint_args",
+        "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/futures:future",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
@@ -243,6 +244,7 @@ py_test(
         ":json_checkpoint_handler",
         ":random_key_checkpoint_handler",
         "//checkpoint/orbax/checkpoint:args",
+        "//checkpoint/orbax/checkpoint/_src/futures:synchronization",
     ],
 )
 

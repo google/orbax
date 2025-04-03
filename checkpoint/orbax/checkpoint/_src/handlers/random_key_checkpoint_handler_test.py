@@ -19,6 +19,7 @@ from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint import args as args_lib
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import random_key_checkpoint_handler
@@ -48,6 +49,7 @@ class RandomKeyCheckpointHandlerTest(absltest.TestCase):
     self.directory = epath.Path(
         self.create_tempdir(name='checkpointing_test').full_path
     )
+    synchronization.HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
 
   def assert_dict_equal(self, left, right):
     """Asserts that two dicts are equal and allow np.ndarray as elements."""

@@ -39,7 +39,6 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
-from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
@@ -497,11 +496,8 @@ class BasePyTreeCheckpointHandler(
 
     save_futures = []
     if multihost.is_primary_host(self._primary_host):
-      operation_id = (
-          synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
-      )
       save_futures.append(
-          future.CommitFuture(
+          future.CommitFutureAwaitingContractedSignals(
               self._write_metadata_after_commits(
                   commit_futures,
                   checkpoint_dir=directory,
@@ -509,7 +505,6 @@ class BasePyTreeCheckpointHandler(
                   save_args=save_args,
                   custom_metadata=custom_metadata,
                   use_zarr3=self._use_zarr3,
-                  operation_id=operation_id,
               ),
               name='write_metadata_after_commits',
           )
@@ -885,7 +880,6 @@ class BasePyTreeCheckpointHandler(
       save_args: PyTree,
       custom_metadata: tree_types.JsonType | None = None,
       use_zarr3: bool,
-      operation_id: str | None = None,
   ) -> None:
     if not utils.is_primary_host(self._primary_host):
       return
@@ -904,21 +898,14 @@ class BasePyTreeCheckpointHandler(
           param_infos, checkpoint_dir, self._array_metadata_store
       )
 
-    async def metadata_coro():
-      self._write_metadata_file(
-          checkpoint_dir,
-          param_infos=param_infos,
-          save_args=save_args,
-          custom_metadata=custom_metadata,
-          use_zarr3=use_zarr3,
-      ).result()
-
-    metadata_write_future = future.CommitFutureAwaitingContractedSignals(
-        metadata_coro(),
-        name='write_metadata_file',
-        operation_id=operation_id,
+    write_metadata_file_future = self._write_metadata_file(
+        checkpoint_dir,
+        param_infos=param_infos,
+        save_args=save_args,
+        custom_metadata=custom_metadata,
+        use_zarr3=use_zarr3,
     )
-    await asyncio.to_thread(metadata_write_future.result)
+    await asyncio.to_thread(write_metadata_file_future.result)
 
   def _read_metadata_file(
       self, directory: epath.Path

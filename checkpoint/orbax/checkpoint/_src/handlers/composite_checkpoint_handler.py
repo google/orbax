@@ -685,10 +685,12 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
           )
       )
     else:
-      await atomicity.create_all(
-          list(self._current_temporary_paths.values()),
-          multiprocessing_options=self._multiprocessing_options,
-      )
+      future.CommitFutureAwaitingContractedSignals(
+          atomicity.create_all(
+              list(self._current_temporary_paths.values()),
+              multiprocessing_options=self._multiprocessing_options,
+          )
+      ).result()
     save_ops = []
     for item_name, item_directory in self._current_temporary_paths.items():
       arg = args[item_name]
