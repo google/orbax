@@ -239,7 +239,7 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
         relative_array_filename=self.param_name,
         use_zarr3=use_zarr3,
         use_ocdbt=True,
-        process_id=13
+        process_id=13,
     )
     self.assertEqual(tspec.metadata.use_zarr3, use_zarr3)
     self.assertTrue(tspec.metadata.use_ocdbt)
@@ -618,6 +618,38 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
         },
     }
     self.assertTrue(ts_utils.is_remote_storage(nested_tspec))
+
+
+class GetTsContextTest(parameterized.TestCase):
+
+  @parameterized.product(
+      use_ocdbt=(True, False),
+      file_io_concurrency_limit=(None, 8),
+      data_copy_concurrency_limit=(None, 8),
+  )
+  def test_get_ts_context(
+      self,
+      use_ocdbt: bool,
+      file_io_concurrency_limit: int | None,
+      data_copy_concurrency_limit: int | None,
+  ):
+    context = ts_utils.get_ts_context(
+        use_ocdbt=use_ocdbt,
+        file_io_concurrency_limit=file_io_concurrency_limit,
+        data_copy_concurrency_limit=data_copy_concurrency_limit,
+    )
+
+    expected_spec = {
+        'file_io_concurrency': {'limit': file_io_concurrency_limit or 128}
+    }
+    if use_ocdbt:
+      expected_spec |= {'cache_pool#ocdbt': {'total_bytes_limit': 100000000}}
+    if data_copy_concurrency_limit is not None:
+      expected_spec |= {
+          'data_copy_concurrency': {'limit': data_copy_concurrency_limit}
+      }
+
+    self.assertDictEqual(expected_spec, context.spec.to_json())
 
 
 if __name__ == '__main__':
