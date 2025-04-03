@@ -54,6 +54,7 @@ def _is_str_tensor_spec_dict(tree: TfSignature) -> bool:
   return True
 
 
+# LINT.IfChange
 def _is_dict_only(tree: TfSignature) -> bool:
   if _is_str_tensor_spec_dict(tree):
     return True
@@ -65,7 +66,7 @@ def _is_dict_only(tree: TfSignature) -> bool:
       # Treating [[{...}], {}] as dict-only
       return True
   return False
-
+# LINT.ThenChange(//depot//learning/infra/mira/experimental/orbax_model/tensorflow/tf_compatible_optional_function_handler.cc)
 
 _NamesAndSequence = Tuple[Sequence[str] | None, Sequence[Any] | None]
 
