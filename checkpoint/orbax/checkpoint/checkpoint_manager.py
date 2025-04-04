@@ -353,6 +353,27 @@ class CheckpointManagerOptions:
   ] = None
 
   def __post_init__(self):
+    step_name_format_single_host_load_and_broadcast = (
+        hasattr(self.step_name_format, 'single_host_load_and_broadcast')
+        and self.step_name_format.single_host_load_and_broadcast
+    )
+    if self.single_host_load_and_broadcast and self.step_name_format:
+      if not step_name_format_single_host_load_and_broadcast:
+        raise ValueError(
+            '`CheckpointManagerOptions.single_host_load_and_broadcast=True`'
+            ' requires `step_name_format.single_host_load_and_broadcast` to be'
+            ' set to True.'
+        )
+    if (
+        step_name_format_single_host_load_and_broadcast
+        and not self.single_host_load_and_broadcast
+    ):
+      raise ValueError(
+          '`step_name_format.single_host_load_and_broadcast=True` but'
+          ' `CheckpointManagerOptions.single_host_load_and_broadcast=False`.'
+          ' Please set'
+          ' CheckpointManagerOptions.single_host_load_and_broadcast=True.'
+      )
     if self.best_mode not in ('min', 'max'):
       msg = (
           "`CheckpointManagerOptions.best_mode` must be one of None, 'min' "
@@ -739,6 +760,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         or step_lib.standard_name_format(
             step_prefix=self._options.step_prefix,
             step_format_fixed_length=self._options.step_format_fixed_length,
+            single_host_load_and_broadcast=(
+                self._options.single_host_load_and_broadcast
+            ),
         )
     )
 

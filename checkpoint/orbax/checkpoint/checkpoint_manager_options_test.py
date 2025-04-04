@@ -16,10 +16,13 @@
 
 import dataclasses
 import datetime
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 import orbax.checkpoint as ocp
+
+MOCK_STEP_NAME_FORMAT = mock.create_autospec(ocp.step.NameFormat)
 
 
 class CheckpointManagerOptionsTest(parameterized.TestCase):
@@ -115,6 +118,103 @@ class CheckpointManagerOptionsTest(parameterized.TestCase):
     )
     self.assertIsNone(options.keep_period)
     self.assertIsNotNone(options.should_keep_fn)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='error_step_name_format_false',
+          single_host_load_and_broadcast=True,
+          step_name_format=ocp.step.standard_name_format(
+              single_host_load_and_broadcast=False
+          ),
+          expected_single_host_load_and_broadcast=None,  # Both None for Error.
+          expected_step_name_format=None,  # Both None for Error.
+      ),
+      dict(
+          testcase_name='error_step_name_format_true',
+          single_host_load_and_broadcast=False,
+          step_name_format=ocp.step.standard_name_format(
+              single_host_load_and_broadcast=True
+          ),
+          expected_single_host_load_and_broadcast=None,  # Both None for Error.
+          expected_step_name_format=None,  # Both None for Error.
+      ),
+      dict(
+          testcase_name='error_enabled_with_non_supporting_step_name_format',
+          single_host_load_and_broadcast=True,
+          step_name_format=MOCK_STEP_NAME_FORMAT,
+          expected_single_host_load_and_broadcast=None,  # Both None for Error.
+          expected_step_name_format=None,  # Both None for Error.
+      ),
+      dict(
+          testcase_name='both_true',
+          single_host_load_and_broadcast=True,
+          step_name_format=ocp.step.standard_name_format(
+              single_host_load_and_broadcast=True
+          ),
+          expected_single_host_load_and_broadcast=True,
+          expected_step_name_format=ocp.step.standard_name_format(
+              single_host_load_and_broadcast=True
+          ),
+      ),
+      dict(
+          testcase_name='both_false',
+          single_host_load_and_broadcast=False,
+          step_name_format=ocp.step.standard_name_format(
+              single_host_load_and_broadcast=False
+          ),
+          expected_single_host_load_and_broadcast=False,
+          expected_step_name_format=ocp.step.standard_name_format(
+              single_host_load_and_broadcast=False
+          ),
+      ),
+      dict(
+          testcase_name='only_single_host_load_and_broadcast_true',
+          single_host_load_and_broadcast=True,
+          step_name_format=None,
+          expected_single_host_load_and_broadcast=True,
+          expected_step_name_format=None,
+      ),
+      dict(
+          testcase_name='only_single_host_load_and_broadcast_false',
+          single_host_load_and_broadcast=False,
+          step_name_format=None,
+          expected_single_host_load_and_broadcast=False,
+          expected_step_name_format=None,
+      ),
+      dict(
+          testcase_name='disabled_with_non_supporting_step_name_format',
+          single_host_load_and_broadcast=False,
+          step_name_format=MOCK_STEP_NAME_FORMAT,
+          expected_single_host_load_and_broadcast=False,
+          expected_step_name_format=MOCK_STEP_NAME_FORMAT,
+      ),
+  )
+  def test_single_host_load_and_broadcast(
+      self,
+      single_host_load_and_broadcast: bool,
+      step_name_format: ocp.step.NameFormat | None,
+      expected_single_host_load_and_broadcast: bool | None,
+      expected_step_name_format: ocp.step.NameFormat | None,
+  ):
+    if (
+        expected_single_host_load_and_broadcast is None
+        and expected_step_name_format is None
+    ):
+      with self.assertRaises(ValueError):
+        ocp.CheckpointManagerOptions(
+            single_host_load_and_broadcast=single_host_load_and_broadcast,
+            step_name_format=step_name_format,
+        )
+    else:
+      options = ocp.CheckpointManagerOptions(
+          single_host_load_and_broadcast=single_host_load_and_broadcast,
+          step_name_format=step_name_format,
+      )
+      self.assertEqual(
+          options.single_host_load_and_broadcast,
+          expected_single_host_load_and_broadcast,
+      )
+      self.assertEqual(options.step_name_format, expected_step_name_format)
 
 
 if __name__ == '__main__':
