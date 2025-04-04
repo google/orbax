@@ -24,9 +24,7 @@ many ML frameworks such as TF, JAX and PyTorch.
 # pylint: disable=g-importing-member
 
 from orbax.experimental.model.core.protos import manifest_pb2
-from orbax.experimental.model.core.protos import simple_orchestration_pb2
 from orbax.experimental.model.core.protos import type_pb2
-from orbax.experimental.model.core.python import simple_orchestration
 from orbax.experimental.model.core.python import tracing
 from orbax.experimental.model.core.python import tree_util
 from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
@@ -57,9 +55,6 @@ from orbax.experimental.model.core.python.signature import OpSharding
 from orbax.experimental.model.core.python.signature import Shape
 from orbax.experimental.model.core.python.signature import Signature
 from orbax.experimental.model.core.python.signature import TensorSpec
-# TODO(wangpeng): Don't expose individual symbols from
-#   simple_orchestration.py, because simple_orchestration.py will be
-#   moved out of model/core/ .
 from orbax.experimental.model.core.python.test_utils import ObmTestCase
 from orbax.experimental.model.core.python.tree_util import Tree
 from orbax.experimental.model.core.python.type_proto_util import manifest_type_to_shlo_tensor_spec_pytree
