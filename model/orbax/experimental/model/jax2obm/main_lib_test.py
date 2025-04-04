@@ -124,7 +124,7 @@ class MainLibTest(parameterized.TestCase):
         save_dir_path,
         obm.SaveOptions(
             version=2,
-            supplemental_info=obm.SupplementalInfo(
+            supplemental_info=obm.GlobalSupplemental(
                 oex_orchestration.create(
                     signature=oex_orchestration.calculate_signature(
                         model_function_signature=em_shlo_fn.signature,

@@ -43,9 +43,9 @@ from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.manifest_constants import *
 from orbax.experimental.model.core.python.polymorphic_function import function
 from orbax.experimental.model.core.python.polymorphic_function import PolymorphicFunction
+from orbax.experimental.model.core.python.save_lib import GlobalSupplemental
 from orbax.experimental.model.core.python.save_lib import save
 from orbax.experimental.model.core.python.save_lib import SaveOptions
-from orbax.experimental.model.core.python.save_lib import SupplementalInfo
 from orbax.experimental.model.core.python.saveable import Saveable
 from orbax.experimental.model.core.python.serializable_function import SerializableFunction
 from orbax.experimental.model.core.python.shlo_function import ShloFunction
@@ -63,5 +63,6 @@ from orbax.experimental.model.core.python.unstructured_data import UnstructuredD
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredDataWithExtName
 from orbax.experimental.model.core.python.value import ExternalValue
 from orbax.experimental.model.core.python.value import Value
+
 
 # pylint: enable=g-importing-member

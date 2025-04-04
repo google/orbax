@@ -301,7 +301,7 @@ class TfConcreteFunctionsToObmTest(
         obm.SaveOptions(
             version=2,
             supplemental_info={
-                TF_SAVED_MODEL_SUPPLEMENTAL_NAME: obm.SupplementalInfo(
+                TF_SAVED_MODEL_SUPPLEMENTAL_NAME: obm.GlobalSupplemental(
                     tf_global_supplemental, None
                 ),
             },

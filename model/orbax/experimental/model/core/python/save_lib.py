@@ -76,11 +76,11 @@ def named_variables_and_functions(
 
 
 @dataclasses.dataclass
-class SupplementalInfo:
-  """Supplemental info to be saved in the manifest.pb.
+class GlobalSupplemental:
+  """GlobalSupplemental info to be saved in the manifest.pb.
 
   Attributes:
-    data: The supplemental info to be saved.
+    data: The global supplemental info to be saved.
     save_as: An optional relative file name. If set, `data` will be saved as a
       separate file using this file name (and in this case the supplemental info
       mustn't be a `file_location` already).
@@ -111,12 +111,12 @@ class SaveOptions:
   function_aliases: Mapping[str, ConcreteFunction] | None = None
   version: int | None = None
   supplemental_info: (
-      SupplementalInfo | Mapping[str, SupplementalInfo] | None
+      GlobalSupplemental | Mapping[str, GlobalSupplemental] | None
   ) = None
 
 
 def _save_single_supplemental(
-    supplemental_info: SupplementalInfo,
+    supplemental_info: GlobalSupplemental,
     path: str,
 ) -> UnstructuredData:
   """Saves a single supplemental to disk."""
@@ -131,13 +131,15 @@ def _save_single_supplemental(
 
 
 def _save_supplementals(
-    supplemental_info: SupplementalInfo | Mapping[str, SupplementalInfo] | None,
+    supplemental_info: (
+        GlobalSupplemental | Mapping[str, GlobalSupplemental] | None
+    ),
     path: str,
 ) -> UnstructuredData | Mapping[str, UnstructuredData] | None:
   """Saves supplementals to disk."""
   if supplemental_info is None:
     return None
-  if isinstance(supplemental_info, SupplementalInfo):
+  if isinstance(supplemental_info, GlobalSupplemental):
     return _save_single_supplemental(supplemental_info, path)
   else:
     return {
