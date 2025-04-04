@@ -16,7 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 visible to the user and is solely a helper layer for save/load functions.
 - #v1 Implement `save/load_checkpointables` in terms of V0 APIs. Resolve
 handlers for checkpointables using V1 APIs.
-- #v1 Add `v1` to `__init__.py`.
 - `ocp.PLACEHOLDER` for partial restoration.
 - `tree_trim` utility function for matching PyTree structures.
 - #v1 Add `ProtoHandler`.
