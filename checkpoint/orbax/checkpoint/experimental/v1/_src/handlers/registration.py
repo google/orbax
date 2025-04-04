@@ -62,6 +62,9 @@ from orbax.checkpoint.experimental.v1._src.handlers import types as handler_type
 
 CheckpointableHandler = handler_types.CheckpointableHandler
 RegistryEntry = tuple[CheckpointableHandler, str | None]
+_UnresolvedHandlerRegistryEntry = tuple[
+    CheckpointableHandler | Type[CheckpointableHandler], str | None
+]
 
 
 def add_all(
@@ -122,11 +125,30 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
   def __init__(
       self, other_registry: CheckpointableHandlerRegistry | None = None
   ):
-    self._registry: list[RegistryEntry] = []
+    # Initialization of handler types is deferred until access, to prevent
+    # import errors when registering globally.
+    self._registry: list[_UnresolvedHandlerRegistryEntry] = []
 
     # Initialize the registry with entries from other registry.
     if other_registry:
       add_all(self, other_registry)
+
+  def _resolve_handler_instance(
+      self, entry: _UnresolvedHandlerRegistryEntry
+  ) -> RegistryEntry:
+    """Attempts to default-construct a handler type if possible."""
+    handler, checkpointable = entry
+    if isinstance(handler, type):
+      try:
+        handler = handler()
+      except TypeError as e:
+        raise ValueError(
+            'Provided a `CheckpointableHandler` when registering'
+            f' checkpointable={checkpointable} that could not be'
+            ' default-constructed. Please ensure the object is'
+            ' default-constructible or provide a concrete instance.'
+        ) from e
+    return (handler, checkpointable)
 
   def add(
       self,
@@ -155,21 +177,7 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
           f'Entry for checkpointable={checkpointable} already'
           ' exists in the registry.'
       )
-
-    if isinstance(handler, type):
-      try:
-        handler_instance = handler()
-      except TypeError as e:
-        raise ValueError(
-            'Provided a `CheckpointableHandler` when registering'
-            f' checkpointable={checkpointable} that could not be'
-            ' default-constructed. Please ensure the object is'
-            ' default-constructible or provide a concrete instance.'
-        ) from e
-    else:
-      handler_instance = handler
-
-    self._registry.append((handler_instance, checkpointable))
+    self._registry.append((handler, checkpointable))
     return self
 
   def get(
@@ -188,7 +196,7 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
       NoEntryError: If no entry for the given checkpointable name exists in the
       registry.
     """
-    for handler, checkpointable_name in self._registry:
+    for handler, checkpointable_name in self.get_all_entries():
       if checkpointable == checkpointable_name:
         return handler
 
@@ -219,13 +227,13 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
       self,
   ) -> Sequence[RegistryEntry]:
     """Returns all entries in the registry."""
-    return self._registry
+    return [self._resolve_handler_instance(entry) for entry in self._registry]
 
   def __repr__(self):
-    return f'_DefaultCheckpointableHandlerRegistry({self._registry})'
+    return f'_DefaultCheckpointableHandlerRegistry({self.get_all_entries()})'
 
   def __str__(self):
-    return f'_DefaultCheckpointableHandlerRegistry({self._registry})'
+    return f'_DefaultCheckpointableHandlerRegistry({self.get_all_entries()})'
 
 
 _GLOBAL_REGISTRY = _DefaultCheckpointableHandlerRegistry()

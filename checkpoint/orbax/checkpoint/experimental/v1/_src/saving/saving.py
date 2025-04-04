@@ -18,7 +18,10 @@ import threading
 from typing import Any
 
 from etils import epath
-import orbax.checkpoint as ocp
+from orbax.checkpoint._src.checkpointers import async_checkpointer
+from orbax.checkpoint._src.handlers import composite_checkpoint_handler
+from orbax.checkpoint._src.handlers import handler_registration
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
@@ -27,6 +30,7 @@ from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+
 
 PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
 
@@ -131,7 +135,7 @@ class _SaveResponse(async_types.AsyncResponse[None]):
   call `result`.
   """
 
-  def __init__(self, checkpointer: ocp.AsyncCheckpointer):
+  def __init__(self, checkpointer: async_checkpointer.AsyncCheckpointer):
     self._checkpointer = checkpointer
     self._thread = threading.Thread(target=self._wait_for_save)
     self._thread.start()
@@ -233,7 +237,10 @@ def save_checkpointables_async(
 
 def get_v0_checkpointer_and_args(
     checkpointables: dict[str, Any],
-) -> tuple[ocp.AsyncCheckpointer, ocp.args.Composite]:
+) -> tuple[
+    async_checkpointer.AsyncCheckpointer,
+    composite_checkpoint_handler.CompositeArgs,
+]:
   """Construct V0 Checkpointer and Args for saving."""
   context = context_lib.get_context()
   handlers = {
@@ -246,13 +253,15 @@ def get_v0_checkpointer_and_args(
       name: handler_compatibility.get_compatibility_handler(handler)
       for name, handler in handlers.items()
   }
-  handler_registry = ocp.handlers.DefaultCheckpointHandlerRegistry()
+  handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
   for name, handler in compatibility_handlers.items():
     handler_registry.add(name, handler_compatibility.Args, handler)
-  ckptr = ocp.AsyncCheckpointer(
-      ocp.CompositeCheckpointHandler(handler_registry=handler_registry)
+  ckptr = async_checkpointer.AsyncCheckpointer(
+      composite_checkpoint_handler.CompositeCheckpointHandler(
+          handler_registry=handler_registry
+      )
   )
-  args = ocp.args.Composite(**{
+  args = composite_checkpoint_handler.CompositeArgs(**{
       name: handler_compatibility.Args(checkpointable)
       for name, checkpointable in checkpointables.items()
   })

@@ -135,7 +135,6 @@ def create_v0_restore_args(
   )
 
 
-@registration.register_handler
 class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
   """An implementation of `CheckpointableHandler` for PyTrees."""
 
