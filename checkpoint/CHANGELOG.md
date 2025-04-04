@@ -18,6 +18,7 @@ visible to the user and is solely a helper layer for save/load functions.
 handlers for checkpointables using V1 APIs.
 - `ocp.PLACEHOLDER` for partial restoration.
 - `tree_trim` utility function for matching PyTree structures.
+- #v1 Add `ProtoHandler`.
 
 ## [0.11.10] - 2025-03-20
 

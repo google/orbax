@@ -100,6 +100,28 @@ py_library(
     ],
 )
 
+py_library(
+    name = "proto_handler",
+    srcs = ["proto_handler.py"],
+    deps = [
+        ":types",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+    ],
+)
+
+py_library(
+    name = "global_registration",
+    srcs = ["global_registration.py"],
+    deps = [
+        ":proto_handler",
+        ":pytree_handler",
+        ":registration",
+        "//orbax/checkpoint/experimental/v1/_src/path:format_utils",
+    ],
+)
+
 py_test(
     name = "registration_test",
     srcs = ["registration_test.py"],
