@@ -111,10 +111,10 @@ class CompositeHandlerTest(parameterized.TestCase):
 
   def test_init(self):
     handler = CompositeHandler(
-        self.create_registry().add(PyTreeHandler(), 'pytree')
+        self.create_registry().add(PyTreeHandler, 'pytree')
     )
     self.assertTrue(handler._handler_registry.has('pytree'))
-    self.assertIsInstance(
+    self.assertEqual(
         handler._handler_registry.get('pytree'), PyTreeHandler
     )
 
@@ -139,7 +139,7 @@ class CompositeHandlerTest(parameterized.TestCase):
   ):
     registry = self.create_registry()
     for k in save_checkpointables:
-      registry.add(PyTreeHandler(), k)
+      registry.add(PyTreeHandler, k)
 
     self.save(
         CompositeHandler(registry if use_save_registry else None),
@@ -166,12 +166,10 @@ class CompositeHandlerTest(parameterized.TestCase):
 
   @parameterized.product(
       with_name=(True, False),
-      with_handler_instance=(True, False),
   )
   def test_save_load_checkpointables(
       self,
       with_name: bool,
-      with_handler_instance: bool,
   ):
     if with_name:
       pairs_to_register = [
@@ -183,11 +181,9 @@ class CompositeHandlerTest(parameterized.TestCase):
           (PyTreeHandler, None),
           (FooHandler, None),
       ]
-    if with_handler_instance:
-      pairs_to_register = [(pair[0](), pair[1]) for pair in pairs_to_register]
     registry = self.create_registry()
-    for handler, checkpointable in pairs_to_register:
-      registry.add(handler, checkpointable)
+    for handler_type, checkpointable in pairs_to_register:
+      registry.add(handler_type, checkpointable)
 
     checkpointables = {'pytree': {'a': 1}, 'foo': Foo(x=1, y='foo')}
     self.save(

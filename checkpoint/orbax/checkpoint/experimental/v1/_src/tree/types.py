@@ -17,15 +17,15 @@
 from typing import Any
 import jax
 import numpy as np
-import orbax.checkpoint as ocp
+from orbax.checkpoint._src.tree import types
 
-JsonType = ocp.tree.JsonType
+JsonType = types.JsonType
 
 PyTree = Any
-PyTreeOf = ocp.tree.PyTreeOf
+PyTreeOf = types.PyTreeOf
 
-PyTreeKey = ocp.tree.PyTreeKey
-PyTreeKeyPath = ocp.tree.PyTreePath
+PyTreeKey = types.PyTreeKey
+PyTreeKeyPath = types.PyTreePath
 
 ScalarType = int | float | bool
 LeafType = jax.Array | np.ndarray | str | ScalarType | Any

@@ -4,7 +4,10 @@ py_library(
     name = "loading",
     srcs = ["loading.py"],
     deps = [
-        "//orbax/checkpoint",
+        "//checkpoint/orbax/checkpoint/_src/checkpointers:checkpointer",
+        "//checkpoint/orbax/checkpoint/_src/handlers:composite_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/_src/handlers:handler_registration",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/handlers:compatibility",
         "//orbax/checkpoint/experimental/v1/_src/handlers:composite_handler",

@@ -463,8 +463,8 @@ class SaveLoadTestBase:
     def test_custom_checkpointables(self):
       checkpointables_options = (
           ocp.options.CheckpointablesOptions.create_with_handlers(
-              handler_utils.FooHandler(),
-              handler_utils.BarHandler(),
+              handler_utils.FooHandler,
+              handler_utils.BarHandler,
           )
       )
       self.enter_context(
@@ -541,7 +541,7 @@ class SaveLoadTestBase:
       directory = self.directory
       checkpointables_options = (
           ocp.options.CheckpointablesOptions.create_with_handlers(
-              one=handler_utils.DictHandler(),
+              one=handler_utils.DictHandler,
           )
       )
       self.enter_context(

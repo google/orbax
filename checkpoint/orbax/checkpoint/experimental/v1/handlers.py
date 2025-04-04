@@ -30,3 +30,5 @@ from orbax.checkpoint.experimental.v1._src.handlers.registration import (
     local_registry,
     register_handler,
 )
+
+import orbax.checkpoint.experimental.v1._src.handlers.global_registration

@@ -26,6 +26,7 @@ from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
+import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 
@@ -60,8 +61,9 @@ class CompositeHandler:
         registration.global_registry()
     )
     if handler_registry is not None:
-      for handler, checkpointable in handler_registry.get_all_entries():
-        self._handler_registry.add(handler, checkpointable)
+      self._handler_registry = registration.add_all(
+          self._handler_registry, handler_registry
+      )
 
     logging.vlog(
         1,
