@@ -30,7 +30,7 @@ class RegistrationTest(parameterized.TestCase):
 
   def test_global_registry(self):
     expected_types = [
-        type(handler)
+        handler
         for handler, _ in registration.global_registry().get_all_entries()
     ]
     self.assertSameElements(
@@ -46,13 +46,13 @@ class RegistrationTest(parameterized.TestCase):
     local_registry.add(handler_utils.FooHandler, 'foo')
     local_registry.add(handler_utils.BarHandler)
     self.assertTrue(local_registry.has('foo'))
-    self.assertIsInstance(local_registry.get('foo'), handler_utils.FooHandler)
+    self.assertEqual(local_registry.get('foo'), handler_utils.FooHandler)
     expected = [handler_utils.FooHandler, handler_utils.BarHandler]
     if include_global_registry:
       expected.append(handler_utils.BazHandler)
     self.assertSameElements(
         expected,
-        [type(handler) for handler, _ in local_registry.get_all_entries()],
+        [handler for handler, _ in local_registry.get_all_entries()],
     )
 
   def test_missing_handler(self):
