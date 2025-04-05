@@ -45,6 +45,7 @@ from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.logging import abstract_logger
+from orbax.checkpoint._src.logging import perf_logging
 from orbax.checkpoint._src.logging import standard_logger
 from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.metadata import checkpoint
@@ -1397,9 +1398,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
           processes=self._multiprocessing_options.active_processes,
       )
-    logging.info(
-        '[process=%s] Saving checkpoint at step %d', process_index, step
-    )
+    perf_logging.log_memory_info(f'[step={step}] Saving checkpoint.')
     step_stats.checkpointer_blocking_start_time = time.time()
     self._checkpointer.save(
         save_directory, args=args, custom_metadata=custom_metadata
@@ -1470,6 +1469,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           step,
       )
 
+    perf_logging.log_memory_info(f'[step={step}] After sync phase save.')
     step_stats.synchronous = not is_async_checkpointer(self._checkpointer)
     step_stats.checkpoint_manager_blocking_duration_secs = (
         time.time() - step_stats.checkpoint_manager_blocking_start_time
@@ -2080,6 +2080,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def _finalize(self, step: int, steps_to_remove: List[int]):
     """Finalizes individual items and starts garbage collection."""
+    perf_logging.log_memory_info(f'[step={step}] Before finalize phase save.')
     process_index = multihost.process_index()
     current_thread = threading.current_thread()
     self._non_blocking_metadata_store.wait_until_finished()
@@ -2108,13 +2109,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             suffix=str(step),
         )
     )
-    logging.info(
-        '[process=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
-        ' done on all hosts.',
-        process_index,
-        current_thread.name,
-        step,
-    )
+    perf_logging.log_memory_info(f'[step={step}] After finalize phase save.')
 
   def close(self):
     """Waits for outstanding operations to finish and closes internal objects."""
