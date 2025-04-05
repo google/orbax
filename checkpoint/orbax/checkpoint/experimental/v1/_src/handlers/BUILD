@@ -118,7 +118,6 @@ py_library(
         ":proto_handler",
         ":pytree_handler",
         ":registration",
-        "//orbax/checkpoint/experimental/v1/_src/path:format_utils",
     ],
 )
 
