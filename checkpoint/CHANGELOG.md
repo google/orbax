@@ -19,6 +19,7 @@ handlers for checkpointables using V1 APIs.
 - `ocp.PLACEHOLDER` for partial restoration.
 - `tree_trim` utility function for matching PyTree structures.
 - #v1 Add `ProtoHandler`.
+- Log memory_info in save code path.
 
 ### Changed
 

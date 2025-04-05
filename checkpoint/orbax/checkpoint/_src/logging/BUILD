@@ -33,3 +33,9 @@ py_library(
     srcs = ["composite_logger.py"],
     deps = [":abstract_logger"],
 )
+
+py_library(
+    name = "perf_logging",
+    srcs = ["perf_logging.py"],
+    deps = ["//third_party/py/psutil"],
+)
