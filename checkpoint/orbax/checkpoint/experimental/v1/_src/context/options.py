@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, Type
 
 import numpy as np
 from orbax.checkpoint import options as v0_options_lib
@@ -297,8 +297,8 @@ class CheckpointablesOptions:
   @classmethod
   def create_with_handlers(
       cls,
-      *handlers: handler_types.CheckpointableHandler,
-      **named_handlers: handler_types.CheckpointableHandler,
+      *handlers: Type[handler_types.CheckpointableHandler],
+      **named_handlers: Type[handler_types.CheckpointableHandler],
   ) -> CheckpointablesOptions:
     registry = registration.local_registry()
     for handler in handlers:

@@ -61,7 +61,7 @@ from absl import logging
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 
 CheckpointableHandler = handler_types.CheckpointableHandler
-RegistryEntry = tuple[CheckpointableHandler, str | None]
+RegistryEntry = tuple[Type[CheckpointableHandler], str | None]
 
 
 def add_all(
@@ -82,7 +82,7 @@ class CheckpointableHandlerRegistry(Protocol):
 
   def add(
       self,
-      handler: CheckpointableHandler | Type[CheckpointableHandler],
+      handler_type: Type[CheckpointableHandler],
       checkpointable: str | None = None,
   ) -> CheckpointableHandlerRegistry:
     """Adds an entry to the registry."""
@@ -91,8 +91,8 @@ class CheckpointableHandlerRegistry(Protocol):
   def get(
       self,
       checkpointable: str,
-  ) -> CheckpointableHandler:
-    """Gets an entry from the registry."""
+  ) -> Type[CheckpointableHandler]:
+    """Gets the type of a `CheckpointableHandler` from the registry."""
     ...
 
   def has(
@@ -130,14 +130,13 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
 
   def add(
       self,
-      handler: CheckpointableHandler | Type[CheckpointableHandler],
+      handler_type: Type[CheckpointableHandler],
       checkpointable: str | None = None,
   ) -> CheckpointableHandlerRegistry:
     """Adds an entry to the registry.
 
     Args:
-      handler: The handler. If a type is provided, an instance of the type will
-        be added to the registry.
+      handler_type: The handler type.
       checkpointable: The checkpointable name. If not-None, the registered
         handler will be scoped to that specific name. Otherwise, the handler
         will be available for any checkpointable name.
@@ -150,32 +149,22 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
         exists in the registry.
       ValueError: If the handler is not default-constructible.
     """
+    if not isinstance(handler_type, type):
+      raise ValueError(
+          f'The `handler_type` must be a type, but got {handler_type}.'
+      )
     if checkpointable and self.has(checkpointable):
       raise AlreadyExistsError(
           f'Entry for checkpointable={checkpointable} already'
           ' exists in the registry.'
       )
-
-    if isinstance(handler, type):
-      try:
-        handler_instance = handler()
-      except TypeError as e:
-        raise ValueError(
-            'Provided a `CheckpointableHandler` when registering'
-            f' checkpointable={checkpointable} that could not be'
-            ' default-constructed. Please ensure the object is'
-            ' default-constructible or provide a concrete instance.'
-        ) from e
-    else:
-      handler_instance = handler
-
-    self._registry.append((handler_instance, checkpointable))
+    self._registry.append((handler_type, checkpointable))
     return self
 
   def get(
       self,
       checkpointable: str,
-  ) -> CheckpointableHandler:
+  ) -> Type[CheckpointableHandler]:
     """Returns the handler for the given checkpointable name.
 
     Args:
@@ -209,11 +198,10 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
       True if an entry for the given checkpointable name exists, False
       otherwise.
     """
-    try:
-      self.get(checkpointable)
-    except NoEntryError:
-      return False
-    return True
+    return any(
+        checkpointable_name == checkpointable
+        for _, checkpointable_name in self._registry
+    )
 
   def get_all_entries(
       self,
@@ -222,10 +210,10 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
     return self._registry
 
   def __repr__(self):
-    return f'_DefaultCheckpointableHandlerRegistry({self._registry})'
+    return f'_DefaultCheckpointableHandlerRegistry({self.get_all_entries()})'
 
   def __str__(self):
-    return f'_DefaultCheckpointableHandlerRegistry({self._registry})'
+    return f'_DefaultCheckpointableHandlerRegistry({self.get_all_entries()})'
 
 
 _GLOBAL_REGISTRY = _DefaultCheckpointableHandlerRegistry()
@@ -290,6 +278,23 @@ def register_handler(
   return cls
 
 
+def _construct_handler_instance(
+    name: str,
+    handler_type: Type[CheckpointableHandler],
+) -> CheckpointableHandler:
+  """Attempts to default-construct a handler type if possible."""
+  assert isinstance(handler_type, type)
+  try:
+    return handler_type()
+  except TypeError as e:
+    raise ValueError(
+        'The `CheckpointableHandler` resolved for'
+        f' checkpointable={name} could not be'
+        ' default-constructed. Please ensure the object is'
+        ' default-constructible or provide a concrete instance.'
+    ) from e
+
+
 def _get_possible_handlers(
     registry: CheckpointableHandlerRegistry,
     is_handleable_fn: Callable[[CheckpointableHandler, Any], bool],
@@ -297,24 +302,29 @@ def _get_possible_handlers(
     name: str,
 ) -> Sequence[CheckpointableHandler]:
   """Raises a NoEntryError if no possible handlers are found."""
+  registry_entries = (
+      (
+          _construct_handler_instance(checkpointable_name, handler),
+          checkpointable_name,
+      )
+      for handler, checkpointable_name in registry.get_all_entries()
+  )
   if checkpointable is None:
     # All handlers are potentially usable if checkpointable is not provided.
     possible_handlers = [
         handler
-        for handler, checkpointable_name in registry.get_all_entries()
+        for handler, checkpointable_name in registry_entries
         if checkpointable_name is None
     ]
   else:
     possible_handlers = [
         handler
-        for handler, checkpointable_name in registry.get_all_entries()
+        for handler, checkpointable_name in registry_entries
         if checkpointable_name is None
         and is_handleable_fn(handler, checkpointable)
     ]
   if not possible_handlers:
-    available_handlers = [
-        type(handler) for handler, _ in registry.get_all_entries()
-    ]
+    available_handlers = [type(handler) for handler, _ in registry_entries]
     error_msg = (
         f'Could not identify a valid handler for the checkpointable: {name} and'
         f' checkpointable type={type(checkpointable)}. Make sure to register a'
@@ -355,7 +365,7 @@ def resolve_handler_for_save(
   """
   # If explicitly registered, use that first.
   if registry.has(name):
-    return registry.get(name)
+    return _construct_handler_instance(name, registry.get(name))
 
   if checkpointable is None:
     raise ValueError('checkpointable must not be None for saving.')
@@ -404,7 +414,7 @@ def resolve_handler_for_load(
   """
   # If explicitly registered, use that first.
   if registry.has(name):
-    return registry.get(name)
+    return _construct_handler_instance(name, registry.get(name))
 
   def is_handleable_fn(handler: CheckpointableHandler, ckpt: Any) -> bool:
     return handler.is_abstract_handleable(ckpt)

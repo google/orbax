@@ -25,4 +25,3 @@ from orbax.checkpoint.experimental.v1._src.handlers import registration
 registration.global_registry().add(pytree_handler.PyTreeHandler)
 
 registration.global_registry().add(proto_handler.ProtoHandler)
-

@@ -135,7 +135,6 @@ def create_v0_restore_args(
   )
 
 
-@registration.register_handler
 class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
   """An implementation of `CheckpointableHandler` for PyTrees."""
 
@@ -276,7 +275,7 @@ def pytree_handler_context():
   # TODO(b/398310070): Verify behavior with nested Contexts.
   checkpointables_options = options_lib.CheckpointablesOptions(
       registry=registration.local_registry(include_global_registry=False).add(
-          PyTreeHandler(context=context),
+          PyTreeHandler,
           PYTREE_CHECKPOINTABLE_KEY,
       )
   )
