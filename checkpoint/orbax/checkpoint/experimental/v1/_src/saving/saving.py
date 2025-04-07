@@ -249,8 +249,17 @@ def get_v0_checkpointer_and_args(
   handler_registry = ocp.handlers.DefaultCheckpointHandlerRegistry()
   for name, handler in compatibility_handlers.items():
     handler_registry.add(name, handler_compatibility.Args, handler)
+  # TODO(cpgaffney): Remove this once we have a better way to handle async
+  # directory creation.
+  async_options = ocp.options.AsyncOptions(
+      create_directories_asynchronously=False
+  )
   ckptr = ocp.AsyncCheckpointer(
-      ocp.CompositeCheckpointHandler(handler_registry=handler_registry)
+      ocp.CompositeCheckpointHandler(
+          handler_registry=handler_registry,
+          composite_options=ocp.CompositeOptions(async_options=async_options),
+      ),
+      async_options=async_options,
   )
   args = ocp.args.Composite(**{
       name: handler_compatibility.Args(checkpointable)
