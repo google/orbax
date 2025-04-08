@@ -1,5 +1,4 @@
-load("//devtools/python/blaze:pytype.bzl", "pytype_strict_library")
-load("//devtools/python/blaze:strict.bzl", "py_strict_test")
+load("//devtools/python/blaze:pytype.bzl", "pytype_strict_library", pytype_strict_test = "pytype_strict_contrib_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -14,10 +13,9 @@ py_library(
     srcs = ["loading.py"],
     deps = [
         ":types",
-        "//checkpoint/orbax/checkpoint/_src/checkpointers:checkpointer",
-        "//orbax/checkpoint:handlers",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/handlers:pytree_handler",
+        "//orbax/checkpoint/experimental/v1/_src/loading",
         "//orbax/checkpoint/experimental/v1/_src/path:format_utils",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
     ],
@@ -27,10 +25,13 @@ py_test(
     name = "loading_test",
     srcs = ["loading_test.py"],
     deps = [
-        ":loading",
         ":types",
+        "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
-        "//orbax/checkpoint/experimental/v1/_src/saving",
+        "//orbax/checkpoint/experimental/v1",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/experimental/v1/_src/context:options",
         "//orbax/checkpoint/experimental/v1/_src/testing:array_utils",
+        "//orbax/checkpoint/experimental/v1/_src/testing:handler_utils",
     ],
 )

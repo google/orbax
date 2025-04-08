@@ -51,20 +51,13 @@ class CompositeHandler:
 
   def __init__(
       self,
-      handler_registry: (
-          registration.CheckpointableHandlerRegistry | None
-      ) = None,
+      handler_registry: registration.CheckpointableHandlerRegistry,
   ):
     self._context = context_lib.get_context()
     # Create a copy to prevent mutation by the caller.
     self._handler_registry = registration.local_registry(
-        registration.global_registry()
+        handler_registry, include_global_registry=False
     )
-    if handler_registry is not None:
-      self._handler_registry = registration.add_all(
-          self._handler_registry, handler_registry
-      )
-
     logging.vlog(
         1,
         'Initialized CompositeHandler with registry: %s.',

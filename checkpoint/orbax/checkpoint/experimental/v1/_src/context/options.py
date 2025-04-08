@@ -291,7 +291,9 @@ class CheckpointablesOptions:
   """
 
   registry: registration.CheckpointableHandlerRegistry = dataclasses.field(
-      default=registration.global_registry()
+      default_factory=lambda: registration.ReadOnlyCheckpointableHandlerRegistry(
+          registration.local_registry(include_global_registry=True)
+      )
   )
 
   @classmethod
@@ -300,7 +302,7 @@ class CheckpointablesOptions:
       *handlers: Type[handler_types.CheckpointableHandler],
       **named_handlers: Type[handler_types.CheckpointableHandler],
   ) -> CheckpointablesOptions:
-    registry = registration.local_registry()
+    registry = registration.local_registry(include_global_registry=True)
     for handler in handlers:
       registry.add(handler, None)
     for name, handler in named_handlers.items():

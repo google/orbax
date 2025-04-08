@@ -216,6 +216,43 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
     return f'_DefaultCheckpointableHandlerRegistry({self.get_all_entries()})'
 
 
+class ReadOnlyCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
+  """Read-only implementation of `CheckpointableHandlerRegistry`."""
+
+  def __init__(self, registry: CheckpointableHandlerRegistry):
+    self._registry = registry
+
+  def add(
+      self,
+      handler_type: Type[CheckpointableHandler],
+      checkpointable: str | None = None,
+  ) -> CheckpointableHandlerRegistry:
+    raise NotImplementedError('Adding not implemented for read-only registry.')
+
+  def get(
+      self,
+      checkpointable: str,
+  ) -> Type[CheckpointableHandler]:
+    return self._registry.get(checkpointable)
+
+  def has(
+      self,
+      checkpointable: str,
+  ) -> bool:
+    return self._registry.has(checkpointable)
+
+  def get_all_entries(
+      self,
+  ) -> Sequence[RegistryEntry]:
+    return self._registry.get_all_entries()
+
+  def __repr__(self):
+    return f'ReadOnlyCheckpointableHandlerRegistry({self.get_all_entries()})'
+
+  def __str__(self):
+    return f'ReadOnlyCheckpointableHandlerRegistry({self.get_all_entries()})'
+
+
 _GLOBAL_REGISTRY = _DefaultCheckpointableHandlerRegistry()
 
 
@@ -274,6 +311,7 @@ def register_handler(
   Returns:
     The handler class.
   """
+  logging.info('CheckpointableHandler: %s registered globally.', cls)
   _GLOBAL_REGISTRY.add(cls)
   return cls
 

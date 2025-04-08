@@ -20,8 +20,10 @@ This must be imported to ensure necessary handlers are registered.
 from orbax.checkpoint.experimental.v1._src.handlers import proto_handler
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration
+from orbax.checkpoint.experimental.v1._src.path import format_utils
 
 
 registration.global_registry().add(pytree_handler.PyTreeHandler)
 
 registration.global_registry().add(proto_handler.ProtoHandler)
+

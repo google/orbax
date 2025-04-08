@@ -35,6 +35,7 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
+from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -223,9 +224,11 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     # TODO(b/406252214): Add validation for PyTrees and abstract PyTrees.
     return self._background_load(directory, abstract_checkpointable)
 
-  async def metadata(self, directory: path_types.PathLike) -> PyTree:
+  async def metadata(
+      self, directory: path_types.PathLike
+  ) -> metadata_types.PyTreeMetadata:
     directory = epath.Path(directory)
-    return self._handler_impl.metadata(directory)
+    return self._handler_impl.metadata(directory).tree
 
   def _is_handleable_leaf(self, leaf: Any) -> bool:
     return (
@@ -270,16 +273,15 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
 
 @contextlib.contextmanager
 def pytree_handler_context():
-  """Creates a context where only `PyTreeHandler` is registered."""
-  context = context_lib.get_context()
+  """Creates a local context where only `PyTreeHandler` is registered."""
   # TODO(b/398310070): Verify behavior with nested Contexts.
   checkpointables_options = options_lib.CheckpointablesOptions(
-      registry=registration.local_registry(include_global_registry=False).add(
+      registry=registration.local_registry(include_global_registry=True).add(
           PyTreeHandler,
           PYTREE_CHECKPOINTABLE_KEY,
       )
   )
-  with dataclasses.replace(
-      context, checkpointables_options=checkpointables_options
+  with context_lib.Context(
+      context_lib.get_context(), checkpointables_options=checkpointables_options
   ) as new_context:
     yield new_context

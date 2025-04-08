@@ -17,7 +17,7 @@
 from typing import Any
 
 from etils import epath
-from orbax.checkpoint._src.checkpointers import checkpointer
+from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.multihost import multihost
@@ -25,6 +25,8 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
+import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
+from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
@@ -32,12 +34,22 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
 PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
+AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeafType]
+CheckpointMetadata = metadata_types.CheckpointMetadata
+
+
+def _standardize_abstract_checkpointables(abstract_checkpointables):
+  if abstract_checkpointables is None:
+    return None
+  if isinstance(abstract_checkpointables, CheckpointMetadata):
+    return abstract_checkpointables.metadata
+  return abstract_checkpointables
 
 
 def load_pytree(
     directory: path_types.PathLike,
     abstract_pytree: (
-        tree_types.PyTreeOf[tree_types.AbstractLeafType] | None
+        AbstractPyTree | CheckpointMetadata[AbstractPyTree] | None
     ) = None,
 ) -> tree_types.PyTreeOf[tree_types.LeafType]:
   """Loads a PyTree.
@@ -81,13 +93,20 @@ def load_pytree(
   format_utils.validate_pytree_checkpoint(directory)
   with pytree_handler.pytree_handler_context():
     return load_checkpointables(
-        directory, {PYTREE_CHECKPOINTABLE_KEY: abstract_pytree}
+        directory,
+        {
+            PYTREE_CHECKPOINTABLE_KEY: _standardize_abstract_checkpointables(
+                abstract_pytree
+            )
+        },
     )[PYTREE_CHECKPOINTABLE_KEY]
 
 
 def load_checkpointables(
     directory: path_types.PathLike,
-    abstract_checkpointables: dict[str, Any] | None = None,
+    abstract_checkpointables: (
+        dict[str, Any] | CheckpointMetadata[dict[str, Any]] | None
+    ) = None,
 ) -> dict[str, Any]:
   """Loads checkpointables.
 
@@ -132,7 +151,9 @@ def load_checkpointables(
 
 
   ckptr, args = get_v0_checkpointer_and_args(
-      directory, abstract_checkpointables
+      directory,
+      _standardize_abstract_checkpointables(abstract_checkpointables),
+      context=context_lib.get_context(),
   )
   restored = ckptr.restore(directory, args=args)
   return {k: v for k, v in zip(restored.keys(), restored.values())}
@@ -141,7 +162,7 @@ def load_checkpointables(
 def load_pytree_async(
     directory: path_types.PathLike,
     abstract_pytree: (
-        tree_types.PyTreeOf[tree_types.AbstractLeafType] | None
+        AbstractPyTree | CheckpointMetadata[AbstractPyTree] | None
     ) = None,
 ) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.LeafType]]:
   """Loads a PyTree asynchronously. Not yet implemented."""
@@ -151,7 +172,9 @@ def load_pytree_async(
 
 def load_checkpointables_async(
     directory: path_types.PathLike,
-    abstract_checkpointables: dict[str, Any],
+    abstract_checkpointables: (
+        dict[str, Any] | CheckpointMetadata[dict[str, Any]] | None
+    ) = None,
 ) -> async_types.AsyncResponse[dict[str, Any]]:
   """Loads a checkpointables asynchronously. Not yet implemented."""
   del directory, abstract_checkpointables
@@ -159,13 +182,24 @@ def load_checkpointables_async(
 
 
 def get_v0_checkpointer_and_args(
-    directory: path_types.Path, abstract_checkpointables: dict[str, Any] | None
+    directory: path_types.Path,
+    abstract_checkpointables: dict[str, Any] | None,
+    *,
+    context: context_lib.Context,
 ) -> tuple[
-    checkpointer.Checkpointer, composite_checkpoint_handler.CompositeArgs
+    async_checkpointer.AsyncCheckpointer,
+    composite_checkpoint_handler.CompositeArgs,
 ]:
   """Construct V0 Checkpointer and Args for loading."""
-  context = context_lib.get_context()
   abstract_checkpointables = abstract_checkpointables or {}
+  if (
+      provided_reserved_keys := abstract_checkpointables.keys()
+      & format_utils.RESERVED_CHECKPOINTABLE_KEYS
+  ):
+    raise ValueError(
+        f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
+    )
+
   # pylint: disable=protected-access
   handlers = composite_handler.CompositeHandler(
       context.checkpointables_options.registry
@@ -177,7 +211,9 @@ def get_v0_checkpointer_and_args(
     abstract_checkpointables = {
         name: None
         for name in handlers.keys()
+        if name not in format_utils.RESERVED_CHECKPOINTABLE_KEYS
     }
+
   compatibility_handlers = {
       name: handler_compatibility.get_compatibility_handler(handler)
       for name, handler in handlers.items()
@@ -185,10 +221,21 @@ def get_v0_checkpointer_and_args(
   handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
   for name, handler in compatibility_handlers.items():
     handler_registry.add(name, handler_compatibility.Args, handler)
-  ckptr = checkpointer.Checkpointer(
+  composite_options = composite_checkpoint_handler.CompositeOptions(
+      async_options=context.async_options.v0(),
+      file_options=context.file_options.v0(),
+      multiprocessing_options=context.multiprocessing_options.v0(),
+      temporary_path_class=context.file_options.temporary_path_class,
+  )
+  ckptr = async_checkpointer.AsyncCheckpointer(
       composite_checkpoint_handler.CompositeCheckpointHandler(
-          handler_registry=handler_registry
-      )
+          handler_registry=handler_registry,
+          composite_options=composite_options,
+      ),
+      async_options=context.async_options.v0(),
+      multiprocessing_options=context.multiprocessing_options.v0(),
+      file_options=context.file_options.v0(),
+      temporary_path_class=context.file_options.temporary_path_class,
   )
   args = composite_checkpoint_handler.CompositeArgs(**{
       name: handler_compatibility.Args(checkpointable)

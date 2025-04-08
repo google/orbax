@@ -29,7 +29,9 @@ from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
+import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
+
 
 CompositeHandler = composite_handler.CompositeHandler
 CheckpointableHandler = handler_types.CheckpointableHandler
@@ -42,15 +44,15 @@ Foo = handler_utils.Foo
 Bar = handler_utils.Bar
 Baz = handler_utils.Baz
 
+# Baz is registered globally, while the others are not.
+registration.register_handler(BazHandler)
+
 
 class CompositeHandlerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
     self.directory = epath.Path(self.create_tempdir(name='test_dir')) / 'ckpt'
-
-    # Baz is registered globally, while the others are not.
-    registration.register_handler(BazHandler)
 
   def save(
       self,
@@ -127,22 +129,18 @@ class CompositeHandlerTest(parameterized.TestCase):
           {'foo': {'a': 0}, 'bar': {'x': 0}},
           {'foo': {'a': 0}},  # Skip loading 'bar'.
       ),
-      use_save_registry=(True, False),
-      use_load_registry=(True, False),
   )
   def test_save_load(
       self,
       save_checkpointables,
       abstract_checkpointables,
-      use_save_registry,
-      use_load_registry,
   ):
     registry = self.create_registry()
     for k in save_checkpointables:
       registry.add(PyTreeHandler, k)
 
     self.save(
-        CompositeHandler(registry if use_save_registry else None),
+        CompositeHandler(registry),
         self.directory,
         save_checkpointables,
     )
@@ -150,7 +148,7 @@ class CompositeHandlerTest(parameterized.TestCase):
       self.assertTrue((self.directory / k).exists())
 
     result = self.load(
-        CompositeHandler(registry if use_load_registry else None),
+        CompositeHandler(registry),
         self.directory,
         abstract_checkpointables,
     )
@@ -204,12 +202,22 @@ class CompositeHandlerTest(parameterized.TestCase):
   def test_save_unregistered_checkpointable(self):
     checkpointables = {'foo': Foo(x=1, y='foo')}
     with self.assertRaises(registration.NoEntryError):
-      self.save(CompositeHandler(), self.directory, checkpointables)
+      self.save(
+          CompositeHandler(self.create_registry()),
+          self.directory,
+          checkpointables,
+      )
 
   def test_save_custom_object_with_global_registry(self):
     checkpointables = {'baz': Baz(int_val=2, str_val='baz')}
-    self.save(CompositeHandler(), self.directory, checkpointables)
-    result = self.load(CompositeHandler(), self.directory, None)
+    self.save(
+        CompositeHandler(self.create_registry()),
+        self.directory,
+        checkpointables,
+    )
+    result = self.load(
+        CompositeHandler(self.create_registry()), self.directory, None
+    )
     self.assertDictEqual(checkpointables, result)
 
   def test_save_and_load_with_different_handlers(self):

@@ -16,9 +16,9 @@
 
 import threading
 from typing import Any
+import uuid
 
 from etils import epath
-from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
@@ -27,6 +27,7 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration
+import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
@@ -61,13 +62,12 @@ def save_pytree(
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
   """
-  with pytree_handler.pytree_handler_context():
-    save_checkpointables(
-        directory,
-        {PYTREE_CHECKPOINTABLE_KEY: pytree},
-        force=force,
-        custom_metadata=custom_metadata,
-    )
+  save_pytree_async(
+      directory,
+      pytree,
+      force=force,
+      custom_metadata=custom_metadata,
+  ).result()
 
 
 def save_checkpointables(
@@ -149,6 +149,8 @@ class _SaveResponse(async_types.AsyncResponse[None]):
     self._checkpointer.close()
 
 
+# TODO(b/396190818): Test modification of the context by the user after the
+# save operation is scheduled.
 def save_pytree_async(
     directory: path_types.PathLike,
     pytree: tree_types.PyTreeOf[tree_types.LeafType],
@@ -229,21 +231,35 @@ def save_checkpointables_async(
     Blocking can be done using `response.result()`, which returns `None`.
   """
   directory = epath.Path(directory)
+  # Prevent internal mutation from affecting the caller.
+  checkpointables = dict(checkpointables)
 
   directory = epath.Path(directory)
-  ckptr, args = get_v0_checkpointer_and_args(checkpointables)
+  ckptr, args = get_v0_checkpointer_and_args(
+      checkpointables, context=context_lib.get_context()
+  )
   ckptr.save(directory, args=args, force=force, custom_metadata=custom_metadata)
   return _SaveResponse(ckptr)
 
 
 def get_v0_checkpointer_and_args(
     checkpointables: dict[str, Any],
+    *,
+    context: context_lib.Context,
 ) -> tuple[
     async_checkpointer.AsyncCheckpointer,
     composite_checkpoint_handler.CompositeArgs,
 ]:
   """Construct V0 Checkpointer and Args for saving."""
-  context = context_lib.get_context()
+  if (
+      provided_reserved_keys := checkpointables.keys()
+      & format_utils.RESERVED_CHECKPOINTABLE_KEYS
+  ):
+    raise ValueError(
+        f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
+    )
+
+
   handlers = {
       name: registration.resolve_handler_for_save(
           context.checkpointables_options.registry, checkpointable, name=name
@@ -257,19 +273,21 @@ def get_v0_checkpointer_and_args(
   handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
   for name, handler in compatibility_handlers.items():
     handler_registry.add(name, handler_compatibility.Args, handler)
-  # TODO(cpgaffney): Remove this once we have a better way to handle async
-  # directory creation.
-  async_options = options_lib.AsyncOptions(
-      create_directories_asynchronously=False
+  composite_options = composite_checkpoint_handler.CompositeOptions(
+      async_options=context.async_options.v0(),
+      file_options=context.file_options.v0(),
+      multiprocessing_options=context.multiprocessing_options.v0(),
+      temporary_path_class=context.file_options.temporary_path_class,
   )
   ckptr = async_checkpointer.AsyncCheckpointer(
       composite_checkpoint_handler.CompositeCheckpointHandler(
           handler_registry=handler_registry,
-          composite_options=composite_checkpoint_handler.CompositeOptions(
-              async_options=async_options
-          ),
+          composite_options=composite_options,
       ),
-      async_options=async_options,
+      async_options=context.async_options.v0(),
+      multiprocessing_options=context.multiprocessing_options.v0(),
+      file_options=context.file_options.v0(),
+      temporary_path_class=context.file_options.temporary_path_class,
   )
   args = composite_checkpoint_handler.CompositeArgs(**{
       name: handler_compatibility.Args(checkpointable)

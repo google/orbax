@@ -117,9 +117,41 @@ class ContextTest(absltest.TestCase):
         ctx = fake_checkpoint_operation()
         self.assertEqual(
             ctx.array_options,
-            ArrayOptions(saving=ArrayOptions.Saving(use_ocdbt=False)),
+            ArrayOptions(
+                saving=ArrayOptions.Saving(use_zarr3=True, use_ocdbt=False)
+            ),
         )
 
+      ctx = fake_checkpoint_operation()
+      self.assertEqual(
+          ctx.array_options,
+          ArrayOptions(
+              saving=ArrayOptions.Saving(use_zarr3=False, use_ocdbt=True)
+          ),
+      )
+
+  def test_nested_contexts_with_inheritance(self):
+    with ocp.Context(
+        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False))
+    ):
+      ctx = fake_checkpoint_operation()
+      self.assertEqual(
+          ctx.array_options,
+          ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False)),
+      )
+      with ocp.Context(
+          ctx,
+          array_options=ArrayOptions(
+              saving=ArrayOptions.Saving(use_ocdbt=False, use_zarr3=True)
+          ),
+      ):
+        ctx = fake_checkpoint_operation()
+        self.assertEqual(
+            ctx.array_options,
+            ArrayOptions(
+                saving=ArrayOptions.Saving(use_ocdbt=False, use_zarr3=True)
+            ),
+        )
       ctx = fake_checkpoint_operation()
       self.assertEqual(
           ctx.array_options,

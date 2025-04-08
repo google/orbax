@@ -19,7 +19,7 @@ Prefer to use the style::
   import orbax.checkpoint.experimental.v1 as ocp
 """
 
-# pylint: disable=g-importing-member, g-multiple-import
+# pylint: disable=g-importing-member, g-multiple-import, g-bad-import-order
 
 from orbax.checkpoint.experimental.v1 import handlers
 from orbax.checkpoint.experimental.v1._src.context import options
@@ -33,6 +33,7 @@ from orbax.checkpoint.experimental.v1._src.loading.loading import (
     load_pytree_async,
 )
 from orbax.checkpoint.experimental.v1._src.metadata.loading import (
+    checkpointables_metadata,
     pytree_metadata,
 )
 from orbax.checkpoint.experimental.v1._src.saving.saving import (
@@ -43,4 +44,8 @@ from orbax.checkpoint.experimental.v1._src.saving.saving import (
 )
 from orbax.checkpoint.experimental.v1.handlers import (
     CheckpointableHandler,
+)
+from orbax.checkpoint.experimental.v1._src.metadata.types import (
+    CheckpointMetadata,
+    PyTreeMetadata,
 )

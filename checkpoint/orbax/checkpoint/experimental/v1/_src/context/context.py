@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 import contextvars
-import dataclasses
 
 from etils import epy
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
@@ -37,7 +36,6 @@ def get_context(default: Context | None = None) -> Context:
   return _CONTEXT.get(default)
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
 class Context(epy.ContextManager):
   """Context for customized checkpointing.
 
@@ -45,6 +43,17 @@ class Context(epy.ContextManager):
 
     with ocp.Context(...):
       ocp.save_pytree(...)
+
+  Creating a new `Context` within an existing `Context` sets all parameters from
+  scratch; it does not inherit properties from the parent `Context`. To achieve
+  this, use::
+
+    with Context(**some_properties) as outer_ctx:
+      with Context(outer_ctx, **other) as inner_ctx:
+        ...
+
+  The `inner_ctx` will have the same properties as `outer_ctx`, except for any
+  properties modified in the `dataclasses.replace` call.
 
   NOTE: The context is not shared across threads. In other words, the whole
   context block must be executed in the same thread. Following example will
@@ -62,26 +71,66 @@ class Context(epy.ContextManager):
     async_options: Options for controlling asynchronous behavior.
     multiprocessing_options: Options for multiprocessing behavior.
     file_options: Options for working with the file system.
+    checkpointables_options: Options for controlling checkpointables behavior.
   """
 
-  pytree_options: options_lib.PyTreeOptions = dataclasses.field(
-      default_factory=options_lib.PyTreeOptions
-  )
-  array_options: options_lib.ArrayOptions = dataclasses.field(
-      default_factory=options_lib.ArrayOptions
-  )
-  async_options: options_lib.AsyncOptions = dataclasses.field(
-      default_factory=options_lib.AsyncOptions
-  )
-  multiprocessing_options: options_lib.MultiprocessingOptions = (
-      dataclasses.field(default_factory=options_lib.MultiprocessingOptions)
-  )
-  file_options: options_lib.FileOptions = dataclasses.field(
-      default_factory=options_lib.FileOptions
-  )
-  checkpointables_options: options_lib.CheckpointablesOptions = (
-      dataclasses.field(default_factory=options_lib.CheckpointablesOptions)
-  )
+  def __init__(
+      self,
+      context: Context | None = None,
+      *,
+      pytree_options: options_lib.PyTreeOptions | None = None,
+      array_options: options_lib.ArrayOptions | None = None,
+      async_options: options_lib.AsyncOptions | None = None,
+      multiprocessing_options: options_lib.MultiprocessingOptions | None = None,
+      file_options: options_lib.FileOptions | None = None,
+      checkpointables_options: options_lib.CheckpointablesOptions | None = None,
+  ):
+    self._pytree_options = pytree_options or (
+        context.pytree_options if context else options_lib.PyTreeOptions()
+    )
+    self._array_options = array_options or (
+        context.array_options if context else options_lib.ArrayOptions()
+    )
+    self._async_options = async_options or (
+        context.async_options if context else options_lib.AsyncOptions()
+    )
+    self._multiprocessing_options = multiprocessing_options or (
+        context.multiprocessing_options
+        if context
+        else options_lib.MultiprocessingOptions()
+    )
+    self._file_options = file_options or (
+        context.file_options if context else options_lib.FileOptions()
+    )
+    self._checkpointables_options = checkpointables_options or (
+        context.checkpointables_options
+        if context
+        else options_lib.CheckpointablesOptions()
+    )
+
+  @property
+  def pytree_options(self) -> options_lib.PyTreeOptions:
+    return self._pytree_options
+
+  @property
+  def array_options(self) -> options_lib.ArrayOptions:
+    return self._array_options
+
+  @property
+  def async_options(self) -> options_lib.AsyncOptions:
+    return self._async_options
+
+  @property
+  def multiprocessing_options(self) -> options_lib.MultiprocessingOptions:
+    return self._multiprocessing_options
+
+  @property
+  def file_options(self) -> options_lib.FileOptions:
+    return self._file_options
+
+  @property
+  def checkpointables_options(self) -> options_lib.CheckpointablesOptions:
+    return self._checkpointables_options
 
   def __contextmanager__(self) -> Iterable[Context]:
     token = _CONTEXT.set(self)
