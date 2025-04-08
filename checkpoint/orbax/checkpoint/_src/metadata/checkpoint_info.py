@@ -40,7 +40,6 @@ class CheckpointInfo:
   step: int
   time: datetime.datetime
   metrics: PyTree | None
-  is_locked: bool | None = None
 
   def __post_init__(self):
     # Users may provide step as a jax.Array.
@@ -48,10 +47,7 @@ class CheckpointInfo:
       self.step = int(self.step)
 
   def __str__(self) -> str:
-    return (
-        f'Checkpoint[step={self.step} | time={self.time} |'
-        f' is_locked={self.is_locked}]'
-    )
+    return f'Checkpoint[step={self.step} | time={self.time}]'
 
   def __eq__(self, other: CheckpointInfo) -> bool:
     return self.step == other.step and self.time == other.time

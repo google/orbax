@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Asynchronous directory creation enabled by default.
+- Remove `CheckpointInfo.is_locked` as it is not used anymore.
 
 ## [0.11.11] - 2025-04-07
 

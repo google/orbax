@@ -1905,13 +1905,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
     kept_checkpoints = set()
     for info in maybe_delete:
-      if info.is_locked:
-        logging.info(
-            'Preserving %s: (Reason: checkpoint is locked).',
-            info,
-        )
-        kept_checkpoints.add(info)
-        continue
       if (
           self._options.keep_time_interval is not None
           and interval_preserved_checkpoints
