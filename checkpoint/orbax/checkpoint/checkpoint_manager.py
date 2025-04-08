@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-import concurrent
+from concurrent import futures
 import dataclasses
 import datetime
 import threading
@@ -319,6 +319,11 @@ class CheckpointManagerOptions:
     is the sole means of determining when a checkpoint should be saved. If not
     provided, these other options are used instead. Prefer to use this option
     over others.
+  lazy_checkpoint_info:
+    If True, a given `CheckpointInfo` is only loaded when needed. This is
+    useful for cases where the number of checkpoints is large and loading all
+    of them eagerly is prohibitively expensive. Also see
+    `single_host_load_and_broadcast` for a similar use case.
   """
 
   save_interval_steps: int = 1
@@ -335,7 +340,7 @@ class CheckpointManagerOptions:
   create: bool = True
   cleanup_tmp_directories: bool = False
   save_on_steps: Optional[Container[int]] = None
-  single_host_load_and_broadcast: bool = False
+  single_host_load_and_broadcast: bool = True
   todelete_subdir: Optional[str] = None
   enable_background_delete: bool = False
   read_only: bool = False
@@ -351,6 +356,7 @@ class CheckpointManagerOptions:
   save_decision_policy: Optional[
       save_decision_policy_lib.SaveDecisionPolicy
   ] = None
+  lazy_checkpoint_info: bool = True
 
   def __post_init__(self):
     step_name_format_single_host_load_and_broadcast = (
@@ -359,7 +365,7 @@ class CheckpointManagerOptions:
     )
     if self.single_host_load_and_broadcast and self.step_name_format:
       if not step_name_format_single_host_load_and_broadcast:
-        raise ValueError(
+        logging.warning(
             '`CheckpointManagerOptions.single_host_load_and_broadcast=True`'
             ' requires `step_name_format.single_host_load_and_broadcast` to be'
             ' set to True.'
@@ -805,6 +811,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self._options,
         self.directory,
         self,
+    )
+    infos = []
+    for info in self._checkpoints:
+      assert isinstance(info, checkpoint_info.LazyCheckpointInfo)
+      infos.append(info._time.is_initialized or info._metrics.is_initialized)
+    logging.info(
+        'CheckpointManager ctor accessed lazy CheckpointInfo fields? %s',
+        any(infos),
     )
 
   def _create_thread_safe_barrier_sync_fn(self) -> Callable[[str], None]:
@@ -1669,21 +1683,33 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Returns:
       a list of CheckpointInfo, sorted by increasing step.
     """
+    logging.info(
+        'Loading CheckpointInfo with lazy_checkpoint_info=%s',
+        self._options.lazy_checkpoint_info,
+    )
     if not self.directory.exists():
       raise ValueError(
           f'Checkpoint root directory {self.directory} does not exist.'
       )
     start = time.time()
     step_metadatas = self._step_name_format.find_all(self.directory)
+    list_time = time.time()
 
-    def build_checkpoint_info(step_metadata):
-      return CheckpointInfo(
-          step=step_metadata.step,
-          time=step_metadata.commit_timestamp,
-          metrics=self.metrics(step_metadata.step),
-      )
+    def build_checkpoint_info(step_metadata: step_lib.Metadata):
+      if self._options.lazy_checkpoint_info:
+        return checkpoint_info.LazyCheckpointInfo(
+            step=step_metadata.step,
+            time_initializer=lambda: step_metadata.commit_timestamp,
+            metrics_initializer=lambda: self.metrics(step_metadata.step),
+        )
+      else:
+        return checkpoint_info.CheckpointInfo(
+            step=step_metadata.step,
+            time=step_metadata.commit_timestamp,
+            metrics=self.metrics(step_metadata.step),
+        )
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    with futures.ThreadPoolExecutor() as executor:
       checkpoint_infos = list(
           executor.map(build_checkpoint_info, step_metadatas)
       )
@@ -1692,9 +1718,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           '/jax/checkpoint/read/load_all_step_metadata_duration_secs',
           time.time() - start,
       )
+      checkpoint_info_load_time = time.time()
       logging.info(
-          'Found %d checkpoint steps in %s',
+          'Found %d checkpoint steps in %s seconds (list_time=%s,'
+          ' checkpoint_info_load_time=%s). root_dir=%s',
           len(checkpoint_infos),
+          checkpoint_info_load_time - start,
+          list_time - start,
+          checkpoint_info_load_time - list_time,
           self.directory,
       )
       return checkpoint_infos

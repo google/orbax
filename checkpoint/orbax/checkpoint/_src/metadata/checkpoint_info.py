@@ -24,13 +24,17 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-from typing import Any, Callable, Sequence
+import threading
+from typing import Any, Callable, Generic, Sequence, TypeVar
 
 from absl import logging
 import jax
+import numpy as np
 from orbax.checkpoint._src import threading as threading_lib
 
 PyTree = Any
+
+_T = TypeVar('_T')
 
 
 @dataclasses.dataclass
@@ -50,10 +54,115 @@ class CheckpointInfo:
     return f'Checkpoint[step={self.step} | time={self.time}]'
 
   def __eq__(self, other: CheckpointInfo) -> bool:
-    return self.step == other.step and self.time == other.time
+    return self.step == other.step
 
   def __hash__(self) -> int:
-    return hash((self.step, self.time))
+    return self.step
+
+
+@dataclasses.dataclass
+class _LazyField(Generic[_T]):
+  """A field that is lazily initialized."""
+
+  initializer: Callable[[], _T]
+  is_initialized: bool = dataclasses.field(default=False)
+  _value: _T = dataclasses.field(init=False)
+  _lock: threading.RLock = dataclasses.field(default_factory=threading.RLock)
+
+  @property
+  def value(self) -> _T:
+    """Returns the value of the field."""
+    with self._lock:
+      if not self.is_initialized:
+        self._value = self.initializer()
+        self.is_initialized = True
+      return self._value
+
+  @value.setter
+  def value(self, val: _T):
+    """Sets the value of the field."""
+    with self._lock:
+      self._value = val
+      self.is_initialized = True
+
+
+class LazyCheckpointInfo(CheckpointInfo):
+  """Metadata about a checkpoint, but some fields are lazily initialized."""
+
+  def __init__(
+      self,
+      *,
+      step: int,
+      time_initializer: Callable[[], datetime.datetime],
+      metrics_initializer: Callable[[], PyTree | None],
+  ):
+    self._step = step
+    self._time = _LazyField[datetime.datetime](initializer=time_initializer)
+    self._metrics = _LazyField[PyTree | None](initializer=metrics_initializer)
+    super().__init__(
+        step=step,
+        time=datetime.datetime.min,  # dummy not-None required value.
+        metrics=None,
+    )
+    # Reset because super().__init__ sets it to True.
+    self._time.is_initialized = False
+    self._metrics.is_initialized = False
+
+  @property
+  def step(self) -> int:
+    """Returns step of the checkpoint."""
+    return self._step
+
+  @step.setter
+  def step(self, value: int):
+    """Sets step of the checkpoint."""
+    # Users may provide step as a jax.Array.
+    if isinstance(value, jax.Array) or isinstance(value, np.ndarray):
+      self._step = int(value)
+    else:
+      self._step = value
+
+  @property
+  def time(self) -> datetime.datetime:
+    """Returns time of the checkpoint.
+
+    The value is lazily loaded from `time_provider` if not already set. If the
+    value is set, then it is returned.
+    """
+    return self._time.value
+
+  @time.setter
+  def time(self, value: datetime.datetime):
+    """Sets time of the checkpoint."""
+    self._time.value = value
+
+  @property
+  def metrics(self) -> PyTree | None:
+    """Returns metrics of the checkpoint.
+
+    The value is lazily loaded from `metrics_provider` if not already set. If
+    the value is set, then it is returned.
+    """
+    return self._metrics.value
+
+  @metrics.setter
+  def metrics(self, value: PyTree | None):
+    """Sets metrics of the checkpoint."""
+    self._metrics.value = value
+
+  def __str__(self) -> str:
+    # NOTE: Do not use lazy fields in the string representation.
+    return f'LazyCheckpoint[step={self.step}]'
+
+  def __repr__(self):
+    # NOTE: Do not use lazy fields in the string representation.
+    return f'LazyCheckpoint[step={self.step}]'
+
+  def __eq__(self, other: CheckpointInfo) -> bool:
+    return self.step == other.step
+
+  def __hash__(self) -> int:
+    return hash(self.step)
 
 
 class CheckpointInfos:

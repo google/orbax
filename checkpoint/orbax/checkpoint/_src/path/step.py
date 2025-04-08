@@ -482,6 +482,13 @@ def standard_name_format(
       steps and broadcast them to all other processes. NOTE: Ignored if jax
       backend is not multi controller.
   """
+  logging.info(
+      'Creating standard_name_format with single_host_load_and_broadcast=%s,'
+      ' step_prefix=%s, step_format_fixed_length=%s',
+      single_host_load_and_broadcast,
+      step_prefix,
+      step_format_fixed_length,
+  )
   return _StandardNameFormat(
       step_prefix=step_prefix,
       step_format_fixed_length=step_format_fixed_length,

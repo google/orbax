@@ -18,6 +18,8 @@ from concurrent import futures
 import datetime
 import time
 from absl.testing import absltest
+import jax
+import numpy as np
 from orbax.checkpoint._src.metadata import checkpoint_info
 
 CheckpointInfo = checkpoint_info.CheckpointInfo
@@ -206,6 +208,167 @@ class CheckpointInfoThreadSafetyTest(absltest.TestCase):
       with self.assertRaises(TimeoutError):
         f1.result()
         f2.result()
+
+
+class LazyCheckpointInfoTest(absltest.TestCase):
+
+  def test_lazy_field_not_called_in_ctor(self):
+    def _time_initializer():
+      self.fail("time_initializer should not be called in ctor")
+
+    def _metrics_initializer():
+      self.fail("metrics_initializer should not be called in ctor")
+
+    info = checkpoint_info.LazyCheckpointInfo(
+        step=1,
+        time_initializer=_time_initializer,
+        metrics_initializer=_metrics_initializer,
+    )
+    self.assertEqual(info.step, 1)
+
+    with self.assertRaises(AssertionError):
+      _ = info.time
+
+    with self.assertRaises(AssertionError):
+      _ = info.metrics
+
+  def test_lazy_field_access_before_set(self):
+    """Tests lazy fields initialization before they are set."""
+    time_value = datetime.datetime.now()
+
+    def _time_initializer():
+      return time_value
+
+    metrics_value = {"a": 1, "b": 2}
+
+    def _metrics_initializer():
+      return metrics_value
+
+    info = checkpoint_info.LazyCheckpointInfo(
+        step=1,
+        time_initializer=_time_initializer,
+        metrics_initializer=_metrics_initializer,
+    )
+    with self.subTest("initial_values"):
+      self.assertEqual(info.step, 1)
+      self.assertEqual(info.time, time_value)
+      self.assertEqual(info.metrics, metrics_value)
+
+    with self.subTest("set_time"):
+      new_time_value = time_value + datetime.timedelta(seconds=1)
+      info.time = new_time_value
+
+      self.assertEqual(info.step, 1)
+      self.assertEqual(info.time, new_time_value)
+      self.assertEqual(info.metrics, metrics_value)
+
+    with self.subTest("set_metrics"):
+      info.metrics = None
+
+      self.assertEqual(info.step, 1)
+      self.assertNotEqual(info.time, time_value)
+      self.assertIsNone(info.metrics)
+
+  def test_lazy_field_access_after_set(self):
+    """Tests that the lazy fields are never initialized after being set."""
+    time_value = datetime.datetime.now()
+
+    def _time_initializer():
+      return time_value
+
+    metrics_value = {"a": 1, "b": 2}
+
+    def _metrics_initializer():
+      return metrics_value
+
+    info = checkpoint_info.LazyCheckpointInfo(
+        step=1,
+        time_initializer=_time_initializer,
+        metrics_initializer=_metrics_initializer,
+    )
+
+    with self.subTest("set_time"):
+      new_time_value = time_value + datetime.timedelta(seconds=1)
+      info.time = new_time_value
+
+      self.assertEqual(info.step, 1)
+      self.assertEqual(info.time, new_time_value)
+
+    with self.subTest("set_metrics"):
+      info.metrics = None
+
+      self.assertEqual(info.step, 1)
+      self.assertIsNone(info.metrics)
+
+  def test_step(self):
+    info = checkpoint_info.LazyCheckpointInfo(
+        step=1,
+        time_initializer=datetime.datetime.now,
+        metrics_initializer=lambda: None,
+    )
+    self.assertEqual(info.step, 1)
+
+    info.step = np.asarray([2])
+    self.assertEqual(info.step, 2)
+
+    info.step = jax.numpy.asarray(3)
+    self.assertEqual(info.step, 3)
+
+  def test_eq_and_hash(self):
+    self.assertEqual(
+        checkpoint_info.LazyCheckpointInfo(
+            step=1,
+            time_initializer=datetime.datetime.now,
+            metrics_initializer=lambda: None,
+        ),
+        checkpoint_info.LazyCheckpointInfo(
+            step=1,
+            time_initializer=datetime.datetime.now,
+            metrics_initializer=lambda: None,
+        ),
+    )
+    self.assertEqual(
+        checkpoint_info.LazyCheckpointInfo(
+            step=1,
+            time_initializer=datetime.datetime.now,
+            metrics_initializer=lambda: None,
+        ),
+        checkpoint_info.CheckpointInfo(
+            step=1,
+            time=datetime.datetime.now(),
+            metrics=None,
+        ),
+    )
+    self.assertEqual(
+        checkpoint_info.CheckpointInfo(
+            step=1,
+            time=datetime.datetime.now(),
+            metrics=None,
+        ),
+        checkpoint_info.LazyCheckpointInfo(
+            step=1,
+            time_initializer=datetime.datetime.now,
+            metrics_initializer=lambda: None,
+        ),
+    )
+    self.assertEqual(
+        hash(
+            checkpoint_info.LazyCheckpointInfo(
+                step=1,
+                time_initializer=datetime.datetime.now,
+                metrics_initializer=lambda: None,
+            )
+        ),
+        1,
+    )
+
+  def test_str(self):
+    info = checkpoint_info.LazyCheckpointInfo(
+        step=1,
+        time_initializer=datetime.datetime.now,
+        metrics_initializer=lambda: None,
+    )
+    self.assertEqual(str(info), "LazyCheckpoint[step=1]")
 
 
 if __name__ == "__main__":
