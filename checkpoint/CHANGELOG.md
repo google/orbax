@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Asynchronous directory creation enabled by default.
 
+### Added
+
+- `PartsOf` structure which holds a PyTree whose leaf nodes may be missing.
+
 ## [0.11.11] - 2025-04-07
 
 ### Added
