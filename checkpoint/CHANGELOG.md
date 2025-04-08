@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - #v1 Add v1 to `orbax/checkpoint/__init__.py`.
 - #v1 Add `JsonHandler`.
 
+### Added
+
+- `PartsOf` structure which holds a PyTree whose leaf nodes may be missing.
+
 ## [0.11.12] - 2025-04-09
 
 ### Added
