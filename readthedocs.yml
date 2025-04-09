@@ -12,9 +12,9 @@ build:
   jobs:
     pre_build:
       - echo "Compiling Protocol Buffers in yml file. The current directory is:"; pwd
-      - echo "Listing files in current directory:" ; ls
-      - cd ./model/
-      - protoc -I=. --python_out=. $(find orbax/experimental/model/ -name "*.proto")
+      - echo "Listing files in current directory:" ; ls -aR
+      - cd ./model/ ; pwd; ls -aR
+      - protoc -I=. --python_out=. $(find . -name "*.proto")
       - ls -aR orbax/experimental/model/
       - cd -
 
