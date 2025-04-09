@@ -11,14 +11,7 @@ build:
     - protobuf-compiler
   jobs:
     pre_build:
-      - echo "Compiling Protocol Buffers in yml file. The current directory is:"; pwd
-      - echo "Listing files in current directory:" ; ls -aR
-      - cd ./model/ ; pwd; ls -aR
-      - find . -name "*.proto"
-      - protoc --version
-      - ls -aR orbax/experimental/model/
-      - protoc -I=. --python_out=. $(find . -name "*.proto")
-      - cd -
+      - echo "Compiling Protocol Buffers in yml file. The current directory is:"; pwd; cd ./model/ ; pwd; ls -aR; find . -name "*.proto"; protoc -I=. --python_out=. $(find . -name "*.proto"); ls -aR
 
 sphinx:
   builder: html
