@@ -34,6 +34,10 @@ class AsyncCheckpointHandler(checkpoint_handler.CheckpointHandler):
     Synchronously awaits a copy of the item, before returning commit futures
     necessary to save the item.
 
+    Note: Any operations on directory should be done by using
+    `future.CommitFutureAwaitingContractedSignals` to wait for directories to be
+    created.
+
     Args:
       directory: the directory to save to.
       *args: additional arguments for save.

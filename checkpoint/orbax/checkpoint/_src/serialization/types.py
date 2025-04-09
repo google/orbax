@@ -237,6 +237,10 @@ class TypeHandler(abc.ABC):
     futures which can be later awaited to complete the final commit operation
     to a storage location.
 
+    Note: Any operations writing to storage location should be done by using
+    `future.CommitFutureAwaitingContractedSignals` to wait for the directories
+    to be created.
+
     The function can be used in a multihost setting, but should not implement
     extra logic to ensure atomicity.
 
