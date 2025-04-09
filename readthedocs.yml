@@ -13,9 +13,10 @@ build:
     pre_build:
       - echo "Compiling Protocol Buffers in yml file. The current directory is:"; pwd
       - echo "Listing files in current directory:" ; ls
-      - pushd ./model/
+      - cd ./model/
       - protoc -I=. --python_out=. $(find orbax/experimental/model/ -name "*.proto")
-      - popd
+      - ls -aR orbax/experimental/model/
+      - cd -
 
 sphinx:
   builder: html
