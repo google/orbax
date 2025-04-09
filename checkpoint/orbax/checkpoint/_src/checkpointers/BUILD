@@ -24,6 +24,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:atomicity",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_defaults",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
+        "//checkpoint/orbax/checkpoint/_src/path:utils",
     ],
 )
 
@@ -66,6 +67,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:async_utils",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
+        "//checkpoint/orbax/checkpoint/_src/path:utils",
     ],
 )
 

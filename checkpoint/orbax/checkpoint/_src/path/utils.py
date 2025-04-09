@@ -22,6 +22,10 @@ from etils import epath
 
 
 
+def get_storage_type(path: epath.Path) -> str:
+    return 'other'
+
+
 class Timer(object):
   """A simple timer to measure the time it takes to run a function."""
 

@@ -35,6 +35,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path import utils as path_utils
 from typing_extensions import Self  # for Python version < 3.11
 
 
@@ -228,6 +229,10 @@ class Checkpointer(
     )
     directory = epath.Path(directory)
 
+    jax.monitoring.record_event(
+        '/jax/orbax/write/storage_type',
+        storage_type=path_utils.get_storage_type(directory),
+    )
     jax.monitoring.record_event('/jax/orbax/write/start')
     logging.info(
         '[process=%s] Started saving checkpoint to %s.',

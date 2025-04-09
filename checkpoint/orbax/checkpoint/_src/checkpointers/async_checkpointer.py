@@ -35,6 +35,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_utils
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path import utils as path_utils
 
 
 
@@ -429,6 +430,11 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       **kwargs,
   ):
     directory = tmpdir.get_final()
+
+    jax.monitoring.record_event(
+        '/jax/orbax/write/storage_type',
+        storage_type=path_utils.get_storage_type(directory),
+    )
     jax.monitoring.record_event('/jax/orbax/write/async/start')
     logging.info(
         '[process=%s] Started async saving checkpoint to %s.',
