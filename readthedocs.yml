@@ -7,11 +7,11 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.12"
-  apt_packages:
-    - protobuf-compiler
+  # apt_packages:
+  #   - protobuf-compiler
   jobs:
     pre_build:
-      - echo "Compiling Protocol Buffers in yml file. The current directory is:"; pwd; cd ./model/ ; pwd; ls -aR; find . -name "*.proto"; protoc -I=. --python_out=. $(find . -name "*.proto"); ls -aR
+      - sudo apt-get update; sudo apt-get install -y protobuf-compiler; protoc --version; echo "Compiling Protocol Buffers in yml file. The current directory is:"; pwd; cd ./model/ ; pwd; ls -aR; find . -name "*.proto"; protoc -I=. --python_out=. $(find . -name "*.proto"); ls -aR
 
 sphinx:
   builder: html
