@@ -200,6 +200,27 @@ Exporting
          :link: api_reference/export.html
 
 
+Model
+----------------
+.. grid::
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: API Reference
+         :class-card: sd-text-black sd-bg-light
+         :link: api_reference/model.html
+
+
+.. For TOC
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: Orbax Model
+
+   api_reference/model
+
+
 .. For TOC
 .. toctree::
    :hidden:
