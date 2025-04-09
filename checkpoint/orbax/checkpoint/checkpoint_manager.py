@@ -1276,6 +1276,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     step_stats.checkpoint_manager_blocking_start_time = time.time()
     step_stats.directory = str(self.directory)
 
+    if items is None and args is None:
+      raise ValueError('Must provide `args` for `save`.')
+    self._default_item.set_if_none(determine_default_item_mode_from_args(args))
+    self._validate_args(items, args)
+    if not force and not self.should_save(step):
+      return False
+
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
             'CheckpointManager:save_start',
@@ -1286,13 +1293,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             '/jax/orbax/write/checkpoint_start_sync_duration_secs'
         ),
     )
-
-    if items is None and args is None:
-      raise ValueError('Must provide `args` for `save`.')
-    self._default_item.set_if_none(determine_default_item_mode_from_args(args))
-    self._validate_args(items, args)
-    if not force and not self.should_save(step):
-      return False
     if self.reached_preemption(step):
       logging.info(
           '[process=%s] Saving checkpoint at step %d due to preemption.',
