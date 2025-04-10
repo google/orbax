@@ -26,7 +26,7 @@ dependencies = [
     'jaxlib',
     'jaxtyping',
     'numpy',
-    'protobuf',
+    'protobuf == 3.20.0',
     "orbax-checkpoint >=0.9.0"
 ]
 
