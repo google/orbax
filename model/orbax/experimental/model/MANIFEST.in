@@ -1,0 +1,5 @@
+# Recursively include all .proto files
+recursive-include orbax/experimental/model *.proto
+
+# Recursively include all _pb2.py files
+recursive-include orbax/experimental/model *_pb2.py
