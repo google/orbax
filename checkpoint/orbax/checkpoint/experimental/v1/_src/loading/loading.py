@@ -19,8 +19,7 @@ from typing import Any
 from etils import epath
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
-from orbax.checkpoint._src.handlers import handler_registration
-from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.handlers import handler_registration as legacy_handler_registration
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
@@ -29,6 +28,7 @@ import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pyl
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.serialization import registration as serialization_registration
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -218,7 +218,9 @@ def get_v0_checkpointer_and_args(
       name: handler_compatibility.get_compatibility_handler(handler)
       for name, handler in handlers.items()
   }
-  handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+  handler_registry = (
+      legacy_handler_registration.DefaultCheckpointHandlerRegistry()
+  )
   for name, handler in compatibility_handlers.items():
     handler_registry.add(name, handler_compatibility.Args, handler)
   composite_options = composite_checkpoint_handler.CompositeOptions(

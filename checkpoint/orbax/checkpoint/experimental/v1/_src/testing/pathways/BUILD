@@ -11,11 +11,9 @@ py_test(
     ],
     main = "save_load_test.py",
     deps = [
-        "//learning/pathways/data_parallel:remote_python_support",  # build_cleaner: keep
-        "//learning/pathways/data_parallel:tpu_support",  # buildcleaner: keep
-        "//learning/pathways/jax:pathways_with_local_server",  # build_cleaner: keep
         "//pyglib/contrib/g3_multiprocessing",
         "//testing/pybase:parameterized",
+        "//orbax/checkpoint/experimental/v1:pathways_support",
         "//orbax/checkpoint/experimental/v1/_src/testing:save_load_test_base",
     ],
 )
@@ -32,11 +30,9 @@ py_test(
     ],
     main = "save_load_test.py",
     deps = [
-        "//learning/pathways/data_parallel:remote_python_support",  # build_cleaner: keep
-        "//learning/pathways/data_parallel:tpu_support",  # buildcleaner: keep
-        "//learning/pathways/jax:pathways_with_local_server",  # build_cleaner: keep
         "//pyglib/contrib/g3_multiprocessing",
         "//testing/pybase:parameterized",
+        "//orbax/checkpoint/experimental/v1:pathways_support",
         "//orbax/checkpoint/experimental/v1/_src/testing:save_load_test_base",
     ],
 )
@@ -52,11 +48,9 @@ py_test(
     ],
     main = "pytree_handler_test.py",
     deps = [
-        "//learning/pathways/data_parallel:remote_python_support",  # build_cleaner: keep
-        "//learning/pathways/data_parallel:tpu_support",  # buildcleaner: keep
-        "//learning/pathways/jax:pathways_with_local_server",  # build_cleaner: keep
         "//pyglib/contrib/g3_multiprocessing",
         "//testing/pybase:parameterized",
+        "//orbax/checkpoint/experimental/v1:pathways_support",
         "//orbax/checkpoint/experimental/v1/_src/handlers:pytree_handler_test_base",
     ],
 )
@@ -73,11 +67,9 @@ py_test(
     ],
     main = "pytree_handler_test.py",
     deps = [
-        "//learning/pathways/data_parallel:remote_python_support",  # build_cleaner: keep
-        "//learning/pathways/data_parallel:tpu_support",  # buildcleaner: keep
-        "//learning/pathways/jax:pathways_with_local_server",  # build_cleaner: keep
         "//pyglib/contrib/g3_multiprocessing",
         "//testing/pybase:parameterized",
+        "//orbax/checkpoint/experimental/v1:pathways_support",
         "//orbax/checkpoint/experimental/v1/_src/handlers:pytree_handler_test_base",
     ],
 )

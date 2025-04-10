@@ -21,18 +21,17 @@ import uuid
 from etils import epath
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
-from orbax.checkpoint._src.handlers import handler_registration
-from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.handlers import handler_registration as legacy_handler_registration
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
-from orbax.checkpoint.experimental.v1._src.handlers import registration
+from orbax.checkpoint.experimental.v1._src.handlers import registration as handler_registration
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.serialization import registration as serialization_registration
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
-
 
 PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
 
@@ -261,7 +260,7 @@ def get_v0_checkpointer_and_args(
 
 
   handlers = {
-      name: registration.resolve_handler_for_save(
+      name: handler_registration.resolve_handler_for_save(
           context.checkpointables_options.registry, checkpointable, name=name
       )
       for name, checkpointable in checkpointables.items()
@@ -270,7 +269,9 @@ def get_v0_checkpointer_and_args(
       name: handler_compatibility.get_compatibility_handler(handler)
       for name, handler in handlers.items()
   }
-  handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+  handler_registry = (
+      legacy_handler_registration.DefaultCheckpointHandlerRegistry()
+  )
   for name, handler in compatibility_handlers.items():
     handler_registry.add(name, handler_compatibility.Args, handler)
   composite_options = composite_checkpoint_handler.CompositeOptions(
