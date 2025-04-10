@@ -2019,3 +2019,42 @@ class PyTreeHandlerTestBase:
               ValueError, 'User-provided restore item and on-disk value'
           ):
             restore_handler.load(self.directory, reference_item)
+
+    def test_save_non_empty_directory(self):
+      (self.directory / 'foo').mkdir(exist_ok=True)
+      with handler_with_options(
+          use_ocdbt=True,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        with self.assertRaisesRegex(
+            FileExistsError, 'Cannot save to a non-empty directory'
+        ):
+          save_handler.save(self.directory, self.pytree)
+
+    def test_save_twice_same_handler(self):
+      with handler_with_options(
+          use_ocdbt=True,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        save_handler.save(self.directory, self.pytree)
+
+        with self.assertRaisesRegex(
+            FileExistsError, 'Cannot save to a non-empty directory'
+        ):
+          save_handler.save(self.directory, self.pytree)
+
+    def test_save_twice_new_handler(self):
+      with handler_with_options(
+          use_ocdbt=True,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        save_handler.save(self.directory, self.pytree)
+
+      with handler_with_options(
+          use_ocdbt=True,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        with self.assertRaisesRegex(
+            FileExistsError, 'Cannot save to a non-empty directory'
+        ):
+          save_handler.save(self.directory, self.pytree)

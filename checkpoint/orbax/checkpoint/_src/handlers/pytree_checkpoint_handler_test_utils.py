@@ -2571,3 +2571,42 @@ class PyTreeCheckpointHandlerTestBase:
                     restore_args=restore_args,
                 ),
             )
+
+    def test_save_non_empty_directory(self):
+      (self.directory / 'foo').mkdir(exist_ok=True)
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=True,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        with self.assertRaisesRegex(
+            FileExistsError, 'Cannot save to a non-empty directory'
+        ):
+          save_handler.save(self.directory, self.pytree)
+
+    def test_save_twice_same_handler(self):
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=True,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        save_handler.save(self.directory, self.pytree)
+
+        with self.assertRaisesRegex(
+            FileExistsError, 'Cannot save to a non-empty directory'
+        ):
+          save_handler.save(self.directory, self.pytree)
+
+    def test_save_twice_new_handler(self):
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=True,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        save_handler.save(self.directory, self.pytree)
+
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=True,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        with self.assertRaisesRegex(
+            FileExistsError, 'Cannot save to a non-empty directory'
+        ):
+          save_handler.save(self.directory, self.pytree)

@@ -41,6 +41,7 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
+from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
@@ -448,7 +449,21 @@ class BasePyTreeCheckpointHandler(
     Returns:
       A Future that will commit the data to `directory` when awaited. Copying
       the data from its source will be awaited in this function.
+
+    Raises:
+      FileExistsError: if the directory already exists.
     """
+    if directory.exists():
+      dir_contents = set(directory.iterdir()) - {
+          checkpoint_metadata._STEP_METADATA_FILENAME,  # pylint: disable=protected-access
+      }
+      if dir_contents:
+        raise FileExistsError(
+            f'Directory {directory} contains existing files:'
+            f' {[path.name for path in dir_contents]}. Cannot save to a'
+            ' non-empty directory.'
+        )
+
     start_time = time.time()
     item = args.item
     if not item:
