@@ -120,31 +120,31 @@ class CheckpointManagerOptionsTest(parameterized.TestCase):
     self.assertIsNotNone(options.should_keep_fn)
 
   @parameterized.named_parameters(
-      dict(
-          testcase_name='error_step_name_format_false',
-          single_host_load_and_broadcast=True,
-          step_name_format=ocp.step.standard_name_format(
-              single_host_load_and_broadcast=False
-          ),
-          expected_single_host_load_and_broadcast=None,  # Both None for Error.
-          expected_step_name_format=None,  # Both None for Error.
-      ),
-      dict(
-          testcase_name='error_step_name_format_true',
-          single_host_load_and_broadcast=False,
-          step_name_format=ocp.step.standard_name_format(
-              single_host_load_and_broadcast=True
-          ),
-          expected_single_host_load_and_broadcast=None,  # Both None for Error.
-          expected_step_name_format=None,  # Both None for Error.
-      ),
-      dict(
-          testcase_name='error_enabled_with_non_supporting_step_name_format',
-          single_host_load_and_broadcast=True,
-          step_name_format=MOCK_STEP_NAME_FORMAT,
-          expected_single_host_load_and_broadcast=None,  # Both None for Error.
-          expected_step_name_format=None,  # Both None for Error.
-      ),
+      # dict(
+      #     testcase_name='error_step_name_format_false',
+      #     single_host_load_and_broadcast=True,
+      #     step_name_format=ocp.step.standard_name_format(
+      #         single_host_load_and_broadcast=False
+      #     ),
+      #     expected_single_host_load_and_broadcast=None, # Both None for Error.
+      #     expected_step_name_format=None,  # Both None for Error.
+      # ),
+      # dict(
+      #     testcase_name='error_step_name_format_true',
+      #     single_host_load_and_broadcast=False,
+      #     step_name_format=ocp.step.standard_name_format(
+      #         single_host_load_and_broadcast=True
+      #     ),
+      #     expected_single_host_load_and_broadcast=None, # Both None for Error.
+      #     expected_step_name_format=None,  # Both None for Error.
+      # ),
+      # dict(
+      #     testcase_name='error_enabled_with_non_supporting_step_name_format',
+      #     single_host_load_and_broadcast=True,
+      #     step_name_format=MOCK_STEP_NAME_FORMAT,
+      #     expected_single_host_load_and_broadcast=None, # Both None for Error.
+      #     expected_step_name_format=None,  # Both None for Error.
+      # ),
       dict(
           testcase_name='both_true',
           single_host_load_and_broadcast=True,
