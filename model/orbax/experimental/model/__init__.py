@@ -12,10 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Defines exported symbols for Orbax Model."""
-
-from orbax.experimental.model import core
-from orbax.experimental.model import jax2obm
-from orbax.experimental.model import tf2obm
-
 __version__ = '0.0.1'
