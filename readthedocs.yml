@@ -10,7 +10,7 @@ build:
   apt_packages:
     - protobuf-compiler
   jobs:
-    pre_build:
+    pre_install:
       - protoc --version; echo "Compiling Protocol Buffers in yml file. The current directory is:"; pwd; cd ./model/ ; pwd; ls -aR; find . -name "*.proto"; protoc --experimental_allow_proto3_optional -I=. --python_out=. $(find . -name "*.proto"); ls -aR
 
 sphinx:
