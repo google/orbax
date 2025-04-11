@@ -18,7 +18,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
+import json
+from typing import Awaitable
+from unittest import mock
+
 from absl.testing import parameterized
+import aiofiles
 from etils import epath
 import flax
 import jax
@@ -27,8 +34,10 @@ import numpy as np
 import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.tree import utils as tree_utils
 import orbax.checkpoint.experimental.v1 as ocp
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -47,6 +56,14 @@ Foo = handler_utils.Foo
 Bar = handler_utils.Bar
 AbstractFoo = handler_utils.AbstractFoo
 AbstractBar = handler_utils.AbstractBar
+
+
+_original_create_paths = atomicity._create_paths
+
+
+async def _sleep_and_create_paths(*args, **kwargs):
+  await asyncio.sleep(2)
+  return await _original_create_paths(*args, **kwargs)
 
 
 class SaveLoadTestBase:
@@ -610,3 +627,63 @@ class SaveLoadTestBase:
       with self.subTest('none'):
         loaded = ocp.load_checkpointables(self.directory)
         self.assertEqual(checkpointables, loaded)
+
+    def test_async_directory_creation(self):
+      checkpointables_options = (
+          ocp.options.CheckpointablesOptions.create_with_handlers(
+              handler_utils.FooHandler,
+          )
+      )
+      self.enter_context(
+          ocp.Context(checkpointables_options=checkpointables_options)
+      )
+      self.enter_context(
+          mock.patch.object(atomicity, '_create_paths', _sleep_and_create_paths)
+      )
+      result = ocp.save_checkpointables_async(
+          self.directory, {'foo': Foo(123, 'hi')}
+      )
+      self.assertFalse(self.directory.exists())
+      self.assertEmpty(list(self.directory.parent.iterdir()))
+      result.result()
+      self.assertTrue(self.directory.exists())
+      self.assertLen(list(self.directory.parent.iterdir()), 1)
+
+    def test_async_directory_creation_failure(self):
+      class IncorrectFooHandler(handler_utils.FooHandler):
+
+        async def background_save(
+            self,
+            directory: path_types.PathAwaitingCreation,
+            checkpointable: Foo,
+        ):
+          directory = directory.path
+          # Note that we do not await contracted signals.
+          async with aiofiles.open(directory / 'foo.txt', 'w') as f:
+            contents = json.dumps(dataclasses.asdict(checkpointable))
+            await f.write(contents)
+
+        async def save(
+            self,
+            directory: path_types.PathAwaitingCreation,
+            checkpointable: Foo,
+        ) -> Awaitable[None]:
+          return self.background_save(
+              directory, Foo(**dataclasses.asdict(checkpointable))
+          )
+
+      checkpointables_options = (
+          ocp.options.CheckpointablesOptions.create_with_handlers(
+              IncorrectFooHandler,
+          )
+      )
+      self.enter_context(
+          ocp.Context(checkpointables_options=checkpointables_options)
+      )
+      self.enter_context(
+          mock.patch.object(atomicity, '_create_paths', _sleep_and_create_paths)
+      )
+      with self.assertRaisesRegex(
+          FileNotFoundError, 'No such file or directory'
+      ):
+        ocp.save_checkpointables(self.directory, {'foo': Foo(123, 'hi')})

@@ -8,8 +8,11 @@ py_library(
         ":handler_utils",
         "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//checkpoint/orbax/checkpoint/_src/path:atomicity",
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
+        "//third_party/py/aiofiles",
         "//orbax/checkpoint/experimental/v1",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",
     ],
 )
@@ -32,4 +35,10 @@ py_library(
         "//orbax/checkpoint/experimental/v1/_src/handlers:types",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
     ],
+)
+
+py_library(
+    name = "path_utils",
+    srcs = ["path_utils.py"],
+    deps = ["//orbax/checkpoint/experimental/v1/_src/path:types"],
 )

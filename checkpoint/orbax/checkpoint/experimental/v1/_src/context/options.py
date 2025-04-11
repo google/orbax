@@ -43,7 +43,7 @@ class AsyncOptions:
 
   timeout_secs: int = 600  # 10 minutes.
   post_finalization_callback: Callable[[], None] | None = None
-  create_directories_asynchronously: bool = False
+  create_directories_asynchronously: bool = True
 
   def v0(self) -> v0_options_lib.AsyncOptions:
     return v0_options_lib.AsyncOptions(

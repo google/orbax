@@ -25,7 +25,33 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
+
+
+class _PathAwaitingCreation(path_types.PathAwaitingCreation):
+  """Implementation of `PathAwaitingCreation` that awaits contracted signals."""
+
+  def __init__(self, path: path_types.Path, operation_id: str):
+    self._path = path
+    self._operation_id = operation_id
+
+  def __truediv__(
+      self, other: path_types.PathAwaitingCreation | path_types.PathLike
+  ) -> path_types.PathAwaitingCreation:
+    if isinstance(other, path_types.PathAwaitingCreation):
+      other = other.path
+    return _PathAwaitingCreation(self._path / other, self._operation_id)
+
+  async def await_creation(self) -> path_types.Path:
+    await synchronization.await_contracted_signals(self._operation_id)
+    return self._path
+
+  @property
+  def path(self) -> path_types.Path:
+    return self._path
 
 
 class CompatibilityCheckpointHandler(
@@ -41,7 +67,10 @@ class CompatibilityCheckpointHandler(
       directory: epath.Path,
       args: Args,
   ) -> list[future.Future] | None:
-    save_awaitable = await self._handler.save(directory, args.checkpointable)
+    async_path = _PathAwaitingCreation(
+        directory, context_lib.get_context().operation_id()
+    )
+    save_awaitable = await self._handler.save(async_path, args.checkpointable)
 
     async def _background_save():
       await save_awaitable

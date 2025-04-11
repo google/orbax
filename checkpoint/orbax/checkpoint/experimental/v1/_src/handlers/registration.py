@@ -311,7 +311,6 @@ def register_handler(
   Returns:
     The handler class.
   """
-  logging.info('CheckpointableHandler: %s registered globally.', cls)
   _GLOBAL_REGISTRY.add(cls)
   return cls
 

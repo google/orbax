@@ -21,7 +21,6 @@ import json
 from typing import Any, Awaitable, Type
 
 import aiofiles
-from etils import epath
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
@@ -33,18 +32,19 @@ class DataclassHandler:
 
   async def background_save(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.PathAwaitingCreation,
       checkpointable: Any,
   ):
-    directory = epath.Path(directory)
+    directory = await directory.await_creation()
     async with aiofiles.open(directory / 'foo.txt', 'w') as f:
       contents = json.dumps(dataclasses.asdict(checkpointable))
       await f.write(contents)
 
   async def background_load(
-      self, directory: path_types.PathLike, checkpointable_type: Type[Any]
+      self,
+      directory: path_types.Path,
+      checkpointable_type: Type[Any],
   ) -> Any:
-    directory = epath.Path(directory)
     async with aiofiles.open(directory / 'foo.txt', 'r') as f:
       contents = json.loads(await f.read())
       return checkpointable_type(*contents.values())
@@ -67,7 +67,7 @@ class FooHandler(handler_types.CheckpointableHandler[Foo, AbstractFoo]):
 
   async def save(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.PathAwaitingCreation,
       checkpointable: Foo,
   ) -> Awaitable[None]:
     return DataclassHandler().background_save(
@@ -76,12 +76,12 @@ class FooHandler(handler_types.CheckpointableHandler[Foo, AbstractFoo]):
 
   async def load(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.Path,
       abstract_checkpointable: AbstractFoo | None = None,
   ) -> Awaitable[Foo]:
     return DataclassHandler().background_load(directory, Foo)
 
-  async def metadata(self, directory: path_types.PathLike) -> AbstractFoo:
+  async def metadata(self, directory: path_types.Path) -> AbstractFoo:
     return AbstractFoo()
 
   def is_handleable(self, checkpointable: Foo) -> bool:
@@ -110,7 +110,7 @@ class BarHandler(handler_types.CheckpointableHandler[Bar, AbstractBar]):
 
   async def save(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.PathAwaitingCreation,
       checkpointable: Bar,
   ) -> Awaitable[None]:
     return DataclassHandler().background_save(
@@ -119,12 +119,12 @@ class BarHandler(handler_types.CheckpointableHandler[Bar, AbstractBar]):
 
   async def load(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.Path,
       abstract_checkpointable: AbstractBar | None = None,
   ) -> Awaitable[Bar]:
     return DataclassHandler().background_load(directory, Bar)
 
-  async def metadata(self, directory: path_types.PathLike) -> AbstractBar:
+  async def metadata(self, directory: path_types.Path) -> AbstractBar:
     return AbstractBar()
 
   def is_handleable(self, checkpointable: Bar) -> bool:
@@ -157,7 +157,7 @@ class BazHandler(handler_types.CheckpointableHandler[Baz, AbstractBaz]):
 
   async def save(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.PathAwaitingCreation,
       checkpointable: Baz,
   ) -> Awaitable[None]:
     return DataclassHandler().background_save(
@@ -166,12 +166,12 @@ class BazHandler(handler_types.CheckpointableHandler[Baz, AbstractBaz]):
 
   async def load(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.Path,
       abstract_checkpointable: AbstractBaz | None = None,
   ) -> Awaitable[Baz]:
     return DataclassHandler().background_load(directory, Baz)
 
-  async def metadata(self, directory: path_types.PathLike) -> AbstractBaz:
+  async def metadata(self, directory: path_types.Path) -> AbstractBaz:
     return AbstractBaz()
 
   def is_handleable(self, checkpointable: Baz) -> bool:
@@ -196,26 +196,25 @@ class DictHandler(handler_types.CheckpointableHandler[BasicDict, None]):
 
   async def save(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.PathAwaitingCreation,
       checkpointable: BasicDict,
   ) -> Awaitable[None]:
-    directory = epath.Path(directory)
+    directory = await directory.await_creation()
     async with aiofiles.open(directory / 'data.txt', 'w') as f:
       await f.write(str(dict(checkpointable)))
     return self._background_save()
 
   async def load(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.Path,
       abstract_checkpointable: None = None,
   ) -> Awaitable[BasicDict]:
-    directory = epath.Path(directory)
     async with aiofiles.open(directory / 'data.txt', 'r') as f:
       r = await f.read()
       result = dict(**r)
     return self._background_load(result)
 
-  async def metadata(self, directory: path_types.PathLike) -> None:
+  async def metadata(self, directory: path_types.Path) -> None:
     return None
 
   def is_handleable(self, checkpointable: BasicDict) -> bool:

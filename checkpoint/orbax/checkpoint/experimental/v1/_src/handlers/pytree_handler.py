@@ -20,7 +20,6 @@ import contextlib
 import dataclasses
 from typing import Any, Awaitable, Sequence
 
-from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint import checkpoint_utils
@@ -39,7 +38,7 @@ from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_typ
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
-PathLike = path_types.PathLike
+Path = path_types.Path
 CheckpointableHandler = handler_types.CheckpointableHandler
 PyTree = tree_types.PyTree
 
@@ -163,11 +162,12 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
 
   async def _background_save(
       self,
-      directory: path_types.Path,
+      directory: path_types.PathAwaitingCreation,
       *,
       commit_futures: Sequence[future.Future],
       operation_id: str,
   ):
+    directory = await directory.await_creation()
     active_processes = self._multiprocessing_options.active_processes or set(
         range(multihost.process_count())
     )
@@ -185,11 +185,10 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     multihost.sync_global_processes(barrier_name, processes=active_processes)
 
   async def save(
-      self, directory: path_types.PathLike, checkpointable: PyTree
+      self, directory: path_types.PathAwaitingCreation, checkpointable: PyTree
   ) -> Awaitable[None]:
-    directory = epath.Path(directory)
     commit_futures = await self._handler_impl.async_save(
-        directory,
+        directory.path,
         args=create_v0_save_args(self._context, checkpointable),
     )
     assert commit_futures
@@ -200,7 +199,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     )
     # Needed to differentiate between different handlers when we have multiple
     # PyTreeHandlers performing a save.
-    operation_id = f'{operation_id}.{directory.name}'
+    operation_id = f'{operation_id}.{directory.path.name}'
     return self._background_save(
         directory, commit_futures=commit_futures, operation_id=operation_id
     )
@@ -217,17 +216,15 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
 
   async def load(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.Path,
       abstract_checkpointable: PyTree | None = None,
   ) -> Awaitable[PyTree]:
-    directory = epath.Path(directory)
     # TODO(b/406252214): Add validation for PyTrees and abstract PyTrees.
     return self._background_load(directory, abstract_checkpointable)
 
   async def metadata(
-      self, directory: path_types.PathLike
+      self, directory: path_types.Path
   ) -> metadata_types.PyTreeMetadata:
-    directory = epath.Path(directory)
     return self._handler_impl.metadata(directory).tree
 
   def _is_handleable_leaf(self, leaf: Any) -> bool:

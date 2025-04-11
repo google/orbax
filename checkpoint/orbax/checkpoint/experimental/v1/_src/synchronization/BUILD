@@ -16,3 +16,19 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/multihost",
     ],
 )
+
+py_library(
+    name = "synchronization",
+    srcs = ["synchronization.py"],
+    deps = [
+        ":signaling_client",
+        "//checkpoint/orbax/checkpoint/_src/futures:synchronization",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+    ],
+)
+
+py_library(
+    name = "signaling_client",
+    srcs = ["signaling_client.py"],
+    deps = ["//orbax/checkpoint/_src/futures:signaling_client"],
+)

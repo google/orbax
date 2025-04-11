@@ -3,7 +3,10 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "context",
     srcs = ["context.py"],
-    deps = [":options"],
+    deps = [
+        ":options",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization",
+    ],
 )
 
 py_library(

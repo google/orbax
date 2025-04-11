@@ -18,7 +18,6 @@ import asyncio
 import inspect
 from typing import Awaitable, Type
 
-from etils import epath
 from google.protobuf import message
 from google.protobuf import text_format
 from orbax.checkpoint._src.multihost import multihost
@@ -44,11 +43,12 @@ class ProtoHandler(
 
   async def _background_save(
       self,
-      directory: path_types.Path,
+      directory: path_types.PathAwaitingCreation,
       checkpointable: message.Message,
       *,
       primary_host: int | None = None
   ):
+    directory = await directory.await_creation()
     if multihost.is_primary_host(primary_host):
       path = directory / self._filename
       str_msg = text_format.MessageToString(checkpointable)
@@ -56,10 +56,9 @@ class ProtoHandler(
 
   async def save(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.PathAwaitingCreation,
       checkpointable: message.Message,
   ) -> Awaitable[None]:
-    directory = epath.Path(directory)
     context = context_lib.get_context()
     return self._background_save(
         directory,
@@ -68,7 +67,9 @@ class ProtoHandler(
     )
 
   async def _background_load(
-      self, directory: path_types.Path, message_type: Type[message.Message]
+      self,
+      directory: path_types.Path,
+      message_type: Type[message.Message],
   ):
     path = directory / self._filename
     str_msg = await asyncio.to_thread(path.read_text)
@@ -76,19 +77,16 @@ class ProtoHandler(
 
   async def load(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.Path,
       abstract_checkpointable: Type[message.Message] | None = None,
   ) -> Awaitable[message.Message]:
     if abstract_checkpointable is None:
       raise ValueError(
           "abstract_checkpointable must be provided to restore as a Proto."
       )
-    directory = epath.Path(directory)
     return self._background_load(directory, abstract_checkpointable)
 
-  async def metadata(
-      self, directory: path_types.PathLike
-  ) -> Type[message.Message]:
+  async def metadata(self, directory: path_types.Path) -> Type[message.Message]:
     raise NotImplementedError()
 
   def is_handleable(self, checkpointable: message.Message) -> bool:

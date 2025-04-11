@@ -21,12 +21,13 @@ import contextvars
 
 from etils import epy
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
+from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 
 
 # Each Thread will have its own copy of `Context` object.
 # Task and groups will have their own copy of `Context` object.
 _CONTEXT: contextvars.ContextVar[Context] = contextvars.ContextVar(
-    "orbax_context", default=None
+    'orbax_context', default=None
 )
 
 
@@ -131,6 +132,9 @@ class Context(epy.ContextManager):
   @property
   def checkpointables_options(self) -> options_lib.CheckpointablesOptions:
     return self._checkpointables_options
+
+  def operation_id(self) -> str:
+    return synchronization.OperationIdGenerator.get_current_operation_id()
 
   def __contextmanager__(self) -> Iterable[Context]:
     token = _CONTEXT.set(self)

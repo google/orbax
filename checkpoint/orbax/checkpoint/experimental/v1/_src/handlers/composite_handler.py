@@ -72,13 +72,10 @@ class CompositeHandler:
   ) -> registration.CheckpointableHandlerRegistry:
     return self._handler_registry
 
-  def _get_checkpointable_directory(
-      self, directory: path_types.Path, checkpointable_name: str
-  ) -> path_types.Path:
-    return directory / checkpointable_name
-
   async def save(
-      self, directory: path_types.Path, checkpointables: dict[str, Any]
+      self,
+      directory: path_types.PathAwaitingCreation,
+      checkpointables: dict[str, Any],
   ) -> Awaitable[None]:
     """Saves multiple checkpointables to individual subdirectories.
 
@@ -93,14 +90,13 @@ class CompositeHandler:
       An awaitable that represents a background save operation.
     """
     save_ops = []
-    for name, checkpointable in checkpointables.items():
+    for checkpointable_name, checkpointable in checkpointables.items():
       handler = registration.resolve_handler_for_save(
-          self._handler_registry, checkpointable, name=name
+          self._handler_registry, checkpointable, name=checkpointable_name
       )
-      checkpointable_directory = self._get_checkpointable_directory(
-          directory, name
+      save_ops.append(
+          handler.save(directory / checkpointable_name, checkpointable)
       )
-      save_ops.append(handler.save(checkpointable_directory, checkpointable))
     save_awaitables = await asyncio.gather(*save_ops)
 
     async def _run_background():
@@ -138,9 +134,6 @@ class CompositeHandler:
         checkpointable_name,
         handler,
     ) in loadable_checkpointable_names_to_handlers.items():
-      checkpointable_directory = self._get_checkpointable_directory(
-          directory, checkpointable_name
-      )
       abstract_checkpointable = (
           abstract_checkpointables[checkpointable_name]
           if checkpointable_name in abstract_checkpointables
@@ -148,7 +141,7 @@ class CompositeHandler:
       )
       load_ops.append(
           handler.load(
-              checkpointable_directory,
+              directory / checkpointable_name,
               abstract_checkpointable,
           )
       )

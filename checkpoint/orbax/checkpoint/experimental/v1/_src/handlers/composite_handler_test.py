@@ -31,6 +31,7 @@ from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
+from orbax.checkpoint.experimental.v1._src.testing import path_utils
 
 
 CompositeHandler = composite_handler.CompositeHandler
@@ -90,7 +91,9 @@ class CompositeHandlerTest(parameterized.TestCase):
     test_utils.sync_global_processes('CompositeHandlerTest:mkdir')
 
     async def _save():
-      awaitable = await handler.save(directory, checkpointables)
+      awaitable = await handler.save(
+          path_utils.PathAwaitingCreationWrapper(directory), checkpointables
+      )
       await awaitable
 
     asyncio.run(_save())

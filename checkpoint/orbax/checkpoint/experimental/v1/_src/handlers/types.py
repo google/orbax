@@ -16,14 +16,10 @@
 
 from typing import Awaitable, Protocol, Type, TypeVar
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 
 
 T = TypeVar('T')
 AbstractT = TypeVar('AbstractT')
-
-PathLike = path_types.PathLike
-AsyncResponse = async_types.AsyncResponse
 
 
 class CheckpointableHandler(Protocol[T, AbstractT]):
@@ -130,7 +126,7 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
   """
 
   async def save(
-      self, directory: path_types.PathLike, checkpointable: T
+      self, directory: path_types.PathAwaitingCreation, checkpointable: T
   ) -> Awaitable[None]:
     """Saves the given `checkpointable` to the given `directory`.
 
@@ -142,11 +138,32 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
     this method. All directories are created by upper layers of the Orbax
     library, for performance reasons in a multihost setting and because upper
     layers also need to modify the directories. Before engaging in any
-    filesystem operations, wait for the directory to exist TODO(b/398249409):
-    Provide details.
+    filesystem operations, wait for the directory to exist. For example::
+
+      async def _background_save(
+          self,
+          directory: path_types.PathAwaitingCreation,
+          checkpointable: T,
+      ) -> None:
+        directory = await directory.await_creation()
+        # Write to `directory` here.
+        ...
+
+      async def save(
+          self,
+          directory: path_types.PathAwaitingCreation,
+          checkpointable: T,
+      ) -> Awaitable[None]:
+        # OK to access path properties, as long as we don't touch the actual
+        # directory in the filesystem.
+        logging.info(directory.name)
+        return self._background_save(directory, checkpointable)
 
     Args:
-      directory: The directory to save the checkpoint to.
+      directory: The directory to save the checkpoint to. Note that the
+        directory should not be expected to exist yet - it is in the process of
+        being created. To wait for it to be created, use `await_creation`,
+        preferably in a background awaitable to avoid blocking the main thread.
       checkpointable: The checkpointable object to save.
 
     Returns:
@@ -157,7 +174,7 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
 
   async def load(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.Path,
       abstract_checkpointable: AbstractT | None = None,
   ) -> Awaitable[T]:
     """Loads the checkpointable from the given `directory`.
@@ -178,7 +195,7 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
     """
     ...
 
-  async def metadata(self, directory: path_types.PathLike) -> AbstractT:
+  async def metadata(self, directory: path_types.Path) -> AbstractT:
     """Returns the metadata for the given `directory`.
 
     The logic in this method must be executed fully in the main thread; metadata

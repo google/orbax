@@ -1,5 +1,3 @@
-load("//devtools/python/blaze:strict.bzl", "py_strict_test")
-
 package(default_visibility = ["//visibility:public"])
 
 py_library(

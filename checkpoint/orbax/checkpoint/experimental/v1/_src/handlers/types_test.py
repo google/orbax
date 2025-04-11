@@ -27,19 +27,19 @@ class FooHandler(handler_types.CheckpointableHandler[Foo, None]):
 
   async def save(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.PathAwaitingCreation,
       checkpointable: Foo,
   ) -> Awaitable[None]:
     raise NotImplementedError()
 
   async def load(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.Path,
       abstract_checkpointable: None = None,
   ) -> Awaitable[Foo]:
     raise NotImplementedError()
 
-  async def metadata(self, directory: path_types.PathLike) -> None:
+  async def metadata(self, directory: path_types.Path) -> None:
     return
 
   def is_handleable(self, checkpointable: Foo) -> bool:
@@ -65,19 +65,19 @@ class BarHandler(handler_types.CheckpointableHandler[Bar, AbstractBar]):
 
   async def save(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.PathAwaitingCreation,
       checkpointable: Bar,
   ) -> Awaitable[None]:
     raise NotImplementedError()
 
   async def load(
       self,
-      directory: path_types.PathLike,
+      directory: path_types.Path,
       abstract_checkpointable: AbstractBar | None = None,
   ) -> Awaitable[Bar]:
     raise NotImplementedError()
 
-  async def metadata(self, directory: path_types.PathLike) -> BarMetadata:
+  async def metadata(self, directory: path_types.Path) -> BarMetadata:
     return BarMetadata()
 
   def is_handleable(self, checkpointable: Bar) -> bool:
@@ -94,15 +94,15 @@ class TypesTest(absltest.TestCase):
   def test_checkpointable_handler_typing_foo(self):
     handler = FooHandler()
     self.assertTrue(handler.is_handleable(Foo()))
-    self.assertFalse(handler.is_handleable(None))
+    self.assertFalse(handler.is_handleable(None))  # pytype: disable=wrong-arg-types
     self.assertTrue(handler.is_abstract_handleable(None))
-    self.assertFalse(handler.is_abstract_handleable(Foo()))
+    self.assertFalse(handler.is_abstract_handleable(Foo()))  # pytype: disable=wrong-arg-types
 
   def test_checkpointable_handler_typing_bar(self):
     handler = BarHandler()
     self.assertTrue(handler.is_handleable(Bar()))
-    self.assertFalse(handler.is_handleable(AbstractBar()))
-    self.assertFalse(handler.is_abstract_handleable(Bar()))
+    self.assertFalse(handler.is_handleable(AbstractBar()))  # pytype: disable=wrong-arg-types
+    self.assertFalse(handler.is_abstract_handleable(Bar()))  # pytype: disable=wrong-arg-types
     self.assertTrue(handler.is_abstract_handleable(AbstractBar()))
 
 

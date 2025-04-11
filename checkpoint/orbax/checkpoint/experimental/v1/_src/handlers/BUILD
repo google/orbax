@@ -3,10 +3,7 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "types",
     srcs = ["types.py"],
-    deps = [
-        "//orbax/checkpoint/experimental/v1/_src/path:types",
-        "//orbax/checkpoint/experimental/v1/_src/synchronization:types",
-    ],
+    deps = ["//orbax/checkpoint/experimental/v1/_src/path:types"],
 )
 
 py_test(
@@ -41,8 +38,10 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/context:options",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
         "//orbax/checkpoint/experimental/v1/_src/serialization:registration",
         "//orbax/checkpoint/experimental/v1/_src/testing:array_utils",
+        "//orbax/checkpoint/experimental/v1/_src/testing:path_utils",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",
     ],
 )
@@ -98,6 +97,9 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/futures:future",
         "//checkpoint/orbax/checkpoint/_src/handlers:async_checkpoint_handler",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization",
     ],
 )
 
@@ -116,7 +118,6 @@ py_library(
     name = "global_registration",
     srcs = ["global_registration.py"],
     deps = [
-        ":descriptor_handler",
         ":proto_handler",
         ":pytree_handler",
         ":registration",
@@ -148,5 +149,6 @@ py_test(
         "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
         "//checkpoint/orbax/checkpoint/_src/multihost",
         "//orbax/checkpoint/experimental/v1/_src/testing:handler_utils",
+        "//orbax/checkpoint/experimental/v1/_src/testing:path_utils",
     ],
 )

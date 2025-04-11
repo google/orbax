@@ -16,6 +16,8 @@
 
 # pylint: disable=protected-access, missing-function-docstring
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import copy
@@ -55,8 +57,10 @@ from orbax.checkpoint._src.tree import utils as tree_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import registration as serialization_registration
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
+from orbax.checkpoint.experimental.v1._src.testing import path_utils as path_test_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 PyTree = tree_types.PyTree
@@ -73,6 +77,11 @@ create_sharded_pytree = array_test_utils.create_sharded_pytree
 as_abstract_type = array_test_utils.as_abstract_type
 
 
+PathAwaitingCreation = path_types.PathAwaitingCreation
+PathLike = path_types.PathLike
+Path = path_types.Path
+
+
 async def _run_awaitable(awaitable: Awaitable[Any]) -> Any:
   return await awaitable
 
@@ -83,22 +92,25 @@ class PyTreeHandler:
   def __init__(self, **kwargs):
     self._handler = pytree_handler.PyTreeHandler(**kwargs)
 
-  def save(self, *args, **kwargs):
-    awaitable = asyncio.run(self._handler.save(*args, **kwargs))
+  def save(self, path: Path, checkpointable: PyTree):
+    awaitable = self.save_async(path, checkpointable)
     return asyncio.run(_run_awaitable(awaitable))
 
-  def save_async(self, *args, **kwargs):
-    return asyncio.run(self._handler.save(*args, **kwargs))
+  def save_async(self, path: Path, checkpointable: PyTree):
+    path = path_test_utils.PathAwaitingCreationWrapper(path)
+    return asyncio.run(self._handler.save(path, checkpointable))
 
-  def load(self, *args, **kwargs):
-    awaitable = asyncio.run(self._handler.load(*args, **kwargs))
+  def load(self, path: Path, abstract_checkpointable: PyTree | None = None):
+    awaitable = self.load_async(path, abstract_checkpointable)
     return asyncio.run(_run_awaitable(awaitable))
 
-  def load_async(self, *args, **kwargs):
-    return asyncio.run(self._handler.load(*args, **kwargs))
+  def load_async(
+      self, path: Path, abstract_checkpointable: PyTree | None = None
+  ):
+    return asyncio.run(self._handler.load(path, abstract_checkpointable))
 
-  def metadata(self, *args, **kwargs):
-    return asyncio.run(self._handler.metadata(*args, **kwargs))
+  def metadata(self, path: Path):
+    return asyncio.run(self._handler.metadata(path))
 
 
 def create_mixed_format_pytree(
