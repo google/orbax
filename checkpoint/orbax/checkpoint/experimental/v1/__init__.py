@@ -22,6 +22,7 @@ Prefer to use the style::
 # pylint: disable=g-importing-member, g-multiple-import, g-bad-import-order
 
 from orbax.checkpoint.experimental.v1 import handlers
+from orbax.checkpoint.experimental.v1 import training
 from orbax.checkpoint.experimental.v1._src.context import options
 from orbax.checkpoint.experimental.v1._src.context.context import (
     Context,
