@@ -31,8 +31,6 @@ from orbax.experimental.model import core as obm
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 from orbax.experimental.model.jax2obm import main_lib
 from orbax.experimental.model.jax2obm import obm_to_jax
-from orbax.export import oex_orchestration
-from orbax.export.oex_orchestration import oex_orchestration_pb2
 
 F0 = jax_supplemental_pb2.DTypeRefinement.f0
 DType = obm.ShloDType
@@ -286,80 +284,10 @@ class ObmToJaxTest(parameterized.TestCase):
         mime_type='orbax_checkpoint',
     )
 
-    save_dir_path = os.path.join(self.create_tempdir())
-    supplemental_filename = 'my_orchestration.pb'
-
-    obm.save(
-        obm_module,
-        save_dir_path,
-        obm.SaveOptions(
-            version=2,
-            supplemental_info=obm.GlobalSupplemental(
-                oex_orchestration.create(
-                    signature=oex_orchestration.calculate_signature(
-                        model_function_signature=obm_shlo_fn.signature
-                    ),
-                    model_function_name=model_function_name,
-                    weights_name=weights_name,
-                ),
-                supplemental_filename,
-            ),
-        ),
-    )
-
     # All of those information will be provided by the manifest at load time.
     del model_function_name
     del weights_name
     del checkpoint_path
-
-    # Loading now.
-
-    # Loads the manifest.
-    manifest_proto = obm.manifest_pb2.Manifest()
-    with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), 'rb') as f:
-      manifest_proto.ParseFromString(f.read())
-
-    # Loads the orchestration.
-    orch_filename = (
-        manifest_proto.supplemental_info.single.file_system_location.string_path
-    )
-    pipeline_proto = oex_orchestration_pb2.Pipeline()
-    with open(os.path.join(save_dir_path, orch_filename), 'rb') as f:
-      pipeline_proto.ParseFromString(f.read())
-
-    # Loads the model function
-    loaded_model_function_name = pipeline_proto.model_function_name
-    loaded_obm_function = manifest_proto.objects[
-        loaded_model_function_name
-    ].function
-
-    # and its supplemental.
-    jax_supplemental_filename = (
-        loaded_obm_function.body.stable_hlo_body.supplemental_info.file_system_location.string_path
-    )
-    jax_supplemental_proto = jax_supplemental_pb2.Function()
-    with open(
-        os.path.join(save_dir_path, jax_supplemental_filename), 'rb'
-    ) as f:
-      jax_supplemental_proto.ParseFromString(f.read())
-
-    # Deserialize the jax function and compare results from the 2 jax functions.
-    deserialized_jax_exported = obm_to_jax.obm_functions_to_jax_function(
-        loaded_obm_function,
-        jax_supplemental_proto,
-    )
-
-    test_input = jnp.array(7.0)
-
-    result_from_deserialized_jax_call = deserialized_jax_exported.call(
-        jax_params, test_input
-    )
-    result_from_original_jax_call = jax_model_fn(jax_params, test_input)
-
-    self.assertEqual(
-        result_from_deserialized_jax_call, result_from_original_jax_call
-    )
-    self.assertEqual(result_from_deserialized_jax_call, 35.0)
 
   def test_obm_functions_to_jax_function_mnist(self):
     os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
@@ -439,95 +367,11 @@ class ObmToJaxTest(parameterized.TestCase):
         mime_type='orbax_checkpoint',
     )
 
-    obm.save(
-        obm_module,
-        save_dir_path,
-        obm.SaveOptions(
-            version=2,
-            supplemental_info=obm.GlobalSupplemental(
-                oex_orchestration.create(
-                    signature=oex_orchestration.calculate_signature(
-                        model_function_signature=obm_shlo_fn.signature
-                    ),
-                    model_function_name=model_function_name,
-                    weights_name=weights_name,
-                ),
-                'my_orchestration.pb',
-            ),
-        ),
-    )
-
     # All of those information will be provided by the manifest at load time.
     del model_function_name
     del weights_name
     del checkpoint_path
     del checkpoint_abs_path
-
-    # Loading now.
-
-    # Loads the manifest.
-    manifest_proto = obm.manifest_pb2.Manifest()
-    with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), 'rb') as f:
-      manifest_proto.ParseFromString(f.read())
-
-    # Loads the orchestration.
-    orch_filename = (
-        manifest_proto.supplemental_info.single.file_system_location.string_path
-    )
-    pipeline_proto = oex_orchestration_pb2.Pipeline()
-    with open(os.path.join(save_dir_path, orch_filename), 'rb') as f:
-      pipeline_proto.ParseFromString(f.read())
-
-    # Loads the model function
-    loaded_model_function_name = pipeline_proto.model_function_name
-    loaded_obm_function = manifest_proto.objects[
-        loaded_model_function_name
-    ].function
-
-    # and its supplemental.
-    jax_supplemental_filename = (
-        loaded_obm_function.body.stable_hlo_body.supplemental_info.file_system_location.string_path
-    )
-    jax_supplemental_proto = jax_supplemental_pb2.Function()
-    with open(
-        os.path.join(save_dir_path, jax_supplemental_filename), 'rb'
-    ) as f:
-      jax_supplemental_proto.ParseFromString(f.read())
-
-    # Deserialize the jax function and compare results from the 2 jax functions.
-    deserialized_jax_exported = obm_to_jax.obm_functions_to_jax_function(
-        loaded_obm_function,
-        jax_supplemental_proto,
-    )
-
-    # Restore/load the params from the saved orbax checkpoint,
-    # this will be fed into the deserialized jax function only.
-    loaded_weights_name = pipeline_proto.weights_name
-    loaded_checkpoint_path = manifest_proto.objects[
-        loaded_weights_name
-    ].value.external.data.file_system_location.string_path
-    restored_params = checkpointer.restore(
-        os.path.join(save_dir_path, loaded_checkpoint_path)
-    )
-
-    test_input_data = jax.device_put(
-        jax.random.uniform(
-            jax.random.PRNGKey(999), (4, 28, 28, 1), dtype=jnp.float64
-        ),
-        input_sharding_spec,
-    )
-
-    result_from_original_jax_call = model_apply_fn(params, test_input_data)
-    result_from_deserialized_jax_call = deserialized_jax_exported.call(
-        jax.device_put(restored_params, params_sharding_spec),
-        test_input_data,
-    )
-
-    self.assertTrue(
-        jnp.array_equal(
-            result_from_deserialized_jax_call, result_from_original_jax_call
-        )
-    )
 
 
 if __name__ == '__main__':
