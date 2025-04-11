@@ -152,3 +152,32 @@ py_test(
         "//orbax/checkpoint/experimental/v1/_src/testing:path_utils",
     ],
 )
+
+py_library(
+    name = "json_handler",
+    srcs = ["json_handler.py"],
+    deps = [
+        ":registration",
+        ":types",
+        "//checkpoint/orbax/checkpoint:checkpoint_utils",
+        "//checkpoint/orbax/checkpoint:options",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
+        "//checkpoint/orbax/checkpoint/_src/futures:synchronization",
+        "//checkpoint/orbax/checkpoint/_src/handlers:base_pytree_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/_src/handlers:json_checkpoint_handler",
+        "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata_store",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/experimental/v1/_src/context:options",
+        "//orbax/checkpoint/experimental/v1/_src/metadata:types",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/tree:types",
+    ],
+)
+
+py_test(
+    name = "json_handler_test",
+    srcs = ["json_handler_test.py"],
+    deps = [":json_handler"],
+)
