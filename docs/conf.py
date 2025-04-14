@@ -63,7 +63,6 @@ extensions = [
     'sphinx.ext.autosectionlabel',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
-    'myst_nb',
     'sphinx_design',
 ]
 
