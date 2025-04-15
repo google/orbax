@@ -45,6 +45,8 @@ _LAST_CHECKPOINT_WRITE_TIME = time.time()
 
 # This file mode gives full permissions to OWNER, GROUP and OTHER.
 WORLD_READABLE_MODE = 0o777
+# This file mode removes permission bits for OTHER in the POSIX file mode.
+NON_WORLD_READABLE_MODE = 0o770
 
 MetadataT = TypeVar('MetadataT', bound='Metadata')
 
