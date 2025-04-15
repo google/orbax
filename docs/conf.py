@@ -176,8 +176,3 @@ intersphinx_mapping = {
 }
 
 source_suffix = ['.rst', '.md', '.ipynb']
-
-autodoc_mock_imports = [
-    'orbax.export.oex_orchestration_pb2',
-    'orbax.export.oex_orchestration.oex_orchestration_pb2',
-]
