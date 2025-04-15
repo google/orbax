@@ -87,7 +87,7 @@ class AsyncMakeDirFunc(Protocol):
       path: epath.Path,
       parents: bool = False,
       exist_ok: bool = False,
-      mode: int = step_lib.WORLD_READABLE_MODE,
+      mode: int = step_lib.NON_WORLD_READABLE_MODE,
       **kwargs,
   ) -> Awaitable[None]:
     """Creates the directory at path."""
@@ -99,7 +99,7 @@ async def _create_tmp_directory(
     tmp_dir: epath.Path,
     *,
     primary_host: Optional[int] = 0,
-    path_permission_mode: int = step_lib.WORLD_READABLE_MODE,
+    path_permission_mode: int = step_lib.NON_WORLD_READABLE_MODE,
     checkpoint_metadata_store: Optional[
         checkpoint_metadata.MetadataStore
     ] = None,
@@ -392,7 +392,7 @@ class CommitFileTemporaryPath(atomicity_types.TemporaryPath):
     Raises:
       FileExistsError: if tmp directory already exists.
     """
-    mode = step_lib.WORLD_READABLE_MODE
+    mode = step_lib.NON_WORLD_READABLE_MODE
     mode = (
         file_options.path_permission_mode or self._path_permission_mode or mode
     )
