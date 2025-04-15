@@ -906,9 +906,18 @@ class CheckpointManagerTestBase:
               name=f'local_checkpointing_test_pid{multihost.process_index()}'
           ).full_path
       )
-      self.persistent_directory = epath.Path(
-          self.create_tempdir(name='persistent_checkpointing_test').full_path
+      # We use the same path for the persistent directory across all processes
+      # but create it only on the primary host. self.create_tempdir() uses
+      # self._get_tempdir_path_test() thus path remains same across all
+      # processes.
+      self.persistent_directory = (
+          epath.Path(self._get_tempdir_path_test())
+          / 'persistent_checkpointing_test'
       )
+      if multihost.is_primary_host(primary_host=0):
+        self.persistent_directory = epath.Path(
+            self.create_tempdir(name='persistent_checkpointing_test').full_path
+        )
       logging.info(
           'self.local_directory=%s, self.persistent_directory=%s',
           self.local_directory,

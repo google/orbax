@@ -30,8 +30,6 @@ py_library(
         ":mesh_consistency",
         ":process_metadata_checkpoint_handler",
         "//checkpoint/orbax/checkpoint:args",
-        "//checkpoint/orbax/checkpoint:options",
-        "//checkpoint/orbax/checkpoint:path",
         "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint:utils",
         "//checkpoint/orbax/checkpoint/_src/handlers:pytree_checkpoint_handler",
