@@ -453,7 +453,9 @@ def resolve_handler_for_load(
   if registry.has(name):
     return _construct_handler_instance(name, registry.get(name))
 
-  def is_handleable_fn(handler: CheckpointableHandler, ckpt: Any) -> bool:
+  def is_handleable_fn(
+      handler: CheckpointableHandler, ckpt: Any
+  ) -> bool | None:
     return handler.is_abstract_handleable(ckpt)
 
   possible_handlers = _get_possible_handlers(

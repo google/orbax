@@ -14,7 +14,7 @@
 
 """Defines types for `CheckpointableHandler`."""
 
-from typing import Awaitable, Protocol, Type, TypeVar
+from typing import Any, Awaitable, Protocol, Type, TypeVar
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 
@@ -214,7 +214,7 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
     """
     ...
 
-  def is_handleable(self, checkpointable: T) -> bool:
+  def is_handleable(self, checkpointable: Any) -> bool:
     """Returns whether the handler can handle the given checkpointable.
 
     The method should return `True` if it is possible to save such an object.
@@ -229,7 +229,7 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
     """
     ...
 
-  def is_abstract_handleable(self, abstract_checkpointable: AbstractT) -> bool:
+  def is_abstract_handleable(self, abstract_checkpointable: Any) -> bool | None:
     """Returns whether the handler can handle the abstract checkpointable.
 
     The method should return `True` if it is possible to use the given
@@ -245,6 +245,8 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
 
     Returns:
       True if the handler can handle the given checkpointable.
+      None if the handler cannot decide whether it can handle the abstract
+      checkpointable and defers to the typestr.
     """
     ...
 

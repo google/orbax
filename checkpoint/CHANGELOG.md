@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
 - #v1 Add v1 to `orbax/checkpoint/__init__.py`.
+- #v1 Add `JsonHandler`.
 
 ## [0.11.12] - 2025-04-09
 

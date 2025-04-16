@@ -245,7 +245,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
         or isinstance(leaf, str)
     )
 
-  def is_handleable(self, checkpointable: PyTree) -> bool:
+  def is_handleable(self, checkpointable: Any) -> bool:
     try:
       return jax.tree.reduce(
           lambda a, b: self._is_handleable_leaf(a)
@@ -256,7 +256,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     except Exception:  # pylint: disable=broad-exception-caught
       return False
 
-  def is_abstract_handleable(self, abstract_checkpointable: PyTree) -> bool:
+  def is_abstract_handleable(self, abstract_checkpointable: Any) -> bool:
     try:
       return jax.tree.reduce(
           lambda a, b: self._is_handleable_abstract_leaf(a)

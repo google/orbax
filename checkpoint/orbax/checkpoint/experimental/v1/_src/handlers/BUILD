@@ -118,6 +118,7 @@ py_library(
     name = "global_registration",
     srcs = ["global_registration.py"],
     deps = [
+        ":json_handler",
         ":proto_handler",
         ":pytree_handler",
         ":registration",
@@ -150,5 +151,28 @@ py_test(
         "//checkpoint/orbax/checkpoint/_src/multihost",
         "//orbax/checkpoint/experimental/v1/_src/testing:handler_utils",
         "//orbax/checkpoint/experimental/v1/_src/testing:path_utils",
+    ],
+)
+
+py_library(
+    name = "json_handler",
+    srcs = ["json_handler.py"],
+    deps = [
+        ":types",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/tree:types",
+    ],
+)
+
+py_test(
+    name = "json_handler_test",
+    srcs = ["json_handler_test.py"],
+    deps = [
+        ":json_handler",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/testing:path_utils",
+        "//orbax/checkpoint/experimental/v1/_src/tree:types",
     ],
 )

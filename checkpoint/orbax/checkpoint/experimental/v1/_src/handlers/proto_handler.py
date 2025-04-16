@@ -16,7 +16,7 @@
 
 import asyncio
 import inspect
-from typing import Awaitable, Type
+from typing import Any, Awaitable, Type
 
 from google.protobuf import message
 from google.protobuf import text_format
@@ -89,12 +89,10 @@ class ProtoHandler(
   async def metadata(self, directory: path_types.Path) -> Type[message.Message]:
     raise NotImplementedError()
 
-  def is_handleable(self, checkpointable: message.Message) -> bool:
+  def is_handleable(self, checkpointable: Any) -> bool:
     return isinstance(checkpointable, message.Message)
 
-  def is_abstract_handleable(
-      self, abstract_checkpointable: Type[message.Message]
-  ) -> bool:
+  def is_abstract_handleable(self, abstract_checkpointable: Any) -> bool:
     return inspect.isclass(abstract_checkpointable) and issubclass(
         abstract_checkpointable, message.Message
     )
