@@ -43,9 +43,6 @@ TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
 TMP_DIR_STEP_PATTERN = r'.*?_*?(\d+)\.orbax-checkpoint-tmp-\d+'
 _LAST_CHECKPOINT_WRITE_TIME = time.time()
 
-# This file mode gives full permissions to OWNER, GROUP and OTHER.
-WORLD_READABLE_MODE = 0o777
-
 MetadataT = TypeVar('MetadataT', bound='Metadata')
 
 

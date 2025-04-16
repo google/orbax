@@ -99,7 +99,7 @@ def create_tmp_directory(
     primary_host: Optional[int] = 0,
     active_processes: Optional[Set[int]] = None,
     barrier_sync_key_prefix: Optional[str] = None,
-    path_permission_mode: int = step_lib.WORLD_READABLE_MODE,
+    path_permission_mode: Optional[int] = None,
     metadata_store: Optional[checkpoint_metadata.MetadataStore] = None,
 ) -> epath.Path:
   """Creates a non-deterministic tmp directory for saving for given `final_dir`.
