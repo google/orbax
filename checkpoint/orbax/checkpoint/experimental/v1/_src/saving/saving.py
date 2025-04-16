@@ -14,7 +14,6 @@
 
 """Defines free-function interface for saving."""
 
-import threading
 from typing import Any
 import uuid
 
@@ -138,20 +137,10 @@ class _SaveResponse(async_types.AsyncResponse[None]):
   def __init__(self, checkpointer: async_checkpointer.AsyncCheckpointer):
     self._exception = None
     self._checkpointer = checkpointer
-    self._thread = threading.Thread(target=self._wait_for_save)
-    self._thread.start()
-
-  def _wait_for_save(self):
-    try:
-      self._checkpointer.wait_until_finished()
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      self._exception = e
 
   def result(self, timeout: float | None = None) -> None:
-    self._thread.join()
-    self._checkpointer.close()
-    if self._exception is not None:
-      raise self._exception
+    del timeout  # Ignored.
+    self._checkpointer.wait_until_finished()
 
 
 # TODO(b/396190818): Test modification of the context by the user after the

@@ -57,6 +57,7 @@ Bar = handler_utils.Bar
 AbstractFoo = handler_utils.AbstractFoo
 AbstractBar = handler_utils.AbstractBar
 
+ocp.handlers.register_handler(handler_utils.BazHandler)
 
 _original_create_paths = atomicity._create_paths
 
@@ -456,7 +457,6 @@ class SaveLoadTestBase:
         test_utils.assert_tree_equal(self, self.pytree, loaded['numpy_pytree'])
 
     def test_missing_keys(self):
-      ocp.handlers.register_handler(handler_utils.BazHandler)
       checkpointables = {
           'numpy_pytree': self.numpy_pytree,
           'baz': handler_utils.Baz(123, 'hi'),
@@ -687,3 +687,20 @@ class SaveLoadTestBase:
           FileNotFoundError, 'No such file or directory'
       ):
         ocp.save_checkpointables(self.directory, {'foo': Foo(123, 'hi')})
+
+    def test_background_error(self):
+
+      async def raise_background_error(*args, **kwargs):
+        del args, kwargs  # Unused.
+        raise RuntimeError()
+
+      with mock.patch.object(
+          handler_utils.DataclassHandler,
+          'background_save',
+          raise_background_error,
+      ):
+        r = ocp.save_checkpointables_async(
+            self.directory, dict(baz=handler_utils.Baz(123, 'hi'))
+        )
+        with self.assertRaises(RuntimeError):
+          r.result()
