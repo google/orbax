@@ -15,7 +15,7 @@
 """A signaling client interface and implementations."""
 
 import asyncio
-from typing import Protocol
+from typing import Protocol, Sequence
 from orbax.checkpoint._src.futures import signaling_client
 
 
@@ -65,6 +65,22 @@ class SignalingClient(Protocol):
     """
     ...
 
+  async def wait_at_barrier(
+      self,
+      key: str,
+      *,
+      timeout_secs: int,
+      process_ids: Sequence[int] | None = None,
+  ):
+    """Waits at a barrier identified by key.
+
+    Args:
+      key: The key to wait at.
+      timeout_secs: The timeout in seconds.
+      process_ids: The participating process ids.
+    """
+    ...
+
 
 class _SignalingClient(SignalingClient):
   """An implementation of SignalingClient that wraps V0 implementation."""
@@ -89,6 +105,20 @@ class _SignalingClient(SignalingClient):
 
   async def key_value_delete(self, key: str):
     return await asyncio.to_thread(self._client.key_value_delete, key)
+
+  async def wait_at_barrier(
+      self,
+      key: str,
+      *,
+      timeout_secs: int,
+      process_ids: Sequence[int] | None = None,
+  ):
+    return await asyncio.to_thread(
+        self._client.wait_at_barrier,
+        key,
+        timeout_secs=timeout_secs,
+        process_ids=process_ids,
+    )
 
 
 def get_signaling_client() -> SignalingClient:

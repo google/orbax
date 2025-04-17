@@ -15,7 +15,6 @@ py_library(
     deps = [
         "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src/metadata:tree",
-        "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
         "//orbax/checkpoint/experimental/v1/_src/handlers:registration",
         "//orbax/checkpoint/experimental/v1/_src/handlers:types",

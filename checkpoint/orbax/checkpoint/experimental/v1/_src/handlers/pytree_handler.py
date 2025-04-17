@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import dataclasses
 from typing import Any, Awaitable, Sequence
@@ -28,7 +29,6 @@ from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
-from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
@@ -36,6 +36,7 @@ from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 Path = path_types.Path
@@ -135,6 +136,10 @@ def create_v0_restore_args(
   )
 
 
+async def _async_futures(commit_futures: Sequence[future.Future]):
+  await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
+
+
 class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
   """An implementation of `CheckpointableHandler` for PyTrees."""
 
@@ -171,18 +176,21 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     active_processes = self._multiprocessing_options.active_processes or set(
         range(multihost.process_count())
     )
-    for f in commit_futures:
-      f.result()
+    await _async_futures(commit_futures)
     # Global sync to ensure all participating processes have completed their
     # save operations before proceeding to finalize.
     barrier_name = f'save_and_finalize_{operation_id}_commit_complete'
-    multihost.sync_global_processes(barrier_name, processes=active_processes)
+    await multihost.sync_global_processes(
+        barrier_name, processes=active_processes
+    )
     # Finalize.
     await self._finalize(directory)
     # Global sync to ensure all hosts are aware that the finalize operation
     # has completed before returning to the user.
     barrier_name = f'save_and_finalize_{operation_id}_finalize_complete'
-    multihost.sync_global_processes(barrier_name, processes=active_processes)
+    await multihost.sync_global_processes(
+        barrier_name, processes=active_processes
+    )
 
   async def save(
       self, directory: path_types.PathAwaitingCreation, checkpointable: PyTree

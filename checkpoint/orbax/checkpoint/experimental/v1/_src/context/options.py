@@ -22,7 +22,6 @@ from typing import Any, Callable, Protocol, Type
 import numpy as np
 from orbax.checkpoint import options as v0_options_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
-from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
@@ -66,8 +65,6 @@ class MultiprocessingOptions:
     that runs over a subset of processes, rather than all processes as it is
     normally expected to do. If specified, `primary_host` must belong to
     `active_processes`.
-  barrier_sync_fn: A function used to customize process synchronization
-    behavior.
   barrier_sync_key_prefix: A string to be prepended to the barrier sync key
     used to synchronize processes. This is useful to avoid collisions with
     other barrier syncs if another CheckpointManager is being used
@@ -76,7 +73,6 @@ class MultiprocessingOptions:
 
   primary_host: int | None = 0
   active_processes: set[int] | None = None
-  barrier_sync_fn: multihost.BarrierSyncFn | None = None
   barrier_sync_key_prefix: str | None = None
 
   def v0(self) -> v0_options_lib.MultiprocessingOptions:

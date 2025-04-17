@@ -18,6 +18,7 @@ import functools
 import logging
 import threading
 import time
+from typing import Sequence
 import jax
 from orbax.checkpoint._src.multihost import multihost
 from typing_extensions import Protocol
@@ -65,6 +66,22 @@ class SignalingClient(Protocol):
 
     Args:
       key: The key to delete.
+    """
+    ...
+
+  def wait_at_barrier(
+      self,
+      key: str,
+      *,
+      timeout_secs: int,
+      process_ids: Sequence[int] | None = None,
+  ):
+    """Waits at a barrier identified by key.
+
+    Args:
+      key: The key to wait at.
+      timeout_secs: The timeout in seconds.
+      process_ids: The participating process ids.
     """
     ...
 
@@ -141,6 +158,36 @@ class JaxDistributedSignalingClient(SignalingClient):
       key: The key to delete.
     """
     self._client.key_value_delete(key)
+
+  def wait_at_barrier(
+      self,
+      key: str,
+      *,
+      timeout_secs: int,
+      process_ids: Sequence[int] | None = None,
+  ):
+    """Waits at a barrier identified by key.
+
+    Args:
+      key: The key to wait at.
+      timeout_secs: The timeout in seconds.
+      process_ids: The participating process ids.
+
+    Raises:
+      TimeoutError: If the timeout is reached.
+    """
+    try:
+      self._client.wait_at_barrier(
+          key, timeout_secs * 1000, process_ids=process_ids
+      )
+    except jax.errors.JaxRuntimeError as e:
+      # Note that JaxRuntimeError may represent issues other than timeouts, but
+      # we aim to catch all such issues in caller layers.
+      error_msg = f"Timeout waiting at barrier '{key}'."
+      if process_ids is not None:
+        error_msg += f" Barrier used process ids: {process_ids}."
+      error_msg += f" The original error raised was: {str(e)}"
+      raise TimeoutError(error_msg) from e
 
 
 class ThreadSafeKeyValueSignalingClient(SignalingClient):
@@ -248,6 +295,25 @@ class ThreadSafeKeyValueSignalingClient(SignalingClient):
       else:
         if key in self._data:
           del self._data[key]
+
+  def wait_at_barrier(
+      self,
+      key: str,
+      *,
+      timeout_secs: int,
+      process_ids: Sequence[int] | None = None,
+  ):
+    """Waits at a barrier identified by key.
+
+    Args:
+      key: The key to wait at.
+      timeout_secs: The timeout in seconds.
+      process_ids: The participating process ids.
+    """
+    raise NotImplementedError(
+        "`wait_at_barrier` is not implemented for"
+        " `ThreadSafeKeyValueSignalingClient`."
+    )
 
 
 @functools.lru_cache()

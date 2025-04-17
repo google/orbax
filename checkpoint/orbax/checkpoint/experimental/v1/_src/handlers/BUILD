@@ -30,7 +30,6 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/metadata:sharding",
         "//checkpoint/orbax/checkpoint/_src/metadata:tree",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
-        "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/serialization",
         "//checkpoint/orbax/checkpoint/_src/serialization:replica_slices",
         "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
@@ -40,6 +39,7 @@ py_library(
         "//orbax/checkpoint/experimental/v1/_src/context:options",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
         "//orbax/checkpoint/experimental/v1/_src/serialization:registration",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
         "//orbax/checkpoint/experimental/v1/_src/testing:array_utils",
         "//orbax/checkpoint/experimental/v1/_src/testing:path_utils",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",
@@ -58,12 +58,12 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/futures:synchronization",
         "//checkpoint/orbax/checkpoint/_src/handlers:base_pytree_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata_store",
-        "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/context:options",
         "//orbax/checkpoint/experimental/v1/_src/metadata:types",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",
     ],
 )
@@ -108,9 +108,9 @@ py_library(
     srcs = ["proto_handler.py"],
     deps = [
         ":types",
-        "//checkpoint/orbax/checkpoint/_src/multihost",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
     ],
 )
 
@@ -148,7 +148,7 @@ py_test(
         "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
-        "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
         "//orbax/checkpoint/experimental/v1/_src/testing:handler_utils",
         "//orbax/checkpoint/experimental/v1/_src/testing:path_utils",
     ],
@@ -159,9 +159,9 @@ py_library(
     srcs = ["json_handler.py"],
     deps = [
         ":types",
-        "//checkpoint/orbax/checkpoint/_src/multihost",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",
     ],
 )

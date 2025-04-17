@@ -20,10 +20,10 @@ import asyncio
 import json
 from typing import Any, Awaitable
 
-from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 CheckpointableHandler = handler_types.CheckpointableHandler
@@ -82,7 +82,7 @@ class JsonHandler(CheckpointableHandler[JsonType, None]):
     try:
       json.loads(checkpointable)
       return True
-    except Exception:
+    except Exception:  # pylint: disable=broad-exception-caught
       return False
 
   def is_abstract_handleable(self, abstract_checkpointable: Any) -> bool | None:

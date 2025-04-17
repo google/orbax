@@ -18,7 +18,7 @@ import threading
 from typing import Sequence
 from absl import logging
 from orbax.checkpoint._src.futures import synchronization
-from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import signaling_client
 
 HandlerAwaitableSignal = synchronization.HandlerAwaitableSignal
