@@ -54,6 +54,7 @@ create_sharded_pytree = array_test_utils.create_sharded_pytree
 as_abstract_type = array_test_utils.as_abstract_type
 
 PYTREE_CHECKPOINTABLE_KEY = 'pytree'
+PLACEHOLDER = tree_types.PLACEHOLDER
 
 Foo = handler_utils.Foo
 Bar = handler_utils.Bar
@@ -756,3 +757,45 @@ class SaveLoadTestBase:
         )
         with self.assertRaises(RuntimeError):
           r.result()
+
+    @parameterized.parameters((True,), (False,))
+    def test_partial_restore_with_placeholder(self, use_async):
+      """Basic save and restore test."""
+      directory = self.directory / 'partial_restore'
+
+      self.save_and_wait(directory, self.pytree, use_async=use_async)
+
+      with self.subTest('success'):
+        reference_item = self.abstract_pytree.copy()
+        reference_item['b'] = PLACEHOLDER
+        reference_item['c']['e'] = PLACEHOLDER
+
+        expected = self.pytree.copy()
+        expected['b'] = PLACEHOLDER
+        expected['c']['e'] = PLACEHOLDER
+
+        test_utils.assert_tree_equal(
+            self,
+            expected,
+            self.load_and_wait(directory, reference_item, use_async=use_async),
+        )
+
+      with self.subTest('missing_leaf'):
+        reference_item = self.abstract_pytree.copy()
+        reference_item['b'] = PLACEHOLDER
+        reference_item['c']['e'] = PLACEHOLDER
+        del reference_item['c']['a']
+
+        with self.assertRaisesRegex(
+            ValueError, 'User-provided restore item and on-disk value'
+        ):
+          self.load_and_wait(directory, reference_item, use_async=use_async)
+
+      with self.subTest('non_leaf_placeholder'):
+        reference_item = self.abstract_pytree.copy()
+        reference_item['c'] = PLACEHOLDER
+
+        with self.assertRaisesRegex(
+            ValueError, 'User-provided restore item and on-disk value'
+        ):
+          self.load_and_wait(directory, reference_item, use_async=use_async)
