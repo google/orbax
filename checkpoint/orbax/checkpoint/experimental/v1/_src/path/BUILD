@@ -6,6 +6,12 @@ py_library(
 )
 
 py_library(
+    name = "step",
+    srcs = ["step.py"],
+    deps = ["//checkpoint/orbax/checkpoint/_src/path:step"],
+)
+
+py_library(
     name = "format_utils",
     srcs = ["format_utils.py"],
     deps = [
