@@ -14,6 +14,8 @@
 
 """Internal IO utilities for metadata of a checkpoint at step level."""
 
+from __future__ import annotations
+
 import dataclasses
 from typing import Any
 
@@ -23,10 +25,136 @@ from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import metadata_serialization_utils as utils
 
 SerializedMetadata = checkpoint.SerializedMetadata
+CheckpointHandlerTypeStr = checkpoint.CheckpointHandlerTypeStr
 StepMetadata = checkpoint.StepMetadata
 CompositeItemMetadata = checkpoint.CompositeItemMetadata
 SingleItemMetadata = checkpoint.SingleItemMetadata
 StepStatistics = step_statistics.SaveStepStatistics
+
+
+@dataclasses.dataclass
+class InternalCheckpointMetadata:
+  """An internal representation of checkpoint metadata.
+
+  `CheckpointMetadata`, or `StepMetadata` (depending on V0 or V1), is a
+  user-facing representation. It is a logical entity containing all the
+  properties a user wishes to access. It is not tied to the actual
+  representation of the metadata in the checkpoint, and is divorced from any
+  internal implementation details.
+
+  `InternalCheckpointMetadata` is a Python representation of the physical
+  JSON file storing metadata properties. It excludes any properties that are
+  handled separately, such as `item_metadata` or `descriptor`.
+
+  The class provides `serialize` and `deserialize` methods allowing conversion
+  between a JSON dict and this class, including validation.
+
+  It also provides methods that convert between this class and the user-facing
+  class. In particular, when converting to the user-facing class, it accepts
+  additional metadata properties desired by the user that are stored separately
+  from the JSON metadata file.
+  """
+
+  item_handlers: (
+      dict[str, CheckpointHandlerTypeStr] | CheckpointHandlerTypeStr | None
+  ) = dataclasses.field(
+      default=None,
+      metadata={'processor': utils.validate_and_process_item_handlers},
+  )
+  metrics: dict[str, Any] = dataclasses.field(
+      default_factory=dict,
+      metadata={'processor': utils.validate_and_process_metrics},
+  )
+  performance_metrics: StepStatistics = dataclasses.field(
+      default_factory=StepStatistics,
+      metadata={'processor': utils.validate_and_process_performance_metrics},
+  )
+  init_timestamp_nsecs: int | None = dataclasses.field(
+      default=None,
+      metadata={'processor': utils.validate_and_process_init_timestamp_nsecs},
+  )
+  commit_timestamp_nsecs: int | None = dataclasses.field(
+      default=None,
+      metadata={'processor': utils.validate_and_process_commit_timestamp_nsecs},
+  )
+  custom_metadata: dict[str, Any] = dataclasses.field(
+      default_factory=dict,
+      metadata={'processor': utils.validate_and_process_custom_metadata},
+  )
+
+  def serialize(self) -> SerializedMetadata:
+    """Serializes `self` to a JSON dictionary and performs validation."""
+    return {
+        field.name: field.metadata['processor'](getattr(self, field.name))
+        for field in dataclasses.fields(self)
+    }
+
+  @classmethod
+  def deserialize(
+      cls, metadata_dict: SerializedMetadata
+  ) -> InternalCheckpointMetadata:
+    """Deserializes `metadata_dict` to `InternalCheckpointMetadata`."""
+    assert isinstance(metadata_dict, dict)
+    fields = dataclasses.fields(InternalCheckpointMetadata)
+    field_names = {field.name for field in fields}
+
+    field_processor_args = {
+        field_name: (metadata_dict.get(field_name, None),)
+        for field_name in field_names
+    }
+    validated_metadata_dict = {
+        field.name: field.metadata['processor'](
+            *field_processor_args[field.name]
+        )
+        for field in fields
+    }
+
+    validated_metadata_dict['performance_metrics'] = StepStatistics(
+        **validated_metadata_dict['performance_metrics']
+    )
+
+    assert isinstance(validated_metadata_dict['custom_metadata'], dict)
+    for k in metadata_dict:
+      if k not in validated_metadata_dict:
+        validated_metadata_dict['custom_metadata'][k] = (
+            utils.process_unknown_key(k, metadata_dict)
+        )
+    return InternalCheckpointMetadata(**validated_metadata_dict)
+
+  def to_step_metadata(
+      self,
+      *,
+      item_metadata: CompositeItemMetadata | SingleItemMetadata | None = None,
+      additional_metrics: dict[str, Any] | None = None,
+  ) -> StepMetadata:
+    """Construct user-facing representation."""
+    item_metadata = utils.validate_and_process_item_metadata(item_metadata)
+    metrics = utils.validate_and_process_metrics(
+        self.metrics, additional_metrics
+    )
+    return StepMetadata(
+        item_handlers=self.item_handlers,
+        item_metadata=item_metadata,
+        metrics=metrics,
+        performance_metrics=self.performance_metrics,
+        init_timestamp_nsecs=self.init_timestamp_nsecs,
+        commit_timestamp_nsecs=self.commit_timestamp_nsecs,
+        custom_metadata=self.custom_metadata,
+    )
+
+  @classmethod
+  def from_step_metadata(
+      cls, step_metadata: StepMetadata
+  ) -> InternalCheckpointMetadata:
+    """Return internal representation, dropping fields handled separately."""
+    return cls(
+        item_handlers=step_metadata.item_handlers,
+        metrics=step_metadata.metrics,
+        performance_metrics=step_metadata.performance_metrics,
+        init_timestamp_nsecs=step_metadata.init_timestamp_nsecs,
+        commit_timestamp_nsecs=step_metadata.commit_timestamp_nsecs,
+        custom_metadata=step_metadata.custom_metadata,
+    )
 
 
 def get_step_metadata(path: epath.PathLike) -> StepMetadata:
@@ -42,15 +170,8 @@ def get_step_metadata(path: epath.PathLike) -> StepMetadata:
 
 def serialize(metadata: StepMetadata) -> SerializedMetadata:
   """Serializes `metadata` to a dictionary."""
-  serialized_fields = {
-      field.name: field.metadata['processor'](getattr(metadata, field.name))
-      for field in dataclasses.fields(metadata)
-  }
-
-  # Per item metadata is already saved in the item subdirectories.
-  del serialized_fields['item_metadata']
-
-  return serialized_fields
+  metadata = InternalCheckpointMetadata.from_step_metadata(metadata)
+  return metadata.serialize()
 
 
 def serialize_for_update(**kwargs) -> SerializedMetadata:
@@ -64,7 +185,7 @@ def serialize_for_update(**kwargs) -> SerializedMetadata:
   Returns:
     A dictionary of the serialized kwargs.
   """
-  fields = dataclasses.fields(StepMetadata)
+  fields = dataclasses.fields(InternalCheckpointMetadata)
   field_names = {field.name for field in fields}
 
   for k in kwargs:
@@ -85,34 +206,7 @@ def deserialize(
     item_metadata: CompositeItemMetadata | SingleItemMetadata | None = None,
     metrics: dict[str, Any] | None = None,
 ) -> StepMetadata:
-  """Deserializes `metadata_dict` and other kwargs to `StepMetadata`."""
-  fields = dataclasses.fields(StepMetadata)
-  field_names = {field.name for field in fields}
-
-  field_processor_args = {
-      field_name: (metadata_dict.get(field_name, None),)
-      for field_name in field_names
-  }
-  field_processor_args['item_metadata'] = (item_metadata,)
-  field_processor_args['metrics'] = (
-      metadata_dict.get('metrics', None),
-      metrics,
+  """Deserializes `metadata_dict` and other kwargs to `InternalCheckpointMetadata`."""
+  return InternalCheckpointMetadata.deserialize(metadata_dict).to_step_metadata(
+      item_metadata=item_metadata, additional_metrics=metrics
   )
-
-  validated_metadata_dict = {
-      field.name: field.metadata['processor'](*field_processor_args[field.name])
-      for field in fields
-  }
-
-  validated_metadata_dict['performance_metrics'] = StepStatistics(
-      **validated_metadata_dict['performance_metrics']
-  )
-
-  assert isinstance(validated_metadata_dict['custom_metadata'], dict)
-  for k in metadata_dict:
-    if k not in validated_metadata_dict:
-      validated_metadata_dict['custom_metadata'][k] = utils.process_unknown_key(
-          k, metadata_dict
-      )
-
-  return StepMetadata(**validated_metadata_dict)

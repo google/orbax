@@ -86,36 +86,15 @@ class StepMetadata:
 
   item_handlers: (
       dict[str, CheckpointHandlerTypeStr] | CheckpointHandlerTypeStr | None
-  ) = dataclasses.field(
-      default=None,
-      metadata={'processor': utils.validate_and_process_item_handlers},
-  )
-  item_metadata: CompositeItemMetadata | SingleItemMetadata | None = (
-      dataclasses.field(
-          default=None,
-          metadata={'processor': utils.validate_and_process_item_metadata},
-      )
-  )
-  metrics: dict[str, Any] = dataclasses.field(
-      default_factory=dict,
-      metadata={'processor': utils.validate_and_process_metrics},
-  )
+  ) = None
+  item_metadata: CompositeItemMetadata | SingleItemMetadata | None = None
+  metrics: dict[str, Any] = dataclasses.field(default_factory=dict)
   performance_metrics: StepStatistics = dataclasses.field(
-      default_factory=StepStatistics,
-      metadata={'processor': utils.validate_and_process_performance_metrics},
+      default_factory=StepStatistics
   )
-  init_timestamp_nsecs: int | None = dataclasses.field(
-      default=None,
-      metadata={'processor': utils.validate_and_process_init_timestamp_nsecs},
-  )
-  commit_timestamp_nsecs: int | None = dataclasses.field(
-      default=None,
-      metadata={'processor': utils.validate_and_process_commit_timestamp_nsecs},
-  )
-  custom_metadata: dict[str, Any] = dataclasses.field(
-      default_factory=dict,
-      metadata={'processor': utils.validate_and_process_custom_metadata},
-  )
+  init_timestamp_nsecs: int | None = None
+  commit_timestamp_nsecs: int | None = None
+  custom_metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
