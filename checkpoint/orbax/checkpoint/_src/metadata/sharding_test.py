@@ -51,41 +51,6 @@ class TestShardingMetadata(absltest.TestCase):
     self.assertIsInstance(converted_jax_sharding, jax.sharding.NamedSharding)
     self.assertEqual(converted_jax_sharding, jax_sharding)
 
-  def test_convert_between_jax_positional_sharding_and_sharding_metadata(
-      self,
-  ):
-    # Convert from `jax.sharding.PositionalSharding` to
-    # `PositionalShardingMetadata`
-    jax_sharding = jax.sharding.PositionalSharding(jax.devices()).reshape(
-        [1, -1]
-    )
-    expected_positional_sharding_metadata = (
-        sharding_metadata.PositionalShardingMetadata(
-            jax_sharding.shape, jax_sharding.memory_kind
-        )
-    )
-    converted_positional_sharding_metadata = (
-        sharding_metadata.from_jax_sharding(jax_sharding)
-    )
-    self.assertIsInstance(
-        converted_positional_sharding_metadata,
-        sharding_metadata.PositionalShardingMetadata,
-    )
-    self.assertEqual(
-        converted_positional_sharding_metadata,
-        expected_positional_sharding_metadata,
-    )
-
-    # Convert from `PositionalShardingMetadata` to
-    # `jax.sharding.PositionalSharding`
-    converted_jax_sharding = (
-        converted_positional_sharding_metadata.to_jax_sharding()
-    )
-    self.assertIsInstance(
-        converted_jax_sharding, jax.sharding.PositionalSharding
-    )
-    self.assertEqual(converted_jax_sharding, jax_sharding)
-
   def test_convert_between_jax_single_device_sharding_and_sharding_metadata(
       self,
   ):
