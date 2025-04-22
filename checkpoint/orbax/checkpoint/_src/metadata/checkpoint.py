@@ -108,8 +108,7 @@ class RootMetadata:
   """
 
   custom_metadata: dict[str, Any] | None = dataclasses.field(
-      default_factory=dict,
-      metadata={'processor': utils.validate_and_process_custom_metadata},
+      default_factory=dict
   )
 
 
