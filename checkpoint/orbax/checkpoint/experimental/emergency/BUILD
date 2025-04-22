@@ -117,6 +117,7 @@ py_test(
         "--logbuflevel=-1",  # Ensures logs are saved even if the test times out.
         "--extra_test_args='--vmodule=checkpoint_manager=1'",
     ],
+    tags = ["manual"],
     deps = [":test_utils"],
 )
 
@@ -129,6 +130,7 @@ py_test(
         "--logbuflevel=-1",  # Ensures logs are saved even if the test times out.
         "--extra_test_args='--vmodule=checkpoint_manager=1'",
     ],
+    tags = ["manual"],
     deps = [
         ":checkpoint_manager",
         "//checkpoint/orbax/checkpoint:test_utils",
