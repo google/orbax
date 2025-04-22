@@ -12,25 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Types for PyTree utilities."""
+"""Errors encountered during training."""
 
-from typing import Any
-import jax
-import numpy as np
-from orbax.checkpoint._src.tree import types
 
-JsonType = types.JsonType
-
-PyTree = Any
-PyTreeOf = types.PyTreeOf
-
-PyTreeKey = types.PyTreeKey
-PyTreeKeyPath = types.PyTreePath
-
-ScalarType = int | float | bool
-LeafType = jax.Array | np.ndarray | str | ScalarType | Any
-AbstractLeafType = Any  # TODO(cpgaffney): Add a type for abstract leaves.
-
-JsonType = types.JsonType
-
-PLACEHOLDER = ...
+class StepAlreadyExistsError(FileExistsError):
+  """Raised when a step intended for saving already exists."""

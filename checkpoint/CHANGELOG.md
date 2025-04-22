@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- #v1 Add v1 to `orbax/checkpoint/__init__.py`.
 - #v1 Add `JsonHandler`.
+- #v1 Add `training.Checkpointer`.
 
 ### Added
 
@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - #v1 Add `checkpointables_metadata` function and simplify PyTree
 metadata presentation.
+- #v1 Add v1 to `orbax/checkpoint/__init__.py`.
 
 ## [0.11.11] - 2025-04-07
 

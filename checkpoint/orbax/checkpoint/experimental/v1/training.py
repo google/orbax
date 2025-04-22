@@ -12,25 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Types for PyTree utilities."""
+"""Public API for `training` package."""
 
-from typing import Any
-import jax
-import numpy as np
-from orbax.checkpoint._src.tree import types
+# pylint: disable=g-importing-member, g-multiple-import, unused-import, g-bad-import-order
 
-JsonType = types.JsonType
+from orbax.checkpoint.experimental.v1._src.training.checkpointer import (
+    Checkpointer,
+)
 
-PyTree = Any
-PyTreeOf = types.PyTreeOf
+from orbax.checkpoint.experimental.v1._src.training import save_decision_policies
+from orbax.checkpoint.experimental.v1._src.training import errors
 
-PyTreeKey = types.PyTreeKey
-PyTreeKeyPath = types.PyTreePath
-
-ScalarType = int | float | bool
-LeafType = jax.Array | np.ndarray | str | ScalarType | Any
-AbstractLeafType = Any  # TODO(cpgaffney): Add a type for abstract leaves.
-
-JsonType = types.JsonType
-
-PLACEHOLDER = ...
+from orbax.checkpoint.experimental.v1._src.training.metadata.types import (
+    CheckpointMetadata,
+    RootMetadata,
+)

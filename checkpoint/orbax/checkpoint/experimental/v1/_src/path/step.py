@@ -12,25 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Types for PyTree utilities."""
+"""Utilities for working with paths constructed from steps."""
 
-from typing import Any
-import jax
-import numpy as np
-from orbax.checkpoint._src.tree import types
+from orbax.checkpoint._src.path import step as step_lib
 
-JsonType = types.JsonType
 
-PyTree = Any
-PyTreeOf = types.PyTreeOf
+NameFormat = step_lib.NameFormat
+Metadata = step_lib.Metadata
 
-PyTreeKey = types.PyTreeKey
-PyTreeKeyPath = types.PyTreePath
-
-ScalarType = int | float | bool
-LeafType = jax.Array | np.ndarray | str | ScalarType | Any
-AbstractLeafType = Any  # TODO(cpgaffney): Add a type for abstract leaves.
-
-JsonType = types.JsonType
-
-PLACEHOLDER = ...
+standard_name_format = step_lib.standard_name_format
+composite_name_format = step_lib.composite_name_format

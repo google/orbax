@@ -465,6 +465,13 @@ class SaveLoadTestBase:
         with self.assertRaisesRegex(ValueError, 'User-provided restore item'):
           ocp.load_pytree(self.directory, abstract_pytree)
 
+    def test_force_overwrites(self):
+      ocp.save_pytree(self.directory, self.pytree)
+      ocp.save_pytree(self.directory, self.numpy_pytree, force=True)
+      test_utils.assert_tree_equal(
+          self, self.numpy_pytree, ocp.load_pytree(self.directory)
+      )
+
     def test_multiple_pytrees(self):
       checkpointables = {
           'pytree': self.pytree,

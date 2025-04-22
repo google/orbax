@@ -14,8 +14,10 @@
 
 """Metadata describing checkpoints."""
 
-import dataclasses
+from __future__ import annotations
+
 from typing import Generic, TypeAlias, TypeVar
+
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
@@ -30,7 +32,6 @@ CheckpointableMetadataT = TypeVar('CheckpointableMetadataT')
 PyTreeMetadata: TypeAlias = tree_types.PyTreeOf[tree_types.AbstractLeafType]
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
 class CheckpointMetadata(Generic[CheckpointableMetadataT]):
   """Represents complete metadata describing a checkpoint.
 
@@ -70,7 +71,39 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
   """
-  metadata: CheckpointableMetadataT
-  init_timestamp_nsecs: int | None = None
-  commit_timestamp_nsecs: int | None = None
-  custom_metadata: tree_types.JsonType | None = None
+
+  def __init__(
+      self,
+      *,
+      metadata: CheckpointableMetadataT,
+      init_timestamp_nsecs: int | None = None,
+      commit_timestamp_nsecs: int | None = None,
+      custom_metadata: tree_types.JsonType | None = None,
+  ):
+    self._metadata = metadata
+    self._init_timestamp_nsecs = init_timestamp_nsecs
+    self._commit_timestamp = commit_timestamp_nsecs
+    self._custom_metadata = custom_metadata
+
+  @property
+  def metadata(self) -> CheckpointableMetadataT:
+    return self._metadata
+
+  @property
+  def init_timestamp_nsecs(self) -> int | None:
+    return self._init_timestamp_nsecs
+
+  @property
+  def commit_timestamp_nsecs(self) -> int | None:
+    return self._commit_timestamp
+
+  @property
+  def custom_metadata(self) -> tree_types.JsonType | None:
+    return self._custom_metadata
+
+
+  @classmethod
+  def from_metadata(
+      cls, metadata: CheckpointableMetadataT
+  ) -> CheckpointMetadata[CheckpointableMetadataT]:
+    return cls(metadata=metadata)

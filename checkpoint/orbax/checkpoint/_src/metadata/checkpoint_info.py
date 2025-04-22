@@ -35,7 +35,14 @@ PyTree = Any
 
 @dataclasses.dataclass
 class CheckpointInfo:
-  """Metadata about a checkpoint."""
+  """Basic information relevant to a checkpoint step.
+
+  Attributes:
+    step: Step number.
+    time: Time at which the checkpoint was saved. This should be treated as an
+      approximate start time of the save operation.
+    metrics: Metrics associated with the step, if provided.
+  """
 
   step: int
   time: datetime.datetime

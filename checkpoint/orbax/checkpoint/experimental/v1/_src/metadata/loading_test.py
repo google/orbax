@@ -102,9 +102,9 @@ class PyTreeMetadataTest(absltest.TestCase):
       else:
         return x
 
-    metadata = dataclasses.replace(
-        metadata, metadata=jax.tree.map(_set_numpy_cast_type, metadata.metadata)
-    )
+    metadata = metadata_types.CheckpointMetadata[
+        metadata_types.PyTreeMetadata
+    ].from_metadata(jax.tree.map(_set_numpy_cast_type, metadata.metadata))
     expected_pytree = jax.tree.map(_set_numpy_cast_type, self.pytree)
 
     with self.subTest('pytree_metadata'):
@@ -152,8 +152,12 @@ class CheckpointablesMetadataTest(absltest.TestCase):
 
     metadata = ocp.checkpointables_metadata(path1)
     self.assertSameElements(metadata.metadata.keys(), ['foo'])
-    metadata = dataclasses.replace(metadata, metadata={'bar': AbstractFoo()})
-    loaded = ocp.load_checkpointables(path2, metadata)
+    loaded = ocp.load_checkpointables(
+        path2,
+        metadata_types.CheckpointMetadata[dict[str, AbstractFoo]].from_metadata(
+            {'bar': AbstractFoo()}
+        ),
+    )
     self.assertSameElements(loaded.keys(), ['bar'])
     self.assertEqual(Foo(3, 'bar'), loaded['bar'])
 
