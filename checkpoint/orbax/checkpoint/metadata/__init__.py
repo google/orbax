@@ -26,7 +26,6 @@ from orbax.checkpoint._src.metadata.sharding import ShardingMetadata
 from orbax.checkpoint._src.metadata.sharding import NamedShardingMetadata
 from orbax.checkpoint._src.metadata.sharding import SingleDeviceShardingMetadata
 from orbax.checkpoint._src.metadata.sharding import GSPMDShardingMetadata
-from orbax.checkpoint._src.metadata.sharding import PositionalShardingMetadata
 
 from orbax.checkpoint.metadata import value
 from orbax.checkpoint.metadata import tree

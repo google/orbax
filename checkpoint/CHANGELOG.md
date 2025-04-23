@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Support for `jax.sharding.PositionalSharding` has been removed since it has
+  been deprecated in JAX and will be deleted in a future JAX release. Please
+  use `jax.NamedSharding` instead.
+
 ### Added
 
 - #v1 Add `JsonHandler`.

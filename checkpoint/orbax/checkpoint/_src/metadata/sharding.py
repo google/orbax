@@ -24,7 +24,6 @@ import logging
 from typing import Any, List, Mapping, Optional, Sequence, Tuple, Union
 
 import jax
-from jax.experimental import mesh_utils
 import numpy as np
 
 PartitionSpecElement = Union[None, str, Tuple[str, ...]]
@@ -152,7 +151,6 @@ class ShardingMetadata(abc.ABC):
     jax.sharding.NamedSharding
     jax.sharding.SingleDeviceSharding
     jax.sharding.GSPMDSharding
-    jax.sharding.PositionalSharding
   """
 
   @classmethod
@@ -322,73 +320,12 @@ class GSPMDShardingMetadata(ShardingMetadata):
   pass
 
 
-@dataclasses.dataclass
-class PositionalShardingMetadata(ShardingMetadata):
-  """PositionalShardingMetadata representing `jax.sharding.PositionalSharding`."""
-
-  shape: np.ndarray
-  memory_kind: Optional[str] = None
-
-  @classmethod
-  def from_jax_sharding(
-      cls, jax_sharding: jax.sharding.PositionalSharding
-  ) -> PositionalShardingMetadata:
-    return cls(
-        shape=np.array(list(jax_sharding.shape)),
-        memory_kind=jax_sharding.memory_kind,
-    )
-
-  def to_jax_sharding(self) -> jax.sharding.PositionalSharding:
-    return jax.sharding.PositionalSharding(
-        mesh_utils.create_device_mesh(self.shape),
-        memory_kind=self.memory_kind,
-    )
-
-  @classmethod
-  def from_deserialized_dict(
-      cls, deserialized_dict: dict[str, str]
-  ) -> PositionalShardingMetadata:
-    if _DEVICES_SHAPE in deserialized_dict:
-      shape = np.array(deserialized_dict[_DEVICES_SHAPE])
-      memory_kind = deserialized_dict.get(_MEMORY_KIND, None)
-      return cls(
-          shape=shape,
-          memory_kind=memory_kind,
-      )
-    else:
-      raise ValueError(
-          f'Sharding data not found in deserialized_dict: {deserialized_dict}'
-      )
-
-  def to_serialized_string(self) -> str:
-    sharding_data = {}
-    sharding_data[_SHARDING_TYPE] = ShardingTypes.POSITIONAL_SHARDING.value
-    sharding_data[_DEVICES_SHAPE] = self.shape.tolist()
-    if self.memory_kind is not None:
-      sharding_data[_MEMORY_KIND] = self.memory_kind
-    return json.dumps(sharding_data)
-
-  def __repr__(self):
-    return (
-        f'PositionalShardingMetadata(shape={self.shape},'
-        f' memory_kind={self.memory_kind})'
-    )
-
-  def __eq__(self, other):
-    return (
-        np.array_equal(self.shape, other.shape)
-        and self.memory_kind == other.memory_kind
-    )
-
-
 def from_jax_sharding(jax_sharding) -> Optional[ShardingMetadata]:
   """Converts `jax.sharding.Sharding` to `ShardingMetadata`."""
   if isinstance(jax_sharding, jax.sharding.NamedSharding):
     return NamedShardingMetadata.from_jax_sharding(jax_sharding)
   elif isinstance(jax_sharding, jax.sharding.SingleDeviceSharding):
     return SingleDeviceShardingMetadata.from_jax_sharding(jax_sharding)
-  elif isinstance(jax_sharding, jax.sharding.PositionalSharding):
-    return PositionalShardingMetadata.from_jax_sharding(jax_sharding)
   else:
     logging.warning(
         'Conversion for %s has not been implemented.', type(jax_sharding)
@@ -411,7 +348,9 @@ def from_serialized_string(serialized_str) -> ShardingMetadata:
       deserialized_dict[_SHARDING_TYPE]
       == ShardingTypes.POSITIONAL_SHARDING.value
   ):
-    return PositionalShardingMetadata.from_deserialized_dict(deserialized_dict)
+    raise ValueError(
+        'jax.sharding.PositionalSharding has been deprecated. Please use'
+        ' jax.NamedSharding instead.')
   else:
     raise NotImplementedError(
         f'Conversion for {deserialized_dict[_SHARDING_TYPE]} has not been'

@@ -112,63 +112,14 @@ class TestShardingMetadata(absltest.TestCase):
   def test_positional_sharding_string_to_metadata(
       self,
   ):
-    # Convert from `PositionalShardingMetadata` to `str`
-    positional_sharding_metadata = sharding_metadata.PositionalShardingMetadata(
-        shape=np.array([1, 2])
-    )
-    expected_positional_sharding_string = (
+    positional_sharding_string = (
         '{"sharding_type": "PositionalSharding", "shape": [1, 2]}'
     )
-    positional_sharding_string = (
-        positional_sharding_metadata.to_serialized_string()
-    )
-    self.assertEqual(
-        positional_sharding_string, expected_positional_sharding_string
-    )
 
-    # Convert from `str` to `PositionalShardingMetadata`
-    converted_positional_sharding_metadata = (
-        sharding_metadata.from_serialized_string(positional_sharding_string)
-    )
-    self.assertIsInstance(
-        converted_positional_sharding_metadata,
-        sharding_metadata.PositionalShardingMetadata,
-    )
-    self.assertEqual(
-        converted_positional_sharding_metadata,
-        positional_sharding_metadata,
-    )
-
-  def test_positional_sharding_string_to_metadata_with_memory_kind(
-      self,
-  ):
-    # Convert from `PositionalShardingMetadata` to `str`
-    positional_sharding_metadata = sharding_metadata.PositionalShardingMetadata(
-        shape=np.array([1, 2]), memory_kind="foo"
-    )
-    expected_positional_sharding_string = (
-        '{"sharding_type": "PositionalSharding", "shape": [1, 2],'
-        ' "memory_kind": "foo"}'
-    )
-    positional_sharding_string = (
-        positional_sharding_metadata.to_serialized_string()
-    )
-    self.assertEqual(
-        positional_sharding_string, expected_positional_sharding_string
-    )
-
-    # Convert from `str` to `PositionalShardingMetadata`
-    converted_positional_sharding_metadata = (
-        sharding_metadata.from_serialized_string(positional_sharding_string)
-    )
-    self.assertIsInstance(
-        converted_positional_sharding_metadata,
-        sharding_metadata.PositionalShardingMetadata,
-    )
-    self.assertEqual(
-        converted_positional_sharding_metadata,
-        positional_sharding_metadata,
-    )
+    with self.assertRaisesRegex(
+        ValueError, "PositionalSharding has been deprecated"
+    ):
+      sharding_metadata.from_serialized_string(positional_sharding_string)
 
   def test_single_device_sharding_string_to_metadata(
       self,
