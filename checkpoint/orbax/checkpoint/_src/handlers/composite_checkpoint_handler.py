@@ -833,15 +833,12 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     # async-compatible barrier function.
     for item_name in sorted(args.keys()):
       arg = args[item_name]
-      handler = self._get_or_set_handler(item_name, arg)
-      if item_name not in existing_items and not hasattr(
-          handler,
-          'supports_restore_from_alternate_path',  # TODO(b/404987377): cleanup
-      ):
+      if item_name not in existing_items:
         raise KeyError(
             f'Item "{item_name}" was not found in the checkpoint. Available'
             f' items: {existing_items}'
         )
+      handler = self._get_or_set_handler(item_name, arg)
       restored[item_name] = handler.restore(
           self._get_item_directory(directory, item_name), args=arg
       )
