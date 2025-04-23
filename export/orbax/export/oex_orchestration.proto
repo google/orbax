@@ -52,9 +52,17 @@ message BatchOptions {
     BATCH_COMPONENT_UNSPECIFIED = 0;
     // No batching.
     NO_BATCHING = 1;
-    // The model function corresponding to `model_function_name` in the
+    // The model function corresponds to `model_function_name` in the
     // orchestration.
     MODEL_FUNCTION = 2;
+    // This option includes all three components: pre-processor, model function
+    // and post-processor. The pre-processor and post-processor correspond to
+    // `pre_processor_name` and `post_processor_name` in the orchestration.
+    WHOLE_PIPELINE = 3;
+    // This option includes two components: pre-processor and model function.
+    PRE_PROCESSOR_AND_MODEL_FUNCTION = 4;
+    // This option includes two components: model function and post-processor.
+    MODEL_FUNCTION_AND_POST_PROCESSOR = 5;
   }
 
   // The component of the model to batch.
