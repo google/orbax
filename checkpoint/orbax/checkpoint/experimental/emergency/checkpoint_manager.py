@@ -76,7 +76,7 @@ StepMetadata = checkpoint_manager.StepMetadata
 
 _PRIMARY_REPLICA_ID = 0
 _SECONDARY_REPLICA_ID = 1
-_UNNAMED_ITEM_NAME = 'state'
+_STATE_ITEM_NAME = 'state'
 _PROCESS_METADATA_NAME = 'process_metadata'
 
 
@@ -600,7 +600,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
   def save(
       self,
       step: int,
-      args: Optional[args_lib.CheckpointArgs] = None,
+      args: Optional[args_lib.Composite] = None,
       metrics: Optional[PyTree] = None,
       force: Optional[bool] = False,
   ) -> bool:
@@ -964,7 +964,7 @@ class _MultisliceCheckpointManager(
   def save(
       self,
       step: int,
-      args: args_lib.CheckpointArgs,
+      args: args_lib.Composite,
       *,
       force: bool = False,
   ) -> bool:
@@ -984,19 +984,25 @@ class _MultisliceCheckpointManager(
     if self.in_primary_slice:
       logging.info('Maybe saving at step %d (persistent).', step)
       persistent_saved = self._persistent_checkpoint_manager.save(
-          step, args=args, force=force
+          step, args=args.state, force=force
       )
     else:
       logging.info('Maybe saving at step %d (local).', step)
 
-      args = args_lib.Composite(**{
-          _UNNAMED_ITEM_NAME: args,
-          _PROCESS_METADATA_NAME: (
-              process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self._global_mesh
-              )
-          ),
-      })
+      if _STATE_ITEM_NAME not in args.keys():
+        raise ValueError(
+            f'{_STATE_ITEM_NAME} is a required key and should be'
+            ' specified by the user.'
+        )
+
+      args_dict = dict(args.items())
+      if _PROCESS_METADATA_NAME not in args.keys():
+        args_dict[_PROCESS_METADATA_NAME] = (
+            process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
+                global_mesh=self._global_mesh
+            )
+        )
+      args = args_lib.Composite(**args_dict)
 
       local_saved = self._local_checkpoint_manager.save(
           step, args=args, force=force
@@ -1168,12 +1174,12 @@ class _MultisliceCheckpointManager(
       logging.vlog(
           1,
           'Restoring from %s',
-          restore_directory / _UNNAMED_ITEM_NAME,
+          restore_directory / _STATE_ITEM_NAME,
       )
       if logging.vlog_is_on(1):
         asyncio.run(
             local_checkpoint_data_debugging.print_chunk_debug_info(
-                restore_directory / _UNNAMED_ITEM_NAME,
+                restore_directory / _STATE_ITEM_NAME,
                 single_slice_restore_args,
             )
         )
@@ -1189,7 +1195,7 @@ class _MultisliceCheckpointManager(
           ),
       )
       single_slice_pytree = local_state_handler.restore(
-          restore_directory / _UNNAMED_ITEM_NAME,
+          restore_directory / _STATE_ITEM_NAME,
           args=dataclasses.replace(
               args, restore_args=single_slice_restore_args
           ),
@@ -1304,7 +1310,7 @@ class _MultisliceCheckpointManager(
   def restore(
       self,
       step: Optional[int],
-      args: args_lib.CheckpointArgs | None = None,
+      args: args_lib.Composite | None = None,
   ) -> Any:
     del args
     if step is None:
@@ -1512,7 +1518,7 @@ class CheckpointManager(
   def save(
       self,
       step: int,
-      args: args_lib.CheckpointArgs,
+      args: args_lib.Composite,
       *,
       force: bool = False,
   ) -> bool:
@@ -1521,7 +1527,7 @@ class CheckpointManager(
   def restore(
       self,
       step: int | None,
-      args: args_lib.CheckpointArgs | None = None,
+      args: args_lib.Composite | None = None,
   ) -> Any:
     del args
     args = args_lib.PyTreeRestore(
