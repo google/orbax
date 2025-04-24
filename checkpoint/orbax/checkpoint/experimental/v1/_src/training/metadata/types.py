@@ -15,6 +15,7 @@
 """Metadata for `training.Checkpointer`."""
 
 import dataclasses
+import datetime
 from orbax.checkpoint._src.metadata import checkpoint_info
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -69,6 +70,18 @@ class CheckpointMetadata(
   @property
   def metrics(self) -> tree_types.JsonType | None:
     return self._metrics
+
+  @metrics.setter
+  def metrics(self, new_metrics):
+    if new_metrics is not None and not isinstance(new_metrics, (list, dict)):
+      raise ValueError("Metrics must be a JSON-serializable object.")
+    self._metrics = new_metrics
+
+  @property
+  def time(self) -> datetime.datetime:
+    return datetime.datetime.fromtimestamp(
+        self.commit_timestamp_nsecs / 1e9, tz=datetime.timezone.utc
+    )
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

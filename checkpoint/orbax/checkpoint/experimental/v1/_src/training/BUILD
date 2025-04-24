@@ -3,7 +3,19 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "save_decision_policies",
     srcs = ["save_decision_policies.py"],
-    deps = ["//checkpoint/orbax/checkpoint/_src/checkpoint_managers:save_decision_policy"],
+    deps = [
+        "//checkpoint/orbax/checkpoint/_src/checkpoint_managers:save_decision_policy",
+        "//orbax/checkpoint/experimental/v1/_src/training/metadata:types",
+    ],
+)
+
+py_library(
+    name = "preservation_policy",
+    srcs = ["preservation_policy.py"],
+    deps = [
+        "//orbax/checkpoint/_src/checkpoint_managers:preservation_policy",
+        "//orbax/checkpoint/experimental/v1/_src/training/metadata:types",
+    ],
 )
 
 py_library(
