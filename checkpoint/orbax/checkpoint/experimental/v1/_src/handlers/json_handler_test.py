@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from typing import Any, Awaitable, Mapping
+from typing import Any, Awaitable
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -77,10 +77,15 @@ class JsonHandlerTest(parameterized.TestCase):
 
   @parameterized.parameters(
       ('{"one": 1, "two": {"three": "3"}, "four": [4]}', True),
-      ({'one': 1, 'two': {'three': '3'}, 'four': [4]}, False),
-      ('', False),
-      (1, False),
-      (True, False),
+      ({'one': 1, 'two': {'three': '3'}, 'four': [4]}, True),
+      ({'a': 1, 'b': 'c'}, True),
+      ({'a', 'b'}, False),
+      (set([1, 2]), False),
+      (object(), False),
+      (lambda x: x, False),
+      ('', True),
+      (1, True),
+      (True, True),
   )
   def test_is_handleable(self, case, expected):
     handler = json_handler.JsonHandler()

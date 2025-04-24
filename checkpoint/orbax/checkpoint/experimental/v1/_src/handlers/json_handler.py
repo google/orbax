@@ -80,7 +80,7 @@ class JsonHandler(CheckpointableHandler[JsonType, None]):
 
   def is_handleable(self, checkpointable: Any) -> bool:
     try:
-      json.loads(checkpointable)
+      json.loads(json.dumps(checkpointable))
       return True
     except Exception:  # pylint: disable=broad-exception-caught
       return False
