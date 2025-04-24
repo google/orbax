@@ -14,6 +14,6 @@
 
 """Pipeline: pre-processor + model-function + post-processor."""
 
-from typing import Any, Sequence, Tuple
+from typing import Any, Sequence, Tuple, overload
 
 from orbax.export import oex_orchestration_pb2
