@@ -169,8 +169,8 @@ class _ShouldSaveFnPolicy(save_decision_policy_lib.SaveDecisionPolicy):
 
   def should_save(
       self,
-      step: checkpoint_info.CheckpointInfo,
-      previous_steps: Sequence[checkpoint_info.CheckpointInfo],
+      step: checkpoint.MetadataProtocol,
+      previous_steps: Sequence[checkpoint.MetadataProtocol],
       *,
       context: save_decision_policy_lib.DecisionContext,
   ) -> bool:

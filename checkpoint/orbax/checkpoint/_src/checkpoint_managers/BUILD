@@ -5,7 +5,7 @@ py_library(
     srcs = ["save_decision_policy.py"],
     deps = [
         "//checkpoint/orbax/checkpoint:options",
-        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint_info",
+        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/multihost",
     ],
 )
@@ -13,10 +13,6 @@ py_library(
 py_library(
     name = "preservation_policy",
     srcs = ["preservation_policy.py"],
-    deps = [
-        "//checkpoint/orbax/checkpoint:options",
-        "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint_info",
-    ],
 )
 
 py_test(

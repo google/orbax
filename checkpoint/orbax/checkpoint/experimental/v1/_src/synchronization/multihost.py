@@ -16,9 +16,10 @@
 
 import threading
 import time
-from typing import Collection
+from typing import Collection, Optional
 from absl import logging
 import jax
+from jax.experimental import multihost_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import signaling_client
 
 # Default timeout in seconds.
@@ -139,3 +140,10 @@ def process_index() -> int:
   # global_state.process_id. We rely on the latter to work with barriers over a
   # subset of processes.
   return jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
+
+
+def broadcast_one_to_all(in_tree, is_source: Optional[bool] = None):
+  """Broadcast data from a source host to all other hosts."""
+  if is_source is None:
+    is_source = process_index() == 0
+  return multihost_utils.broadcast_one_to_all(in_tree, is_source=is_source)

@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Save decision policies for Checkpointer."""
+"""Defines policies for when a checkpoint is saved."""
+
+import typing
+from typing import Protocol, Sequence
 
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy
-
-SaveDecisionPolicy = save_decision_policy.SaveDecisionPolicy
+from orbax.checkpoint.experimental.v1._src.training.metadata import types
 
 ContinuousCheckpointingPolicy = (
     save_decision_policy.ContinuousCheckpointingPolicy
@@ -28,5 +30,22 @@ PreemptionCheckpointingPolicy = (
 )
 SpecificStepsPolicy = save_decision_policy.SpecificStepsPolicy
 AnySavePolicy = save_decision_policy.AnySavePolicy
-
 DecisionContext = save_decision_policy.DecisionContext
+
+
+@typing.runtime_checkable
+class SaveDecisionPolicy(Protocol):
+  """A policy that defines when to save a checkpoint.
+
+  Implementations should return True from `should_save` when saving a checkpoint
+  is desired at the given step.
+  """
+
+  def should_save(
+      self,
+      step: types.CheckpointMetadata,
+      previous_steps: Sequence[types.CheckpointMetadata],
+      *,
+      context: DecisionContext
+  ) -> bool:
+    ...

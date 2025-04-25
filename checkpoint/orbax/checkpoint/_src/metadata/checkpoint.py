@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import dataclasses
+import datetime
 import json
 import threading
 from typing import Any, Protocol, TypeVar
@@ -37,6 +38,14 @@ CompositeItemMetadata = utils.CompositeItemMetadata
 SingleItemMetadata = utils.SingleItemMetadata
 StepStatistics = step_statistics.SaveStepStatistics
 SerializedMetadata = TypeVar('SerializedMetadata', bound=dict[str, Any])
+
+
+class MetadataProtocol(Protocol):
+  """Protocol for checkpoint metadata."""
+
+  step: int
+  metrics: dict[str, Any] | None
+  time: datetime.datetime
 
 
 def _sanitize_metadata_path(path: epath.PathLike) -> epath.Path:
