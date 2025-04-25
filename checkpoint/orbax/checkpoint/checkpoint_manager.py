@@ -303,7 +303,7 @@ class CheckpointManagerOptions:
     ignored. It does not change the behavior of `keep_time_interval` and
     `keep_checkpoints_without_metrics`. It is a predicate with signature:
     `Callable[[int], bool]`, where int is the step number of the checkpoint.
-  best_fn:
+  get_metric_fn:
     If set, maintains checkpoints based on the quality of given
     metrics rather than recency. The function should accept a PyTree of metrics,
     and return a scalar value that can be used to determine the quality score
@@ -387,7 +387,7 @@ class CheckpointManagerOptions:
   keep_time_interval: Optional[datetime.timedelta] = None
   keep_period: Optional[int] = None
   should_keep_fn: Optional[Callable[[int], bool]] = None
-  best_fn: Optional[Callable[[PyTree], float]] = None
+  get_metric_fn: Optional[Callable[[PyTree], float]] = None
   best_mode: str = 'max'
   keep_checkpoints_without_metrics: bool = True
   step_prefix: Optional[str] = None
@@ -978,7 +978,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           f'Invalid type for `checkpointers`. Found {checkpointers}.'
       )
 
-    # if options.best_fn:
+    # if options.get_metric_fn:
     item_handlers[METRIC_ITEM_NAME] = self._metrics_handler
     if options.async_options is None:
       options.async_options = (
@@ -1125,7 +1125,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     return latest.step if latest else None
 
   def best_step(self) -> Optional[int]:
-    """Returns the best step saved, as defined by `options.best_fn`.
+    """Returns the best step saved, as defined by `options.get_metric_fn`.
 
     Returns None if no steps have been saved.
 
@@ -1314,8 +1314,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         object name to kwargs needed by the Checkpointer implementation to save
         the object.
       metrics: a dictionary of metric name (string) to numeric value to be
-        tracked along with this checkpoint. Required if `options.best_fn` is
-        set. Allows users to specify a metric value to determine which
+        tracked along with this checkpoint. Required if `options.get_metric_fn`
+        is set. Allows users to specify a metric value to determine which
         checkpoints are best and should be kept (in conjunction with
         `options.max_to_keep`).
       force: if `True`, this method will attempt to save a checkpoint regardless
@@ -1727,7 +1727,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   @property
   def _track_best(self):
     """Returns true if we should track the best checkpoints by given metric."""
-    return self._options.best_fn is not None
+    return self._options.get_metric_fn is not None
 
   def _load_checkpoint_infos(self) -> List[CheckpointInfo]:
     """Loads a list of CheckpointInfo for existing checkpoints.
@@ -1899,7 +1899,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     return without_metrics, sorted(
         with_metrics,
-        key=lambda info: self._options.best_fn(info.metrics),
+        key=lambda info: self._options.get_metric_fn(info.metrics),
         reverse=(self._options.best_mode == 'min'),
     )
 
