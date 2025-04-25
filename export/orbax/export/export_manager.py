@@ -15,6 +15,7 @@
 """Manage the exporting of a JAXModule."""
 
 from collections.abc import Mapping, Sequence
+import logging
 from typing import Any, Callable, Optional, cast
 
 from etils.epy import reraise_utils
@@ -27,9 +28,9 @@ from orbax.export import tensorflow_export
 from orbax.export.modules import obm_module
 import tensorflow as tf
 
-
 obx_export_config = config.config
 maybe_reraise = reraise_utils.maybe_reraise
+
 
 class ExportManager:
   """Exports a JAXModule with pre- and post-processors."""
@@ -45,8 +46,6 @@ class ExportManager:
       module: the `JaxModule` to be exported.
       serving_configs: a sequence of which each element is a `ServingConfig`
         cooresponding to a serving signature of the exported SavedModel.
-      version: the version of the export format to use. Defaults to
-        TF_SAVEDMODEL.
     """
     self._version = module.export_version
     self._jax_module = module
@@ -90,6 +89,8 @@ class ExportManager:
         options.
       signature_overrides: signatures to override the self-maintained ones, or
         additional signatures to export.
+      tree_verity_options: Settings to enable model hashing and signing via
+       
     """
     self._serialization_functions.save(
         model_path=model_path,
