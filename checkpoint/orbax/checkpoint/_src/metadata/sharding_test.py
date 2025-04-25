@@ -151,17 +151,6 @@ class TestShardingMetadata(absltest.TestCase):
         single_device_sharding_metadata,
     )
 
-  def test_convert_to_jax_sharding_unsupported_types(self):
-    jax_sharding = jax.sharding.GSPMDSharding.get_replicated(jax.devices())
-    warning_message = (
-        r"Conversion for <class '.*\.GSPMDSharding'>"
-        " has not been implemented."
-    )
-    with self.assertLogs(level="WARNING") as log_output:
-      sharding_metadata.from_jax_sharding(jax_sharding)
-      self.assertNotEmpty(log_output[0])
-      self.assertRegex(log_output[0][0].message, warning_message)
-
 
 if __name__ == "__main__":
   absltest.main()

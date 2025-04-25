@@ -35,7 +35,6 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
 
 
-GSPMDSharding = jax.sharding.GSPMDSharding
 NamedSharding = jax.sharding.NamedSharding
 P = jax.sharding.PartitionSpec
 DLL = layout.DeviceLocalLayout
@@ -330,7 +329,7 @@ class CheckpointTest(parameterized.TestCase):
     for l in m1.addressable_shards:
       self.assertArraysEqual(np.asarray(l.data), expected_data[l.device.id])
 
-    new_ds = GSPMDSharding.get_replicated(list(global_mesh.devices.flat))
+    new_ds = NamedSharding(global_mesh, P())
     (m2,) = deserialize([new_ds], tspecs, [(8, 2)], [np.float32])
     for l in m2.addressable_shards:
       self.assertArraysEqual(l.data, global_input_data1.astype('float32'))
@@ -376,7 +375,7 @@ class CheckpointTest(parameterized.TestCase):
     for l in m1.addressable_shards:
       self.assertArraysEqual(np.asarray(l.data), expected_data[l.device.id])
 
-    new_ds = GSPMDSharding.get_replicated(list(global_mesh.devices.flat))
+    new_ds = NamedSharding(global_mesh, P())
     (m2,) = deserialize([new_ds], tspecs, [(8, 2)], [target_dtype])
     for l in m2.addressable_shards:
       self.assertArraysEqual(l.data, global_input_data.astype(target_dtype))
@@ -478,7 +477,8 @@ class CheckpointTest(parameterized.TestCase):
     arr = jnp.arange(np.prod(shape)).reshape(shape).astype(dtype)
 
     # Run serialization.
-    sharding = jax.sharding.GSPMDSharding.get_replicated(jax.devices())
+    global_mesh = create_global_mesh((len(jax.devices()),), ('x',))
+    sharding = NamedSharding(global_mesh, P())
     tspecs = jax.tree.map(serialization.get_tensorstore_spec, [self.ckpt_dir])
 
     serialize([arr], tspecs)

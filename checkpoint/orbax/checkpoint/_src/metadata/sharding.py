@@ -44,7 +44,6 @@ class ShardingTypes(enum.Enum):
   NAMED_SHARDING = 'NamedSharding'
   SINGLE_DEVICE_SHARDING = 'SingleDeviceSharding'
   POSITIONAL_SHARDING = 'PositionalSharding'
-  GSPMD_SHARDING = 'GSPMDSharding'
 
 
 @dataclasses.dataclass
@@ -150,7 +149,6 @@ class ShardingMetadata(abc.ABC):
   This ShardingMetadata only represents the following `jax.sharding.Sharding`:
     jax.sharding.NamedSharding
     jax.sharding.SingleDeviceSharding
-    jax.sharding.GSPMDSharding
   """
 
   @classmethod
@@ -313,11 +311,6 @@ class SingleDeviceShardingMetadata(ShardingMetadata):
 
   def __eq__(self, other):
     return self.device_str == other.device_str
-
-
-@dataclasses.dataclass
-class GSPMDShardingMetadata(ShardingMetadata):
-  pass
 
 
 def from_jax_sharding(jax_sharding) -> Optional[ShardingMetadata]:
