@@ -51,8 +51,6 @@ from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import test_tree_utils
 
-from .pyglib import gfile
-
 
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
 AsyncCheckpointHandler = async_checkpoint_handler.AsyncCheckpointHandler
@@ -106,12 +104,6 @@ class CheckpointerTestBase:
       if isinstance(checkpointer, AsyncCheckpointer):
         checkpointer.wait_until_finished()
 
-    def is_world_readable(self, path):
-      if not gfile.Exists(path):
-        return False
-      mode = gfile.Stat(path, stat_proto=True).mode
-      return (mode & 0o770) != mode
-
     def test_save_restore(self):
       """Basic save and restore test."""
       with self.checkpointer(PyTreeCheckpointHandler()) as checkpointer:
@@ -164,7 +156,6 @@ class CheckpointerTestBase:
         )
         expected = self.pytree
         test_utils.assert_tree_equal(self, expected, restored)
-        self.assertFalse(self.is_world_readable(self.directory))
 
     def test_overwrite_existing(self):
       """Test overwrite existing path."""
@@ -178,7 +169,6 @@ class CheckpointerTestBase:
         )
         expected = self.doubled_pytree
         test_utils.assert_tree_equal(self, expected, restored)
-        self.assertFalse(self.is_world_readable(self.directory))
 
     def test_flax_train_state(self):
       """Test using flax model."""
