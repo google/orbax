@@ -102,7 +102,7 @@ class RegistrationTest(parameterized.TestCase):
       resolved_handler = registration.resolve_handler_for_save(
           local_registry, {'a': 1}, name='checkpointable_name'
       )
-      self.assertIsInstance(resolved_handler, handlers_to_register[0])
+      self.assertIsInstance(resolved_handler, HandlerTwo)
     with self.subTest('reversed'):
       local_registry = registration.local_registry()
       for handler in reversed(handlers_to_register):
@@ -110,7 +110,7 @@ class RegistrationTest(parameterized.TestCase):
       resolved_handler = registration.resolve_handler_for_save(
           local_registry, {'a': 1}, name='checkpointable_name'
       )
-      self.assertIsInstance(resolved_handler, handlers_to_register[-1])
+      self.assertIsInstance(resolved_handler, HandlerOne)
 
   def test_resolve_handler_for_save_not_handleable(self):
     local_registry = registration.local_registry()
@@ -219,7 +219,7 @@ class RegistrationTest(parameterized.TestCase):
           name='checkpointable_name',
           handler_typestr='unknown_class',
       )
-      self.assertIsInstance(resolved_handler, handlers_to_register[0])
+      self.assertIsInstance(resolved_handler, HandlerTwo)
     with self.subTest('with_typestr'):
       local_registry = registration.local_registry()
       for handler in handlers_to_register:
@@ -230,7 +230,7 @@ class RegistrationTest(parameterized.TestCase):
           name='checkpointable_name',
           handler_typestr=handler_types.typestr(HandlerTwo),
       )
-      self.assertIsInstance(resolved_handler, handlers_to_register[-1])
+      self.assertIsInstance(resolved_handler, HandlerTwo)
     with self.subTest('reversed'):
       local_registry = registration.local_registry(
           include_global_registry=False
@@ -243,7 +243,7 @@ class RegistrationTest(parameterized.TestCase):
           name='checkpointable_name',
           handler_typestr='unknown_class',
       )
-      self.assertIsInstance(resolved_handler, handlers_to_register[-1])
+      self.assertIsInstance(resolved_handler, HandlerOne)
 
   def test_resolve_handler_for_load_not_handleable(self):
     local_registry = registration.local_registry()

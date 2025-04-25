@@ -15,6 +15,9 @@
 """Defines all globally-registered handlers.
 
 This must be imported to ensure necessary handlers are registered.
+
+Registration order matters. The most recently registered valid handler for a
+given checkpointable will be used.
 """
 
 from orbax.checkpoint.experimental.v1._src.handlers import json_handler
@@ -24,9 +27,9 @@ from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 
 
-registration.global_registry().add(pytree_handler.PyTreeHandler)
-
 registration.global_registry().add(proto_handler.ProtoHandler)
 
 registration.global_registry().add(json_handler.JsonHandler)
 
+
+registration.global_registry().add(pytree_handler.PyTreeHandler)

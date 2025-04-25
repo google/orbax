@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for `jax.sharding.PositionalSharding` has been removed since it has
   been deprecated in JAX and will be deleted in a future JAX release. Please
   use `jax.NamedSharding` instead.
+- #v1 Reverse handler resolution order so that the most recently registered
+handler is preferred when multiple handlers would do the job. This increases
+convenience for users - if they are registering their own handlers then they
+would want them to be preferred.
 
 ### Added
 

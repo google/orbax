@@ -295,6 +295,10 @@ def register_handler(
 ) -> CheckpointableHandlerType:
   """Registers a `CheckpointableHandler` globally.
 
+  The order in which handlers are registered matters. If multiple handlers
+  could potentially be used to save or load, the one added most recently will be
+  used.
+
   Usage::
 
     @ocp.handlers.register_handler
@@ -387,7 +391,8 @@ def resolve_handler_for_save(
        registered, return the corresponding handler.
     2. Resolve based on the `checkpointable` (using
       `CheckpointableHandler.is_handleable`).
-    3. If multiple handlers are usable, return the first usable handler.
+    3. If multiple handlers are usable, return the *last* usable handler. This
+       allows us to resolve the most recently-registered handler.
 
   Args:
     registry: The CheckpointableHandlerRegistry to search.
@@ -415,7 +420,7 @@ def resolve_handler_for_save(
   )
 
   # Prefer the first handler in the absence of any other information.
-  return possible_handlers[0]
+  return possible_handlers[-1]
 
 
 def resolve_handler_for_load(
@@ -435,7 +440,8 @@ def resolve_handler_for_load(
     4. If multiple handlers are usable, return the handler with the matching
       typestr. If no matching typestr is found, then the handler used for saving
       may not be available now.
-    4. Return the first usable handler.
+    4. Return the *last* usable handler. This allows us to resolve the most
+       recently-registered handler.
 
   Raises:
     NoEntryError: If no compatible `CheckpointableHandler` can be found.
@@ -476,4 +482,4 @@ def resolve_handler_for_load(
     )
 
   # Prefer the first handler in the absence of any other information.
-  return possible_handlers[0]
+  return possible_handlers[-1]
