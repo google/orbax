@@ -247,7 +247,7 @@ def _get_default_preservation_policy(
   if options.best_fn is not None:
     preservation_policies.append(
         preservation_policy_lib.BestN(
-            best_fn=options.best_fn,
+            get_metric_fn=options.best_fn,
             reverse=(options.best_mode == 'min'),
             n=options.max_to_keep,
         )
@@ -835,7 +835,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
 
     self._checkpoints = checkpoint_info.CheckpointInfos(
-        self._load_checkpoint_infos()
+        self._load_checkpoint_infos
     )
 
     self._metadata_dir = self.directory / METADATA_ITEM_NAME
@@ -1110,7 +1110,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       logging.warning(
           '`read` option is deprecated. Use `reload` to read from disk.'
       )
-      self._checkpoints.set(self._load_checkpoint_infos())
+      self._checkpoints.set(self._load_checkpoint_infos)
     return [ckpt.step for ckpt in self._checkpoints]
 
   def latest_step(self) -> Optional[int]:
@@ -1132,8 +1132,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Returns:
       A step (int) or None if no steps are present.
     """
-    if not self._track_best:
-      return self.latest_step()
     if self._checkpoints.empty():
       return None
     _, sorted_checkpoints = self._sort_checkpoints_by_metrics(self._checkpoints)
@@ -1147,7 +1145,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Resets internal cache of checkpoint steps, in case the directory managed
     by this object has been updated externally.
     """
-    self._checkpoints.set(self._load_checkpoint_infos())
+    self._checkpoints.set(self._load_checkpoint_infos)
 
   def reached_preemption(self, step: int) -> bool:
     """Returns True if a preemption sync point has been reached."""
@@ -1397,7 +1395,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       items = {DEFAULT_ITEM_NAME: items}
       save_kwargs = {DEFAULT_ITEM_NAME: save_kwargs}
 
-    if self._track_best and metrics is None:
+    if self._options.best_fn is not None and metrics is None:
       logging.warning('Requested `tracked_metric`; did not provide metrics.')
 
     if args is None:
@@ -1429,7 +1427,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           'Some provided items have prohibited reserved names:'
           f' {args_dict.keys()}. Reserved names: {RESERVED_ITEM_NAMES}.'
       )
-    if metrics is not None and self._track_best:
+    if metrics is not None:
       args_dict['metrics'] = args_lib.JsonSave(metrics)
     args = args_lib.Composite(**args_dict)
 
@@ -1701,20 +1699,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   # TODO(b/370812224): Deprecate in favor of StepMetadata.metrics
   def metrics(self, step: int) -> Optional[PyTree]:
-    if self._track_best:
-      try:
-        # Use handler directly, since this happens in a background thread and
-        # barriers cannot be used. This usage pattern is not
-        # recommended in other contexts.
-        return self._metrics_handler.restore(
-            self._get_read_step_directory(step, self.directory)
-            / METRIC_ITEM_NAME
-        )
-      except FileNotFoundError as e:
-        logging.warning('Missing metrics for step %d', step)
-        logging.error(e)
-        return None
-    else:
+    try:
+      # Use handler directly, since this happens in a background thread and
+      # barriers cannot be used. This usage pattern is not
+      # recommended in other contexts.
+      return self._metrics_handler.restore(
+          self._get_read_step_directory(step, self.directory) / METRIC_ITEM_NAME
+      )
+    except FileNotFoundError as e:
+      logging.warning('Missing metrics for step %d', step)
+      logging.error(e)
       return None
 
   @property
@@ -1725,10 +1719,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
 
   @property
-  def _track_best(self):
-    """Returns true if we should track the best checkpoints by given metric."""
-    return self._options.best_fn is not None
-
   def _load_checkpoint_infos(self) -> List[CheckpointInfo]:
     """Loads a list of CheckpointInfo for existing checkpoints.
 
