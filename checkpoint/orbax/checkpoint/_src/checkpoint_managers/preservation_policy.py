@@ -146,9 +146,9 @@ class AnyPreservationPolicy(PreservationPolicy):
 
 @dataclasses.dataclass(kw_only=True)
 class BestN(PreservationPolicy):
-  """A policy that preserves the best checkpoints based on a best_fn."""
+  """A policy that preserves the best checkpoints based on a get_metric_fn."""
 
-  best_fn: Callable[[PyTree], float]
+  get_metric_fn: Callable[[PyTree], float]
   reverse: bool
   n: int | None = None
 
@@ -174,7 +174,7 @@ class BestN(PreservationPolicy):
     ]
     indexed_checkpoints_with_metrics = sorted(
         indexed_checkpoints_with_metrics,
-        key=lambda item: self.best_fn(item[1].metrics),
+        key=lambda item: self.get_metric_fn(item[1].metrics),
         reverse=self.reverse,
     )
     preserve_indices = [

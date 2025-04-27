@@ -174,7 +174,7 @@ class PreservationPolicyTest(parameterized.TestCase):
   )
   def test_best_n_policy(self, n, loss, expected_preserved_steps):
     policy = preservation_policy_lib.BestN(
-        best_fn=lambda metrics: metrics['loss'],
+        get_metric_fn=lambda metrics: metrics['loss'],
         reverse=True,
         n=n,
     )
@@ -199,7 +199,7 @@ class PreservationPolicyTest(parameterized.TestCase):
             ),  # 0, 3, 6, 9
             preservation_policy_lib.CustomSteps(steps=[0, 3]),  # 0, 3
             preservation_policy_lib.BestN(
-                best_fn=lambda metrics: metrics['loss'],
+                get_metric_fn=lambda metrics: metrics['loss'],
                 reverse=True,
                 n=2,
             ),  # 1, 2, 3, 4, 5, 7, 9, 11
