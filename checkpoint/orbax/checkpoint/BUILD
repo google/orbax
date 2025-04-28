@@ -139,7 +139,6 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:step",
         "//checkpoint/orbax/checkpoint/_src/path:utils",
         "//orbax/checkpoint/_src:threading",
-        "//orbax/checkpoint/_src/checkpoint_managers:preservation_policy",
     ],
 )
 
@@ -354,6 +353,5 @@ py_library(
         ":abstract_checkpoint_manager",
         ":checkpoint_manager",
         "//checkpoint/orbax/checkpoint/_src/checkpoint_managers:save_decision_policy",
-        "//orbax/checkpoint/_src/checkpoint_managers:preservation_policy",
     ],
 )
