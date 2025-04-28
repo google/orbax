@@ -16,6 +16,7 @@ py_test(
         "//learning/pathways/jax:pathways_with_local_server",  # build_cleaner: keep
         "//pyglib/contrib/g3_multiprocessing",
         "//testing/pybase:parameterized",
+        "//orbax/checkpoint/experimental/v1:pathways_support",
         "//orbax/checkpoint/experimental/v1/_src/training:checkpointer_test_base",
     ],
 )
@@ -37,6 +38,7 @@ py_test(
         "//learning/pathways/jax:pathways_with_local_server",  # build_cleaner: keep
         "//pyglib/contrib/g3_multiprocessing",
         "//testing/pybase:parameterized",
+        "//orbax/checkpoint/experimental/v1:pathways_support",
         "//orbax/checkpoint/experimental/v1/_src/training:checkpointer_test_base",
     ],
 )
