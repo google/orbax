@@ -40,6 +40,11 @@ class BatchOptions:
       largest value in the list. Otherwise, this must be provided.
     batch_timeout_micros: Maximum number of microseconds to wait before
       outputting an incomplete batch.
+    num_batch_threads: Number of scheduling threads for processing batches of
+      work. Determines the number of batches processed in parallel. This should
+      be roughly in line with the number of TPU cores available.
+    max_enqueued_batches: Maximum number of batches enqueued for processing
+      before requests are failed fast. Default is 250.
     allowed_batch_sizes: Optional list of allowed batch sizes. If left empty,
       all batch sizes no larger than `max_batch_size` are allowed. Otherwise,
       supplies a list of batch sizes. The entries must increase monotonically.
@@ -49,6 +54,8 @@ class BatchOptions:
   max_batch_size: int | None = None
   batch_timeout_micros: int = 0
   allowed_batch_sizes: Sequence[int] | None = None
+  num_batch_threads: int = 1
+  max_enqueued_batches: int = 250
   disable_large_batch_splitting: bool = False
 
   def __post_init__(self):
@@ -117,4 +124,16 @@ class BatchOptions:
       raise ValueError(
           "`batch_timeout_micros` must be non-negative. Got:"
           f" {self.batch_timeout_micros}"
+      )
+
+    if self.num_batch_threads <= 0:
+      raise ValueError(
+          "`num_batch_threads` must be at least 1. Got:"
+          f" {self.num_batch_threads}"
+      )
+
+    if self.max_enqueued_batches <= 0:
+      raise ValueError(
+          "`max_enqueued_batches` must be at least 1. Got:"
+          f" {self.max_enqueued_batches}"
       )
