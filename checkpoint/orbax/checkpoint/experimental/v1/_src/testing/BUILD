@@ -6,6 +6,7 @@ py_library(
     deps = [
         ":array_utils",
         ":handler_utils",
+        ":tree_utils",
         "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity",
         "//checkpoint/orbax/checkpoint/_src/serialization",
@@ -42,4 +43,14 @@ py_library(
     name = "path_utils",
     srcs = ["path_utils.py"],
     deps = ["//orbax/checkpoint/experimental/v1/_src/path:types"],
+)
+
+py_library(
+    name = "tree_utils",
+    srcs = ["tree_utils.py"],
+    deps = [
+        "//orbax/checkpoint/experimental/v1/_src/path:format_utils",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
+    ],
 )

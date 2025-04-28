@@ -16,31 +16,33 @@
 
 from __future__ import annotations
 
-from typing import Iterable, Literal, Sequence, overload
+from typing import Any, Iterable, Sequence
 
 from absl import logging
 from etils import epy
-from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
+from orbax.checkpoint.experimental.v1._src.loading import loading
 from orbax.checkpoint.experimental.v1._src.metadata import loading as metadata_loading
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
+from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import step as path_step_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.saving import saving
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.training import errors
 from orbax.checkpoint.experimental.v1._src.training import save_decision_policies
 from orbax.checkpoint.experimental.v1._src.training.metadata import types as training_metadata_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
-from orbax.checkpoint.handlers import handler_registration
 
 
 CheckpointMetadata = training_metadata_types.CheckpointMetadata
 RootMetadata = training_metadata_types.RootMetadata
 
 
-_PYTREE_CHECKPOINTABLE_KEY = 'pytree'
+PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
 
 
 class _AsyncSaveResponse(async_types.AsyncResponse[bool]):
@@ -55,6 +57,14 @@ class _AsyncSaveResponse(async_types.AsyncResponse[bool]):
     del timeout  # Ignored.
     self._manager.wait_until_finished()
     return self._saved
+
+
+def _resolve_integer_step(
+    step: int | CheckpointMetadata,
+) -> int:
+  if isinstance(step, int):
+    return step
+  return step.step
 
 
 class Checkpointer(epy.ContextManager):
@@ -74,6 +84,9 @@ class Checkpointer(epy.ContextManager):
       # TODO(b/371005679): Add PreservationPolicy.
   ):
     """Initializes a Checkpointer.
+
+    IMPORTANT: This class is not thread safe. All APIs should be called across
+    all available processes, from the main thread.
 
     The Checkpointer is intended for use in a training loop, where a sequence
     of checkpoints are saved at regular intervals. Example usage::
@@ -127,6 +140,9 @@ class Checkpointer(epy.ContextManager):
     ])
     save_decision_policy = save_decision_policy or default_save_decision_policy
     context = context_lib.get_context()
+    self._step_name_format = (
+        step_name_format or path_step_lib.standard_name_format()
+    )
     options = checkpoint_manager.CheckpointManagerOptions(
         save_decision_policy=save_decision_policy,
         step_name_format=step_name_format,
@@ -137,20 +153,16 @@ class Checkpointer(epy.ContextManager):
         file_options=context.file_options.v0(),
         multiprocessing_options=context.multiprocessing_options.v0(),
         temporary_path_class=context.file_options.temporary_path_class,
-    )
-    self._step_name_format = (
-        step_name_format or path_step_lib.standard_name_format()
-    )
-    v0_handler = pytree_handler.create_v0_handler(context_lib.get_context())
-    registry = handler_registration.create_default_handler_registry(
-        **{_PYTREE_CHECKPOINTABLE_KEY: v0_handler}
+        # Prevent the checkpoint manager from writing metrics on its own. This
+        # class will take responsibility for writing metrics.
+        prevent_write_metrics=True,
     )
     self._manager = checkpoint_manager.CheckpointManager(
         directory,
         options=options,
-        handler_registry=registry,
         metadata=custom_metadata,
     )
+    self._manager._checkpointer = None  # pylint: disable=protected-access
 
   @property
   def directory(self) -> path_types.Path:
@@ -164,7 +176,7 @@ class Checkpointer(epy.ContextManager):
     See `checkpoints` documentation below.
 
     Returns:
-      The latest `CheckpointMetadata`, or None if no checkpoints exist.
+      The latest checkpoint, or None if no checkpoints exist.
     """
     if not self.checkpoints:
       return None
@@ -204,29 +216,28 @@ class Checkpointer(epy.ContextManager):
       self, step: int | CheckpointMetadata
   ) -> CheckpointMetadata[None]:
     """Returns the checkpoint metadata at the given step."""
-    step = self._resolve_step(step)
+    step = _resolve_integer_step(step)
     for checkpoint in self.checkpoints:
       if checkpoint.step == step:
         return checkpoint
-    raise ValueError(f'No checkpoint found at step {step}.')
+    raise errors.StepNotFoundError(f'No checkpoint found at step {step}.')
+
+  def _resolve_existing_step(
+      self, step: int | CheckpointMetadata | None
+  ) -> int:
+    if step is None:
+      latest = self.latest
+      if latest is None:
+        raise errors.StepNotFoundError(
+            'Specified `step=None`, but no checkpoints were found.'
+        )
+      return latest.step
+    return self._select_checkpoint(step).step
 
   def should_save(self, step: int) -> bool:
     """Returns whether a checkpoint should be saved at the given step."""
-    step = self._resolve_step(step)
+    step = _resolve_integer_step(step)
     return self._manager.should_save(step)
-
-  @overload
-  def _resolve_step(self, step: int | CheckpointMetadata) -> int:
-    ...
-
-  @overload
-  def _resolve_step(self, step: Literal[None]) -> None:
-    ...
-
-  def _resolve_step(self, step: int | CheckpointMetadata | None) -> int | None:
-    if isinstance(step, CheckpointMetadata):
-      return step.step
-    return step
 
   def save_pytree(
       self,
@@ -262,14 +273,31 @@ class Checkpointer(epy.ContextManager):
     Returns:
       Whether a checkpoint was saved or not.
     """
-    response = self.save_pytree_async(
+    return self.save_pytree_async(
         step,
         pytree,
         force=force,
         metrics=metrics,
         custom_metadata=custom_metadata,
-    )
-    return response.result()
+    ).result()
+
+  def save_checkpointables(
+      self,
+      step: int,
+      checkpointables: dict[str, Any],
+      *,
+      force: bool = False,
+      metrics: tree_types.JsonType | None = None,
+      custom_metadata: tree_types.JsonType | None = None,
+  ) -> bool:
+    """Saves a set of checkpointables at the given step."""
+    return self.save_checkpointables_async(
+        step,
+        checkpointables,
+        force=force,
+        metrics=metrics,
+        custom_metadata=custom_metadata,
+    ).result()
 
   def save_pytree_async(
       self,
@@ -298,11 +326,26 @@ class Checkpointer(epy.ContextManager):
     Returns:
       An AsyncResponse, which can be awaited via `result()`, which returns a
       bool indicating whether a checkpoint was saved or not.
-
-    Raises:
-      StepAlreadyExistsError: If a checkpoint already exists at the given step.
     """
-    args = pytree_handler.create_v0_save_args(context_lib.get_context(), pytree)
+    with pytree_handler.pytree_handler_context():
+      return self.save_checkpointables_async(
+          step,
+          {PYTREE_CHECKPOINTABLE_KEY: pytree},
+          force=force,
+          metrics=metrics,
+          custom_metadata=custom_metadata,
+      )
+
+  def save_checkpointables_async(
+      self,
+      step: int,
+      checkpointables: dict[str, Any],
+      *,
+      force: bool = False,
+      metrics: tree_types.JsonType | None = None,
+      custom_metadata: tree_types.JsonType | None = None,
+  ) -> async_types.AsyncResponse[bool]:
+    """Saves a set of checkpointables asynchronously at the given step."""
     if force:
       logging.info(
           'Specified `force`: deleting existing checkpoint %d if it exists.',
@@ -314,12 +357,13 @@ class Checkpointer(epy.ContextManager):
         pass
     elif step in [c.step for c in self.checkpoints]:
       raise errors.StepAlreadyExistsError(f'Step {step} already exists.')
+
+    checkpointer, args = saving.get_v0_checkpointer_and_args(
+        checkpointables, metrics=metrics, context=context_lib.get_context()
+    )
+    self._manager._checkpointer = checkpointer  # pylint: disable=protected-access
     saved = self._manager.save(
-        step,
-        args=args_lib.Composite(**{_PYTREE_CHECKPOINTABLE_KEY: args}),
-        force=force,
-        metrics=metrics,
-        custom_metadata=custom_metadata,
+        step, args=args, metrics=metrics, custom_metadata=custom_metadata
     )
     return _AsyncSaveResponse(self._manager, saved)
 
@@ -341,15 +385,29 @@ class Checkpointer(epy.ContextManager):
     Returns:
       The loaded PyTree.
     """
-    step = self._resolve_step(step)
-    args = pytree_handler.create_v0_restore_args(
-        context_lib.get_context(), abstract_pytree
+    with pytree_handler.pytree_handler_context():
+      return self.load_checkpointables(
+          step, {PYTREE_CHECKPOINTABLE_KEY: abstract_pytree}
+      )[PYTREE_CHECKPOINTABLE_KEY]
+
+  def load_checkpointables(
+      self,
+      step: int | CheckpointMetadata | None = None,
+      abstract_checkpointables: dict[str, Any] | None = None,
+  ) -> dict[str, Any]:
+    """Loads a set of checkpointables at the given step."""
+    step = self._resolve_existing_step(step)
+    checkpointer, args = loading.get_v0_checkpointer_and_args(
+        self.directory / self._step_name_format.build_name(step),
+        abstract_checkpointables,
+        context=context_lib.get_context(),
     )
+    self._manager._checkpointer = checkpointer  # pylint: disable=protected-access
     restored = self._manager.restore(
         step,
-        args=args_lib.Composite(**{_PYTREE_CHECKPOINTABLE_KEY: args}),
+        args=args,
     )
-    return restored[_PYTREE_CHECKPOINTABLE_KEY]
+    return {k: v for k, v in zip(restored.keys(), restored.values())}
 
   def load_pytree_async(
       self,
@@ -361,25 +419,56 @@ class Checkpointer(epy.ContextManager):
     """Not yet supported."""
     raise NotImplementedError()
 
+  def load_checkpointables_async(
+      self,
+      step: int | CheckpointMetadata | None = None,
+      abstract_checkpointables: dict[str, Any] | None = None,
+  ) -> async_types.AsyncResponse[dict[str, Any]]:
+    """Loads a set of checkpointables asynchronously at the given step."""
+    raise NotImplementedError()
+
   def pytree_metadata(
       self, step: int
   ) -> training_metadata_types.CheckpointMetadata[
       metadata_types.PyTreeMetadata
   ]:
     """Returns checkpoint metadata for the given step."""
+    checkpoint = self._select_checkpoint(step)
+    del step
     checkpoint_metadata = metadata_loading.pytree_metadata(
-        self._manager.directory / self._step_name_format.build_name(step)
+        self._manager.directory
+        / self._step_name_format.build_name(checkpoint.step)
     )
     return training_metadata_types.CheckpointMetadata[
         metadata_types.PyTreeMetadata
     ](
-        step=step,
+        step=checkpoint.step,
         metadata=checkpoint_metadata.metadata,
         init_timestamp_nsecs=checkpoint_metadata.init_timestamp_nsecs,
         commit_timestamp_nsecs=checkpoint_metadata.commit_timestamp_nsecs,
         custom_metadata=checkpoint_metadata.custom_metadata,
         descriptor=checkpoint_metadata.descriptor,
-        metrics=self._select_checkpoint(step).metrics,
+        metrics=checkpoint.metrics,
+    )
+
+  def checkpointables_metadata(
+      self, step: int | CheckpointMetadata
+  ) -> training_metadata_types.CheckpointMetadata[dict[str, Any]]:
+    """Returns checkpoint metadata for the given step."""
+    checkpoint = self._select_checkpoint(step)
+    del step
+    checkpoint_metadata = metadata_loading.checkpointables_metadata(
+        self._manager.directory
+        / self._step_name_format.build_name(checkpoint.step)
+    )
+    return training_metadata_types.CheckpointMetadata[dict[str, Any]](
+        step=checkpoint.step,
+        metadata=checkpoint_metadata.metadata,
+        init_timestamp_nsecs=checkpoint_metadata.init_timestamp_nsecs,
+        commit_timestamp_nsecs=checkpoint_metadata.commit_timestamp_nsecs,
+        custom_metadata=checkpoint_metadata.custom_metadata,
+        descriptor=checkpoint_metadata.descriptor,
+        metrics=checkpoint.metrics,
     )
 
   def root_metadata(
@@ -389,7 +478,9 @@ class Checkpointer(epy.ContextManager):
       | training_metadata_types.RootMetadata
   ):
     metadata = self._manager.metadata(None)
-    return RootMetadata(custom_metadata=metadata.custom_metadata)
+    return RootMetadata(
+        directory=self.directory, custom_metadata=metadata.custom_metadata
+    )
 
   def reload(self):
     """Reloads internal properties from the root directory."""

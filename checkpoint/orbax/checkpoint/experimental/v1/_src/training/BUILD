@@ -12,18 +12,21 @@ py_library(
     deps = [
         ":errors",
         ":save_decision_policies",
-        "//checkpoint/orbax/checkpoint:args",
         "//checkpoint/orbax/checkpoint:checkpoint_manager",
-        "//orbax/checkpoint:handlers",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/handlers:pytree_handler",
+        "//orbax/checkpoint/experimental/v1/_src/loading",
         "//orbax/checkpoint/experimental/v1/_src/metadata:loading",
         "//orbax/checkpoint/experimental/v1/_src/metadata:types",
+        "//orbax/checkpoint/experimental/v1/_src/path:format_utils",
         "//orbax/checkpoint/experimental/v1/_src/path:step",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/saving",
         "//orbax/checkpoint/experimental/v1/_src/synchronization:types",
         "//orbax/checkpoint/experimental/v1/_src/training/metadata:types",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",
+        "//orbax/checkpoint/google:pathways_type_handlers",
     ],
 )
 
@@ -32,10 +35,13 @@ py_library(
     srcs = ["checkpointer_test_base.py"],
     deps = [
         "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint/_src/serialization",
         "//orbax/checkpoint/experimental/v1",
-        "//orbax/checkpoint/experimental/v1/_src/metadata:types",
         "//orbax/checkpoint/experimental/v1/_src/path:step",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
         "//orbax/checkpoint/experimental/v1/_src/testing:array_utils",
+        "//orbax/checkpoint/experimental/v1/_src/testing:handler_utils",
+        "//orbax/checkpoint/experimental/v1/_src/testing:tree_utils",
     ],
 )
 

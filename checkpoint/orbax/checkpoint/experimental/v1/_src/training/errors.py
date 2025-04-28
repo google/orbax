@@ -17,3 +17,7 @@
 
 class StepAlreadyExistsError(FileExistsError):
   """Raised when a step intended for saving already exists."""
+
+
+class StepNotFoundError(FileNotFoundError):
+  """Raised when a requested step is not found."""

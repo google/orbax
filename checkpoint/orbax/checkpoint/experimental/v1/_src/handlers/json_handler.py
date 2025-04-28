@@ -33,10 +33,8 @@ JsonType = tree_types.JsonType
 class JsonHandler(CheckpointableHandler[JsonType, None]):
   """An implementation of `CheckpointableHandler` for Json."""
 
-  def __init__(
-      self,
-  ):
-    self._filename = 'metadata'
+  def __init__(self, filename: str = 'metadata'):
+    self._filename = filename
 
   async def _background_save(
       self,
@@ -87,3 +85,9 @@ class JsonHandler(CheckpointableHandler[JsonType, None]):
 
   def is_abstract_handleable(self, abstract_checkpointable: Any) -> bool | None:
     return None
+
+
+class MetricsHandler(JsonHandler):
+
+  def __init__(self):
+    super().__init__(filename='metrics')

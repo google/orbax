@@ -13,7 +13,6 @@ py_library(
         ":checkpoint_handler",
         ":handler_registration",
         ":handler_type_registry",
-        ":proto_checkpoint_handler",
         "//checkpoint/orbax/checkpoint:checkpoint_args",
         "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",

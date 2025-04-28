@@ -21,6 +21,7 @@ would want them to be preferred.
 
 - #v1 Add `JsonHandler`.
 - #v1 Add `training.Checkpointer`.
+- #v1 Add checkpointables support for `training.Checkpointer`.
 
 ### Added
 

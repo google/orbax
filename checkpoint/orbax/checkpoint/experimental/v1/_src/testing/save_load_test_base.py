@@ -42,6 +42,7 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
+from orbax.checkpoint.experimental.v1._src.testing import tree_utils as tree_test_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
@@ -69,33 +70,6 @@ _original_create_paths = atomicity._create_paths
 async def _sleep_and_create_paths(*args, **kwargs):
   await asyncio.sleep(2)
   return await _original_create_paths(*args, **kwargs)
-
-
-def get_d_files_mtimes(path: Path) -> list[int]:
-  mtimes = []
-  matching_dirs = list(path.parent.glob(f'{path.name}*'))
-  if not matching_dirs:
-    # Temp path not created yet.
-    return []
-  assert (
-      len(matching_dirs) == 1
-  ), f'Expected exactly one matching directory, got {matching_dirs}.'
-  tmpdir = matching_dirs[0]
-  matching_pytree_dirs = list(tmpdir.glob(f'{PYTREE_CHECKPOINTABLE_KEY}*'))
-  if not matching_pytree_dirs:
-    # Temp path not created yet.
-    return []
-  assert len(matching_pytree_dirs) == 1, (
-      'Expected exactly one matching pytree directory, got'
-      f' {matching_pytree_dirs}.'
-  )
-  pytree_dir = matching_pytree_dirs[0]
-  for idx in range(multihost.process_count()):
-    d_path = pytree_dir / f'ocdbt.process_{idx}' / 'd'
-    if not d_path.exists():
-      continue
-    mtimes.extend([f.stat().mtime for f in d_path.iterdir()])
-  return mtimes
 
 
 class SaveLoadTestBase:
@@ -147,11 +121,6 @@ class SaveLoadTestBase:
       test_utils.assert_tree_equal(self, self.pytree, loaded)
 
     def test_save_pytree_async(self):
-      def is_save_complete(directory):
-        return (
-            directory / PYTREE_CHECKPOINTABLE_KEY / 'manifest.ocdbt'
-        ).exists()
-
       start_serialize = threading.Event()
       original_serialize = serialization.async_serialize_from_host
 
@@ -167,15 +136,21 @@ class SaveLoadTestBase:
       )
 
       response = ocp.save_pytree_async(self.directory, self.pytree)
-      initial_d_files_mtimes = get_d_files_mtimes(self.directory)
-      self.assertFalse(is_save_complete(self.directory))
+      initial_d_files_mtimes = tree_test_utils.get_d_files_mtimes(
+          self.directory
+      )
+      self.assertFalse(
+          tree_test_utils.is_pytree_checkpoint_complete(self.directory)
+      )
       start_serialize.set()
 
       response.result()
-      final_d_files_mtimes = get_d_files_mtimes(self.directory)
+      final_d_files_mtimes = tree_test_utils.get_d_files_mtimes(self.directory)
       self.assertNotEmpty(final_d_files_mtimes)
       self.assertNotEqual(initial_d_files_mtimes, final_d_files_mtimes)
-      self.assertTrue(is_save_complete(self.directory))
+      self.assertTrue(
+          tree_test_utils.is_pytree_checkpoint_complete(self.directory)
+      )
 
       restored = ocp.load_pytree(
           self.directory,

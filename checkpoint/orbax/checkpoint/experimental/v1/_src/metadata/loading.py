@@ -118,6 +118,10 @@ def checkpointables_metadata(
   )
   metadata = checkpointer.metadata(path)
   item_metadata = {k: v for k, v in metadata.item_metadata.items()}
+  # Exclude `metrics` if present. This is relevant only for
+  # `training.Checkpointer`, and is separately added to the
+  # `training.CheckpointMetadata` object.
+  item_metadata.pop('metrics', None)
   return CheckpointMetadata[dict[str, Any]](
       metadata=item_metadata,
       init_timestamp_nsecs=metadata.init_timestamp_nsecs,

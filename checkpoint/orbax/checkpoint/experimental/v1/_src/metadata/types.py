@@ -107,3 +107,18 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
       cls, metadata: CheckpointableMetadataT
   ) -> CheckpointMetadata[CheckpointableMetadataT]:
     return cls(metadata=metadata)
+
+  def _properties_strings(self) -> dict[str, str]:
+    return {
+        'metadata': str(self.metadata),
+        'init_timestamp_nsecs': str(self.init_timestamp_nsecs),
+        'commit_timestamp_nsecs': str(self.commit_timestamp_nsecs),
+        'custom_metadata': str(self.custom_metadata),
+    }
+
+  def __repr__(self):
+    s = 'CheckpointMetadata('
+    for k, v in self._properties_strings().items():
+      s += f' {k} = {v}, '
+    s += ')'
+    return s
