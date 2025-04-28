@@ -298,7 +298,7 @@ def get_replica_slices(
   # In order for all processes to agree on the right serialization metadata
   # we want to compute the correct local shape regardless of whether there
   # are any replica slices to save locally.
-  rslices, local_shape = (
+  rslices, local_shape = (  # pytype: disable=attribute-error
       use_replica_parallel
       and maybe_pick_replica_parallel()
       or pick_single_replica()

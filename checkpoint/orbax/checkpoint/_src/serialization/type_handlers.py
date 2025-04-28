@@ -1195,7 +1195,7 @@ class ArrayHandler(types.TypeHandler):
         if meta.ext_metadata is None or not isinstance(meta.ext_metadata, dict):
           continue
 
-        if impl := meta.ext_metadata.get(array_metadata_lib.RANDOM_KEY_IMPL):
+        if impl := meta.ext_metadata.get(array_metadata_lib.RANDOM_KEY_IMPL):  # pytype: disable=attribute-error
           deserialized_arrays[i] = jax.random.wrap_key_data(v, impl=impl)
           logging.vlog(
               1,
