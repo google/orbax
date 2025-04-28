@@ -278,15 +278,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
 
 @contextlib.contextmanager
 def pytree_handler_context():
-  """Creates a local context for PyTree handling.
-
-  `PYTREE_CHECKPOINTABLE_KEY` is explicitly registered linking to
-  `PyTreeHandler`. Note that all globally-registered handlers are still included
-  as backup options. Other options from the parent context are carried through.
-
-  Yields:
-    A new context.
-  """
+  """Creates a local context where only `PyTreeHandler` is registered."""
   # TODO(b/398310070): Verify behavior with nested Contexts.
   checkpointables_options = options_lib.CheckpointablesOptions(
       registry=registration.local_registry(include_global_registry=True).add(

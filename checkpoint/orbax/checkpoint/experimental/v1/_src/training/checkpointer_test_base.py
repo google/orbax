@@ -16,20 +16,13 @@
 
 # pylint: disable=missing-class-docstring,protected-access,missing-function-docstring
 
-import threading
 from typing import Sequence
-from unittest import mock
-
 from absl.testing import parameterized
 from etils import epath
 from orbax.checkpoint import test_utils
-from orbax.checkpoint._src.serialization import serialization
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.path import step as path_step_lib
-from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
-from orbax.checkpoint.experimental.v1._src.testing import handler_utils
-from orbax.checkpoint.experimental.v1._src.testing import tree_utils as tree_test_utils
 
 
 Checkpointer = ocp.training.Checkpointer
@@ -37,15 +30,6 @@ save_decision_policies = ocp.training.save_decision_policies
 
 RootMetadata = ocp.training.RootMetadata
 CheckpointMetadata = ocp.training.CheckpointMetadata
-
-Foo = handler_utils.Foo
-Bar = handler_utils.Bar
-Baz = handler_utils.Baz
-AbstractFoo = handler_utils.AbstractFoo
-AbstractBar = handler_utils.AbstractBar
-AbstractBaz = handler_utils.AbstractBaz
-
-ocp.handlers.register_handler(handler_utils.BazHandler)
 
 
 class CheckpointerTestBase:
@@ -56,18 +40,7 @@ class CheckpointerTestBase:
     def setUp(self):
       super().setUp()
 
-      pytree, abstract_pytree = array_test_utils.create_sharded_pytree()
-      numpy_pytree, abstract_numpy_pytree = (
-          array_test_utils.create_numpy_pytree()
-      )
-      self.pytree = {
-          'jax_array': pytree,
-          'numpy_array': numpy_pytree,
-      }
-      self.abstract_pytree = {
-          'jax_array': abstract_pytree,
-          'numpy_array': abstract_numpy_pytree,
-      }
+      self.pytree, self.abstract_pytree = array_test_utils.create_numpy_pytree()
 
       self.directory = epath.Path(
           self.create_tempdir(name='checkpointing_test').full_path
@@ -102,10 +75,7 @@ class CheckpointerTestBase:
     def test_load_latest_pytree(self, latest_arg_is_none):
       checkpointer = Checkpointer(self.directory)
       checkpointer.save_pytree(0, self.pytree, metrics={'loss': 0.5})
-      new_pytree = {
-          'jax_array': self.pytree['jax_array'],
-          'numpy_array': array_test_utils.create_numpy_pytree(add=1)[0],
-      }
+      new_pytree, _ = array_test_utils.create_numpy_pytree(add=1)
       checkpointer.save_pytree(1, new_pytree, metrics={'loss': 0.4})
 
       latest = checkpointer.latest
@@ -211,46 +181,17 @@ class CheckpointerTestBase:
       assert checkpointer.latest is not None
       self.assertEqual(checkpointer.latest.step, 0)
 
-    def test_save_pytree_async(self):
+    def test_save_async(self):
       checkpointer = Checkpointer(self.directory)
-
-      start_serialize = threading.Event()
-      original_serialize = serialization.async_serialize_from_host
-
-      def mock_serialize(*args, **kwargs):
-        start_serialize.wait()  # Wait for explicit signal before proceeding.
-        return original_serialize(*args, **kwargs)
-
-      # Serialization to disk does not start until receiving an explicit signal.
-      self.enter_context(
-          mock.patch.object(
-              serialization, 'async_serialize_from_host', new=mock_serialize
-          )
-      )
-
-      step = 0
-      response = checkpointer.save_pytree_async(step, self.pytree)
-      initial_d_files_mtimes = tree_test_utils.get_d_files_mtimes(
-          self.directory / str(step)
-      )
-      self.assertFalse(
-          tree_test_utils.is_pytree_checkpoint_complete(
-              self.directory / str(step)
-          )
-      )
-      start_serialize.set()
-
+      step_path = self.directory / '0'
+      response = checkpointer.save_pytree_async(0, self.pytree)
+      self.assertFalse(step_path.exists())  # Not finalized yet.
+      # But a tmp dir should have been created.
+      self.assertNotEmpty(list(self.directory.iterdir()))
       response.result()
-      final_d_files_mtimes = tree_test_utils.get_d_files_mtimes(
-          self.directory / str(step)
-      )
-      self.assertNotEmpty(final_d_files_mtimes)
-      self.assertNotEqual(initial_d_files_mtimes, final_d_files_mtimes)
-      self.assertTrue(
-          tree_test_utils.is_pytree_checkpoint_complete(
-              self.directory / str(step)
-          )
-      )
+      self.assertTrue(step_path.exists())
+      loaded = checkpointer.load_pytree(0)
+      test_utils.assert_tree_equal(self, self.pytree, loaded)
 
     def test_close(self):
       checkpointer = Checkpointer(self.directory)
@@ -282,162 +223,28 @@ class CheckpointerTestBase:
       self.assertTrue((self.directory / 'foo_0').exists())
       self.assertFalse((self.directory / '0').exists())
 
-    @parameterized.product(
-        reinitialize_checkpointer=(True, False),
-    )
-    def test_root_metadata(self, reinitialize_checkpointer):
+    def test_metadata(self):
       checkpointer = Checkpointer(
           self.directory, custom_metadata={'foo': 'bar'}
       )
-      if reinitialize_checkpointer:
-        # Does not overwrite custom metadata.
-        Checkpointer(self.directory, custom_metadata={'baz': 2})
-      root_metadata = checkpointer.root_metadata()
-      self.assertIsInstance(root_metadata, RootMetadata)
-      self.assertDictEqual(root_metadata.custom_metadata, {'foo': 'bar'})
-
-    @parameterized.product(
-        reinitialize_checkpointer=(True, False),
-    )
-    def test_pytree_metadata(self, reinitialize_checkpointer):
-      checkpointer = Checkpointer(self.directory)
       checkpointer.save_pytree(
           0, self.pytree, metrics={'loss': 0.5}, custom_metadata={'baz': 'qux'}
       )
-      if reinitialize_checkpointer:
-        checkpointer = Checkpointer(self.directory)
-      checkpoint_metadata = checkpointer.pytree_metadata(0)
-      self.assertIsInstance(checkpoint_metadata, CheckpointMetadata)
-      self.assertDictEqual(checkpoint_metadata.custom_metadata, {'baz': 'qux'})
-      self.assertDictEqual(checkpoint_metadata.metrics, {'loss': 0.5})
-      self.assertIsNotNone(checkpoint_metadata.init_timestamp_nsecs)
-      self.assertIsNotNone(checkpoint_metadata.commit_timestamp_nsecs)
-      self.assertIsInstance(checkpoint_metadata.metadata, dict)
-      self.assertSameElements(
-          checkpoint_metadata.metadata.keys(), ['jax_array', 'numpy_array']
-      )
 
-    @parameterized.product(
-        reinitialize_checkpointer=(True, False),
-    )
-    def test_checkpointables_metadata(self, reinitialize_checkpointer):
-      checkpointer = Checkpointer(self.directory)
-      checkpointer.save_checkpointables(
-          0,
-          {'pytree': self.pytree, 'baz': Baz(123, 'hi')},
-          metrics={'loss': 0.5},
-          custom_metadata={'baz': 'qux'},
-      )
-      if reinitialize_checkpointer:
-        checkpointer = Checkpointer(self.directory)
-      checkpoint_metadata = checkpointer.checkpointables_metadata(0)
-      self.assertIsInstance(checkpoint_metadata, CheckpointMetadata)
-      self.assertDictEqual(checkpoint_metadata.custom_metadata, {'baz': 'qux'})
-      self.assertDictEqual(checkpoint_metadata.metrics, {'loss': 0.5})
-      self.assertIsNotNone(checkpoint_metadata.init_timestamp_nsecs)
-      self.assertIsNotNone(checkpoint_metadata.commit_timestamp_nsecs)
-      self.assertIsInstance(checkpoint_metadata.metadata, dict)
-      self.assertSameElements(
-          checkpoint_metadata.metadata.keys(), ['pytree', 'baz']
-      )
-      self.assertSameElements(
-          checkpoint_metadata.metadata['pytree'].keys(),
-          ['jax_array', 'numpy_array'],
-      )
-      self.assertIsInstance(checkpoint_metadata.metadata['baz'], AbstractBaz)
+      with self.subTest('root_metadata'):
+        root_metadata = checkpointer.root_metadata()
+        self.assertIsInstance(root_metadata, RootMetadata)
+        self.assertDictEqual(root_metadata.custom_metadata, {'foo': 'bar'})
 
-    def test_custom_checkpointables(self):
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              handler_utils.FooHandler,
-              handler_utils.BarHandler,
-          )
-      )
-      self.enter_context(
-          ocp.Context(checkpointables_options=checkpointables_options)
-      )
-      checkpointables = {
-          'pytree': self.pytree,
-          'foo': Foo(123, 'hi'),
-          'bar': Bar(456, 'bye'),
-      }
-      checkpointer = Checkpointer(self.directory)
-      checkpointer.save_checkpointables(0, checkpointables)
-      with self.subTest('load'):
-        loaded = checkpointer.load_checkpointables(0)
-        self.assertSameElements(loaded.keys(), ['pytree', 'foo', 'bar'])
-        test_utils.assert_tree_equal(
-            self, checkpointables['pytree'], loaded['pytree']
+      with self.subTest('checkpoint_metadata'):
+        checkpoint_metadata = checkpointer.pytree_metadata(0)
+        self.assertIsInstance(checkpoint_metadata, CheckpointMetadata)
+        self.assertDictEqual(
+            checkpoint_metadata.custom_metadata, {'baz': 'qux'}
         )
-        self.assertEqual(checkpointables['foo'], loaded['foo'])
-        self.assertEqual(checkpointables['bar'], loaded['bar'])
-      with self.subTest('load_with_free_function'):
-        loaded = ocp.load_checkpointables(self.directory / '0')
-        self.assertSameElements(loaded.keys(), ['pytree', 'foo', 'bar'])
-        test_utils.assert_tree_equal(
-            self, checkpointables['pytree'], loaded['pytree']
+        self.assertDictEqual(checkpoint_metadata.metrics, {'loss': 0.5})
+        self.assertIsNotNone(checkpoint_metadata.init_timestamp_nsecs)
+        self.assertIsNotNone(checkpoint_metadata.commit_timestamp_nsecs)
+        self.assertIsInstance(
+            checkpoint_metadata.metadata, dict
         )
-        self.assertEqual(checkpointables['foo'], loaded['foo'])
-        self.assertEqual(checkpointables['bar'], loaded['bar'])
-      with self.subTest('load_with_abstract_checkpointables'):
-        abstract_checkpointables = {
-            'pytree': self.abstract_pytree,
-            'foo': AbstractFoo(),
-            'bar': AbstractBar(),
-        }
-        loaded = checkpointer.load_checkpointables(0, abstract_checkpointables)
-        self.assertSameElements(loaded.keys(), ['pytree', 'foo', 'bar'])
-        test_utils.assert_tree_equal(self, self.pytree, loaded['pytree'])
-        self.assertEqual(checkpointables['foo'], loaded['foo'])
-        self.assertEqual(checkpointables['bar'], loaded['bar'])
-      with self.subTest('load_with_abstract_checkpointables_none_values'):
-        abstract_checkpointables = {
-            'pytree': None,
-            'foo': None,
-            'bar': None,
-        }
-        loaded = checkpointer.load_checkpointables(0, abstract_checkpointables)
-        self.assertSameElements(loaded.keys(), ['pytree', 'foo', 'bar'])
-        test_utils.assert_tree_equal(
-            self, checkpointables['pytree'], loaded['pytree']
-        )
-        self.assertEqual(checkpointables['foo'], loaded['foo'])
-        self.assertEqual(checkpointables['bar'], loaded['bar'])
-      with self.subTest('load_partial'):
-        abstract_checkpointables = {
-            'foo': None,
-        }
-        loaded = checkpointer.load_checkpointables(0, abstract_checkpointables)
-        self.assertSameElements(loaded.keys(), ['foo'])
-        self.assertEqual(checkpointables['foo'], loaded['foo'])
-      with self.subTest('load_with_switched_abstract_checkpointables'):
-        abstract_checkpointables = {
-            'foo': AbstractBar(),
-            'bar': AbstractFoo(),
-        }
-        loaded = checkpointer.load_checkpointables(0, abstract_checkpointables)
-        self.assertSameElements(loaded.keys(), ['foo', 'bar'])
-        self.assertEqual(Bar(123, 'hi'), loaded['foo'])
-        self.assertEqual(Foo(456, 'bye'), loaded['bar'])
-
-    def test_different_custom_checkpointables(self):
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              handler_utils.FooHandler,
-              handler_utils.BarHandler,
-          )
-      )
-      self.enter_context(
-          ocp.Context(checkpointables_options=checkpointables_options)
-      )
-      checkpointer = Checkpointer(self.directory)
-      checkpointer.save_checkpointables(0, {'foo': Foo(123, 'hi')})
-      checkpointer.save_checkpointables(1, {'bar': Bar(456, 'bye')})
-
-      loaded = checkpointer.load_checkpointables(0)
-      self.assertSameElements(loaded.keys(), ['foo'])
-      self.assertEqual(Foo(123, 'hi'), loaded['foo'])
-
-      loaded = checkpointer.load_checkpointables(1)
-      self.assertSameElements(loaded.keys(), ['bar'])
-      self.assertEqual(Bar(456, 'bye'), loaded['bar'])

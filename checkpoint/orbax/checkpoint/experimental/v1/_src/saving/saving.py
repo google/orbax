@@ -239,7 +239,6 @@ def save_checkpointables_async(
 def get_v0_checkpointer_and_args(
     checkpointables: dict[str, Any],
     *,
-    metrics: tree_types.JsonType | None = None,
     context: context_lib.Context,
 ) -> tuple[
     async_checkpointer.AsyncCheckpointer,
@@ -253,9 +252,6 @@ def get_v0_checkpointer_and_args(
     raise ValueError(
         f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
     )
-  # Global registration ties metrics key to JsonHandler.
-  if metrics:
-    checkpointables[format_utils.METRICS_CHECKPOINTABLE_KEY] = metrics
 
 
   handlers = {

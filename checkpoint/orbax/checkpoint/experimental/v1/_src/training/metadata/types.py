@@ -15,12 +15,15 @@
 """Metadata for `training.Checkpointer`."""
 
 import dataclasses
-from typing import TypeVar
+from orbax.checkpoint._src.metadata import checkpoint_info
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
-CheckpointableMetadataT = TypeVar('CheckpointableMetadataT')
+
+CheckpointableMetadataT = metadata_types.CheckpointableMetadataT
+
+
+CheckpointInfo = checkpoint_info.CheckpointInfo
 
 
 class CheckpointMetadata(
@@ -67,33 +70,15 @@ class CheckpointMetadata(
   def metrics(self) -> tree_types.JsonType | None:
     return self._metrics
 
-  def _properties_strings(self) -> dict[str, str]:
-    properties = super()._properties_strings()
-    return {
-        'step': str(self.step),
-        **properties,
-        'metrics': str(self.metrics),
-    }
-
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class RootMetadata:
   """Metadata of a sequence of checkpoint at root level (contains all steps).
 
   Attributes:
-    directory: The directory of the checkpoint sequence.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
   """
 
-  directory: path_types.Path
   custom_metadata: tree_types.JsonType | None = None
-
-  def __repr__(self):
-    return (
-        'RootMetadata('
-        f' directory={self.directory}, '
-        f' custom_metadata={self.custom_metadata}, '
-        ')'
-    )

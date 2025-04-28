@@ -31,9 +31,5 @@ registration.global_registry().add(proto_handler.ProtoHandler)
 
 registration.global_registry().add(json_handler.JsonHandler)
 
-registration.global_registry().add(
-    json_handler.MetricsHandler,
-    format_utils.METRICS_CHECKPOINTABLE_KEY,
-)
 
 registration.global_registry().add(pytree_handler.PyTreeHandler)

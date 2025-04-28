@@ -114,16 +114,10 @@ class CompatibilityCheckpointHandler(
     """A unique identifier for the CheckpointHandler type."""
     ...
 
-  def __repr__(self):
-    return f'CompatibilityCheckpointHandler({handler_types.typestr(type(self._handler))})'
-
 
 @dataclasses.dataclass
 class Args(checkpoint_args.CheckpointArgs):
   checkpointable: Any
-
-  def __repr__(self):
-    return f'CompatibilityArgs({type(self.checkpointable)})'
 
 
 def get_compatibility_handler(

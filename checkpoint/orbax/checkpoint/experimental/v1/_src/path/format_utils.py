@@ -28,10 +28,7 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 PYTREE_CHECKPOINTABLE_KEY = 'pytree'
 
-METRICS_CHECKPOINTABLE_KEY = 'metrics'
-
 RESERVED_CHECKPOINTABLE_KEYS = frozenset({
-    METRICS_CHECKPOINTABLE_KEY,
 })
 
 
