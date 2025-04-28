@@ -16,6 +16,7 @@
 
 # pylint: disable=missing-class-docstring,protected-access,missing-function-docstring
 
+import datetime
 import threading
 from typing import Sequence
 from unittest import mock
@@ -441,3 +442,50 @@ class CheckpointerTestBase:
       loaded = checkpointer.load_checkpointables(1)
       self.assertSameElements(loaded.keys(), ['bar'])
       self.assertEqual(Bar(456, 'bye'), loaded['bar'])
+
+    def test_custom_save_decision_policy(self):
+      save_delta = datetime.timedelta(seconds=0.03)
+
+      class ArbitrarySavePolicy(save_decision_policies.SaveDecisionPolicy):
+
+        def should_save(
+            self,
+            step: CheckpointMetadata,
+            previous_steps: Sequence[CheckpointMetadata],
+            *,
+            context: save_decision_policies.DecisionContext,
+        ) -> bool:
+          save_result = False
+          is_primary_host = multihost.is_primary_host(
+              context.multiprocessing_options.primary_host
+          )
+          if is_primary_host:
+            if not previous_steps:
+              save_result = True
+            else:
+              time_delta = step.time - previous_steps[-1].time
+              save_result = step.step % 2 == 0 and time_delta >= save_delta
+          save_result = bool(
+              multihost.broadcast_one_to_all(
+                  save_result, is_source=is_primary_host
+              )
+          )
+          return save_result
+
+      checkpointer = Checkpointer(
+          self.directory, save_decision_policy=ArbitrarySavePolicy()
+      )
+      for step in range(0, 30):
+        checkpointer.save_pytree(step, self.pytree)
+
+      self.assertNotEmpty(checkpointer.checkpoints)
+      self.assertLess(len(checkpointer.checkpoints), 30)
+      checkpointer_metadata = [
+          checkpointer.pytree_metadata(metadata.step)
+          for metadata in checkpointer.checkpoints
+      ]
+      for i in range(1, len(checkpointer.checkpoints)):
+        time_delta = (
+            checkpointer_metadata[i].time - checkpointer_metadata[i - 1].time
+        )
+        self.assertGreaterEqual(time_delta, save_delta)

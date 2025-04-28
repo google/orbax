@@ -35,6 +35,7 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import threading as threading_lib
+from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.checkpointers import async_checkpointer
@@ -167,8 +168,8 @@ class _ShouldSaveFnPolicy(save_decision_policy_lib.SaveDecisionPolicy):
 
   def should_save(
       self,
-      step: checkpoint_info.CheckpointInfo,
-      previous_steps: Sequence[checkpoint_info.CheckpointInfo],
+      step: policy_checkpoint_info.PolicyCheckpointInfo,
+      previous_steps: Sequence[policy_checkpoint_info.PolicyCheckpointInfo],
       *,
       context: save_decision_policy_lib.DecisionContext,
   ) -> bool:

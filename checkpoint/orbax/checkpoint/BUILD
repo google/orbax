@@ -139,6 +139,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:step",
         "//checkpoint/orbax/checkpoint/_src/path:utils",
         "//orbax/checkpoint/_src:threading",
+        "//orbax/checkpoint/_src/checkpoint_managers:policy_checkpoint_info",
     ],
 )
 

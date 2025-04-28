@@ -3,7 +3,10 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "save_decision_policies",
     srcs = ["save_decision_policies.py"],
-    deps = ["//checkpoint/orbax/checkpoint/_src/checkpoint_managers:save_decision_policy"],
+    deps = [
+        "//checkpoint/orbax/checkpoint/_src/checkpoint_managers:save_decision_policy",
+        "//orbax/checkpoint/experimental/v1/_src/training/metadata:types",
+    ],
 )
 
 py_library(
@@ -35,6 +38,7 @@ py_library(
     srcs = ["checkpointer_test_base.py"],
     deps = [
         "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/serialization",
         "//orbax/checkpoint/experimental/v1",
         "//orbax/checkpoint/experimental/v1/_src/path:step",

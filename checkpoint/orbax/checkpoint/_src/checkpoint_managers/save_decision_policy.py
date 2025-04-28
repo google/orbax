@@ -19,8 +19,11 @@ import datetime
 import typing
 from typing import Container, Protocol, Sequence
 from orbax.checkpoint import options as options_lib
-from orbax.checkpoint._src.metadata import checkpoint_info
+from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
 from orbax.checkpoint._src.multihost import multihost
+
+
+PolicyCheckpointInfo = policy_checkpoint_info.PolicyCheckpointInfo
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -42,8 +45,8 @@ class SaveDecisionPolicy(Protocol):
 
   def should_save(
       self,
-      step: checkpoint_info.CheckpointInfo,
-      previous_steps: Sequence[checkpoint_info.CheckpointInfo],
+      step: PolicyCheckpointInfo,
+      previous_steps: Sequence[PolicyCheckpointInfo],
       *,
       context: DecisionContext
   ) -> bool:
@@ -58,8 +61,8 @@ class FixedIntervalPolicy(SaveDecisionPolicy):
 
   def should_save(
       self,
-      step: checkpoint_info.CheckpointInfo,
-      previous_steps: Sequence[checkpoint_info.CheckpointInfo],
+      step: PolicyCheckpointInfo,
+      previous_steps: Sequence[PolicyCheckpointInfo],
       *,
       context: DecisionContext
   ) -> bool:
@@ -76,8 +79,8 @@ class SpecificStepsPolicy(SaveDecisionPolicy):
 
   def should_save(
       self,
-      step: checkpoint_info.CheckpointInfo,
-      previous_steps: Sequence[checkpoint_info.CheckpointInfo],
+      step: PolicyCheckpointInfo,
+      previous_steps: Sequence[PolicyCheckpointInfo],
       *,
       context: DecisionContext
   ) -> bool:
@@ -94,8 +97,8 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
 
   def should_save(
       self,
-      step: checkpoint_info.CheckpointInfo,
-      previous_steps: Sequence[checkpoint_info.CheckpointInfo],
+      step: PolicyCheckpointInfo,
+      previous_steps: Sequence[PolicyCheckpointInfo],
       *,
       context: DecisionContext
   ) -> bool:
@@ -123,8 +126,8 @@ class PreemptionCheckpointingPolicy(SaveDecisionPolicy):
 
   def should_save(
       self,
-      step: checkpoint_info.CheckpointInfo,
-      previous_steps: Sequence[checkpoint_info.CheckpointInfo],
+      step: PolicyCheckpointInfo,
+      previous_steps: Sequence[PolicyCheckpointInfo],
       *,
       context: DecisionContext
   ) -> bool:
@@ -138,8 +141,8 @@ class InitialSavePolicy(SaveDecisionPolicy):
 
   def should_save(
       self,
-      step: checkpoint_info.CheckpointInfo,
-      previous_steps: Sequence[checkpoint_info.CheckpointInfo],
+      step: PolicyCheckpointInfo,
+      previous_steps: Sequence[PolicyCheckpointInfo],
       *,
       context: DecisionContext
   ) -> bool:
@@ -160,8 +163,8 @@ class AnySavePolicy(SaveDecisionPolicy):
 
   def should_save(
       self,
-      step: checkpoint_info.CheckpointInfo,
-      previous_steps: Sequence[checkpoint_info.CheckpointInfo],
+      step: PolicyCheckpointInfo,
+      previous_steps: Sequence[PolicyCheckpointInfo],
       *,
       context: DecisionContext
   ) -> bool:

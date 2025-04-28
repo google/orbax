@@ -15,6 +15,7 @@
 """Metadata for `training.Checkpointer`."""
 
 import dataclasses
+import datetime
 from typing import TypeVar
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -66,6 +67,12 @@ class CheckpointMetadata(
   @property
   def metrics(self) -> tree_types.JsonType | None:
     return self._metrics
+
+  @property
+  def time(self) -> datetime.datetime:
+    return datetime.datetime.fromtimestamp(
+        self.commit_timestamp_nsecs / 1e9, tz=datetime.timezone.utc
+    )
 
   def _properties_strings(self) -> dict[str, str]:
     properties = super()._properties_strings()
