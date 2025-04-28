@@ -54,3 +54,20 @@ py_library(
         "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
     ],
 )
+
+py_library(
+    name = "v0v1_compatibility_save_load_test_base",
+    srcs = ["v0v1_compatibility_save_load_test_base.py"],
+    deps = [
+        ":array_utils",
+        "//checkpoint/orbax/checkpoint:args",
+        "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint/_src/checkpointers:checkpointer",
+        "//checkpoint/orbax/checkpoint/_src/checkpointers:standard_checkpointer",
+        "//checkpoint/orbax/checkpoint/_src/handlers:composite_checkpoint_handler",
+        "//orbax/checkpoint/experimental/v1",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
+        "//orbax/checkpoint/experimental/v1/_src/tree:types",
+    ],
+)

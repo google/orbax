@@ -191,7 +191,6 @@ class CompositeHandler:
           handler_typestr=handler_typestr,
       )
       loadable_checkpointable_names_to_handlers[name] = handler
-
     return loadable_checkpointable_names_to_handlers
 
   def _get_saved_handler_typestrs(
@@ -199,11 +198,40 @@ class CompositeHandler:
       directory: path_types.Path,
   ) -> dict[str, str]:
     """Reads from the checkpoint metadata to get saved handler typestrs."""
-    serialized_metadata = self._metadata_store.read(
-        checkpoint_metadata.step_metadata_file_path(directory)
+    step_metadata_file_path = checkpoint_metadata.step_metadata_file_path(
+        directory
     )
-    saved_metadata = step_metadata_serialization.deserialize(
-        serialized_metadata or {}
+    if step_metadata_file_path.exists():
+      serialized_metadata = self._metadata_store.read(step_metadata_file_path)
+      saved_metadata = step_metadata_serialization.deserialize(
+          serialized_metadata or {}
+      )
+      assert isinstance(saved_metadata.item_handlers, dict)
+      return saved_metadata.item_handlers
+
+    logging.warning(
+        'Given dir contains checkpointables subdirs but no step metadata'
+        ' file=%s. Such dirs can exist if the checkpoints are saved directly'
+        ' using V0 Checkpointer instead of using CheckpointManager or'
+        ' CompositeCheckpointHandler. Will fetch saved handlers from each of'
+        ' the checkpointable subdirectories.',
+        directory,
     )
-    assert isinstance(saved_metadata.item_handlers, dict)
-    return saved_metadata.item_handlers
+    saved_handler_typestrs = {}
+    for _, checkpointable_name in self._handler_registry.get_all_entries():
+      if not checkpointable_name:
+        continue
+      checkpointable_path = directory / checkpointable_name
+      if not checkpointable_path.exists() or not checkpointable_path.is_dir():
+        continue
+      serialized_metadata = self._metadata_store.read(
+          checkpoint_metadata.step_metadata_file_path(checkpointable_path)
+      )
+      saved_metadata = step_metadata_serialization.deserialize(
+          serialized_metadata or {}
+      )
+      assert not isinstance(saved_metadata.item_handlers, dict)
+      item_handlers = saved_metadata.item_handlers
+      if item_handlers is not None:
+        saved_handler_typestrs[checkpointable_name] = item_handlers
+    return saved_handler_typestrs

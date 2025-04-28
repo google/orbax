@@ -500,7 +500,7 @@ class SaveLoadTestBase:
 
       with self.subTest('load_pytree'):
         with self.assertRaisesRegex(
-            FileNotFoundError, 'does not contain a PyTree checkpointable'
+            FileNotFoundError, 'must contain a subdirectory named "pytree"'
         ):
           ocp.load_pytree(self.directory)
 

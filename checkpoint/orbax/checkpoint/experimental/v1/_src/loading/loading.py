@@ -82,7 +82,8 @@ def load_pytree(
   that is restored.
 
   Args:
-    directory: The directory to load the checkpoint from.
+    directory: The directory to load the checkpoint from. This directory must
+      contain a subdirectory named `pytree`.
     abstract_pytree: Provides a tree structure for the checkpoint to be restored
       into. May be omitted to load exactly as saved., but this is much more
       brittle than providing the tree.
@@ -203,9 +204,7 @@ def get_v0_checkpointer_and_args(
   # pylint: disable=protected-access
   handlers = composite_handler.CompositeHandler(
       context.checkpointables_options.registry
-  )._get_loadable_handlers(
-      directory, abstract_checkpointables
-  )
+  )._get_loadable_handlers(directory, abstract_checkpointables)
   # pylint: enable=protected-access
   if not abstract_checkpointables:
     abstract_checkpointables = {
