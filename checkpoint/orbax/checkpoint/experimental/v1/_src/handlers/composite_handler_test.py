@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -45,15 +46,20 @@ Foo = handler_utils.Foo
 Bar = handler_utils.Bar
 Baz = handler_utils.Baz
 
-# Baz is registered globally, while the others are not.
-registration.register_handler(BazHandler)
-
 
 class CompositeHandlerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
     self.directory = epath.Path(self.create_tempdir(name='test_dir')) / 'ckpt'
+    self._mock_global_registry = registration.local_registry()
+    self.enter_context(
+        mock.patch.object(
+            registration, '_GLOBAL_REGISTRY', new=self._mock_global_registry
+        )
+    )
+    # Baz is registered globally, while the others are not.
+    registration.register_handler(BazHandler)
 
   def save(
       self,
@@ -110,14 +116,19 @@ class CompositeHandlerTest(parameterized.TestCase):
     return result
 
   def create_registry(
-      self,
+      self, include_global_registry: bool = True
   ) -> registration.CheckpointableHandlerRegistry:
-    return registration.local_registry()
+    return registration.local_registry(
+        include_global_registry=include_global_registry
+    )
 
   def test_init(self):
     handler = CompositeHandler(
-        self.create_registry().add(PyTreeHandler, 'pytree')
+        self.create_registry().add(PyTreeHandler, 'pytree_foo')
     )
+    self.assertTrue(handler._handler_registry.has('pytree_foo'))
+    self.assertEqual(handler._handler_registry.get('pytree_foo'), PyTreeHandler)
+
     self.assertTrue(handler._handler_registry.has('pytree'))
     self.assertEqual(
         handler._handler_registry.get('pytree'), PyTreeHandler
@@ -182,7 +193,7 @@ class CompositeHandlerTest(parameterized.TestCase):
           (PyTreeHandler, None),
           (FooHandler, None),
       ]
-    registry = self.create_registry()
+    registry = self.create_registry(include_global_registry=False)
     for handler_type, checkpointable in pairs_to_register:
       registry.add(handler_type, checkpointable)
 

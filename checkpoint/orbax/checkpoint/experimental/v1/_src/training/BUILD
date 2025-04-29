@@ -18,7 +18,6 @@ py_library(
         "//checkpoint/orbax/checkpoint:checkpoint_manager",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/handlers:global_registration",
-        "//orbax/checkpoint/experimental/v1/_src/handlers:pytree_handler",
         "//orbax/checkpoint/experimental/v1/_src/loading",
         "//orbax/checkpoint/experimental/v1/_src/metadata:loading",
         "//orbax/checkpoint/experimental/v1/_src/metadata:types",

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.checkpoint.experimental.v1._src.handlers import registration
@@ -23,8 +24,13 @@ class RegistrationTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    registration._GLOBAL_REGISTRY = (
-        registration._DefaultCheckpointableHandlerRegistry()
+    self._mock_global_registry = registration.local_registry(
+        include_global_registry=False
+    )
+    self.enter_context(
+        mock.patch.object(
+            registration, '_GLOBAL_REGISTRY', new=self._mock_global_registry
+        )
     )
     registration.register_handler(handler_utils.BazHandler)
 

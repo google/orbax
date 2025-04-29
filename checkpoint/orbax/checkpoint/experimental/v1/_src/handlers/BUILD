@@ -50,7 +50,6 @@ py_library(
     name = "pytree_handler",
     srcs = ["pytree_handler.py"],
     deps = [
-        ":registration",
         ":types",
         "//checkpoint/orbax/checkpoint:checkpoint_utils",
         "//checkpoint/orbax/checkpoint:options",
@@ -122,6 +121,7 @@ py_library(
         ":proto_handler",
         ":pytree_handler",
         ":registration",
+        ":types",
         "//orbax/checkpoint/experimental/v1/_src/path:format_utils",
     ],
 )

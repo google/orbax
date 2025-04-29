@@ -35,6 +35,25 @@ RESERVED_CHECKPOINTABLE_KEYS = frozenset({
 })
 
 
+def validate_checkpoint(path: path_types.PathLike):
+  """Validates a checkpoint path written by `ocp.save_checkpointables`.
+
+  Args:
+    path: The path to the checkpoint directory.
+
+  Raises:
+    FileNotFoundError: If the path does not exist, or if `pytree` is not found
+      in the directory
+    NotADirectoryError: If the path is not a directory.
+    ValueError: If the metadata cannot be read.
+  """
+  path = epath.Path(path)
+  if not path.exists():
+    raise FileNotFoundError(f'Checkpoint path {path} does not exist.')
+  if not path.is_dir():
+    raise NotADirectoryError(f'Checkpoint path {path} is not a directory.')
+
+
 def validate_pytree_checkpoint(path: path_types.PathLike):
   """Validates a checkpoint path written by `ocp.save_pytree`.
 
@@ -49,10 +68,7 @@ def validate_pytree_checkpoint(path: path_types.PathLike):
       read.
   """
   path = epath.Path(path)
-  if not path.exists():
-    raise FileNotFoundError(f'Checkpoint path {path} does not exist.')
-  if not path.is_dir():
-    raise NotADirectoryError(f'Checkpoint path {path} is not a directory.')
+  validate_checkpoint(path)
   if not (path / PYTREE_CHECKPOINTABLE_KEY).exists():
     raise FileNotFoundError(
         f'Checkpoint path {path} must contain a subdirectory named'

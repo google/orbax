@@ -22,7 +22,6 @@ from absl import logging
 from etils import epy
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
-from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.loading import loading
 from orbax.checkpoint.experimental.v1._src.metadata import loading as metadata_loading
@@ -328,14 +327,13 @@ class Checkpointer(epy.ContextManager):
       An AsyncResponse, which can be awaited via `result()`, which returns a
       bool indicating whether a checkpoint was saved or not.
     """
-    with pytree_handler.pytree_handler_context():
-      return self.save_checkpointables_async(
-          step,
-          {PYTREE_CHECKPOINTABLE_KEY: pytree},
-          force=force,
-          metrics=metrics,
-          custom_metadata=custom_metadata,
-      )
+    return self.save_checkpointables_async(
+        step,
+        {PYTREE_CHECKPOINTABLE_KEY: pytree},
+        force=force,
+        metrics=metrics,
+        custom_metadata=custom_metadata,
+    )
 
   def save_checkpointables_async(
       self,
@@ -386,10 +384,9 @@ class Checkpointer(epy.ContextManager):
     Returns:
       The loaded PyTree.
     """
-    with pytree_handler.pytree_handler_context():
-      return self.load_checkpointables(
-          step, {PYTREE_CHECKPOINTABLE_KEY: abstract_pytree}
-      )[PYTREE_CHECKPOINTABLE_KEY]
+    return self.load_checkpointables(
+        step, {PYTREE_CHECKPOINTABLE_KEY: abstract_pytree}
+    )[PYTREE_CHECKPOINTABLE_KEY]
 
   def load_checkpointables(
       self,

@@ -13,14 +13,17 @@
 # limitations under the License.
 
 """Functions for loading metadata from a checkpoint."""
+
 from typing import Any
+
 from etils import epath
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
-from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
+import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.loading import loading
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+
 
 CheckpointMetadata = metadata_types.CheckpointMetadata
 PyTreeMetadata = metadata_types.PyTreeMetadata
@@ -75,14 +78,13 @@ def pytree_metadata(
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
   format_utils.validate_pytree_checkpoint(path)
-  with pytree_handler.pytree_handler_context():
-    metadata = checkpointables_metadata(path)
-    return CheckpointMetadata[PyTreeMetadata](
-        metadata=metadata.metadata[PYTREE_CHECKPOINTABLE_KEY],
-        init_timestamp_nsecs=metadata.init_timestamp_nsecs,
-        commit_timestamp_nsecs=metadata.commit_timestamp_nsecs,
-        custom_metadata=metadata.custom_metadata,
-    )
+  metadata = checkpointables_metadata(path)
+  return CheckpointMetadata[PyTreeMetadata](
+      metadata=metadata.metadata[PYTREE_CHECKPOINTABLE_KEY],
+      init_timestamp_nsecs=metadata.init_timestamp_nsecs,
+      commit_timestamp_nsecs=metadata.commit_timestamp_nsecs,
+      custom_metadata=metadata.custom_metadata,
+  )
 
 
 def checkpointables_metadata(

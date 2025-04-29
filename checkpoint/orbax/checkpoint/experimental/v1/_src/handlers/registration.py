@@ -145,18 +145,26 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
       The registry itself.
 
     Raises:
-      AlreadyExistsError: If an entry for the given checkpointable name already
-        exists in the registry.
+      AlreadyExistsError: If an entry for the given checkpointable name or
+        handler type already exists in the registry.
       ValueError: If the handler is not default-constructible.
     """
     if not isinstance(handler_type, type):
       raise ValueError(
           f'The `handler_type` must be a type, but got {handler_type}.'
       )
-    if checkpointable and self.has(checkpointable):
+    registered_handler_types = [
+        handler_type for handler_type, _ in self.get_all_entries()
+    ]
+    if checkpointable:
+      if self.has(checkpointable):
+        raise AlreadyExistsError(
+            f'Entry for checkpointable={checkpointable} already'
+            ' exists in the registry.'
+        )
+    elif handler_type in registered_handler_types:
       raise AlreadyExistsError(
-          f'Entry for checkpointable={checkpointable} already'
-          ' exists in the registry.'
+          f'Handler type {handler_type} already exists in the registry.'
       )
     self._registry.append((handler_type, checkpointable))
     return self
@@ -343,13 +351,13 @@ def _get_possible_handlers(
     name: str,
 ) -> Sequence[CheckpointableHandler]:
   """Raises a NoEntryError if no possible handlers are found."""
-  registry_entries = (
+  registry_entries = [
       (
           _construct_handler_instance(checkpointable_name, handler),
           checkpointable_name,
       )
       for handler, checkpointable_name in registry.get_all_entries()
-  )
+  ]
   if checkpointable is None:
     # All handlers are potentially usable if checkpointable is not provided.
     possible_handlers = [
@@ -365,15 +373,17 @@ def _get_possible_handlers(
         and is_handleable_fn(handler, checkpointable)
     ]
   if not possible_handlers:
-    available_handlers = [type(handler) for handler, _ in registry_entries]
+    available_handlers = [
+        handler_type for handler_type, _ in registry.get_all_entries()
+    ]
     error_msg = (
-        f'Could not identify a valid handler for the checkpointable: {name} and'
-        f' checkpointable type={type(checkpointable)}. Make sure to register a'
-        ' `CheckpointableHandler` for the object using `register_handler`, or'
-        ' by specifying a local registry (`CheckpointableOptions`). If a'
-        ' handler is already registered, ensure that `is_handleable` correctly'
-        ' identifies the object as handleable. The available handlers are:'
-        f' {available_handlers}'
+        f'Could not identify a valid handler for the checkpointable: "{name}"'
+        f' and checkpointable type={type(checkpointable)}. Make sure to'
+        ' register a `CheckpointableHandler` for the object using'
+        ' `register_handler`, or by specifying a local registry'
+        ' (`CheckpointablesOptions`). If a handler is already registered,'
+        ' ensure that `is_handleable` correctly identifies the object as'
+        f' handleable. The available handlers are: {available_handlers}'
     )
     raise NoEntryError(error_msg)
   return possible_handlers

@@ -605,6 +605,23 @@ class SaveLoadTestBase:
       self.assertTrue((directory / 'one' / 'data.txt').exists())
       self.assertFalse((directory / 'two' / 'data.txt').exists())
 
+    def test_save_checkpointables_deleted(self):
+      checkpointables = {
+          'one': {'a': 1, 'b': 2},
+          'two': {'c': 3, 'd': 4},
+      }
+      ocp.save_checkpointables(self.directory, checkpointables)
+      self.assertTrue((self.directory / 'one').exists())
+      self.assertTrue((self.directory / 'two').exists())
+
+      (self.directory / 'one').rmtree(missing_ok=True)
+
+      loaded = ocp.load_checkpointables(self.directory)
+      self.assertSameElements(['two'], loaded.keys())
+
+      with self.assertRaisesRegex(KeyError, 'not found in the checkpoint'):
+        ocp.load_checkpointables(self.directory, {'one': None})
+
 
     def test_abstract_pytree_types(self):
       # TODO(b/408241116): Enable tests on Pathways.

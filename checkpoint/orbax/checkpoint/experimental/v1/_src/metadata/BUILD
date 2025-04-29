@@ -14,7 +14,7 @@ py_library(
     deps = [
         ":types",
         "//orbax/checkpoint/experimental/v1/_src/context",
-        "//orbax/checkpoint/experimental/v1/_src/handlers:pytree_handler",
+        "//orbax/checkpoint/experimental/v1/_src/handlers:global_registration",
         "//orbax/checkpoint/experimental/v1/_src/loading",
         "//orbax/checkpoint/experimental/v1/_src/path:format_utils",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
@@ -31,6 +31,7 @@ py_test(
         "//orbax/checkpoint/experimental/v1",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/context:options",
+        "//orbax/checkpoint/experimental/v1/_src/handlers:global_registration",
         "//orbax/checkpoint/experimental/v1/_src/testing:array_utils",
         "//orbax/checkpoint/experimental/v1/_src/testing:handler_utils",
     ],

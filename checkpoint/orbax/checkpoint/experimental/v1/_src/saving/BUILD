@@ -10,7 +10,6 @@ py_library(
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/handlers:compatibility",
         "//orbax/checkpoint/experimental/v1/_src/handlers:global_registration",
-        "//orbax/checkpoint/experimental/v1/_src/handlers:pytree_handler",
         "//orbax/checkpoint/experimental/v1/_src/handlers:registration",
         "//orbax/checkpoint/experimental/v1/_src/path:format_utils",
         "//orbax/checkpoint/experimental/v1/_src/path:types",

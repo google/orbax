@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import dataclasses
 from typing import Any, Awaitable, Sequence
 
@@ -32,7 +31,6 @@ from orbax.checkpoint._src.metadata import array_metadata_store as array_metadat
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
-from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -274,27 +272,3 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       )
     except Exception:  # pylint: disable=broad-exception-caught
       return False
-
-
-@contextlib.contextmanager
-def pytree_handler_context():
-  """Creates a local context for PyTree handling.
-
-  `PYTREE_CHECKPOINTABLE_KEY` is explicitly registered linking to
-  `PyTreeHandler`. Note that all globally-registered handlers are still included
-  as backup options. Other options from the parent context are carried through.
-
-  Yields:
-    A new context.
-  """
-  # TODO(b/398310070): Verify behavior with nested Contexts.
-  checkpointables_options = options_lib.CheckpointablesOptions(
-      registry=registration.local_registry(include_global_registry=True).add(
-          PyTreeHandler,
-          PYTREE_CHECKPOINTABLE_KEY,
-      )
-  )
-  with context_lib.Context(
-      context_lib.get_context(), checkpointables_options=checkpointables_options
-  ) as new_context:
-    yield new_context

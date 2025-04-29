@@ -23,7 +23,6 @@ from orbax.checkpoint._src.handlers import handler_registration as legacy_handle
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
-from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
@@ -92,15 +91,14 @@ def load_pytree(
     The restored PyTree.
   """
   format_utils.validate_pytree_checkpoint(directory)
-  with pytree_handler.pytree_handler_context():
-    return load_checkpointables(
-        directory,
-        {
-            PYTREE_CHECKPOINTABLE_KEY: _standardize_abstract_checkpointables(
-                abstract_pytree
-            )
-        },
-    )[PYTREE_CHECKPOINTABLE_KEY]
+  return load_checkpointables(
+      directory,
+      {
+          PYTREE_CHECKPOINTABLE_KEY: _standardize_abstract_checkpointables(
+              abstract_pytree
+          )
+      },
+  )[PYTREE_CHECKPOINTABLE_KEY]
 
 
 def load_checkpointables(
@@ -149,6 +147,7 @@ def load_checkpointables(
     checkpointables, while the values are the checkpointable objects themselves.
   """
   directory = epath.Path(directory)
+  format_utils.validate_checkpoint(directory)
 
 
   ckptr, args = get_v0_checkpointer_and_args(
@@ -211,6 +210,7 @@ def get_v0_checkpointer_and_args(
         name: None
         for name in handlers.keys()
         if name not in format_utils.RESERVED_CHECKPOINTABLE_KEYS
+        and (directory / name).exists()
     }
 
   compatibility_handlers = {

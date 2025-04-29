@@ -23,7 +23,6 @@ from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration as legacy_handler_registration
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
-from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration as handler_registration
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.path import format_utils
@@ -180,13 +179,12 @@ def save_pytree_async(
     An `AsyncResponse` that can be used to block until the save is complete.
     Blocking can be done using `response.result()`, which returns `None`.
   """
-  with pytree_handler.pytree_handler_context():
-    return save_checkpointables_async(
-        directory,
-        {PYTREE_CHECKPOINTABLE_KEY: pytree},
-        force=force,
-        custom_metadata=custom_metadata,
-    )
+  return save_checkpointables_async(
+      directory,
+      {PYTREE_CHECKPOINTABLE_KEY: pytree},
+      force=force,
+      custom_metadata=custom_metadata,
+  )
 
 
 def save_checkpointables_async(
