@@ -173,35 +173,20 @@ class CompatibilitySaveLoadTestBase:
               self.directory, abstract_checkpointables
           )
       else:
-        checkpointables_options = (
-            ocp.options.CheckpointablesOptions.create_with_handlers(
-                **{checkpointable_name: ocp.handlers.PyTreeHandler}
+        with self.subTest('with_context'):
+          checkpointables_options = (
+              ocp.options.CheckpointablesOptions.create_with_handlers(
+                  **{checkpointable_name: ocp.handlers.PyTreeHandler}
+              )
+          )
+          with ocp.Context(checkpointables_options=checkpointables_options):
+            loaded = ocp.load_checkpointables(
+                self.directory, abstract_checkpointables
             )
-        )
-        with ocp.Context(checkpointables_options=checkpointables_options):
-          loaded = ocp.load_checkpointables(
-              self.directory, abstract_checkpointables
-          )
-          test_utils.assert_tree_equal(
-              self, self.pytree, loaded[checkpointable_name]
-          )
-        if to_checkpointable_subdir:
-          if abstract_checkpointables:
-            with self.assertRaisesRegex(
-                KeyError,
-                f'Checkpointable "{checkpointable_name}" was not found in the'
-                ' checkpoint',
-            ):
-              ocp.load_checkpointables(self.directory, abstract_checkpointables)
-          else:
-            with self.assertRaisesRegex(
-                ValueError,
-                f'Item "{checkpointable_name}" was found in the checkpoint, but'
-                ' could not be restored',
-            ):
-              # TODO(b/401585537): Support in v1 and decouple from v0.
-              ocp.load_checkpointables(self.directory)
-        else:
+            test_utils.assert_tree_equal(
+                self, self.pytree, loaded[checkpointable_name]
+            )
+        with self.subTest('without_context'):
           loaded = ocp.load_checkpointables(
               self.directory, abstract_checkpointables
           )

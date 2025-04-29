@@ -217,21 +217,20 @@ class CompositeHandler:
         ' the checkpointable subdirectories.',
         directory,
     )
+
     saved_handler_typestrs = {}
-    for _, checkpointable_name in self._handler_registry.get_all_entries():
-      if not checkpointable_name:
-        continue
-      checkpointable_path = directory / checkpointable_name
-      if not checkpointable_path.exists() or not checkpointable_path.is_dir():
-        continue
+    for checkpointable_path in directory.iterdir():
       serialized_metadata = self._metadata_store.read(
           checkpoint_metadata.step_metadata_file_path(checkpointable_path)
       )
+      if serialized_metadata is None:
+        continue
       saved_metadata = step_metadata_serialization.deserialize(
-          serialized_metadata or {}
+          serialized_metadata
       )
       assert not isinstance(saved_metadata.item_handlers, dict)
       item_handlers = saved_metadata.item_handlers
       if item_handlers is not None:
+        checkpointable_name = checkpointable_path.name
         saved_handler_typestrs[checkpointable_name] = item_handlers
     return saved_handler_typestrs

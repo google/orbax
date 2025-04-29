@@ -217,11 +217,11 @@ def get_v0_checkpointer_and_args(
       name: handler_compatibility.get_compatibility_handler(handler)
       for name, handler in handlers.items()
   }
-  handler_registry = (
+  legacy_handler_registry = (
       legacy_handler_registration.DefaultCheckpointHandlerRegistry()
   )
   for name, handler in compatibility_handlers.items():
-    handler_registry.add(name, handler_compatibility.Args, handler)
+    legacy_handler_registry.add(name, handler_compatibility.Args, handler)
   composite_options = composite_checkpoint_handler.CompositeOptions(
       async_options=context.async_options.v0(),
       file_options=context.file_options.v0(),
@@ -230,7 +230,7 @@ def get_v0_checkpointer_and_args(
   )
   ckptr = async_checkpointer.AsyncCheckpointer(
       composite_checkpoint_handler.CompositeCheckpointHandler(
-          handler_registry=handler_registry,
+          handler_registry=legacy_handler_registry,
           composite_options=composite_options,
       ),
       async_options=context.async_options.v0(),

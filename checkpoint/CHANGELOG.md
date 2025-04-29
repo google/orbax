@@ -24,6 +24,7 @@ would want them to be preferred.
 - #v1 Add checkpointables support for `training.Checkpointer`.
 - `PartsOf` structure which holds a PyTree whose leaf nodes may be missing.
 - #v1 Add compatibility tests for save-by-v0-load-by-v1 and also fix code.
+- #v1 Enable v1 users to load v0 checkpoints without using contexts.
 
 ## [0.11.12] - 2025-04-09
 
