@@ -101,6 +101,7 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
   """Default implementation of :py:class:`CheckpointHandlerRegistry`.
 
   Usage::
+
     from orbax.checkpoint import handlers
 
     # Create a handler registry.

@@ -1375,23 +1375,23 @@ class SingleReplicaArrayHandler(ArrayHandler):
   Consider, for example, the following sharding on v4-128 which has 16 hosts and
   64 devices::
 
-      shape = (32, 2)
-      mesh = jax.sharding.Mesh(jax.devices().reshape(shape), ('x', 'y'))
-      pspec = jax.sharding.PartitionSpec(None, 'y')
-      sharding=jax.sharding.NamedSharding(mesh, pspec)
+    shape = (32, 2)
+    mesh = jax.sharding.Mesh(jax.devices().reshape(shape), ('x', 'y'))
+    pspec = jax.sharding.PartitionSpec(None, 'y')
+    sharding=jax.sharding.NamedSharding(mesh, pspec)
 
   This sharding will not work since the primary replica has only two devices,
   and hence there is a host which has 2 devices in the primary replica, and 2
   devices outside of primary replica. However, changing shape, for example, to
   (4, 16) will result in a valid sharding.
 
-  This TypeHandler can be registered by running
-  ```
-  ocp.type_handlers.register_type_handler(
-      jax.Array,
-      type_handlers.SingleReplicaArrayHandler(),
-      override=True)
-  ```
+  This TypeHandler can be registered by running::
+
+    ocp.type_handlers.register_type_handler(
+        jax.Array,
+        type_handlers.SingleReplicaArrayHandler(),
+        override=True)
+
   Example usage can be found in MaxText (TO BE MERGED).
   https://github.com/google/maxtext/blob/main/MaxText/checkpointing.py
   """
