@@ -22,6 +22,7 @@ given checkpointable will be used.
 
 from typing import Type
 
+from orbax.checkpoint.experimental.v1._src.handlers import generic_handler
 from orbax.checkpoint.experimental.v1._src.handlers import json_handler
 from orbax.checkpoint.experimental.v1._src.handlers import proto_handler
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
@@ -42,6 +43,7 @@ def _try_register_handler(
 
 _try_register_handler(proto_handler.ProtoHandler)
 _try_register_handler(json_handler.JsonHandler)
+_try_register_handler(generic_handler.GenericHandler)
 _try_register_handler(
     json_handler.MetricsHandler,
     format_utils.METRICS_CHECKPOINTABLE_KEY,

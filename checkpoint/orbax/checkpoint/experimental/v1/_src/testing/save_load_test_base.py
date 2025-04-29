@@ -599,9 +599,7 @@ class SaveLoadTestBase:
       self.enter_context(
           ocp.Context(checkpointables_options=checkpointables_options)
       )
-      ocp.save_checkpointables(
-          directory, checkpointables
-      )
+      ocp.save_checkpointables(directory, checkpointables)
       self.assertTrue((directory / 'one' / 'data.txt').exists())
       self.assertFalse((directory / 'two' / 'data.txt').exists())
 
@@ -798,3 +796,16 @@ class SaveLoadTestBase:
             ValueError, 'User-provided restore item and on-disk value'
         ):
           self.load_and_wait(directory, reference_item, use_async=use_async)
+
+    def test_checkpointable_with_generic_handler(self):
+      point = handler_utils.Point(1, 2)
+      checkpointables = {'point': point}
+      ocp.save_checkpointables(self.directory, checkpointables)
+      self.assertTrue((self.directory / 'point' / 'foo.txt').exists())
+      loaded = ocp.load_checkpointables(
+          self.directory, {'point': handler_utils.Point(0, 0)}
+      )
+      self.assertEqual(1, loaded['point'].x)
+      self.assertEqual(2, loaded['point'].y)
+      # TODO(yaning) Add failure case where abstract_checkpointable is not
+      # provided.

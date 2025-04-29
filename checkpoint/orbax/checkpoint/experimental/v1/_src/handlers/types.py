@@ -14,12 +14,35 @@
 
 """Defines types for `CheckpointableHandler`."""
 
-from typing import Any, Awaitable, Protocol, Type, TypeVar
+from typing import Any, Awaitable, Protocol, Type, TypeVar, runtime_checkable
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 
 T = TypeVar('T')
 AbstractT = TypeVar('AbstractT')
+
+
+@runtime_checkable
+class StatefulCheckpointable(Protocol[T]):
+  """An interface that defines save/load logic for a `checkpointable` object."""
+
+  async def save(
+      self, directory: path_types.PathAwaitingCreation
+  ) -> Awaitable[None]:
+    """Saves the given `checkpointable` to the given `directory`."""
+    ...
+
+  async def load(
+      self,
+      directory: path_types.Path,
+      abstract_checkpointable: T | None = None,
+  ) -> Awaitable[None]:
+    """Loads the checkpointable from the given `directory`."""
+    ...
+
+  async def metadata(self, directory: path_types.Path) -> T:
+    """Returns the metadata for the given `directory`."""
+    ...
 
 
 class CheckpointableHandler(Protocol[T, AbstractT]):

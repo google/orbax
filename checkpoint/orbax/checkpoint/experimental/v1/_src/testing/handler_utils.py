@@ -51,6 +51,30 @@ class DataclassHandler:
 
 
 @dataclasses.dataclass
+class Point:
+  x: int
+  y: int
+
+  def __eq__(self, other: Point) -> bool:
+    return isinstance(other, Point) and self.x == other.x and self.y == other.y
+
+  async def save(self, directory: path_types.PathAwaitingCreation):
+    return DataclassHandler().background_save(directory, self)
+
+  async def load(
+      self,
+      directory: path_types.Path,
+  ) -> None:
+    async with aiofiles.open(directory / 'foo.txt', 'r') as f:
+      contents = json.loads(await f.read())
+      self.x = contents['x']
+      self.y = contents['y']
+
+  async def metadata(self, directory: path_types.Path) -> Point:
+    raise NotImplementedError()
+
+
+@dataclasses.dataclass
 class Foo:
   x: int
   y: str
