@@ -40,10 +40,6 @@ class StatefulCheckpointable(Protocol[T]):
     """Loads the checkpointable from the given `directory`."""
     ...
 
-  async def metadata(self, directory: path_types.Path) -> T:
-    """Returns the metadata for the given `directory`."""
-    ...
-
 
 class CheckpointableHandler(Protocol[T, AbstractT]):
   """An interface that defines save/load logic for a `checkpointable` object.

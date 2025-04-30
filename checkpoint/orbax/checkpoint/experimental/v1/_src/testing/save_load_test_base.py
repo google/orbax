@@ -797,7 +797,7 @@ class SaveLoadTestBase:
         ):
           self.load_and_wait(directory, reference_item, use_async=use_async)
 
-    def test_checkpointable_with_generic_handler(self):
+    def test_checkpointable_with_stateful_checkpointable(self):
       point = handler_utils.Point(1, 2)
       checkpointables = {'point': point}
       ocp.save_checkpointables(self.directory, checkpointables)

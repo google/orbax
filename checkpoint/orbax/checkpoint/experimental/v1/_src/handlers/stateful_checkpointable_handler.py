@@ -12,52 +12,57 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""GenericHandler class."""
+"""StatefulCheckpointableHandler class."""
 
 from typing import Any, Awaitable, Generic
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
+T = handler_types.T
 
-class GenericHandler(
-    handler_types.CheckpointableHandler[handler_types.T, handler_types.T],
-    Generic[handler_types.T],
+
+class StatefulCheckpointableHandler(
+    handler_types.CheckpointableHandler[T, T],
+    Generic[T],
 ):
   """Serializes/deserializes a Checkpointable."""
 
   async def save(
       self,
       directory: path_types.PathAwaitingCreation,
-      checkpointable: handler_types.StatefulCheckpointable[handler_types.T],
+      checkpointable: handler_types.StatefulCheckpointable[T],
   ) -> Awaitable[None]:
     return await checkpointable.save(directory)
-
-  async def _background_load(
-      self,
-      directory: path_types.Path,
-      abstract_checkpointable: handler_types.StatefulCheckpointable[
-          handler_types.T
-      ],
-  ) -> handler_types.T:
-    await abstract_checkpointable.load(directory)
-    return abstract_checkpointable
 
   async def load(
       self,
       directory: path_types.Path,
       abstract_checkpointable: (
-          handler_types.StatefulCheckpointable[handler_types.T] | None
+          handler_types.StatefulCheckpointable[T] | None
       ) = None,
-  ) -> Awaitable[handler_types.T]:
+  ) -> Awaitable[T]:
     if abstract_checkpointable is None:
       raise ValueError(
-          'Abstract checkpointable is required for GenericHandler.load.'
+          'To restore a `StatefulCheckpointable`, you must pass an instance of'
+          ' the object.'
       )
-    return self._background_load(directory, abstract_checkpointable)
 
-  async def metadata(self, directory: path_types.Path) -> handler_types.T:
-    # TODO(yaning): Implement Metadata.
-    raise NotImplementedError()
+    # Returns Awaitable[None]
+    background_load = await abstract_checkpointable.load(directory)
+
+    async def _background_load() -> T:
+      await background_load
+      # After loading, `abstract_checkpointable` (actually just a concrete
+      # checkpointable) should be populated with the loaded data.
+      return abstract_checkpointable
+
+    return _background_load()
+
+  async def metadata(self, directory: path_types.Path) -> T:
+    raise NotImplementedError(
+        'Metadata retrieval is not supported for objects implementing'
+        ' `StatefulCheckpointable`.'
+    )
 
   def is_handleable(self, checkpointable: Any) -> bool:
     # TODO(yaning): Add test for a class that partially implements

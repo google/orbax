@@ -117,11 +117,11 @@ py_library(
     name = "global_registration",
     srcs = ["global_registration.py"],
     deps = [
-        ":generic_handler",
         ":json_handler",
         ":proto_handler",
         ":pytree_handler",
         ":registration",
+        ":stateful_checkpointable_handler",
         ":types",
         "//orbax/checkpoint/experimental/v1/_src/path:format_utils",
     ],
@@ -179,13 +179,10 @@ py_test(
 )
 
 py_library(
-    name = "generic_handler",
-    srcs = ["generic_handler.py"],
+    name = "stateful_checkpointable_handler",
+    srcs = ["stateful_checkpointable_handler.py"],
     deps = [
-        ":proto_handler",
         ":types",
-        "//checkpoint/orbax/checkpoint/_src/multihost",
-        "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
     ],
 )
