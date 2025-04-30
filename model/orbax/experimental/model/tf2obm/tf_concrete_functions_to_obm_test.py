@@ -470,8 +470,6 @@ class TfConcreteFunctionsToObmTest(
         }
       }
       supplemental_info {
-        multiple {
-          map {
             key: \""""
         + TF_SAVED_MODEL_SUPPLEMENTAL_NAME
         + """\"
@@ -488,8 +486,6 @@ class TfConcreteFunctionsToObmTest(
         + SAVED_MODEL_VERSION
         + """\"
             }
-          }
-        }
       }
     """
     )

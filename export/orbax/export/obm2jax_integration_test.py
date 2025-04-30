@@ -30,6 +30,8 @@ from orbax.export import oex_orchestration
 from orbax.export import oex_orchestration_pb2
 
 
+MY_ORCHESTRATION = 'my_orchestration'
+
 class ObmToJaxTest(parameterized.TestCase):
   # Dummy test to make copybara happy, will be removed once all the obm
   # dependencies are OSSed.

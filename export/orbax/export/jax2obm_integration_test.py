@@ -32,6 +32,7 @@ from google.protobuf import text_format
 
 os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
 
+MY_ORCHESTRATION = 'my_orchestration'
 
 class MainLibTest(parameterized.TestCase):
   # Dummy test to make copybara happy, will be removed once all the obm

@@ -82,9 +82,7 @@ def build_function(fn: Function, path: str, name: str) -> manifest_pb2.Function:
 def build_manifest_proto(
     em_module: dict[str, Saveable],
     path: str,
-    supplemental_info: (
-        UnstructuredData | Mapping[str, UnstructuredData] | None
-    ) = None,
+    supplemental_info: Mapping[str, UnstructuredData] | None = None,
 ) -> manifest_pb2.Manifest:
   """Builds a Manifest proto from EM functions."""
   manifest_proto = manifest_pb2.Manifest()
@@ -106,12 +104,8 @@ def build_manifest_proto(
       )
 
   if supplemental_info is not None:
-    if isinstance(supplemental_info, UnstructuredData):
-      manifest_proto.supplemental_info.single.CopyFrom(supplemental_info)
-    else:
-      manifest_proto.supplemental_info.multiple.SetInParent()
-      for name, supp in supplemental_info.items():
-        manifest_proto.supplemental_info.multiple.map[name].CopyFrom(supp)
+    for name, supp in supplemental_info.items():
+      manifest_proto.supplemental_info[name].CopyFrom(supp)
 
   if logging.vlog_is_on(3):
     logging.vlog(3, f"Final manifest proto: {manifest_proto}")

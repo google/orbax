@@ -6,7 +6,7 @@ import "orbax/experimental/model/core/protos/type.proto";
 
 message Manifest {
   map<string, TopLevelObject> objects = 1;
-  optional GlobalSupplemental supplemental_info = 2;
+  map<string, UnstructuredData> supplemental_info = 2;
   optional DeviceMesh device_mesh = 3;
   optional DeviceAssignmentByCoords device_assignment_by_coords = 4;
 
@@ -14,18 +14,6 @@ message Manifest {
   // this list, use sites can refer to it by its index here instead of spelling
   // out the full string.
   repeated string frequent_paths = 5;
-}
-
-message GlobalSupplemental {
-  oneof case {
-    // TODO(wangpeng): Consider removing the `single` case.
-    UnstructuredData single = 1;
-    GlobalSupplementalMap multiple = 2;
-  }
-}
-
-message GlobalSupplementalMap {
-  map<string, UnstructuredData> map = 1;
 }
 
 message DeviceMesh {

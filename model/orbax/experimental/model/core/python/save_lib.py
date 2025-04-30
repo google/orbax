@@ -110,9 +110,7 @@ class SaveOptions:
 
   function_aliases: Mapping[str, ConcreteFunction] | None = None
   version: int | None = None
-  supplemental_info: (
-      GlobalSupplemental | Mapping[str, GlobalSupplemental] | None
-  ) = None
+  supplemental_info: Mapping[str, GlobalSupplemental] | None = None
 
 
 def _save_single_supplemental(
