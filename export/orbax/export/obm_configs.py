@@ -26,6 +26,9 @@ class BatchComponent(enum.Enum):
 
   NO_BATCHING = "no_batching"
   MODEL_FUNCTION = "model_function"
+  WHOLE_PIPELINE = "whole_pipeline"
+  PRE_PROCESSOR_AND_MODEL_FUNCTION = "pre_processor_and_model_function"
+  MODEL_FUNCTION_AND_POST_PROCESSOR = "model_function_and_post_processor"
 # LINT.ThenChange(//depot//orbax/export/obm_export.py)
 
 
