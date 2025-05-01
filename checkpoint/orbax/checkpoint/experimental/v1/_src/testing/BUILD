@@ -36,8 +36,10 @@ py_library(
     srcs = ["handler_utils.py"],
     deps = [
         "//third_party/py/aiofiles",
+        "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/handlers:types",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
     ],
 )
 
