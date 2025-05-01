@@ -26,3 +26,8 @@ py_library(
     srcs = ["multihost.py"],
     deps = [":signaling_client"],
 )
+
+py_library(
+    name = "thread_utils",
+    srcs = ["thread_utils.py"],
+)

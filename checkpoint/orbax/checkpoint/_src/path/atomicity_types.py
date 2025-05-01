@@ -20,6 +20,7 @@ paths, which allow other implementations.
 
 from __future__ import annotations
 
+import typing
 from typing import Optional, Protocol
 
 from etils import epath
@@ -30,6 +31,7 @@ from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 
 # TODO(b/326119183) Support configuration of temporary path detection
 # (currently handled by `tmp_checkpoints` util methods).
+@typing.runtime_checkable
 class TemporaryPath(Protocol):
   """Class that represents a temporary path.
 

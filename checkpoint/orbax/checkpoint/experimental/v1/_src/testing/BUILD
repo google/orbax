@@ -6,7 +6,6 @@ py_library(
     deps = [
         ":array_utils",
         ":handler_utils",
-        ":path_utils",
         ":tree_utils",
         "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity",
