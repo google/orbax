@@ -18,6 +18,7 @@ py_library(
         ":types",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/path:format_utils",
+        "//checkpoint/orbax/checkpoint/_src/path:step",
     ],
 )
 
