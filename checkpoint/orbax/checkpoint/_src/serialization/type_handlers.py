@@ -289,7 +289,7 @@ async def _validate_params(
 
   # TODO: b/362328389 - Add support for zarr3.
   if use_zarr3:
-    logging.warning(
+    logging.info(
         'Param validation support for Zarr3 will be added later (b/362328389).'
     )
     return
@@ -299,7 +299,7 @@ async def _validate_params(
     # TODO: b/361090820 - Raise error once we confirm that Bennu writing empty
     # states is a bug.
     # e.g. //learning/deepmind/jax/roc/formats/roc_orbax:roc_orbax_test
-    logging.warning(
+    logging.info(
         'Skipping param validation: No params found in TensorStore'
         ' KvStore: %s.',
         ts_kv_store,
@@ -1249,12 +1249,11 @@ class ArrayHandler(types.TypeHandler):
           sharding = arg.sharding
       elif sharding_file_exists:
         warnings.warn(
-            "Couldn't find sharding info under RestoreArgs. Populating sharding"
+            'Sharding info not provided when restoring. Populating sharding'
             ' info from sharding file. Please note restoration time will be'
-            ' slightly increased due to reading from file instead of directly'
-            ' from RestoreArgs. Note also that this option is unsafe when'
-            ' restoring on a different topology than the checkpoint was saved'
-            ' with.'
+            ' slightly increased due to reading from file. Note also that this'
+            ' option is unsafe when restoring on a different topology than the'
+            ' checkpoint was saved with.'
         )
         assert info.parent_dir is not None
         if info.name:

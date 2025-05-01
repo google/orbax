@@ -981,7 +981,7 @@ class BasePyTreeCheckpointHandler(
     if self._array_metadata_store is not None:
       if self._primary_host is None:
         logging.log_first_n(
-            logging.WARNING,
+            logging.INFO,
             '[process=%s] Skipped cross-host ArrayMetadata validation'
             ' because all hosts are primary (e.g. local storage).',
             1,  # log only once

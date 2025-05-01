@@ -240,7 +240,7 @@ class Store:
         checkpoint_dir, process_index
     )
     if file_paths is None:
-      logging.warning(
+      logging.info(
           '[process=%s][thread=%s] No metadata found for process_index=%s,'
           ' checkpoint_dir=%s. If the checkpoint does not contain jax.Array'
           ' then it is expected. If checkpoint contains jax.Array then it'
@@ -276,7 +276,7 @@ class Store:
         for file_path, metadatas in path_metadatas_pairs
     }
     if not result:
-      logging.warning(
+      logging.info(
           '[process=%s][thread=%s] No metadata found for any process_index,'
           ' checkpoint_dir=%s. time elapsed=%s seconds. If the checkpoint does'
           ' not contain jax.Array then it is expected. If checkpoint contains'
@@ -359,7 +359,7 @@ class Validator:
     if len(array_metadatas) == 1:
       # check if the number of processes are indeed just one.
       self._validate_process_count(ref_process_index=ref_process_index)
-      logging.warning(
+      logging.info(
           '[process=%s][thread=%s] Skipped cross-host ArrayMetadata validation'
           ' because only one process is found: process_index=%s.',
           multihost.process_index(),
