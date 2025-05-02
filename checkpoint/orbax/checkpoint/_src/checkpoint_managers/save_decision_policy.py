@@ -37,11 +37,7 @@ class DecisionContext:
 
 @typing.runtime_checkable
 class SaveDecisionPolicy(Protocol):
-  """A policy that defines when to save a checkpoint.
-
-  Implementations should return True from `should_save` when saving a checkpoint
-  is desired at the given step.
-  """
+  """A policy that defines when to save a checkpoint."""
 
   def should_save(
       self,
@@ -50,6 +46,7 @@ class SaveDecisionPolicy(Protocol):
       *,
       context: DecisionContext
   ) -> bool:
+    """Returns True if a checkpoint should be saved at the given step."""
     ...
 
 
