@@ -15,8 +15,6 @@ message Type {
     Tuple tuple = 2;
     List list = 3;
     NoneType none = 4;  // distinguished from empty tuple and empty list
-    // TODO: b/383554553 - Remove this field after all users are migrated.
-    OrderedDict ordered_dict = 5 [deprecated = true];
     Dict dict = 6;
     StringTypePairs string_type_pairs = 7;
   }
@@ -34,13 +32,6 @@ message List {
 }
 
 message NoneType {}
-
-message OrderedDict {
-  // TODO: b/383554553 - Remove this message after all users are migrated.
-  option deprecated = true;
-
-  repeated StringTypePair elements = 1;
-}
 
 message Dict {
   map<string, Type> string_to_type = 1;
