@@ -76,6 +76,32 @@ class JsonHandlerTest(parameterized.TestCase):
     self.assertEqual(item, restored)
 
   @parameterized.parameters(
+      ('data.json',),
+      ('metadata',),
+      ('unrecognized.json',),
+  )
+  def test_supported_filenames(self, filename):
+    item = {'a': 1, 'b': 'test'}
+    handler = JsonHandler()
+    handler.save(
+        directory=self.directory,
+        checkpointable=item,
+    )
+    self.assertTrue((self.directory / 'data.json').exists())
+    src = self.directory / 'data.json'
+    dst = self.directory / filename
+    if src != dst:
+      (self.directory / 'data.json').rename(self.directory / filename)
+    self.assertTrue((self.directory / filename).exists())
+
+    if filename not in handler._handler._supported_filenames:
+      with self.assertRaises(FileNotFoundError):
+        handler.load(self.directory)
+    else:
+      restored = handler.load(self.directory)
+      self.assertEqual(item, restored)
+
+  @parameterized.parameters(
       ('{"one": 1, "two": {"three": "3"}, "four": [4]}', True),
       ({'one': 1, 'two': {'three': '3'}, 'four': [4]}, True),
       ({'a': 1, 'b': 'c'}, True),

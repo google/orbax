@@ -27,6 +27,10 @@ from orbax.checkpoint.experimental.v1._src.handlers.pytree_handler import (
 from orbax.checkpoint.experimental.v1._src.handlers.proto_handler import (
     ProtoHandler,
 )
+from orbax.checkpoint.experimental.v1._src.handlers.json_handler import (
+    JsonHandler,
+)
+
 
 from orbax.checkpoint.experimental.v1._src.handlers.registration import (
     CheckpointableHandlerRegistry,

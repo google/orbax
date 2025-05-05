@@ -30,11 +30,15 @@ CheckpointableHandler = handler_types.CheckpointableHandler
 JsonType = tree_types.JsonType
 
 
+_DATA_FILENAME = 'data.json'
+
+
 class JsonHandler(CheckpointableHandler[JsonType, None]):
   """An implementation of `CheckpointableHandler` for Json."""
 
-  def __init__(self, filename: str = 'metadata'):
-    self._filename = filename
+  def __init__(self, filename: str | None = None):
+    self._filename = filename or _DATA_FILENAME
+    self._supported_filenames = [self._filename, _DATA_FILENAME, 'metadata']
 
   async def _background_save(
       self,
@@ -62,9 +66,14 @@ class JsonHandler(CheckpointableHandler[JsonType, None]):
       self,
       directory: path_types.Path,
   ):
-    path = directory / self._filename
-    json_str = await asyncio.to_thread(path.read_text)
-    return json.loads(json_str)
+    for filename in self._supported_filenames:
+      path = directory / filename
+      if await asyncio.to_thread(path.exists):
+        return json.loads(await asyncio.to_thread(path.read_text))
+    raise FileNotFoundError(
+        f'Unable to parse JSON file in {directory}. Recognized filenames are:'
+        f' {self._supported_filenames}'
+    )
 
   async def load(
       self,
