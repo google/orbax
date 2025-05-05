@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- #v1 Add metadata async write / read methods.
+
 ## [0.11.13] - 2025-04-30
 
 ### Changed

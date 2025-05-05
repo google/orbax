@@ -21,6 +21,15 @@ py_library(
     ],
 )
 
+py_library(
+    name = "serialization",
+    srcs = ["serialization.py"],
+    deps = [
+        ":types",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+    ],
+)
+
 py_test(
     name = "loading_test",
     srcs = ["loading_test.py"],
@@ -35,4 +44,10 @@ py_test(
         "//orbax/checkpoint/experimental/v1/_src/testing:array_utils",
         "//orbax/checkpoint/experimental/v1/_src/testing:handler_utils",
     ],
+)
+
+py_test(
+    name = "serialization_test",
+    srcs = ["serialization_test.py"],
+    deps = [":serialization"],
 )

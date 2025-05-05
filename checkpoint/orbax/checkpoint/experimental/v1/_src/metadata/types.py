@@ -16,12 +16,13 @@
 
 from __future__ import annotations
 
-from typing import Generic, TypeAlias, TypeVar
+from typing import Any, Generic, TypeAlias, TypeVar
 
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
 CheckpointableMetadataT = TypeVar('CheckpointableMetadataT')
+SerializedMetadata = TypeVar('SerializedMetadata', bound=dict[str, Any])
 
 # Metadata describing a PyTree checkpoint.
 # A serialized PyTree structure with the same structure as the

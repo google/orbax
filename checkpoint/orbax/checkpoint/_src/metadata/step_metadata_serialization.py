@@ -156,6 +156,26 @@ class InternalCheckpointMetadata:
         custom_metadata=step_metadata.custom_metadata,
     )
 
+  # TODO(b/407609701): Add `to_checkpoint_metadata` (like `to_step_metadata`)
+  # for conversion to V1 metadata after dependencies are separated.
+
+  @classmethod
+  def create(
+      cls,
+      *,
+      handler_typestrs: dict[str, str],
+      init_timestamp_nsecs: int,
+      commit_timestamp_nsecs: int,
+      custom_metadata: dict[str, Any] | None = None,
+  ) -> InternalCheckpointMetadata:
+    """Return internal representation, dropping fields handled separately."""
+    return cls(
+        item_handlers=handler_typestrs,
+        init_timestamp_nsecs=init_timestamp_nsecs,
+        commit_timestamp_nsecs=commit_timestamp_nsecs,
+        custom_metadata=custom_metadata,
+    )
+
 
 def get_step_metadata(path: epath.PathLike) -> StepMetadata:
   """Returns StepMetadata for a given checkpoint directory."""
