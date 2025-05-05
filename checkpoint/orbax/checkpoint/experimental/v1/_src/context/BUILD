@@ -6,6 +6,7 @@ py_library(
     deps = [
         ":options",
         "//orbax/checkpoint/experimental/v1/_src/synchronization",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
     ],
 )
 

@@ -19,8 +19,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 import contextvars
 
+from absl import logging
 from etils import epy
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 
 
@@ -142,3 +144,22 @@ class Context(epy.ContextManager):
       yield self
     finally:
       _CONTEXT.reset(token)
+
+
+async def synchronize_next_operation_id():
+  """Obtains the next operation id and synchronizes processes."""
+  context = get_context()
+  operation_id = synchronization.OperationIdGenerator.next_operation_id()
+  await multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'next_awaitable_signal_operation_id:sync',
+          prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+      ),
+      processes=context.multiprocessing_options.active_processes,
+  )
+  logging.vlog(
+      1,
+      '[process=%s] Synchronized next awaitable signal operation id to %s',
+      multihost.process_index(),
+      operation_id,
+  )
