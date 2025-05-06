@@ -76,7 +76,6 @@ from orbax.checkpoint._src.path import utils
 TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
 COMMIT_SUCCESS_FILE = step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
 
-
 _module_unique_count = itertools.count()
 
 
