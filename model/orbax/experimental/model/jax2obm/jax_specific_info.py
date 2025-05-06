@@ -16,7 +16,7 @@
 
 # pylint: disable=g-importing-member
 import dataclasses
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, TypeVar
 
 import jax
 # Somehow JAX requires this import to make `jax.export` available.
@@ -29,6 +29,22 @@ from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import DTypeRefinemen
 from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import ShapeDTypeRefinement
 from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import ShapeDTypeRefinements
 from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import ShapeRefinement
+
+
+T1 = TypeVar("T1")
+T2 = TypeVar("T2")
+
+
+def unzip2(
+    xys: Iterable[tuple[T1, T2]],
+) -> tuple[tuple[T1, ...], tuple[T2, ...]]:
+  """Unzip a sequence of tuples into two separate tuples."""
+  xs: list[T1] = []
+  ys: list[T2] = []
+  for x, y in xys:
+    xs.append(x)
+    ys.append(y)
+  return tuple(xs), tuple(ys)
 
 
 def _serialize_effect(eff: jax.core.Effect) -> str:
@@ -297,7 +313,7 @@ def _to_flat_shlo_specs_and_refinements(
           shardings,
       )
   )
-  specs, refinements = jax.util.unzip2(specs_and_refinements)
+  specs, refinements = unzip2(specs_and_refinements)
   if all(shape is None and dtype is None for shape, dtype in refinements):
     refinements = None
   return specs, refinements

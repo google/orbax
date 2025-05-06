@@ -19,8 +19,7 @@ import itertools
 import math
 
 from absl import logging
-import jax
-from jax import numpy as jnp
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.arrays import fragments as fragments_lib
 from orbax.checkpoint._src.arrays import types
@@ -260,8 +259,8 @@ def chunk_fragment(fragment: Fragment, target_shape: Shape) -> list[Fragment]:
 
   start_indices_per_dim = (
       range(start, stop, new_dim)
-      for start, stop, new_dim in jax.util.safe_zip(
-          fragment.start, fragment.stop, target_shape
+      for start, stop, new_dim in zip(
+          fragment.start, fragment.stop, target_shape, strict=True
       )
   )
   start_indices = itertools.product(*start_indices_per_dim)
