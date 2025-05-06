@@ -431,6 +431,12 @@ def construct_restore_args(
       sharding: Optional[jax.sharding.Sharding | Layout],
       dtype: Optional[np.dtype] = None,
   ) -> type_handlers.ArrayRestoreArgs:
+    # Do not set global_shape and dtype for JAX Random keys.
+    if jax.dtypes.issubdtype(dtype, jax.dtypes.prng_key):
+      return type_handlers.ArrayRestoreArgs(
+          restore_type=jax.Array,
+          sharding=sharding,
+      )
     return type_handlers.ArrayRestoreArgs(
         restore_type=jax.Array,
         sharding=sharding,

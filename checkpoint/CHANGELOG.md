@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - #v1 Add metadata async write / read methods.
+- Support for restoring jax random keys in Standard Checkpoint Handler.
 
 ### Changed
 
