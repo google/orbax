@@ -26,7 +26,7 @@ py_test(
     srcs = ["format_utils_test.py"],
     deps = [
         ":format_utils",
-        "//orbax/checkpoint/experimental/v1/_src/handlers:global_registration",
+        "//checkpoint/orbax/checkpoint/_src/checkpointers:standard_checkpointer",
         "//orbax/checkpoint/experimental/v1/_src/saving",
         "//orbax/checkpoint/experimental/v1/_src/testing:array_utils",
     ],

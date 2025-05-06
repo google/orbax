@@ -20,6 +20,7 @@ implementation. At the moment they are tailored specifically to `save_pytree` /
 `save_checkpointables`.
 """
 
+import itertools
 from absl import logging
 from etils import epath
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
@@ -33,6 +34,15 @@ METRICS_CHECKPOINTABLE_KEY = 'metrics'
 RESERVED_CHECKPOINTABLE_KEYS = frozenset({
     METRICS_CHECKPOINTABLE_KEY,
 })
+
+
+def subdirs(directory: path_types.Path, *, limit: int = 3) -> list[str]:
+  return list(
+      itertools.islice(
+          (subdir.name for subdir in directory.iterdir() if subdir.is_dir()),
+          limit,
+      )
+  )
 
 
 def validate_checkpoint(path: path_types.PathLike):
@@ -54,11 +64,18 @@ def validate_checkpoint(path: path_types.PathLike):
     raise NotADirectoryError(f'Checkpoint path {path} is not a directory.')
 
 
-def validate_pytree_checkpoint(path: path_types.PathLike):
+def validate_pytree_checkpoint(
+    path: path_types.PathLike,
+    *,
+    checkpointable_name: str | None = PYTREE_CHECKPOINTABLE_KEY,
+):
   """Validates a checkpoint path written by `ocp.save_pytree`.
 
   Args:
     path: The path to the checkpoint directory.
+    checkpointable_name: The name of the checkpointable to load. A subdirectory
+      with this name must exist in `directory`. If None then `directory` is
+      expected to contain the checkpoint directly. Defaults to `pytree`.
 
   Raises:
     FileNotFoundError: If the path does not exist, or if `pytree` is not found
@@ -69,21 +86,31 @@ def validate_pytree_checkpoint(path: path_types.PathLike):
   """
   path = epath.Path(path)
   validate_checkpoint(path)
-  if not (path / PYTREE_CHECKPOINTABLE_KEY).exists():
+  pytree_dir = (
+      path if checkpointable_name is None else path / checkpointable_name
+  )
+  if checkpointable_name is not None and not pytree_dir.exists():
     raise FileNotFoundError(
         f'Checkpoint path {path} must contain a subdirectory named'
-        f' "{PYTREE_CHECKPOINTABLE_KEY}". Please try inspecting the'
-        ' checkpointable metadata using `ocp.checkpointables_metadata()` or'
-        ' try loading the checkpoint using `ocp.load_checkpointables()`.'
+        f' "{checkpointable_name}". Found subdirectories: {subdirs(path)}.'
+        ' Please try inspecting the checkpointable metadata using'
+        ' `ocp.checkpointables_metadata()` or try loading the checkpoint using'
+        ' `ocp.load_checkpointables()`.'
     )
   if not format_utils._has_pytree_metadata_file(  # pylint: disable=protected-access
-      path / PYTREE_CHECKPOINTABLE_KEY
+      pytree_dir
   ):
+    # TODO(niketkb): Add following details to the error message:
+    # 1. we should check other available subdirectories and see if any of them
+    #   look like PyTree checkpoints, and instruct the user to consider
+    #   whether they meant to specify any of those.
+    # 2. we need to check the directory - if it contains PyTree files, suggest
+    #   loading with checkpointable_name=None
     raise FileNotFoundError(
         f'Checkpoint path {path} does not contain a PyTree metadata file.'
     )
   if not format_utils._has_tensorstore_data_files(  # pylint: disable=protected-access
-      path / PYTREE_CHECKPOINTABLE_KEY
+      pytree_dir
   ):
     logging.warning(
         'TensorStore data files not found in checkpoint path %s. This may be a'
@@ -99,6 +126,8 @@ def validate_pytree_checkpoint(path: path_types.PathLike):
         f'Checkpoint path {path} does not contain a valid metadata file:'
         f' {checkpoint_metadata_path.name}'
     )
+  # TODO(niketkb): This check can be removed because the caller will anyway read
+  # the metadata file. We are reading the file twice.
   if metadata_store.read(checkpoint_metadata_path) is None:
     raise ValueError(
         f'Failed to read valid metadata for checkpoint path {path}.'

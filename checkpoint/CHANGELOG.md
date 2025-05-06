@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - #v1 Add metadata async write / read methods.
 
+### Changed
+
+- #v1 Allow `load_pytree` to specify the checkpointable_name, with `pytree` as
+ default value.
+
 ## [0.11.13] - 2025-04-30
 
 ### Changed

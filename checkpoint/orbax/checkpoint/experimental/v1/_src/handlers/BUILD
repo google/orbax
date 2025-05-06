@@ -83,6 +83,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
         "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/experimental/v1/_src/path:format_utils",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
     ],
 )

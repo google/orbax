@@ -38,8 +38,6 @@ CheckpointMetadata = metadata_types.CheckpointMetadata
 
 
 def _standardize_abstract_checkpointables(abstract_checkpointables):
-  if abstract_checkpointables is None:
-    return None
   if isinstance(abstract_checkpointables, CheckpointMetadata):
     return abstract_checkpointables.metadata
   return abstract_checkpointables
@@ -50,11 +48,14 @@ def load_pytree(
     abstract_pytree: (
         AbstractPyTree | CheckpointMetadata[AbstractPyTree] | None
     ) = None,
+    *,
+    checkpointable_name: str | None = PYTREE_CHECKPOINTABLE_KEY,
 ) -> tree_types.PyTreeOf[tree_types.LeafType]:
   """Loads a PyTree.
 
   Loads from a PyTree checkpoint. A PyTree checkpoint must be a directory
-  containing a subdirectory named `pytree`.
+  containing a subdirectory with name provided by `checkpointable_name`, with
+  default value `pytree`. Please see `checkpointable_name` for more details.
 
   The operation blocks until complete. For improved performance, consider using
   `load_async` instead.
@@ -82,23 +83,40 @@ def load_pytree(
 
   Args:
     directory: The directory to load the checkpoint from. This directory must
-      contain a subdirectory named `pytree`.
+      contain a subdirectory with name provided by `checkpointable_name`. See
+      `checkpointable_name` for more details.
     abstract_pytree: Provides a tree structure for the checkpoint to be restored
       into. May be omitted to load exactly as saved., but this is much more
       brittle than providing the tree.
+    checkpointable_name: The name of the checkpointable to load. Defaults to
+      `pytree`. A subdirectory with this name must exist in `directory`. If None
+      then directory itself is expected to contain all files relevant for
+      loading the PyTree, rather than any subdirectory. Such files include, for
+      example, manifest.ocdbt, _METADATA, ocdbt.process_X.
 
   Returns:
     The restored PyTree.
   """
-  format_utils.validate_pytree_checkpoint(directory)
+  format_utils.validate_pytree_checkpoint(
+      directory, checkpointable_name=checkpointable_name
+  )
+  if checkpointable_name is None:  # directory is direct path to pytree ckpt.
+    # TODO(niketkb): Refactor to load the pytree directly from the directory.
+
+    # Workaround to load the PyTree by reusing the load_checkpointables
+    # function:
+    # Treat the directory as a checkpointable and its parent as the step dir.
+    directory = epath.Path(directory)
+    checkpointable_name = directory.name
+    directory = directory.parent
   return load_checkpointables(
       directory,
-      {
-          PYTREE_CHECKPOINTABLE_KEY: _standardize_abstract_checkpointables(
+      abstract_checkpointables={
+          checkpointable_name: _standardize_abstract_checkpointables(
               abstract_pytree
           )
       },
-  )[PYTREE_CHECKPOINTABLE_KEY]
+  )[checkpointable_name]
 
 
 def load_checkpointables(
@@ -137,7 +155,8 @@ def load_checkpointables(
   `abstract_checkpointables` will not be loaded.
 
   Args:
-    directory: The directory to save the checkpoint to.
+    directory: The directory to load the checkpoint from. This directory must
+      contain a subdirectory for each checkpointable.
     abstract_checkpointables: A dictionary of abstract checkpointables.
       Dictionary keys represent the names of the checkpointables, while the
       values are the abstract checkpointable objects themselves.
@@ -150,9 +169,12 @@ def load_checkpointables(
   format_utils.validate_checkpoint(directory)
 
 
+  abstract_checkpointables = _standardize_abstract_checkpointables(
+      abstract_checkpointables
+  )
   ckptr, args = get_v0_checkpointer_and_args(
       directory,
-      _standardize_abstract_checkpointables(abstract_checkpointables),
+      abstract_checkpointables,
       context=context_lib.get_context(),
   )
   restored = ckptr.restore(directory, args=args)
@@ -164,9 +186,11 @@ def load_pytree_async(
     abstract_pytree: (
         AbstractPyTree | CheckpointMetadata[AbstractPyTree] | None
     ) = None,
+    *,
+    checkpointable_name: str | None = PYTREE_CHECKPOINTABLE_KEY,
 ) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.LeafType]]:
   """Loads a PyTree asynchronously. Not yet implemented."""
-  del directory, abstract_pytree
+  del directory, abstract_pytree, checkpointable_name
   raise NotImplementedError('Asynchronous loading is not yet supported.')
 
 

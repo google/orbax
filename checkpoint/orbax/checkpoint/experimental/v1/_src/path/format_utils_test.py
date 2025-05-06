@@ -13,46 +13,91 @@
 # limitations under the License.
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from etils import epath
+from orbax.checkpoint._src.checkpointers import standard_checkpointer
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.saving import saving
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 
 
-class FormatUtilsTest(absltest.TestCase):
+class FormatUtilsTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
     self.directory = epath.Path(self.create_tempdir().full_path) / 'ckpt'
     self.pytree, _ = array_test_utils.create_numpy_pytree()
     saving.save_pytree(self.directory, self.pytree)
+    # Save a checkpoint with a checkpointable name, `state`.
+    with standard_checkpointer.StandardCheckpointer() as checkpointer:
+      checkpointer.save(self.directory / 'state', self.pytree)
+    # Save a checkpoint with no checkpointable subdir.
+    self.ckpt_dir = epath.Path(self.create_tempdir().full_path) / 'direct'
+    with standard_checkpointer.StandardCheckpointer() as checkpointer:
+      checkpointer.save(self.ckpt_dir, self.pytree)
 
-  def test_nonexistent_path(self):
+  @parameterized.product(checkpointable_name=['pytree', 'state', None])
+  def test_nonexistent_path(self, checkpointable_name: str | None):
+    directory = self.ckpt_dir if checkpointable_name is None else self.directory
+
     with self.assertRaises(FileNotFoundError):
-      format_utils.validate_pytree_checkpoint(self.directory / 'foo')
+      format_utils.validate_pytree_checkpoint(
+          directory / 'foo', checkpointable_name=checkpointable_name
+      )
 
-  def test_not_a_directory(self):
-    (self.directory / 'foo').write_text('foo')
+  @parameterized.product(checkpointable_name=['pytree', 'state', None])
+  def test_not_a_directory(self, checkpointable_name: str | None):
+    directory = self.ckpt_dir if checkpointable_name is None else self.directory
+    (directory / 'foo').write_text('foo')
+
     with self.assertRaises(NotADirectoryError):
-      format_utils.validate_pytree_checkpoint(self.directory / 'foo')
+      format_utils.validate_pytree_checkpoint(
+          directory / 'foo', checkpointable_name=checkpointable_name
+      )
 
-  def test_invalid_metadata(self):
-    (self.directory / '_CHECKPOINT_METADATA').unlink()
+  @parameterized.product(checkpointable_name=['pytree', 'state', None])
+  def test_invalid_metadata(self, checkpointable_name: str | None):
+    directory = self.ckpt_dir if checkpointable_name is None else self.directory
+    (directory / '_CHECKPOINT_METADATA').unlink()
+
     with self.assertRaises(FileNotFoundError):
-      format_utils.validate_pytree_checkpoint(self.directory)
+      format_utils.validate_pytree_checkpoint(
+          directory, checkpointable_name=checkpointable_name
+      )
 
-  def test_invalid_pytree(self):
-    (self.directory / format_utils.PYTREE_CHECKPOINTABLE_KEY).rmtree()
+  @parameterized.product(checkpointable_name=['pytree', 'state', None])
+  def test_invalid_pytree(self, checkpointable_name: str | None):
+    directory = self.ckpt_dir if checkpointable_name is None else self.directory
+    if checkpointable_name is None:
+      directory.rmtree()
+    else:
+      (directory / checkpointable_name).rmtree()
+
     with self.assertRaises(FileNotFoundError):
-      format_utils.validate_pytree_checkpoint(self.directory)
+      format_utils.validate_pytree_checkpoint(
+          directory, checkpointable_name=checkpointable_name
+      )
 
-  def test_no_pytree_metadata(self):
-    (self.directory / 'pytree' / '_METADATA').unlink()
+  @parameterized.product(checkpointable_name=['pytree', 'state', None])
+  def test_no_pytree_metadata(self, checkpointable_name: str | None):
+    directory = self.ckpt_dir if checkpointable_name is None else self.directory
+    if checkpointable_name is None:
+      (directory / '_METADATA').unlink()
+    else:
+      (directory / checkpointable_name / '_METADATA').unlink()
+
     with self.assertRaises(FileNotFoundError):
-      format_utils.validate_pytree_checkpoint(self.directory)
+      format_utils.validate_pytree_checkpoint(
+          directory, checkpointable_name=checkpointable_name
+      )
 
-  def test_valid_pytree(self):
-    format_utils.validate_pytree_checkpoint(self.directory)
+  @parameterized.product(checkpointable_name=['pytree', 'state', None])
+  def test_valid_pytree(self, checkpointable_name: str | None):
+    directory = self.ckpt_dir if checkpointable_name is None else self.directory
+
+    format_utils.validate_pytree_checkpoint(
+        directory, checkpointable_name=checkpointable_name
+    )
 
 
 if __name__ == '__main__':

@@ -35,7 +35,6 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 PyTree = tree_types.PyTree
 Path = path_types.Path
 
-create_numpy_pytree = array_test_utils.create_numpy_pytree
 create_sharded_pytree = array_test_utils.create_sharded_pytree
 
 
@@ -46,11 +45,13 @@ class CompatibilitySaveLoadTestBase:
     def setUp(self):
       super().setUp()
 
-      self.directory = (
-          epath.Path(self.create_tempdir(name='compat_test').full_path) / 'ckpt'
+      self.root_directory = epath.Path(
+          self.create_tempdir(name='root').full_path
+      )
+      self.ckpt_directory = (
+          epath.Path(self.create_tempdir(name='direct').full_path) / 'ckpt'
       )
       self.pytree, self.abstract_pytree = create_sharded_pytree()
-      self.numpy_pytree, self.abstract_numpy_pytree = create_numpy_pytree()
 
       test_utils.set_tensorstore_driver_for_test()
       test_utils.sync_global_processes('CompatibilityTest:setup_complete')
@@ -59,107 +60,143 @@ class CompatibilitySaveLoadTestBase:
       super().tearDown()
       test_utils.sync_global_processes('CompatibilityTest:teardown_complete')
 
-    def save_v0_checkpoint(
-        self,
-        directory: Path,
-        checkpointable_name: str,
-        pytree: PyTree,
-        to_checkpointable_subdir: bool = False,
-    ):
-      if to_checkpointable_subdir:
-        with standard_checkpointer.StandardCheckpointer() as checkpointer:
-          checkpointer.save(directory / checkpointable_name, pytree)
-      else:
-        with v0_checkpointer.Checkpointer(
-            composite_checkpoint_handler.CompositeCheckpointHandler()
-        ) as checkpointer:
-          checkpointer.save(
-              directory,
-              args_lib.Composite(
-                  **{checkpointable_name: args_lib.StandardSave(pytree)}
-              ),
-          )
+    def save_v0_checkpoint(self, directory: Path):
+      with standard_checkpointer.StandardCheckpointer() as checkpointer:
+        checkpointer.save(directory, self.pytree)
 
-    @parameterized.product(
-        with_abstract_pytree=[True, False],
-    )
+    def save_v0_checkpoints(
+        self, base_dir: Path, *, checkpointable_names: list[str]
+    ):
+      args = args_lib.Composite(**{
+          checkpointable_name: args_lib.StandardSave(self.pytree)
+          for checkpointable_name in checkpointable_names
+      })
+      with v0_checkpointer.Checkpointer(
+          composite_checkpoint_handler.CompositeCheckpointHandler()
+      ) as checkpointer:
+        checkpointer.save(base_dir, args)
+
+    def test_async_load(self):
+      with self.assertRaises(NotImplementedError):
+        ocp.load_pytree_async(
+            self.root_directory,
+        )
+      with self.assertRaises(NotImplementedError):
+        ocp.load_checkpointables_async(
+            self.root_directory,
+        )
+
+    @parameterized.product(with_abstract_pytree=[True, False])
     def test_load_v0_checkpoint_with_v1_load_pytree(
-        self, with_abstract_pytree: bool
-    ):
-      self.save_v0_checkpoint(
-          self.directory,
-          'pytree',
-          self.pytree,
-          to_checkpointable_subdir=False,
-      )
-
-      loaded = ocp.load_pytree(
-          self.directory,
-          self.abstract_pytree if with_abstract_pytree else None,
-      )
-      test_utils.assert_tree_equal(self, self.pytree, loaded)
-
-    @parameterized.product(
-        checkpointable_name=['default', 'state'],
-        load_async=[True, False],
-        with_abstract_pytree=[True, False],
-        to_checkpointable_subdir=[True, False],
-    )
-    def test_load_v0_checkpoint_with_v1_load_pytree_failures(
         self,
-        checkpointable_name: str,
-        load_async: bool,
         with_abstract_pytree: bool,
-        to_checkpointable_subdir: bool,
     ):
-      self.save_v0_checkpoint(
-          self.directory,
-          checkpointable_name,
-          self.pytree,
-          to_checkpointable_subdir,
-      )
 
-      if load_async:
-        with self.assertRaises(NotImplementedError):
-          ocp.load_pytree_async(
-              self.directory,
-              self.abstract_pytree if with_abstract_pytree else None,
-          )
-      else:
+      checkpointable_names = ['default', 'state', 'pytree']
+      step_dir = self.root_directory / 'load_pytree_0'
+      self.save_v0_checkpoints(
+          step_dir,
+          checkpointable_names=checkpointable_names,
+      )
+      self.save_v0_checkpoint(self.ckpt_directory)
+
+      with self.subTest('no_checkpointable_name'):
+        loaded = ocp.load_pytree(
+            step_dir,
+            self.abstract_pytree if with_abstract_pytree else None,
+        )
+        test_utils.assert_tree_equal(self, self.pytree, loaded)
+
+      with self.subTest('no_checkpointable_name_error'):
         with self.assertRaisesRegex(
-            FileNotFoundError, 'must contain a subdirectory named "pytree"'
+            FileNotFoundError,
+            'must contain a subdirectory named "pytree"',
         ):
           ocp.load_pytree(
-              self.directory,
+              self.ckpt_directory,
               self.abstract_pytree if with_abstract_pytree else None,
           )
         with self.assertRaisesRegex(
-            FileNotFoundError, 'must contain a subdirectory named "pytree"'
+            FileNotFoundError,
+            'must contain a subdirectory named "pytree"',
         ):
           ocp.load_pytree(
-              self.directory / checkpointable_name,
+              self.root_directory,
               self.abstract_pytree if with_abstract_pytree else None,
+          )
+
+      for checkpointable_name in checkpointable_names:
+        with self.subTest(f'pass_{checkpointable_name}'):
+          loaded = ocp.load_pytree(
+              step_dir,
+              self.abstract_pytree if with_abstract_pytree else None,
+              checkpointable_name=checkpointable_name,
+          )
+          test_utils.assert_tree_equal(self, self.pytree, loaded)
+
+        with self.subTest(f'pass_{checkpointable_name}_error'):
+          with self.assertRaisesRegex(
+              FileNotFoundError,
+              f'must contain a subdirectory named "{checkpointable_name}"',
+          ):
+            ocp.load_pytree(
+                self.ckpt_directory,
+                self.abstract_pytree if with_abstract_pytree else None,
+                checkpointable_name=checkpointable_name,
+            )
+          with self.assertRaisesRegex(
+              FileNotFoundError,
+              f'must contain a subdirectory named "{checkpointable_name}"',
+          ):
+            ocp.load_pytree(
+                self.root_directory,
+                self.abstract_pytree if with_abstract_pytree else None,
+                checkpointable_name=checkpointable_name,
+            )
+
+      with self.subTest('pass_none'):
+        loaded = ocp.load_pytree(
+            self.ckpt_directory,
+            self.abstract_pytree if with_abstract_pytree else None,
+            checkpointable_name=None,
+        )
+        test_utils.assert_tree_equal(self, self.pytree, loaded)
+
+      with self.subTest('pass_none_error'):
+        with self.assertRaisesRegex(
+            FileNotFoundError, 'does not contain a PyTree metadata file'
+        ):
+          ocp.load_pytree(
+              step_dir,
+              self.abstract_pytree if with_abstract_pytree else None,
+              checkpointable_name=None,
+          )
+        with self.assertRaisesRegex(
+            FileNotFoundError, 'does not contain a PyTree metadata file'
+        ):
+          ocp.load_pytree(
+              self.root_directory,
+              self.abstract_pytree if with_abstract_pytree else None,
+              checkpointable_name=None,
           )
 
     @parameterized.product(
         checkpointable_name=['default', 'state'],
-        load_async=[True, False],
         with_abstract_pytree=[True, False],
-        to_checkpointable_subdir=[True, False],
     )
     def test_load_v0_checkpoint_with_v1_load_checkpointables(
         self,
         checkpointable_name: str,
-        load_async: bool,
         with_abstract_pytree: bool,
-        to_checkpointable_subdir: bool,
     ):
-      self.save_v0_checkpoint(
-          self.directory,
-          checkpointable_name,
-          self.pytree,
-          to_checkpointable_subdir,
+
+      checkpointable_names = ['default', 'state']
+      step_dir = self.root_directory / 'load_checkpointables_0'
+      self.save_v0_checkpoints(
+          step_dir,
+          checkpointable_names=checkpointable_names,
       )
+      self.save_v0_checkpoint(self.ckpt_directory)
 
       abstract_checkpointables = (
           {checkpointable_name: self.abstract_pytree}
@@ -167,29 +204,37 @@ class CompatibilitySaveLoadTestBase:
           else None
       )
 
-      if load_async:
-        with self.assertRaises(NotImplementedError):
-          ocp.load_checkpointables_async(
-              self.directory, abstract_checkpointables
-          )
-      else:
-        with self.subTest('with_context'):
-          checkpointables_options = (
-              ocp.options.CheckpointablesOptions.create_with_handlers(
-                  **{checkpointable_name: ocp.handlers.PyTreeHandler}
-              )
-          )
-          with ocp.Context(checkpointables_options=checkpointables_options):
-            loaded = ocp.load_checkpointables(
-                self.directory, abstract_checkpointables
+      with self.subTest('with_context'):
+        checkpointables_options = (
+            ocp.options.CheckpointablesOptions.create_with_handlers(
+                **{checkpointable_name: ocp.handlers.PyTreeHandler}
             )
-            test_utils.assert_tree_equal(
-                self, self.pytree, loaded[checkpointable_name]
-            )
-        with self.subTest('without_context'):
-          loaded = ocp.load_checkpointables(
-              self.directory, abstract_checkpointables
-          )
+        )
+        with ocp.Context(checkpointables_options=checkpointables_options):
+          loaded = ocp.load_checkpointables(step_dir, abstract_checkpointables)
           test_utils.assert_tree_equal(
               self, self.pytree, loaded[checkpointable_name]
+          )
+
+      with self.subTest('without_context'):
+        loaded = ocp.load_checkpointables(step_dir, abstract_checkpointables)
+        test_utils.assert_tree_equal(
+            self, self.pytree, loaded[checkpointable_name]
+        )
+
+      with self.subTest('error_with_checkpoint_path'):
+        with self.assertRaisesRegex(
+            ValueError,
+            'If you intended to load a pytree checkpoint from the given path',
+        ):
+          ocp.load_checkpointables(
+              self.ckpt_directory, abstract_checkpointables
+          )
+      with self.subTest('error_with_root_path'):
+        with self.assertRaisesRegex(
+            ValueError,
+            'Did you mean to provide the following subdirectory path instead',
+        ):
+          ocp.load_checkpointables(
+              self.root_directory, abstract_checkpointables
           )
