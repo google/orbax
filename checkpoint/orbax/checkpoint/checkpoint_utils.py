@@ -493,6 +493,18 @@ def construct_restore_args(
     else:
       return None
 
+  def _return_key_data(value):
+    # replace jax.random.key with underneath jax.Array
+    if isinstance(value, jax.Array) and jax.dtypes.issubdtype(
+        value.dtype, jax.dtypes.prng_key
+    ):
+      # For random keys, extract the dtype and shape as a regular Jax array.
+      # Stored metadata will help restoring the original random key.
+      return jax.random.key_data(value)
+    return value
+
+  target = jax.tree.map(_return_key_data, target)
+
   if sharding_tree is None:
     sharding_tree = jax.tree.map(_get_sharding_or_layout, target)
   if isinstance(target, tree_metadata.TreeMetadata):

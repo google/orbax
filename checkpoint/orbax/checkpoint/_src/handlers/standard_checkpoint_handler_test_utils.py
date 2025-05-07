@@ -94,6 +94,7 @@ class StandardCheckpointHandlerTestBase:
 
       self.numpy_pytree.update({'x': 4.5, 'y': 3})
       self.pytree = pytree
+
       self.mixed_pytree = {
           'sharded': self.pytree,
           'numpy': self.numpy_pytree,
@@ -460,3 +461,79 @@ class StandardCheckpointHandlerTestBase:
       with self.subTest(name='restore_args'):
         self.assertEqual(expected_restore_args['a'], restore_args['a'])
         self.assertEqual(expected_restore_args['b'], restore_args['b'])
+
+  class TestJaxRandomKeys(parameterized.TestCase):
+    """Test class."""
+
+    save_args_cls = StandardSaveArgs
+    restore_args_cls = StandardRestoreArgs
+
+    def setUp(self):
+      super().setUp()
+
+      # setup pythree with random keys
+      self.numpy_pytree = test_utils.setup_pytree()
+      pytree, _, _ = test_utils.setup_sharded_pytree(self.numpy_pytree)
+
+      duplicated_sharding = jax.sharding.NamedSharding(
+          jax.sharding.Mesh(
+              devices=jax.devices(),
+              axis_names=('x',),
+          ),
+          jax.sharding.PartitionSpec(),
+      )
+      random_keys = {
+          'rand_orig': jax.random.key(jnp.array(1, device=duplicated_sharding)),
+          'rand_rbg': jax.random.key(
+              jnp.array(2, device=duplicated_sharding), impl='rbg'
+          ),
+      }
+      pytree.update(random_keys)
+      self.pytree = pytree
+
+      zeros_pytree = jax.tree.map(
+          np.zeros_like,
+          self.numpy_pytree,
+          is_leaf=test_utils.is_leaf,
+      )
+      zeros_pytree, _, _ = test_utils.setup_sharded_pytree(zeros_pytree)
+      self.zeros_pytree = zeros_pytree
+      zeros_random_keys = {
+          'rand_orig': jax.random.key(jnp.array(0, device=duplicated_sharding)),
+          'rand_rbg': jax.random.key(
+              jnp.array(0, device=duplicated_sharding), impl='rbg'
+          ),
+      }
+      self.zeros_pytree.update(zeros_random_keys)
+
+      self.directory = epath.Path(
+          self.create_tempdir(name='checkpointing_random_keys_test').full_path
+      )
+      test_utils.set_tensorstore_driver_for_test()
+
+      test_utils.sync_global_processes(
+          'StandardCheckpointHandlerRandomKeysTest:setup_complete'
+      )
+
+    def tearDown(self):
+      test_utils.sync_global_processes(
+          'StandardCheckpointHandlerRandomKeysTest:tests_complete'
+      )
+      self.handler.close()
+      super().tearDown()
+
+    @property
+    def handler(self) -> StandardCheckpointHandler:
+      return StandardCheckpointHandler()
+
+    def test_with_random_keys(self):
+      if utils.is_pathways_backend():
+        self.skipTest('Pathways does not support random keys checkpoint.')
+
+      self.handler.save(self.directory, args=self.save_args_cls(self.pytree))
+      self.assertTrue(type_handlers.is_ocdbt_checkpoint(self.directory))
+
+      restored = self.handler.restore(
+          self.directory, args=self.restore_args_cls(self.zeros_pytree)
+      )
+      test_utils.assert_tree_equal(self, self.pytree, restored)

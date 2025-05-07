@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - #v1 Add metadata async write / read methods.
 
+### Fixed
+
+- Fix JAX random key restoration with StandardRestore.
+
 ### Changed
 
 - #v1 Allow `load_pytree` to specify the checkpointable_name, with `pytree` as

@@ -80,6 +80,13 @@ def to_shape_dtype_struct(
   Returns:
     jax.ShapeDtypeStruct or scalar value.
   """
+  if isinstance(arr, jax.Array) and jax.dtypes.issubdtype(
+      arr.dtype, jax.dtypes.prng_key
+  ):
+    # For random keys, extract the dtype and shape as a regular Jax array.
+    # Stored metadata will help restoring the original random key.
+    arr = jax.random.key_data(arr)
+
   if _is_scalar(arr):
     if scalar_dtype is not None:
       return scalar_dtype(arr)
