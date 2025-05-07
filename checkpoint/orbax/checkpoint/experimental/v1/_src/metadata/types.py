@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import pprint
 from typing import Any, Generic, TypeAlias, TypeVar
 
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -118,8 +119,4 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
     }
 
   def __repr__(self):
-    s = 'CheckpointMetadata('
-    for k, v in self._properties_strings().items():
-      s += f' {k} = {v}, '
-    s += ')'
-    return s
+    return f'CheckpointMetadata({pprint.pformat(self._properties_strings())})'

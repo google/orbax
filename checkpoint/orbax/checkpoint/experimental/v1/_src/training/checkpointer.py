@@ -162,7 +162,6 @@ class Checkpointer(epy.ContextManager):
         options=options,
         metadata=custom_metadata,
     )
-    self._manager._checkpointer = None  # pylint: disable=protected-access
 
   @property
   def directory(self) -> path_types.Path:
@@ -212,27 +211,21 @@ class Checkpointer(epy.ContextManager):
         for info in infos
     ]
 
-  def _select_checkpoint(
-      self, step: int | CheckpointMetadata
-  ) -> CheckpointMetadata[None]:
-    """Returns the checkpoint metadata at the given step."""
-    step = _resolve_integer_step(step)
-    for checkpoint in self.checkpoints:
-      if checkpoint.step == step:
-        return checkpoint
-    raise errors.StepNotFoundError(f'No checkpoint found at step {step}.')
-
-  def _resolve_existing_step(
+  def _resolve_existing_checkpoint(
       self, step: int | CheckpointMetadata | None
-  ) -> int:
+  ) -> CheckpointMetadata[None]:
     if step is None:
       latest = self.latest
       if latest is None:
         raise errors.StepNotFoundError(
             'Specified `step=None`, but no checkpoints were found.'
         )
-      return latest.step
-    return self._select_checkpoint(step).step
+      return latest
+    step = _resolve_integer_step(step)
+    for checkpoint in self.checkpoints:
+      if checkpoint.step == step:
+        return checkpoint
+    raise errors.StepNotFoundError(f'No checkpoint found at step {step}.')
 
   def should_save(self, step: int) -> bool:
     """Returns whether a checkpoint should be saved at the given step."""
@@ -394,7 +387,7 @@ class Checkpointer(epy.ContextManager):
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> dict[str, Any]:
     """Loads a set of checkpointables at the given step."""
-    step = self._resolve_existing_step(step)
+    step = self._resolve_existing_checkpoint(step).step
     checkpointer, args = loading.get_v0_checkpointer_and_args(
         self.directory / self._step_name_format.build_name(step),
         abstract_checkpointables,
@@ -426,12 +419,12 @@ class Checkpointer(epy.ContextManager):
     raise NotImplementedError()
 
   def pytree_metadata(
-      self, step: int
+      self, step: int | CheckpointMetadata | None = None
   ) -> training_metadata_types.CheckpointMetadata[
       metadata_types.PyTreeMetadata
   ]:
     """Returns checkpoint metadata for the given step."""
-    checkpoint = self._select_checkpoint(step)
+    checkpoint = self._resolve_existing_checkpoint(step)
     del step
     checkpoint_metadata = metadata_loading.pytree_metadata(
         self._manager.directory
@@ -450,10 +443,10 @@ class Checkpointer(epy.ContextManager):
     )
 
   def checkpointables_metadata(
-      self, step: int | CheckpointMetadata
+      self, step: int | CheckpointMetadata | None = None
   ) -> training_metadata_types.CheckpointMetadata[dict[str, Any]]:
     """Returns checkpoint metadata for the given step."""
-    checkpoint = self._select_checkpoint(step)
+    checkpoint = self._resolve_existing_checkpoint(step)
     del step
     checkpoint_metadata = metadata_loading.checkpointables_metadata(
         self._manager.directory
