@@ -71,16 +71,16 @@ Install from GitHub using the following.
    :caption: Checkpointing
 
    guides/checkpoint/orbax_checkpoint_announcements
-   guides/checkpoint/orbax_checkpoint_101
-   guides/checkpoint/orbax_checkpoint_api_overview
-   guides/checkpoint/api_refactor
-   guides/checkpoint/checkpointing_pytrees
-   guides/checkpoint/checkpoint_format
-   guides/checkpoint/optimized_checkpointing
-   guides/checkpoint/transformations
-   guides/checkpoint/preemption_checkpointing
+   guides/checkpoint/v0/orbax_checkpoint_101
+   guides/checkpoint/v0/orbax_checkpoint_api_overview
+   guides/checkpoint/v0/api_refactor
+   guides/checkpoint/v0/checkpointing_pytrees
+   guides/checkpoint/v0/checkpoint_format
+   guides/checkpoint/v0/optimized_checkpointing
+   guides/checkpoint/v0/transformations
+   guides/checkpoint/v0/preemption_checkpointing
    guides/checkpoint/async_checkpointing
-   guides/checkpoint/debug_guide
+   guides/checkpoint/v0/debug_guide
    api_reference/checkpoint
 
 .. toctree::
@@ -108,56 +108,56 @@ Checkpointing
 
       .. card:: Getting Started
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/orbax_checkpoint_101.html
+         :link: guides/checkpoint/v0/orbax_checkpoint_101.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: API Overview
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/orbax_checkpoint_api_overview.html
+         :link: guides/checkpoint/v0/orbax_checkpoint_api_overview.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: API Refactor
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/api_refactor.html
+         :link: guides/checkpoint/v0/api_refactor.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Checkpointing PyTrees of Arrays
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/checkpointing_pytrees.html
+         :link: guides/checkpoint/v0/checkpointing_pytrees.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Checkpoint Format Guide
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/checkpoint_format.html
+         :link: guides/checkpoint/v0/checkpoint_format.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Optimized Checkpointing
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/optimized_checkpointing.html
+         :link: guides/checkpoint/v0/optimized_checkpointing.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Transformations
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/transformations.html
+         :link: guides/checkpoint/v0/transformations.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Preemption Tolerance
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/preemption_checkpointing.html
+         :link: guides/checkpoint/v0/preemption_checkpointing.html
 
    .. grid-item::
       :columns: 6 6 6 4
@@ -171,7 +171,7 @@ Checkpointing
 
       .. card:: Debug Guide
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/debug_guide.html
+         :link: guides/checkpoint/v0/debug_guide.html
 
    .. grid-item::
       :columns: 6 6 6 4
