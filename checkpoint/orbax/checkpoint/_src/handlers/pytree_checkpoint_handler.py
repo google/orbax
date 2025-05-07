@@ -432,7 +432,6 @@ def _get_impl_save_args(
       item=args.item,
       save_args=args.save_args,
       ocdbt_target_data_file_size=args.ocdbt_target_data_file_size,
-      enable_pinned_host_transfer=args.enable_pinned_host_transfer,
       custom_metadata=args.custom_metadata,
   )
 
@@ -1057,9 +1056,6 @@ class PyTreeSaveArgs(CheckpointArgs):
       indicates no maximum file size limit.  For best results, ensure
       chunk_byte_size is smaller than this value.  For more details, refer to
       https://google.github.io/tensorstore/kvstore/ocdbt/index.html#json-kvstore/ocdbt.target_data_file_size
-    enable_pinned_host_transfer: If False, disables transfer to
-      pinned host when copying from device to host, regardless of the presence
-      of pinned host memory.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
@@ -1068,7 +1064,6 @@ class PyTreeSaveArgs(CheckpointArgs):
   item: PyTree
   save_args: Optional[PyTree] = None
   ocdbt_target_data_file_size: Optional[int] = None
-  enable_pinned_host_transfer: bool = False
   custom_metadata: tree_types.JsonType | None = None
 
   def __post_init__(self):

@@ -91,6 +91,7 @@ def create_v0_handler(
       enable_post_merge_validation=context.array_options.saving.enable_post_merge_validation,
       pytree_metadata_options=context.pytree_options.saving.pytree_metadata_options,
       array_metadata_validator=array_metadata_validator,
+      enable_pinned_host_transfer=context.array_options.saving.enable_pinned_host_transfer,
   )
 
 
@@ -106,7 +107,6 @@ def create_v0_save_args(
           context.pytree_options.saving.create_array_storage_options_fn,
       ),
       ocdbt_target_data_file_size=context.array_options.saving.ocdbt_target_data_file_size,
-      enable_pinned_host_transfer=context.array_options.saving.enable_pinned_host_transfer,
   )
 
 
