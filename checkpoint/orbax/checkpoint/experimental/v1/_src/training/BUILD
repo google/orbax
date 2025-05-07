@@ -10,6 +10,15 @@ py_library(
 )
 
 py_library(
+    name = "preservation_policies",
+    srcs = ["preservation_policies.py"],
+    deps = [
+        "//orbax/checkpoint/_src/checkpoint_managers:preservation_policy",
+        "//orbax/checkpoint/experimental/v1/_src/training/metadata:types",
+    ],
+)
+
+py_library(
     name = "checkpointer",
     srcs = ["checkpointer.py"],
     deps = [

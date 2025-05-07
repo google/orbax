@@ -18,11 +18,12 @@ import dataclasses
 import datetime
 from typing import Any, Callable, Dict, Protocol, Sequence, Set
 import numpy as np
-from orbax.checkpoint._src.metadata import checkpoint_info
+from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
 
 
 NestedDict = Dict[str, Any]
 PyTree = Any
+PolicyCheckpointInfo = policy_checkpoint_info.PolicyCheckpointInfo
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -36,7 +37,7 @@ class PreservationPolicy(Protocol):
 
   def should_preserve(
       self,
-      checkpoints: Sequence[checkpoint_info.CheckpointInfo],
+      checkpoints: Sequence[PolicyCheckpointInfo],
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
@@ -52,7 +53,7 @@ class LatestN(PreservationPolicy):
 
   def should_preserve(
       self,
-      checkpoints: Sequence[checkpoint_info.CheckpointInfo],
+      checkpoints: Sequence[PolicyCheckpointInfo],
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
@@ -69,7 +70,7 @@ class EveryNSeconds(PreservationPolicy):
 
   def should_preserve(
       self,
-      checkpoints: Sequence[checkpoint_info.CheckpointInfo],
+      checkpoints: Sequence[PolicyCheckpointInfo],
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
@@ -96,7 +97,7 @@ class EveryNSteps(PreservationPolicy):
 
   def should_preserve(
       self,
-      checkpoints: Sequence[checkpoint_info.CheckpointInfo],
+      checkpoints: Sequence[PolicyCheckpointInfo],
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
@@ -118,7 +119,7 @@ class CustomSteps(PreservationPolicy):
 
   def should_preserve(
       self,
-      checkpoints: Sequence[checkpoint_info.CheckpointInfo],
+      checkpoints: Sequence[PolicyCheckpointInfo],
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
@@ -133,7 +134,7 @@ class AnyPreservationPolicy(PreservationPolicy):
 
   def should_preserve(
       self,
-      checkpoints: Sequence[checkpoint_info.CheckpointInfo],
+      checkpoints: Sequence[PolicyCheckpointInfo],
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
@@ -154,7 +155,7 @@ class BestN(PreservationPolicy):
 
   def should_preserve(
       self,
-      checkpoints: Sequence[checkpoint_info.CheckpointInfo],
+      checkpoints: Sequence[PolicyCheckpointInfo],
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
