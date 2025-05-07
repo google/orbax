@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - #v1 Add metadata async write / read methods.
+- #v1 Add v0 to v1 migration guide for `load_pytree` and `load_checkpointables`.
 
 ### Changed
 
