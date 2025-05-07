@@ -31,3 +31,7 @@ from orbax.checkpoint._src.tree.utils import (
     from_flat_dict,
     to_shape_dtype_struct,
 )
+from orbax.checkpoint._src.tree.structure_utils import (
+    tree_difference,
+    tree_trim,
+)

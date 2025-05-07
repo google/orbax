@@ -94,6 +94,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/serialization:types",
         "//checkpoint/orbax/checkpoint/_src/tree:types",
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
+        "//orbax/checkpoint/_src/tree:structure_utils",
     ],
 )
 

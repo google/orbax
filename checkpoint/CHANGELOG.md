@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - #v1 Add metadata async write / read methods.
+- `ocp.tree.tree_trim()`, which matches a tree's structure to a template.
 
 ### Changed
 
