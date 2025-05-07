@@ -21,6 +21,28 @@ py_library(
     ],
 )
 
+py_library(
+    name = "async_utils",
+    srcs = ["async_utils.py"],
+    deps = [
+        ":types",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
+        "//checkpoint/orbax/checkpoint/_src/futures:synchronization",
+        "//checkpoint/orbax/checkpoint/_src/path:atomicity",
+        "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+    ],
+)
+
+py_test(
+    name = "async_utils_test",
+    srcs = ["async_utils_test.py"],
+    deps = [
+        ":async_utils",
+        "//checkpoint/orbax/checkpoint/_src/path:atomicity",
+    ],
+)
+
 py_test(
     name = "format_utils_test",
     srcs = ["format_utils_test.py"],

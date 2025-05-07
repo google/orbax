@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - #v1 Add metadata async write / read methods.
+- #v1 Add `start_async_mkdir` that begins async directory creation and returns
+a `PathAwaitingCreation`.
 
 ### Fixed
 

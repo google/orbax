@@ -67,7 +67,6 @@ from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint._src.path import async_utils
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path import utils
@@ -77,6 +76,22 @@ TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
 COMMIT_SUCCESS_FILE = step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
 
 _module_unique_count = itertools.count()
+
+
+async def _mkdir(path: epath.Path, *args, **kwargs):
+  return await asyncio.to_thread(path.mkdir, *args, **kwargs)
+
+
+async def _exists(path: epath.Path):
+  return await asyncio.to_thread(path.exists)
+
+
+async def _is_tmp_checkpoint(path: epath.Path):
+  return await asyncio.to_thread(step_lib.is_tmp_checkpoint, path)
+
+
+async def _rmtree(path: epath.Path):
+  return await asyncio.to_thread(path.rmtree)
 
 
 class AsyncMakeDirFunc(Protocol):
@@ -127,14 +142,14 @@ async def _create_tmp_directory(
     FileExistsError: if tmp directory already exists.
   """
   if multihost.is_primary_host(primary_host):
-    if await async_utils.async_exists(tmp_dir):
-      if await async_utils.async_is_tmp_checkpoint(tmp_dir):
+    if await _exists(tmp_dir):
+      if await _is_tmp_checkpoint(tmp_dir):
         logging.warning(
             'Attempted to create temporary directory %s which already exists.'
             ' Removing existing directory since it is not finalized.',
             tmp_dir,
         )
-        await async_utils.async_rmtree(tmp_dir)
+        await _rmtree(tmp_dir)
       else:
         raise FileExistsError(
             f'Attempted to create temporary directory {tmp_dir} which already'
@@ -270,7 +285,7 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
         file_options.path_permission_mode or self._path_permission_mode or None
     )
     return await _create_tmp_directory(
-        async_utils.async_makedirs,
+        _mkdir,
         self._tmp_path,
         primary_host=self._primary_host,
         path_permission_mode=mode,
@@ -394,7 +409,7 @@ class CommitFileTemporaryPath(atomicity_types.TemporaryPath):
         file_options.path_permission_mode or self._path_permission_mode or None
     )
     return await _create_tmp_directory(
-        async_utils.async_makedirs,
+        _mkdir,
         self._tmp_path,
         primary_host=self._primary_host,
         path_permission_mode=mode,
@@ -474,6 +489,7 @@ def create_all_async(
     multiprocessing_options: Optional[
         options_lib.MultiprocessingOptions
     ] = None,
+    subdirectories: Sequence[str] | None = None,
 ) -> future.Future:
   """Creates all temporary paths in parallel asynchronously.
 
@@ -483,6 +499,9 @@ def create_all_async(
       Also adds them to the awaitable signals contract.
     multiprocessing_options: MultiprocessingOptions to use for barrier syncs and
       primary host.
+    subdirectories: Sequence of subdirectories to create under `paths`. If not
+      provided, no subdirectories will be created. The same set of
+      subdirectories will be created under each path in `paths`.
 
   Returns:
     A future that which sends the completion signals when all paths are created.
@@ -507,7 +526,7 @@ def create_all_async(
   commit_future = future.NoopFuture()
   if multihost.is_primary_host(primary_host):
     commit_future = future.CommitFutureAwaitingContractedSignals(
-        _create_paths(paths),
+        _create_paths(paths, subdirectories=subdirectories),
         send_signals=completion_signals,
         timeout_secs=multihost.DIRECTORY_CREATION_TIMEOUT,
     )
@@ -526,11 +545,20 @@ def create_all_async(
 
 
 async def _create_paths(
-    paths: Sequence[atomicity_types.TemporaryPath],
+    tmp_paths: Sequence[atomicity_types.TemporaryPath],
+    subdirectories: Sequence[str] | None = None,
 ):
   """Creates all temporary paths in parallel."""
   start = time.time()
-  await asyncio.gather(*[path.create() for path in paths])
+  paths = await asyncio.gather(*[path.create() for path in tmp_paths])
+  if subdirectories:
+    creation_ops = []
+    for path in paths:
+      creation_ops.extend([
+          _mkdir(path / name, parents=False, exist_ok=False)
+          for name in subdirectories
+      ])
+    await asyncio.gather(*creation_ops)
   directory_creation_secs = time.time() - start
   jax.monitoring.record_event_duration_secs(
       '/jax/orbax/write/directory_creation_secs',
