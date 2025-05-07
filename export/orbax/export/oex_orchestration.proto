@@ -55,9 +55,10 @@ message BatchOptions {
     // The model function corresponds to `model_function_name` in the
     // orchestration.
     MODEL_FUNCTION = 2;
-    // This option includes all three components: pre-processor, model function
-    // and post-processor. The pre-processor and post-processor correspond to
-    // `pre_processor_name` and `post_processor_name` in the orchestration.
+    // This option batches all available components, which can be a
+    // pre-processor, model function and post-processor. The pre-processor and
+    // post-processor correspond to `pre_processor_name` and
+    // `post_processor_name` in the orchestration.
     WHOLE_PIPELINE = 3;
     // This option includes two components: pre-processor and model function.
     PRE_PROCESSOR_AND_MODEL_FUNCTION = 4;
