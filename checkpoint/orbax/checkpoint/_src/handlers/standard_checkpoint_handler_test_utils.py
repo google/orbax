@@ -73,6 +73,62 @@ def init_flax_model(model):
 class StandardCheckpointHandlerTestBase:
   """Base test cases for StandardCheckpointHandler."""
 
+  class TestRandomKeys(parameterized.TestCase):
+    """Test class for random keys."""
+
+    def setUp(self):
+      super().setUp()
+      self.directory = epath.Path(
+          self.create_tempdir(name='checkpointing_random_keys_test').full_path
+      )
+      mesh = jax.sharding.Mesh(jax.devices(), ('x',))
+      sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+      key = jax.random.key(jnp.array(0, device=sharding))
+      self.pytree = {'x': key}
+
+    def tearDown(self):
+      test_utils.sync_global_processes(
+          'StandardCheckpointHandler:random_keys_tests_complete'
+      )
+      self.handler.close()
+      super().tearDown()
+
+    @property
+    def handler(self) -> StandardCheckpointHandler:
+      return StandardCheckpointHandler()
+
+    def test_jax_random_keys_from_pytree(self):
+      self.handler.save(self.directory, args=StandardSaveArgs(self.pytree))
+
+      restored_from_pytree = self.handler.restore(
+          self.directory,
+          args=StandardRestoreArgs(self.pytree),
+      )
+
+      test_utils.assert_tree_equal(self, self.pytree, restored_from_pytree)
+
+    def test_jax_random_keys_from_shape_dtype_struct(self):
+      self.handler.save(self.directory, args=StandardSaveArgs(self.pytree))
+
+      restored_from_dtype = self.handler.restore(
+          self.directory,
+          args=StandardRestoreArgs(
+              jax.tree.map(utils.to_shape_dtype_struct, self.pytree)
+          ),
+      )
+
+      test_utils.assert_tree_equal(self, self.pytree, restored_from_dtype)
+
+    def test_jax_random_keys_from_metadata(self):
+      self.handler.save(self.directory, args=StandardSaveArgs(self.pytree))
+
+      restored_from_metadata = self.handler.restore(
+          self.directory,
+          args=StandardRestoreArgs(),
+      )
+
+      test_utils.assert_tree_equal(self, self.pytree, restored_from_metadata)
+
   class Test(parameterized.TestCase):
     """Test class."""
 
