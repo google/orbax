@@ -20,6 +20,7 @@ from etils import epath
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration as legacy_handler_registration
+from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
@@ -35,6 +36,7 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
 AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeafType]
 CheckpointMetadata = metadata_types.CheckpointMetadata
+PLACEHOLDER = type_handlers.PLACEHOLDER
 
 
 def _standardize_abstract_checkpointables(abstract_checkpointables):

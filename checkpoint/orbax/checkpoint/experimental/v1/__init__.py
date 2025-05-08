@@ -32,6 +32,7 @@ from orbax.checkpoint.experimental.v1._src.loading.loading import (
     load_checkpointables_async,
     load_pytree,
     load_pytree_async,
+    PLACEHOLDER,
 )
 from orbax.checkpoint.experimental.v1._src.metadata.loading import (
     checkpointables_metadata,

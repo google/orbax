@@ -7,6 +7,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/checkpointers:async_checkpointer",
         "//checkpoint/orbax/checkpoint/_src/handlers:composite_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/handlers:handler_registration",
+        "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/handlers:compatibility",
         "//orbax/checkpoint/experimental/v1/_src/handlers:composite_handler",
