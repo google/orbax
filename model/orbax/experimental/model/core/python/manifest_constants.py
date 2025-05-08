@@ -15,3 +15,7 @@
 """Manifest model format constants."""
 
 MANIFEST_FILENAME = 'manifest.pb'
+
+MANIFEST_VERSION_FILENAME = 'manifest_version.txt'
+
+MANIFEST_VERSION = '0.0.1'

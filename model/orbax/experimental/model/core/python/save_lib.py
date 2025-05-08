@@ -167,3 +167,8 @@ def save(
       os.path.join(path, manifest_constants.MANIFEST_FILENAME), 'wb'
   ) as f:
     f.write(manifest_proto.SerializeToString())
+  # Write the manifest version.
+  with file_utils.open_file(
+      os.path.join(path, manifest_constants.MANIFEST_VERSION_FILENAME), 'w'
+  ) as f:
+    f.write(manifest_constants.MANIFEST_VERSION)
