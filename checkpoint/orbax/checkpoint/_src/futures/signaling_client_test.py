@@ -158,7 +158,7 @@ class TestJaxDistributedSignalingClient(absltest.TestCase):
         "jax_key", "jax_value", allow_overwrite=True
     )
 
-  def test_key_value_set_raises_key_error(self, mock_get_jax_client):
+  def test_key_value_set_raises_jax_runtime_error(self, mock_get_jax_client):
     mock_client = mock.MagicMock()
     # Configure the mock to raise JaxRuntimeError
     mock_client.key_value_set.side_effect = jax.errors.JaxRuntimeError(
@@ -167,9 +167,7 @@ class TestJaxDistributedSignalingClient(absltest.TestCase):
     mock_get_jax_client.return_value = mock_client
     client = signaling_client.JaxDistributedSignalingClient()
 
-    with self.assertRaisesRegex(
-        KeyError, "Key 'jax_key_exists' already exists."
-    ):
+    with self.assertRaises(jax.errors.JaxRuntimeError):
       client.key_value_set(
           "jax_key_exists", "some_value", allow_overwrite=False
       )
@@ -192,7 +190,7 @@ class TestJaxDistributedSignalingClient(absltest.TestCase):
         "jax_get_key", 10 * 1000
     )
 
-  def test_blocking_key_value_get_raises_timeout_error(
+  def test_blocking_key_value_get_raises_jax_runtime_error(
       self, mock_get_jax_client
   ):
     mock_client = mock.MagicMock()
@@ -202,9 +200,7 @@ class TestJaxDistributedSignalingClient(absltest.TestCase):
     mock_get_jax_client.return_value = mock_client
     client = signaling_client.JaxDistributedSignalingClient()
 
-    with self.assertRaisesRegex(
-        TimeoutError, "Timeout waiting for key 'jax_timeout_key'"
-    ):
+    with self.assertRaises(jax.errors.JaxRuntimeError):
       client.blocking_key_value_get("jax_timeout_key", 5)
     mock_client.blocking_key_value_get.assert_called_once_with(
         "jax_timeout_key", 5 * 1000
