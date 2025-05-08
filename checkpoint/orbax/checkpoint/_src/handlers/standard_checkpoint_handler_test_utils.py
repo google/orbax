@@ -409,7 +409,7 @@ class StandardCheckpointHandlerTestBase:
       self.assertEqual(metadata.custom_metadata, custom_metadata)
 
     def test_construct_restore_args_with_fallback_sharding(self):
-      invalid_sharding_metadata = sharding_metadata.NamedShardingMetadata(
+      invalid_sharding_metadata = sharding_metadata.NamedShardingMetadata(  # pytype: disable=wrong-arg-types
           shape=np.array([2, 4]),
           axis_names=['x'],
           partition_spec=(jax.sharding.PartitionSpec('x'),),
