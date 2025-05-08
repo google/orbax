@@ -22,6 +22,7 @@ from typing import List, Optional, Sequence, Tuple
 from absl import logging
 import numpy as np
 from orbax.experimental.model.core.protos import xla_data_pb2
+from orbax.experimental.model.core.python import constants
 from orbax.experimental.model.core.python import shlo_function
 from orbax.experimental.model.core.python import tracing
 from orbax.experimental.model.core.python import tree_util
@@ -192,8 +193,13 @@ def emit_nodes_for_concrete_function(
       )
   )
 
+  jax_supplemental_info = (
+      supplemental_info[constants.JAX_SPECIFIC_INFO]
+      if supplemental_info
+      else None
+  )
   outs_tf, control_output = _run_shlo_fn_as_tf(
-      shlo_fn, args_flat_tf, supplemental_info
+      shlo_fn, args_flat_tf, jax_supplemental_info
   )
   message = "This function does not support gradients."
   # We use PreventGradient, which is propagated through a SavedModel.

@@ -53,16 +53,17 @@ def build_function(fn: Function, path: str, name: str) -> manifest_pb2.Function:
     stable_hlo_body.module_kept_var_idx.extend(fn.module_kept_var_idx)
     if fn.supplemental_info is not None:
       # Sets up `stable_hlo_body.supplemental_info`
-      supp = fn.supplemental_info.serializable_to_proto()
-      supp_proto = supp.proto
-      if supp.ext_name is not None:
-        filename = unstructured_data.build_filename_from_extension(
-            name + "_supplemental", supp.ext_name
-        )
-        supp_proto = unstructured_data.write_inlined_data_to_file(
-            supp_proto, path, filename
-        )
-      stable_hlo_body.supplemental_info.CopyFrom(supp_proto)
+      for supp_name, supp in fn.supplemental_info.items():
+        supp = supp.serializable_to_proto()
+        supp_proto = supp.proto
+        if supp.ext_name is not None:
+          filename = unstructured_data.build_filename_from_extension(
+              name + "_supplemental", supp.ext_name
+          )
+          supp_proto = unstructured_data.write_inlined_data_to_file(
+              supp_proto, path, filename
+          )
+        stable_hlo_body.supplemental_info[supp_name].CopyFrom(supp_proto)
   elif isinstance(fn, SerializableFunction):
     body_proto = fn.body.proto
     if fn.body.ext_name is not None:
