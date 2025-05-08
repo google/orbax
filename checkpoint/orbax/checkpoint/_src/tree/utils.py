@@ -308,17 +308,18 @@ def from_flat_dict(
     return jax.tree.unflatten(jax.tree.structure(target), flat_dict.values())
 
 
+def param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
+  """Returns the parameter name for a keypath."""
+  return '.'.join([str(get_key_name(k)) for k in keypath])
+
+
 def get_param_names(
     item: PyTree, *, include_empty_nodes: bool = True
 ) -> PyTree:
   """Gets parameter names for PyTree elements."""
-
-  def _param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
-    return '.'.join([str(get_key_name(k)) for k in keypath])
-
   is_leaf = is_empty_or_leaf if include_empty_nodes else None
   return jax.tree_util.tree_map_with_path(
-      lambda kp, _: _param_name_from_keypath(kp),
+      lambda kp, _: param_name_from_keypath(kp),
       item,
       is_leaf=is_leaf,
   )

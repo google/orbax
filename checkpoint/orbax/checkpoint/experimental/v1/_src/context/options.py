@@ -198,6 +198,9 @@ class ArrayOptions:
         host memory.
       enable_post_merge_validation: If True, enables validation of the
         parameters after the finalize step.
+      use_replica_parallel: Whether to parallelize saving across replicas.
+      enable_write_sharding_file: whether to write sharding file, defaults to
+        True.
     """
 
     @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -234,6 +237,8 @@ class ArrayOptions:
     ocdbt_target_data_file_size: int | None = None
     enable_pinned_host_transfer: bool = False
     enable_post_merge_validation: bool = True
+    use_replica_parallel: bool = True
+    enable_write_sharding_file: bool = True
 
   @dataclasses.dataclass(frozen=True, kw_only=True)
   class Loading:
@@ -249,6 +254,7 @@ class ArrayOptions:
     """
     concurrent_bytes: int | None = None
     enable_padding_and_truncation: bool = False
+    raise_array_data_missing_error: bool = True
 
   saving: Saving = dataclasses.field(default_factory=Saving)
   loading: Loading = dataclasses.field(default_factory=Loading)
