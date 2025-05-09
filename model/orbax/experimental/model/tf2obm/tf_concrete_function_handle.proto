@@ -14,14 +14,8 @@ message TfConcreteFunctionHandle {
   // SavedModel) but we want to allow calling the function with positional
   // arguments.
   //
-  // If this field is not set, this function can only be called with
-  // keyword-only arguments.
-  optional StrList input_names = 20;
+  repeated string input_names = 20;
 
   // Similar to `input_names`, but for outputs.
-  optional StrList output_names = 30;
-}
-
-message StrList {
-  repeated string elements = 1;
+  repeated string output_names = 30;
 }

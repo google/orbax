@@ -116,12 +116,12 @@ class TfConcreteFunctionsToObmTest(
           (
               "tuple",
               _TUPLE,
-              ("_0", "_1", "_2"),
+              ("my_prefix_0", "my_prefix_1", "my_prefix_2"),
           ),
           (
               "dict",
               _DICT,
-              None,
+              ("my_prefix_0", "my_prefix_1"),
           ),
       )
   )
@@ -129,11 +129,8 @@ class TfConcreteFunctionsToObmTest(
     if as_output_signature:
       signature = _as_output_signature(signature)
     prefix = "my_prefix"
-    if expected_names is not None:
-      expected_names = tuple(prefix + name for name in expected_names)
-    names, _ = _generate_names(
-        signature, prefix=prefix, fixed_name_pattern=False
-    )
+
+    names, _ = _generate_names(signature, prefix=prefix)
     self.assertEqual(
         names,
         expected_names,
@@ -154,7 +151,7 @@ class TfConcreteFunctionsToObmTest(
           ),
           (
               ((), _DICT),
-              None,
+              ((), _dict_from_seq("input_", obm.tree_util.flatten(_DICT))),
           ),
           (
               (_TUPLE, _DICT),
@@ -167,7 +164,7 @@ class TfConcreteFunctionsToObmTest(
           ),
           (
               ((_DICT,), {}),
-              ((), _DICT),
+              ((), _dict_from_seq("input_", obm.tree_util.flatten(_DICT))),
           ),
       ))
       for output_case_id, (output_sig, expected_output_sig) in enumerate((
@@ -181,7 +178,7 @@ class TfConcreteFunctionsToObmTest(
           ),
           (
               _DICT,
-              None,
+              (_dict_from_seq("output_", obm.tree_util.flatten(_DICT))),
           ),
           (
               (_DICT,),
@@ -196,10 +193,6 @@ class TfConcreteFunctionsToObmTest(
   def test_to_keyword_only_fn(
       self, input_sig, expected_input_sig, output_sig, expected_output_sig
   ):
-    if expected_input_sig is None:
-      expected_input_sig = input_sig
-    if expected_output_sig is None:
-      expected_output_sig = output_sig
 
     @tf.function(autograph=False)
     def f(*args, **kwargs):
@@ -503,19 +496,11 @@ class TfConcreteFunctionsToObmTest(
     )
     with open(os.path.join(save_dir_path, pre_processor_filename), "rb") as f:
       pre_processor_proto.ParseFromString(f.read())
-    expected_pre_processor_proto_text = (
+    expected_pre_processor_proto_text = f"""
+        fn_name: "{pre_processor_name_in_tf}"
+        input_names: "input_0"
+        output_names: "output_0"
         """
-      fn_name: \""""
-        + pre_processor_name_in_tf
-        + """\"
-      input_names {
-        elements: "input_0"
-      }
-      output_names {
-        elements: "output_0"
-      }
-    """
-    )
     expected_pre_processor_proto = text_format.Parse(
         expected_pre_processor_proto_text,
         tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(),
@@ -531,19 +516,11 @@ class TfConcreteFunctionsToObmTest(
     )
     with open(os.path.join(save_dir_path, post_processor_filename), "rb") as f:
       post_processor_proto.ParseFromString(f.read())
-    expected_post_processor_proto_text = (
+    expected_post_processor_proto_text = f"""
+        fn_name: "{post_processor_name_in_tf}"
+        input_names: "input_0"
+        output_names: "output_0"
         """
-      fn_name: \""""
-        + post_processor_name_in_tf
-        + """\"
-      input_names {
-        elements: "input_0"
-      }
-      output_names {
-        elements: "output_0"
-      }
-    """
-    )
     expected_post_processor_proto = text_format.Parse(
         expected_post_processor_proto_text,
         tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(),
