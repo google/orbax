@@ -492,9 +492,8 @@ class UtilsTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       step_lib.step_from_checkpoint_name(name)
 
-  def test_checkpoint_steps_paths_nonexistent_directory_fails(self):
-    with self.assertRaisesRegex(ValueError, 'does not exist'):
-      step_lib.checkpoint_steps_paths('/non/existent/dir')
+  def test_checkpoint_steps_paths_nonexistent_directory_returns_empty(self):
+    self.assertEqual(step_lib.checkpoint_steps_paths('/non/existent/dir'), [])
 
   def test_checkpoint_steps_paths_returns_finalized_paths(self):
     digit_only_path = epath.Path(self.directory / '2')
