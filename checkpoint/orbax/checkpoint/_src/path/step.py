@@ -790,7 +790,7 @@ def checkpoint_steps_paths(
   """Returns a list of finalized checkpoint paths in the directory."""
   checkpoint_dir = epath.Path(checkpoint_dir)
   if not checkpoint_dir.exists():
-    raise ValueError(f'Path {checkpoint_dir} does not exist.')
+    return []
 
   with futures.ThreadPoolExecutor() as executor:
     fs = {

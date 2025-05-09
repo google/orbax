@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import pickle
-from typing import Any, Callable
+from typing import Any
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -157,16 +157,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
         )
     )
 
-  @parameterized.parameters(
-      checkpoint.step_metadata_file_path,
-      checkpoint.root_metadata_file_path,
-  )
-  def test_metadata_path_does_not_exist(
-      self, file_path_fn: Callable[[epath.PathLike], epath.Path]
-  ):
-    with self.assertRaisesRegex(FileNotFoundError, 'Path does not exist'):
-      file_path_fn('non_existent_metadata_path')
-
   def test_legacy_root_metadata_file_path(self):
     self.assertEqual(
         checkpoint.root_metadata_file_path(self.directory, legacy=True),
@@ -185,7 +175,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
     metadata = metadata_class()
 
     if blocking_write:
-      with self.assertRaisesRegex(ValueError, 'Metadata path does not exist'):
+      with self.assertRaisesRegex(ValueError, 'Metadata parent name not set'):
         self.write_metadata_store(blocking_write).write(
             file_path='unknown_metadata_path',
             metadata=self.serialize_metadata(metadata),
@@ -199,7 +189,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
         self.write_metadata_store(blocking_write).wait_until_finished()
       except ValueError:
         # We don't want to fail the test because above write's future.result()
-        # will raise 'ValueError: Metadata file does not exist ...'.
+        # will raise 'ValueError: Metadata parent name not set...'.
         pass
       self.assertIsNone(
           self.read_metadata_store(blocking_write).read('unknown_metadata_path')
@@ -462,9 +452,6 @@ class CheckpointMetadataTest(parameterized.TestCase):
         self.get_metadata_file_path(metadata_class),
         self.directory / self.get_metadata_filename(metadata_class),
     )
-
-    with self.assertRaisesRegex(IOError, 'Path does not exist'):
-      self.get_metadata_file_path(metadata_class, path=self.directory / '0')
 
     metadata_file = self.get_metadata_file_path(metadata_class)
     self.write_metadata_store(blocking_write=True).write(
