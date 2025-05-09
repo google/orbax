@@ -288,6 +288,7 @@ class BasePyTreeCheckpointHandler(
       array_metadata_validator: array_metadata_store_lib.Validator = (
           array_metadata_store_lib.Validator()
       ),
+      enable_pinned_host_transfer: Optional[bool] = None,
   ):
     """Creates BasePyTreeCheckpointHandler.
 
@@ -307,6 +308,10 @@ class BasePyTreeCheckpointHandler(
         parameters after the finalize step.
       pytree_metadata_options: `PyTreeMetadataOptions` to manage metadata.
       array_metadata_validator: Validator for ArrayMetadata.
+      enable_pinned_host_transfer: Whether to use pinned_host memory for the
+        transfer from device to host memory. Passing None will enable
+        pinned_host memory depending on the platform used (currently only
+        enables it for the GPU backend).
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
@@ -326,18 +331,22 @@ class BasePyTreeCheckpointHandler(
     if self._array_metadata_store:
       self._array_metadata_store.set_primary_host(self._primary_host)
     self._array_metadata_validator = array_metadata_validator
-
+    if enable_pinned_host_transfer is None:
+      enable_pinned_host_transfer = jax.default_backend() == 'gpu'
+    self._enable_pinned_host_transfer = enable_pinned_host_transfer
 
     jax.monitoring.record_event(
         '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
     )
     logging.info(
         'Created BasePyTreeCheckpointHandler: use_ocdbt=%s, use_zarr3=%s,'
-        ' pytree_metadata_options=%s, array_metadata_store=%s',
+        ' pytree_metadata_options=%s, array_metadata_store=%s,'
+        ' enable_pinned_host_transfer=%s',
         self._use_ocdbt,
         self._use_zarr3,
         self._pytree_metadata_options,
         self._array_metadata_store,
+        self._enable_pinned_host_transfer,
     )
 
   def get_param_names(self, item: PyTree) -> PyTree:
@@ -352,7 +361,6 @@ class BasePyTreeCheckpointHandler(
       use_ocdbt: bool = True,
       use_zarr3: Optional[bool] = None,
       ocdbt_target_data_file_size: Optional[int] = None,
-      enable_pinned_host_transfer: bool = False,
       byte_limiter: Optional[serialization.ByteLimiter] = None,
       raise_array_data_missing_error: bool = True,
   ) -> PyTree:
@@ -368,7 +376,6 @@ class BasePyTreeCheckpointHandler(
       use_zarr3: Whether to use zarr3.
       ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
         OCDBT data file.
-      enable_pinned_host_transfer: See ParamInfo docs.
       byte_limiter: ByteLimiter object.
       raise_array_data_missing_error: See documentation in ParamInfo.
 
@@ -394,7 +401,7 @@ class BasePyTreeCheckpointHandler(
           skip_deserialize=skip_deserialize,
           is_ocdbt_checkpoint=use_ocdbt,
           use_zarr3=use_zarr3,
-          enable_pinned_host_transfer=enable_pinned_host_transfer,
+          enable_pinned_host_transfer=self._enable_pinned_host_transfer,
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
           byte_limiter=byte_limiter,
           ts_context=ts_context,
@@ -464,7 +471,6 @@ class BasePyTreeCheckpointHandler(
         directory,
         use_ocdbt=self._use_ocdbt,
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
-        enable_pinned_host_transfer=args.enable_pinned_host_transfer,
         byte_limiter=byte_limiter,
     )
     assert all(
@@ -1043,9 +1049,6 @@ class BasePyTreeSaveArgs(CheckpointArgs):
       indicates no maximum file size limit.  For best results, ensure
       chunk_byte_size is smaller than this value.  For more details, refer to
       https://google.github.io/tensorstore/kvstore/ocdbt/index.html#json-kvstore/ocdbt.target_data_file_size
-    enable_pinned_host_transfer: If False, disables transfer to pinned host when
-      copying from device to host, regardless of the presence of pinned host
-      memory.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
@@ -1054,7 +1057,6 @@ class BasePyTreeSaveArgs(CheckpointArgs):
   item: PyTree
   save_args: Optional[PyTree] = None
   ocdbt_target_data_file_size: Optional[int] = None
-  enable_pinned_host_transfer: bool = False
   custom_metadata: tree_types.JsonType | None = None
 
 
