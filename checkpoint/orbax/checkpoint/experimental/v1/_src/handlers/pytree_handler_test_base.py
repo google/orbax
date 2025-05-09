@@ -674,7 +674,10 @@ class PyTreeHandlerTestBase:
 
       def set_dtype(v, dtype):
         if hasattr(v, 'dtype'):
-          setattr(v, 'dtype', dtype)
+          if isinstance(v, jax.ShapeDtypeStruct):
+            v = v.update(dtype=dtype)
+          else:
+            setattr(v, 'dtype', dtype)
         return v
 
       with self.subTest('check_origin_dtype'):
