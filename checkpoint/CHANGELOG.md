@@ -22,6 +22,7 @@ a `PathAwaitingCreation`.
 
 - #v1 Allow `load_pytree` to specify the checkpointable_name, with `pytree` as
  default value.
+- #v1 Use an implementation of `load` independent of `v0.Checkpointer`.
 
 ## [0.11.13] - 2025-04-30
 
