@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - #v1 Add `start_async_mkdir` that begins async directory creation and returns
 a `PathAwaitingCreation`.
 - #v1 Add ArrayLeafHandler.
+- #v1 Add CompatibleTypeHandler to allow v1 ArrayLeafHandlers working with V0
+  TypeHandlerRegistry.
 - #v1 Add tests to cover v0 CheckpointManager->v1 Checkpointer migration use
  case.
 
