@@ -295,7 +295,7 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
   def finalize(
       self,
   ):
-    """Finalizes atomic save by renaming tmp_dir or writing a success file.
+    """Finalizes atomic save by renaming tmp_dir.
 
     Updates checkpoint metadata with commit_timestamp_nsecs.
 
@@ -419,7 +419,7 @@ class CommitFileTemporaryPath(atomicity_types.TemporaryPath):
   def finalize(
       self,
   ):
-    """Finalizes atomic save by renaming tmp_dir or writing a success file.
+    """Finalizes atomic save by writing a success file.
 
     Updates checkpoint metadata with commit_timestamp_nsecs.
 
