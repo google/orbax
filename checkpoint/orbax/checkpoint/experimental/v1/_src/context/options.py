@@ -21,6 +21,7 @@ from typing import Any, Callable, Protocol, Type
 
 import numpy as np
 from orbax.checkpoint import options as v0_options_lib
+from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.handlers import registration
@@ -173,6 +174,8 @@ class ArrayOptions:
   Attributes:
     saving: Options for saving arrays.
     loading: Options for loading arrays.
+    ts_metadata_key: Override the default Tensorstore metadata_key filename
+      during saving and loading.
   """
 
   @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -201,6 +204,8 @@ class ArrayOptions:
       use_replica_parallel: Whether to parallelize saving across replicas.
       enable_write_sharding_file: whether to write sharding file, defaults to
         True.
+      array_metadata_store: Store to manage per host ArrayMetadata. To disable
+        ArrayMetadata persistence, set it to None.
     """
 
     @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -239,6 +244,9 @@ class ArrayOptions:
     enable_post_merge_validation: bool = True
     use_replica_parallel: bool = True
     enable_write_sharding_file: bool = True
+    array_metadata_store: array_metadata_store_lib.Store | None = (
+        array_metadata_store_lib.Store()
+    )
 
   @dataclasses.dataclass(frozen=True, kw_only=True)
   class Loading:
@@ -252,12 +260,14 @@ class ArrayOptions:
       stored array shape does not match the target shape. Otherwise, raises an
       error.
     """
+
     concurrent_bytes: int | None = None
     enable_padding_and_truncation: bool = False
     raise_array_data_missing_error: bool = True
 
   saving: Saving = dataclasses.field(default_factory=Saving)
   loading: Loading = dataclasses.field(default_factory=Loading)
+  ts_metadata_key: str | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
