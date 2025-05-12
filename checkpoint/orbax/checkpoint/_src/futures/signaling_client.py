@@ -15,10 +15,10 @@
 """A signaling client interface and implementations."""
 
 import functools
-import logging
 import threading
 import time
 from typing import Sequence
+from absl import logging
 import jax
 from orbax.checkpoint._src.multihost import multihost
 from typing_extensions import Protocol
@@ -142,7 +142,8 @@ class JaxDistributedSignalingClient(SignalingClient):
     except jax.errors.JaxRuntimeError:
       # Note that JaxRuntimeError may represent issues other than key not found,
       # but we are catching all such issues and returning None.
-      logging.warning(
+      logging.vlog(
+          1,
           "JaxRuntimeError raised while trying to get key '%s'.",
           key,
           exc_info=True,
