@@ -84,7 +84,7 @@ class SavedModelBuilderTest(absltest.TestCase):
             calling_convention_version=exported.calling_convention_version,
             module_kept_var_idx=exported.module_kept_var_idx,
             lowering_platforms=exported.platforms,
-            supplemental_info=None,
+            supplemental_info={},
             physical_in_dtypes=(None,) * len(jax_in_spec),
             physical_out_dtypes=(None,) * len(jax_out_spec),
         ),

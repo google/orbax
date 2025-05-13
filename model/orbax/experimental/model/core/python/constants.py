@@ -46,3 +46,6 @@ FINGERPRINT_FILENAME = 'fingerprint.pb'
 
 # Needs to be identical to `tensorflow::kSavedModelTagServe`.
 SERVE_TAG = 'serve'
+
+# Supplemental info key for JAX-specific info.
+JAX_SPECIFIC_INFO = 'jax_specific_info'

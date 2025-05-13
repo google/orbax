@@ -33,6 +33,7 @@ from orbax.experimental.model.core.python.concrete_function import dtype_to_np_d
 from orbax.experimental.model.core.python.concrete_function import partial
 from orbax.experimental.model.core.python.concrete_function import Tensor
 from orbax.experimental.model.core.python.concrete_function import Variable
+from orbax.experimental.model.core.python.constants import *
 from orbax.experimental.model.core.python.function import Function
 from orbax.experimental.model.core.python.function import np_dtype_to_shlo_dtype
 from orbax.experimental.model.core.python.function import shlo_dtype_to_np_dtype

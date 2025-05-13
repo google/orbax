@@ -625,17 +625,20 @@ class MainLibTest(parameterized.TestCase):
                   module_kept_var_idx: 7
                   module_kept_var_idx: 8
                   supplemental_info {
-                    file_system_location {
-                      string_path: \""""
+                    key: "jax_specific_info"
+                    value {
+                      file_system_location {
+                        string_path: \""""
         + jax_supplemental_filename
         + """\"
-                    }
-                    mime_type: \""""
+                                      }
+                                      mime_type: \""""
         + jax_specific_info.CURRENT_JAX_SUPPLEMENTAL_MIME_TYPE
         + """\"
-                    version: \""""
+                                      version: \""""
         + jax_specific_info.CURRENT_JAX_SUPPLEMENTAL_VERSION
         + """\"
+                    }
                   }
                 }
               }

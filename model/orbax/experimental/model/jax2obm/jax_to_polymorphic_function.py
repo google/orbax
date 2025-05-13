@@ -215,6 +215,18 @@ def _run_exported_as_em(
       )
   )
 
+  jax_specific_info_ = jax_specific_info.JaxSpecificInfo(
+      name=exported.fun_name,
+      input_spec_refinements=jax_in_sig_refinements,
+      output_spec_refinements=jax_out_sig_refinements,
+      nr_devices=exported.nr_devices,
+      ordered_effects=exported.ordered_effects,
+      unordered_effects=exported.unordered_effects,
+      disabled_safety_checks=tuple(exported.disabled_safety_checks),
+      uses_shape_polymorphism=exported.uses_global_constants,
+  )
+  supplemental_info_ = {obm.JAX_SPECIFIC_INFO: jax_specific_info_}
+
   em_fn = obm.ConcreteFunction(
       input_signature=tuple(
           map(
@@ -238,16 +250,7 @@ def _run_exported_as_em(
           calling_convention_version=exported.calling_convention_version,
           module_kept_var_idx=exported.module_kept_var_idx,
           lowering_platforms=exported.platforms,
-          supplemental_info=jax_specific_info.JaxSpecificInfo(
-              name=exported.fun_name,
-              input_spec_refinements=jax_in_sig_refinements,
-              output_spec_refinements=jax_out_sig_refinements,
-              nr_devices=exported.nr_devices,
-              ordered_effects=exported.ordered_effects,
-              unordered_effects=exported.unordered_effects,
-              disabled_safety_checks=tuple(exported.disabled_safety_checks),
-              uses_shape_polymorphism=exported.uses_global_constants,
-          ),
+          supplemental_info=supplemental_info_,
           physical_in_dtypes=tuple(
               utils._get_physical_dtype(utils._aval_dtype(v))
               for v in exported.in_avals

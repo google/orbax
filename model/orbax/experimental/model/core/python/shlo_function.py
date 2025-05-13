@@ -15,6 +15,7 @@
 """Functions backed by StableHLO."""
 
 import abc
+from collections.abc import Mapping
 from dataclasses import dataclass  # pylint: disable=g-importing-member
 from typing import Any, Dict, Optional, Tuple
 
@@ -91,7 +92,7 @@ class ShloFunction(Function):
   module_kept_var_idx: tuple[int, ...]
   lowering_platforms: Tuple[str, ...]
 
-  supplemental_info: Optional[ShloFunctionSupplementalInfo]
+  supplemental_info: Mapping[str, ShloFunctionSupplementalInfo]
 
   physical_in_dtypes: Tuple[Optional[ShloDType], ...]
   physical_out_dtypes: Tuple[Optional[ShloDType], ...]

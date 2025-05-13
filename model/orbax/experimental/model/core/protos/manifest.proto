@@ -99,7 +99,8 @@ message StableHloFunctionBody {
   uint32 calling_convention_version = 2;
   repeated string lowering_platforms = 3;
   repeated uint32 module_kept_var_idx = 4;
-  optional UnstructuredData supplemental_info = 5;  // e.g. JAX-specific info
+  map<string, UnstructuredData> supplemental_info =
+      5;  // e.g. JAX-specific info
 }
 
 message UnstructuredData {
