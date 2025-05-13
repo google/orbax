@@ -14,6 +14,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/tree:utils",
         "//third_party/py/aiofiles",
         "//orbax/checkpoint/experimental/v1",
+        "//orbax/checkpoint/experimental/v1/_src/handlers:registration",
         "//orbax/checkpoint/experimental/v1/_src/handlers:stateful_checkpointable_handler",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
         "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",

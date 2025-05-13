@@ -58,6 +58,7 @@ class DataclassHandler:
 @dataclasses.dataclass
 class Point:
   """Implements StatefulCheckpointable."""
+
   x: int
   y: int
 
