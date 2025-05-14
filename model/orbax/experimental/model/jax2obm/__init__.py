@@ -14,6 +14,7 @@
 
 # pylint: disable=missing-module-docstring
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
+from orbax.experimental.model.jax2obm.constants import XLA_COMPILE_OPTIONS
 from orbax.experimental.model.jax2obm.jax_specific_info import CURRENT_JAX_SUPPLEMENTAL_MIME_TYPE
 from orbax.experimental.model.jax2obm.jax_specific_info import CURRENT_JAX_SUPPLEMENTAL_VERSION
 from orbax.experimental.model.jax2obm.jax_to_polymorphic_function import *

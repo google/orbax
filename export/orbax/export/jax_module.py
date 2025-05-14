@@ -96,6 +96,9 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
       jax2obm_kwargs: options passed to the Orbax Model export. Accepted
         arguments are 'native_serialization_platforms' which must be a tuple of
         OrbaxNativeSerializationType.
+      xla_compile_options: XLA compile options to be saved in the model
+        artifact, to ensure XLA compilation consistency and reproducibility
+        between export time and serving time.
     """
     self._export_version = export_version
 
