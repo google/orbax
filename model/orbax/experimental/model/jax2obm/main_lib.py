@@ -15,6 +15,7 @@
 """A converter from JAX to ML Exported Model (EM)."""
 
 # pylint: disable=protected-access
+import dataclasses
 from typing import Any, Callable, Dict, Sequence
 
 import jax
@@ -26,7 +27,6 @@ from orbax.experimental.model.jax2obm import constants
 from orbax.experimental.model.jax2obm import jax_specific_info
 from orbax.experimental.model.jax2obm import sharding
 from orbax.experimental.model.jax2obm import utils
-
 
 def to_shape_dtype_struct(x):
   return jax.ShapeDtypeStruct(x.shape, x.dtype)
@@ -74,8 +74,8 @@ def jax_exported_to_shlo_fn(
       disabled_safety_checks=tuple(exported.disabled_safety_checks),
       uses_shape_polymorphism=exported.uses_global_constants,
   )
-
   supplemental_info_[obm.JAX_SPECIFIC_INFO] = jax_specific_info_
+
   shlo_func = obm.ShloFunction(
       input_signature=shlo_in_sig,
       output_signature=shlo_out_sig,
@@ -135,6 +135,9 @@ def convert(
     native_serialization_disabled_checks: A sequence of safety checks to
       disable. Example can be found in
       https://jax.readthedocs.io/en/latest/_autosummary/jax.export.DisabledSafetyCheck.html#jax.export.DisabledSafetyCheck
+    xla_compile_options: XLA compile options to be saved in the model artifact,
+      to ensure XLA compilation consistency and reproducibility between export
+      time and serving time.
 
   Returns:
     An Orbax Model `ShloFunction`.
@@ -151,7 +154,9 @@ def convert(
   utils.assert_jax_trace_state_is_clean()
 
   exported = create_exported(*args_spec, **kwargs_spec)
-  return jax_exported_to_shlo_fn(exported)
+  return jax_exported_to_shlo_fn(
+      exported
+  )
 
 
 # TODO(b/356174487): add more check and support for checkpointing.

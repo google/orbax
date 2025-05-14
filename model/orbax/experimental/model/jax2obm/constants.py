@@ -28,3 +28,6 @@ class OrbaxNativeSerializationType(enum.Enum):
 
 
 # LINT.ThenChange(//depot//orbax/export/constants.py)
+
+# XLA compilation options.
+XLA_COMPILE_OPTIONS = 'xla_compile_options'

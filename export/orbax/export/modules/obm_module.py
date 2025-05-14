@@ -27,7 +27,6 @@ from orbax.export.modules import orbax_module_base
 from orbax.export.typing import PyTree
 import tensorflow as tf
 
-
 ApplyFn = orbax_export_typing.ApplyFn
 
 
@@ -51,6 +50,9 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       jax2obm_kwargs: A dictionary of kwargs to pass to the jax2obm conversion
         library. Accepted arguments to jax2obm_kwargs are
         'native_serialization_platforms', 'weights_name'and 'checkpoint_path'.
+      xla_compile_options: XLA compile options to be saved in the model
+        artifact, to ensure XLA compilation consistency and reproducibility
+        between export time and serving time.
     """
 
     # It is possible for jax2obm_kwargs to be None if the key is present.
