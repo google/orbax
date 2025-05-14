@@ -14,7 +14,7 @@
 
 """Functions for loading metadata from a checkpoint."""
 
-from typing import Any
+from typing import Any, Callable
 
 from etils import epath
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -77,8 +77,14 @@ def pytree_metadata(
   Returns:
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
-  format_utils.validate_pytree_checkpoint(path)
-  metadata = checkpointables_metadata(path)
+  def validate_checkpoint(p: path_types.PathLike):
+    format_utils.validate_checkpoint_directory(p)
+    format_utils.validate_checkpoint_metadata(p)
+    format_utils.validate_pytree_checkpoint(p)
+
+  metadata = _checkpointables_metadata_impl(
+      path, validate_checkpoint_fn=validate_checkpoint
+  )
   return CheckpointMetadata[PyTreeMetadata](
       metadata=metadata.metadata[PYTREE_CHECKPOINTABLE_KEY],
       init_timestamp_nsecs=metadata.init_timestamp_nsecs,
@@ -114,7 +120,23 @@ def checkpointables_metadata(
   Returns:
     A `CheckpointMetadata[dict[str, Any]]` object.
   """
+  def validate_checkpoint(p: path_types.PathLike):
+    format_utils.validate_checkpoint_directory(p)
+    format_utils.validate_checkpoint_metadata(p)
+
+  return _checkpointables_metadata_impl(
+      path, validate_checkpoint_fn=validate_checkpoint
+  )
+
+
+def _checkpointables_metadata_impl(
+    path: path_types.PathLike,
+    *,
+    validate_checkpoint_fn: Callable[[path_types.PathLike], None]
+) -> CheckpointMetadata[dict[str, Any]]:
+  """Shared implementation for checkpointables_metadata."""
   path = epath.Path(path)
+  validate_checkpoint_fn(path)
   checkpointer, _ = loading.get_v0_checkpointer_and_args(
       path, None, context=context_lib.get_context()
   )

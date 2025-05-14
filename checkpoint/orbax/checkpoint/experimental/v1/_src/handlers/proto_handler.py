@@ -48,8 +48,8 @@ class ProtoHandler(
       *,
       primary_host: int | None = None
   ):
-    directory = await directory.await_creation()
     if multihost.is_primary_host(primary_host):
+      directory = await directory.await_creation()
       path = directory / self._filename
       str_msg = text_format.MessageToString(checkpointable)
       await asyncio.to_thread(path.write_text, str_msg)

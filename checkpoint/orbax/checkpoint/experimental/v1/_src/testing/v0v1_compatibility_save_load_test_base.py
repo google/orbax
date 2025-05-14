@@ -232,8 +232,9 @@ class CompatibilitySaveLoadTestBase:
           )
       with self.subTest('error_with_root_path'):
         with self.assertRaisesRegex(
-            ValueError,
-            'Did you mean to provide the following subdirectory path instead',
+            FileNotFoundError,
+            'Please ensure the path specified for loading points to a valid'
+            ' Orbax checkpoint',
         ):
           ocp.load_checkpointables(
               self.root_directory, abstract_checkpointables

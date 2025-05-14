@@ -21,11 +21,14 @@ implementation. At the moment they are tailored specifically to `save_pytree` /
 """
 
 import itertools
+
 from absl import logging
 from etils import epath
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.path import format_utils
+from orbax.checkpoint._src.path import step as v0_step_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+
 
 PYTREE_CHECKPOINTABLE_KEY = 'pytree'
 
@@ -45,23 +48,44 @@ def subdirs(directory: path_types.Path, *, limit: int = 3) -> list[str]:
   )
 
 
-def validate_checkpoint(path: path_types.PathLike):
-  """Validates a checkpoint path written by `ocp.save_checkpointables`.
+def validate_checkpoint_directory(path: path_types.PathLike):
+  """Validates a checkpoint directory.
 
   Args:
     path: The path to the checkpoint directory.
 
   Raises:
-    FileNotFoundError: If the path does not exist, or if `pytree` is not found
-      in the directory
+    FileNotFoundError: If the path does not exist.
     NotADirectoryError: If the path is not a directory.
-    ValueError: If the metadata cannot be read.
+    ValueError: If the checkpoint is incomplete.
   """
   path = epath.Path(path)
   if not path.exists():
     raise FileNotFoundError(f'Checkpoint path {path} does not exist.')
   if not path.is_dir():
     raise NotADirectoryError(f'Checkpoint path {path} is not a directory.')
+  if v0_step_lib.is_tmp_checkpoint(path):
+    raise ValueError(f'Found incomplete checkpoint at {path}.')
+
+
+def validate_checkpoint_metadata(path: path_types.PathLike):
+  """Validates the checkpoint-level metadata (_CHECKPOINT_METADATA)."""
+  metadata_store = checkpoint_metadata.metadata_store(enable_write=False)
+  # Path points to a single step checkpoint with valid metadata.
+  checkpoint_metadata_path = checkpoint_metadata.step_metadata_file_path(path)
+  if not checkpoint_metadata_path.exists():
+    raise FileNotFoundError(
+        f'Checkpoint path {path} does not contain a valid metadata file:'
+        f' {checkpoint_metadata_path.name}. Please ensure the path specified'
+        ' for loading points to a valid Orbax checkpoint, indicated by the'
+        ' presence of the metadata file.'
+    )
+  # TODO(niketkb): This check can be removed because the caller will anyway read
+  # the metadata file. We are reading the file twice.
+  if metadata_store.read(checkpoint_metadata_path) is None:
+    raise ValueError(
+        f'Failed to read valid metadata for checkpoint path {path}.'
+    )
 
 
 def validate_pytree_checkpoint(
@@ -80,12 +104,9 @@ def validate_pytree_checkpoint(
   Raises:
     FileNotFoundError: If the path does not exist, or if `pytree` is not found
       in the directory
-    NotADirectoryError: If the path is not a directory.
-    ValueError: If the PyTree checkpoint is malformed or metadata cannot be
-      read.
+    ValueError: If the PyTree checkpoint is malformed.
   """
   path = epath.Path(path)
-  validate_checkpoint(path)
   pytree_dir = (
       path if checkpointable_name is None else path / checkpointable_name
   )
@@ -117,18 +138,4 @@ def validate_pytree_checkpoint(
         ' sign of a malformed checkpoint, unless your checkpoint consists'
         ' entirely of strings or other non-standard PyTree leaves.',
         path,
-    )
-  metadata_store = checkpoint_metadata.metadata_store(enable_write=False)
-  # Path points to a single step checkpoint with valid metadata.
-  checkpoint_metadata_path = checkpoint_metadata.step_metadata_file_path(path)
-  if not checkpoint_metadata_path.exists():
-    raise FileNotFoundError(
-        f'Checkpoint path {path} does not contain a valid metadata file:'
-        f' {checkpoint_metadata_path.name}'
-    )
-  # TODO(niketkb): This check can be removed because the caller will anyway read
-  # the metadata file. We are reading the file twice.
-  if metadata_store.read(checkpoint_metadata_path) is None:
-    raise ValueError(
-        f'Failed to read valid metadata for checkpoint path {path}.'
     )
