@@ -198,24 +198,6 @@ class JaxSpecificInfo(obm.ShloFunctionSupplementalInfo):
         ext_name="pb",
     )
 
-  # TODO(wangpeng): Remove this method once the SaveOptions.version==1
-  # path is no longer needed.
-  def process_xla_call_module_attrs(
-      self, version: int, call_module_attrs: Dict[str, Any]
-  ) -> None:
-    if version >= 6:
-      call_module_attrs["disabled_checks"] = tuple(
-          str(c) for c in self.disabled_safety_checks
-      )
-    else:
-      if version >= 3:
-        if (
-            jax.export.DisabledSafetyCheck.platform()
-            in self.disabled_safety_checks
-        ):
-          call_module_attrs["platforms"] = ()  # No platform checking
-
-
 def _to_shlo_shape_and_refinement(
     jax_shape: Sequence[Any],
 ) -> Tuple[obm.ShloShape, ShapeRefinement | None]:

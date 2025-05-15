@@ -34,30 +34,6 @@ class ShloFunctionSupplementalInfo(abc.ABC):
     """Serializes it to an `UnstructuredDataWithExtName`."""
     pass
 
-  # TODO(wangpeng): Remove this method once the SaveOptions.version==1
-  # path is no longer needed.
-  @abc.abstractmethod
-  def process_xla_call_module_attrs(
-      self, version: int, call_module_attrs: Dict[str, Any]
-  ) -> None:
-    """Gives it an opportunity to modify the XLA call module attrs.
-
-    When we are serializing to saved_model.pb, we need to generate an
-    `XlaCallModule` node for each `ShloFunction`. The
-    `ShloFunction.supplemental_info` field may contain some
-    information that needs to be stored in the `XlaCallModule` node's
-    attributes. This function lets the
-    `ShloFunction.supplemental_info` object modify the attributes.
-
-    Args:
-      version: the calling convention version of the `XlaCallModule`
-        node. It will be the same as
-        `ShloFunction.mlir_module_serialization_version`.
-      call_module_attrs: the attributes of the `XlaCallModule` node. It is a
-        (mutable) dict mapping attribute name to value.
-    """
-    pass
-
 
 @dataclass
 class ShloFunction(Function):

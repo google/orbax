@@ -321,8 +321,6 @@ def _run_shlo_fn_as_tf(
   call_module_attrs["platforms"] = tuple(
       p.upper() for p in shlo_fn.lowering_platforms
   )
-  if supplemental_info is not None:
-    supplemental_info.process_xla_call_module_attrs(version, call_module_attrs)
 
   if logging.vlog_is_on(3):
     # We already logged the MLIR module when we exported it.
