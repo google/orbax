@@ -193,9 +193,10 @@ class ArrayOptions:
         indicates no maximum file size limit.  For best results, ensure
         chunk_byte_size is smaller than this value.  For more details, refer to
         https://google.github.io/tensorstore/kvstore/ocdbt/index.html#json-kvstore/ocdbt.target_data_file_size
-      enable_pinned_host_transfer: If False, disables transfer to pinned host
-        when copying from device to host, regardless of the presence of pinned
-        host memory.
+      enable_pinned_host_transfer: Whether to use pinned_host memory for the
+        transfer from device to host memory. Passing None will enable
+        pinned_host memory depending on the platform used (currently only
+        enables it for the GPU backend).
       enable_post_merge_validation: If True, enables validation of the
         parameters after the finalize step.
       use_replica_parallel: Whether to parallelize saving across replicas.
@@ -235,7 +236,7 @@ class ArrayOptions:
     use_ocdbt: bool = True
     use_zarr3: bool = True
     ocdbt_target_data_file_size: int | None = None
-    enable_pinned_host_transfer: bool = False
+    enable_pinned_host_transfer: bool | None = None
     enable_post_merge_validation: bool = True
     use_replica_parallel: bool = True
     enable_write_sharding_file: bool = True
