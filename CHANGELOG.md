@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Local type handler registries.
+- Added support for merging array groups across multiple devices, with uneven
+sharding between devices.
 
 ### Changed
 - The PyPi `orbax` package is deprecated in favor of domain-specific namespace
