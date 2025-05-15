@@ -26,6 +26,7 @@ import dataclasses
 import functools
 import json
 import sys
+import threading
 import time
 from typing import Any, List, Optional, Sequence, Tuple, Union
 import uuid
@@ -478,6 +479,7 @@ class BasePyTreeCheckpointHandler(
         save_args,
         self._type_handler_registry,
     )
+    batch_requests_ready_time = time.time()
     tree_memory_size = 0
     for request in batch_requests:
       serialize_ops += [
@@ -490,6 +492,7 @@ class BasePyTreeCheckpointHandler(
     # Flatten to List[future.Future].
     commit_futures, _ = jax.tree.flatten(commit_futures)
 
+    serialization_requested_time = time.time()
     if logging.vlog_is_on(1):
       logging.vlog(1, 'param_info: %s', param_infos)
       logging.vlog(1, 'save_args: %s', save_args)
@@ -517,7 +520,7 @@ class BasePyTreeCheckpointHandler(
         start_time,
         '/jax/checkpoint/write/blocking_bytes_per_sec',
     )
-    return [
+    chained_futures = [
         future.ChainedFuture(
             save_futures,
             functools.partial(
@@ -529,6 +532,19 @@ class BasePyTreeCheckpointHandler(
             ),
         )
     ]
+    async_save_end_time = time.time()
+    logging.info(
+        '[process=%s][thread=%s] Initiated async_save, took'
+        ' %fs (batch_requests_ready=%fs, serialization_requested=%fs,'
+        ' others=%fs)',
+        multihost.process_index(),
+        threading.current_thread().name,
+        async_save_end_time - start_time,
+        batch_requests_ready_time - start_time,
+        serialization_requested_time - batch_requests_ready_time,
+        async_save_end_time - serialization_requested_time,
+    )
+    return chained_futures
 
   def save(self, directory: epath.Path, *args, **kwargs):
     """Saves the provided item.
@@ -881,10 +897,13 @@ class BasePyTreeCheckpointHandler(
       custom_metadata: tree_types.JsonType | None = None,
       use_zarr3: bool,
   ) -> None:
+    start_time = time.time()
     if not utils.is_primary_host(self._primary_host):
       return
     for commit_future in commit_futures:
       await asyncio.to_thread(commit_future.result)
+
+    commit_time = time.time()
     # `write_shape` is extracted from ArrayMetadata store saved during
     # materialization of commit_futures. Then it is written to the pytree
     # metadata.
@@ -906,6 +925,16 @@ class BasePyTreeCheckpointHandler(
         use_zarr3=use_zarr3,
     )
     await asyncio.to_thread(write_metadata_file_future.result)
+    end_time = time.time()
+    logging.info(
+        '[process=%s][thread=%s] Commit + Array metadata write took %fs'
+        ' (commit=%fs, array_metadata_write=%fs)',
+        multihost.process_index(),
+        threading.current_thread().name,
+        end_time - start_time,
+        commit_time - start_time,
+        end_time - commit_time,
+    )
 
   def _read_metadata_file(
       self, directory: epath.Path
