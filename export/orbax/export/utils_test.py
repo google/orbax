@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from absl.testing import parameterized
 import numpy as np
 from orbax.export import utils
 import tensorflow as tf
@@ -20,7 +21,7 @@ import tensorflow as tf
 TensorSpecWithDefault = utils.TensorSpecWithDefault
 
 
-class UtilsTest(tf.test.TestCase):
+class UtilsTest(tf.test.TestCase, parameterized.TestCase):
 
   def test_with_default_args(self):
     input_signature = [
