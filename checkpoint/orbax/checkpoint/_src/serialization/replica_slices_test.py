@@ -27,7 +27,7 @@ def is_pow_of_two(n):
   return True
 
 
-def make_multi_device_array(shape, partitioned):
+def make_multi_device_array(shape, partitioned, pinned_host=False):
   """Creates a partially- or fully-replicated array."""
   num_devices = len(jax.devices())
   assert is_pow_of_two(num_devices)
@@ -46,6 +46,8 @@ def make_multi_device_array(shape, partitioned):
     num_partitions = 1
     num_replicas = num_devices
   sharding = jax.sharding.NamedSharding(mesh, spec)
+  if pinned_host:
+    sharding = sharding.with_memory_kind('pinned_host')
 
   x = jax.random.normal(jax.random.PRNGKey(0), shape)
   data = jax.device_put(x, sharding)
@@ -114,6 +116,22 @@ class ReplicaSlicesTest(parameterized.TestCase):
       for rslice in rslices:
         self.assertTrue(rslice.slice_args)
         self.assertEqual(rslice.slice_args.axis, expected_axis)
+
+  @parameterized.product(
+      shape=[2 * 768, 2 * 1024,],
+      partitioned=[False, True],
+  )
+  def test_get_replica_slices_pinned_host_passes(self, shape, partitioned):
+    if len(jax.devices()) < 4:
+      self.skipTest('Test requires multiple devices.')
+    arr, _, _ = make_multi_device_array(
+        shape, partitioned=partitioned, pinned_host=True
+    )
+    rslices = replica_slices.get_replica_slices(
+        arr, replica_id=0, use_replica_parallel=True
+    ).replica_slices
+    for rslice in rslices:
+      _ = np.array(rslice.data())  # check this does not hang
 
   @parameterized.product(
       partitioned=[False, True],
