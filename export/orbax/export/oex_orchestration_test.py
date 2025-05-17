@@ -15,6 +15,12 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.export import oex_orchestration
+import tensorflow as tf
+
+
+@tf.function
+def tf_fn(a):
+  return a
 
 
 class OexOrchestrationTest(parameterized.TestCase):
