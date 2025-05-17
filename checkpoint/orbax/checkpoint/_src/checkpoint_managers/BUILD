@@ -7,6 +7,7 @@ py_library(
         ":policy_checkpoint_info",
         "//checkpoint/orbax/checkpoint:options",
         "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//orbax/checkpoint/_src/futures:signaling_client",
     ],
 )
 
