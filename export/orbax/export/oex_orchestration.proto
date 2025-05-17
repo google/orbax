@@ -46,6 +46,15 @@ message Pipeline {
   optional BatchOptions batch_options = 60;
 }
 
+message StringTensorTypePairs {
+  repeated StringTensorTypePair elements = 1;
+}
+
+message StringTensorTypePair {
+  string fst = 1;
+  orbax_model_type.TensorType snd = 2;
+}
+
 message BatchOptions {
   // The component of the model to batch.
   enum BatchComponent {
