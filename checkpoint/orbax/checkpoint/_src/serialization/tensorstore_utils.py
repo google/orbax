@@ -404,14 +404,18 @@ class ArrayWriteSpec:
         chunk_byte_size,
         shard_axes=shard_axes,
     )
-    if chunk_shape != write_shape:
+    if chunk_shape != write_shape or logging.vlog_is_on(1):
       logging.info(
           'Array name: %r, global shape: %r, write shape: %r, chosen chunk'
-          ' shape: %r',
+          ' shape: %r, target storage dtype: %r, chunk byte size: %r,'
+          ' shard_axes: %r',
           relative_array_filename,
           global_shape,
           write_shape,
           chunk_shape,
+          target_storage_dtype,
+          chunk_byte_size,
+          shard_axes,
       )
     # Construct Zarr chunk metadata.
     tspec['metadata'] = build_zarr_shard_and_chunk_metadata(

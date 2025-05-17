@@ -16,6 +16,7 @@
 
 import asyncio
 import json
+import pprint
 import threading
 import time
 from typing import Any, Iterator, List, Sequence, Tuple
@@ -202,6 +203,12 @@ class Store:
         len(array_metadatas),
         file_path,
     )
+    if logging.vlog_is_on(1):
+      logging.vlog(
+          1,
+          'Written array_metadatas: %s',
+          pprint.pformat(array_metadatas),
+      )
 
   async def _get_array_metadatas(
       self,
@@ -289,15 +296,17 @@ class Store:
       )
       return None
 
-    logging.vlog(
-        1,
-        '[process=%s][thread=%s] Read all metadata from checkpoint_dir=%s in %s'
-        ' seconds.',
-        multihost.process_index(),
-        threading.current_thread().name,
-        checkpoint_dir,
-        time.time() - start_time,
-    )
+    if logging.vlog_is_on(1):
+      logging.vlog(
+          1,
+          '[process=%s][thread=%s] Read all metadata from checkpoint_dir=%s in'
+          ' %s seconds.',
+          multihost.process_index(),
+          threading.current_thread().name,
+          checkpoint_dir,
+          time.time() - start_time,
+      )
+      logging.vlog(1, 'result: %s', pprint.pformat(result))
     return result
 
 
