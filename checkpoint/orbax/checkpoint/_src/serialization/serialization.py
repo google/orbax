@@ -127,8 +127,10 @@ class LimitInFlightBytes(ByteLimiter):
   async def wait_for_bytes(self, requested_bytes: int):
     """Reserve bytes."""
     if requested_bytes >= self._max_bytes:
-      raise ValueError('Requested more bytes than we reserved space for: '
-                       f'{requested_bytes} > {self._max_bytes}')
+      raise ValueError(
+          'Requested more bytes than we reserved space for: '
+          f'{requested_bytes} > {self._max_bytes}'
+      )
     async with self._cv:
       await self._cv.wait_for(lambda: self._available_bytes > requested_bytes)
       self._available_bytes -= requested_bytes
@@ -333,8 +335,9 @@ def estimate_write_memory_footprint(arr: np.ndarray) -> int:
   return arr.size * arr.dtype.itemsize
 
 
-def estimate_read_memory_footprint(t: ts.TensorStore,
-                                   domain: ts.IndexDomain) -> int:
+def estimate_read_memory_footprint(
+    t: ts.TensorStore, domain: ts.IndexDomain
+) -> int:
   """Estimates memory required to read a given domain."""
   rank = t.rank
   num_bytes = t.dtype.numpy_dtype.itemsize
@@ -362,7 +365,7 @@ def estimate_read_memory_footprint(t: ts.TensorStore,
     upper = origin_value + shape[i] - chunk_origin_value
     lower_aligned = lower // chunk_size * chunk_size
     upper_aligned = -(-upper // chunk_size) * chunk_size
-    num_bytes *= (upper_aligned - lower_aligned)
+    num_bytes *= upper_aligned - lower_aligned
 
   return num_bytes
 
@@ -419,10 +422,10 @@ async def _read_array_index_and_device_put(
     else:
       raise ValueError(
           f'Requested shape: {global_shape} is not compatible with the stored'
-          f' shape: {t.shape}. Truncating/padding is disabled by setting of'
-          ' `strict=True`. When using standard Orbax APIs, this behavior can'
-          ' be modified by specifying `strict=False` in `ArrayRestoreArgs` for'
-          ' any array in which padding/truncation is desired.'
+          f' shape: {t.shape}. Truncating/padding is disabled. To enable it,'
+          ' set `strict=False` in `ArrayRestoreArgs` for any array in v0 API'
+          ' or `enable_padding_and_truncation=True` in `ArrayOptions.Loading`'
+          ' in v1 API.'
       )
   else:
     requested_domain = ts.IndexTransform(input_shape=global_shape)[index].domain
