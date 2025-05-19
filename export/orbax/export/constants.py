@@ -88,3 +88,10 @@ ORBAX_CHECKPOINT_MIME_TYPE = 'orbax_checkpoint'
 # obm_kwargs keys in `ServingConfig`:
 # - The batching config for the model.
 BATCH_OPTIONS = 'batch_options'
+
+################################################################################
+# Proto field names
+################################################################################
+# Proto field names for ConverterOptionsV2.BatchOptionsV2
+PROTO_FIELD_BATCHOPTIONSV2_BATCH_COMPONENT = 'batch_component'
+PROTO_FIELD_BATCHOPTIONSV2_SIGNATURE_NAME = 'signature_name'
