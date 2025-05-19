@@ -50,6 +50,7 @@ from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
+from orbax.checkpoint._src.tree import structure_utils as tree_structure_utils
 from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
@@ -743,7 +744,7 @@ class BasePyTreeCheckpointHandler(
       # dicts, lists, custom nodes) as leaves, as they do not contain any
       # actual data to be restored, but are needed to maintain the structure.
       serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
-      diff = tree_utils.tree_difference(
+      diff = tree_structure_utils.tree_difference(
           serialized_item,
           value_metadata_tree,
           is_leaf=tree_utils.is_empty_or_leaf,
