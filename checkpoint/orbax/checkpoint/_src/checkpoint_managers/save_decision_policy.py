@@ -20,6 +20,7 @@ import typing
 from typing import Container, Protocol, Sequence
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
+from orbax.checkpoint._src.futures import signaling_client
 from orbax.checkpoint._src.multihost import multihost
 
 
@@ -44,7 +45,7 @@ class SaveDecisionPolicy(Protocol):
       step: PolicyCheckpointInfo,
       previous_steps: Sequence[PolicyCheckpointInfo],
       *,
-      context: DecisionContext
+      context: DecisionContext,
   ) -> bool:
     """Returns True if a checkpoint should be saved at the given step."""
     ...
@@ -61,7 +62,7 @@ class FixedIntervalPolicy(SaveDecisionPolicy):
       step: PolicyCheckpointInfo,
       previous_steps: Sequence[PolicyCheckpointInfo],
       *,
-      context: DecisionContext
+      context: DecisionContext,
   ) -> bool:
     del previous_steps
     del context
@@ -79,7 +80,7 @@ class SpecificStepsPolicy(SaveDecisionPolicy):
       step: PolicyCheckpointInfo,
       previous_steps: Sequence[PolicyCheckpointInfo],
       *,
-      context: DecisionContext
+      context: DecisionContext,
   ) -> bool:
     del previous_steps
     del context
@@ -97,25 +98,38 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
       step: PolicyCheckpointInfo,
       previous_steps: Sequence[PolicyCheckpointInfo],
       *,
-      context: DecisionContext
+      context: DecisionContext,
   ) -> bool:
     if context.is_saving_in_progress:
       return False
     if not previous_steps or self.minimum_interval_secs is None:
       return True
-    save_result = False
     is_primary_host = multihost.is_primary_host(
         context.multiprocessing_options.primary_host
     )
+    client = signaling_client.get_signaling_client()
+    result_barrier_key = (
+        f'continuous_checkpointing_policy_should_save_{step.step}/'
+    )
     # Make time based decision only on primary host and broadcast to all hosts.
     if is_primary_host:
-      save_result = step.time - previous_steps[-1].time >= datetime.timedelta(
-          seconds=self.minimum_interval_secs
+      save_result = int(
+          step.time - previous_steps[-1].time
+          >= datetime.timedelta(seconds=self.minimum_interval_secs)
       )
-    save_result = bool(
-        multihost.broadcast_one_to_all(save_result, is_source=is_primary_host)
+      client.key_value_set(
+          result_barrier_key,
+          str(save_result),
+          allow_overwrite=True,
+      )
+
+    save_result = int(
+        client.blocking_key_value_get(
+            result_barrier_key,
+            timeout_secs=600,
+        )
     )
-    return save_result
+    return bool(save_result)
 
 
 class PreemptionCheckpointingPolicy(SaveDecisionPolicy):
@@ -126,7 +140,7 @@ class PreemptionCheckpointingPolicy(SaveDecisionPolicy):
       step: PolicyCheckpointInfo,
       previous_steps: Sequence[PolicyCheckpointInfo],
       *,
-      context: DecisionContext
+      context: DecisionContext,
   ) -> bool:
     del step
     del previous_steps
@@ -141,7 +155,7 @@ class InitialSavePolicy(SaveDecisionPolicy):
       step: PolicyCheckpointInfo,
       previous_steps: Sequence[PolicyCheckpointInfo],
       *,
-      context: DecisionContext
+      context: DecisionContext,
   ) -> bool:
     del step
     del context
@@ -163,7 +177,7 @@ class AnySavePolicy(SaveDecisionPolicy):
       step: PolicyCheckpointInfo,
       previous_steps: Sequence[PolicyCheckpointInfo],
       *,
-      context: DecisionContext
+      context: DecisionContext,
   ) -> bool:
     return any(
         policy.should_save(step, previous_steps=previous_steps, context=context)
