@@ -295,14 +295,23 @@ def get_replica_slices(
         ]),
     )
 
+  # Small pinned host arrays have layout requirements so slicing them might hang
+  # this is a temporary workaround to avoid this. TODO: b/417243451
+  is_safe_to_slice = (
+      arr.sharding.memory_kind != 'pinned_host'
+      or arr.ndim >= 2
+      and arr.addressable_shards[0].data.size % 1024 == 0
+      and arr.addressable_shards[0].data.shape[-1] % 128 == 0
+  )
   # In order for all processes to agree on the right serialization metadata
   # we want to compute the correct local shape regardless of whether there
   # are any replica slices to save locally.
-  rslices, local_shape = (  # pytype: disable=attribute-error
-      use_replica_parallel
-      and maybe_pick_replica_parallel()
-      or pick_single_replica()
-  )
+  candidate_slices = None
+  if use_replica_parallel and is_safe_to_slice:
+    candidate_slices = maybe_pick_replica_parallel()
+  if candidate_slices is None:
+    candidate_slices = pick_single_replica()  # pytype: disable=attribute-error
+  rslices, local_shape = candidate_slices
   return ReplicaSlices(
       global_shape=arr.shape,
       local_shape=local_shape,
