@@ -89,6 +89,9 @@ ORBAX_CHECKPOINT_MIME_TYPE = 'orbax_checkpoint'
 # - The batching config for the model.
 BATCH_OPTIONS = 'batch_options'
 
+# XLA compile options for the model.
+XLA_COMPILE_OPTIONS = 'xla_compile_options'
+
 ################################################################################
 # Proto field names
 ################################################################################

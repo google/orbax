@@ -27,7 +27,6 @@ from orbax.export.modules import orbax_module_base
 from orbax.export.typing import PyTree
 import tensorflow as tf
 
-
 ApplyFn = orbax_export_typing.ApplyFn
 
 
@@ -70,6 +69,12 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
           f' for export. Received apply_fn_map: {self._apply_fn_map} and'
           f' input_polymorphic_shape_map: {self.input_polymorphic_shape_map}'
       )
+
+    # TODO(b/380323586): Look into if we should create a xla_compile_options
+    # with default values for the users.
+    self._xla_compile_options = jax2obm_kwargs.get(
+        constants.XLA_COMPILE_OPTIONS, None
+    )
 
     # TODO(qidichen): Consider if `self.polymorphic_constraints` should support
     # a map as well like `input_polymorphic_shape`. For now we assume there is

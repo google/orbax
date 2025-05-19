@@ -81,13 +81,13 @@ def build_function(fn: Function, path: str, name: str) -> manifest_pb2.Function:
 
 
 def build_manifest_proto(
-    em_module: dict[str, Saveable],
+    obm_module: dict[str, Saveable],
     path: str,
     supplemental_info: Mapping[str, UnstructuredData] | None = None,
 ) -> manifest_pb2.Manifest:
   """Builds a Manifest proto from EM functions."""
   manifest_proto = manifest_pb2.Manifest()
-  for name, obj in em_module.items():
+  for name, obj in obm_module.items():
     if isinstance(obj, Function):
       fn = obj
       fn_proto = build_function(fn, path, name)
