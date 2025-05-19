@@ -77,8 +77,11 @@ def pytree_metadata(
   Returns:
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
+  format_utils.validate_checkpoint_directory(path)
+  format_utils.validate_checkpoint_metadata(path)
   format_utils.validate_pytree_checkpoint(path)
-  metadata = checkpointables_metadata(path)
+
+  metadata = _checkpointables_metadata_impl(path)
   return CheckpointMetadata[PyTreeMetadata](
       metadata=metadata.metadata[PYTREE_CHECKPOINTABLE_KEY],
       init_timestamp_nsecs=metadata.init_timestamp_nsecs,
@@ -114,6 +117,16 @@ def checkpointables_metadata(
   Returns:
     A `CheckpointMetadata[dict[str, Any]]` object.
   """
+  format_utils.validate_checkpoint_directory(path)
+  format_utils.validate_checkpoint_metadata(path)
+
+  return _checkpointables_metadata_impl(path)
+
+
+def _checkpointables_metadata_impl(
+    path: path_types.PathLike,
+) -> CheckpointMetadata[dict[str, Any]]:
+  """Shared implementation for checkpointables_metadata."""
   path = epath.Path(path)
   checkpointer, _ = loading.get_v0_checkpointer_and_args(
       path, None, context=context_lib.get_context()

@@ -6,7 +6,6 @@ py_library(
     deps = [
         ":array_utils",
         ":handler_utils",
-        ":path_utils",
         ":tree_utils",
         "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity",
@@ -15,7 +14,6 @@ py_library(
         "//third_party/py/aiofiles",
         "//orbax/checkpoint/experimental/v1",
         "//orbax/checkpoint/experimental/v1/_src/handlers:registration",
-        "//orbax/checkpoint/experimental/v1/_src/handlers:stateful_checkpointable_handler",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
         "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
         "//orbax/checkpoint/experimental/v1/_src/tree:types",

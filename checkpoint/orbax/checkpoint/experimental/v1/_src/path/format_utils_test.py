@@ -41,8 +41,8 @@ class FormatUtilsTest(parameterized.TestCase):
     directory = self.ckpt_dir if checkpointable_name is None else self.directory
 
     with self.assertRaises(FileNotFoundError):
-      format_utils.validate_pytree_checkpoint(
-          directory / 'foo', checkpointable_name=checkpointable_name
+      format_utils.validate_checkpoint_directory(
+          directory / 'foo'
       )
 
   @parameterized.product(checkpointable_name=['pytree', 'state', None])
@@ -51,8 +51,8 @@ class FormatUtilsTest(parameterized.TestCase):
     (directory / 'foo').write_text('foo')
 
     with self.assertRaises(NotADirectoryError):
-      format_utils.validate_pytree_checkpoint(
-          directory / 'foo', checkpointable_name=checkpointable_name
+      format_utils.validate_checkpoint_directory(
+          directory / 'foo'
       )
 
   @parameterized.product(checkpointable_name=['pytree', 'state', None])
@@ -60,10 +60,12 @@ class FormatUtilsTest(parameterized.TestCase):
     directory = self.ckpt_dir if checkpointable_name is None else self.directory
     (directory / '_CHECKPOINT_METADATA').unlink()
 
+    format_utils.validate_pytree_checkpoint(
+        directory, checkpointable_name=checkpointable_name
+    )
+
     with self.assertRaises(FileNotFoundError):
-      format_utils.validate_pytree_checkpoint(
-          directory, checkpointable_name=checkpointable_name
-      )
+      format_utils.validate_checkpoint_metadata(directory)
 
   @parameterized.product(checkpointable_name=['pytree', 'state', None])
   def test_invalid_pytree(self, checkpointable_name: str | None):

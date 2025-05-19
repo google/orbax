@@ -14,8 +14,11 @@
 
 """Defines free-function interface for loading."""
 
+import asyncio
+import time
 from typing import Any
 
+from absl import logging
 from etils import epath
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
@@ -29,8 +32,10 @@ from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_typ
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import registration as serialization_registration
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+
 
 
 PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
@@ -43,6 +48,18 @@ def _standardize_abstract_checkpointables(abstract_checkpointables):
   if isinstance(abstract_checkpointables, CheckpointMetadata):
     return abstract_checkpointables.metadata
   return abstract_checkpointables
+
+
+def _validate_abstract_checkpointables(abstract_checkpointables):
+  if abstract_checkpointables is None:
+    return
+  if (
+      provided_reserved_keys := abstract_checkpointables.keys()
+      & format_utils.RESERVED_CHECKPOINTABLE_KEYS
+  ):
+    raise ValueError(
+        f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
+    )
 
 
 def load_pytree(
@@ -99,9 +116,20 @@ def load_pytree(
   Returns:
     The restored PyTree.
   """
+  start_time = time.time()
+  logging.info('Loading checkpoint from %s.', directory)
+  directory = epath.Path(directory)
+
+  format_utils.validate_checkpoint_directory(directory)
   format_utils.validate_pytree_checkpoint(
       directory, checkpointable_name=checkpointable_name
   )
+  if checkpointable_name is not None:
+    # Checkpoint-level metadata is not used for loading if `name` is None,
+    # and is a non-standard place. Only perform metadata validation if
+    # `name` is not None.
+    format_utils.validate_checkpoint_metadata(directory)
+
   if checkpointable_name is None:  # directory is direct path to pytree ckpt.
     # TODO(niketkb): Refactor to load the pytree directly from the directory.
 
@@ -111,13 +139,15 @@ def load_pytree(
     directory = epath.Path(directory)
     checkpointable_name = directory.name
     directory = directory.parent
-  return load_checkpointables(
+
+  return _load_checkpointables_impl(
       directory,
       abstract_checkpointables={
           checkpointable_name: _standardize_abstract_checkpointables(
               abstract_pytree
           )
       },
+      start_time=start_time,
   )[checkpointable_name]
 
 
@@ -166,21 +196,77 @@ def load_checkpointables(
   Returns:
     A dictionary of checkpointables. Dictionary keys represent the names of the
     checkpointables, while the values are the checkpointable objects themselves.
+
+  Raises:
+    FileNotFoundError: If the checkpoint directory does not exist.
   """
+
+  start_time = time.time()
+  logging.info('Loading checkpoint from %s.', directory)
   directory = epath.Path(directory)
-  format_utils.validate_checkpoint(directory)
+
+  format_utils.validate_checkpoint_directory(directory)
+  format_utils.validate_checkpoint_metadata(directory)
+
+  return _load_checkpointables_impl(
+      directory,
+      abstract_checkpointables,
+      start_time=start_time,
+  )
 
 
+def _load_checkpointables_impl(
+    directory: path_types.Path,
+    abstract_checkpointables: (
+        dict[str, Any] | CheckpointMetadata[dict[str, Any]] | None
+    ) = None,
+    *,
+    start_time: float,
+) -> dict[str, Any]:
+  """Implementation of load_checkpointables.
+
+  Args:
+    directory: The directory to load the checkpoint from. This directory must
+      contain a subdirectory for each checkpointable.
+    abstract_checkpointables: A dictionary of abstract checkpointables.
+      Dictionary keys represent the names of the checkpointables, while the
+      values are the abstract checkpointable objects themselves.
+    start_time: The time when the loading process started.
+
+  Returns:
+    A dictionary of checkpointables. Dictionary keys represent the names of the
+    checkpointables, while the values are the checkpointable objects themselves.
+  """
+
+  context = context_lib.get_context()
+  handler = composite_handler.CompositeHandler(
+      context.checkpointables_options.registry
+  )
   abstract_checkpointables = _standardize_abstract_checkpointables(
       abstract_checkpointables
   )
-  ckptr, args = get_v0_checkpointer_and_args(
+  _validate_abstract_checkpointables(abstract_checkpointables)
+
+  async def _load() -> dict[str, Any]:
+    load_awaitable = await handler.load(directory, abstract_checkpointables)
+    result = await load_awaitable
+    await multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'load_checkpointables',
+            prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+        ),
+        processes=context.multiprocessing_options.active_processes,
+    )
+    return result
+
+  result = asyncio.run(_load())
+  duration_secs = time.time() - start_time
+  logging.info(
+      'Finished loading checkpoint in %.2f seconds from %s.',
+      duration_secs,
       directory,
-      abstract_checkpointables,
-      context=context_lib.get_context(),
   )
-  restored = ckptr.restore(directory, args=args)
-  return {k: v for k, v in zip(restored.keys(), restored.values())}
+  return result
 
 
 def load_pytree_async(
@@ -217,14 +303,8 @@ def get_v0_checkpointer_and_args(
     composite_checkpoint_handler.CompositeArgs,
 ]:
   """Construct V0 Checkpointer and Args for loading."""
+  _validate_abstract_checkpointables(abstract_checkpointables)
   abstract_checkpointables = abstract_checkpointables or {}
-  if (
-      provided_reserved_keys := abstract_checkpointables.keys()
-      & format_utils.RESERVED_CHECKPOINTABLE_KEYS
-  ):
-    raise ValueError(
-        f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
-    )
 
   # pylint: disable=protected-access
   handlers = composite_handler.CompositeHandler(

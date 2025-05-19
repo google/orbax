@@ -79,7 +79,6 @@ py_library(
     deps = [
         ":global_registration",
         ":registration",
-        "//checkpoint/orbax/checkpoint/_src:composite",
         "//checkpoint/orbax/checkpoint/_src/metadata:checkpoint",
         "//checkpoint/orbax/checkpoint/_src/metadata:step_metadata_serialization",
         "//orbax/checkpoint/experimental/v1/_src/context",

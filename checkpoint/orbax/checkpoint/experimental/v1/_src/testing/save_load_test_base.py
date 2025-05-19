@@ -842,3 +842,13 @@ class SaveLoadTestBase:
           'Could not identify a valid handler for the checkpointable: "point"',
       ):
         ocp.save_checkpointables(self.directory, checkpointables)
+
+    def test_load_does_not_exist(self):
+      with self.assertRaises(FileNotFoundError):
+        ocp.load_checkpointables(self.directory / 'foobar')
+
+    def test_load_tmp_checkpoint(self):
+      tmp_checkpoint_dir = self.directory / 'foo.orbax-checkpoint-tmp-1234'
+      tmp_checkpoint_dir.mkdir(parents=True, exist_ok=False)
+      with self.assertRaisesRegex(ValueError, 'Found incomplete checkpoint'):
+        ocp.load_checkpointables(tmp_checkpoint_dir)
