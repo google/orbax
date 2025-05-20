@@ -34,7 +34,9 @@ py_library(
     name = "handler_utils",
     srcs = ["handler_utils.py"],
     deps = [
+        "//checkpoint/orbax/checkpoint:checkpoint_args",
         "//third_party/py/aiofiles",
+        "//orbax/checkpoint:handlers",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/handlers:types",
         "//orbax/checkpoint/experimental/v1/_src/path:types",

@@ -21,6 +21,9 @@ import json
 from typing import Any, Awaitable, Type
 
 import aiofiles
+from etils import epath
+from orbax.checkpoint import checkpoint_args as v0_args
+from orbax.checkpoint import handlers as v0_handlers
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -53,6 +56,34 @@ class DataclassHandler:
     async with aiofiles.open(directory / 'foo.txt', 'r') as f:
       contents = json.loads(await f.read())
       return checkpointable_type(*contents.values())
+
+
+class DataclassCheckpointHandler(v0_handlers.CheckpointHandler):
+  """Implements v0 CheckpointHandler for dataclasses."""
+
+  def save(self, directory: epath.Path, args: DataclassSaveArgs):
+    if multihost.is_primary_host(0):
+      contents = json.dumps(dataclasses.asdict(args.data))
+      (directory / 'foo.txt').write_text(contents)
+
+  def restore(self, directory: epath.Path, *args, **kwargs) -> Any:
+    raise NotImplementedError()
+
+
+@v0_args.register_with_handler(DataclassCheckpointHandler, for_save=True)
+@dataclasses.dataclass(kw_only=False)
+class DataclassSaveArgs(v0_args.CheckpointArgs):
+  """Implements v0 CheckpointArgs for dataclasses."""
+
+  data: Any
+
+
+@v0_args.register_with_handler(DataclassCheckpointHandler, for_restore=True)
+@dataclasses.dataclass(kw_only=False)
+class DataclassRestoreArgs(v0_args.CheckpointArgs):
+  """Implements v0 CheckpointArgs for dataclasses."""
+
+  pass
 
 
 @dataclasses.dataclass
