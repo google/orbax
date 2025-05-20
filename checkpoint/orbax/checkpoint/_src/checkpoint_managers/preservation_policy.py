@@ -46,6 +46,19 @@ class PreservationPolicy(Protocol):
 
 
 @dataclasses.dataclass
+class PreserveAll(PreservationPolicy):
+  """Preserves all checkpoints."""
+
+  def should_preserve(
+      self,
+      checkpoints: Sequence[PolicyCheckpointInfo],
+      *,
+      context: PreservationContext,
+  ) -> Sequence[bool]:
+    return [True] * len(checkpoints)
+
+
+@dataclasses.dataclass
 class LatestN(PreservationPolicy):
   """Preserves the last n checkpoints. Preserves all checkpoint if n is None."""
 
@@ -147,10 +160,22 @@ class AnyPreservationPolicy(PreservationPolicy):
 
 @dataclasses.dataclass(kw_only=True)
 class BestN(PreservationPolicy):
-  """A policy that preserves the best checkpoints based on a get_metric_fn."""
+  """A policy that preserves the best checkpoints based on a best_fn.
+
+  get_metric_fn:
+    A function that accepts a nested tree of metrics and returns a scalar value
+    representing the value used for ranking checkpoints.
+  reverse:
+    If False (default), checkpoints are sorted in ascending order, according to
+    the best_fn. If True, checkpoints are sorted in descending order. Same as
+    the semantics of built-in sorted() function.
+  n:
+    The number of checkpoints to preserve. If None, all checkpoints are
+    preserved. If 0, no checkpoints are preserved.
+  """
 
   get_metric_fn: Callable[[PyTree], float]
-  reverse: bool
+  reverse: bool = False
   n: int | None = None
   keep_checkpoints_without_metrics: bool = True
 
