@@ -51,6 +51,7 @@ PersistentCheckpointOptions = checkpoint_manager.PersistentCheckpointOptions
 barrier_compatible_test = test_utils.barrier_compatible_test
 assert_tree_equal = test_utils.assert_tree_equal
 get_fake_global_mesh_for_slices = test_utils.get_fake_global_mesh_for_slices
+_STATE_ITEM_NAME = 'state'
 
 
 def swap_slices_in_mesh(
@@ -78,6 +79,12 @@ def _replace_abstract_array_sharding_with_mesh(
   return sds.update(
       sharding=jax.sharding.NamedSharding(mesh, sds.sharding.spec)
   )
+
+
+def get_composite_save_args(
+    pytree: PyTree,
+) -> args_lib.Composite:
+  return args_lib.Composite(state=PyTreeSaveArgs(pytree))
 
 
 class LocalCheckpointManagerTestBase:
@@ -990,7 +997,10 @@ class CheckpointManagerTestBase:
       )
 
       for i in range(step):
-        manager.save(i, args=PyTreeSaveArgs(pytree))
+        manager.save(
+            i,
+            args=get_composite_save_args(pytree),
+        )
         manager.wait_until_finished()
 
       self.assertEqual(manager.should_save(step), expectation)
@@ -1057,7 +1067,7 @@ class CheckpointManagerTestBase:
       )
 
       for i in range(total_steps):
-        manager.save(i, args=PyTreeSaveArgs(pytree))
+        manager.save(i, args=get_composite_save_args(pytree))
         manager.wait_until_finished()
 
       self.assertEqual(sorted(manager.all_steps()), expectation)
@@ -1106,7 +1116,10 @@ class CheckpointManagerTestBase:
       )
 
       for i in range(total_steps):
-        manager.save(i, args=PyTreeSaveArgs(pytree))
+        manager.save(
+            i,
+            args=get_composite_save_args(pytree),
+        )
         manager.wait_until_finished()
 
       self.assertEqual(manager.latest_step(), expectation)
@@ -1146,10 +1159,24 @@ class CheckpointManagerTestBase:
       )
 
       for i in range(17):
-        manager.save(i, args=PyTreeSaveArgs(pytree))
+        manager.save(
+            i,
+            args=get_composite_save_args(pytree),
+        )
       manager.wait_until_finished()
 
       self.assertEqual(manager.all_steps(), [5, 10, 12, 15])
+
+      with self.assertRaises(ValueError):
+        manager.save(
+            18,
+            args=args_lib.Composite(
+                state=PyTreeSaveArgs(pytree),
+                process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
+                    global_mesh=global_mesh
+                ),
+            ),
+        )
 
     @parameterized.parameters(
         (False, 0),
@@ -1187,9 +1214,18 @@ class CheckpointManagerTestBase:
           abstract_state=abstract_state,
       ) as manager:
 
-        manager.save(0, args=PyTreeSaveArgs(pytree))
-        manager.save(1, args=PyTreeSaveArgs(pytree))
-        manager.save(2, args=PyTreeSaveArgs(pytree_double))
+        manager.save(
+            0,
+            args=get_composite_save_args(pytree),
+        )
+        manager.save(
+            1,
+            args=get_composite_save_args(pytree),
+        )
+        manager.save(
+            2,
+            args=get_composite_save_args(pytree_double),
+        )
         manager.wait_until_finished()
 
         if multihost.process_index() == 0:
@@ -1234,9 +1270,18 @@ class CheckpointManagerTestBase:
             replica_axis_index=replica_axis_index,
         )
         self.assertEqual(slice_id == 0, manager.in_primary_slice)
-        manager.save(0, args=PyTreeSaveArgs(pytree))
-        manager.save(1, args=PyTreeSaveArgs(pytree))
-        manager.save(2, args=PyTreeSaveArgs(pytree_double))
+        manager.save(
+            0,
+            args=get_composite_save_args(pytree),
+        )
+        manager.save(
+            1,
+            args=get_composite_save_args(pytree),
+        )
+        manager.save(
+            2,
+            args=get_composite_save_args(pytree_double),
+        )
 
       self.assertEqual(jax.process_count(), 4)
       self.assertEqual(
@@ -1326,9 +1371,18 @@ class CheckpointManagerTestBase:
             replica_axis_index=replica_axis_index,
         )
         self.assertEqual(slice_id == 0, manager.in_primary_slice)
-        manager.save(0, args=PyTreeSaveArgs(pytree))
-        manager.save(1, args=PyTreeSaveArgs(pytree))
-        manager.save(2, args=PyTreeSaveArgs(pytree))
+        manager.save(
+            0,
+            args=get_composite_save_args(pytree),
+        )
+        manager.save(
+            1,
+            args=get_composite_save_args(pytree),
+        )
+        manager.save(
+            2,
+            args=get_composite_save_args(pytree),
+        )
         manager.wait_until_finished()
         self.assertSameElements([0, 1, 2], manager.all_steps())
         self.assertEqual(2, manager.latest_step())
@@ -1409,9 +1463,18 @@ class CheckpointManagerTestBase:
           abstract_state=abstract_state,
           options=options,
       ) as manager:
-        manager.save(0, args=PyTreeSaveArgs(pytree))  # both
-        manager.save(1, args=PyTreeSaveArgs(pytree))  # local
-        manager.save(2, args=PyTreeSaveArgs(pytree_double))  # both
+        manager.save(
+            0,
+            args=get_composite_save_args(pytree),
+        )  # both
+        manager.save(
+            1,
+            args=get_composite_save_args(pytree),
+        )  # local
+        manager.save(
+            2,
+            args=get_composite_save_args(pytree_double),
+        )  # both
         manager.wait_until_finished()
 
         if not manager.in_primary_slice:
@@ -1425,9 +1488,18 @@ class CheckpointManagerTestBase:
         # checkpoints.
         manager.reload()
 
-        manager.save(3, args=PyTreeSaveArgs(pytree))  # local
-        manager.save(4, args=PyTreeSaveArgs(pytree))  # both
-        manager.save(5, args=PyTreeSaveArgs(pytree_double))  # local
+        manager.save(
+            3,
+            args=get_composite_save_args(pytree),
+        )  # local
+        manager.save(
+            4,
+            args=get_composite_save_args(pytree),
+        )  # both
+        manager.save(
+            5,
+            args=get_composite_save_args(pytree_double),
+        )  # local
         manager.wait_until_finished()
 
         restored = manager.restore(5)
@@ -1463,15 +1535,26 @@ class CheckpointManagerTestBase:
           abstract_state=abstract_state,
           options=options,
       ) as manager:
-        manager.save(0, args=PyTreeSaveArgs(pytree))
-        manager.save(1, args=PyTreeSaveArgs(pytree))
-        manager.save(2, args=PyTreeSaveArgs(pytree_double))
+        manager.save(
+            0,
+            args=get_composite_save_args(pytree),
+        )
+        manager.save(
+            1,
+            args=get_composite_save_args(pytree),
+        )
+        manager.save(
+            2,
+            args=get_composite_save_args(pytree_double),
+        )
         manager.wait_until_finished()
 
         # remove all the local directories
         test_utils.empty_directory(self.local_directory)
 
-        restored = manager.restore(2, args=PyTreeRestoreArgs())
+        restored = manager.restore(2, args=args_lib.Composite(
+            **{_STATE_ITEM_NAME: PyTreeRestoreArgs()}
+            ))
         test_utils.assert_tree_equal(self, pytree_double, restored)
 
     def test_process_index_metadata(self):
@@ -1489,7 +1572,10 @@ class CheckpointManagerTestBase:
         )
         self.assertFalse(metadata_folder.exists())
 
-        mngr.save(0, args=PyTreeSaveArgs(pytree))
+        mngr.save(
+            0,
+            args=get_composite_save_args(pytree),
+        )
         mngr.wait_until_finished()
 
         if mngr.in_primary_slice:
@@ -1547,7 +1633,10 @@ class CheckpointManagerTestBase:
       )
 
       for i in range(max_to_keep):
-        manager.save(i, args=PyTreeSaveArgs(pytree))
+        manager.save(
+            i,
+            args=get_composite_save_args(pytree),
+        )
         manager.wait_until_finished()
 
       self.assertSameElements(
