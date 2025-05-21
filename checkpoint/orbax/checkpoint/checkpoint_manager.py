@@ -219,7 +219,7 @@ def is_async_checkpointer(checkpointer: AbstractCheckpointer):
 # TODO(b/309965339) Set todelete_subdir defaults if directory is on CNS.
 @dataclasses.dataclass
 class CheckpointManagerOptions:
-  """Optional arguments for CheckpointManager.
+  """Optional arguments for :py:class:`.CheckpointManager`.
 
   save_interval_steps:
     The interval at which checkpoints should be saved.
@@ -311,8 +311,8 @@ class CheckpointManagerOptions:
   save_root_metadata: If True, saves root-level metadata about checkpoints.
     This metadata is not step-specific and is written only once.
   temporary_path_class:
-    Optional. The concrete `atomicity_types.TemporaryPath` class to be used by
-    the underlying `Checkpointer`.
+    Optional. The concrete :py:class:`.atomicity_types.TemporaryPath` class to
+    be used by the underlying :py:class:`.Checkpointer`.
   save_decision_policy: An object used to determine when a checkpoint should be
     saved. If provided, overrides any other options dealing with this subject,
     including `save_interval_steps`, `save_on_steps`, and `should_save_fn`, and
@@ -532,10 +532,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     https://orbax.readthedocs.io/en/latest/guides/checkpoint/api_refactor.html
     for technical details.
 
-    The `CheckpointManager` is ultimately backed by a single `Checkpointer`, to
-    which saving and restoring is delegated. Behind step management options,
-    metrics-related logic, and other frills, saving and restoring with
-    `CheckpointManager` is quite similar to using
+    The `CheckpointManager` is ultimately backed by a single
+    :py:class:`.Checkpointer`, to which saving and restoring is delegated.
+    Behind
+    step management options, metrics-related logic, and other frills, saving and
+    restoring with `CheckpointManager` is quite similar to using
     `Checkpointer(CompositeCheckpointHandler)`.
 
     Example::
@@ -1973,8 +1974,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     synchronous, since old checkpoints are already cleaned up immediately after
     completing `save`, and there is no background thread to wait for.
 
-    If some checkpointers are of type AsyncCheckpointer, however, this method
-    will wait until each of these checkpointers is finished.
+    If some checkpointers are of type :py:class:`.AsyncCheckpointer`, however,
+    this method will wait until each of these checkpointers is finished.
     """
     process_index = multihost.process_index()
     current_thread = threading.current_thread()

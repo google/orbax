@@ -77,14 +77,15 @@ class Checkpointer(
   """A synchronous implementation of AbstractCheckpointer.
 
   This class saves synchronously to a given directory using an underlying
-  `CheckpointHandler`. Atomicity of the operation is guaranteed.
+  :py:class:`.CheckpointHandler`. Atomicity of the operation is guaranteed.
 
   IMPORTANT: Async checkpointing can often be faster for saving. Strongly
-  consider using `AsyncCheckpointer` instead.
+  consider using :py:class:`.AsyncCheckpointer` instead.
 
   IMPORTANT: Remember that to save and restore a checkpoint, one should always
-  use an `AbstractCheckpointer` coupled with a `CheckpointHandler`. The specific
-  `CheckpointHandler` to use depends on the object being saved or restored.
+  use an :py:class:`.AbstractCheckpointer` coupled with a `CheckpointHandler`.
+  The specific `CheckpointHandler` to use depends on the object being saved or
+  restored.
 
   Basic example::
 

@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Registry for checkpoint handlers (:py:class:`CheckpointHandler`).
+"""Registry for checkpoint handlers (:py:class:`.CheckpointHandler`).
 
 A checkpoint handler registry is used to register a
-:py:class:`CheckpointHandler` for specific a checkpointable item name and a
-:py:class:`CheckpointArgs` type. When saving or restoring a checkpoint, the
+:py:class:`.CheckpointHandler` for specific a checkpointable item name and a
+:py:class:`.CheckpointArgs` type. When saving or restoring a checkpoint, the
 registry can be used to find the appropriate handler for the item and its args.
 The default implementation of the registry is
-:py:class:`DefaultCheckpointHandlerRegistry`. See the docstring for the default
+:py:class:`.DefaultCheckpointHandlerRegistry`. See the docstring for the default
 implementation for an example how to use the registry.
 """
 

@@ -14,9 +14,9 @@
 
 """PyTreeCheckpointHandler class.
 
-Implementation of `CheckpointHandler` interface dealing with JAX PyTrees. Much
-of the underlying reading/writing logic for individual leaf types can be
-customized, and is delegated to the `TypeHandler` class.
+Implementation of :py:class:`.CheckpointHandler` interface dealing with JAX
+PyTrees. Much of the underlying reading/writing logic for individual leaf types
+can be customized, and is delegated to the :py:class:`.TypeHandler` class.
 """
 
 from __future__ import annotations
@@ -449,13 +449,14 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
   See JAX documentation for more information on what consistutes a "PyTree".
   This handler is capable of saving and restoring any leaf object for which a
-  `TypeHandler` (see documentation) is registered. By default, `TypeHandler`s
-  for standard types like `np.ndarray`, `jax.Array`, Python scalars, and others
-  are registered.
+  :py:class:`.TypeHandler` (see documentation) is registered. By default,
+  `TypeHandler`s for standard types like `np.ndarray`, `jax.Array`, Python
+  scalars, and others are registered.
 
-  As with all `CheckpointHandler` subclasses, `PyTreeCheckpointHandler` should
-  only be used in conjunction with a `Checkpointer` (or subclass). By itself,
-  the `CheckpointHandler` is non-atomic.
+  As with all :py:class:`.CheckpointHandler` subclasses,
+  `PyTreeCheckpointHandler` should only be used in conjunction with a
+  :py:class:`.Checkpointer` (or subclass). By itself, the `CheckpointHandler` is
+  non-atomic.
 
   Example::
 

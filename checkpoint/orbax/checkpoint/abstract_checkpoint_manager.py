@@ -29,9 +29,10 @@ RestoreParams = SaveParams
 class AbstractCheckpointManager(Protocol):
   """Interface to manage checkpoints.
 
-  Allows a user to save and restore objects for which a Checkpointer
-  implementation exists (e.g. PyTreeCheckpointer for PyTrees). The class
-  keeps track of multiple checkpointable objects in the following structure::
+  Allows a user to save and restore objects for which a
+  :py:class:`.Checkpointer` implementation exists (e.g.
+  :py:class:`.PyTreeCheckpointer` for PyTrees). The class keeps track of
+  multiple checkpointable objects in the following structure::
 
     path/to/directory/    (top-level directory)
       0/    (step)
@@ -166,17 +167,17 @@ class AbstractCheckpointManager(Protocol):
     synchronous, since old checkpoints are already cleaned up immediately after
     completing `save`, and there is no background thread to wait for.
 
-    If some checkpointers are of type AsyncCheckpointer, however, this method
-    will wait until each of these checkpointers is finished.
+    If some checkpointers are of type :py:class:`.AsyncCheckpointer`, however,
+    this method will wait until each of these checkpointers is finished.
     """
 
   @abc.abstractmethod
   def check_for_errors(self):
     """Checks for any outstanding errors in completed asynchronous save operations.
 
-    Delegates to underlying Checkpointer.
+    Delegates to underlying :py:class:`.Checkpointer`.
     """
 
   @abc.abstractmethod
   def close(self):
-    """Waits for outstanding operations to finish and closes Checkpointers."""
+    """Waits for outstanding operations to finish and closes :py:class:`.Checkpointer` s."""

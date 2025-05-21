@@ -19,12 +19,13 @@ not leave users free to define their own temporary path structure. The current
 implementation is mainly a refactoring of old logic that separately created
 temp directories and finalized them. It does not touch other logic that detects
 temp checkpoints and cleans them up (primarily located in
-orbax.checkpoint.path.step and CheckpointManager).
+orbax.checkpoint.path.step and :py:class:`.CheckpointManager`).
 
-Ordinarily, atomic logic defaults to `AtomicRenameTemporaryPath`, which uses an
-atomic rename to indicate checkpoint completion. However, not all filesystems
-support atomic rename, so `CommitFileTemporaryPath` is provided as an
-alternative, which uses a "commit_success" file to indicate completion.
+Ordinarily, atomic logic defaults to :py:class:`AtomicRenameTemporaryPath`,
+which uses an atomic rename to indicate checkpoint completion. However, not all
+filesystems support atomic rename, so :py:class:`CommitFileTemporaryPath` is
+provided as an alternative, which uses a "commit_success" file to indicate
+completion.
 
 Ideally, we would standardize on a single behavior, but it is difficult, largely
 for legacy reasons, to achieve this. Furthermore, there are many other

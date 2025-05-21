@@ -14,9 +14,9 @@
 
 """Defines exported :py:class:`CheckpointArgs` classes.
 
-:py:class:`CheckpointHandler` subclasses define logic used to save and restore
-an object to and from a checkpoint. Each :py:class:`CheckpointHandler`
-has corresponding :py:class:`SaveArgs` and :py:class:`RestoreArgs`
+:py:class:`.CheckpointHandler` subclasses define logic used to save and restore
+an object to and from a checkpoint. Each :py:class:`.CheckpointHandler`
+has corresponding :py:class:`.SaveArgs` and :py:class:`.RestoreArgs`
 classes that define the arguments used to call the handler.
 
 The `ocp.args` module provides a complete definition of these classes. Refer to

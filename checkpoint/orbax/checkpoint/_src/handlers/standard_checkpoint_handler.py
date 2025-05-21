@@ -52,9 +52,10 @@ class StandardCheckpointHandler(
   This handler is capable of saving and restoring PyTrees with leaves of type
   Python scalar, np.ndarray, and jax.Array
 
-  As with all `CheckpointHandler` subclasses, `StandardCheckpointHandler` should
-  only be used in conjunction with a `Checkpointer` (or subclass). By itself,
-  the `CheckpointHandler` is non-atomic.
+  As with all :py:class:`.CheckpointHandler` subclasses,
+  `StandardCheckpointHandler` should only be used in conjunction with a
+  :py:class:`.Checkpointer` (or subclass). By itself, the `CheckpointHandler` is
+  non-atomic.
 
   Example::
 
@@ -140,7 +141,19 @@ class StandardCheckpointHandler(
       save_args: Optional[PyTree] = None,
       args: Optional[StandardSaveArgs] = None,
   ) -> Optional[List[future.Future]]:
-    """Saves a PyTree of array-like objects. See PyTreeCheckpointHandler."""
+    """Saves a PyTree of array-like objects.
+
+    See :py:class:`.PyTreeCheckpointHandler`.
+
+    Args:
+      directory: path to the directory where the checkpoint will be saved.
+      item: Deprecated, use `args`.
+      save_args: Deprecated, use `args`.
+      args: `StandardSaveArgs` (see below).
+
+    Returns:
+      A list of futures that will be completed when the save is complete.
+    """
     if isinstance(item, CheckpointArgs):
       raise ValueError(
           'Make sure to specify kwarg name `args=` when providing'
@@ -181,7 +194,7 @@ class StandardCheckpointHandler(
       item: Optional[PyTree] = None,
       args: Optional[StandardRestoreArgs] = None,
   ) -> PyTree:
-    """Restores a PyTree. See PyTreeCheckpointHandler.
+    """Restores a PyTree. See :py:class:`.PyTreeCheckpointHandler`.
 
     Example::
 
@@ -266,7 +279,7 @@ class StandardCheckpointHandler(
 class StandardSaveArgs(CheckpointArgs):
   """Parameters for saving a standard PyTree.
 
-  Also see `PyTreeSave` for additional options.
+  Also see :py:class:`.PyTreeSave` for additional options.
 
   Attributes:
     item (required): a PyTree to be saved.
@@ -327,7 +340,7 @@ def _construct_restore_args(
 class StandardRestoreArgs(CheckpointArgs):
   """Parameters for restoring a standard PyTree.
 
-  Also see `PyTreeRestore` for additional options.
+  Also see :py:class:`.PyTreeRestore` for additional options.
 
   Attributes (all optional):
     item: target PyTree. Currently non-optional. Values may be either real

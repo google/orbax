@@ -25,7 +25,7 @@ from orbax.checkpoint._src.multihost import multihost
 class AsyncOptions:
   """Options used to configure async behavior.
 
-  See `AsyncCheckpointer` for details.
+  See :py:class:`.AsyncCheckpointer` for details.
   """
 
   timeout_secs: int = 600  # 10 minutes. Same as default in `AsyncCheckpointer`.

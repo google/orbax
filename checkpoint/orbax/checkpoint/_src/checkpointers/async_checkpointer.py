@@ -290,9 +290,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   until a save operation running in the background is complete.
 
   Like its parent, AsyncCheckpointer also makes use of an underlying
-  CheckpointHandler to deal with type-specific logic.
+  :py:class:`.CheckpointHandler` to deal with type-specific logic.
 
-  Please see `Checkpointer` documentation for more generic usage instructions.
+  Please see :py:class:`.Checkpointer` documentation for more generic usage
+  instructions.
   """
 
   _handler: async_checkpoint_handler.AsyncCheckpointHandler

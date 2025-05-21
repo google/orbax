@@ -25,7 +25,7 @@ class CheckpointHandler(abc.ABC):
   Item may be a PyTree, Dataset, or any other supported object.
 
   NOTE: Users should avoid using CheckpointHandler independently. Use
-  Checkpointer or CheckpointManager.
+  :py:class:`.Checkpointer` or :py:class:`.CheckpointManager` instead.
   """
 
   @abc.abstractmethod

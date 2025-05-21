@@ -34,11 +34,11 @@ PyTree = Any
 class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
   """Shorthand class.
 
-  Note that this `Checkpointer` saves asynchronously.
+  Note that this :py:class:`.Checkpointer` saves asynchronously.
 
   Initialization::
 
-    # Instead of: 
+    # Instead of:
     with AsyncCheckpointer(StandardCheckpointHandler()) as ckptr:
       ...
     # We can use:

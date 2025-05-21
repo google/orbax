@@ -251,24 +251,24 @@ def _add_to_handler_registry_from_global_registry(
 class CompositeCheckpointHandler(AsyncCheckpointHandler):
   """CheckpointHandler for saving multiple items.
 
-  As with all :py:class:`CheckpointHandler` implementations, use only in
-  conjunction with an instance of `AbstractCheckpointer`.
+  As with all :py:class:`.CheckpointHandler` implementations, use only in
+  conjunction with an instance of :py:class:`.AbstractCheckpointer`.
 
-  The :py:class:`CompositeCheckpointHandler` allows dealing with multiple items
+  The :py:class:`.CompositeCheckpointHandler` allows dealing with multiple items
   of different types or logical distinctness, such as training state (PyTree),
   dataset iterator, JSON metadata, or anything else. To specify the handler
   and args for each checkpointable item, use the `handler_registry` option at
-  initialization (see :py:class:`CheckpointHandlerRegistry`).
+  initialization (see :py:class:`.CheckpointHandlerRegistry`).
 
-  If a handler registry is provided, the :py:class:`CompositeCheckpointHandler`
-  will use this registry to determine the :py:class:`CheckpointHandler` for each
-  checkpointable item. If no registry is provided, an empty registry will be
-  constructed by default internally. Additional items not registered in the
+  If a handler registry is provided, the :py:class:`.CompositeCheckpointHandler`
+  will use this registry to determine the :py:class:`.CheckpointHandler` for
+  each checkpointable item. If no registry is provided, an empty registry will
+  be constructed by default internally. Additional items not registered in the
   handler registry can be specified when calling `save` or `restore`. The
-  handler will be determined from the provided :py:class:`CheckpointArgs` during
-  the first call to `save` or `restore`. Subsequent calls to `save` or `restore`
-  will use the same handler and will require the same :py:class:`CheckpointArgs`
-  to be provided.
+  handler will be determined from the provided :py:class:`.CheckpointArgs`
+  during the first call to `save` or `restore`. Subsequent calls to `save` or
+  `restore` will use the same handler and will require the same
+  :py:class:`.CheckpointArgs` to be provided.
 
   `item_names` and `items_and_handlers` are deprecated arguments for specifying
   the items and handlers. Please use `handler_registry` instead.

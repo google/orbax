@@ -28,7 +28,7 @@ CheckpointHandler = checkpoint_handler.CheckpointHandler
 class CheckpointArgs:
   """Base class for all checkpoint argument dataclasses.
 
-  All :py:class:`CheckpointHandler` implementations should have corresponding
+  All :py:class:`.CheckpointHandler` implementations should have corresponding
   :py:class:`CheckpointArgs` dataclasses, typically one for save and one for
   restore.
 
@@ -86,9 +86,8 @@ def register_with_handler(
   """Registers a :py:class:`CheckpointArgs` subclass with a specific handler.
 
   This registration is necessary so that when the user passes uses this
-  :py:class:`CheckpointArgs` class with :py:class:`CompositeCheckpointHandler`,
-  we can automatically
-  find the correct Handler to use to save this class.
+  :py:class:`CheckpointArgs` class with :py:class:`.CompositeCheckpointHandler`,
+  we can automatically find the correct Handler to use to save this class.
 
   Note, `for_save` and `for_restore` may both be true, but cannot both be false.
 
@@ -123,7 +122,7 @@ def register_with_handler(
 def get_registered_handler_cls(
     arg: Union[Type[CheckpointArgs], CheckpointArgs]
 ) -> Type[CheckpointHandler]:
-  """Returns the registered :py:class:`CheckpointHandler`."""
+  """Returns the registered :py:class:`.CheckpointHandler`."""
   if not inspect.isclass(arg):
     arg = type(arg)
   if not issubclass(arg, CheckpointArgs):
