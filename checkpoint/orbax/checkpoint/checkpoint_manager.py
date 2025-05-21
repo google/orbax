@@ -2078,6 +2078,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def _finalize(self, step: int, steps_to_remove: List[int]):
     """Finalizes individual items and starts garbage collection."""
+    barrier_sync_fn = self._create_thread_safe_barrier_sync_fn()
+    barrier_sync_fn(
+        multihost.unique_barrier_key(
+            'CheckpointManager:finalize:start',
+            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+            suffix=str(step),
+        )
+    )
     process_index = multihost.process_index()
     current_thread = threading.current_thread()
     self._non_blocking_metadata_store.wait_until_finished()
@@ -2098,10 +2106,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         current_thread.name,
         step,
     )
-    barrier_sync_fn = self._create_thread_safe_barrier_sync_fn()
     barrier_sync_fn(
         multihost.unique_barrier_key(
-            'CheckpointManager:finalize',
+            'CheckpointManager:finalize:end',
             prefix=self._multiprocessing_options.barrier_sync_key_prefix,
             suffix=str(step),
         )
