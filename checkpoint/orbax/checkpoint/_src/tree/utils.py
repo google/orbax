@@ -14,7 +14,7 @@
 
 """Tree utilities."""
 
-from typing import Any, Callable, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, Mapping, Optional, Tuple, TypeVar, Union
 
 import jax
 from orbax.checkpoint._src.arrays import abstract_arrays
@@ -53,6 +53,24 @@ def is_empty_node(x: Any) -> bool:
   except ValueError:
     return False  # non-empty leaf, otherwise flatten would return self.
   return not children
+
+
+def is_leaf_node(t: Any) -> bool:
+  """The default value of the `is_leaf` predicate."""
+  return jax.tree_util.all_leaves([t])
+
+
+def is_leaf_node_or_none(t: Any) -> bool:
+  return is_leaf_node(t) or t is None
+
+
+def is_jax_internal_node(x: Any) -> bool:
+  return not is_leaf_node(x)
+
+
+def _internal_node_as_dict(x: Any) -> Mapping[str, Any]:
+  keys_and_children, _ = tree_flatten_with_path_one_level(x)
+  return {jax.tree_util.keystr(k): v for k, v in keys_and_children}
 
 
 def is_empty_or_leaf(x: Any) -> bool:

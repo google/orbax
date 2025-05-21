@@ -26,13 +26,17 @@ py_test(
 py_library(
     name = "structure_utils",
     srcs = ["structure_utils.py"],
-    deps = [":utils"],
+    deps = [
+        ":parts_of",
+        ":utils",
+    ],
 )
 
 py_test(
     name = "structure_utils_test",
     srcs = ["structure_utils_test.py"],
     deps = [
+        ":parts_of",
         ":structure_utils",
         "//checkpoint/orbax/checkpoint:test_utils",
     ],
