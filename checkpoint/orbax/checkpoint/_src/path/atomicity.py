@@ -526,7 +526,11 @@ def create_all_async(
   commit_future = future.NoopFuture()
   if multihost.is_primary_host(primary_host):
     commit_future = future.CommitFutureAwaitingContractedSignals(
-        _create_paths(paths, subdirectories=subdirectories),
+        _create_paths(
+            paths,
+            subdirectories=subdirectories,
+            multiprocessing_options=multiprocessing_options,
+        ),
         send_signals=completion_signals,
         timeout_secs=multihost.DIRECTORY_CREATION_TIMEOUT,
     )
@@ -547,11 +551,15 @@ def create_all_async(
 async def _create_paths(
     tmp_paths: Sequence[atomicity_types.TemporaryPath],
     subdirectories: Sequence[str] | None = None,
+    *,
+    multiprocessing_options: options_lib.MultiprocessingOptions,
 ):
   """Creates all temporary paths in parallel."""
   start = time.time()
   paths = await asyncio.gather(*[path.create() for path in tmp_paths])
-  if subdirectories:
+  if subdirectories and multihost.is_primary_host(
+      multiprocessing_options.primary_host
+  ):
     creation_ops = []
     for path in paths:
       creation_ops.extend([
