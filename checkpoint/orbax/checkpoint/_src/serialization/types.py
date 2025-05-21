@@ -112,8 +112,8 @@ class ParamInfo:
   value_typestr: stores the original value's typestr (from TypeHandler).
     Only required when saving.
   enable_pinned_host_transfer:
-    True by default. If False, disables transfer to pinned host when copying
-    from device to host, regardless of the presence of pinned host memory.
+    False by default. If True and pinned host memory is available, enables
+    transfer to pinned host memory when copying data from device.
   raise_array_data_missing_error:
     Only used for restoring. See documentation in `tensorstore_utils.py`. Comes
     from tree metadata and should be the same across all parameters.
