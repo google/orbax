@@ -157,6 +157,7 @@ class PyTreeCheckpointHandlerTestBase:
         self,  # pylint: disable=unused-argument
         use_ocdbt: bool,
         use_zarr3: bool = False,
+        enable_pinned_host_transfer: bool | None = None,
         pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
             tree_metadata.PYTREE_METADATA_OPTIONS
         ),
@@ -177,6 +178,7 @@ class PyTreeCheckpointHandlerTestBase:
           use_zarr3=use_zarr3,
           type_handler_registry=type_handler_registry,
           pytree_metadata_options=pytree_metadata_options,
+          enable_pinned_host_transfer=enable_pinned_host_transfer,
       )
       try:
         yield handler
@@ -1991,7 +1993,8 @@ class PyTreeCheckpointHandlerTestBase:
           sleep_time,
       )
 
-    def test_enable_pinned_host_transfer(self):
+    @parameterized.product(enable_pinned_host_transfer=(True, False))
+    def test_enable_pinned_host_transfer(self, enable_pinned_host_transfer):
       if utils.is_pathways_backend():
         self.skipTest(
             'Disabled on Pathways because local variables cannot updated by'
@@ -2021,14 +2024,18 @@ class PyTreeCheckpointHandlerTestBase:
           replica_slices,
           'transfer_arrays_to_host',
           new=_transfer_arrays_to_host,
-      ):
-        self.handler.save(
-            self.directory,
-            args=PyTreeSaveArgs(self.pytree, enable_pinned_host_transfer=False),
-        )
+      ), self.ocdbt_checkpoint_handler(
+          use_ocdbt=False,
+          enable_pinned_host_transfer=enable_pinned_host_transfer,
+      ) as handler:
+        handler.save(self.directory, args=PyTreeSaveArgs(self.pytree))
 
-      self.assertEqual(true_count, 0)
-      self.assertGreater(false_count, 0)
+      if enable_pinned_host_transfer:
+        self.assertGreater(true_count, 0)
+        self.assertEqual(false_count, 0)
+      else:
+        self.assertEqual(true_count, 0)
+        self.assertGreater(false_count, 0)
 
     def test_custom_metadata(self):
       custom_metadata = {'foo': 1}
