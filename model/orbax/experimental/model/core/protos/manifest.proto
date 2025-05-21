@@ -62,9 +62,18 @@ message Value {
   }
 }
 
+// Indicates which data loader to use to load the data from external storage.
+enum LoaderType {
+  // The default loader, which loads the data from an Orbax checkpoint.
+  LOADER_TYPE_DEFAULT = 0;
+}
+
 message ExternalValue {
   optional orbax_model_type.Type type = 1;
   UnstructuredData data = 2;
+
+  // The type of data loader.
+  LoaderType loader_type = 3;
 }
 
 message TupleValue {
