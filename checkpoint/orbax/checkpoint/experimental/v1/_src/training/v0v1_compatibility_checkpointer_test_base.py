@@ -56,7 +56,6 @@ def build_handler_registry_and_checkpoint_args(
   )
 
 
-# TODO(niketkb): Distinguish save(force=True) behavior from v0/v1.
 class V0v1CompatibilityCheckpointerTestBase(
     checkpointer_test_base.CheckpointerTestBase.Test
 ):

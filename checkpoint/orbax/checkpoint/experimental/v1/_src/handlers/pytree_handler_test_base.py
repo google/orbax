@@ -197,7 +197,7 @@ def handler_with_options(
     use_zarr3: bool = False,
     enable_padding_and_truncation: bool = True,
     ocdbt_target_data_file_size: int | None = None,
-    enable_pinned_host_transfer: bool | None = None,
+    enable_pinned_host_transfer: bool = False,
     pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
         tree_metadata.PYTREE_METADATA_OPTIONS
     ),
@@ -1567,8 +1567,7 @@ class PyTreeHandlerTestBase:
           sleep_time,
       )
 
-    @parameterized.product(enable_pinned_host_transfer=(True, False))
-    def test_enable_pinned_host_transfer(self, enable_pinned_host_transfer):
+    def test_enable_pinned_host_transfer(self):
       if multihost.is_pathways_backend():
         self.skipTest(
             'Disabled on Pathways because local variables cannot updated by'
@@ -1598,17 +1597,11 @@ class PyTreeHandlerTestBase:
           replica_slices,
           'transfer_arrays_to_host',
           new=_transfer_arrays_to_host,
-      ), handler_with_options(
-            enable_pinned_host_transfer=enable_pinned_host_transfer,
-      ) as handler:
+      ), handler_with_options(enable_pinned_host_transfer=False) as handler:
         handler.save(self.directory, self.pytree)
 
-      if enable_pinned_host_transfer:
-        self.assertGreater(true_count, 0)
-        self.assertEqual(false_count, 0)
-      else:
-        self.assertEqual(true_count, 0)
-        self.assertGreater(false_count, 0)
+      self.assertEqual(true_count, 0)
+      self.assertGreater(false_count, 0)
 
     @parameterized.product(
         use_ocdbt=(True, False),

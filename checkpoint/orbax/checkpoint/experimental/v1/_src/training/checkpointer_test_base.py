@@ -146,12 +146,12 @@ class CheckpointerTestBase:
 
       test_utils.assert_tree_equal(self, new_pytree, loaded)
 
-    def test_force_overwrites(self):
+    def test_overwrites(self):
       plus_one_pytree, _ = array_test_utils.create_numpy_pytree(add=1)
       checkpointer = Checkpointer(self.directory)
       self.enter_context(checkpointer)
       self.save_pytree(checkpointer, 0, self.pytree)
-      checkpointer.save_pytree(0, plus_one_pytree, force=True)
+      checkpointer.save_pytree(0, plus_one_pytree, overwrite=True)
       test_utils.assert_tree_equal(
           self, plus_one_pytree, checkpointer.load_pytree(0)
       )
@@ -206,6 +206,31 @@ class CheckpointerTestBase:
       )
       assert checkpointer.latest is not None
       self.assertEqual(checkpointer.latest.step, expected_steps[-1])
+
+    def test_force_save_ignores_save_decision_policy(self):
+      checkpointer = Checkpointer(
+          self.directory,
+          save_decision_policy=save_decision_policies.FixedIntervalPolicy(2),
+      )
+      self.enter_context(checkpointer)
+
+      self.assertTrue(checkpointer.save_pytree(0, self.pytree))
+      self.assertFalse(checkpointer.save_pytree(1, self.pytree))
+      self.assertTrue(checkpointer.save_pytree(2, self.pytree))
+
+      self.assertLen(checkpointer.checkpoints, 2)
+      self.assertSequenceEqual(
+          [c.step for c in checkpointer.checkpoints], [0, 2]
+      )
+
+      self.assertTrue(checkpointer.save_pytree(3, self.pytree, force=True))
+      self.assertTrue(checkpointer.save_pytree(4, self.pytree, force=True))
+      self.assertTrue(checkpointer.save_pytree(5, self.pytree, force=True))
+
+      self.assertLen(checkpointer.checkpoints, 5)
+      self.assertSequenceEqual(
+          [c.step for c in checkpointer.checkpoints], [0, 2, 3, 4, 5]
+      )
 
     def test_garbage_collection(self):
       self.skipTest('TODO(cpgaffney): Implement.')

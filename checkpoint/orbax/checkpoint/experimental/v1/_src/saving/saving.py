@@ -38,7 +38,7 @@ def save_pytree(
     directory: path_types.PathLike,
     pytree: tree_types.PyTreeOf[tree_types.LeafType],
     *,
-    force: bool = False,
+    overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
 ):
   """Saves a PyTree.
@@ -53,8 +53,8 @@ def save_pytree(
       supported leaf types include `jax.Array`, `np.ndarray`, simple types like
       `int`, `float`, `str`, and empty nodes. Support for custom leaves is also
       possible by implementing a `LeafTypeHandler`.
-    force: Whether to allow the save to proceed even if it would fully overwrite
-      an existing checkpoint.
+    overwrite: If True, fully overwrites an existing checkpoint in `directory`.
+      Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
@@ -62,7 +62,7 @@ def save_pytree(
   save_pytree_async(
       directory,
       pytree,
-      force=force,
+      overwrite=overwrite,
       custom_metadata=custom_metadata,
   ).result()
 
@@ -71,7 +71,7 @@ def save_checkpointables(
     directory: path_types.PathLike,
     checkpointables: dict[str, Any],
     *,
-    force: bool = False,
+    overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
 ) -> None:
   """Saves a dictionary of checkpointables.
@@ -112,8 +112,8 @@ def save_checkpointables(
     checkpointables: A dictionary of checkpointables. Dictionary keys represent
       the names of the checkpointables, while the values are the checkpointable
       objects themselves.
-    force: Whether to allow the save to proceed even if it would fully overwrite
-      an existing checkpoint.
+    overwrite: If True, fully overwrites an existing checkpoint in `directory`.
+      Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
@@ -121,7 +121,7 @@ def save_checkpointables(
   save_checkpointables_async(
       directory,
       checkpointables,
-      force=force,
+      overwrite=overwrite,
       custom_metadata=custom_metadata,
   ).result()
 
@@ -148,7 +148,7 @@ def save_pytree_async(
     directory: path_types.PathLike,
     pytree: tree_types.PyTreeOf[tree_types.LeafType],
     *,
-    force: bool = False,
+    overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
 ) -> async_types.AsyncResponse[None]:
   """Saves a PyTree asynchronously.
@@ -169,8 +169,8 @@ def save_pytree_async(
       supported leaf types include `jax.Array`, `np.ndarray`, simple types like
       `int`, `float`, `str`, and empty nodes. Support for custom leaves is also
       possible by implementing a `LeafTypeHandler`.
-    force: Whether to allow the save to proceed even if it would fully overwrite
-      an existing checkpoint.
+    overwrite: If True, fully overwrites an existing checkpoint in `directory`.
+      Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
@@ -182,7 +182,7 @@ def save_pytree_async(
   return save_checkpointables_async(
       directory,
       {PYTREE_CHECKPOINTABLE_KEY: pytree},
-      force=force,
+      overwrite=overwrite,
       custom_metadata=custom_metadata,
   )
 
@@ -191,7 +191,7 @@ def save_checkpointables_async(
     directory: path_types.PathLike,
     checkpointables: dict[str, Any],
     *,
-    force: bool = False,
+    overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
 ) -> async_types.AsyncResponse[None]:
   """Saves a dictionary of checkpointables asynchronously.
@@ -212,8 +212,8 @@ def save_checkpointables_async(
     checkpointables: A dictionary of checkpointables. Dictionary keys represent
       the names of the checkpointables, while the values are the checkpointable
       objects themselves.
-    force: Whether to allow the save to proceed even if it would fully overwrite
-      an existing checkpoint.
+    overwrite: If True, fully overwrites an existing checkpoint in `directory`.
+      Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
@@ -230,7 +230,9 @@ def save_checkpointables_async(
   ckptr, args = get_v0_checkpointer_and_args(
       checkpointables, context=context_lib.get_context()
   )
-  ckptr.save(directory, args=args, force=force, custom_metadata=custom_metadata)
+  ckptr.save(
+      directory, args=args, force=overwrite, custom_metadata=custom_metadata
+  )
   return _SaveResponse(ckptr)
 
 

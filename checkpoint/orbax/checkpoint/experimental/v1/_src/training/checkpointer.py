@@ -238,6 +238,7 @@ class Checkpointer(epy.ContextManager):
       pytree: tree_types.PyTreeOf[tree_types.LeafType],
       *,
       force: bool = False,
+      overwrite: bool = False,
       metrics: tree_types.JsonType | None = None,
       custom_metadata: tree_types.JsonType | None = None,
   ) -> bool:
@@ -256,8 +257,11 @@ class Checkpointer(epy.ContextManager):
     Args:
       step: The step number to save.
       pytree: The PyTree to save.
-      force: If True, deletes any existing checkpoint at the given step before
-        saving.
+      force: If True, ignores all `SaveDecisionPolicy` checks, and always
+        decides to save a checkpoint.
+      overwrite: If True, deletes any existing checkpoint at the given step
+        before saving. Otherwise, raises an error if the checkpoint already
+        exists.
       metrics: A PyTree of metrics to be saved with the checkpoint.
       custom_metadata: A JSON dictionary representing user-specified custom
         metadata. This should be information that is relevant to the checkpoint
@@ -270,6 +274,7 @@ class Checkpointer(epy.ContextManager):
         step,
         pytree,
         force=force,
+        overwrite=overwrite,
         metrics=metrics,
         custom_metadata=custom_metadata,
     ).result()
@@ -280,6 +285,7 @@ class Checkpointer(epy.ContextManager):
       checkpointables: dict[str, Any],
       *,
       force: bool = False,
+      overwrite: bool = False,
       metrics: tree_types.JsonType | None = None,
       custom_metadata: tree_types.JsonType | None = None,
   ) -> bool:
@@ -288,6 +294,7 @@ class Checkpointer(epy.ContextManager):
         step,
         checkpointables,
         force=force,
+        overwrite=overwrite,
         metrics=metrics,
         custom_metadata=custom_metadata,
     ).result()
@@ -298,6 +305,7 @@ class Checkpointer(epy.ContextManager):
       pytree: tree_types.PyTreeOf[tree_types.LeafType],
       *,
       force: bool = False,
+      overwrite: bool = False,
       metrics: tree_types.JsonType | None = None,
       custom_metadata: tree_types.JsonType | None = None,
   ) -> async_types.AsyncResponse[bool]:
@@ -309,8 +317,11 @@ class Checkpointer(epy.ContextManager):
     Args:
       step: The step number to save.
       pytree: The PyTree to save.
-      force: If True, deletes any existing checkpoint at the given step before
-        saving.
+      force: If True, ignores all `SaveDecisionPolicy` checks, and always
+        decides to save a checkpoint.
+      overwrite: If True, deletes any existing checkpoint at the given step
+        before saving. Otherwise, raises an error if the checkpoint already
+        exists.
       metrics: A PyTree of metrics to be saved with the checkpoint.
       custom_metadata: A JSON dictionary representing user-specified custom
         metadata. This should be information that is relevant to the checkpoint
@@ -324,6 +335,7 @@ class Checkpointer(epy.ContextManager):
         step,
         {PYTREE_CHECKPOINTABLE_KEY: pytree},
         force=force,
+        overwrite=overwrite,
         metrics=metrics,
         custom_metadata=custom_metadata,
     )
@@ -334,13 +346,15 @@ class Checkpointer(epy.ContextManager):
       checkpointables: dict[str, Any],
       *,
       force: bool = False,
+      overwrite: bool = False,
       metrics: tree_types.JsonType | None = None,
       custom_metadata: tree_types.JsonType | None = None,
   ) -> async_types.AsyncResponse[bool]:
     """Saves a set of checkpointables asynchronously at the given step."""
-    if force:
+    if overwrite:
       logging.info(
-          'Specified `force`: deleting existing checkpoint %d if it exists.',
+          'Specified `overwrite`: deleting existing checkpoint %d if it'
+          ' exists.',
           step,
       )
       try:
@@ -355,7 +369,11 @@ class Checkpointer(epy.ContextManager):
     )
     self._manager._checkpointer = checkpointer  # pylint: disable=protected-access
     saved = self._manager.save(
-        step, args=args, metrics=metrics, custom_metadata=custom_metadata
+        step,
+        args=args,
+        metrics=metrics,
+        force=force,
+        custom_metadata=custom_metadata,
     )
     return _AsyncSaveResponse(self._manager, saved)
 
