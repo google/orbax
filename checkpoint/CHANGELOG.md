@@ -19,6 +19,7 @@ a `PathAwaitingCreation`.
 ### Fixed
 
 - Fix JAX random key restoration with StandardRestore.
+- Synchronize start and stop of CheckpointManager finalization.
 
 ### Changed
 
