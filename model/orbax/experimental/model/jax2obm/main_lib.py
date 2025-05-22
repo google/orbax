@@ -146,7 +146,7 @@ def convert(
   if not hasattr(fun_jax, "trace"):
     fun_jax = jax.jit(fun_jax)
 
-  create_exported = utils.make_jax_exported_creator(
+  exported_creator = utils.make_jax_exported_creator(
       fun_jax,
       native_serialization_platforms,
       native_serialization_disabled_checks,
@@ -154,7 +154,7 @@ def convert(
 
   utils.assert_jax_trace_state_is_clean()
 
-  exported = create_exported(*args_spec, **kwargs_spec)
+  exported = exported_creator(*args_spec, **kwargs_spec)
   return jax_exported_to_shlo_fn(
       exported
   )

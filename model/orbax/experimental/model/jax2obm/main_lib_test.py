@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+from typing import cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -39,19 +40,30 @@ os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
 class MainLibTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
-      ('_default', None, False),
-      (
-          '_native_cpu_serialization',
-          [constants.OrbaxNativeSerializationType.CPU],
-          False,
+      dict(
+          testcase_name='_default',
+          native_serialization_platforms=None,
+          polymorphic_shape=False,
       ),
-      ('_polymorphic_shape', None, True),
+      dict(
+          testcase_name='_native_cpu_serialization',
+          native_serialization_platforms=[
+              constants.OrbaxNativeSerializationType.CPU
+          ],
+          polymorphic_shape=False,
+      ),
+      dict(
+          testcase_name='_polymorphic_shape',
+          native_serialization_platforms=None,
+          polymorphic_shape=True,
+      ),
   )
   def test_sharded_jax_e2e(
       self, native_serialization_platforms, polymorphic_shape
   ):
+    output_root_path = os.path.join(self.create_tempdir())
 
-    def jax_model_fn(params, x):
+    def _jax_model_fn(params, x):
       return jnp.dot(jnp.dot(x, params['a']), params['b'])
 
     def _create_mesh() -> jax.sharding.Mesh:
@@ -73,8 +85,9 @@ class MainLibTest(parameterized.TestCase):
           'b': jax.device_put(b, pytree_shardings['b']),
       }
 
-    jax_params = _generated_sharded_params()
-    in_shardings_ = (
+    params = _generated_sharded_params()
+
+    in_shardings = (
         pytree_shardings,
         NamedSharding(
             mesh,
@@ -83,71 +96,58 @@ class MainLibTest(parameterized.TestCase):
             else PartitionSpec('x'),
         ),
     )
-    jax_model_fn_sharded = jax.jit(jax_model_fn, in_shardings=in_shardings_)
+    model_fn = jax.jit(_jax_model_fn, in_shardings=in_shardings)
+
     if polymorphic_shape:
       input_args_spec = jax_export.symbolic_args_specs(
           jax.ShapeDtypeStruct(
-              (jax_export.symbolic_shape('a'), 4),
+              (jax_export.symbolic_shape('b'), 4),
               jnp.float64,
           ),
-          shapes_specs='a, 4',
+          shapes_specs='b, 4',
       )
     else:
       input_args_spec = jax.ShapeDtypeStruct((8, 4), jnp.float64)
-    params_args_spec = main_lib.get_shape_dtype_struct(jax_params)
-    em_shlo_fn = main_lib.convert(
-        jax_model_fn_sharded,
+    params_args_spec = main_lib.get_shape_dtype_struct(params)
+    obm_shlo_fn = main_lib.convert(
+        model_fn,
         (params_args_spec, input_args_spec),
         {},
         native_serialization_platforms=native_serialization_platforms,
     )
     obm_module = dict()
     model_function_name = 'my_model_fn'
-    obm_module[model_function_name] = em_shlo_fn
+    obm_module[model_function_name] = obm_shlo_fn
 
+    ckpt_subdir = 'my_checkpoint/'
+    ckpt_path = os.path.join(output_root_path, ckpt_subdir)
+    checkpointer = ocp.Checkpointer(ocp.StandardCheckpointHandler())
+    checkpointer.save(ckpt_path, params)
     weights_name = 'my_weights'
-    checkpoint_path = 'my_checkpoint/'
     obm_module[weights_name] = main_lib.convert_path_to_value(
-        checkpoint_path,
+        ckpt_subdir,
         mime_type='orbax_checkpoint',
     )
-    expected_jax_supplemental_proto_text = """
-      nr_devices: 8
-      name: "jax_model_fn"
-    """
-    if polymorphic_shape:
-      expected_jax_supplemental_proto_text += """
-      uses_shape_polymorphism: true
-      input_spec_refinements {
-        map {
-          idx_to_refinement {
-            key: 2
-            value {
-              shape {
-                dimension_sizes {
-                  size: "a"
-                }
-                dimension_sizes {
-                }
-              }
-            }
-          }
-        }
-      }
-      output_spec_refinements {
-        list {
-          refinements {
-            shape {
-              dimension_sizes {
-                size: "a"
-              }
-              dimension_sizes {
-              }
-            }
-          }
-        }
-      }
-      """
+
+    obm.save(
+        obm_module,
+        output_root_path,
+        obm.SaveOptions(
+            version=2,
+        ),
+    )
+
+    manifest_proto = obm.manifest_pb2.Manifest()
+    with open(os.path.join(output_root_path, obm.MANIFEST_FILENAME), 'rb') as f:
+      manifest_proto.ParseFromString(f.read())
+      self.assertIn(model_function_name, manifest_proto.objects)
+      self.assertIn(weights_name, manifest_proto.objects)
+
+    ckpt_path = os.path.join(output_root_path, ckpt_subdir)
+    self.assertNotEmpty(
+        os.listdir(ckpt_path),
+        f'Checkpoint directory {ckpt_subdir} is empty.',
+    )
 
   def test_mnist_model(self):
 
