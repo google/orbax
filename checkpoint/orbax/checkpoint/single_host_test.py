@@ -167,6 +167,7 @@ class SingleHostTest(parameterized.TestCase):
           ml_dtypes.bfloat16,
           np.dtype('float32'),
           np.dtype('float64'),
+          ml_dtypes.float8_e3m4,
           ml_dtypes.float8_e5m2fnuz,
           ml_dtypes.float8_e5m2,
           ml_dtypes.float8_e4m3fnuz,
