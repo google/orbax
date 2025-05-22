@@ -267,7 +267,7 @@ class ObmToJaxTest(parameterized.TestCase):
     input_args_spec = params_args_spec
 
     # Export the jax function to OBM.
-    obm_shlo_fn = main_lib.convert_to_obm_function(
+    obm_shlo_fn = main_lib.convert(
         jax.jit(jax_model_fn),
         (params_args_spec, input_args_spec),
         {},
@@ -344,7 +344,7 @@ class ObmToJaxTest(parameterized.TestCase):
     params_args_spec = main_lib.get_shape_dtype_struct(params)
 
     # Export the jax function to OBM.
-    obm_shlo_fn = main_lib.convert_to_obm_function(
+    obm_shlo_fn = main_lib.convert(
         model_apply_fn,
         (params_args_spec, input_args_spec),
         {},

@@ -97,7 +97,9 @@ def jax_exported_to_shlo_fn(
   return shlo_func
 
 
-def convert_to_obm_function(
+# TODO(wangpeng): Rename to `convert_to_obm_fn` or `convert_with_spec` or
+#   `convert_with_signature`.
+def convert(
     fun_jax: Callable[..., utils.JaxArrayPyTree],
     args_spec: Sequence[Any],
     kwargs_spec: Dict[str, Any],
