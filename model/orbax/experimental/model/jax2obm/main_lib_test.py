@@ -109,7 +109,7 @@ class MainLibTest(parameterized.TestCase):
     else:
       input_args_spec = jax.ShapeDtypeStruct((8, 4), jnp.float64)
     params_args_spec = main_lib.get_shape_dtype_struct(params)
-    obm_shlo_fn = main_lib.convert(
+    obm_shlo_fn = main_lib.convert_to_obm_function(
         model_fn,
         (params_args_spec, input_args_spec),
         {},
@@ -198,7 +198,7 @@ class MainLibTest(parameterized.TestCase):
 
     params_args_spec = main_lib.get_shape_dtype_struct(params)
 
-    em_shlo_fn = main_lib.convert(
+    em_shlo_fn = main_lib.convert_to_obm_function(
         model_apply_fn,
         (params_args_spec, input_args_spec),
         {},
