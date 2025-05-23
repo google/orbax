@@ -265,8 +265,9 @@ class ArrayOptions:
 class CheckpointablesOptions:
   """Options used to configure `checkpointables` save/load behavior.
 
-  Primarily intended for registering custom `CheckpointableHandler` classes. You
-  can specify a registry directly, or use `create_with_handlers`. For example::
+  Primarily intended for registering custom :py:class:`.CheckpointableHandler`
+  classes. You can specify a registry directly, or use `create_with_handlers`.
+  For example::
 
     checkpointables_options = (
       ocp.options.CheckpointablesOptions.create_with_handlers(
