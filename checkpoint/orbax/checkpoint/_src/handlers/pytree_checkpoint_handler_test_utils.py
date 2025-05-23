@@ -2578,3 +2578,71 @@ class PyTreeCheckpointHandlerTestBase:
                     restore_args=restore_args,
                 ),
             )
+
+    @parameterized.product(use_ocdbt=(True, False))
+    def test_partial_restore_with_omission(self, use_ocdbt: bool):
+      """Basic save and restore test."""
+      directory = self.directory / 'partial_restore'
+      directory.mkdir(parents=True, exist_ok=True)
+
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=use_ocdbt,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        save_handler.save(directory, self.pytree)
+
+      restore_args = jax.tree.map(
+          lambda arr: ArrayRestoreArgs(sharding=arr.sharding), self.pytree
+      )
+
+      with self.subTest('success'):
+        with self.ocdbt_checkpoint_handler(
+            use_ocdbt=use_ocdbt,
+            array_metadata_store=array_metadata_store_lib.Store(),
+        ) as restore_handler:
+          reference_item = {
+              'a': 0,
+              'c': {
+                  'a': 0,
+              },
+          }
+          expected = {
+              'a': self.pytree['a'],
+              'c': {
+                  'a': self.pytree['c']['a'],
+              },
+          }
+          restored = restore_handler.restore(
+              directory,
+              args=PyTreeRestoreArgs(
+                  item=reference_item,
+                  restore_args=restore_args,
+                  partial_restore=True,
+              ),
+          )
+          test_utils.assert_tree_equal(self, expected, restored)
+
+      with self.subTest('extra_leaf'):
+        with self.ocdbt_checkpoint_handler(
+            use_ocdbt=use_ocdbt,
+            array_metadata_store=array_metadata_store_lib.Store(),
+        ) as restore_handler:
+          reference_item = {
+              'a': 0,
+              'c': {
+                  'a': 0,
+              },
+              'z': 0,
+          }
+          with self.assertRaisesRegex(
+              ValueError,
+              r"Missing 1 keys in structure path \(\), including: \['z'\]",
+          ):
+            restore_handler.restore(
+                directory,
+                args=PyTreeRestoreArgs(
+                    item=reference_item,
+                    restore_args=restore_args,
+                    partial_restore=True,
+                ),
+            )

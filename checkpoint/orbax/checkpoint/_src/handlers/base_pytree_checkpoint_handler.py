@@ -747,6 +747,13 @@ class BasePyTreeCheckpointHandler(
     # Prep for restore.
     if item is None:
       item = value_metadata_tree
+    elif args.partial_restore:
+      value_metadata_tree = tree_structure_utils.tree_trim(
+          item, value_metadata_tree, strict=True
+      )
+      restore_args = tree_structure_utils.tree_trim(
+          item, restore_args, strict=True
+      )
     else:
       # is_empty_or_leaf is necessary here to treat empty nodes (e.g. empty
       # dicts, lists, custom nodes) as leaves, as they do not contain any
@@ -1110,7 +1117,10 @@ class BasePyTreeRestoreArgs(CheckpointArgs):
       leaf as a certain type, a specific subclass of `RestoreArgs` may be
       required. `RestoreArgs` also provides the option to customize the
       restore type of an individual leaf.
+      partial_restore: If True, only restore the parameters that are specified
+      in PyTreeRestoreArgs.
   """
 
   item: Optional[PyTree] = None
   restore_args: Optional[PyTree] = None
+  partial_restore: bool = False

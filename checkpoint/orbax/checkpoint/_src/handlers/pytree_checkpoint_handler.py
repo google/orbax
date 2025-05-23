@@ -191,6 +191,7 @@ def _get_restore_parameters(
     byte_limiter: Optional[LimitInFlightBytes] = None,
     transforms_default_to_original: bool = True,
     use_zarr3: bool = False,
+    partial_restore: bool = False,
 ) -> Tuple[PyTree, PyTree]:
   """Construct parameters needed for restoration.
 
@@ -229,6 +230,7 @@ def _get_restore_parameters(
     byte_limiter: A LimitInFlightBytes object.
     transforms_default_to_original: See transform_utils.apply_transformations.
     use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
+    partial_restore: If True, only restore the parameters present in structure.
 
   Returns:
     Tuple of param_infos, and restore_args.
@@ -242,6 +244,7 @@ def _get_restore_parameters(
   flat_restore_args = tree_utils.to_flat_dict(
       restore_args, keep_empty_nodes=True
   )
+  flat_item = tree_utils.to_flat_dict(item, keep_empty_nodes=True)
   flat_param_infos = {}
   flat_input_restore_args = {}
   is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
@@ -275,7 +278,18 @@ def _get_restore_parameters(
         raise_array_data_missing_error=False,
     )
 
-  if transforms is None:
+  if partial_restore:
+    for key, meta in flat_structure.items():
+      if key not in flat_item:
+        flat_param_infos[key] = ParamInfo(skip_deserialize=True)
+        flat_input_restore_args[key] = RestoreArgs()
+      else:
+        flat_param_infos[key] = _get_param_info(flat_param_names[key], meta)
+        flat_input_restore_args[key] = flat_restore_args[key]
+    restore_args = tree_utils.from_flat_dict(
+        flat_input_restore_args, target=structure
+    )
+  elif transforms is None:
     for key, meta in flat_structure.items():
       flat_param_infos[key] = _get_param_info(flat_param_names[key], meta)
     restore_args = tree_metadata.serialize_tree(
@@ -287,7 +301,6 @@ def _get_restore_parameters(
           'If providing `transforms`, must provide `item` matching structure'
           ' of expected result.'
       )
-    flat_item = tree_utils.to_flat_dict(item, keep_empty_nodes=True)
     flat_transforms = tree_utils.to_flat_dict(transforms)
 
     for input_key, meta in flat_structure.items():
@@ -798,6 +811,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       args = BasePyTreeRestoreArgs(
           item,
           restore_args=restore_args,
+          partial_restore=args.partial_restore,
       )
       return self._handler_impl.restore(directory, args=args)
 
@@ -1111,6 +1125,8 @@ class PyTreeRestoreArgs(CheckpointArgs):
       of ParamInfos based on the checkpoint. Returns a transformed PyTree
       matching the desired return tree structure, and a matching ParamInfo
       tree.
+    partial_restore: If True, only restore the parameters that are specified
+      in PyTreeRestoreArgs.
   """
 
   item: Optional[PyTree] = None
@@ -1118,6 +1134,7 @@ class PyTreeRestoreArgs(CheckpointArgs):
   transforms: Optional[PyTree] = None
   transforms_default_to_original: bool = True
   legacy_transform_fn: Optional[LegacyTransformFn] = None
+  partial_restore: bool = False
 
   def __post_init__(self):
     if isinstance(self.item, tree_metadata.TreeMetadata):
