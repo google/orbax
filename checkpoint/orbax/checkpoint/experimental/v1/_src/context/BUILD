@@ -15,6 +15,7 @@ py_library(
     srcs = ["options.py"],
     deps = [
         "//checkpoint/orbax/checkpoint:options",
+        "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata_store",
         "//checkpoint/orbax/checkpoint/_src/metadata:tree",
         "//checkpoint/orbax/checkpoint/_src/path:atomicity_types",
         "//orbax/checkpoint/experimental/v1/_src/handlers:registration",

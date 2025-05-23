@@ -38,6 +38,7 @@ py_library(
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/context:options",
         "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/serialization:compatibility",
         "//orbax/checkpoint/experimental/v1/_src/serialization:registration",
         "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
         "//orbax/checkpoint/experimental/v1/_src/testing:array_utils",

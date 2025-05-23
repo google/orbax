@@ -25,12 +25,31 @@ py_library(
     srcs = ["array_leaf_handler.py"],
     deps = [
         ":types",
+        "//checkpoint/orbax/checkpoint:utils",
         "//checkpoint/orbax/checkpoint/_src/arrays:types",
         "//checkpoint/orbax/checkpoint/_src/futures:future",
-        "//checkpoint/orbax/checkpoint/_src/metadata:array_metadata_store",
         "//checkpoint/orbax/checkpoint/_src/metadata:sharding",
         "//checkpoint/orbax/checkpoint/_src/metadata:value",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/google:pathways_type_handlers",
+    ],
+)
+
+py_library(
+    name = "compatibility",
+    srcs = ["compatibility.py"],
+    deps = [
+        ":array_leaf_handler",
+        ":types",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
+        "//checkpoint/orbax/checkpoint/_src/metadata:sharding",
+        "//checkpoint/orbax/checkpoint/_src/metadata:value",
+        "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//checkpoint/orbax/checkpoint/_src/serialization:types",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/experimental/v1/_src/path:types",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization",
+        "//orbax/checkpoint/experimental/v1/_src/tree:types",
     ],
 )

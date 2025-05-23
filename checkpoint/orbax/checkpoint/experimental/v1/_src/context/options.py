@@ -21,6 +21,7 @@ from typing import Any, Callable, Protocol, Type
 
 import numpy as np
 from orbax.checkpoint import options as v0_options_lib
+from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.handlers import registration
@@ -202,6 +203,8 @@ class ArrayOptions:
       use_replica_parallel: Whether to parallelize saving across replicas.
       enable_write_sharding_file: whether to write sharding file, defaults to
         True.
+      array_metadata_store: Store to manage per host ArrayMetadata. To disable
+        ArrayMetadata persistence, set it to None.
     """
 
     @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -240,6 +243,9 @@ class ArrayOptions:
     enable_post_merge_validation: bool = True
     use_replica_parallel: bool = True
     enable_write_sharding_file: bool = True
+    array_metadata_store: array_metadata_store_lib.Store | None = (
+        array_metadata_store_lib.Store()
+    )
 
   @dataclasses.dataclass(frozen=True, kw_only=True)
   class Loading:
