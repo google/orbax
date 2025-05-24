@@ -29,6 +29,7 @@ a `PathAwaitingCreation`.
 - #v1 Use an implementation of `load` independent of `v0.Checkpointer`.
 - #v1 Distinguish between `force` and `overwrite` save params.
 - Enable `pinned_host_transfer` for GPU backend only.
+- #perf Add/update logs with time logs for save paths.
 
 ## [0.11.13] - 2025-04-30
 

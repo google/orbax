@@ -126,6 +126,24 @@ def _log_io_metrics(
     jax.monitoring.record_event(bytes_metric, bytes=size)
 
 
+async def _logging_serialize(
+    handler: TypeHandler,
+    serialize: asyncio.Coroutine[Any, Any, Sequence[future.Future]],
+) -> Sequence[future.Future]:
+  """Logs the time taken to serialize."""
+  start = time.time()
+  commit_futures = await serialize
+  handler_name = f'{type(handler).__module__}.{type(handler).__qualname__}'
+  logging.info(
+      '[process=%s][thread=%s] Initiated %s.serialize. Time taken: %fs',
+      multihost.process_index(),
+      threading.current_thread().name,
+      f'"{handler_name}"',
+      time.time() - start,
+  )
+  return commit_futures
+
+
 @dataclasses.dataclass
 class _BatchRequest:
   """Represents a a request for batched serialization or deserialization.
@@ -492,7 +510,12 @@ class BasePyTreeCheckpointHandler(
     tree_memory_size = 0
     for request in batch_requests:
       serialize_ops += [
-          request.handler.serialize(request.values, request.infos, request.args)
+          _logging_serialize(
+              request.handler,
+              request.handler.serialize(
+                  request.values, request.infos, request.args
+              ),
+          )
       ]
       write_size, _ = _get_batch_memory_size(request.handler, request.values)
       tree_memory_size += write_size
@@ -501,7 +524,7 @@ class BasePyTreeCheckpointHandler(
     # Flatten to List[future.Future].
     commit_futures, _ = jax.tree.flatten(commit_futures)
 
-    serialization_requested_time = time.time()
+    total_serialization_initiated_time = time.time()
     if logging.vlog_is_on(1):
       logging.vlog(1, 'param_info: %s', param_infos)
       logging.vlog(1, 'save_args: %s', save_args)
@@ -543,15 +566,15 @@ class BasePyTreeCheckpointHandler(
     ]
     async_save_end_time = time.time()
     logging.info(
-        '[process=%s][thread=%s] Initiated async_save, took'
-        ' %fs (batch_requests_ready=%fs, serialization_requested=%fs,'
+        '[process=%s][thread=%s] Initiated Pytree async_save. Time taken:'
+        ' %fs (batch_requests_ready=%fs, total_serialization_initiated=%fs,'
         ' others=%fs)',
         multihost.process_index(),
         threading.current_thread().name,
         async_save_end_time - start_time,
         batch_requests_ready_time - start_time,
-        serialization_requested_time - batch_requests_ready_time,
-        async_save_end_time - serialization_requested_time,
+        total_serialization_initiated_time - batch_requests_ready_time,
+        async_save_end_time - total_serialization_initiated_time,
     )
     return chained_futures
 
@@ -943,8 +966,8 @@ class BasePyTreeCheckpointHandler(
     await asyncio.to_thread(write_metadata_file_future.result)
     end_time = time.time()
     logging.info(
-        '[process=%s][thread=%s] Commit + Array metadata write took %fs'
-        ' (commit=%fs, array_metadata_write=%fs)',
+        '[process=%s][thread=%s] Commit + Array metadata written. Time taken:'
+        ' %fs (commit=%fs, array_metadata_write=%fs)',
         multihost.process_index(),
         threading.current_thread().name,
         end_time - start_time,
@@ -1022,6 +1045,7 @@ class BasePyTreeCheckpointHandler(
     )
 
   async def _finalize_async(self, directory: epath.Path) -> None:
+    start_time = time.time()
     finalize_coros = []
     if self._array_metadata_store is not None:
       if self._primary_host is None:
@@ -1058,6 +1082,18 @@ class BasePyTreeCheckpointHandler(
     finalize_coros.append(merge_ocdbt_per_process_files())
 
     await asyncio.gather(*finalize_coros)
+    end_time = time.time()
+    logging.info(
+        '[process=%s][thread=%s] Pytree save finalize (merge_ocdbt +'
+        ' ArrayMetadata validation) completed. Time taken: %fs. use_zarr3=%s,'
+        ' enable_post_merge_validation=%s, directory=%s',
+        multihost.process_index(),
+        threading.current_thread().name,
+        end_time - start_time,
+        self._use_zarr3,
+        self._enable_post_merge_validation,
+        directory,
+    )
 
   def finalize(self, directory: epath.Path) -> None:
     """Finalization step.

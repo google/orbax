@@ -257,8 +257,8 @@ class Store:
       _, result = await self._get_array_metadatas(file_paths)
       logging.vlog(
           1,
-          '[process=%s][thread=%s] Read %s metadata from metadata path=%s'
-          ' in %s seconds.',
+          '[process=%s][thread=%s] Read %s metadata from metadata path=%s.'
+          ' Time taken: %fs.',
           multihost.process_index(),
           threading.current_thread().name,
           len(result),
@@ -278,7 +278,7 @@ class Store:
     if not result:
       logging.info(
           '[process=%s][thread=%s] No metadata found for any process_index,'
-          ' checkpoint_dir=%s. time elapsed=%s seconds. If the checkpoint does'
+          ' checkpoint_dir=%s. Time taken: %fs. If the checkpoint does'
           ' not contain jax.Array then it is expected. If checkpoint contains'
           ' jax.Array then it should lead to an error eventually; if no error'
           ' is raised then it is a bug.',
@@ -291,8 +291,8 @@ class Store:
 
     logging.vlog(
         1,
-        '[process=%s][thread=%s] Read all metadata from checkpoint_dir=%s in %s'
-        ' seconds.',
+        '[process=%s][thread=%s] Read all metadata from checkpoint_dir=%s. Time'
+        ' taken: %fs.',
         multihost.process_index(),
         threading.current_thread().name,
         checkpoint_dir,
@@ -404,8 +404,8 @@ class Validator:
           process_cache=process_cache,
       )
     logging.info(
-        '[process=%s][thread=%s] Validated ArrayMetadata from all %s hosts in'
-        ' %s seconds.',
+        '[process=%s][thread=%s] Validated ArrayMetadata from all %s hosts.'
+        ' Time taken: %fs.',
         multihost.process_index(),
         threading.current_thread().name,
         len(array_metadatas),
