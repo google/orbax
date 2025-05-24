@@ -136,6 +136,13 @@ py_library(
 )
 
 py_test(
+    name = "pytree_checkpoint_handler_test",
+    srcs = ["pytree_checkpoint_handler_test.py"],
+    data = ["//checkpoint/orbax/checkpoint/testing:aggregate_checkpoints"],
+    deps = [":pytree_checkpoint_handler_test_utils"],
+)
+
+py_test(
     name = "json_checkpoint_handler_test",
     srcs = ["json_checkpoint_handler_test.py"],
     deps = [
