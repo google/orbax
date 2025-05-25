@@ -14,6 +14,7 @@
 
 """Export class that implements the save and load abstract class defined in Export Base for use with the Orbax Model export format."""
 
+import functools
 import os
 from typing import Any, Callable, Dict, Mapping, Sequence, Tuple, cast
 
