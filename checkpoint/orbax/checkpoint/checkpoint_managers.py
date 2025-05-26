@@ -26,6 +26,18 @@ from orbax.checkpoint._src.checkpoint_managers.save_decision_policy import (
     AnySavePolicy,
 )
 
+from orbax.checkpoint._src.checkpoint_managers import preservation_policy
+from orbax.checkpoint._src.checkpoint_managers.preservation_policy import (
+    PreservationPolicy,
+    LatestN,
+    EveryNSeconds,
+    EveryNSteps,
+    CustomSteps,
+    AnyPreservationPolicy,
+    BestN,
+)
+
+
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
 

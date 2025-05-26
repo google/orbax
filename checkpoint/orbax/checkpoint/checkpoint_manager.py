@@ -22,7 +22,7 @@ import datetime
 import threading
 import time
 import typing
-from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Tuple, Type, Union, overload
+from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, overload, Sequence, Tuple, Type, Union
 
 from absl import logging
 from etils import epath
@@ -36,6 +36,7 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import threading as threading_lib
 from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
+from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.checkpointers import async_checkpointer
@@ -206,6 +207,39 @@ def _get_default_save_decision_policy(
   return save_decision_policy_lib.AnySavePolicy(save_interval_policies)
 
 
+def _get_default_preservation_policy(
+    options: CheckpointManagerOptions,
+) -> preservation_policy_lib.PreservationPolicy:
+  """Returns a default preservation policy."""
+  preservation_policies = []
+  if options.keep_period is not None:
+    preservation_policies.append(
+        preservation_policy_lib.EveryNSteps(options.keep_period)
+    )
+  if options.keep_time_interval is not None:
+    total_seconds = int(options.keep_time_interval.total_seconds())
+    preservation_policies.append(
+        preservation_policy_lib.EveryNSeconds(
+            interval_secs=total_seconds
+        )
+    )
+  if options.best_fn is not None:
+    preservation_policies.append(
+        preservation_policy_lib.BestN(
+            best_fn=options.best_fn,
+            reverse=(options.best_mode == 'min'),
+            n=options.max_to_keep,
+        )
+    )
+  else:
+    preservation_policies.append(
+        preservation_policy_lib.LatestN(n=options.max_to_keep)
+    )
+  return preservation_policy_lib.AnyPreservationPolicy(
+      preservation_policies
+  )
+
+
 # TODO(b/268051457) Clean up when no longer depended upon by internal users.
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
   return isinstance(
@@ -225,29 +259,13 @@ class CheckpointManagerOptions:
     The interval at which checkpoints should be saved.
     Ensures checkpoints will only be saved every n steps. Defaults to 1.
   max_to_keep:
-    If provided, specifies the maximum number of checkpoints to
-    keep. Older checkpoints are removed. By default, does not remove any old
-    checkpoints. Must be None or non-negative. When set, checkpoints
-    may be considered for deletion when there are more than `max_to_keep`
-    checkpoints present. Checkpoints are kept if they meet any of the conditions
-    below, such as `keep_time_interval`, `keep_period`, etc. Any remaining
-    checkpoints that do not meet these conditions are garbage-collected.
+    deprecated, do not use. use `preservation_policy` instead.
   keep_time_interval:
-    When more than max_to_keep checkpoints are present,
-    an older checkpoint that would ordinarily be deleted will be preserved if it
-    has been at least `keep_time_interval` since the previous preserved
-    checkpoint. The default setting of `None` does not preserve any checkpoints
-    in this way. For example, this may be used to ensure checkpoints are
-    retained at a frequency of approximately than one per hour.
+    deprecated, do not use. use `preservation_policy` instead.
   keep_period:
-    If set, any existing checkpoints matching checkpoint_step % keep_period == 0
-    will not be deleted.
+    deprecated, do not use. use `preservation_policy` instead.
   should_keep_fn:
-    WARNING: It is an experimental feature and may change without notice.
-    If set then this Callable overrides the behavior of `keep_period`, which is
-    ignored. It does not change the behavior of `keep_time_interval` and
-    `keep_checkpoints_without_metrics`. It is a predicate with signature:
-    `Callable[[int], bool]`, where int is the step number of the checkpoint.
+    deprecated, do not use. use `preservation_policy` instead.
   best_fn:
     If set, maintains checkpoints based on the quality of given
     metrics rather than recency. The function should accept a PyTree of metrics,
@@ -319,6 +337,12 @@ class CheckpointManagerOptions:
     is the sole means of determining when a checkpoint should be saved. If not
     provided, these other options are used instead. Prefer to use this option
     over others.
+  preservation_policy: An object used to determine which checkpoints to
+    preserve. If provided, overrides any other options dealing with this
+    subject, including `max_to_keep`, `keep_time_interval`, `keep_period`, and
+    `should_keep_fn`, `best_fn`, and is the sole means of determining which
+    checkpoints to preserve. If not provided, these other options are used
+    instead. Prefer to use this option over others.
   prevent_write_metrics: False by default. If True, metrics will not be written.
   """
 
@@ -352,6 +376,9 @@ class CheckpointManagerOptions:
   save_decision_policy: Optional[
       save_decision_policy_lib.SaveDecisionPolicy
   ] = None
+  preservation_policy: Optional[
+      preservation_policy_lib.PreservationPolicy
+  ] = None
   prevent_write_metrics: bool = False
 
   def __post_init__(self):
@@ -382,7 +409,11 @@ class CheckpointManagerOptions:
           f"or 'max'. Got {self.best_mode}."
       )
       raise ValueError(msg)
-    if self.max_to_keep is not None and self.max_to_keep < 0:
+    if (
+        self.preservation_policy is None
+        and self.max_to_keep is not None
+        and self.max_to_keep < 0
+    ):
       raise ValueError('Setting of `max_to_keep` must be None or non-negative.')
     if self.read_only and self.save_interval_steps > 0:
       self.save_interval_steps = 0
@@ -436,7 +467,7 @@ class CheckpointManagerOptions:
           'CheckpointManagerOptions.read_only=True, setting'
           ' should_save_fn=None.'
       )
-    if self.should_keep_fn is not None:
+    if self.preservation_policy is None and self.should_keep_fn is not None:
       logging.warning(
           'CheckpointManagerOptions.should_keep_fn is set, setting'
           ' keep_period=None (was %s).',
@@ -634,6 +665,22 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._save_decision_policy = (
         self._options.save_decision_policy
         or _get_default_save_decision_policy(self._options)
+    )
+
+    if self._options.preservation_policy and (
+        self._options.keep_time_interval
+        or self._options.max_to_keep
+        or self._options.keep_period
+        or self._options.should_keep_fn
+    ):
+      raise ValueError(
+          '`preservation_policy` and `delete options` are mutually exclusive'
+          ' - do not use together.'
+      )
+
+    self._preservation_policy = (
+        self._options.preservation_policy
+        or _get_default_preservation_policy(self._options)
     )
 
     if self._options.best_mode not in ['min', 'max']:
@@ -1704,22 +1751,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
       return checkpoint_infos
 
-  def _get_interval_preserved_checkpoints(
-      self, checkpoints: checkpoint_info.CheckpointInfos
-  ) -> List[CheckpointInfo]:
-    """Gets which checkpoints should be kept based on keep_time_interval."""
-    if checkpoints.empty():
-      return []
-    interval_preserved_checkpoints = [checkpoints[0]]
-    if self._options.keep_time_interval is not None:
-      for info in checkpoints[1:]:
-        if info.time >= (
-            interval_preserved_checkpoints[-1].time
-            + self._options.keep_time_interval
-        ):
-          interval_preserved_checkpoints.append(info)
-    return interval_preserved_checkpoints
-
   def _add_checkpoint_info(self, step: int, metrics: Optional[PyTree]):
     self._checkpoints.append(
         CheckpointInfo(
@@ -1866,102 +1897,27 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def _get_old_steps_to_remove(self) -> List[int]:
     """Returns checkpoints that should be deleted."""
-    # Must have set max_to_keep in order to remove any checkpoints.
-    if self._options.max_to_keep is None:
-      return []
-    # Not enough checkpoints accumulated to consider deletion.
-    if self._checkpoints.size() <= self._options.max_to_keep:
-      return []
-
     # This isn't a duration but there isn't a general counter that we can use so
     # we abuse a duration metric to count the number of steps examined.
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/old_steps_examined_count',
         self._checkpoints.size(),
     )
-
-    if self._track_best:
-      # Best steps (to keep) are at the end, after sorting.
-      (
-          checkpoints_without_metrics,
-          sorted_checkpoints,
-      ) = self._sort_checkpoints_by_metrics(self._checkpoints)
-    else:
-      # checkpoints already sorted by ascending step
-      checkpoints_without_metrics = []
-      sorted_checkpoints = [info for info in self._checkpoints]
-
-    keep = int(self._options.max_to_keep)
-    if self._options.keep_checkpoints_without_metrics:
-      maybe_delete = (
-          sorted_checkpoints[:-keep] if keep > 0 else sorted_checkpoints
-      )
-      active_checkpoints = set(
-          checkpoints_without_metrics
-          + (sorted_checkpoints[-keep:] if keep > 0 else [])
-      )
-    else:
-      all_checkpoints = checkpoints_without_metrics + sorted_checkpoints
-      maybe_delete = all_checkpoints[:-keep] if keep > 0 else sorted_checkpoints
-      active_checkpoints = set(all_checkpoints[-keep:] if keep > 0 else [])
-
-    interval_preserved_checkpoints = self._get_interval_preserved_checkpoints(
-        self._checkpoints
+    preservation_result = self._preservation_policy.should_preserve(
+        [info for info in self._checkpoints],
+        context=preservation_policy_lib.PreservationContext(),
     )
-    kept_checkpoints = set()
-    for info in maybe_delete:
-      if (
-          self._options.keep_time_interval is not None
-          and interval_preserved_checkpoints
-      ):
-        if info in interval_preserved_checkpoints:
-          logging.info(
-              'Preserving %s: (Reason: older falling on keep_time_interval).',
-              info,
-          )
-          kept_checkpoints.add(info)
-          continue
-        elif info.time >= (
-            interval_preserved_checkpoints[-1].time
-            + self._options.keep_time_interval
-        ):
-          interval_preserved_checkpoints.append(info)
-          logging.info(
-              'Preserving %s: (Reason: latest falling on keep_time_interval).',
-              info,
-          )
-          kept_checkpoints.add(info)
-          continue
-      if (
-          self._options.should_keep_fn is not None
-          and self._options.should_keep_fn(info.step)
-      ):
-        logging.info(
-            'Preserving %s: (Reason: on should_keep_fn callback).', info
+    return [
+        checkpoint.step
+        for checkpoint, should_preserve in zip(
+            self._checkpoints, preservation_result
         )
-        kept_checkpoints.add(info)
-        continue
-      if (
-          self._options.keep_period is not None
-          and info.step % self._options.keep_period == 0
-      ):
-        logging.info(
-            'Preserving %s: (Reason: on keep_period=%s).',
-            info,
-            self._options.keep_period,
+        if not should_preserve
+        and (
+            self._options.should_keep_fn is None
+            or not self._options.should_keep_fn(checkpoint.step)
         )
-        kept_checkpoints.add(info)
-        continue
-
-    kept_checkpoints.update(active_checkpoints)
-
-    steps_to_remove = []
-    for info in self._checkpoints:
-      if info not in kept_checkpoints:
-        reason = 'worse metric' if self._track_best else 'old checkpoint'
-        logging.info('Deleting %s: (Reason: %s).', info, reason)
-        steps_to_remove.append(info.step)
-    return steps_to_remove
+    ]
 
   def _wait_for_checkpointers(self):
     if is_async_checkpointer(self._checkpointer):
