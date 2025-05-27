@@ -170,7 +170,7 @@ class Checkpointer(epy.ContextManager):
 
   @property
   def latest(self) -> CheckpointMetadata[None] | None:
-    """Returns the latest `CheckpointMetadata`, or None if no checkpoints exist.
+    """Returns the latest :py:class:`.CheckpointMetadata`, or None if no checkpoints exist.
 
     See `checkpoints` documentation below.
 
@@ -183,7 +183,7 @@ class Checkpointer(epy.ContextManager):
 
   @property
   def checkpoints(self) -> Sequence[CheckpointMetadata[None]]:
-    """Returns a list of `CheckpointMetadata`, sorted ascending by step.
+    """Returns a list of :py:class:`.CheckpointMetadata`, sorted ascending by step.
 
     The method returns a list of `CheckpointMetadata` objects, which contain
     selected properties describing the checkpoint. Contrast this with the

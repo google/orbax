@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Implementation of `CheckpointableHandler` for PyTrees."""
+"""Implementation of :py:class:`.CheckpointableHandler` for PyTrees."""
 
 from __future__ import annotations
 
@@ -139,7 +139,7 @@ async def _async_futures(commit_futures: Sequence[future.Future]):
 
 
 class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
-  """An implementation of `CheckpointableHandler` for PyTrees."""
+  """An implementation of :py:class:`.CheckpointableHandler` for PyTrees."""
 
   def __init__(
       self,

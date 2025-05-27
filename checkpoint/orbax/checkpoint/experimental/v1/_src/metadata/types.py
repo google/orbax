@@ -25,20 +25,25 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 CheckpointableMetadataT = TypeVar('CheckpointableMetadataT')
 SerializedMetadata = TypeVar('SerializedMetadata', bound=dict[str, Any])
 
-# Metadata describing a PyTree checkpoint.
-# A serialized PyTree structure with the same structure as the
-# checkpointed PyTree. By "serialized", we mean that the PyTree has been
-# converted to a standardized representation, with all container nodes
-# represented as standard types (e.g., tuple, list, dict, etc.). The leaves
-# of the tree are individual parameter metadatas.
+
 PyTreeMetadata: TypeAlias = tree_types.PyTreeOf[tree_types.AbstractLeafType]
+PyTreeMetadata.__doc__ = """
+Metadata describing a PyTree checkpoint.
+
+A serialized PyTree structure with the same structure as the checkpointed
+PyTree. By "serialized", we mean that the PyTree has been converted to a
+standardized representation, with all container nodes represented as standard
+types (e.g., tuple, list, dict, etc.). The leaves of the tree are individual
+parameter metadatas.
+"""
 
 
 class CheckpointMetadata(Generic[CheckpointableMetadataT]):
   """Represents complete metadata describing a checkpoint.
 
   Note that this class has a generic type `CheckpointableMetadataT`. This
-  will typically be either `PyTreeMetadata` (see above), or `dict[str, Any]`.
+  will typically be either :py:data:`.PyTreeMetadata` (see above), or
+  `dict[str, Any]`.
 
   `CheckpointMetadata` can be accessed via one of two metadata methods. Please
   see `ocp.pytree_metadata` and `ocp.checkpointables_metadata` for more

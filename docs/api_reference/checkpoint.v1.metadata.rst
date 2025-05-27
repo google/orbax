@@ -7,8 +7,7 @@ Checkpoint Metadata
 
 PyTreeMetadata
 ------------------------------------------------------------
-.. autoclass:: PyTreeMetadata
-  :members:
+.. autodata:: PyTreeMetadata
 
 CheckpointMetadata
 ------------------------------------------------------------

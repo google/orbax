@@ -301,7 +301,7 @@ CheckpointableHandlerType = TypeVar(
 def register_handler(
     cls: CheckpointableHandlerType,
 ) -> CheckpointableHandlerType:
-  """Registers a `CheckpointableHandler` globally.
+  """Registers a :py:class:`.CheckpointableHandler` globally.
 
   The order in which handlers are registered matters. If multiple handlers
   could potentially be used to save or load, the one added most recently will be

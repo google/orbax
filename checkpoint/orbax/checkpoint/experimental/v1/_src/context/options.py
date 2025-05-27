@@ -271,8 +271,9 @@ class ArrayOptions:
 class CheckpointablesOptions:
   """Options used to configure `checkpointables` save/load behavior.
 
-  Primarily intended for registering custom `CheckpointableHandler` classes. You
-  can specify a registry directly, or use `create_with_handlers`. For example::
+  Primarily intended for registering custom :py:class:`.CheckpointableHandler`
+  classes. You can specify a registry directly, or use `create_with_handlers`.
+  For example::
 
     checkpointables_options = (
       ocp.options.CheckpointablesOptions.create_with_handlers(
@@ -290,13 +291,13 @@ class CheckpointablesOptions:
   by `BarHandler` and has the name `bar` can handled by this `BarHandler`.
 
   Recall that a global registry also exists, containing core handlers like
-  `PyTreeHandler` and `JsonHandler`. Use `ocp.handlers.register_handler` to
-  register a handler globally.
+  :py:class:`.PyTreeHandler` and :py:class:`.JsonHandler`. Use
+  `ocp.handlers.register_handler` to register a handler globally.
 
   Note that registration order matters. For example, if saving a dict containing
-  only strings, both `JsonHandler` and `PyTreeHandler` are capable of handling
-  this object, but `JsonHandler` will be selected first because it is registered
-  first.
+  only strings, both :py:class:`.JsonHandler` and :py:class:`.PyTreeHandler` are
+  capable of handling this object, but :py:class:`.JsonHandler` will be selected
+  first because it is registered first.
 
   Attributes:
     registry: A `CheckpointableHandlerRegistry` that is used to resolve
