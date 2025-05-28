@@ -226,7 +226,7 @@ def _get_default_preservation_policy(
   if options.best_fn is not None:
     preservation_policies.append(
         preservation_policy_lib.BestN(
-            best_fn=options.best_fn,
+            get_metric_fn=options.best_fn,
             reverse=(options.best_mode == 'min'),
             n=options.max_to_keep,
         )
