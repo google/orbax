@@ -3,6 +3,7 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "abstract_logger",
     srcs = ["abstract_logger.py"],
+    visibility = ["//visibility:public"],
 )
 
 py_library(
