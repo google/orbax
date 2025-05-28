@@ -111,6 +111,7 @@ py_library(
 py_library(
     name = "checkpoint_manager",
     srcs = ["checkpoint_manager.py"],
+    tags = ["ignore_for_dep=///production/machine_locality/lib/python:storage_configuration_alerter"],
     deps = [
         ":abstract_checkpoint_manager",
         ":args",
@@ -138,6 +139,7 @@ py_library(
         "//checkpoint/orbax/checkpoint/_src/path:deleter",
         "//checkpoint/orbax/checkpoint/_src/path:step",
         "//checkpoint/orbax/checkpoint/_src/path:utils",
+        "//production/machine_locality/lib/python:storage_configuration_alerter",
         "//orbax/checkpoint/_src:threading",
         "//orbax/checkpoint/_src/checkpoint_managers:policy_checkpoint_info",
         "//orbax/checkpoint/_src/checkpoint_managers:preservation_policy",
