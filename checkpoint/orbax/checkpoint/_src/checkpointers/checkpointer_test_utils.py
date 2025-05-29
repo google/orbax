@@ -1,4 +1,4 @@
-# Copyright 2024 The Orbax Authors.
+# Copyright 2025 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -654,5 +654,64 @@ class CheckpointerTestBase:
                 args=pytree_checkpoint_handler.PyTreeRestoreArgs(
                     item=reference_item,
                     restore_args=self.pytree_restore_args,
+                ),
+            )
+
+    def test_partial_restore_with_omission(self):
+      """Basic save and restore test."""
+      with self.checkpointer(PyTreeCheckpointHandler()) as save_checkpointer:
+        directory = self.directory / 'partial_restore'
+        save_checkpointer.save(
+            directory,
+            args.PyTreeSave(self.pytree),
+        )
+
+      with self.subTest('success'):
+        with self.checkpointer(
+            PyTreeCheckpointHandler()
+        ) as restore_checkpointer:
+          reference_item = {
+              'a': 0,
+              'c': {
+                  'a': 0,
+              },
+          }
+          expected = {
+              'a': self.pytree['a'],
+              'c': {
+                  'a': self.pytree['c']['a'],
+              },
+          }
+          restored = restore_checkpointer.restore(
+              directory,
+              args=pytree_checkpoint_handler.PyTreeRestoreArgs(
+                  item=reference_item,
+                  restore_args=self.pytree_restore_args,
+                  partial_restore=True,
+              ),
+          )
+          test_utils.assert_tree_equal(self, expected, restored)
+
+      with self.subTest('extra_leaf'):
+        with self.checkpointer(
+            PyTreeCheckpointHandler()
+        ) as restore_checkpointer:
+          reference_item = {
+              'a': 0,
+              'c': {
+                  'a': 0,
+              },
+              'z': 0,
+          }
+          with self.assertRaisesRegex(
+              ValueError,
+              r"Missing 1 keys in structure path \(\), including: \['z'\]",
+          ):
+            restore_checkpointer.restore(
+                directory,
+                args=pytree_checkpoint_handler.PyTreeRestoreArgs(
+                    item=reference_item,
+                    restore_args=self.pytree_restore_args,
+                    partial_restore=True,
                 ),
             )
