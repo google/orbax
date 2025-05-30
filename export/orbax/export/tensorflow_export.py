@@ -14,7 +14,8 @@
 
 """Export class that implements the save and load abstract class defined in Export Base for use with the TensorFlow SavedModel export format."""
 
-from typing import Any, Callable, Mapping, Sequence
+import re
+from typing import Any, Callable, Mapping, Sequence, cast
 
 from absl import logging
 from etils.epy import reraise_utils
@@ -55,7 +56,8 @@ class TensorFlowExport(export_base.ExportBase):
     Args:
       model_path: The path to save the model.
       **kwargs: Additional arguments to pass to the `save` method. Accepted
-        arguments are `save_options` and `serving_signatures`.
+        arguments are `save_options`, `serving_signatures`, and
+        `tree_verity_options`.
     """
 
     logging.info('Exporting model using TensorFlow SavedModel.')
@@ -122,7 +124,7 @@ class TensorFlowExport(export_base.ExportBase):
 
     Args:
       serving_configs: a sequence of which each element is a `ServingConfig`
-        cooresponding to a serving signature of the exported SavedModel.
+        corresponding to a serving signature of the exported SavedModel.
       obx_export_tf_preprocess_only: a boolean indicating whether to export only
         the preprocessor.
       module: A tf module  that will provide the method definitions. The module
