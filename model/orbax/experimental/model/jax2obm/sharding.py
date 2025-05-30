@@ -44,18 +44,6 @@ def hlo_sharding_to_op_sharding(
   return output
 
 
-def jax_mesh_to_obm_device_mesh(
-    jax_mesh: jax.sharding.Mesh,
-) -> obm.manifest_pb2.DeviceMesh:
-  """Converts `jax.sharding.Mesh` to proto `DeviceMesh`."""
-  output = obm.manifest_pb2.DeviceMesh()
-  for axis_name, axis_size in jax_mesh.shape.items():
-    output.axis.append(
-        obm.manifest_pb2.DeviceMesh.Axis(name=axis_name, size=axis_size)
-    )
-  return output
-
-
 def jax_mesh_to_obm_device_assignment_by_coords(
     jax_mesh: jax.sharding.Mesh,
 ) -> obm.manifest_pb2.DeviceAssignmentByCoords:

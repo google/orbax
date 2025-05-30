@@ -32,27 +32,6 @@ class ShardingTest(absltest.TestCase):
         np.array(get_topology_desc('df=4x2').devices).reshape(4, 4)
     )
 
-  def test_jax_mesh_to_obm_device_mesh(self):
-    device_mesh = sharding.jax_mesh_to_obm_device_mesh(self.get_mesh())
-    expected_device_mesh_text = """
-      axis {
-        name: "x"
-        size: 4
-      }
-      axis {
-        name: "y"
-        size: 4
-      }
-    """
-    expected_device_mesh = text_format.Parse(
-        expected_device_mesh_text, obm.manifest_pb2.DeviceMesh()
-    )
-    compare.assertProtoEqual(
-        self,
-        device_mesh,
-        expected_device_mesh,
-    )
-
   def test_jax_mesh_to_obm_device_assignment_by_coords(self):
     device_assignment_by_coords = (
         sharding.jax_mesh_to_obm_device_assignment_by_coords(self.get_mesh())
