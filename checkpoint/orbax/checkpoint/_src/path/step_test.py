@@ -579,6 +579,38 @@ class UtilsTest(parameterized.TestCase):
             self.directory / '1', name_format
         )
 
+  def test_string_representation(self):
+    self.assertEqual(
+        str(step_lib.standard_name_format(step_prefix='step')),
+        'StandardNameFormat("step_1234")',
+    )
+    self.assertEqual(
+        str(
+            step_lib.standard_name_format(
+                step_prefix='step', step_format_fixed_length=8
+            )
+        ),
+        'StandardNameFormat("step_00001234")',
+    )
+    self.assertEqual(
+        str(
+            step_lib.composite_name_format(
+                write_name_format=step_lib.standard_name_format(
+                    step_prefix='write', step_format_fixed_length=8
+                ),
+                read_name_formats=[
+                    step_lib.standard_name_format(
+                        step_prefix='write', step_format_fixed_length=8
+                    ),
+                    step_lib.standard_name_format(step_prefix='read'),
+                ],
+            )
+        ),
+        'Composite(['
+        'StandardNameFormat("write_00001234"),StandardNameFormat("read_1234")'
+        '])',
+    )
+
 
 
 if __name__ == '__main__':

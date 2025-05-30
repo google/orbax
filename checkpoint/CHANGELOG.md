@@ -30,6 +30,7 @@ a `PathAwaitingCreation`.
 - #v1 Distinguish between `force` and `overwrite` save params.
 - Enable `pinned_host_transfer` for GPU backend only.
 - #perf Add/update logs with time logs for save paths.
+- Simplify str of NameFormats.
 
 ## [0.11.13] - 2025-04-30
 

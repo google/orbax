@@ -308,6 +308,9 @@ class _StandardNameFormat(NameFormat[Metadata]):
   step_format_fixed_length: Optional[int] = None
   single_host_load_and_broadcast: bool = False
 
+  def __str__(self):
+    return f'StandardNameFormat("{self.build_name(1234)}")'
+
   def build_name(self, step: int) -> str:
     """Returns `(prefix_)?(zero padding)?step` name."""
     if self.step_format_fixed_length is not None:
@@ -504,10 +507,15 @@ class _CompositeNameFormat(NameFormat[Metadata]):
 
   def __post_init__(self):
     if self.write_name_format not in self.read_name_formats:
+      read_name_formats = ','.join(str(f) for f in self.read_name_formats)
       raise ValueError(
           f'write_name_format: {self.write_name_format} must be present in'
-          f' read_name_formats: {self.read_name_formats}.'
+          f' read_name_formats: [{read_name_formats}].'
       )
+
+  def __str__(self):
+    read_name_formats = ','.join(str(f) for f in self.read_name_formats)
+    return f'Composite([{read_name_formats}])'
 
   def build_name(self, step: int) -> str:
     """Returns `step` name using `write_name_format`."""
