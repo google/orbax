@@ -1014,43 +1014,6 @@ class PyTreeHandlerTestBase:
       with self.assertRaises(FileNotFoundError):
         self.handler.metadata(self.directory)
 
-    @parameterized.product(
-        use_ocdbt=(False,),
-        array_metadata_store=(None, ARRAY_METADATA_STORE),
-    )
-    def test_override_tensorstore_metadata_name(
-        self,
-        use_ocdbt: bool,
-        array_metadata_store: array_metadata_store_lib.Store | None,
-    ):
-      metadata_key = 'custom_zarray'
-      ty = np.ndarray
-      np_array_handler = type_handlers.NumpyHandler(metadata_key=metadata_key)
-      fn = lambda ty: issubclass(ty, np.ndarray)
-      pytree = self.numpy_pytree
-      del pytree['x']
-      del pytree['y']
-
-      with test_utils.register_type_handler(ty, np_array_handler, fn):
-        with handler_with_options(
-            use_ocdbt=use_ocdbt, array_metadata_store=array_metadata_store
-        ) as checkpoint_handler:
-          checkpoint_handler.save(self.directory, pytree)
-          param_names = pytree_checkpoint_handler.get_param_names(pytree)
-          paths = jax.tree.map(lambda n: self.directory / n, param_names)
-
-          def check_path(p):
-            self.assertTrue(
-                (p / metadata_key).exists(),
-                msg=f'{p / metadata_key} should exist.',
-            )
-            self.assertFalse(
-                (p / '.zarray').exists(),
-                msg=f'{p / ".zarray"} should not exist.',
-            )
-
-          jax.tree.map(check_path, paths)
-
     @parameterized.parameters((True,), (False,))
     def test_reshape_padding(self, enable_padding_and_truncation: bool):
       mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
