@@ -12,74 +12,47 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""NumpyLeafHandler that implements the types.LeafHandler Protocol.
+"""ScalarLeafHandler that implements the types.LeafHandler Protocol.
 
 The primary purpose of this handler is to provide serialization and
-deserialization for numpy arrays
+deserialization for scalar values.
 """
 
 import asyncio
 import dataclasses
-from typing import Awaitable, Protocol, Sequence
+from typing import Awaitable, Sequence, Type
 
 from absl import logging
+import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint._src.arrays import types as arrays_types_v0
 from orbax.checkpoint._src.futures import future
-from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
 
-NumpySerializationParam = types.SerializationParam[np.ndarray]
-NumpyDeserializationParam = types.DeserializationParam["AbstractNumpy"]
-Shape = arrays_types_v0.Shape
-
-
-class AbstractNumpy(Protocol):
-  """Abstract representation of a numpy array.
-
-  This is a protocol for an abstract numpy array that can be used to represent
-  the metadata belonging to a numpy array.
-
-  shape:
-    Tuple of integers describing the array shape.
-  dtype:
-    Dtype of array elements.
-  """
-
-  shape: Shape | None
-  dtype: np.dtype
+Scalar = int | float | np.number
+ScalarSerializationParam = types.SerializationParam[Scalar]
+ScalarDeserializationParam = types.DeserializationParam["AbstractScalar"]
 
 
 @dataclasses.dataclass
-class NumpyShapeDtype:
-  """To implement the AbstractNumpy protocol."""
+class AbstractScalar:
+  """Abstract scalar representation of a scalar value.
 
-  shape: Shape | None
-  dtype: np.dtype
+  This an abstract scalar that can be used to represent
+  the metadata belonging to a scalar value.
 
-
-@dataclasses.dataclass
-class NumpyMetadata:
-  """Numpy Metadata for the NumpyLeafHandler.
-
-  shape:
-    Tuple of integers describing the array shape.
   dtype:
-    Dtype of array elements.
-  storage:
-    Optional metadata describing how the array is stored in a checkpoint.
+    Dtype of the scalar value. Note extra np.dtype and jnp.dtype are needed
+    to support the v0 ScalarMetadata.
   """
 
-  shape: Shape | None
-  dtype: np.dtype
-  storage_metadata: value_metadata.StorageMetadata | None
+  dtype: Type[Scalar] | np.dtype | jnp.dtype
 
 
 def _create_v0_saving_paraminfo(
-    param: NumpySerializationParam,
+    param: ScalarSerializationParam,
     context: context_lib.Context,
     serialization_context: types.SerializationContext,
 ) -> type_handlers_v0.ParamInfo:
@@ -96,12 +69,12 @@ def _create_v0_saving_paraminfo(
       use_zarr3=saving_options.use_zarr3,
       ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
       ts_context=serialization_context.ts_context,
-      value_typestr="np.ndarray",
+      value_typestr="scalar",
   )
 
 
 def _create_v0_savearg(
-    param: NumpySerializationParam,
+    param: ScalarSerializationParam,
     context: context_lib.Context,
 ) -> type_handlers_v0.SaveArgs:
   """Creates a V0 SaveArgs from V1 params and context for saving."""
@@ -122,7 +95,7 @@ def _create_v0_savearg(
 
 
 def _create_v0_restore_paraminfo(
-    param: types.DeserializationParam[None | AbstractNumpy],
+    param: types.DeserializationParam[None | AbstractScalar],
     context: context_lib.Context,
     deserialization_context: types.DeserializationContext,
 ) -> type_handlers_v0.ParamInfo:
@@ -144,26 +117,25 @@ def _create_v0_restore_paraminfo(
 
 
 def _create_v0_restorearg(
-    param: NumpyDeserializationParam,
+    param: ScalarDeserializationParam,
 ) -> type_handlers_v0.RestoreArgs:
   """Creates a V0 RestoreArgs from V1 params."""
 
   if param.value is None:
-    return type_handlers_v0.RestoreArgs(restore_type=np.ndarray)
+    # use default restore args
+    return type_handlers_v0.RestoreArgs()
   else:
     v = param.value
-    assert isinstance(
-        v,
-        (
-            np.ndarray,
-            NumpyShapeDtype,
-            value_metadata.ArrayMetadata,
-        ),
-    ), f"v is an unsupported type: {type(v)}"
+    if isinstance(v, AbstractScalar):
+      restored_dtype = v.dtype
+    elif isinstance(v, Scalar):
+      restored_dtype = type(v)
+    else:
+      raise ValueError(f"Unsupported type: {type(v)}")
 
-    logging.vlog(1, "name: %s, v.dtype: %s", param.name, v.dtype)
+    logging.vlog(1, "name: %s, v.dtype: %s", param.name, restored_dtype)
     return type_handlers_v0.RestoreArgs(
-        restore_type=np.ndarray,
+        restore_type=restored_dtype,
         dtype=v.dtype,
     )
 
@@ -172,8 +144,8 @@ async def _async_futures(commit_futures: Sequence[future.Future]):
   await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
 
 
-class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractNumpy]):
-  """NumpyLeafHandler that implements the types.LeafHandler Protocol."""
+class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
+  """ScalarLeafHandler that implements the types.LeafHandler Protocol."""
 
   def __init__(
       self,
@@ -181,20 +153,20 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractNumpy]):
       context: context_lib.Context | None = None,
   ):
     self._context = context_lib.get_context(context)
-    self._handler_impl = type_handlers_v0.NumpyHandler()
+    self._handler_impl = type_handlers_v0.ScalarHandler()
 
-    logging.info("NumpyLeafHandler created.")
+    logging.info("ScalarLeafHandler created.")
 
   async def serialize(
       self,
-      params: Sequence[NumpySerializationParam],
+      params: Sequence[ScalarSerializationParam],
       serialization_context: types.SerializationContext,
   ) -> Awaitable[None]:
-    """Serializes np.ndarrays as a checkpointable to a storage location.
+    """Serializes scalar values as a checkpointable to a storage location.
 
     Args:
-      params: a sequence of NumpySerializationParam per leaf.
-      serialization_context: SerializationContext for the NumpyLeafHandler.
+      params: a sequence of ScalarSerializationParam per leaf.
+      serialization_context: SerializationContext for the scalar leaf handler.
 
     Returns:
       Sequence of commit futures which can be awaited to complete the save
@@ -218,17 +190,18 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractNumpy]):
 
   async def deserialize(
       self,
-      params: Sequence[types.DeserializationParam[AbstractNumpy]],
+      params: Sequence[types.DeserializationParam[AbstractScalar]],
       deserialization_context: types.DeserializationContext,
-  ) -> Awaitable[Sequence[np.ndarray]]:
-    """Returns sequence of np.ndarrays from a stored checkpointable location.
+  ) -> Awaitable[Sequence[Scalar]]:
+    """Returns sequence of Scalar values from a stored checkpointable location.
 
     Args:
-      params: sequence of NumpyDeserializationParam per leaf.
-      deserialization_context: NumpyDeserializationContext for the leaf handler.
+      params: sequence of ScalarDeserializationParam per leaf.
+      deserialization_context: ScalarDeserializationContext for the leaf
+        handler.
 
     Returns:
-      The deserialized sequence of nd.ndarays as leaves.
+      The deserialized sequence of scalar values as leaves.
     """
 
     # validate all parameters
@@ -246,37 +219,35 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractNumpy]):
       self,
       params: Sequence[types.DeserializationParam[None]],
       deserialization_context: types.DeserializationContext,
-  ) -> Sequence[AbstractNumpy]:
-    """Returns a squence of NumpyMetadata from a stored checkpointable location.
+  ) -> Sequence[AbstractScalar]:
+    """Returns a squence of AbstractScalar from a stored checkpointable location.
 
     Args:
-      params: sequence of NumpyDeserializationParam per Numpy array leaf.
-      deserialization_context: DeserializationContext for the array leaf
+      params: sequence of ScalarDeserializationParam per scalar value leaf.
+      deserialization_context: DeserializationContext for the scalar leaf
         handler.
 
     Returns:
-      Sequence of NumpyMetadata for each provided DeserializationParam.
+      Sequence of ScalarMetadata for each provided DeserializationParam.
     """
     paraminfos = [
         _create_v0_restore_paraminfo(p, self._context, deserialization_context)
         for p in params
     ]
 
-    async def _convert_to_numpy_metadata() -> Sequence[NumpyMetadata]:
+    async def _convert_to_scalar_metadata() -> Sequence[AbstractScalar]:
       v0_metadatas = await self._handler_impl.metadata(paraminfos)
 
       ret = []
       for meta in v0_metadatas:
-        numpy_metadata = NumpyMetadata(
-            shape=meta.shape,
+        scalar_metadata = AbstractScalar(
             dtype=meta.dtype,
-            storage_metadata=meta.storage,
         )
-        ret.append(numpy_metadata)
+        ret.append(scalar_metadata)
 
         if logging.vlog_is_on(1):
-          logging.vlog(1, "numpy_metadata: %r", numpy_metadata)
+          logging.vlog(1, "scalar_metadata: %r", scalar_metadata)
 
       return ret
 
-    return await _convert_to_numpy_metadata()
+    return await _convert_to_scalar_metadata()
