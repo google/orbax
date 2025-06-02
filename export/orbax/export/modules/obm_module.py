@@ -49,7 +49,8 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       input_polymorphic_shape: polymorhpic shape for the inputs of `apply_fn`.
       jax2obm_kwargs: A dictionary of kwargs to pass to the jax2obm conversion
         library. Accepted arguments to jax2obm_kwargs are
-        'native_serialization_platforms', 'weights_name'and 'checkpoint_path'.
+        'native_serialization_platforms', 'weights_name', 'checkpoint_path' and
+        'polymorphic_constraints'.
     """
 
     # It is possible for jax2obm_kwargs to be None if the key is present.
@@ -60,27 +61,14 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         self._normalize_apply_fn_map(apply_fn, input_polymorphic_shape)
     )
 
-    if (
-        len(self._apply_fn_map) != 1
-        or len(self.input_polymorphic_shape_map) != 1
-    ):
-      raise NotImplementedError(
-          'ObmModule: Currently the ObmExport only supports a single method'
-          f' for export. Received apply_fn_map: {self._apply_fn_map} and'
-          f' input_polymorphic_shape_map: {self.input_polymorphic_shape_map}'
-      )
-
     # TODO(b/380323586): Look into if we should create a xla_compile_options
     # with default values for the users.
     self._xla_compile_options = jax2obm_kwargs.get(
         constants.XLA_COMPILE_OPTIONS, None
     )
 
-    # TODO(qidichen): Consider if `self.polymorphic_constraints` should support
-    # a map as well like `input_polymorphic_shape`. For now we assume there is
-    # only one entry in the `apply_fn` or `input_polymorphic_shape`.
-    self.polymorphic_constraints = jax2obm_kwargs.get(
-        constants.POLYMORPHIC_CONSTRAINTS, None
+    self.polymorphic_constraints = self._maybe_set_polymorphic_constraints(
+        jax2obm_kwargs
     )
     if self.polymorphic_constraints is None:
       self.polymorphic_constraints = ()
@@ -106,10 +94,19 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
           constants.DEFAULT_METHOD_KEY: input_polymorphic_shape
       }
     elif len(apply_fn) > 1:
-      raise NotImplementedError(
-          'ObmModule: Currently the ObmExport only supports a single method'
-          f' per module. Received: {apply_fn}'
-      )
+      apply_fn_map = apply_fn
+      input_polymorphic_shape_map = input_polymorphic_shape
+      if not isinstance(input_polymorphic_shape, Mapping):
+        raise TypeError(
+            'When apply_fn is a mapping, input_polymorphic_shape must also be a'
+            ' mapping.'
+        )
+      if len(apply_fn_map) != len(input_polymorphic_shape_map):
+        raise ValueError(
+            f'The size of apply_fn_map:{len(apply_fn_map)} should be equal to'
+            ' the size of'
+            f' input_polymorphic_shape_map:{len(input_polymorphic_shape_map)}.'
+        )
     else:
       apply_fn_map = apply_fn
       if input_polymorphic_shape is None:
@@ -134,6 +131,58 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         if constants.WEIGHTS_NAME in jax2obm_kwargs
         else constants.DEFAULT_WEIGHTS_NAME
     )
+
+  def _maybe_set_polymorphic_constraints(
+      self, jax2obm_kwargs
+  ) -> Mapping[str, Sequence[Any]]:
+    """Sets the polymorphic constraints for the model.
+
+    Args:
+      jax2obm_kwargs: A dictionary of kwargs to pass to the jax2obm conversion
+        library.
+
+    Returns:
+      A mapping of function name to polymorphic constraints.
+
+    Raises:
+      TypeError: If the polymorphic_constraints is not a Sequence or a Mapping.
+      ValueError: If the size of the polymorphic_constraints is not equal to the
+        size of the apply_fn_map or if a key in apply_fn_map is not found in
+        polymorphic_constraints.
+    """
+    polymorphic_constraints = jax2obm_kwargs.get(
+        constants.POLYMORPHIC_CONSTRAINTS, None
+    )
+    if not isinstance(polymorphic_constraints, Mapping):
+      polymorphic_constraints_mapping = {}
+      if polymorphic_constraints is None:
+        polymorphic_constraints = ()
+      if not isinstance(polymorphic_constraints, Sequence):
+        raise TypeError(
+            'If not a Mapping, polymorphic_constraints needs to be a Sequence.'
+            f' Got type: {type(polymorphic_constraints)} .'
+        )
+      for key in self._apply_fn_map:
+        # If the polymorphic_constraints is a non-Mapping (in which case it
+        # needs to be a Sequence), which means it is the same for all
+        # functions, we need to map it to a mapping of function name to
+        # constraint.
+        polymorphic_constraints_mapping[key] = polymorphic_constraints
+      polymorphic_constraints = polymorphic_constraints_mapping
+    else:
+      if len(polymorphic_constraints) != len(self._apply_fn_map):
+        raise ValueError(
+            'The size of'
+            f' polymorphic_constraints:{len(polymorphic_constraints)} should be'
+            f' equal to the size of the apply_fn_map:{len(self._apply_fn_map)}.'
+        )
+      for key in self._apply_fn_map:
+        if key not in polymorphic_constraints:
+          raise ValueError(
+              f'The key {key} is not found in polymorphic_constraints:'
+              f' {polymorphic_constraints}'
+          )
+    return polymorphic_constraints  # pytype: disable=bad-return-type
 
   def export_module(
       self,
