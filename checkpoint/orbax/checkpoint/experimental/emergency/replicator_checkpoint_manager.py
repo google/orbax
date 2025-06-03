@@ -130,6 +130,8 @@ class ReplicatorCheckpointManager(
     multiprocessing_options = checkpoint_manager.MultiprocessingOptions(
         primary_host=None
     )
+    async_options = checkpoint_manager.AsyncOptions()
+    async_options.create_directories_asynchronously = False
     self._options = options
     self._step_name_format = (
         options.step_name_format or step_lib.standard_name_format()
@@ -151,6 +153,7 @@ class ReplicatorCheckpointManager(
         cleanup_tmp_directories=False,  # Handled separately below.
         enable_background_delete=False,
         enable_async_checkpointing=True,
+        async_options=async_options,
     )
 
     self._handler_registry = DefaultCheckpointHandlerRegistry()

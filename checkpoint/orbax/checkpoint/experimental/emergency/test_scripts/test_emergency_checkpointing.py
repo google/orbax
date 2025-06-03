@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Simple script to test multi-slice emergency restore."""
+
 # pylint: disable=protected-access
 
 import os
@@ -138,9 +139,7 @@ def save_and_restore(
     replica_axis_index,
 ):
   """Tests save and restore. Saves a final step 10."""
-  abstract_state = jax.tree.map(
-      ocp.utils.to_shape_dtype_struct, state
-  )
+  abstract_state = jax.tree.map(ocp.utils.to_shape_dtype_struct, state)
   restore_args = ocp.checkpoint_utils.construct_restore_args(abstract_state)
   test_class = TestClass()
   for step in range(6):
@@ -156,7 +155,9 @@ def save_and_restore(
         replica_axis_index=replica_axis_index,
     )
 
-    manager.save(step, args=ocp.args.PyTreeSave(state))
+    manager.save(
+        step, args=ocp.args.Composite(state=ocp.args.PyTreeSave(state))
+    )
     manager.wait_until_finished()
     # Without this, we don't wait for persistent + local save to complete
     # everywhere.
@@ -232,10 +233,17 @@ def save_and_restore(
       use_async=True,
       replica_axis_index=replica_axis_index,
   )
-  manager.save(step, args=ocp.args.PyTreeSave(final_state), force=True)
+  manager.save(
+      step,
+      args=ocp.args.Composite(state=ocp.args.PyTreeSave(final_state)),
+      force=True,
+  )
   manager.wait_until_finished()
   restored = manager.restore(
-      step, args=ocp.args.PyTreeRestore(restore_args=restore_args)
+      step,
+      args=ocp.args.Composite(
+          state=ocp.args.PyTreeRestore(restore_args=restore_args)
+      ),
   )
   _log_and_check_restored(test_class, restored, final_state)
   manager.close()
@@ -289,7 +297,10 @@ def simple_restore(
   expected_state = train_step(expected_state, inc=step)
 
   restored = manager.restore(
-      step, args=ocp.args.PyTreeRestore(restore_args=restore_args)
+      step,
+      args=ocp.args.Composite(
+          state=ocp.args.PyTreeRestore(restore_args=restore_args)
+      ),
   )
 
   _log_and_check_restored(test_class, restored, expected_state)
@@ -302,7 +313,11 @@ def simple_restore(
 
   # Save again.
   state_to_save = train_step(expected_state, inc=1)
-  manager.save(step + 1, args=ocp.args.PyTreeSave(state_to_save), force=True)
+  manager.save(
+      step + 1,
+      args=ocp.args.Composite(state=ocp.args.PyTreeSave(state_to_save)),
+      force=True,
+  )
 
   manager.close()
 
