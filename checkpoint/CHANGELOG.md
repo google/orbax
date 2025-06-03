@@ -17,6 +17,7 @@ a `PathAwaitingCreation`.
   TypeHandlerRegistry.
 - #v1 Add tests to cover v0 CheckpointManager->v1 Checkpointer migration use
  case.
+- #v1 Add NumpyLeafHandler.
 
 ### Fixed
 
