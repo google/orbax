@@ -816,6 +816,24 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertIsNone(step_metadata.commit_timestamp_nsecs)
     self.assertEmpty(step_metadata.custom_metadata)
 
+    metadata_handler = CompositeCheckpointHandler(handler_registry=registry)
+    restored_metadata = metadata_handler.metadata(self.directory)
+    self.assertDictEqual(
+        dict(restored_metadata.item_metadata.state.tree),
+        {
+            'a': value_metadata.ScalarMetadata(
+                name='a',
+                directory=self.directory / 'state',
+                dtype=jnp.int64,
+            ),
+            'b': value_metadata.ScalarMetadata(
+                name='b',
+                directory=self.directory / 'state',
+                dtype=jnp.int64,
+            ),
+        },
+    )
+
   def test_metadata_after_step_metadata_write(self):
     handler = CompositeCheckpointHandler(
         'extra',
