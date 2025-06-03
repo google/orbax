@@ -122,7 +122,7 @@ class TensorFlowExport(export_base.ExportBase):
 
     Args:
       serving_configs: a sequence of which each element is a `ServingConfig`
-        corresponding to a serving signature of the exported SavedModel.
+        cooresponding to a serving signature of the exported SavedModel.
       obx_export_tf_preprocess_only: a boolean indicating whether to export only
         the preprocessor.
       module: A tf module  that will provide the method definitions. The module
