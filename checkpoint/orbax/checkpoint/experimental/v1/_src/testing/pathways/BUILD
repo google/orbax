@@ -123,6 +123,7 @@ py_test(
     main = "array_leaf_handler_test.py",
     deps = [
         "//pyglib/contrib/g3_multiprocessing",
+        "//tech/env:envelope_loader_dev",
         "//testing/pybase:parameterized",
         "//orbax/checkpoint/experimental/v1:pathways_support",
         "//orbax/checkpoint/experimental/v1/_src/serialization:array_leaf_handler_test_lib",
@@ -142,6 +143,7 @@ py_test(
     main = "array_leaf_handler_test.py",
     deps = [
         "//pyglib/contrib/g3_multiprocessing",
+        "//tech/env:envelope_loader_dev",
         "//testing/pybase:parameterized",
         "//orbax/checkpoint/experimental/v1:pathways_support",
         "//orbax/checkpoint/experimental/v1/_src/serialization:array_leaf_handler_test_lib",
