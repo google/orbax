@@ -18,6 +18,7 @@ a `PathAwaitingCreation`.
 - #v1 Add tests to cover v0 CheckpointManager->v1 Checkpointer migration use
  case.
 - #v1 Add NumpyLeafHandler.
+- #v1 Add NumpyLeafHandler into CompatibleTypeHandler.
 
 ### Fixed
 

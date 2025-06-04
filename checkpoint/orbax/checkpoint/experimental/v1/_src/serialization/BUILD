@@ -43,6 +43,7 @@ py_library(
     srcs = ["compatibility.py"],
     deps = [
         ":array_leaf_handler",
+        ":numpy_leaf_handler",
         ":types",
         "//checkpoint/orbax/checkpoint/_src/futures:future",
         "//checkpoint/orbax/checkpoint/_src/metadata:sharding",

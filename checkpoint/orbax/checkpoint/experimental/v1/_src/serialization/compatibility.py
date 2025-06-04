@@ -20,6 +20,7 @@ from absl import logging
 from etils import epath
 import jax
 from jax import tree_util as jtu
+import numpy as np
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
@@ -28,6 +29,7 @@ from orbax.checkpoint._src.serialization import types as types_v0
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
+from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import types
 from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -97,13 +99,21 @@ def _construct_serialization_context(
 def _construct_deserialization_param(
     info: types_v0.ParamInfo,
     restore_args: types_v0.RestoreArgs,
-) -> types.DeserializationParam[array_leaf_handler.AbstractArray | None]:
+) -> types.DeserializationParam[
+    array_leaf_handler.AbstractArray | numpy_leaf_handler.AbstractNumpy | None
+]:
   """Constructs a DeserializationParam from a ParamInfo and RestoreArg."""
 
   value = None
 
-  if isinstance(restore_args, type_handlers_v0.ArrayRestoreArgs):
-    # Array type, construct value as jax.ShapeDtypeStruct.
+  # Numpy type
+  if restore_args.restore_type == np.ndarray:
+    value = numpy_leaf_handler.NumpyShapeDtype(
+        dtype=restore_args.dtype,
+        shape=None,
+    )
+  elif isinstance(restore_args, type_handlers_v0.ArrayRestoreArgs):
+    # JAX Array type, construct value as jax.ShapeDtypeStruct.
     arg = cast(type_handlers_v0.ArrayRestoreArgs, restore_args)
 
     logging.info(
@@ -212,6 +222,18 @@ def _convert_v1_metadata_to_v0(
         storage=metadata.storage_metadata,
     )
     logging.info('ArrayMetadata: %s', ret)
+    return ret
+  elif isinstance(metadata, numpy_leaf_handler.NumpyMetadata):
+    metadata = cast(numpy_leaf_handler.NumpyMetadata, metadata)
+    ret = value_metadata.ArrayMetadata(
+        name=name,
+        directory=directory,
+        sharding=None,
+        shape=metadata.shape,
+        dtype=metadata.dtype,
+        storage=metadata.storage_metadata,
+    )
+    logging.info('NumpyMetadata: %s', ret)
     return ret
   else:
     logging.warning(
@@ -331,7 +353,7 @@ class CompatibleTypeHandler(
   def memory_size(
       self, values: Sequence[types.Leaf]
   ) -> Sequence[Tuple[int, int]]:
-    # this only works for leaf handler that based on V0 ArrayHandler and stored
+    # this only works for leaf handler that based on V0 TypeHandlers and stored
     # it in self._leaf_handler._handler_impl.
     if hasattr(self._leaf_handler, '_handler_impl'):
       v0_handler = self._leaf_handler._handler_impl  # pylint: disable=protected-access
@@ -388,6 +410,14 @@ def get_compatible_type_handler_registry(
       CompatibleTypeHandler(
           array_leaf_handler.ArrayLeafHandler(context=context),
           typestr=type_handlers_v0.JAX_ARRAY_TYPE_STR,
+      ),
+      override=True,
+  )
+  type_handler_registry.add(
+      np.ndarray,
+      CompatibleTypeHandler(
+          numpy_leaf_handler.NumpyLeafHandler(context=context),
+          typestr='np.ndarray',
       ),
       override=True,
   )

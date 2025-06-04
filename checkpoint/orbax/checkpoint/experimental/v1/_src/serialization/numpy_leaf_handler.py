@@ -49,7 +49,7 @@ class AbstractNumpy(Protocol):
     Dtype of array elements.
   """
 
-  shape: Shape
+  shape: Shape | None
   dtype: np.dtype
 
 
@@ -57,7 +57,7 @@ class AbstractNumpy(Protocol):
 class NumpyShapeDtype:
   """To implement the AbstractNumpy protocol."""
 
-  shape: Shape
+  shape: Shape | None
   dtype: np.dtype
 
 
@@ -69,10 +69,13 @@ class NumpyMetadata:
     Tuple of integers describing the array shape.
   dtype:
     Dtype of array elements.
+  storage:
+    Optional metadata describing how the array is stored in a checkpoint.
   """
 
-  shape: Shape
+  shape: Shape | None
   dtype: np.dtype
+  storage_metadata: value_metadata.StorageMetadata | None
 
 
 def _create_v0_saving_paraminfo(
@@ -157,6 +160,8 @@ def _create_v0_restorearg(
             value_metadata.ArrayMetadata,
         ),
     ), f"v is an unsupported type: {type(v)}"
+
+    logging.vlog(1, "name: %s, v.dtype: %s", param.name, v.dtype)
     return type_handlers_v0.RestoreArgs(
         restore_type=np.ndarray,
         dtype=v.dtype,
@@ -265,6 +270,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractNumpy]):
         numpy_metadata = NumpyMetadata(
             shape=meta.shape,
             dtype=meta.dtype,
+            storage_metadata=meta.storage,
         )
         ret.append(numpy_metadata)
 
