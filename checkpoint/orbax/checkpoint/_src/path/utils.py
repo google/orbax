@@ -22,7 +22,7 @@ from etils import epath
 
 
 
-def get_storage_type(path: epath.Path) -> str:
+def get_storage_type(path: epath.Path | str) -> str:
     return 'other'
 
 
