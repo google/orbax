@@ -79,6 +79,7 @@ py_test(
         "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//tech/env:envelope_loader_dev",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/context:options",
         "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
