@@ -38,6 +38,10 @@ message TopLevelObject {
 message Function {
   orbax_model_type.FunctionSignature signature = 1;
   FunctionBody body = 2;
+  // The names of the dependent data. Each of this corresponds to a key in the
+  // checkpoint metadata.
+  repeated string data_names = 5;
+
   Visibility visibility = 3;
   optional string gradient_function_name = 4;
 }
