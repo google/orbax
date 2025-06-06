@@ -79,6 +79,7 @@ def _background_wait_for_commit_futures(
       current_process,
       current_thread_id,
   )
+  logging.info('test')
   thread_start_time = time.time()
 
   # Wait for commit operations to complete.
