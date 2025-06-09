@@ -432,10 +432,13 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   ):
     directory = tmpdir.get_final()
 
-    jax.monitoring.record_event(
-        '/jax/orbax/write/storage_type',
-        storage_type=path_utils.get_storage_type(directory),
-    )
+    if utils.is_primary_host(self._primary_host):
+      jax.monitoring.record_event(
+          '/jax/orbax/write/storage_type',
+          storage_type=path_utils.get_storage_type(directory),
+      )
+    # TODO(dicentra): Revise other metrics to also only report from the primary
+    # host where appropriate.
     jax.monitoring.record_event('/jax/orbax/write/async/start')
     logging.info(
         '[process=%s] Started async saving checkpoint to %s.',
