@@ -31,7 +31,6 @@ import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pyl
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.serialization import registration as serialization_registration
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types

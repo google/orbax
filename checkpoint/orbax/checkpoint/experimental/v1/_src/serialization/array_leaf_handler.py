@@ -25,7 +25,7 @@ from typing import Awaitable, Protocol, Sequence, cast
 from absl import logging
 import jax
 import jax.experimental.layout as jax_layout
-from orbax.checkpoint import utils
+import jax.numpy as jnp
 from orbax.checkpoint._src.arrays import types as arrays_types_v0
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
@@ -33,7 +33,6 @@ from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.serialization import types
-from orbax.checkpoint.google import pathways_type_handlers as pw_type_handlers_v0
 
 
 ArraySerializationParam = types.SerializationParam[jax.Array]
@@ -106,14 +105,16 @@ def _create_v0_array_handler(
 
   saving_options = context.array_options.saving
   primary_host = context.multiprocessing_options.primary_host
-  cls = type_handlers_v0.ArrayHandler
-  return cls(
+  array_handler = type_handlers_v0.ArrayHandler(
       primary_host=primary_host,
       replica_id=None if primary_host is None else 0,
       use_replica_parallel=saving_options.use_replica_parallel,
       enable_write_sharding_file=saving_options.enable_write_sharding_file,
       array_metadata_store=saving_options.array_metadata_store,
   )
+
+
+  return array_handler
 
 
 def _create_v0_saving_paraminfo(
@@ -150,7 +151,9 @@ def _create_v0_savearg(
   if fn:
     storage_options = fn(param.keypath, param.value)
     savearg = type_handlers_v0.SaveArgs(
-        dtype=storage_options.dtype,
+        dtype=jnp.dtype(storage_options.dtype)
+        if storage_options.dtype
+        else None,
         chunk_byte_size=storage_options.chunk_byte_size,
         shard_axes=storage_options.shard_axes,
     )
