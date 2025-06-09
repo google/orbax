@@ -178,6 +178,8 @@ class PersistentCheckpointOptions:
     checkpoints. Must be None or non-negative. When set, checkpoints
     may be considered for deletion when there are more than `max_to_keep`
     checkpoints present.
+  keep_period:
+    If provided, specifies the interval for which checkpoints to keep.
   should_save_fn:
     Predicate callable to check if given step can be saved. This callable
     accepts step number and optional latest step number as param and returns
@@ -187,6 +189,7 @@ class PersistentCheckpointOptions:
 
   save_interval_steps: int = 1000
   max_to_keep: Optional[int] = None
+  keep_period: Optional[int] = None
   should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
 
 
@@ -652,6 +655,7 @@ def _get_persistent_options(
   return checkpoint_manager.CheckpointManagerOptions(
       save_interval_steps=options.persistent.save_interval_steps,
       max_to_keep=options.persistent.max_to_keep,
+      keep_period=options.persistent.keep_period,
       step_name_format=options.step_name_format,
       create=False,
       cleanup_tmp_directories=options.cleanup_tmp_directories,
