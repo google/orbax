@@ -117,7 +117,10 @@ py_test(
         "--logbuflevel=-1",  # Ensures logs are saved even if the test times out.
         "--extra_test_args='--vmodule=checkpoint_manager=1'",
     ],
-    deps = [":test_utils"],
+    deps = [
+        ":test_utils",
+        "//tech/env:envelope_loader_dev",
+    ],
 )
 
 py_test(
@@ -135,6 +138,7 @@ py_test(
         "//checkpoint/orbax/checkpoint:utils",
         "//checkpoint/orbax/checkpoint/_src/handlers:pytree_checkpoint_handler",
         "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//tech/env:envelope_loader_dev",
     ],
 )
 
@@ -146,7 +150,10 @@ py_test(
         "--logbuflevel=-1",  # Ensures logs are saved even if the test times out.
         "--extra_test_args='--vmodule=checkpoint_manager=1'",
     ],
-    deps = [":test_utils"],
+    deps = [
+        ":test_utils",
+        "//tech/env:envelope_loader_dev",
+    ],
 )
 
 py_test(
@@ -167,6 +174,7 @@ py_test(
         "//checkpoint/orbax/checkpoint/_src/multihost",
         "//checkpoint/orbax/checkpoint/_src/multihost:multislice",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//tech/env:envelope_loader_dev",
     ],
 )
 
@@ -182,6 +190,7 @@ py_test(
         "//checkpoint/orbax/checkpoint:test_utils",
         "//checkpoint/orbax/checkpoint/_src:asyncio_utils",
         "//checkpoint/orbax/checkpoint/_src/multihost",
+        "//tech/env:envelope_loader_dev",
     ],
 )
 
@@ -200,6 +209,7 @@ py_test(
         "//checkpoint/orbax/checkpoint/_src/serialization",
         "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//tech/env:envelope_loader_dev",
     ],
 )
 
