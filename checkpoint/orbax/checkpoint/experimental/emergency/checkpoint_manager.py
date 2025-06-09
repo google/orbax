@@ -345,11 +345,34 @@ def _process_local_to_global(
       f'{barrier_name}_{barrier_id.get_counter()}_{barrier_processes_as_string}'
   )
 
+  num_kv_chunks = 8
+  logging.info('Dividing values into %d chunks', num_kv_chunks)
+
+  def pack_values(values: Sequence[int]) -> Sequence[str]:
+    """Packs values into a list of strings to avoid grpc size limits."""
+    ret = []
+    chunk_size = len(values) // num_kv_chunks
+
+    # Create the first num_kv_chunks-1 chunks.
+    for i in range(num_kv_chunks - 1):
+      start, end = i * chunk_size, (i + 1) * chunk_size
+      ret.append(','.join([str(s) for s in values[start:end]]))
+
+    # The last chunk gets all the remaining elements.
+    ret.append(
+        ','.join([str(s) for s in values[(num_kv_chunks - 1) * chunk_size :]])
+    )
+    return ret
+
   client = multihost.get_jax_distributed_client()
   broadcast_dir_key = f'broadcast_{barrier_name_and_id}/'
   broadcast_dir_key = unique_barrier_key(broadcast_dir_key) + '/'
-  broadcast_key = broadcast_dir_key + str(multihost.process_index())
-  client.key_value_set(broadcast_key, ','.join([str(s) for s in values]))
+
+  for i, v in enumerate(pack_values(list(values))):
+    broadcast_key = (
+        broadcast_dir_key + str(i) + '/' + str(multihost.process_index())
+    )
+    client.key_value_set(broadcast_key, v)
 
   barrier_key = f'barrier_{barrier_name_and_id}'
   barrier_key = unique_barrier_key(barrier_key)
@@ -371,10 +394,14 @@ def _process_local_to_global(
       timeout_in_ms=timeout * 1000,
   )
 
-  per_process_values = {
-      int(k.split('/')[-1]): {int(s) for s in v.split(',')} if v else set()
-      for k, v in client.key_value_dir_get(broadcast_dir_key)
-  }
+  per_process_values = collections.defaultdict(set)
+  for i in range(num_kv_chunks):
+    broadcast_key = broadcast_dir_key + str(i) + '/'
+    for k, v in client.key_value_dir_get(broadcast_key):
+      per_process_values[int(k.split('/')[-1])].update(
+          {int(s) for s in v.split(',')} if v else set()
+      )
+
   assert set(per_process_values.keys()) == barrier_processes
   return per_process_values
 
