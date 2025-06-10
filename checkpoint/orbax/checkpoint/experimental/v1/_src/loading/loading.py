@@ -309,7 +309,7 @@ def get_v0_checkpointer_and_args(
   # pylint: disable=protected-access
   handlers = composite_handler.CompositeHandler(
       context.checkpointables_options.registry
-  )._get_loadable_handlers(directory, abstract_checkpointables)
+  ).get_handlers_for_load(directory, abstract_checkpointables)
   # pylint: enable=protected-access
   if not abstract_checkpointables:
     abstract_checkpointables = {

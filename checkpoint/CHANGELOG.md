@@ -32,6 +32,7 @@ a `PathAwaitingCreation`.
 - #v1 Allow `load_pytree` to specify the checkpointable_name, with `pytree` as
  default value.
 - #v1 Use an implementation of `load` independent of `v0.Checkpointer`.
+- #v1 Use an implementation of `save` independent of `v0.Checkpointer`.
 - #v1 Distinguish between `force` and `overwrite` save params.
 - Enable `pinned_host_transfer` for GPU backend only.
 - #perf Add/update logs with time logs for save paths.

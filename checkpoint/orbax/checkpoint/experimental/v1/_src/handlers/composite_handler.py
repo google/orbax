@@ -25,6 +25,7 @@ from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -92,13 +93,13 @@ class CompositeHandler:
     Returns:
       An awaitable that represents a background save operation.
     """
+    handlers_for_save = self.get_handlers_for_save(checkpointables)
     save_ops = []
     for checkpointable_name, checkpointable in checkpointables.items():
-      handler = registration.resolve_handler_for_save(
-          self._handler_registry, checkpointable, name=checkpointable_name
-      )
       save_ops.append(
-          handler.save(directory / checkpointable_name, checkpointable)
+          handlers_for_save[checkpointable_name].save(
+              directory / checkpointable_name, checkpointable
+          )
       )
     save_awaitables = await asyncio.gather(*save_ops)
 
@@ -129,14 +130,14 @@ class CompositeHandler:
       the checkpoint.
     """
     abstract_checkpointables = abstract_checkpointables or {}
-    loadable_checkpointable_names_to_handlers = self._get_loadable_handlers(
+    handlers_for_load = self.get_handlers_for_load(
         directory, abstract_checkpointables
     )
     existing_checkpointable_names = _existing_checkpointable_names(directory)
     if not abstract_checkpointables:
       abstract_checkpointables = {
           name: None
-          for name in loadable_checkpointable_names_to_handlers.keys()
+          for name in handlers_for_load.keys()
           if name not in format_utils.RESERVED_CHECKPOINTABLE_KEYS
           and name in existing_checkpointable_names
       }
@@ -155,7 +156,7 @@ class CompositeHandler:
         checkpointable_name,
         abstract_checkpointable,
     ) in abstract_checkpointables.items():
-      handler = loadable_checkpointable_names_to_handlers[checkpointable_name]
+      handler = handlers_for_load[checkpointable_name]
       load_ops.append(
           handler.load(
               directory / checkpointable_name,
@@ -181,10 +182,21 @@ class CompositeHandler:
 
     return _run_background()
 
-  def _get_loadable_handlers(
+  def get_handlers_for_save(
+      self, checkpointables: dict[str, Any]
+  ) -> dict[str, handler_types.CheckpointableHandler]:
+    """Returns a mapping from checkpointable name to handler."""
+    return {
+        checkpointable_name: registration.resolve_handler_for_save(
+            self._handler_registry, checkpointable, name=checkpointable_name
+        )
+        for checkpointable_name, checkpointable in checkpointables.items()
+    }
+
+  def get_handlers_for_load(
       self, directory: path_types.Path, abstract_checkpointables: dict[str, Any]
-  ):
-    """Returns a mapping from checkpointable name to loadable handler."""
+  ) -> dict[str, handler_types.CheckpointableHandler]:
+    """Returns a mapping from checkpointable name to handler."""
     existing_checkpointable_names_to_handler_typestrs = (
         self._get_saved_handler_typestrs(directory)
     )

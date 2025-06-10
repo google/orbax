@@ -21,6 +21,7 @@ from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_typ
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 SerializedMetadata = metadata_types.SerializedMetadata
+_CHECKPOINT_METADATA_FILENAME = '_CHECKPOINT_METADATA'
 
 
 async def _exists(path: path_types.Path) -> bool:
@@ -33,6 +34,11 @@ async def _write_text(path: path_types.Path, text: str) -> int:
 
 async def _read_text(path: path_types.Path) -> str:
   return await asyncio.to_thread(path.read_text)
+
+
+def checkpoint_metadata_file_path(path: path_types.Path) -> path_types.Path:
+  """The path to step metadata file for a given checkpoint directory."""
+  return path / _CHECKPOINT_METADATA_FILENAME
 
 
 async def write(metadata_file: path_types.Path, metadata: SerializedMetadata):

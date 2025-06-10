@@ -22,6 +22,7 @@ import asyncio
 import dataclasses
 import json
 import threading
+import time
 from typing import Awaitable
 from unittest import mock
 
@@ -849,6 +850,17 @@ class SaveLoadTestBase:
 
     def test_load_tmp_checkpoint(self):
       tmp_checkpoint_dir = self.directory / 'foo.orbax-checkpoint-tmp-1234'
-      tmp_checkpoint_dir.mkdir(parents=True, exist_ok=False)
+      tmp_checkpoint_dir.mkdir(parents=True, exist_ok=True)
       with self.assertRaisesRegex(ValueError, 'Found incomplete checkpoint'):
         ocp.load_checkpointables(tmp_checkpoint_dir)
+
+    def test_async_save_completes_without_result(self):
+      self.enter_context(
+          mock.patch.object(atomicity, '_create_paths', _sleep_and_create_paths)
+      )
+      ocp.save_checkpointables_async(
+          self.directory, dict(baz=handler_utils.Baz(123, 'hi'))
+      )
+      self.assertFalse(self.directory.exists())
+      time.sleep(3)
+      self.assertTrue(self.directory.exists())

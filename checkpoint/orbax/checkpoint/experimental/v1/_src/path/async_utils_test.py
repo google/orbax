@@ -46,6 +46,9 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
   async def assertExists(self, path: epath.Path):
     self.assertTrue(await asyncio.to_thread(path.exists))
 
+  async def assertNotExists(self, path: epath.Path):
+    self.assertFalse(await asyncio.to_thread(path.exists))
+
   def assertBetween(self, a, b, c):
     self.assertGreater(b, a)
     self.assertGreater(c, b)
@@ -104,6 +107,16 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     self.assertBetween(1, time.time() - start, 2)
     await self.assertExists(self.directory / 'tmp1')
     await self.assertExists(self.directory / 'tmp2')
+
+  async def test_async_mkdir_with_delayed_wait(self):
+    tmpdir = atomicity.AtomicRenameTemporaryPath(
+        self.directory / 'tmp', self.directory / 'final'
+    )
+    p = async_utils.start_async_mkdir(tmpdir)
+    await self.assertNotExists(self.directory / 'tmp')
+    await asyncio.sleep(1)
+    await p.await_creation()
+    await self.assertExists(self.directory / 'tmp')
 
 
 if __name__ == '__main__':
