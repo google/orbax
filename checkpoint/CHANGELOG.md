@@ -21,6 +21,7 @@ a `PathAwaitingCreation`.
  case.
 - #v1 Add NumpyLeafHandler.
 - #v1 Add NumpyLeafHandler into CompatibleTypeHandler.
+- #v1 Add ScalarLeafHandler and it into CompatibleTypeHandler.
 
 ### Fixed
 

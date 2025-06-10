@@ -30,6 +30,7 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
+from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import types
 from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -100,17 +101,27 @@ def _construct_deserialization_param(
     info: types_v0.ParamInfo,
     restore_args: types_v0.RestoreArgs,
 ) -> types.DeserializationParam[
-    array_leaf_handler.AbstractArray | numpy_leaf_handler.AbstractNumpy | None
+    array_leaf_handler.AbstractArray
+    | numpy_leaf_handler.AbstractNumpy
+    | scalar_leaf_handler.AbstractScalar
+    | None
 ]:
   """Constructs a DeserializationParam from a ParamInfo and RestoreArg."""
 
+  logging.vlog(1, 'compatibility.py: restore_args: %s', restore_args)
+
   value = None
 
-  # Numpy type
   if restore_args.restore_type == np.ndarray:
+    # Numpy type
     value = numpy_leaf_handler.NumpyShapeDtype(
         dtype=restore_args.dtype,
         shape=None,
+    )
+  elif restore_args.restore_type in (scalar_leaf_handler.Scalar.__args__):
+    # JAX Array type, construct value as jax.ShapeDtypeStruct.
+    value = scalar_leaf_handler.AbstractScalar(
+        dtype=restore_args.restore_type,
     )
   elif isinstance(restore_args, type_handlers_v0.ArrayRestoreArgs):
     # JAX Array type, construct value as jax.ShapeDtypeStruct.
@@ -221,7 +232,7 @@ def _convert_v1_metadata_to_v0(
         dtype=metadata.dtype,
         storage=metadata.storage_metadata,
     )
-    logging.info('ArrayMetadata: %s', ret)
+    logging.vlog(1, 'ArrayMetadata: %s', ret)
     return ret
   elif isinstance(metadata, numpy_leaf_handler.NumpyMetadata):
     metadata = cast(numpy_leaf_handler.NumpyMetadata, metadata)
@@ -233,7 +244,15 @@ def _convert_v1_metadata_to_v0(
         dtype=metadata.dtype,
         storage=metadata.storage_metadata,
     )
-    logging.info('NumpyMetadata: %s', ret)
+    logging.vlog(1, 'NumpyMetadata: %s', ret)
+    return ret
+  elif isinstance(metadata, scalar_leaf_handler.AbstractScalar):
+    ret = value_metadata.ScalarMetadata(
+        name=name,
+        directory=directory,
+        dtype=metadata.dtype,
+    )
+    logging.vlog(1, 'ScalarMetadata: %s', ret)
     return ret
   else:
     logging.warning(
@@ -303,7 +322,7 @@ class CompatibleTypeHandler(
 
     params = []
     if args is None:
-      args = [types_v0.RestoreArgs(restore_type=types.Leaf)] * len(infos)
+      args = [types_v0.RestoreArgs()] * len(infos)
 
     for info, restore_arg in zip(infos, args):
       if logging.vlog_is_on(1):
@@ -421,4 +440,14 @@ def get_compatible_type_handler_registry(
       ),
       override=True,
   )
+
+  for scalar_type in (int, float, bytes, np.number):
+    type_handler_registry.add(
+        scalar_type,
+        CompatibleTypeHandler(
+            scalar_leaf_handler.ScalarLeafHandler(context=context),
+            typestr='scalar',
+        ),
+        override=True,
+    )
   return type_handler_registry

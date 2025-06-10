@@ -44,6 +44,7 @@ py_library(
     deps = [
         ":array_leaf_handler",
         ":numpy_leaf_handler",
+        ":scalar_leaf_handler",
         ":types",
         "//checkpoint/orbax/checkpoint/_src/futures:future",
         "//checkpoint/orbax/checkpoint/_src/metadata:sharding",
@@ -80,6 +81,33 @@ py_test(
         "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
         "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//tech/env:envelope_loader_dev",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+        "//orbax/checkpoint/experimental/v1/_src/context:options",
+        "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
+        "//orbax/checkpoint/experimental/v1/_src/testing:path_utils",
+    ],
+)
+
+py_library(
+    name = "scalar_leaf_handler",
+    srcs = ["scalar_leaf_handler.py"],
+    deps = [
+        ":types",
+        "//checkpoint/orbax/checkpoint/_src/futures:future",
+        "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
+        "//orbax/checkpoint/experimental/v1/_src/context",
+    ],
+)
+
+py_test(
+    name = "scalar_leaf_handler_test",
+    srcs = ["scalar_leaf_handler_test.py"],
+    deps = [
+        ":scalar_leaf_handler",
+        ":types",
+        "//checkpoint/orbax/checkpoint:test_utils",
+        "//checkpoint/orbax/checkpoint/_src/serialization:tensorstore_utils",
+        "//checkpoint/orbax/checkpoint/_src/serialization:type_handlers",
         "//orbax/checkpoint/experimental/v1/_src/context",
         "//orbax/checkpoint/experimental/v1/_src/context:options",
         "//orbax/checkpoint/experimental/v1/_src/synchronization:multihost",
