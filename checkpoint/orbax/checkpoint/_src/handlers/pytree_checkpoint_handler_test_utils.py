@@ -2579,21 +2579,34 @@ class PyTreeCheckpointHandlerTestBase:
                 ),
             )
 
-    @parameterized.product(use_ocdbt=(True, False))
-    def test_partial_restore_with_omission(self, use_ocdbt: bool):
+    @parameterized.product(
+        use_ocdbt=(True, False), sharded_pytree=(True, False)
+    )
+    def test_partial_restore_with_omission(
+        self, use_ocdbt: bool, sharded_pytree: bool
+    ):
       """Basic save and restore test."""
       directory = self.directory / 'partial_restore'
       directory.mkdir(parents=True, exist_ok=True)
+
+      if sharded_pytree:
+        pytree = self.pytree
+        restore_args = jax.tree.map(
+            lambda arr: ArrayRestoreArgs(sharding=arr.sharding),
+            pytree,
+        )
+      else:
+        pytree = self.numpy_pytree
+        restore_args = jax.tree.map(
+            lambda arr: RestoreArgs(restore_type=type(arr)),
+            pytree,
+        )
 
       with self.ocdbt_checkpoint_handler(
           use_ocdbt=use_ocdbt,
           array_metadata_store=array_metadata_store_lib.Store(),
       ) as save_handler:
-        save_handler.save(directory, self.pytree)
-
-      restore_args = jax.tree.map(
-          lambda arr: ArrayRestoreArgs(sharding=arr.sharding), self.pytree
-      )
+        save_handler.save(directory, pytree)
 
       with self.subTest('success'):
         with self.ocdbt_checkpoint_handler(
@@ -2607,9 +2620,9 @@ class PyTreeCheckpointHandlerTestBase:
               },
           }
           expected = {
-              'a': self.pytree['a'],
+              'a': pytree['a'],
               'c': {
-                  'a': self.pytree['c']['a'],
+                  'a': pytree['c']['a'],
               },
           }
           restored = restore_handler.restore(
