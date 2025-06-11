@@ -1698,9 +1698,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           / METRIC_ITEM_NAME
       )
       return metrics
-    except FileNotFoundError as e:
-      logging.warning('Missing metrics for step %d', step)
-      logging.error(e)
+    except FileNotFoundError:
+      logging.log_first_n(
+          logging.INFO,
+          'Missing metrics for step %d',
+          1,  # log only once
+          step,
+      )
       return None
 
   @property
