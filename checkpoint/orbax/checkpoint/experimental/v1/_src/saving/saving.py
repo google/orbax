@@ -22,6 +22,7 @@ import uuid
 from absl import logging
 from etils import epath
 import jax
+import nest_asyncio
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
@@ -445,6 +446,7 @@ def _save_checkpointables_impl(
   )
   tmp_directory = _get_temporary_path(directory, context=context)
   event_loop = asyncio.new_event_loop()
+  nest_asyncio.apply()
 
   async def _blocking_save() -> Awaitable[None]:
     await context_lib.synchronize_next_operation_id()
