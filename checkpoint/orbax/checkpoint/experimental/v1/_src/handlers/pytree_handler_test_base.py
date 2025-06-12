@@ -1860,13 +1860,11 @@ class PyTreeHandlerTestBase:
 
       with handler_with_options(
           use_ocdbt=use_ocdbt,
-          array_metadata_store=array_metadata_store_lib.Store(),
       ) as save_handler:
         save_handler.save(self.directory, pytree)
 
       with handler_with_options(
           use_ocdbt=use_ocdbt,
-          array_metadata_store=array_metadata_store_lib.Store(),
       ) as load_handler:
         restored = load_handler.load(self.directory)
         test_utils.assert_tree_equal(self, pytree, restored)
@@ -1922,7 +1920,6 @@ class PyTreeHandlerTestBase:
     ):
       with handler_with_options(
           use_ocdbt=use_ocdbt,
-          array_metadata_store=array_metadata_store_lib.Store(),
       ) as handler:
         handler.save(self.directory, self.pytree)
 
@@ -1966,7 +1963,6 @@ class PyTreeHandlerTestBase:
       """Test saving and restoring placeholder."""
       with handler_with_options(
           use_ocdbt=use_ocdbt,
-          array_metadata_store=array_metadata_store_lib.Store(),
       ) as save_handler:
         save_handler.save(self.directory, self.pytree)
 
@@ -1981,7 +1977,6 @@ class PyTreeHandlerTestBase:
 
         with handler_with_options(
             use_ocdbt=use_ocdbt,
-            array_metadata_store=array_metadata_store_lib.Store(),
         ) as restore_handler:
           restored = restore_handler.load(self.directory, reference_item)
           test_utils.assert_tree_equal(self, expected, restored)
@@ -1994,7 +1989,6 @@ class PyTreeHandlerTestBase:
 
         with handler_with_options(
             use_ocdbt=use_ocdbt,
-            array_metadata_store=array_metadata_store_lib.Store(),
         ) as restore_handler:
           with self.assertRaisesRegex(
               ValueError, 'User-provided restore item and on-disk value'
@@ -2007,7 +2001,6 @@ class PyTreeHandlerTestBase:
 
         with handler_with_options(
             use_ocdbt=use_ocdbt,
-            array_metadata_store=array_metadata_store_lib.Store(),
         ) as restore_handler:
           with self.assertRaisesRegex(
               ValueError, 'User-provided restore item and on-disk value'
