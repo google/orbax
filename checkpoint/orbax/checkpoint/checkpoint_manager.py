@@ -231,7 +231,7 @@ def _get_default_preservation_policy(
             n=options.max_to_keep,
         )
     )
-  else:
+  elif options.max_to_keep is not None or not preservation_policies:
     preservation_policies.append(
         preservation_policy_lib.LatestN(n=options.max_to_keep)
     )
