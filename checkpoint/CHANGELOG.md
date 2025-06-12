@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- #emergency-checkpoint Stop including barrier processes in barrier names. This
+information should be redundant, since the barrier ID always corresponds 1:1
+with the provided processes ('local_all_steps':
+processes_excepting_primary_slice, 'find_complete_slice`: all_processes).
+
 ## [0.11.14] - 2025-06-09
 
 ### Added

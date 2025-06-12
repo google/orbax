@@ -66,7 +66,6 @@ PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
 ProcessMetadataCheckpointHandler = (
     process_metadata_checkpoint_handler.ProcessMetadataCheckpointHandler
 )
-unique_barrier_key = multihost._unique_barrier_key  # pylint: disable=protected-access
 ChunkId = local_checkpoint_data_debugging.ChunkId
 get_present_and_missing_chunks = (
     local_checkpoint_data_debugging.get_present_and_missing_chunks
@@ -319,7 +318,6 @@ def _process_local_to_global(
     *,
     timeout: int,
     barrier_id: _BarrierIdentifier,
-    slice_id: Optional[int] = None,
 ) -> Dict[int, Set[int]]:
   """Shares a sequence of host-local integers across given processes.
 
@@ -328,31 +326,20 @@ def _process_local_to_global(
     barrier_processes: A set of processes to share the set of values with.
     timeout: The timeout in seconds for inter-process coordination.
     barrier_id: Barrier identifier.
-    slice_id: The slice id. Only needed if multiple slices need to run the same
-      barrier in parallel, but only sync intra-slice, not inter-slice.
 
   Returns:
     A mapping of process index to the sequence of local values on that process.
     The result will have an entry for every process in `barrier_processes`.
   """
-  barrier_name = (
-      f'{barrier_id.name}_{slice_id}' if slice_id else barrier_id.name
-  )
-  # Need to include barrier processes because there can be identical calls, just
-  # with different participating processes.
-  barrier_processes_as_string = ''.join(str(p) for p in barrier_processes)
-  barrier_name_and_id = (
-      f'{barrier_name}_{barrier_id.get_counter()}_{barrier_processes_as_string}'
-  )
-
+  barrier_name_and_id = f'{barrier_id.name}_{barrier_id.get_counter()}'
   client = multihost.get_jax_distributed_client()
   broadcast_dir_key = f'broadcast_{barrier_name_and_id}/'
-  broadcast_dir_key = unique_barrier_key(broadcast_dir_key) + '/'
+  broadcast_dir_key = multihost._unique_barrier_key(broadcast_dir_key) + '/'  # pylint: disable=protected-access
   broadcast_key = broadcast_dir_key + str(multihost.process_index())
   client.key_value_set(broadcast_key, ','.join([str(s) for s in values]))
 
   barrier_key = f'barrier_{barrier_name_and_id}'
-  barrier_key = unique_barrier_key(barrier_key)
+  barrier_key = multihost._unique_barrier_key(barrier_key)  # pylint: disable=protected-access
   logging.vlog(
       1,
       '[process=%s] Waiting at barrier %s',

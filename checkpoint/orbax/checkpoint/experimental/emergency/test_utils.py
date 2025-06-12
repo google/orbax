@@ -1392,6 +1392,12 @@ class CheckpointManagerTestBase:
         # on the primary slice).
         if manager.in_primary_slice:
           test_utils.empty_directory(self.local_directory)
+          # Increment the counter on the primary slice (it was already
+          # incremented on the secondary slice during the save), otherwise when
+          # we use the counter again below, it will use count 0 *again*, which
+          # will fail, since different barrier processes are used for the
+          # barrier.
+          next(checkpoint_manager.local_all_steps_broadcast_counter)
         test_utils.sync_global_processes('sync_after_local_dir_empty')
 
       new_global_mesh = swap_slices_in_mesh(
