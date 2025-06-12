@@ -1690,23 +1690,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   # TODO(b/370812224): Deprecate in favor of StepMetadata.metrics
   def metrics(self, step: int) -> Optional[PyTree]:
-    try:
-      # Use handler directly, since this happens in a background thread and
-      # barriers cannot be used. This usage pattern is not
-      # recommended in other contexts.
-      metrics = self._metrics_handler.restore(
-          self._get_read_step_directory(step, self.directory)
-          / METRIC_ITEM_NAME
-      )
-      return metrics
-    except FileNotFoundError:
-      logging.log_first_n(
-          logging.INFO,
-          'Missing metrics for step %d',
-          1,  # log only once
-          step,
-      )
-      return None
+    return self._get_metrics(step)
 
   @property
   def _metrics_handler(self) -> CheckpointHandler:
@@ -1798,18 +1782,25 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           processes=self._multiprocessing_options.active_processes,
       )
 
-  def _get_step_metadata(self, step: int) -> StepMetadata:
-    infos = [info for info in self._checkpoints if info.step == step]
-    if not infos:
-      metrics = None
-    else:
-      if len(infos) > 1:
-        logging.warning(
-            'Multiple CheckpointInfos found for step %d. Using the first one.',
-            step,
-        )
-      metrics = infos[0].metrics
+  def _get_metrics(self, step: int) -> PyTree | None:
+    try:
+      # Use handler directly, since this happens in a background thread and
+      # barriers cannot be used. This usage pattern is not
+      # recommended in other contexts.
+      metrics = self._metrics_handler.restore(
+          self._get_read_step_directory(step, self.directory) / METRIC_ITEM_NAME
+      )
+      return metrics
+    except FileNotFoundError:
+      logging.log_first_n(
+          logging.INFO,
+          'Missing metrics for step %d',
+          1,  # log only once
+          step,
+      )
+      return None
 
+  def _get_step_metadata(self, step: int) -> StepMetadata:
     step_metadata = self._checkpointer.metadata(
         self._get_read_step_directory(step, self.directory),
     )
@@ -1823,6 +1814,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         step_metadata.item_metadata
     )
 
+    metrics = self._get_metrics(step)
     if metrics is not None:
       validated_metrics = step_metadata_serialization.deserialize(
           {}, metrics=dict(metrics)
