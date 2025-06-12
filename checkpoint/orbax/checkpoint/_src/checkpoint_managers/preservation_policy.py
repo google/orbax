@@ -152,6 +152,7 @@ class BestN(PreservationPolicy):
   get_metric_fn: Callable[[PyTree], float]
   reverse: bool
   n: int | None = None
+  keep_checkpoints_without_metrics: bool = True
 
   def should_preserve(
       self,
@@ -179,10 +180,10 @@ class BestN(PreservationPolicy):
         reverse=self.reverse,
     )
     preserve_indices = [
-        item[0]
-        for item in indexed_checkpoints_with_metrics[-self.n :]
-        + indexed_checkpoints_without_metrics
+        i for i, _ in indexed_checkpoints_with_metrics[-self.n :]
     ]
+    if self.keep_checkpoints_without_metrics:
+      preserve_indices += [i for i, _ in indexed_checkpoints_without_metrics]
     preserve_indices_set = set(preserve_indices)
     preserve_flags = [
         i in preserve_indices_set for i in range(len(checkpoints))

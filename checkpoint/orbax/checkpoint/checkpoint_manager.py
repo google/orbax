@@ -229,6 +229,7 @@ def _get_default_preservation_policy(
             get_metric_fn=options.best_fn,
             reverse=(options.best_mode == 'min'),
             n=options.max_to_keep,
+            keep_checkpoints_without_metrics=options.keep_checkpoints_without_metrics,
         )
     )
   else:

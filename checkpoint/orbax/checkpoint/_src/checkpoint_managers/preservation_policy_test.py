@@ -160,23 +160,35 @@ class PreservationPolicyTest(parameterized.TestCase):
           n=None,
           loss=[5, None, 3, None, 7],
           expected_preserved_steps=[0, 1, 2, 3, 4],
+          keep_checkpoints_without_metrics=True,
       ),
       dict(
           n=1,
           loss=[7, None, 4, None, 5],
           expected_preserved_steps=[1, 2, 3],
+          keep_checkpoints_without_metrics=True,
       ),
       dict(
           n=4,
           loss=[5, None, 4, None, 7],
           expected_preserved_steps=[0, 1, 2, 3, 4],
+          keep_checkpoints_without_metrics=True,
+      ),
+      dict(
+          n=4,
+          loss=[5, None, 4, None, 7],
+          expected_preserved_steps=[0, 2, 4],
+          keep_checkpoints_without_metrics=False,
       ),
   )
-  def test_best_n_policy(self, n, loss, expected_preserved_steps):
+  def test_best_n_policy(
+      self, n, loss, expected_preserved_steps, keep_checkpoints_without_metrics
+  ):
     policy = preservation_policy_lib.BestN(
         get_metric_fn=lambda metrics: metrics['loss'],
         reverse=True,
         n=n,
+        keep_checkpoints_without_metrics=keep_checkpoints_without_metrics,
     )
     checkpoints = self.get_checkpoints(5)
     for i, checkpoint in enumerate(checkpoints):
