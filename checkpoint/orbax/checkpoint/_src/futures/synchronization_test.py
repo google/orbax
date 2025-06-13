@@ -12,30 +12,60 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 from absl.testing import absltest
 from orbax.checkpoint._src.futures import synchronization
 
 
-HandlerAwaitableSignalOperationIdGenerator = (
-    synchronization.HandlerAwaitableSignalOperationIdGenerator
-)
+OperationIdGenerator = synchronization.OperationIdGenerator
 
 
-class HandlerAwaitableSignalOperationIdGeneratorTest(absltest.TestCase):
+class OperationIdGeneratorTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    OperationIdGenerator._operation_id_counter = itertools.count()
+    OperationIdGenerator._operation_id = next(
+        OperationIdGenerator._operation_id_counter
+    )
 
   def test_get_operation_id(self):
-    HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
-    operation_id_1 = (
-        HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
-    )
+    OperationIdGenerator.next_operation_id()
+    operation_id_1 = OperationIdGenerator.get_current_operation_id()
 
-    HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
-    operation_id_2 = (
-        HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
-    )
+    OperationIdGenerator.next_operation_id()
+    operation_id_2 = OperationIdGenerator.get_current_operation_id()
 
     self.assertEqual(operation_id_1, "1")
     self.assertEqual(operation_id_2, "2")
+
+
+class OpTrackerTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    OperationIdGenerator._operation_id_counter = itertools.count()
+    OperationIdGenerator._operation_id = next(
+        OperationIdGenerator._operation_id_counter
+    )
+
+  def test_op_tracker_factory(self):
+    tracker_1 = synchronization.OpTrackerFactory.create_tracker("test_tracker")
+    tracker_2 = synchronization.OpTrackerFactory.create_tracker("test_tracker")
+    self.assertEqual(tracker_1._operation_id, "1")
+    self.assertEqual(tracker_2._operation_id, "2")
+    self.assertEqual(
+        OperationIdGenerator.get_current_operation_id(),
+        "2",
+    )
+
+  def test_op_tracker_get_in_progress_ids(self):
+    tracker = synchronization.OpTrackerFactory.create_tracker("test_tracker")
+    self.assertEmpty(tracker.get_in_progress_ids())
+    tracker.start()
+    self.assertSameElements(tracker.get_in_progress_ids(), [0])
+    tracker.complete()
+    self.assertEmpty(tracker.get_in_progress_ids())
 
 
 if __name__ == "__main__":

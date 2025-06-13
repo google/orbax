@@ -21,6 +21,7 @@ from typing import Container, Protocol, Sequence
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
 from orbax.checkpoint._src.futures import signaling_client
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.multihost import multihost
 
 
@@ -100,23 +101,26 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
       *,
       context: DecisionContext,
   ) -> bool:
-    if context.is_saving_in_progress:
-      return False
-    if not previous_steps or self.minimum_interval_secs is None:
-      return True
+
+    def _get_should_save_result() -> bool:
+      if context.is_saving_in_progress:
+        return False
+      if not previous_steps or self.minimum_interval_secs is None:
+        return True
+      return step.time - previous_steps[-1].time >= datetime.timedelta(
+          seconds=self.minimum_interval_secs
+      )
+
     is_primary_host = multihost.is_primary_host(
         context.multiprocessing_options.primary_host
     )
     client = signaling_client.get_signaling_client()
-    result_barrier_key = (
-        f'continuous_checkpointing_policy_should_save_{step.step}/'
-    )
-    # Make time based decision only on primary host and broadcast to all hosts.
+    operation_id = synchronization.OperationIdGenerator.next_operation_id()
+    result_barrier_key = f'{operation_id}_continuous_checkpointing_policy_should_save_{step.step}/'
+    # Make time based and save in progress based decision only on primary host
+    # and broadcast to all hosts.
     if is_primary_host:
-      save_result = int(
-          step.time - previous_steps[-1].time
-          >= datetime.timedelta(seconds=self.minimum_interval_secs)
-      )
+      save_result = int(_get_should_save_result())
       client.key_value_set(
           result_barrier_key,
           str(save_result),

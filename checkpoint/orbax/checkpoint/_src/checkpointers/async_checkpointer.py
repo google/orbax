@@ -368,7 +368,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     # Directory is the final directory.
 
     current_operation_id = (
-        synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
+        synchronization.OperationIdGenerator.get_current_operation_id()
     )
 
     def _callback() -> None:

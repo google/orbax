@@ -58,7 +58,7 @@ def get_awaitable_signals_from_contract(
   client = signaling_client.get_signaling_client()
   operation_id = (
       operation_id
-      or synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
+      or synchronization.OperationIdGenerator.get_current_operation_id()
   )
   barrier_key = _get_unique_barrier_key(
       synchronization.HandlerAwaitableSignal.AWAITABLE_SIGNALS_CONTRACT,
@@ -88,7 +88,7 @@ def add_to_awaitable_signals_contract(
   """Adds awaitable signals to `AWAITABLE_SIGNALS_CONTRACT` for lower checkpointing layers to wait on.
 
   These signals are added to the list of awaitable signals for the current
-  operation id in `HandlerAwaitableSignalOperationIdGenerator`.
+  operation id in `OperationIdGenerator`.
 
   Args:
     signals: The signals to add to the list of awaitable signals.
@@ -100,9 +100,7 @@ def add_to_awaitable_signals_contract(
   current_signals.extend(signals)
   keys = ','.join([current_signal.value for current_signal in current_signals])
   client = signaling_client.get_signaling_client()
-  operation_id = (
-      synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
-  )
+  operation_id = synchronization.OperationIdGenerator.get_current_operation_id()
   barrier_key = _get_unique_barrier_key(
       synchronization.HandlerAwaitableSignal.AWAITABLE_SIGNALS_CONTRACT,
       operation_id,
@@ -121,7 +119,7 @@ def remove_all_awaitable_signals(operation_id: str | None = None):
   """Removes all awaitable signals for the current or the given operation id."""
   operation_id = (
       operation_id
-      or synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
+      or synchronization.OperationIdGenerator.get_current_operation_id()
   )
   client = signaling_client.get_signaling_client()
   client.key_value_delete(f'{operation_id}/')
@@ -236,7 +234,7 @@ class _SignalingThread(threading.Thread):
     # Capture the current operation id synchronously.
     self._operation_id = (
         operation_id
-        or synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
+        or synchronization.OperationIdGenerator.get_current_operation_id()
     )
 
   def _wait_for_signals(self):

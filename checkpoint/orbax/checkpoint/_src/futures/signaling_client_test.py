@@ -138,6 +138,25 @@ class TestThreadSafeKeyValueSignalingClient(absltest.TestCase):
     # Ensure key outside the 'directory' remains
     self.assertEqual(self.client.key_value_try_get("otherdir/key4"), "value4")
 
+  def test_key_value_dir_get(self):
+    self.client.key_value_set("dir/", "dir_value")
+    self.client.key_value_set("dir/key1", "value1")
+    self.client.key_value_set("dir/key2", "value2")
+    self.client.key_value_set("dir/subdir/key3", "value3")
+    self.client.key_value_set("otherdir/key4", "value4")
+
+    result = self.client.key_value_dir_get("dir/")
+
+    self.assertSameElements(
+        [
+            ("dir/", "dir_value"),
+            ("dir/key1", "value1"),
+            ("dir/key2", "value2"),
+            ("dir/subdir/key3", "value3"),
+        ],
+        result,
+    )
+
 
 # Use mocking to avoid requiring a real JAX distributed setup
 @mock.patch.object(multihost, "get_jax_distributed_client")
@@ -236,6 +255,30 @@ class TestJaxDistributedSignalingClient(absltest.TestCase):
 
     client.key_value_delete("jax_delete_key")
     mock_client.key_value_delete.assert_called_once_with("jax_delete_key")
+
+  def test_key_value_dir_get(self, mock_get_jax_client):
+    mock_client = mock.MagicMock()
+    mock_client.key_value_dir_get.return_value = [
+        ("dir/", "dir_value"),
+        ("dir/key1", "value1"),
+        ("dir/key2", "value2"),
+        ("dir/subdir/key3", "value3"),
+    ]
+    mock_get_jax_client.return_value = mock_client
+    client = signaling_client.JaxDistributedSignalingClient()
+
+    result = client.key_value_dir_get("dir/")
+
+    self.assertSameElements(
+        [
+            ("dir/", "dir_value"),
+            ("dir/key1", "value1"),
+            ("dir/key2", "value2"),
+            ("dir/subdir/key3", "value3"),
+        ],
+        result,
+    )
+    mock_client.key_value_dir_get.assert_called_once_with("dir/")
 
 
 class TestGetSignalingClient(absltest.TestCase):

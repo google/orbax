@@ -69,6 +69,14 @@ class SignalingClient(Protocol):
     """
     ...
 
+  def key_value_dir_get(self, key: str) -> Sequence[tuple[str, str]]:
+    """Gets all key-value pairs in the directory.
+
+    Args:
+      key: The key to get.
+    """
+    ...
+
   def wait_at_barrier(
       self,
       key: str,
@@ -160,6 +168,19 @@ class JaxDistributedSignalingClient(SignalingClient):
       key: The key to delete.
     """
     self._client.key_value_delete(key)
+
+  def key_value_dir_get(self, key: str) -> Sequence[tuple[str, str]]:
+    """Gets all key-value pairs in the directory.
+
+    Args:
+      key: The key to get.
+
+    Returns:
+      A sequence of (key, value) tuples.
+    """
+    if not key.endswith("/"):
+      raise ValueError(f"Key '{key}' must end with a slash.")
+    return self._client.key_value_dir_get(key)
 
   def wait_at_barrier(
       self,
@@ -297,6 +318,24 @@ class ThreadSafeKeyValueSignalingClient(SignalingClient):
       else:
         if key in self._data:
           del self._data[key]
+
+  def key_value_dir_get(self, key: str) -> Sequence[tuple[str, str]]:
+    """Gets all key-value pairs in the directory.
+
+    Args:
+      key: The key to get.
+
+    Returns:
+      A sequence of (key, value) tuples.
+    """
+    if not key.endswith("/"):
+      raise ValueError(f"Key '{key}' must end with a slash.")
+    keys_to_fetch = [
+        full_key
+        for full_key in self._data
+        if key == full_key or full_key.startswith(key)
+    ]
+    return [(k, self._data[k]) for k in keys_to_fetch]
 
   def wait_at_barrier(
       self,

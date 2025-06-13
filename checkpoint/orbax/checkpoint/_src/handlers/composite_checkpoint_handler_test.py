@@ -62,10 +62,10 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.directory = epath.Path(self.create_tempdir(name='test_dir'))
-    synchronization.HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
+    synchronization.OperationIdGenerator.next_operation_id()
 
   def save(self, handler, directory, *args, **kwargs):
-    synchronization.HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
+    synchronization.OperationIdGenerator.next_operation_id()
     handler.save(directory, *args, **kwargs)
     if multihost.process_index() == 0:
       handler.finalize(directory)

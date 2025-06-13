@@ -171,7 +171,7 @@ class Checkpointer(
     )
 
   def synchronize_next_awaitable_signal_operation_id(self):
-    synchronization.HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
+    synchronization.OperationIdGenerator.next_operation_id()
 
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
@@ -185,7 +185,7 @@ class Checkpointer(
         1,
         '[process=%s] Synchronized next awaitable signal operation id to %s',
         multihost.process_index(),
-        synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id(),
+        synchronization.OperationIdGenerator.get_current_operation_id(),
     )
 
   def save(

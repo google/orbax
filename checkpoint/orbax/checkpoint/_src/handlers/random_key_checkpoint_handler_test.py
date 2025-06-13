@@ -49,7 +49,7 @@ class RandomKeyCheckpointHandlerTest(absltest.TestCase):
     self.directory = epath.Path(
         self.create_tempdir(name='checkpointing_test').full_path
     )
-    synchronization.HandlerAwaitableSignalOperationIdGenerator.next_operation_id()
+    synchronization.OperationIdGenerator.next_operation_id()
 
   def assert_dict_equal(self, left, right):
     """Asserts that two dicts are equal and allow np.ndarray as elements."""

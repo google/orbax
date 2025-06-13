@@ -201,7 +201,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
 
     # TODO(b/398310070): Move operation ID generation to `Context`.
     operation_id = (
-        synchronization.HandlerAwaitableSignalOperationIdGenerator.get_current_operation_id()
+        synchronization.OperationIdGenerator.get_current_operation_id()
     )
     # Needed to differentiate between different handlers when we have multiple
     # PyTreeHandlers performing a save.

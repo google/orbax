@@ -22,9 +22,7 @@ from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import signaling_client
 
 HandlerAwaitableSignal = synchronization.HandlerAwaitableSignal
-OperationIdGenerator = (
-    synchronization.HandlerAwaitableSignalOperationIdGenerator
-)
+OperationIdGenerator = synchronization.OperationIdGenerator
 
 
 def _get_unique_barrier_key(

@@ -16,6 +16,9 @@
 
 import enum
 import itertools
+import logging
+from orbax.checkpoint._src.futures import signaling_client
+from orbax.checkpoint._src.multihost import multihost
 
 
 class HandlerAwaitableSignal(enum.Enum):
@@ -40,8 +43,8 @@ class HandlerAwaitableSignal(enum.Enum):
   ITEM_DIRECTORY_CREATION = "item_directory_creation"
 
 
-class HandlerAwaitableSignalOperationIdGenerator:
-  """A unique operation id generator for `HandlerAwaitableSignal`."""
+class OperationIdGenerator:
+  """A unique operation id generator."""
 
   _operation_id_counter = itertools.count()
   _operation_id = next(_operation_id_counter)
@@ -56,3 +59,52 @@ class HandlerAwaitableSignalOperationIdGenerator:
   def get_current_operation_id(cls) -> str:
     """Returns the current operation id."""
     return str(cls._operation_id)
+
+
+class OpTracker:
+  """A tracker for tracking host-level op in progress."""
+
+  def __init__(self, tracker_prefix: str, operation_id: str):
+    self._operation_id = operation_id
+    self._tracker_prefix = tracker_prefix
+    logging.info(
+        "[process=%s] Created OpTracker for %s with operation id %s",
+        multihost.process_index(),
+        tracker_prefix,
+        operation_id,
+    )
+
+  def start(self):
+    """Marks the op as in progress for the current process."""
+    process_index = multihost.process_index()
+    signaling_client.get_signaling_client().key_value_set(
+        f"{self._tracker_prefix}_{self._operation_id}/{process_index}",
+        str(process_index),
+        allow_overwrite=True,
+    )
+
+  def complete(self):
+    """Marks the op as complete for the current process."""
+    process_index = multihost.process_index()
+    signaling_client.get_signaling_client().key_value_delete(
+        f"{self._tracker_prefix}_{self._operation_id}/{process_index}"
+    )
+
+  def get_in_progress_ids(self) -> list[int]:
+    """Returns the list of processes in progress for the op."""
+    op_in_progress = signaling_client.get_signaling_client().key_value_dir_get(
+        f"{self._tracker_prefix}_{self._operation_id}/"
+    )
+    return [int(process_id) for _, process_id in op_in_progress]
+
+
+class OpTrackerFactory:
+  """A factory for creating `OpTracker` instances."""
+
+  @classmethod
+  def create_tracker(cls, tracker_prefix: str) -> OpTracker:
+    """Creates a new `OpTracker` instance."""
+    return OpTracker(
+        tracker_prefix,
+        str(OperationIdGenerator.next_operation_id()),
+    )
