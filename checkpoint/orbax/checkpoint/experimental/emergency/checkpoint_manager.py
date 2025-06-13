@@ -186,6 +186,7 @@ class PersistentCheckpointOptions:
 
   save_interval_steps: int = 1000
   max_to_keep: Optional[int] = None
+  keep_period: Optional[int] = None
   should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
 
 
@@ -639,6 +640,7 @@ def _get_persistent_options(
   return checkpoint_manager.CheckpointManagerOptions(
       save_interval_steps=options.persistent.save_interval_steps,
       max_to_keep=options.persistent.max_to_keep,
+      keep_period=options.persistent.keep_period,
       step_name_format=options.step_name_format,
       create=False,
       cleanup_tmp_directories=options.cleanup_tmp_directories,

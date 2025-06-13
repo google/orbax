@@ -1084,6 +1084,51 @@ class CheckpointManagerTestBase:
       self.assertEqual(sorted(manager2.all_steps()), expectation)
 
     @parameterized.parameters(
+        (2, 2, 2, [0, 2, 4, 6, 8, 9]),
+        (3, 2, 4, [0, 4, 7, 8, 9]),
+        (2, 2, 5, [0, 8, 9]),
+        (2, 6, 3, [0, 6, 8, 9]),
+    )
+    def test_all_steps_with_keep_interval(
+        self,
+        local_max_to_keep,
+        persistent_interval,
+        persistent_keep_period,
+        expectation,
+    ):
+      """Test case."""
+      global_mesh, pytree = self.setup_pytree(self.make_global_mesh())
+      abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
+      options = CheckpointManagerOptions(
+          local=LocalCheckpointOptions(
+              save_interval_steps=1, max_to_keep=local_max_to_keep
+          ),
+          persistent=PersistentCheckpointOptions(
+              save_interval_steps=persistent_interval,
+              keep_period=persistent_keep_period,
+              max_to_keep=1,
+          ),
+      )
+      manager = CheckpointManager(
+          local_directory=self.local_directory,
+          persistent_directory=self.persistent_directory,
+          global_mesh=global_mesh,
+          abstract_state=abstract_state,
+          options=options,
+      )
+
+      for i in range(10):
+        manager.save(i, args=get_composite_save_args(pytree))
+        manager.wait_until_finished()
+
+      logging.info('all_steps: %s', manager.all_steps(True))
+      manager.reload()
+      logging.info('all_steps: %s', manager.all_steps(True))
+      self.assertEqual(sorted(manager.all_steps(True)), expectation)
+      manager.restore(8)
+      manager.restore(9)
+
+    @parameterized.parameters(
         (1, 4, 3),
         (2, 3, 3),
         (2, 4, 2),
