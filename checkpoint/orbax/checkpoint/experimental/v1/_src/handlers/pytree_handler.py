@@ -131,6 +131,7 @@ def create_v0_restore_args(
   return base_pytree_checkpoint_handler.BasePyTreeRestoreArgs(
       item=abstract_checkpointable,
       restore_args=restore_args,
+      partial_restore=context.pytree_options.loading.partial_load,
   )
 
 

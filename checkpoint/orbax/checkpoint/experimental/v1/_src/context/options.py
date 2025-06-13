@@ -157,7 +157,8 @@ class PyTreeOptions:
   class Loading:
     """Options for loading PyTrees.
 
-    partial_load: NOT IMPLEMENTED.
+    partial_load: If True, only restore the parameters that are specified
+      in the abstract PyTree.
     """
 
     partial_load: bool = False
