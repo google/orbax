@@ -37,9 +37,7 @@ def process_slice_id(
     replica_axis_index: int = 0,
 ) -> int:
   """Returns the slice id that the process_index belongs to."""
-  for slice_id in range(
-      slice_count(global_mesh, replica_axis_index=replica_axis_index)
-  ):
+  for slice_id in range(slice_count(global_mesh)):
     device_slice = slice_devices(
         global_mesh, replica_id=slice_id, replica_axis_index=replica_axis_index
     )
@@ -72,22 +70,20 @@ def slice_devices(
     )
 
 
-def slice_count(
-    global_mesh: jax.sharding.Mesh, *, replica_axis_index: int = 0
-) -> int:
-  """Number of slices implied by the mesh's replica dimension."""
-  if len(global_mesh.shape_tuple) == 1:
+def slice_count(global_mesh: jax.sharding.Mesh) -> int:
+  """Number of slices in the global mesh."""
+  devices = global_mesh.devices
+  if hasattr(jax.devices()[0], "slice_index"):
+    return np.vectorize(lambda x: x.slice_index)(devices).max() + 1
+  else:
     return 1
-  return global_mesh.devices.shape[replica_axis_index]
 
 
 def local_slice_devices(
     global_mesh: jax.sharding.Mesh, *, replica_axis_index: int = 0
 ) -> np.ndarray:
   """Get devices in the host-local slice."""
-  for replica_id in range(
-      slice_count(global_mesh, replica_axis_index=replica_axis_index)
-  ):
+  for replica_id in range(slice_count(global_mesh)):
     if in_slice(
         multihost.process_index(),
         global_mesh,
