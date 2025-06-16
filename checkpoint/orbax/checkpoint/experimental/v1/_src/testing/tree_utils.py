@@ -72,5 +72,11 @@ def get_d_files_mtimes(path: path_types.Path) -> list[int]:
     d_path = pytree_dir / f'ocdbt.process_{idx}' / 'd'
     if not d_path.exists():
       continue
-    mtimes.extend([f.stat().mtime for f in d_path.iterdir()])
+    for f in d_path.iterdir():
+      # TensorStore tmp files can get deleted while iterating. We try to be
+      # resilient to this.
+      try:
+        mtimes.append(f.stat().mtime)
+      except OSError:
+        pass
   return mtimes
