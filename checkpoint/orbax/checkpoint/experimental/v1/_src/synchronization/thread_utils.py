@@ -16,78 +16,42 @@
 
 import asyncio
 import threading
-from typing import Awaitable, Callable, Generic, TypeVar
+from typing import Awaitable, Generic, TypeVar
 
 T = TypeVar('T')
 
 
-# TODO(b/423708172): Consider using a ThreadPool in the future.
-class Thread(threading.Thread, Generic[T]):
-  """A Thread that can return a result and raise exceptions."""
+class BackgroundThreadRunner(Generic[T]):
+  """A runner for an asyncio event loop in a background thread.
 
-  _exception: Exception | None = None
-  _result: T
-
-  def __init__(self, target: Callable[[], T], **kwargs):
-
-    def _target_setting_result():
-      self._result = target()
-
-    super().__init__(target=_target_setting_result, **kwargs)
-
-  def run(self):
-    """Runs the target function after waiting for signals."""
-    try:
-      super().run()
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      self._exception = e
-
-  def result(self, timeout: float | None = None) -> T:
-    """Waits for the target function to complete."""
-    super().join(timeout=timeout)
-    if self.is_alive():
-      raise TimeoutError(
-          f'Thread {self.name} did not complete within {timeout} seconds.'
-      )
-    if self._exception is not None:
-      raise self._exception
-    return self._result
-
-
-# TODO(b/423708172): Eliminate cross-thread event loop sharing.
-class BackgroundEventLoopRunner(Generic[T]):
-  """A runner for an asyncio event loop.
-
-  This class starts a background thread that runs the event loop with the
-  provided `Awaitable`. The event loop is closed when the `Awaitable` completes,
-  even without having to call `result()`.
-
-  This class can be useful when certain coroutines need to start in the main
-  thread and continue in a background thread. Unless the same event loop is
-  used, the coroutines will be cancelled if not finished yet.
-
-  For example, in the blocking part of the save, we can start an operation via
-  `asyncio.create_task` that is not necessarily expected to complete before the
-  background part starts. (An example would be async directory creation.) The
-  task cannot be protected from cancellation unless the blocking part and
-  background part share the same event loop, which must be cleaned up when the
-  background thread completes.
+  This class expects an awaitable function that will be run in a background
+  thread. It creates an event loop that is passed to the thread. This event loop
+  should only be interacted with via asyncio thread-safe APIs, when tasks are
+  scheduled from the main thread.
   """
 
   def __init__(
       self,
-      event_loop: asyncio.AbstractEventLoop,
       target: Awaitable[T],
   ):
-    self._event_loop = event_loop
     self._target = target
-    self._thread = Thread(target=self._background_task_runner)
+    self._event_loop = asyncio.new_event_loop()
+    self._thread = threading.Thread(
+        target=self._event_loop_runner, args=(self._event_loop,), daemon=True
+    )
     self._thread.start()
+    self._future = asyncio.run_coroutine_threadsafe(
+        self._target, self._event_loop
+    )
 
-  def _background_task_runner(self) -> T:
-    result = self._event_loop.run_until_complete(self._target)
-    self._event_loop.close()
-    return result
+  def _event_loop_runner(self, event_loop: asyncio.AbstractEventLoop):
+    event_loop.run_forever()
+    event_loop.close()
 
   def result(self, timeout: float | None = None) -> T:
-    return self._thread.result(timeout=timeout)
+    r = self._future.result(timeout=timeout)
+    if self._thread:
+      self._event_loop.call_soon_threadsafe(self._event_loop.stop)
+      self._thread.join(timeout=timeout)
+      self._thread = None
+    return r

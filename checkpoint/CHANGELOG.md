@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- #v1 Modify saving code to eliminate cross-thread event loop sharing.
+
 ## [0.11.15] - 2025-06-13
 
 ### Changed

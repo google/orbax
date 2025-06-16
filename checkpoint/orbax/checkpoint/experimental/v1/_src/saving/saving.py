@@ -22,7 +22,6 @@ import uuid
 from absl import logging
 from etils import epath
 import jax
-import nest_asyncio
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
@@ -290,7 +289,6 @@ class _SaveResponse(async_types.AsyncResponse[None]):
   def __init__(
       self,
       operation_id: str,
-      event_loop: asyncio.AbstractEventLoop,
       tmp_directory: atomicity_types.TemporaryPath,
       handler_typestrs: dict[str, str],
       background_awaitable: Awaitable[None],
@@ -308,8 +306,8 @@ class _SaveResponse(async_types.AsyncResponse[None]):
     self._custom_metadata = custom_metadata
     self._context = context
     self._async_origin = async_origin
-    self._loop_runner = thread_utils.BackgroundEventLoopRunner[None](
-        event_loop, self._finalize_save()
+    self._thread_runner = thread_utils.BackgroundThreadRunner[None](
+        self._finalize_save()
     )
 
   async def _finalize_save(self):
@@ -378,7 +376,7 @@ class _SaveResponse(async_types.AsyncResponse[None]):
     )
 
   def result(self, timeout: float | None = None) -> None:
-    return self._loop_runner.result(timeout=timeout)
+    return self._thread_runner.result(timeout=timeout)
 
 
 def _record_save_start(directory: path_types.Path, *, async_origin: bool):
@@ -445,8 +443,6 @@ def _save_checkpointables_impl(
       checkpointables, context=context
   )
   tmp_directory = _get_temporary_path(directory, context=context)
-  event_loop = asyncio.new_event_loop()
-  nest_asyncio.apply()
 
   async def _blocking_save() -> Awaitable[None]:
     await context_lib.synchronize_next_operation_id()
@@ -468,7 +464,7 @@ def _save_checkpointables_impl(
     )
     return background_awaitable
 
-  background_awaitable = event_loop.run_until_complete(_blocking_save())
+  background_awaitable = asyncio.run(_blocking_save())
   blocking_duration_secs = time.time() - start_time
   jax.monitoring.record_event_duration_secs(
       '/jax/checkpoint/write/async/blocking_duration_secs',
@@ -488,7 +484,6 @@ def _save_checkpointables_impl(
   }
   return _SaveResponse(
       context.operation_id(),
-      event_loop,
       tmp_directory,
       handler_typestrs,
       background_awaitable,
