@@ -54,16 +54,16 @@ InternalCheckpointMetadata = (
 )
 
 
-async def _exists(directory: path_types.Path) -> bool:
-  return await asyncio.to_thread(directory.exists)
+async def _exists(path: path_types.Path) -> bool:
+  return await asyncio.to_thread(path.exists)
 
 
-async def _rmtree(directory: path_types.Path) -> None:
-  return await asyncio.to_thread(directory.rmtree)
+async def _rmtree(path: path_types.Path) -> None:
+  return await asyncio.to_thread(path.rmtree)
 
 
 def save_pytree(
-    directory: path_types.PathLike,
+    path: path_types.PathLike,
     pytree: tree_types.PyTreeOf[tree_types.LeafType],
     *,
     overwrite: bool = False,
@@ -75,20 +75,20 @@ def save_pytree(
   `save_async` instead.
 
   Args:
-    directory: The directory to save the checkpoint to.
+    path: The path to save the checkpoint to.
     pytree: The PyTree to save. This may be any JAX PyTree (including custom
       objects registered as PyTrees) consisting of supported leaf types. Default
       supported leaf types include `jax.Array`, `np.ndarray`, simple types like
       `int`, `float`, `str`, and empty nodes. Support for custom leaves is also
       possible by implementing a `LeafTypeHandler`.
-    overwrite: If True, fully overwrites an existing checkpoint in `directory`.
+    overwrite: If True, fully overwrites an existing checkpoint in `path`.
       Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
   """
   save_checkpointables(
-      directory,
+      path,
       {PYTREE_CHECKPOINTABLE_KEY: pytree},
       overwrite=overwrite,
       custom_metadata=custom_metadata,
@@ -96,7 +96,7 @@ def save_pytree(
 
 
 def save_checkpointables(
-    directory: path_types.PathLike,
+    path: path_types.PathLike,
     checkpointables: dict[str, Any],
     *,
     overwrite: bool = False,
@@ -114,7 +114,7 @@ def save_checkpointables(
   For example, one might do::
 
     ocp.save_checkpointables(
-        directory,
+        path,
         {
             'params': pytree_of_arrays,
             'dataset': pygrain.DatasetIterator(...),
@@ -129,25 +129,25 @@ def save_checkpointables(
         'step': step,
         ...
     }
-    ocp.save_checkpointables(directory, train_state)
+    ocp.save_checkpointables(path, train_state)
 
   This is not the ideal way of doing things because it is then difficult to run
   transformations that involve the entire train state (see the
   `load_and_transform` API).
 
   Args:
-    directory: The directory to save the checkpoint to.
+    path: The path to save the checkpoint to.
     checkpointables: A dictionary of checkpointables. Dictionary keys represent
       the names of the checkpointables, while the values are the checkpointable
       objects themselves.
-    overwrite: If True, fully overwrites an existing checkpoint in `directory`.
+    overwrite: If True, fully overwrites an existing checkpoint in `path`.
       Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
   """
   _save_checkpointables_impl(
-      directory,
+      path,
       checkpointables,
       overwrite=overwrite,
       custom_metadata=custom_metadata,
@@ -158,7 +158,7 @@ def save_checkpointables(
 # TODO(b/396190818): Test modification of the context by the user after the
 # save operation is scheduled.
 def save_pytree_async(
-    directory: path_types.PathLike,
+    path: path_types.PathLike,
     pytree: tree_types.PyTreeOf[tree_types.LeafType],
     *,
     overwrite: bool = False,
@@ -176,13 +176,13 @@ def save_pytree_async(
   load the checkpoint or exiting the program.
 
   Args:
-    directory: The directory to save the checkpoint to.
+    path: The path to save the checkpoint to.
     pytree: The PyTree to save. This may be any JAX PyTree (including custom
       objects registered as PyTrees) consisting of supported leaf types. Default
       supported leaf types include `jax.Array`, `np.ndarray`, simple types like
       `int`, `float`, `str`, and empty nodes. Support for custom leaves is also
       possible by implementing a `LeafTypeHandler`.
-    overwrite: If True, fully overwrites an existing checkpoint in `directory`.
+    overwrite: If True, fully overwrites an existing checkpoint in `path`.
       Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
@@ -193,7 +193,7 @@ def save_pytree_async(
     Blocking can be done using `response.result()`, which returns `None`.
   """
   return save_checkpointables_async(
-      directory,
+      path,
       {PYTREE_CHECKPOINTABLE_KEY: pytree},
       overwrite=overwrite,
       custom_metadata=custom_metadata,
@@ -201,7 +201,7 @@ def save_pytree_async(
 
 
 def save_checkpointables_async(
-    directory: path_types.PathLike,
+    path: path_types.PathLike,
     checkpointables: dict[str, Any],
     *,
     overwrite: bool = False,
@@ -221,11 +221,11 @@ def save_checkpointables_async(
   load the checkpoint or exiting the program.
 
   Args:
-    directory: The directory to save the checkpoint to.
+    path: The path to save the checkpoint to.
     checkpointables: A dictionary of checkpointables. Dictionary keys represent
       the names of the checkpointables, while the values are the checkpointable
       objects themselves.
-    overwrite: If True, fully overwrites an existing checkpoint in `directory`.
+    overwrite: If True, fully overwrites an existing checkpoint in `path`.
       Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
@@ -236,7 +236,7 @@ def save_checkpointables_async(
     Blocking can be done using `response.result()`, which returns `None`.
   """
   return _save_checkpointables_impl(
-      directory,
+      path,
       checkpointables,
       overwrite=overwrite,
       custom_metadata=custom_metadata,
@@ -245,15 +245,15 @@ def save_checkpointables_async(
 
 
 def _get_temporary_path(
-    directory: path_types.Path, *, context: context_lib.Context
+    path: path_types.Path, *, context: context_lib.Context
 ) -> atomicity_types.TemporaryPath:
   """Gets a TemporaryPath for the given path."""
   temporary_path_class = (
       context.file_options.temporary_path_class
-      or atomicity_defaults.get_default_temporary_path_class(directory)
+      or atomicity_defaults.get_default_temporary_path_class(path)
   )
   tmpdir = temporary_path_class.from_final(
-      directory,
+      path,
       # Ensure metadata store is NOT passed, to prevent separate metadata
       # writing.
       checkpoint_metadata_store=None,
@@ -263,17 +263,17 @@ def _get_temporary_path(
   return tmpdir
 
 
-async def _remove_existing_directory(
-    directory: path_types.Path,
+async def _remove_existing_path(
+    path: path_types.Path,
     *,
     context: context_lib.Context,
 ):
   if multihost.is_primary_host(context.multiprocessing_options.primary_host):
     logging.info(
-        '[process=%s] Specified `overwrite`: removing existing directory.',
+        '[process=%s] Specified `overwrite`: removing existing path.',
         multihost.process_index(),
     )
-    await _rmtree(directory)
+    await _rmtree(path)
   await multihost.sync_global_processes(
       multihost.unique_barrier_key(
           'save_checkpointables_async:rmtree',
@@ -289,7 +289,7 @@ class _SaveResponse(async_types.AsyncResponse[None]):
   def __init__(
       self,
       operation_id: str,
-      tmp_directory: atomicity_types.TemporaryPath,
+      tmp_path: atomicity_types.TemporaryPath,
       handler_typestrs: dict[str, str],
       background_awaitable: Awaitable[None],
       *,
@@ -299,7 +299,7 @@ class _SaveResponse(async_types.AsyncResponse[None]):
       async_origin: bool,
   ):
     self._operation_id = operation_id
-    self._tmp_directory = tmp_directory
+    self._tmp_path = tmp_path
     self._handler_typestrs = handler_typestrs
     self._background_awaitable = background_awaitable
     self._start_time = start_time
@@ -314,7 +314,7 @@ class _SaveResponse(async_types.AsyncResponse[None]):
     logging.info(
         '[process=%s] Finalizing checkpoint on %s',
         multihost.process_index(),
-        self._tmp_directory.get(),
+        self._tmp_path.get(),
     )
     await self._background_awaitable
     logging.vlog(
@@ -339,7 +339,7 @@ class _SaveResponse(async_types.AsyncResponse[None]):
       )
       await metadata_serialization.write(
           metadata_serialization.checkpoint_metadata_file_path(
-              self._tmp_directory.get()
+              self._tmp_path.get()
           ),
           internal_metadata.serialize(),
       )
@@ -352,7 +352,7 @@ class _SaveResponse(async_types.AsyncResponse[None]):
       # problem if it isn't though, since we have earlier async executions that
       # will yield control.
       atomicity.on_commit_callback(
-          self._tmp_directory,
+          self._tmp_path,
           checkpoint_start_time=self._start_time,
       )
 
@@ -370,7 +370,7 @@ class _SaveResponse(async_types.AsyncResponse[None]):
     )
     total_duration_secs = time.time() - self._start_time
     _record_save_completion(
-        self._tmp_directory.get_final(),
+        self._tmp_path.get_final(),
         total_duration_secs=total_duration_secs,
         async_origin=self._async_origin,
     )
@@ -379,13 +379,13 @@ class _SaveResponse(async_types.AsyncResponse[None]):
     return self._thread_runner.result(timeout=timeout)
 
 
-def _record_save_start(directory: path_types.Path, *, async_origin: bool):
+def _record_save_start(path: path_types.Path, *, async_origin: bool):
   """Records the start of a save operation."""
   logging.info(
       '[process=%s] Started %s checkpoint to %s.',
       multihost.process_index(),
       'async saving' if async_origin else 'saving',
-      directory,
+      path,
   )
   if async_origin:
     event_name = '/jax/orbax/write/async/start'
@@ -394,12 +394,12 @@ def _record_save_start(directory: path_types.Path, *, async_origin: bool):
   jax.monitoring.record_event(event_name)
   jax.monitoring.record_event(
       '/jax/orbax/write/storage_type',
-      storage_type=path_utils.get_storage_type(directory),
+      storage_type=path_utils.get_storage_type(path),
   )
 
 
 def _record_save_completion(
-    directory: path_types.Path,
+    path: path_types.Path,
     *,
     total_duration_secs: float,
     async_origin: bool,
@@ -409,7 +409,7 @@ def _record_save_completion(
       'Finished asynchronous save (blocking + background) in %.2f seconds'
       ' to %s',
       total_duration_secs,
-      directory,
+      path,
   )
   # TODO(cpgaffney): No event is currently being recorded for synchronous saves.
   # Consider collecting this information
@@ -421,7 +421,7 @@ def _record_save_completion(
 
 
 def _save_checkpointables_impl(
-    directory: path_types.PathLike,
+    path: path_types.PathLike,
     checkpointables: dict[str, Any],
     *,
     async_origin: bool,
@@ -429,12 +429,12 @@ def _save_checkpointables_impl(
     custom_metadata: tree_types.JsonType | None,
 ) -> async_types.AsyncResponse[None]:
   """See caller docstrings."""
-  directory = epath.Path(directory)
+  path = epath.Path(path)
   # Prevent internal mutation from affecting the caller.
   checkpointables = dict(checkpointables)
 
   start_time = time.time()
-  _record_save_start(directory, async_origin=async_origin)
+  _record_save_start(path, async_origin=async_origin)
   context = context_lib.get_context()
   checkpointables_handler = composite_handler.CompositeHandler(
       context.checkpointables_options.registry
@@ -442,25 +442,25 @@ def _save_checkpointables_impl(
   checkpointables = _add_internal_checkpointables(
       checkpointables, context=context
   )
-  tmp_directory = _get_temporary_path(directory, context=context)
+  tmp_path = _get_temporary_path(path, context=context)
 
   async def _blocking_save() -> Awaitable[None]:
     await context_lib.synchronize_next_operation_id()
-    if await _exists(directory):
+    if await _exists(path):
       if overwrite:
-        await _remove_existing_directory(directory, context=context)
+        await _remove_existing_path(path, context=context)
       else:
-        raise ValueError(f'Destination {directory} already exists.')
+        raise ValueError(f'Destination {path} already exists.')
 
-    tmp_directory_awaiting_creation = path_async_utils.start_async_mkdir(
-        tmp_directory, checkpointables.keys()
+    tmp_path_awaiting_creation = path_async_utils.start_async_mkdir(
+        tmp_path, checkpointables.keys()
     )
     if not context.async_options.create_directories_asynchronously:
-      await tmp_directory_awaiting_creation.await_creation()
+      await tmp_path_awaiting_creation.await_creation()
 
     # Synchronous portion of the save.
     background_awaitable = await checkpointables_handler.save(
-        tmp_directory_awaiting_creation, checkpointables
+        tmp_path_awaiting_creation, checkpointables
     )
     return background_awaitable
 
@@ -473,7 +473,7 @@ def _save_checkpointables_impl(
   logging.info(
       'Finished blocking save in %.2f seconds. Continuing to write to %s.',
       blocking_duration_secs,
-      directory,
+      path,
   )
 
   handler_typestrs = {
@@ -484,7 +484,7 @@ def _save_checkpointables_impl(
   }
   return _SaveResponse(
       context.operation_id(),
-      tmp_directory,
+      tmp_path,
       handler_typestrs,
       background_awaitable,
       start_time=start_time,
