@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added github actions CI testing using Python versions 3.10-3.12
 - Fixes native_serialization_platforms bug.
 - Removed the TpuExportManager as it is deprecatd.
+- Support sharding by reading exported compile options in the Orbax Model path.
 
 ## [0.0.4] - 2024-1-19
 
