@@ -189,6 +189,11 @@ class PartsOf(Generic[T]):
     return not self._present
 
   @property
+  def structure_hash(self) -> int:
+    """Returns a hash of the structure."""
+    return hash((self._template, tuple(self._present.keys())))
+
+  @property
   def full_structure(self) -> T:
     """Extracts a full PyTree with no missing leaves, or raises Error."""
     try:

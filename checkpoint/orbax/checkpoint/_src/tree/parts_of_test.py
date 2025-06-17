@@ -207,6 +207,18 @@ class PartsOfTest(parameterized.TestCase):
     ):
       _ = jax.tree.unflatten(treedef, leaves)
 
+  def test_structure_hash_match_with_different_values(self):
+    template = MyState(a=(X, X), b=[X, X])
+    t1 = PartsOf(template, MyState(a=(1, 2), b=[PH, PH]))
+    t2 = PartsOf(template, MyState(a=(2, 1), b=[PH, PH]))
+    self.assertEqual(t1.structure_hash, t2.structure_hash)
+
+  def test_structure_hash_mismatch_with_different_placeholders(self):
+    template = MyState(a=(X, X), b=[X, X])
+    t1 = PartsOf(template, MyState(a=(1, 2), b=[PH, PH]))
+    t2 = PartsOf(template, MyState(a=(PH, PH), b=[1, 1]))
+    self.assertNotEqual(t1.structure_hash, t2.structure_hash)
+
 
 class MapLeavesTest(parameterized.TestCase):
 
