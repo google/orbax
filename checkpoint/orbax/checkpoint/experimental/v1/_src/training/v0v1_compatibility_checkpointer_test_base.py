@@ -90,7 +90,6 @@ class V0v1CompatibilityCheckpointerTestBase(
       custom_metadata: tree_types.JsonType | None = None,
   ) -> bool:
     """Saves a pytree checkpoint with v0 CheckpointManager."""
-    self.skipTest('b/422287659')
     manager = self.create_checkpoint_manager(
         checkpointer,
         handler_registry=v0_handlers.create_default_handler_registry(
@@ -207,15 +206,3 @@ class V0v1CompatibilityCheckpointerTestBase(
         ocp.Context(checkpointables_options=checkpointables_options)
     )
     super().test_different_custom_checkpointables()
-
-  def test_custom_save_decision_policy(self):
-    self.skipTest('b/422287659')
-
-  def test_overwrites(self):
-    self.skipTest('b/422287659')
-
-  def test_steps(self):
-    self.skipTest('b/422287659')
-
-  def test_step_already_exists(self):
-    self.skipTest('b/422287659')
