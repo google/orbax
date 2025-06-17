@@ -376,11 +376,7 @@ def _all_devices_excepting_slice(
     replica_id: int = 0,
     replica_axis_index: int = 0,
 ) -> np.ndarray:
-  if hasattr(jax.devices()[0], 'slice_index'):
-    get_slice_id = np.vectorize(lambda x: x.slice_index)
-    return devices[get_slice_id(devices) != replica_id]
-  else:
-    return np.delete(devices, replica_id, axis=replica_axis_index)
+  return np.delete(devices, replica_id, axis=replica_axis_index)
 
 
 def _get_global_broadcast_fn() -> Callable[[jax.Array], jax.Array]:
