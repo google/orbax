@@ -35,7 +35,7 @@ from orbax.checkpoint._src.serialization import type_handlers
 PyTree = Any
 STANDARD_ARRAY_TYPES = (int, float, np.ndarray, jax.Array)
 _SNAPSHOTS = '_SNAPSHOTS'
-Layout = layout.Layout
+Format = layout.Format
 PLACEHOLDER = type_handlers.PLACEHOLDER
 
 
@@ -428,7 +428,7 @@ def construct_restore_args(
 
   def _array_restore_args(
       value: Any,
-      sharding: Optional[jax.sharding.Sharding | Layout],
+      sharding: Optional[jax.sharding.Sharding | Format],
       dtype: Optional[np.dtype] = None,
   ) -> type_handlers.ArrayRestoreArgs:
     return type_handlers.ArrayRestoreArgs(

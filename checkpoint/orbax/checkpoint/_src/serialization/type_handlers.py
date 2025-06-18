@@ -62,7 +62,7 @@ Pytree = Any
 PLACEHOLDER = ...
 PLACEHOLDER_TYPESTR = 'placeholder'
 
-Layout = layout.Layout
+Format = layout.Format
 Shape = arrays_types.Shape
 Scalar = Union[int, float, np.number]
 NamedSharding = jax.sharding.NamedSharding
@@ -812,7 +812,7 @@ class ArrayRestoreArgs(RestoreArgs):
   restore_type: Optional[Any] = jax.Array
   mesh: Optional[jax.sharding.Mesh] = None
   mesh_axes: Optional[jax.sharding.PartitionSpec] = None
-  sharding: Optional[Union[jax.sharding.Sharding, ShardingMetadata, Layout]] = (
+  sharding: Optional[Union[jax.sharding.Sharding, ShardingMetadata, Format]] = (
       None
   )
   global_shape: Optional[Tuple[int, ...]] = None

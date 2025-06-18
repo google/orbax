@@ -64,7 +64,7 @@ class AbstractArray(Protocol):
 
   shape: Shape | None
   dtype: jax.numpy.dtype | None
-  sharding: jax.sharding.Sharding | jax_layout.Layout | None
+  sharding: jax.sharding.Sharding | jax_layout.Format | None
 
 
 @dataclasses.dataclass

@@ -38,7 +38,7 @@ import tensorstore as ts
 NamedSharding = jax.sharding.NamedSharding
 P = jax.sharding.PartitionSpec
 DLL = layout.DeviceLocalLayout
-Layout = layout.Layout
+Format = layout.Format
 
 jax.config.update('jax_enable_x64', True)
 
@@ -586,7 +586,7 @@ class CheckpointTest(parameterized.TestCase):
     s = NamedSharding(mesh, P('x', 'y'))
     arr = jax.device_put(np_inp, s)
 
-    out_layout = Layout(
+    out_layout = Format(
         device_local_layout=DLL(
             arr.layout.device_local_layout.major_to_minor[::-1],
             arr.layout.device_local_layout._tiling,

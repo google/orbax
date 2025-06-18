@@ -42,7 +42,7 @@ _REMOVED_VALUE = 'Value removed'
 _CHECKPOINT_SUCCESS = 'checkpoint_write_success'
 
 Index = types.Index
-Layout = layout.Layout
+Format = layout.Format
 Shape = types.Shape
 
 
@@ -457,7 +457,7 @@ async def _read_array_index_and_device_put(
       sharding = jax.sharding.SingleDeviceSharding(
           device, memory_kind=memory_kind
       )
-      result.append(jax.device_put(shard, Layout(dll, sharding)))
+      result.append(jax.device_put(shard, Format(dll, sharding)))
   return result
 
 
@@ -508,7 +508,7 @@ async def read_and_create_array(
 
 
 async def async_deserialize(
-    user_sharding: jax.sharding.Sharding | Layout,
+    user_sharding: jax.sharding.Sharding | Format,
     tensorstore_spec: Union[ts.Spec, Dict[str, Any]],
     global_shape: Optional[Shape] = None,
     dtype: Optional[jnp.dtype] = None,
@@ -523,7 +523,7 @@ async def async_deserialize(
   context = context or ts_utils.get_ts_context(use_ocdbt=False)
   sharding = (
       user_sharding.sharding
-      if isinstance(user_sharding, Layout)
+      if isinstance(user_sharding, Format)
       else user_sharding
   )
   if not isinstance(sharding, jax.sharding.Sharding):
@@ -533,7 +533,7 @@ async def async_deserialize(
     )
   dll = (
       user_sharding.device_local_layout
-      if isinstance(user_sharding, Layout)
+      if isinstance(user_sharding, Format)
       else None
   )
   t = await ts.open(
