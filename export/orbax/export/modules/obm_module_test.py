@@ -203,6 +203,41 @@ class ObmModuleTest(parameterized.TestCase):
               ),
           ),
       ),
+      dict(
+          testcase_name='error_apply_fn_is_empty_map',
+          input_polymorphic_shape={
+              'simple_add': None,
+              'simple_subtract': None,
+          },
+          jax2obm_kwargs={
+              constants.CHECKPOINT_PATH: 'checkpoint_path',
+              constants.POLYMORPHIC_CONSTRAINTS: 2,
+          },
+          apply_fn_map={},
+          expected_error=(
+              ValueError,
+              r'apply_fn_map is empty. Please provide a valid apply_fn_map.',
+          ),
+      ),
+      dict(
+          testcase_name=(
+              'error_input_polymorphic_shape_key_not_matching_apply_fn_map'
+          ),
+          input_polymorphic_shape={
+              'simple_subtract': None,
+          },
+          jax2obm_kwargs={
+              constants.CHECKPOINT_PATH: 'checkpoint_path',
+              constants.POLYMORPHIC_CONSTRAINTS: 2,
+          },
+          apply_fn_map={
+              'simple_add': simple_add,
+          },
+          expected_error=(
+              ValueError,
+              r'The key simple_add is not found in input_polymorphic_shape.',
+          ),
+      ),
   )
   def test_obm_module_multiple_apply_fns(
       self,

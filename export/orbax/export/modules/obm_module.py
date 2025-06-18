@@ -109,12 +109,21 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         )
     else:
       apply_fn_map = apply_fn
-      if input_polymorphic_shape is None:
-        input_polymorphic_shape_map = {constants.DEFAULT_METHOD_KEY: None}
+      if not apply_fn_map:
+        raise ValueError(
+            'apply_fn_map is empty. Please provide a valid apply_fn_map.'
+        )
+      elif input_polymorphic_shape is None:
+        input_polymorphic_shape_map = {next(iter(apply_fn_map)): None}
       elif not isinstance(input_polymorphic_shape, Mapping):
         raise TypeError(
             'When apply_fn is a mapping, input_polymorphic_shape must also be a'
             ' mapping.'
+        )
+      elif next(iter(apply_fn_map)) not in input_polymorphic_shape:
+        raise ValueError(
+            f'The key {next(iter(apply_fn_map))} is not found in'
+            ' input_polymorphic_shape.'
         )
       else:
         input_polymorphic_shape_map = input_polymorphic_shape
