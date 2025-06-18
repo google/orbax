@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.16] - 2025-06-18
+
 ### Changed
 
+- make sure the GitHub build.yml allow to install newer jax-version
 - #v1 Modify saving code to eliminate cross-thread event loop sharing.
 
 ## [0.11.15] - 2025-06-13

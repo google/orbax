@@ -56,7 +56,7 @@ jobs:
         elif [[ "${{ matrix.jax-version }}" == "nightly" ]]; then
           pip install -U --pre jax jaxlib --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/
         else
-          pip install "jax==${{ matrix.jax-version }}" "jaxlib==${{ matrix.jax-version }}"
+          pip install "jax>=${{ matrix.jax-version }}" "jaxlib>=${{ matrix.jax-version }}"
         fi
     - name: Test with pytest
     # TODO(yaning): Move these to an exclude target within pytest.ini.
