@@ -847,8 +847,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._checkpoint_deleter: deleter.CheckpointDeleter = (
         deleter.create_checkpoint_deleter(
-            self._multiprocessing_options.primary_host,
             self._directory,
+            self._multiprocessing_options.primary_host,
             self._options.todelete_subdir,
             self._step_name_format,
             self._options.enable_hns_rmtree,

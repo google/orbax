@@ -274,12 +274,14 @@ class ThreadedCheckpointDeleter:
 
 
 def create_checkpoint_deleter(
-    primary_host: Optional[int],
     directory: epath.Path,
-    todelete_subdir: Optional[str],
-    name_format: step_lib.NameFormat[step_lib.Metadata],
-    enable_hns_rmtree: bool,
-    enable_background_delete: bool,
+    primary_host: Optional[int] = 0,
+    todelete_subdir: Optional[str] = None,
+    name_format: step_lib.NameFormat[
+        step_lib.Metadata
+    ] = step_lib.standard_name_format(),
+    enable_hns_rmtree: bool = False,
+    enable_background_delete: bool = False,
 ) -> CheckpointDeleter:
   """Creates a CheckpointDeleter."""
 
