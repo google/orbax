@@ -60,6 +60,7 @@ def slice_devices(
     replica_id: int = 0,
     replica_axis_index: int = 0,
 ) -> np.ndarray:
+  print(f"slice_devices: {global_mesh.devices=}")
   return np.take(
       global_mesh.devices,
       replica_id,
