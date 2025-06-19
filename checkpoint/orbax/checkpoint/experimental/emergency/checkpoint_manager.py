@@ -376,11 +376,8 @@ def _all_devices_excepting_slice(
     replica_id: int = 0,
     replica_axis_index: int = 0,
 ) -> np.ndarray:
-  if hasattr(jax.devices()[0], 'slice_index'):
-    get_slice_id = np.vectorize(lambda x: x.slice_index)
-    return devices[get_slice_id(devices) != replica_id]
-  else:
-    return np.delete(devices, replica_id, axis=replica_axis_index)
+  print(f"{devices=}")
+  return np.delete(devices, replica_id, axis=replica_axis_index)
 
 
 def _get_global_broadcast_fn() -> Callable[[jax.Array], jax.Array]:
@@ -1243,6 +1240,7 @@ class _MultisliceCheckpointManager(
     multihost.sync_global_processes('local_restore_pre_broadcast')
 
     start_broadcast = time.time()
+    print(f"before broadcast {self._global_mesh=}")
     shared_states, _ = multislice.broadcast_one_replica_to_all(
         in_tree,
         self._global_mesh,
