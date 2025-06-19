@@ -60,16 +60,11 @@ def slice_devices(
     replica_id: int = 0,
     replica_axis_index: int = 0,
 ) -> np.ndarray:
-  devices = global_mesh.devices
-  if hasattr(jax.devices()[0], 'slice_index'):
-    get_slice_id = np.vectorize(lambda x: x.slice_index)
-    return devices[get_slice_id(devices) == replica_id]
-  else:
-    return np.take(
-        global_mesh.devices,
-        replica_id,
-        axis=replica_axis_index,
-    )
+  return np.take(
+      global_mesh.devices,
+      replica_id,
+      axis=replica_axis_index,
+  )
 
 
 def slice_count(
@@ -231,6 +226,20 @@ def broadcast_one_replica_to_all(
   """
   num_replicas = global_mesh.devices.shape[replica_axis_index]
   replica_axis_name = global_mesh.axis_names[replica_axis_index]
+  def print_arr(key, arr):
+    logging.info(
+        'key: %s, shape: %s, sharding.mesh: %s, sharding.spec: %s',
+        key,
+        arr.shape,
+        arr.sharding.mesh,
+        arr.sharding.spec,
+    )
+
+  jax.tree.map_with_path(print_arr, in_tree)
+  logging.info('global_mesh: %s', global_mesh)
+  logging.info('replica_axis_index: %d', replica_axis_index)
+  logging.info('num_replicas: %d', num_replicas)
+  logging.info('is_source: %s', is_source)
 
   if memory_limit_bytes is None:
     memory_limit_bytes = get_available_memory(in_tree, memory_scaling_factor)
@@ -291,6 +300,7 @@ def broadcast_one_replica_to_all(
         subtree,
     )
     in_tree_sharded = jax.tree.map(globalize_single_replica_arrays, subtree)
+    jax.tree.map_with_path(print_arr, in_tree_sharded)
     # Delete immediately to conserve memory.
     jax.tree.map(lambda x: x.delete(), subtree)
 
@@ -299,6 +309,7 @@ def broadcast_one_replica_to_all(
         out_shardings=out_sharding,
     )(in_tree_sharded)
     out_tree.extend(out_subtree)
+    logging.info('out_subtree: %s', out_subtree)
     jax.block_until_ready(out_subtree)
     start = end
 
