@@ -55,6 +55,7 @@ a `PathAwaitingCreation`.
 - Enable `pinned_host_transfer` for GPU backend only.
 - #perf Add/update logs with time logs for save paths.
 - Simplify str of NameFormats.
+- `LoadCheckpointFromOrbax()` expects correct `weight_names` and `weight_specs`.
 
 ## [0.11.13] - 2025-04-30
 
