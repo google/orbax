@@ -1323,7 +1323,7 @@ class ArrayHandler(types.TypeHandler):
         logging.vlog(
             1,
             'restored jax.Array.shape = %s, jax.array.dtype = %s,'
-            ' jax.array.layout = %s',
+            ' jax.array.format = %s',
             getattr(a, 'shape', None),
             getattr(a, 'dtype', None),
             getattr(a, 'layout', None),

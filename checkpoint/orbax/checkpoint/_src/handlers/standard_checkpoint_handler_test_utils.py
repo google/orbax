@@ -169,13 +169,13 @@ class StandardCheckpointHandlerTestBase:
       # create a custom layout
       custom_layout = Format(
           device_local_layout=DLL(
-              major_to_minor=arr.layout.device_local_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
-              _tiling=arr.layout.device_local_layout._tiling,  # pytype: disable=attribute-error
+              major_to_minor=arr.format.device_local_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
+              _tiling=arr.format.device_local_layout._tiling,  # pytype: disable=attribute-error
           ),
           sharding=arr.sharding,
       )
       arr_new_layout = jax.device_put(arr, custom_layout)
-      self.assertNotEqual(arr_new_layout.format, arr.layout)
+      self.assertNotEqual(arr_new_layout.format, arr.format)
 
       # use a pytree example
       with self.subTest('test with item=pytree with custom layout'):

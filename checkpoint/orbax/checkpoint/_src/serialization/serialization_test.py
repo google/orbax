@@ -588,8 +588,8 @@ class CheckpointTest(parameterized.TestCase):
 
     out_layout = Format(
         device_local_layout=DLL(
-            arr.layout.device_local_layout.major_to_minor[::-1],
-            arr.layout.device_local_layout._tiling,
+            arr.format.device_local_layout.major_to_minor[::-1],
+            arr.format.device_local_layout._tiling,
         ),
         sharding=arr.sharding,
     )
@@ -605,7 +605,7 @@ class CheckpointTest(parameterized.TestCase):
 
     (out,) = deserialize([out_layout], tspecs)
 
-    self.assertEqual(out.layout, out_layout)
+    self.assertEqual(out.format, out_layout)
     self.assertIsInstance(out, jax.Array)
     self.assertArraysEqual(out, np_inp)
     for s in out.addressable_shards:
