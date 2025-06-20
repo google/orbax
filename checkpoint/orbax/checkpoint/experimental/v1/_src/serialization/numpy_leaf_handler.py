@@ -78,6 +78,12 @@ class NumpyMetadata:
   storage_metadata: value_metadata.StorageMetadata | None
 
 
+def _create_v0_numpy_handler() -> type_handlers_v0.NumpyHandler:
+  """Creates a V0 NumpyHandler."""
+  numpy_handler = type_handlers_v0.NumpyHandler()
+  return numpy_handler
+
+
 def _create_v0_saving_paraminfo(
     param: NumpySerializationParam,
     context: context_lib.Context,
@@ -111,7 +117,9 @@ def _create_v0_savearg(
   if fn:
     storage_options = fn(param.keypath, param.value)
     savearg = type_handlers_v0.SaveArgs(
-        dtype=storage_options.dtype,
+        dtype=np.dtype(storage_options.dtype)
+        if storage_options.dtype
+        else None,
         chunk_byte_size=storage_options.chunk_byte_size,
         shard_axes=storage_options.shard_axes,
     )
@@ -181,7 +189,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractNumpy]):
       context: context_lib.Context | None = None,
   ):
     self._context = context_lib.get_context(context)
-    self._handler_impl = type_handlers_v0.NumpyHandler()
+    self._handler_impl = _create_v0_numpy_handler()
 
     logging.info("NumpyLeafHandler created.")
 

@@ -24,6 +24,7 @@ with the provided processes ('local_all_steps':
 processes_excepting_primary_slice, 'find_complete_slice`: all_processes).
 - #emergency-checkpoint Support a `keep_period` like the regular
 `CheckpointManager`.
+- #v1 Default using V1 LeafHandlers
 
 ## [0.11.14] - 2025-06-09
 

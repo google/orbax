@@ -34,6 +34,7 @@ from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.serialization import compatibility
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -70,10 +71,10 @@ def _get_v0_save_args(
   return jax.tree.map_with_path(_leaf_get_v0_save_args, checkpointable)
 
 
-def create_v0_handler(
+def _create_v0_handler(
     context: context_lib.Context,
     *,
-    type_handler_registry: type_handlers.TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
+    type_handler_registry: type_handlers.TypeHandlerRegistry,
     array_metadata_validator: array_metadata_store_lib.Validator = array_metadata_store_lib.Validator(),
 ) -> base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler:
   """Creates a V0 handler from a V1 context."""
@@ -146,7 +147,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       self,
       *,
       context: context_lib.Context | None = None,
-      type_handler_registry: type_handlers.TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
+      type_handler_registry: type_handlers.TypeHandlerRegistry | None = None,
       array_metadata_validator: array_metadata_store_lib.Validator = (
           array_metadata_store_lib.Validator()
       ),
@@ -154,7 +155,11 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     context = context_lib.get_context(context)
     self._context = context
     self._multiprocessing_options = context.multiprocessing_options
-    self._handler_impl = create_v0_handler(
+    if type_handler_registry is None:
+      type_handler_registry = (
+          compatibility.get_compatible_type_handler_registry(self._context)
+      )
+    self._handler_impl = _create_v0_handler(
         context,
         type_handler_registry=type_handler_registry,
         array_metadata_validator=array_metadata_validator,

@@ -58,7 +58,6 @@ from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import compatibility
-from orbax.checkpoint.experimental.v1._src.serialization import registration as serialization_registration
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.testing import path_utils as path_test_utils
@@ -275,7 +274,6 @@ class PyTreeHandlerTestBase:
       self.pytree_metadata_options = tree_metadata.PyTreeMetadataOptions(
           support_rich_types=False
       )
-
 
       # default to use_ocdbt=False, so we can test non-ocdbt handler first
       self.handler = self.enter_context(
