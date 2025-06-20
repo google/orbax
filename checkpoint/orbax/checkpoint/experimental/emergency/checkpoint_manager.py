@@ -281,9 +281,7 @@ def _common_values_per_slice(
     processes in that slice. A value appearing in one process but not another
     in the same slice will not appear in the output.
   """
-  total_num_slices = multislice.slice_count(
-      global_mesh, replica_axis_index=replica_axis_index
-  )
+  total_num_slices = multislice.slice_count(global_mesh)
   num_processes_per_slice = (
       global_mesh.devices.size // total_num_slices // jax.local_device_count()
   )
@@ -625,8 +623,9 @@ def _get_single_slice_sharding(
       replica_id=replica_id,
       replica_axis_index=replica_axis_index,
   )
+  n_slices = multislice.slice_count(mesh)
   single_slice_mesh_shape = [
-      1 if i == replica_axis_index else d
+      d // n_slices if i == replica_axis_index else d
       for i, d in enumerate(mesh.devices.shape)
   ]
   slice_mesh = jax.sharding.Mesh(
@@ -747,12 +746,7 @@ class _MultisliceCheckpointManager(
           f'replica_axis_index {self._replica_axis_index} is out of bound for'
           f' global_mesh.devices.shape {global_mesh.devices.shape}'
       )
-    if (
-        multislice.slice_count(
-            global_mesh, replica_axis_index=self._replica_axis_index
-        )
-        <= 1
-    ):
+    if multislice.slice_count(global_mesh) <= 1:
       raise AssertionError(
           'To use this CheckpointManager, at least 2 data-parallel replicas are'
           ' needed.'
@@ -1445,9 +1439,7 @@ class CheckpointManager(
     options = options or CheckpointManagerOptions()
     self._global_mesh = global_mesh
     self._abstract_state = abstract_state
-    self._slice_count = multislice.slice_count(
-        global_mesh, replica_axis_index=options.replica_axis_index
-    )
+    self._slice_count = multislice.slice_count(global_mesh)
     checkpoint_manager._create_root_directory(
         persistent_directory,
         multiprocessing_options=checkpoint_manager.MultiprocessingOptions(),

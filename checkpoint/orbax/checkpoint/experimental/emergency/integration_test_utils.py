@@ -42,9 +42,7 @@ def swap_slices_in_mesh(
 ) -> jax.sharding.Mesh:
   """Reverses the ordering of devices such that slices swap IDs."""
   devices = []
-  for slice_id in range(
-      multislice.slice_count(mesh, replica_axis_index=replica_axis_index)
-  ):
+  for slice_id in range(multislice.slice_count(mesh)):
     devices.append(
         multislice.slice_devices(
             mesh, replica_id=slice_id, replica_axis_index=replica_axis_index
