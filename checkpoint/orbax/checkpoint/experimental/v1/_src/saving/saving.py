@@ -22,6 +22,7 @@ import uuid
 from absl import logging
 from etils import epath
 import jax
+import nest_asyncio
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
@@ -429,6 +430,7 @@ def _save_checkpointables_impl(
     custom_metadata: tree_types.JsonType | None,
 ) -> async_types.AsyncResponse[None]:
   """See caller docstrings."""
+  nest_asyncio.apply()
   path = epath.Path(path)
   # Prevent internal mutation from affecting the caller.
   checkpointables = dict(checkpointables)
