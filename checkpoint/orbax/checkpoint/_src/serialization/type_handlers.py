@@ -1401,6 +1401,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
       primary_replica_id: Optional[int] = 0,
       broadcast_memory_limit_bytes: Optional[int] = None,
       broadcast_memory_scaling_factor: Optional[float] = 0.75,
+      use_replica_parallel: bool = True,
+      enable_write_sharding_file: bool = True,
+      array_metadata_store: array_metadata_store_lib.Store | None = None,
   ):
     """Constructor.
 
@@ -1414,9 +1417,18 @@ class SingleReplicaArrayHandler(ArrayHandler):
         for broadcasting data.
       broadcast_memory_scaling_factor: Specifies the fraction of available
         memory to use for broadcasting data.
+      use_replica_parallel: Whether to parallelize saving across replicas.
+      enable_write_sharding_file: whether to write sharding file, defaults to
+        True.
+      array_metadata_store: Store to manage per host ArrayMetadata. To disable
+        ArrayMetadata persistence, set it to None.
     """
 
-    super(SingleReplicaArrayHandler, self).__init__()
+    super(SingleReplicaArrayHandler, self).__init__(
+        use_replica_parallel=use_replica_parallel,
+        enable_write_sharding_file=enable_write_sharding_file,
+        array_metadata_store=array_metadata_store,
+    )
     self.replica_axis_index = replica_axis_index
     self.primary_replica_id = primary_replica_id
     self.broadcast_memory_limit_bytes = broadcast_memory_limit_bytes
