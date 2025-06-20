@@ -483,7 +483,7 @@ def construct_restore_args(
     if hasattr(value, 'sharding'):
       if (
           support_layout
-          and hasattr(value, 'layout')
+          and hasattr(value, 'format')
           and value.format.device_local_layout
       ):
         # value is a jax.Array or a jax.ShapeDtypeStruct.

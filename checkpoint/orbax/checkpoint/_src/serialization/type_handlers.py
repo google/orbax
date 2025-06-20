@@ -1326,7 +1326,7 @@ class ArrayHandler(types.TypeHandler):
             ' jax.array.format = %s',
             getattr(a, 'shape', None),
             getattr(a, 'dtype', None),
-            getattr(a, 'layout', None),
+            getattr(a, 'format', None),
         )
       _print_ts_debug_data(self._metadata_key, infos)
 
