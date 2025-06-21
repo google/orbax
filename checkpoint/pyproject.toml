@@ -49,6 +49,7 @@ repository = 'http://github.com/google/orbax'
 docs = [
   'flax',
   'google-cloud-logging',
+  'grain',
 ]
 testing = [
     'google-cloud-logging',
