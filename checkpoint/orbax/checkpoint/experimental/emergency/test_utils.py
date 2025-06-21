@@ -31,10 +31,12 @@ import optax
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint.experimental.emergency import checkpoint_manager
+from orbax.checkpoint.experimental.emergency import dataset_iterator_checkpoint_handler
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.experimental.emergency import process_metadata_checkpoint_handler
 
@@ -52,6 +54,7 @@ barrier_compatible_test = test_utils.barrier_compatible_test
 assert_tree_equal = test_utils.assert_tree_equal
 get_fake_global_mesh_for_slices = test_utils.get_fake_global_mesh_for_slices
 _STATE_ITEM_NAME = 'state'
+_DATASET_ITEM_NAME = 'dataset'
 
 
 def swap_slices_in_mesh(
@@ -1603,10 +1606,90 @@ class CheckpointManagerTestBase:
         # remove all the local directories
         test_utils.empty_directory(self.local_directory)
 
-        restored = manager.restore(2, args=args_lib.Composite(
-            **{_STATE_ITEM_NAME: PyTreeRestoreArgs()}
-            ))
+        restored = manager.restore(
+            2,
+            args=args_lib.Composite(**{_STATE_ITEM_NAME: PyTreeRestoreArgs()}),
+        )
         test_utils.assert_tree_equal(self, pytree_double, restored)
+
+    @parameterized.parameters(
+        (True, 0),
+    )
+    def test_persistent_checkpoint_restore_dataset_iterator(
+        self, enable_async_checkpointing: bool, replica_axis_index: int
+    ):
+      """Test case."""
+      global_mesh, pytree = self.setup_pytree(
+          self.make_global_mesh(replica_axis_index)
+      )
+      abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
+      options = CheckpointManagerOptions(
+          local=LocalCheckpointOptions(save_interval_steps=1, max_to_keep=2),
+          persistent=PersistentCheckpointOptions(
+              save_interval_steps=2, max_to_keep=2
+          ),
+          enable_async_checkpointing=enable_async_checkpointing,
+          replica_axis_index=replica_axis_index,
+      )
+
+      dummy_dataset = [
+          ('hello', 'hola'),
+          ('world', 'mundo'),
+          ('test', 'prueba'),
+      ]
+      dummy_iterator = dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointHandler.DummyIterator(
+          dummy_dataset
+      )
+
+      registry = handler_registration.DefaultCheckpointHandlerRegistry()
+      data_handler = (
+          dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointHandler()
+      )
+      registry.add(
+          'dataset',
+          dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointSave,
+          data_handler,
+      )
+      registry.add(
+          'dataset',
+          dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointRestore,
+          data_handler,
+      )
+
+      with CheckpointManager(
+          local_directory=self.local_directory,
+          persistent_directory=self.persistent_directory,
+          global_mesh=global_mesh,
+          abstract_state=abstract_state,
+          options=options,
+          handler_registry=registry,
+      ) as manager:
+        manager.save(
+            0,
+            args=args_lib.Composite(
+                state=PyTreeSaveArgs(pytree),
+                dataset=dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointSave(
+                    dummy_iterator
+                ),
+            ),
+        )
+        manager.wait_until_finished()
+
+        # remove all the local directories
+        test_utils.empty_directory(self.local_directory)
+
+        restored = manager.restore(
+            0,
+            args=args_lib.Composite(**{
+                _STATE_ITEM_NAME: PyTreeRestoreArgs(),
+                _DATASET_ITEM_NAME: dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointRestore(
+                    dummy_iterator
+                ),
+            }),
+        )
+        logging.info('restored: %s', restored)
+        test_utils.assert_tree_equal(self, pytree, restored.state)
+        test_utils.assert_tree_equal(self, dummy_iterator, restored.dataset)
 
     def test_process_index_metadata(self):
       """Test case."""
