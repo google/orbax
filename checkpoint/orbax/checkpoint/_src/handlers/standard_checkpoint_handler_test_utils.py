@@ -38,7 +38,10 @@ from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handlers
 
-DLL = layout.DeviceLocalLayout
+if jax.__version_info__ >= (0, 6, 3):
+  DLL = layout.Layout
+else:
+  DLL = layout.DeviceLocalLayout  # type: ignore
 Format = layout.Format
 PyTree = Any
 SaveArgs = type_handlers.SaveArgs
@@ -167,10 +170,15 @@ class StandardCheckpointHandlerTestBase:
       test_utils.assert_tree_equal(self, pytree, restored_regular)
 
       # create a custom layout
+      arr_layout = (
+          arr.format.layout  # type: ignore
+          if jax.__version_info__ >= (0, 6, 3)
+          else arr.format.device_local_layout  # type: ignore
+      )
       custom_layout = Format(
           DLL(
-              major_to_minor=arr.format.device_local_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
-              _tiling=arr.format.device_local_layout._tiling,  # pytype: disable=attribute-error
+              major_to_minor=arr_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
+              _tiling=arr_layout._tiling,  # pytype: disable=attribute-error
           ),
           sharding=arr.sharding,
       )

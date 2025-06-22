@@ -484,7 +484,11 @@ def construct_restore_args(
       if (
           support_layout
           and hasattr(value, 'format')
-          and value.format.device_local_layout
+          and (
+              value.format.layout
+              if jax.__version_info__ >= (0, 6, 3)
+              else value.format.device_local_layout  # type: ignore
+          )
       ):
         # value is a jax.Array or a jax.ShapeDtypeStruct.
         return value.format

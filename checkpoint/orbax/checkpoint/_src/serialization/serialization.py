@@ -36,6 +36,11 @@ from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
 
+if jax.__version_info__ >= (0, 6, 3):
+  DLL = layout.Layout
+else:
+  DLL = layout.DeviceLocalLayout  # type: ignore
+
 
 TS_CONTEXT = ts.Context({'file_io_concurrency': {'limit': 128}})
 _REMOVED_VALUE = 'Value removed'
@@ -403,7 +408,7 @@ async def _read_array_index_and_device_put(
     dtype: jnp.dtype,
     byte_limiter: ByteLimiter,
     strict: bool,
-    dll: Optional[layout.DeviceLocalLayout],
+    dll: Optional[DLL],
     memory_kind: Optional[str],
 ) -> list[jax.Array]:
   """Callback that reads an array index and places on the devices."""
@@ -476,7 +481,7 @@ async def read_and_create_array(
     dtype: jnp.dtype,
     byte_limiter: ByteLimiter,
     strict: bool,
-    dll: Optional[layout.DeviceLocalLayout],
+    dll: Optional[DLL],
 ) -> jax.Array:
   """Read shards from TensorStore and create a jax.Array."""
   local_indices_devices_map: dict[types.HashableIndex, list[jax.Device]] = (
@@ -531,11 +536,16 @@ async def async_deserialize(
         'sharding passed to deserialization should be specified, concrete and'
         f' an instance of `jax.sharding.Sharding`. Got {sharding}'
     )
-  dll = (
-      user_sharding.device_local_layout
-      if isinstance(user_sharding, Format)
-      else None
-  )
+
+  if isinstance(user_sharding, Format):
+    dll = (
+        user_sharding.layout
+        if jax.__version_info__ >= (0, 6, 3)
+        else user_sharding.device_local_layout  # type: ignore
+    )
+  else:
+    dll = None
+
   t = await ts.open(
       tensorstore_spec,
       open=True,
