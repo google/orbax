@@ -587,7 +587,7 @@ class CheckpointTest(parameterized.TestCase):
     arr = jax.device_put(np_inp, s)
 
     out_layout = Format(
-        device_local_layout=DLL(
+        DLL(
             arr.format.device_local_layout.major_to_minor[::-1],
             arr.format.device_local_layout._tiling,
         ),

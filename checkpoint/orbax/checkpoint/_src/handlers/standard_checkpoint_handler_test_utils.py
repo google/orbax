@@ -168,7 +168,7 @@ class StandardCheckpointHandlerTestBase:
 
       # create a custom layout
       custom_layout = Format(
-          device_local_layout=DLL(
+          DLL(
               major_to_minor=arr.format.device_local_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
               _tiling=arr.format.device_local_layout._tiling,  # pytype: disable=attribute-error
           ),
