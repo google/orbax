@@ -36,11 +36,6 @@ from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
 
-if jax.__version_info__ >= (0, 6, 3):
-  DLL = layout.Layout
-else:
-  DLL = layout.DeviceLocalLayout  # type: ignore
-
 
 TS_CONTEXT = ts.Context({'file_io_concurrency': {'limit': 128}})
 _REMOVED_VALUE = 'Value removed'
@@ -408,7 +403,7 @@ async def _read_array_index_and_device_put(
     dtype: jnp.dtype,
     byte_limiter: ByteLimiter,
     strict: bool,
-    dll: Optional[DLL],
+    dll,
     memory_kind: Optional[str],
 ) -> list[jax.Array]:
   """Callback that reads an array index and places on the devices."""
@@ -481,7 +476,7 @@ async def read_and_create_array(
     dtype: jnp.dtype,
     byte_limiter: ByteLimiter,
     strict: bool,
-    dll: Optional[DLL],
+    dll,
 ) -> jax.Array:
   """Read shards from TensorStore and create a jax.Array."""
   local_indices_devices_map: dict[types.HashableIndex, list[jax.Device]] = (
