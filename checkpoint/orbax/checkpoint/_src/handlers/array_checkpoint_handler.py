@@ -174,6 +174,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
             directory,
             ts_context=ts_context,
             use_zarr3=False,
+            enable_validation=False
         )
     )
 
