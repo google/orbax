@@ -17,7 +17,7 @@
 This file contains facilities that can save a `Module` to disk.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import dataclasses
 import os
 from typing import Optional
@@ -29,6 +29,7 @@ from orbax.experimental.model.core.python import polymorphic_function
 from orbax.experimental.model.core.python import unstructured_data
 from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
 from orbax.experimental.model.core.python.concrete_function import Variable
+from orbax.experimental.model.core.python.device_assignment import DeviceAssignment
 from orbax.experimental.model.core.python.manifest_util import build_manifest_proto
 from orbax.experimental.model.core.python.saveable import Saveable
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredData
@@ -106,11 +107,17 @@ class SaveOptions:
       Defaults to 1.
     supplemental_info: Optional. An `UnstructuredData` (or a string-map of them)
       to be saved in the manifest.pb as the global supplemental info.
+      DeviceAssignmentByCoords
+    device_assignment_by_coords: Optional. A sequence of DeviceAssignment to be
+      saved in the manifest.pb.
   """
 
   function_aliases: Mapping[str, ConcreteFunction] | None = None
   version: int | None = None
   supplemental_info: Mapping[str, GlobalSupplemental] | None = None
+  # TODO(b/424623547): make device_assignment required that is always captured
+  # and update attributes.
+  device_assignment_by_coords: Sequence[DeviceAssignment] | None = None
 
 
 def _save_single_supplemental(
@@ -162,6 +169,7 @@ def save(
       m,
       path,
       supplemental_info=supplemental_info,
+      device_assignment_by_coords=options.device_assignment_by_coords,
   )
   with file_utils.open_file(
       os.path.join(path, manifest_constants.MANIFEST_FILENAME), 'wb'
