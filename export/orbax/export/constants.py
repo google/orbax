@@ -92,6 +92,9 @@ BATCH_OPTIONS = 'batch_options'
 # XLA compile options for the model.
 XLA_COMPILE_OPTIONS = 'xla_compile_options'
 
+# Mesh for the model.
+JAX_MESH = 'jax_mesh'
+
 ################################################################################
 # Proto field names
 ################################################################################
