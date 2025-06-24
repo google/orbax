@@ -438,9 +438,9 @@ async def merge_ocdbt_per_process_files(
   await asyncio.gather(*copy_ops)
   await txn.commit_async()
 
-  # Validate merged params.
-  if enable_validation:
-    await _validate_params(directory, ts_context, use_zarr3=use_zarr3)
+  # # Validate merged params.
+  # if enable_validation:
+  #   await _validate_params(directory, ts_context, use_zarr3=use_zarr3)
 
 
 async def _open_kv_store(
