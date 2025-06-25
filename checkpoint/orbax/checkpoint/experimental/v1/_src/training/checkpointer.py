@@ -455,7 +455,6 @@ class Checkpointer(epy.ContextManager):
         init_timestamp_nsecs=checkpoint_metadata.init_timestamp_nsecs,
         commit_timestamp_nsecs=checkpoint_metadata.commit_timestamp_nsecs,
         custom_metadata=checkpoint_metadata.custom_metadata,
-        descriptor=checkpoint_metadata.descriptor,
         metrics=checkpoint.metrics,
     )
 
@@ -475,7 +474,6 @@ class Checkpointer(epy.ContextManager):
         init_timestamp_nsecs=checkpoint_metadata.init_timestamp_nsecs,
         commit_timestamp_nsecs=checkpoint_metadata.commit_timestamp_nsecs,
         custom_metadata=checkpoint_metadata.custom_metadata,
-        descriptor=checkpoint_metadata.descriptor,
         metrics=checkpoint.metrics,
     )
 
