@@ -15,11 +15,12 @@
 """Compatibility wrapper to help leaf handlers to work as V0 type_handlers."""
 
 import copy
-from typing import Generic, Sequence, Tuple, cast
+from typing import Generic, Sequence, Tuple, cast, get_args
 from absl import logging
 from etils import epath
 import jax
 from jax import tree_util as jtu
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
@@ -110,19 +111,18 @@ def _construct_deserialization_param(
 
   logging.vlog(1, 'compatibility.py: restore_args: %s', restore_args)
 
-  value = None
-
   if restore_args.restore_type == np.ndarray:
     # Numpy type
     value = numpy_leaf_handler.NumpyShapeDtype(
         dtype=restore_args.dtype,
         shape=None,
     )
-  elif restore_args.restore_type in (scalar_leaf_handler.Scalar.__args__):
-    # JAX Array type, construct value as jax.ShapeDtypeStruct.
-    value = scalar_leaf_handler.AbstractScalar(
-        dtype=restore_args.restore_type,
-    )
+  elif isinstance(restore_args.restore_type, type) and issubclass(
+      restore_args.restore_type, get_args(scalar_leaf_handler.Scalar)
+  ):
+    # Scalar type
+    logging.vlog(1, 'Scalar restore_type set to: %s', restore_args.restore_type)
+    value = restore_args.restore_type
   elif isinstance(restore_args, type_handlers_v0.ArrayRestoreArgs):
     # JAX Array type, construct value as jax.ShapeDtypeStruct.
     arg = cast(type_handlers_v0.ArrayRestoreArgs, restore_args)
@@ -143,7 +143,16 @@ def _construct_deserialization_param(
         sharding = arg.sharding
     else:
       sharding = None
-    value = jax.ShapeDtypeStruct(arg.shape, arg.dtype, sharding=sharding)
+
+    if sharding is None:
+      # it's a numpy type
+      value = numpy_leaf_handler.NumpyShapeDtype(
+          dtype=arg.dtype,
+          shape=arg.shape,
+      )
+    else:
+      # it's a jax.Array type
+      value = jax.ShapeDtypeStruct(arg.shape, arg.dtype, sharding=sharding)
   elif info.write_shape is not None:
     # TODO(dnlng): this is needed due to write_shape is passed into the
     # metadata() call, and then returned metadata will include this write_shape
@@ -159,6 +168,21 @@ def _construct_deserialization_param(
             write_shape=info.write_shape,
         ),
     )
+    logging.vlog(1, 'ArrayMetadata as param.value: %s', value)
+  elif (
+      restore_args.restore_type in (None, int, float)
+      or isinstance(restore_args.restore_type, (np.dtype, jnp.dtype))
+      or issubclass(restore_args.restore_type, np.number)
+  ):
+    # scalar type
+    value = restore_args.restore_type
+  else:
+    raise ValueError(
+        'Unsupported restore_args: %s. Cannot construct DeserializationParam.'
+        % restore_args
+    )
+
+  logging.vlog(1, 'deserialization_param.value: %r', value)
 
   return types.DeserializationParam(
       keypath=_keypath_from_param_name(info.name),
@@ -246,11 +270,21 @@ def _convert_v1_metadata_to_v0(
     )
     logging.vlog(1, 'NumpyMetadata: %s', ret)
     return ret
-  elif isinstance(metadata, scalar_leaf_handler.AbstractScalar):
+  elif isinstance(metadata, type):
+    # scalar type such as int, float or np.number
     ret = value_metadata.ScalarMetadata(
         name=name,
         directory=directory,
-        dtype=metadata.dtype,
+        dtype=metadata,
+    )
+    logging.vlog(1, 'ScalarMetadata: %s', ret)
+    return ret
+  elif isinstance(metadata, (np.dtype, jnp.dtype)):
+    # scalar type as np.dtype instances
+    ret = value_metadata.ScalarMetadata(
+        name=name,
+        directory=directory,
+        dtype=metadata.type,
     )
     logging.vlog(1, 'ScalarMetadata: %s', ret)
     return ret
