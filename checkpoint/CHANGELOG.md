@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- #v1 remove unnecessary warnings when leaf handlers are added into existing
+type handler registry
+
 ## [0.11.16] - 2025-06-18
 
 ### Changed

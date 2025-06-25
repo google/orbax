@@ -321,6 +321,7 @@ class TypeHandlerRegistry(Protocol):
       handler: TypeHandler,
       func: Optional[Callable[[Any], bool]] = None,
       override: bool = False,
+      ignore_warnings: bool = False,
   ):
     """Registers a type for serialization/deserialization with a given handler.
 
@@ -336,6 +337,8 @@ class TypeHandlerRegistry(Protocol):
         be handled by the provided TypeHandler. If this parameter is not
         specified, defaults to `lambda t: issubclass(t, ty)`.
       override: if True, will override an existing mapping of type to handler.
+      ignore_warnings: if True, will ignore warnings when replacing an existing
+        handler.
 
     Raises:
       ValueError if a type is already registered and override is False.

@@ -431,6 +431,7 @@ def get_compatible_type_handler_registry(
           typestr=type_handlers_v0.JAX_ARRAY_TYPE_STR,
       ),
       override=True,
+      ignore_warnings=True,
   )
   type_handler_registry.add(
       np.ndarray,
@@ -439,6 +440,7 @@ def get_compatible_type_handler_registry(
           typestr='np.ndarray',
       ),
       override=True,
+      ignore_warnings=True,
   )
 
   for scalar_type in (int, float, bytes, np.number):
@@ -449,5 +451,6 @@ def get_compatible_type_handler_registry(
             typestr='scalar',
         ),
         override=True,
+        ignore_warnings=True,
     )
   return type_handler_registry
