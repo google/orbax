@@ -19,6 +19,7 @@
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration
 from orbax.checkpoint.experimental.v1._src.handlers.types import (
     CheckpointableHandler,
+    StatefulCheckpointable,
 )
 
 from orbax.checkpoint.experimental.v1._src.handlers.pytree_handler import (
