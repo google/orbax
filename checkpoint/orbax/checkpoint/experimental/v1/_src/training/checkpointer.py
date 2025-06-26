@@ -32,6 +32,7 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import saving
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.training import errors
+from orbax.checkpoint.experimental.v1._src.training import preservation_policies
 from orbax.checkpoint.experimental.v1._src.training import save_decision_policies
 from orbax.checkpoint.experimental.v1._src.training.metadata import types as training_metadata_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -76,11 +77,13 @@ class Checkpointer(epy.ContextManager):
       save_decision_policy: (
           save_decision_policies.SaveDecisionPolicy | None
       ) = None,
+      preservation_policy: (
+          preservation_policies.PreservationPolicy | None
+      ) = None,
       step_name_format: (
           path_step_lib.NameFormat[path_step_lib.Metadata] | None
       ) = None,
       custom_metadata: tree_types.JsonType | None = None,
-      # TODO(b/371005679): Add PreservationPolicy.
   ):
     """Initializes a Checkpointer.
 
@@ -90,16 +93,26 @@ class Checkpointer(epy.ContextManager):
     The Checkpointer is intended for use in a training loop, where a sequence
     of checkpoints are saved at regular intervals. Example usage::
 
+      # Configure the frequency at which checkpoints are saved.
       save_decision_policies = ocp.training.save_decision_policies
       # Save every 1000 steps, or when a preemption is detected.
-      save_decision_policy = save_decision_policies.AnySavePolicy(
+      save_decision_policy = save_decision_policies.AnySavePolicy([
           save_decision_policies.FixedIntervalPolicy(1000),
           save_decision_policies.PreemptionPolicy(),
-      )
+      ])
+
+      # Configure the checkpoints to preserve (avoid garbage collection).
+      preservation_policies = ocp.training.preservation_policies
+      # Avoid garbage collection on the latest 10, or every 10000 steps.
+      preservation_policy = preservation_policies.AnyPreservationPolicy([
+          preservation_policies.LatestN(10),
+          preservation_policies.EveryNSteps(10000),
+      ])
+
       with ocp.training.Checkpointer(
           directory,
-          save_decision_policy,
-          # TODO(b/371005679): Add example for PreservationPolicy.
+          save_decision_policy=save_decision_policy,
+          preservation_policy=preservation_policy,
       ) as ckptr:
         if ckptr.latest is None:
           model_state = init_from_scratch(rng)
@@ -125,6 +138,9 @@ class Checkpointer(epy.ContextManager):
         be saved. If not provided, the `Checkpointer` saves as often as possible
         by default (assuming no checkpoint is currently being saved), and saves
         when a preemption is detected by the JAX distributed system.
+      preservation_policy: A policy used to determine when a checkpoint should
+        be preserved. Any checkpoints not preserved are garbage collected. If
+        not provided,
       step_name_format: An object used to specify the format for step paths. By
         default, steps are rendered as simple integers, like
         `/root/directory/<step>`.
@@ -132,18 +148,23 @@ class Checkpointer(epy.ContextManager):
         metadata. This should be information that is relevant to the entire
         sequence of checkpoints, rather than to any single checkpoint.
     """
+    context = context_lib.get_context()
+
     default_save_decision_policy = save_decision_policies.AnySavePolicy([
         save_decision_policies.InitialSavePolicy(),
         save_decision_policies.ContinuousCheckpointingPolicy(),
         save_decision_policies.PreemptionCheckpointingPolicy(),
     ])
     save_decision_policy = save_decision_policy or default_save_decision_policy
-    context = context_lib.get_context()
+    default_preservation_policy = preservation_policies.PreserveAll()
+    preservation_policy = preservation_policy or default_preservation_policy
+
     self._step_name_format = (
         step_name_format or path_step_lib.standard_name_format()
     )
     options = checkpoint_manager.CheckpointManagerOptions(
         save_decision_policy=save_decision_policy,
+        preservation_policy=preservation_policy,
         step_name_format=step_name_format,
         max_to_keep=None,  # Unlimited.
         # TODO(b/401541834) Configure todelete_subdir.
@@ -206,6 +227,7 @@ class Checkpointer(epy.ContextManager):
             info.step,
             metadata=None,
             metrics=info.metrics,
+            commit_timestamp_nsecs=int(info.time.timestamp() * 1e9),
         )
         for info in infos
     ]

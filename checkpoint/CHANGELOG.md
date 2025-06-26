@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- #v1 Add `PreservationPolicy` support in Checkpointer.
+
 ### Changed
 
 - #v1 remove unnecessary warnings when leaf handlers are added into existing

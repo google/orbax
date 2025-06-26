@@ -35,6 +35,7 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 Checkpointer = ocp.training.Checkpointer
 save_decision_policies = ocp.training.save_decision_policies
+preservation_policies = ocp.training.preservation_policies
 
 RootMetadata = ocp.training.RootMetadata
 CheckpointMetadata = ocp.training.CheckpointMetadata
@@ -565,3 +566,102 @@ class CheckpointerTestBase:
             checkpointer_metadata[i].time - checkpointer_metadata[i - 1].time
         )
         self.assertGreaterEqual(time_delta, save_delta)
+
+    @parameterized.parameters(
+        (None, range(10)),
+        (ocp.training.preservation_policies.PreserveAll(), range(10)),
+        (preservation_policies.LatestN(3), range(7, 10)),
+        (preservation_policies.EveryNSteps(4), [0, 4, 8]),
+        (preservation_policies.EveryNSeconds(40), range(0, 10, 2)),
+        (
+            preservation_policies.AnyPreservationPolicy([
+                preservation_policies.LatestN(3),
+                preservation_policies.CustomSteps([1, 3, 9]),
+            ]),
+            [1, 3, 7, 8, 9],
+        ),
+    )
+    def test_preservation(self, policy, expected_steps):
+      num_steps = 10
+      checkpointer = Checkpointer(self.directory, preservation_policy=policy)
+      for step in range(num_steps):
+
+        class CustomDatetime(datetime.datetime):
+
+          @classmethod
+          def now(cls, tz=None):
+            return datetime.datetime.fromtimestamp(
+                step * 20, tz=tz  # pylint: disable=cell-var-from-loop
+            )
+
+        with mock.patch('datetime.datetime', new=CustomDatetime):
+          # mock_dt.now.return_value = datetime.datetime.fromtimestamp(
+          #     checkpoint_times[step]
+          # )
+          # mock_dt.fromtimestamp.side_effect = datetime.datetime.fromtimestamp
+          # mock_dt.timestamp.return_value = checkpoint_times[step]
+          checkpointer.save_pytree(step, self.pytree)
+
+      self.assertLen(checkpointer.checkpoints, len(expected_steps))
+      self.assertSequenceEqual(
+          [c.step for c in checkpointer.checkpoints], expected_steps
+      )
+      self.assertSequenceEqual(
+          [c.time for c in checkpointer.checkpoints],
+          [
+              datetime.datetime.fromtimestamp(
+                  step * 20, tz=datetime.timezone.utc
+              )
+              for step in expected_steps
+          ],
+      )
+      checkpointer.close()
+
+    @parameterized.parameters(
+        (
+            preservation_policies.BestN(
+                get_metric_fn=lambda m: m['accuracy'], n=2
+            ),
+            [0, 4],
+        ),
+        (
+            preservation_policies.BestN(
+                get_metric_fn=lambda m: m['loss'], reverse=True, n=2
+            ),
+            [0, 1],
+        ),
+        (
+            preservation_policies.BestN(
+                get_metric_fn=lambda m: m['accuracy'], n=None
+            ),
+            range(5),
+        ),
+        (
+            preservation_policies.BestN(
+                get_metric_fn=lambda m: m['accuracy'], n=0
+            ),
+            [],
+        ),
+    )
+    def test_preservation_metrics(self, policy, expected_steps):
+      num_steps = 5
+      all_metrics = [
+          {'loss': 0.3, 'accuracy': 0.8},
+          {'loss': 0.2, 'accuracy': 0.6},
+          {'loss': 0.8, 'accuracy': 0.2},
+          {'loss': 0.9, 'accuracy': 0.3},
+          {'loss': 0.4, 'accuracy': 0.9},
+      ]
+      checkpointer = Checkpointer(self.directory, preservation_policy=policy)
+      for step in range(num_steps):
+        checkpointer.save_pytree(step, self.pytree, metrics=all_metrics[step])
+
+      self.assertLen(checkpointer.checkpoints, len(expected_steps))
+      self.assertSequenceEqual(
+          [c.step for c in checkpointer.checkpoints], expected_steps
+      )
+      self.assertSequenceEqual(
+          [c.metrics for c in checkpointer.checkpoints],
+          [all_metrics[step] for step in expected_steps],
+      )
+      checkpointer.close()

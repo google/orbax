@@ -14,6 +14,7 @@
 
 """Defines policies for when a checkpoint is preserved."""
 
+import typing
 from typing import Any, Dict, Protocol, Sequence
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint.experimental.v1._src.training.metadata import types
@@ -23,6 +24,7 @@ NestedDict = Dict[str, Any]
 PyTree = Any
 
 PreservationContext = preservation_policy_lib.PreservationContext
+PreserveAll = preservation_policy_lib.PreserveAll
 LatestN = preservation_policy_lib.LatestN
 EveryNSeconds = preservation_policy_lib.EveryNSeconds
 EveryNSteps = preservation_policy_lib.EveryNSteps
@@ -31,6 +33,7 @@ AnyPreservationPolicy = preservation_policy_lib.AnyPreservationPolicy
 BestN = preservation_policy_lib.BestN
 
 
+@typing.runtime_checkable
 class PreservationPolicy(Protocol):
   """A policy that defines when checkpoints should be preserved."""
 
