@@ -50,6 +50,7 @@ docs = [
   'flax',
   'google-cloud-logging',
   'grain',
+  'tensorflow_datasets',
 ]
 testing = [
     'google-cloud-logging',
