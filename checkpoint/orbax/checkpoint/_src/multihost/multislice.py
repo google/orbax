@@ -60,16 +60,12 @@ def slice_devices(
     replica_id: int = 0,
     replica_axis_index: int = 0,
 ) -> np.ndarray:
-  devices = global_mesh.devices
-  if hasattr(jax.devices()[0], 'slice_index'):
-    get_slice_id = np.vectorize(lambda x: x.slice_index)
-    return devices[get_slice_id(devices) == replica_id]
-  else:
-    return np.take(
-        global_mesh.devices,
-        replica_id,
-        axis=replica_axis_index,
-    )
+  print(f"slice_devices: {global_mesh.devices=}")
+  return np.take(
+      global_mesh.devices,
+      replica_id,
+      axis=replica_axis_index,
+  )
 
 
 def slice_count(
