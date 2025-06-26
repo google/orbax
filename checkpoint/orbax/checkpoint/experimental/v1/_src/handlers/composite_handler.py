@@ -20,6 +20,7 @@ import asyncio
 from typing import Any, Awaitable
 
 from absl import logging
+import aiofiles
 from etils import epath
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
@@ -37,6 +38,15 @@ CompositeItemMetadata = checkpoint_metadata.CompositeItemMetadata
 
 def _existing_checkpointable_names(directory: epath.Path) -> set[str]:
   return {p.name for p in directory.iterdir() if p.is_dir()}
+
+
+async def _create_orbax_identifier_file(
+    directory: path_types.PathAwaitingCreation,
+):
+  """Creates a file called `orbax.checkpoint` for easy identification."""
+  directory = await directory.await_creation()
+  async with aiofiles.open(directory / 'orbax.checkpoint', 'w'):
+    pass
 
 
 class CompositeHandler:
@@ -104,7 +114,9 @@ class CompositeHandler:
     save_awaitables = await asyncio.gather(*save_ops)
 
     async def _run_background():
-      await asyncio.gather(*save_awaitables)
+      await asyncio.gather(
+          *save_awaitables, _create_orbax_identifier_file(directory)
+      )
 
     return _run_background()
 
