@@ -23,6 +23,7 @@ Prefer to use the style::
 
 from orbax.checkpoint.experimental.v1 import handlers
 from orbax.checkpoint.experimental.v1 import training
+from orbax.checkpoint.experimental.v1 import path
 from orbax.checkpoint.experimental.v1._src.context import options
 from orbax.checkpoint.experimental.v1._src.context.context import (
     Context,
@@ -46,6 +47,7 @@ from orbax.checkpoint.experimental.v1._src.saving.saving import (
 )
 from orbax.checkpoint.experimental.v1.handlers import (
     CheckpointableHandler,
+    StatefulCheckpointable,
 )
 from orbax.checkpoint.experimental.v1._src.metadata.types import (
     CheckpointMetadata,
