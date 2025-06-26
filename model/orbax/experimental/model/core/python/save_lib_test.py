@@ -27,7 +27,7 @@ from orbax.experimental.model.core.protos.saved_model import types_pb2
 from orbax.experimental.model.core.python import concrete_function
 from orbax.experimental.model.core.python import save_lib
 from orbax.experimental.model.core.python import signature
-from orbax.experimental.model.core.python.concrete_function import dtype_from_np_dtype
+from orbax.experimental.model.core.python.concrete_function import np_dtype_to_dtype
 from orbax.experimental.model.core.python.function import np_dtype_to_shlo_dtype
 from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.shlo_function import ShloFunction
@@ -65,7 +65,7 @@ def jax_spec_to_shlo_spec(
 
 
 def jax_spec_to_tensor_spec(x: jax.ShapeDtypeStruct) -> TensorSpec:
-  return TensorSpec(shape=x.shape, dtype=dtype_from_np_dtype(x.dtype))
+  return TensorSpec(shape=x.shape, dtype=np_dtype_to_dtype(x.dtype))
 
 
 class SaveTest(absltest.TestCase):

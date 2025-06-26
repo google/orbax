@@ -285,7 +285,7 @@ def _to_em_dtype(jax_dtype):
     pass
   if jax_dtype == jax.float0:
     jax_dtype = _em_np_dtype_for_float0
-  return obm.dtype_from_np_dtype(np.dtype(jax_dtype))
+  return obm.np_dtype_to_dtype(np.dtype(jax_dtype))
 
 
 def _to_jax_dtype(em_dtype):

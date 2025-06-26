@@ -57,7 +57,7 @@ class JaxToPolymorphicFunctionTest(parameterized.TestCase):
     )
     em_params = jax.tree.map(jax_to_poly_fn.convert_to_variable, jax_params)
     input_spec = (
-        obm.TensorSpec(params_shape, obm.dtype_from_np_dtype(params_dtype)),
+        obm.TensorSpec(params_shape, obm.np_dtype_to_dtype(params_dtype)),
     )
     em_fn = obm.function(
         lambda inputs: em_fn_(inputs, em_params), input_signature=input_spec

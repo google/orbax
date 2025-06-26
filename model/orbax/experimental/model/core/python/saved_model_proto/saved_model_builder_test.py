@@ -53,7 +53,7 @@ def jax_spec_to_shlo_spec(
 
 def jax_spec_to_tensor_spec(x: jax.ShapeDtypeStruct) -> TensorSpec:
   return TensorSpec(
-      shape=x.shape, dtype=concrete_function.dtype_from_np_dtype(x.dtype)
+      shape=x.shape, dtype=concrete_function.np_dtype_to_dtype(x.dtype)
   )
 
 

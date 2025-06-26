@@ -28,8 +28,8 @@ from orbax.experimental.model.core.protos import type_pb2
 from orbax.experimental.model.core.python import tracing
 from orbax.experimental.model.core.python import tree_util
 from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
-from orbax.experimental.model.core.python.concrete_function import dtype_from_np_dtype
 from orbax.experimental.model.core.python.concrete_function import dtype_to_np_dtype
+from orbax.experimental.model.core.python.concrete_function import np_dtype_to_dtype
 from orbax.experimental.model.core.python.concrete_function import partial
 from orbax.experimental.model.core.python.concrete_function import Tensor
 from orbax.experimental.model.core.python.concrete_function import Variable

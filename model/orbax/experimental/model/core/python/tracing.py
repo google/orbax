@@ -25,8 +25,8 @@ from typing import Protocol
 from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
 from orbax.experimental.model.core.python.concrete_function import is_tree_of_vars
 from orbax.experimental.model.core.python.concrete_function import partial
-from orbax.experimental.model.core.python.concrete_function import spec_from_vars
 from orbax.experimental.model.core.python.concrete_function import TreeOfVars
+from orbax.experimental.model.core.python.concrete_function import vars_to_spec
 from orbax.experimental.model.core.python.signature import DType
 from orbax.experimental.model.core.python.signature import Shape
 from orbax.experimental.model.core.python.signature import Signature
@@ -324,7 +324,7 @@ def add_variable_support(
       )
 
     arg0_spec = spec_from_symbolic_tensors(arg0)
-    arg1_spec = spec_from_vars(arg1)
+    arg1_spec = vars_to_spec(arg1)
     free_fn = trace(f, (arg0_spec, arg1_spec))
     fn = partial(free_fn, arg1, bind_last_arg=True)
     output = add_node(input_=(arg0,), op=fn)

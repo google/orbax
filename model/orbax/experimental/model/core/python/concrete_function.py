@@ -28,12 +28,11 @@ from orbax.experimental.model.core.python.signature import TreeOfTensorSpecs
 from orbax.experimental.model.core.python.util import dtypes
 
 
-# TODO(b/332758750): Rename all foo_from_bar to bar_to_foo, to be consistent.
-def shape_from_np_shape(shape: Tuple[int, ...]) -> Shape:
+def np_shape_to_shape(shape: Tuple[int, ...]) -> Shape:
   return shape
 
 
-def dtype_from_np_dtype(dtype: np.dtype) -> DType:
+def np_dtype_to_dtype(dtype: np.dtype) -> DType:
   return dtypes.numpy_to_tf_dtype(dtype)
 
 
@@ -41,9 +40,9 @@ def dtype_to_np_dtype(dtype: DType) -> np.dtype:
   return dtypes.tf_to_numpy_dtype(dtype)
 
 
-def spec_from_ndarray(arr: np.ndarray) -> TensorSpec:
+def ndarray_to_spec(arr: np.ndarray) -> TensorSpec:
   return TensorSpec(
-      shape=shape_from_np_shape(arr.shape),
+      shape=np_shape_to_shape(arr.shape),
       dtype=dtypes.numpy_to_tf_dtype(arr.dtype),
   )
 
@@ -56,7 +55,7 @@ class Tensor:
 
   def __init__(self, np_array: np.ndarray):
     self.np_array = np_array
-    self.spec = spec_from_ndarray(np_array)
+    self.spec = ndarray_to_spec(np_array)
 
 
 @dataclass
@@ -123,7 +122,7 @@ def assert_nonempty_and_get_last(
   return t[0:-1], t[-1]
 
 
-def spec_from_vars(tree: TreeOfVars) -> TreeOfTensorSpecs:
+def vars_to_spec(tree: TreeOfVars) -> TreeOfTensorSpecs:
   assert isinstance(tree, Variable)
   var: Variable = tree
   return var.value.spec
@@ -135,7 +134,7 @@ def _partially_apply_to_variables(
   other_args_spec, expected_arg_spec = assert_nonempty_and_get_last(
       f.input_signature
   )
-  arg_spec = spec_from_vars(arg)
+  arg_spec = vars_to_spec(arg)
   assert_sub_specs(arg_spec, expected_arg_spec)
   return ConcreteFunction(
       input_signature=other_args_spec,
