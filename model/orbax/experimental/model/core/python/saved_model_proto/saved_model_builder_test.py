@@ -37,7 +37,7 @@ Variable = concrete_function.Variable
 TensorSpec = signature.TensorSpec
 
 
-def jax_spec_from_aval(x: jax.core.AbstractValue) -> jax.ShapeDtypeStruct:
+def aval_to_jax_spec(x: jax.core.AbstractValue) -> jax.ShapeDtypeStruct:
   assert isinstance(x, jax.core.ShapedArray)
   return jax.ShapeDtypeStruct(shape=x.shape, dtype=x.dtype)
 
@@ -70,7 +70,7 @@ class SavedModelBuilderTest(absltest.TestCase):
         jax.ShapeDtypeStruct(shape=myvar.shape, dtype=myvar.dtype),
     )
     exported = jax_export.export(f)(*jax_in_spec)
-    jax_out_spec = tuple(jax_spec_from_aval(x) for x in exported.out_avals)
+    jax_out_spec = tuple(aval_to_jax_spec(x) for x in exported.out_avals)
 
     input_signature = (jax_spec_to_tensor_spec(jax_in_spec[0]),)
     output_signature = tuple(jax_spec_to_tensor_spec(x) for x in jax_out_spec)

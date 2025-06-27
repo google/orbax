@@ -85,7 +85,7 @@ def is_tree_of_placeholders(x: Any) -> bool:
   return isinstance(x, TreeOfPlaceholders)
 
 
-def spec_from_symbolic_tensors(
+def symbolic_tensors_to_spec(
     tree: TreeOfSymbolicTensors,
 ) -> TreeOfTensorSpecs:
   assert isinstance(tree, SymbolicTensor)
@@ -323,7 +323,7 @@ def add_variable_support(
           "variables."
       )
 
-    arg0_spec = spec_from_symbolic_tensors(arg0)
+    arg0_spec = symbolic_tensors_to_spec(arg0)
     arg1_spec = vars_to_spec(arg1)
     free_fn = trace(f, (arg0_spec, arg1_spec))
     fn = partial(free_fn, arg1, bind_last_arg=True)

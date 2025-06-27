@@ -233,13 +233,13 @@ def _get_numpy_append_fn(dtype):
   return _get_from_numpy_dtype_dict(_NP_TO_APPEND_FN, dtype)
 
 
-def _extract_bits_from_float(x):
+def _float_to_extracted_bits(x):
   return np.asarray(x, dtype=np.float16).view(np.uint16).item()
 
 
 def _slow_append_float16_array_to_tensor_proto(tensor_proto, proto_values):
   tensor_proto.half_val.extend(
-      [_extract_bits_from_float(x) for x in proto_values]
+      [_float_to_extracted_bits(x) for x in proto_values]
   )
 
 

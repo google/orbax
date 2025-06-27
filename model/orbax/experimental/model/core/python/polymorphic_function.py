@@ -26,7 +26,7 @@ from orbax.experimental.model.core.python.signature import assert_sub_signature
 from orbax.experimental.model.core.python.signature import Signature
 
 
-def spec_from_values(*args, **kwargs) -> Signature:
+def values_to_spec(*args, **kwargs) -> Signature:
   if kwargs:
     raise NotImplementedError("Keyword arguments are not supporeted.")
   specs = []
@@ -59,7 +59,7 @@ class PolymorphicFunction:
 
     Returns nothing.
     """
-    spec = spec_from_values(*args, **kwargs)
+    spec = values_to_spec(*args, **kwargs)
     _ = self.abstract_eval(spec)
     # We can't run the concrete function and get actual output values,
     # so we don't return anything.
