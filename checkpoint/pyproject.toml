@@ -51,6 +51,7 @@ docs = [
   'google-cloud-logging',
   'grain',
   'tensorflow_datasets',
+  'opencv-python'
 ]
 testing = [
     'google-cloud-logging',
