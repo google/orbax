@@ -61,8 +61,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         self._normalize_apply_fn_map(apply_fn, input_polymorphic_shape)
     )
 
-    # TODO(b/380323586): Look into if we should create a xla_compile_options
-    # with default values for the users.
     self._xla_compile_options = jax2obm_kwargs.get(
         constants.XLA_COMPILE_OPTIONS, None
     )
@@ -76,7 +74,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     self._native_serialization_platforms = utils.get_lowering_platforms(
         jax2obm_kwargs
     )
-
     self._params_args_spec = params
 
     self._checkpoint_path: str = None
