@@ -206,6 +206,7 @@ def get_available_memory(
 def broadcast_one_replica_to_all(
     in_tree: Tuple[PyTree, ...],
     global_mesh: jax.sharding.Mesh,
+    num_replicas: int,
     replica_axis_index: int,
     is_source: bool,
     memory_limit_bytes: Optional[Union[int, None]] = None,
@@ -228,7 +229,7 @@ def broadcast_one_replica_to_all(
       - pytree with broadcasted data
       - number of broadcasts performed.
   """
-  num_replicas = global_mesh.devices.shape[replica_axis_index]
+  # num_replicas = global_mesh.devices.shape[replica_axis_index]
   replica_axis_name = global_mesh.axis_names[replica_axis_index]
 
   if memory_limit_bytes is None:
