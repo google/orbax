@@ -15,10 +15,11 @@
 """Utilities for building Manifest proto."""
 # TODO(b/356174487):  Add unit tests.
 
-from typing import Mapping
+from typing import Mapping, Sequence
 from absl import logging
 from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.python import unstructured_data
+from orbax.experimental.model.core.python.device_assignment import DeviceAssignment
 from orbax.experimental.model.core.python.function import Function
 from orbax.experimental.model.core.python.saveable import Saveable
 from orbax.experimental.model.core.python.serializable_function import SerializableFunction
@@ -80,10 +81,26 @@ def build_function(fn: Function, path: str, name: str) -> manifest_pb2.Function:
   return fn_proto
 
 
+def build_device_assignment_by_coords_proto(
+    device_assignment_by_coords: Sequence[DeviceAssignment],
+) -> manifest_pb2.DeviceAssignmentByCoords:
+  """Builds a DeviceAssignmentByCoords proto from a sequence of DeviceAssignment."""
+  device_assignment_by_coords_proto = manifest_pb2.DeviceAssignmentByCoords()
+  for device_assignment in device_assignment_by_coords:
+    device_proto = manifest_pb2.DeviceAssignmentByCoords.Device()
+    device_proto.id = device_assignment.id
+    device_proto.coords.extend(device_assignment.coords)
+    if device_assignment.core_on_chip is not None:
+      device_proto.core_on_chip = device_assignment.core_on_chip
+    device_assignment_by_coords_proto.devices.append(device_proto)
+  return device_assignment_by_coords_proto
+
+
 def build_manifest_proto(
     obm_module: dict[str, Saveable],
     path: str,
     supplemental_info: Mapping[str, UnstructuredData] | None = None,
+    device_assignment_by_coords: Sequence[DeviceAssignment] | None = None,
 ) -> manifest_pb2.Manifest:
   """Builds a Manifest proto from EM functions."""
   manifest_proto = manifest_pb2.Manifest()
@@ -107,6 +124,14 @@ def build_manifest_proto(
   if supplemental_info is not None:
     for name, supp in supplemental_info.items():
       manifest_proto.supplemental_info[name].CopyFrom(supp)
+
+  if device_assignment_by_coords is not None:
+    device_assignment_by_coords_proto = build_device_assignment_by_coords_proto(
+        device_assignment_by_coords
+    )
+    manifest_proto.device_assignment_by_coords.CopyFrom(
+        device_assignment_by_coords_proto
+    )
 
   if logging.vlog_is_on(3):
     logging.vlog(3, f"Final manifest proto: {manifest_proto}")
