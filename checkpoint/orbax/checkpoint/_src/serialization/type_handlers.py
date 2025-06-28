@@ -1504,6 +1504,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
     deserialize_ops = []
     shardings = []
     primary_replica_pids = set()
+    num_replicas = 0
     single_replica_shardings = []
     for info, arg in zip(infos, args):
       arg = cast(SingleReplicaArrayRestoreArgs, arg)
@@ -1523,6 +1524,8 @@ class SingleReplicaArrayHandler(ArrayHandler):
       primary_replica_pids = (
           self._validate_sharding_and_get_primary_replica_processes(sharding)
       )
+      num_replicas = len(jax.devices()) // len(primary_replica_pids)
+      logging.info("[SingleReplicaArrayHandler][Process: %s]Primary replica pids: [%s/%s]", multihost.process_index(), primary_replica_pids, num_replicas)
       if arg.single_replica_sharding is None:
         raise ValueError('Must provide `single_replica_sharding`.')
       single_replica_sharding = arg.single_replica_sharding
@@ -1562,7 +1565,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
           deserialization_elapsed_s,
       )
       logging.info(
-          'Finished primary replica deserialization in %.2f',
+          '[Process: %s]Finished [%s] primary replica deserialization in %.2f',
+          multihost.process_index(),
+          len(deserialize_ops),
           deserialization_elapsed_s,
       )
 
@@ -1571,6 +1576,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
           jax.ShapeDtypeStruct(arg.global_shape, arg.dtype) for arg in args
       ]
       deserialized = create_zeros(tuple(shape_dtype))
+      logging.info('[Process: %s]Finished non primary replica initialization with zeros.', multihost.process_index())
 
     deserialized = tuple(deserialized)
 
@@ -1579,6 +1585,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
     shared_state, _ = multislice.broadcast_one_replica_to_all(
         deserialized,
         global_mesh.mesh,
+        num_replicas,
         self.replica_axis_index,
         _is_host_for_primary_replica(primary_replica_pids),
         memory_limit_bytes=self.broadcast_memory_limit_bytes,
