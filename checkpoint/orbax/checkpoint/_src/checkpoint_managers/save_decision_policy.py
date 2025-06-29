@@ -18,6 +18,7 @@ import dataclasses
 import datetime
 import typing
 from typing import Container, Protocol, Sequence
+from absl import logging
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
 from orbax.checkpoint._src.futures import signaling_client
@@ -52,6 +53,26 @@ class SaveDecisionPolicy(Protocol):
     ...
 
 
+def _log_save_decision(
+    policy_name: str,
+    step: PolicyCheckpointInfo,
+    saving_or_not_saving: bool,
+) -> None:
+  """Logs the save decision."""
+  if saving_or_not_saving:
+    logging.vlog(
+        1,
+        f"{policy_name}: Saving checkpoint at step"
+        f" {step.step}).",
+    )
+  else:
+    logging.vlog(
+        1,
+        f"{policy_name}: Not saving checkpoint at step"
+        f" {step.step}).",
+    )
+
+
 @dataclasses.dataclass
 class FixedIntervalPolicy(SaveDecisionPolicy):
   """Checkpoint at a fixed interval."""
@@ -65,8 +86,27 @@ class FixedIntervalPolicy(SaveDecisionPolicy):
       *,
       context: DecisionContext,
   ) -> bool:
+    logging.vlog(
+        1,
+        "A policy that defines when to save a checkpoint at a fixed interval.",
+        "FixedIntervalPolicy: interval=%d, step=%d.",
+        self.interval,
+        step.step,
+    )
+    result = step.step % self.interval == 0
+    _log_save_decision(
+        "FixedIntervalPolicy",
+        step,
+        result,
+    )
     del previous_steps
     del context
+    if result:
+      logging.vlog(
+          1,
+          "FixedIntervalPolicy: Saving checkpoint at step"
+          f" {step.step} (interval={self.interval}).",
+      )
     return step.step % self.interval == 0
 
 
@@ -83,9 +123,22 @@ class SpecificStepsPolicy(SaveDecisionPolicy):
       *,
       context: DecisionContext,
   ) -> bool:
+    logging.vlog(
+        1,
+        "A policy that defines when to save a checkpoint at specific steps.",
+        "SpecificStepsPolicy: steps=%s, step=%d.",
+        self.steps,
+        step.step,
+    )
     del previous_steps
     del context
-    return step.step in self.steps
+    result = step.step in self.steps
+    _log_save_decision(
+        "SpecificStepsPolicy",
+        step,
+        result,
+    )
+    return result
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -101,7 +154,14 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
       *,
       context: DecisionContext,
   ) -> bool:
-
+    logging.vlog(
+        1,
+        "A policy that defines when to save a checkpoint as often as possible,"
+        " as long as a save is not ongoing.",
+        "ContinuousCheckpointingPolicy: minimum_interval_secs=%d, step=%d.",
+        self.minimum_interval_secs,
+        step.step,
+    )
     def _get_should_save_result() -> bool:
       if context.is_saving_in_progress:
         return False
@@ -116,7 +176,7 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
     )
     client = signaling_client.get_signaling_client()
     operation_id = synchronization.OperationIdGenerator.next_operation_id()
-    result_barrier_key = f'{operation_id}_continuous_checkpointing_policy_should_save_{step.step}/'
+    result_barrier_key = f"{operation_id}_continuous_checkpointing_policy_should_save_{step.step}/"
     # Make time based and save in progress based decision only on primary host
     # and broadcast to all hosts.
     if is_primary_host:
@@ -133,6 +193,12 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
             timeout_secs=600,
         )
     )
+    if save_result:
+      logging.vlog(
+          1,
+          "ContinuousCheckpointingPolicy: Saving checkpoint at step"
+          f" {step.step} (minimum_interval_secs={self.minimum_interval_secs}).",
+      )
     return bool(save_result)
 
 
@@ -146,6 +212,18 @@ class PreemptionCheckpointingPolicy(SaveDecisionPolicy):
       *,
       context: DecisionContext,
   ) -> bool:
+    logging.vlog(
+        1,
+        "A policy that defines when to save a checkpoint when a preemption is"
+        " detected.",
+        "PreemptionCheckpointingPolicy: step=%d.",
+        step.step,
+    )
+    _log_save_decision(
+        "PreemptionCheckpointingPolicy",
+        step,
+        context.reached_preemption,
+    )
     del step
     del previous_steps
     return context.reached_preemption
@@ -161,6 +239,18 @@ class InitialSavePolicy(SaveDecisionPolicy):
       *,
       context: DecisionContext,
   ) -> bool:
+    logging.vlog(
+        1,
+        "A policy that defines when to save a checkpoint as soon as possible if"
+        " no checkpoints already exist.",
+        "InitialSavePolicy: step=%d.",
+        step.step,
+    )
+    _log_save_decision(
+        "InitialSavePolicy",
+        step,
+        not previous_steps,
+    )
     del step
     del context
     return not previous_steps
@@ -183,6 +273,14 @@ class AnySavePolicy(SaveDecisionPolicy):
       *,
       context: DecisionContext,
   ) -> bool:
+    logging.vlog(
+        1,
+        "A policy that evaluates all policies and saves if any of them returns"
+        " True.",
+        "AnySavePolicy: policies=%s, step=%d.",
+        self.policies,
+        step.step,
+    )
     return any(
         policy.should_save(step, previous_steps=previous_steps, context=context)
         for policy in self.policies
