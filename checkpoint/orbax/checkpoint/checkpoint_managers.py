@@ -18,6 +18,7 @@
 
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy
 from orbax.checkpoint._src.checkpoint_managers.save_decision_policy import (
+    DecisionContext,
     SaveDecisionPolicy,
     FixedIntervalPolicy,
     InitialSavePolicy,
@@ -28,6 +29,7 @@ from orbax.checkpoint._src.checkpoint_managers.save_decision_policy import (
 
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy
 from orbax.checkpoint._src.checkpoint_managers.preservation_policy import (
+    PreservationContext,
     PreservationPolicy,
     LatestN,
     EveryNSeconds,
@@ -37,7 +39,7 @@ from orbax.checkpoint._src.checkpoint_managers.preservation_policy import (
     BestN,
 )
 
-
+from orbax.checkpoint._src.checkpoint_managers.policy_checkpoint_info import PolicyCheckpointInfo
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
 
