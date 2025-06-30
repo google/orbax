@@ -16,7 +16,6 @@
 
 # pylint: disable=protected-access
 
-import math
 from typing import Any
 
 from absl import logging
@@ -64,7 +63,7 @@ def _replace_abstract_array_sharding_with_mesh(
 
 
 def fill_unspecified_mesh_axes(
-    parallelism_vals, target_product, parallelism_type
+    parallelism_vals, target_product, parallelism_type='ICI'
 ):
   """Evaluates unspecified DCN/ICI parallelism values."""
   if -1 in parallelism_vals:
@@ -82,9 +81,8 @@ def fill_unspecified_mesh_axes(
 
     parallelism_vals[parallelism_vals.index(-1)] = int(determined_val)
 
-  target_type = 'slices' if parallelism_type == 'DCN' else 'devices per slice'
   assert np.prod(parallelism_vals) == target_product, (
-      f'Number of {target_type} {target_product} does not match the product'
+      f'Number of devices per slice {target_product} does not match the product'
       f' of the {parallelism_type} parallelism {np.prod(parallelism_vals)}'
   )
 
@@ -95,14 +93,28 @@ def create_global_mesh(
     num_slices: int,
     *,
     replica_axis_index: int = 0,
+    data_parallelism: int | None = None,
     tensor_parallelism: int | None = None,
     fsdp_parallelism: int | None = None,
 ) -> jax.sharding.Mesh:
-  """Creates a global mesh with the given number of slices."""
+  """Creates a global mesh with the given number of slices.
+
+  Args:
+    num_slices: Total number of slices. Used to determine DCN parallelism.
+    replica_axis_index: The axis of the replica. Tells emergency checkpointing
+      the number of slices. Typically 0, but often 1.
+    data_parallelism: For ICI parallelism, the parallelism of the data axis.
+    tensor_parallelism: For ICI parallelism, the parallelism of the tensor axis.
+    fsdp_parallelism: For ICI parallelism, the parallelism of the fsdp axis.
+
+  Returns:
+    A global mesh.
+  """
   devices = jax.devices()
   num_devices = len(devices)
   num_devices_per_slice = num_devices // num_slices
   tensor_parallelism = tensor_parallelism or 2
+  data_parallelism = data_parallelism or 1
   fsdp_parallelism = fsdp_parallelism or -1
 
   if num_slices <= 1:
@@ -156,18 +168,12 @@ def create_global_mesh(
       1,
       1,
   ]
+  ici_parallelism[replica_axis_index] = data_parallelism
 
   # Find possible unspecified parallelisms
   ici_parallelism = fill_unspecified_mesh_axes(
-      ici_parallelism, num_devices_per_slice, 'ICI'
+      ici_parallelism, num_devices_per_slice
   )
-  if math.prod(ici_parallelism) * num_slices != num_devices:
-    raise ValueError(
-        'Mesh could not be constructed with given parallelism dimensions.'
-        f' Found: tensor_parallelism={tensor_parallelism},'
-        f' fsdp_parallelism={fsdp_parallelism}, num_slices={num_slices},'
-        f' num_devices={num_devices}.'
-    )
   devices_array = mesh_utils.create_hybrid_device_mesh(
       ici_parallelism,
       dcn_parallelism,

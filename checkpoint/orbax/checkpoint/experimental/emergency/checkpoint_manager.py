@@ -376,11 +376,7 @@ def _all_devices_excepting_slice(
     replica_id: int = 0,
     replica_axis_index: int = 0,
 ) -> np.ndarray:
-  if hasattr(jax.devices()[0], 'slice_index'):
-    get_slice_id = np.vectorize(lambda x: x.slice_index)
-    return devices[get_slice_id(devices) != replica_id]
-  else:
-    return np.delete(devices, replica_id, axis=replica_axis_index)
+  return np.delete(devices, replica_id, axis=replica_axis_index)
 
 
 def _get_global_broadcast_fn() -> Callable[[jax.Array], jax.Array]:
@@ -613,28 +609,6 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
     self._steps = list(self.all_steps(read=True))
 
 
-def _get_single_slice_sharding(
-    mesh: jax.sharding.Mesh,
-    pspec: jax.sharding.PartitionSpec,
-    replica_id: int,
-    replica_axis_index: int,
-):
-  """Get sharding for a single slice."""
-  slice_devices = multislice.slice_devices(
-      mesh,
-      replica_id=replica_id,
-      replica_axis_index=replica_axis_index,
-  )
-  single_slice_mesh_shape = [
-      1 if i == replica_axis_index else d
-      for i, d in enumerate(mesh.devices.shape)
-  ]
-  slice_mesh = jax.sharding.Mesh(
-      slice_devices.reshape(single_slice_mesh_shape), mesh.axis_names
-  )
-  return jax.sharding.NamedSharding(slice_mesh, pspec)
-
-
 def _get_persistent_options(
     options: CheckpointManagerOptions,
     multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
@@ -741,18 +715,16 @@ class _MultisliceCheckpointManager(
     self._coordination_timeout_secs = (
         options.multiprocessing_options or MultiprocessingOptions()
     ).coordination_timeout_secs
+    self._slice_count = multislice.slice_count(
+        self._global_mesh, replica_axis_index=self._replica_axis_index
+    )
 
     if len(global_mesh.devices.shape) <= self._replica_axis_index:
       raise AssertionError(
           f'replica_axis_index {self._replica_axis_index} is out of bound for'
           f' global_mesh.devices.shape {global_mesh.devices.shape}'
       )
-    if (
-        multislice.slice_count(
-            global_mesh, replica_axis_index=self._replica_axis_index
-        )
-        <= 1
-    ):
+    if self._slice_count <= 1:
       raise AssertionError(
           'To use this CheckpointManager, at least 2 data-parallel replicas are'
           ' needed.'
@@ -1068,6 +1040,26 @@ class _MultisliceCheckpointManager(
         return slice_id
     return -1
 
+  def _get_single_slice_sharding(
+      self,
+      mesh: jax.sharding.Mesh,
+      pspec: jax.sharding.PartitionSpec,
+  ):
+    """Get sharding for a single slice."""
+    slice_devices = multislice.slice_devices(
+        mesh,
+        replica_id=self._slice_id,
+        replica_axis_index=self._replica_axis_index,
+    )
+    single_slice_mesh_shape = [
+        1 if i == self._replica_axis_index else d
+        for i, d in enumerate(mesh.devices.shape)
+    ]
+    slice_mesh = jax.sharding.Mesh(
+        slice_devices.reshape(single_slice_mesh_shape), mesh.axis_names
+    )
+    return jax.sharding.NamedSharding(slice_mesh, pspec)
+
   def _restore_from_local(
       self,
       step: int,
@@ -1089,11 +1081,9 @@ class _MultisliceCheckpointManager(
 
     shape_dtypes, tree_defs = jax.tree.flatten(self._abstract_state)
     original_single_slice_shardings = jax.tree.map(
-        lambda arr: _get_single_slice_sharding(
+        lambda arr: self._get_single_slice_sharding(
             mesh=arr.sharding.mesh,
             pspec=arr.sharding.spec,
-            replica_id=self._slice_id,
-            replica_axis_index=self._replica_axis_index,
         ),
         self._abstract_state,
     )
@@ -1159,11 +1149,9 @@ class _MultisliceCheckpointManager(
       local_state_handler = _local_checkpoint_handler(multiprocessing_options)
 
       restore_single_slice_shardings = jax.tree.map(
-          lambda arr: _get_single_slice_sharding(
+          lambda arr: self._get_single_slice_sharding(
               mesh=restore_mesh,
               pspec=arr.sharding.spec,
-              replica_id=self._slice_id,
-              replica_axis_index=self._replica_axis_index,
           ),
           self._abstract_state,
       )
@@ -1182,6 +1170,10 @@ class _MultisliceCheckpointManager(
           restore_directory / _STATE_ITEM_NAME,
       )
       if logging.vlog_is_on(1):
+        logging.vlog(
+            1,
+            'Debugging single-slice restore_args used for restoration.',
+        )
         asyncio.run(
             local_checkpoint_data_debugging.print_chunk_debug_info(
                 restore_directory / _STATE_ITEM_NAME,

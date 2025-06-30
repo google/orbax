@@ -68,6 +68,12 @@ _REPLICA_AXIS_INDEX = flags.DEFINE_integer(
 )
 
 
+_DATA_PARALLELISM = flags.DEFINE_integer(
+    'data_parallelism',
+    None,
+    'Data parallelism.',
+)
+
 _TENSOR_PARALLELISM = flags.DEFINE_integer(
     'tensor_parallelism',
     None,
@@ -337,6 +343,7 @@ def main(_):
       host_count,
       local_device_count,
   )
+  logging.info('Local devices: %s', jax.local_devices())
   flags.FLAGS.experimental_orbax_use_distributed_process_id = True
   if not multihost.is_runtime_to_distributed_ids_initialized():
     multihost.initialize_runtime_to_distributed_ids()
@@ -351,10 +358,29 @@ def main(_):
   global_mesh = integration_test_utils.create_global_mesh(
       num_slices,
       replica_axis_index=replica_axis_index,
+      data_parallelism=_DATA_PARALLELISM.value,
       tensor_parallelism=_TENSOR_PARALLELISM.value,
       fsdp_parallelism=_FSDP_PARALLELISM.value,
   )
   logging.info('global_mesh shape: %s', global_mesh.devices.shape)
+  logging.info(
+      'Local devices (according to mesh): %s',
+      multislice.local_slice_devices(
+          global_mesh, replica_axis_index=replica_axis_index
+      ),
+  )
+  logging.info(
+      'Slice devices (according to mesh): %s',
+      multislice.slice_devices(
+          global_mesh,
+          replica_id=multislice.process_slice_id(
+              multihost.process_index(),
+              global_mesh,
+              replica_axis_index=replica_axis_index,
+          ),
+          replica_axis_index=replica_axis_index,
+      ),
+  )
   state = integration_test_utils.create_train_state(global_mesh)
 
   persistent_directory = epath.Path(_PERSISTENT_DIRECTORY.value)
