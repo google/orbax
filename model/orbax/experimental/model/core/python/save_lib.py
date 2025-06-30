@@ -23,6 +23,7 @@ import os
 from typing import Optional
 
 from absl import logging
+from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.python import file_utils
 from orbax.experimental.model.core.python import manifest_constants
 from orbax.experimental.model.core.python import polymorphic_function
@@ -106,11 +107,16 @@ class SaveOptions:
       Defaults to 1.
     supplemental_info: Optional. An `UnstructuredData` (or a string-map of them)
       to be saved in the manifest.pb as the global supplemental info.
+    visibility: Optional. A mapping from function name to its visibility (e.g.,
+      `manifest_pb2.PUBLIC`, `manifest_pb2.PRIVATE`). If this parameter is not
+      provided, all functions will be public. If only a subset of functions are
+      provided in the mapping, the rest will be public by default.
   """
 
   function_aliases: Mapping[str, ConcreteFunction] | None = None
   version: int | None = None
   supplemental_info: Mapping[str, GlobalSupplemental] | None = None
+  visibility: Mapping[str, manifest_pb2.Visibility] | None = None
 
 
 def _save_single_supplemental(
@@ -162,6 +168,7 @@ def save(
       m,
       path,
       supplemental_info=supplemental_info,
+      names_to_visibilities=options.visibility,
   )
   with file_utils.open_file(
       os.path.join(path, manifest_constants.MANIFEST_FILENAME), 'wb'

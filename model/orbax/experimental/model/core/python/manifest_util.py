@@ -28,11 +28,15 @@ from orbax.experimental.model.core.python.unstructured_data import UnstructuredD
 from orbax.experimental.model.core.python.value import ExternalValue
 
 
-def build_function(fn: Function, path: str, name: str) -> manifest_pb2.Function:
+def build_function(
+    fn: Function,
+    path: str,
+    name: str,
+    visibility: manifest_pb2.Visibility,
+) -> manifest_pb2.Function:
   """Builds a TopLevelObject proto from a ShloFunction."""
   fn_proto = manifest_pb2.Function()
-  # TODO(b/356174487): allow passing in options to control visibility.
-  fn_proto.visibility = manifest_pb2.PUBLIC
+  fn_proto.visibility = visibility
 
   # Add input/output signature.
   fn_proto.signature.CopyFrom(
@@ -84,13 +88,18 @@ def build_manifest_proto(
     obm_module: dict[str, Saveable],
     path: str,
     supplemental_info: Mapping[str, UnstructuredData] | None = None,
+    names_to_visibilities: Mapping[str, manifest_pb2.Visibility] | None = None,
 ) -> manifest_pb2.Manifest:
   """Builds a Manifest proto from EM functions."""
+  if names_to_visibilities is None:
+    names_to_visibilities = {}
   manifest_proto = manifest_pb2.Manifest()
   for name, obj in obm_module.items():
     if isinstance(obj, Function):
       fn = obj
-      fn_proto = build_function(fn, path, name)
+      fn_proto = build_function(
+          fn, path, name, names_to_visibilities.get(name, manifest_pb2.PUBLIC)
+      )
       manifest_proto.objects[name].function.CopyFrom(fn_proto)
     elif isinstance(obj, ExternalValue):
       value = obj
