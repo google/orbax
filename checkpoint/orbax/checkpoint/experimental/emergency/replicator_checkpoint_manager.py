@@ -52,6 +52,7 @@ ProcessMetadataCheckpointHandler = (
 
 _STATE_ITEM_NAME = 'state'
 _PROCESS_METADATA_NAME = 'process_metadata'
+_DATASET_ITEM_NAME = 'dataset'
 
 
 def _local_checkpoint_handler(
@@ -88,6 +89,24 @@ class ReplicatorCheckpointManagerOptions:
   should_save_fn: Callable[[int, int | None], bool] | None = None
 
 
+def _get_checkpoint_manager_options(
+    options: ReplicatorCheckpointManagerOptions,
+    multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
+) -> checkpoint_manager.CheckpointManagerOptions:
+  """Get options for persistent checkpoint manager."""
+  return checkpoint_manager.CheckpointManagerOptions(
+      save_interval_steps=options.save_interval_steps,
+      max_to_keep=None,  # No garbage collection.
+      step_name_format=options.step_name_format,
+      should_save_fn=options.should_save_fn,
+      multiprocessing_options=multiprocessing_options,
+      create=True,
+      cleanup_tmp_directories=False,  # Handled separately below.
+      enable_background_delete=False,
+      enable_async_checkpointing=True,
+  )
+
+
 class ReplicatorCheckpointManager(
     abstract_checkpoint_manager.AbstractCheckpointManager, epy.ContextManager
 ):
@@ -116,6 +135,18 @@ class ReplicatorCheckpointManager(
   interval. The period at which checkpoints are persisted to global storage, or
   the period at which they are
   garbage-collected, must be controlled by the replicator service.
+
+  Attributes:
+    local_directory: The local directory used for saving replicated states.
+    persistent_directory: Optional. The top-level directory in persistent
+      storage (e.g., GCS) used for saving non-replicated states like dataset
+      iterators. Handlers for these states must be registered either in the
+      `handler_registry` or in the `args.register_with_handler` decorator. This
+      should only be used if you need to save states that are not replicated
+      across processes.
+    handler_registry: Optional. A registry for custom checkpoint handlers. Use
+      this to register handlers for non-replicated (e.g., dataset iterator)
+      states.
   """
 
   def __init__(
@@ -124,6 +155,10 @@ class ReplicatorCheckpointManager(
       options: ReplicatorCheckpointManagerOptions | None = None,
       *,
       global_mesh: jax.sharding.Mesh,
+      persistent_directory: epath.Path | None = None,
+      handler_registry: (
+          handler_registration.CheckpointHandlerRegistry | None
+      ) = None,
   ):
     self._global_mesh = global_mesh
     options = options or ReplicatorCheckpointManagerOptions()
@@ -143,37 +178,47 @@ class ReplicatorCheckpointManager(
     [state_handler, process_metadata_handler] = _local_checkpoint_handler(
         multiprocessing_options
     )
-    options = checkpoint_manager.CheckpointManagerOptions(
-        save_interval_steps=options.save_interval_steps,
-        max_to_keep=None,  # No garbage collection.
-        step_name_format=options.step_name_format,
-        should_save_fn=options.should_save_fn,
-        multiprocessing_options=multiprocessing_options,
-        create=True,
-        cleanup_tmp_directories=False,  # Handled separately below.
-        enable_background_delete=False,
-        enable_async_checkpointing=True,
-        async_options=async_options,
+    replicator_options = _get_checkpoint_manager_options(
+        options, multiprocessing_options
     )
 
-    self._handler_registry = DefaultCheckpointHandlerRegistry()
-    self._handler_registry.add(None, args_lib.PyTreeSave, state_handler)
-    self._handler_registry.add(None, args_lib.PyTreeRestore, state_handler)
-    self._handler_registry.add(
+    self._local_handler_registry = DefaultCheckpointHandlerRegistry()
+    self._local_handler_registry.add(None, args_lib.PyTreeSave, state_handler)
+    self._local_handler_registry.add(
+        None, args_lib.PyTreeRestore, state_handler
+    )
+    self._local_handler_registry.add(
         None,
         process_metadata_checkpoint_handler.ProcessMetadataSaveArgs,
         process_metadata_handler,
     )
-    self._handler_registry.add(
+    self._local_handler_registry.add(
         None,
         process_metadata_checkpoint_handler.ProcessMetadataRestoreArgs,
         process_metadata_handler,
     )
     self._impl = checkpoint_manager.CheckpointManager(
         local_directory,
-        options=options,
-        handler_registry=self._handler_registry,
+        options=replicator_options,
+        handler_registry=self._local_handler_registry,
     )
+    non_replicated_multiprocessing_options = (
+        checkpoint_manager.MultiprocessingOptions(
+            barrier_sync_key_prefix='non_replicated',
+        )
+    )
+    non_replicated_options = _get_checkpoint_manager_options(
+        options, non_replicated_multiprocessing_options
+    )
+    self._persistent_checkpoint_manager = None
+    if persistent_directory is not None:
+      self._persistent_checkpoint_manager = (
+          checkpoint_manager.CheckpointManager(
+              persistent_directory,
+              options=non_replicated_options,
+              handler_registry=handler_registry,
+          )
+      )
     self._run_initial_garbage_collection()
 
   def _run_initial_garbage_collection(self):
@@ -217,6 +262,8 @@ class ReplicatorCheckpointManager(
     return self._impl.should_save(step)
 
   def delete(self, step: int):
+    if self._persistent_checkpoint_manager is not None:
+      self._persistent_checkpoint_manager.delete(step)
     return self._impl.delete(step)
 
   def _validate_and_standardize_args(
@@ -237,9 +284,12 @@ class ReplicatorCheckpointManager(
           f'{_PROCESS_METADATA_NAME} is a reserved key and should not be'
           ' specified by the user.'
       )
-    for a in args.values():
+    for k, a in args.items():
       assert isinstance(a, args_lib.CheckpointArgs)
-      if not self._handler_registry.has(None, a):
+      if (
+          not self._local_handler_registry.has(None, a)
+          and k != _DATASET_ITEM_NAME
+      ):
         raise ValueError(
             f'{type(a)} is not supported by this CheckpointManager. This is'
             ' likely because it does not yet implement support for local'
@@ -269,8 +319,19 @@ class ReplicatorCheckpointManager(
             global_mesh=self._global_mesh,
         )
     )
+    if _DATASET_ITEM_NAME in args.keys():
+      if self._persistent_checkpoint_manager is not None:
+        self._persistent_checkpoint_manager.save(
+            step,
+            args=args_lib.Composite(
+                **{_DATASET_ITEM_NAME: args[_DATASET_ITEM_NAME]}
+            ),
+            force=force,
+        )
+
     args_dict = dict(args.items())
     args_dict[_PROCESS_METADATA_NAME] = process_metadata_args
+    args_dict.pop(_DATASET_ITEM_NAME, None)
     args = args_lib.Composite(**args_dict)
     saved = self._impl.save(step, args=args, force=force)
     return saved
@@ -368,6 +429,19 @@ class ReplicatorCheckpointManager(
         previous_distributed_to_device_ids, previous_device_ids, args
     )
     restored = self._impl.restore(step, args=consistent_args)
+
+    if _DATASET_ITEM_NAME in args.keys():
+      if self._persistent_checkpoint_manager is not None:
+        restored_dataset = self._persistent_checkpoint_manager.restore(
+            step,
+            args=args_lib.Composite(
+                **{_DATASET_ITEM_NAME: args[_DATASET_ITEM_NAME]}
+            ),
+        )
+        args_dict = dict(restored.items())
+        args_dict[_DATASET_ITEM_NAME] = restored_dataset[_DATASET_ITEM_NAME]
+        restored = args_lib.Composite(**args_dict)
+
     return self._get_mesh_consistent_result(
         original_args, restored, default_item_mode=default_item_mode
     )
@@ -388,6 +462,8 @@ class ReplicatorCheckpointManager(
     return self._impl.check_for_errors()
 
   def close(self):
+    if self._persistent_checkpoint_manager is not None:
+      self._persistent_checkpoint_manager.close()
     return self._impl.close()
 
   def __contextmanager__(
