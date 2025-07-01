@@ -262,6 +262,17 @@ class SaveLoadTestBase:
             self, [jax_arr], ocp.load_pytree(self.directory / subdir)
         )
 
+      with self.subTest('jax_to_numpy_by_value'):
+        subdir = 'jax_to_np_by_value'
+        ocp.save_pytree(self.directory / subdir, [jax_arr])
+        test_utils.assert_tree_equal(
+            self,
+            [numpy_arr],
+            ocp.load_pytree(
+                self.directory / subdir, [np.array([], dtype=np.int64)]
+            ),
+        )
+
     def test_empty_array(self):
       value = np.ones(shape=(0,))
       with self.assertRaisesRegex(ValueError, 'zero size'):
