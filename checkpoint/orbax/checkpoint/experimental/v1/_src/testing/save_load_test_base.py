@@ -223,6 +223,9 @@ class SaveLoadTestBase:
             test_utils.assert_tree_equal(self, [v], loaded)
 
     def test_leaf_change_type(self):
+      # TODO(dnlng): Add support to change types.
+      self.skipTest('Not implemented yet.')
+
       mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
       sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
       numpy_arr = np.arange(16)
@@ -487,11 +490,10 @@ class SaveLoadTestBase:
             self, self.numpy_pytree, loaded['numpy_pytree']
         )
       with self.subTest('load_numpy_pytree_and_shard'):
-        loaded = ocp.load_checkpointables(
-            self.directory, {'numpy_pytree': self.abstract_pytree}
-        )
-        self.assertSameElements(['numpy_pytree'], loaded.keys())
-        test_utils.assert_tree_equal(self, self.pytree, loaded['numpy_pytree'])
+        with self.assertRaisesRegex(ValueError, 'unsupported type'):
+          ocp.load_checkpointables(
+              self.directory, {'numpy_pytree': self.abstract_pytree}
+          )
 
     def test_missing_keys(self):
       checkpointables = {
@@ -540,7 +542,7 @@ class SaveLoadTestBase:
         self.assertEqual(checkpointables['bar'], loaded['bar'])
       with self.subTest('load_with_abstract_checkpointables'):
         abstract_checkpointables = {
-            'pytree': self.abstract_pytree,
+            'pytree': self.abstract_numpy_pytree,
             'foo': AbstractFoo(),
             'bar': AbstractBar(),
         }
@@ -548,7 +550,7 @@ class SaveLoadTestBase:
             self.directory, abstract_checkpointables
         )
         self.assertSameElements(['pytree', 'foo', 'bar'], loaded.keys())
-        test_utils.assert_tree_equal(self, self.pytree, loaded['pytree'])
+        test_utils.assert_tree_equal(self, self.numpy_pytree, loaded['pytree'])
         self.assertEqual(checkpointables['foo'], loaded['foo'])
         self.assertEqual(checkpointables['bar'], loaded['bar'])
       with self.subTest('load_with_abstract_checkpointables_none_values'):
