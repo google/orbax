@@ -50,6 +50,7 @@ docs = [
   'flax',
   'google-cloud-logging',
   'grain',
+  'aiofiles',
   'tensorflow_datasets',
   'opencv-python'
 ]
