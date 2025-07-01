@@ -1524,7 +1524,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
       primary_replica_pids = (
           self._validate_sharding_and_get_primary_replica_processes(sharding)
       )
-      num_replicas = len(jax.devices()) // len(primary_replica_pids)
+      num_replicas = jax.process_count() // len(primary_replica_pids)
       logging.info("[SingleReplicaArrayHandler][Process: %s]Primary replica pids: [%s/%s]", multihost.process_index(), primary_replica_pids, num_replicas)
       if arg.single_replica_sharding is None:
         raise ValueError('Must provide `single_replica_sharding`.')
@@ -1576,7 +1576,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
           jax.ShapeDtypeStruct(arg.global_shape, arg.dtype) for arg in args
       ]
       deserialized = create_zeros(tuple(shape_dtype))
-      logging.info('[Process: %s]Finished non primary replica initialization with zeros.', multihost.process_index())
+      logging.info('[Process: %s]Finished non primary replica initialization with zeros %s.', multihost.process_index(), shape_dtype)
 
     deserialized = tuple(deserialized)
 
