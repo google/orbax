@@ -14,10 +14,10 @@
 
 """Sharding related utils."""
 
+from collections.abc import Sequence
 import jax
 from jax.lib import xla_client
 from orbax.experimental.model import core as obm
-
 
 def hlo_sharding_to_op_sharding(
     hlo_sharding: xla_client.HloSharding | None,
@@ -43,11 +43,12 @@ def hlo_sharding_to_op_sharding(
   output.ParseFromString(hlo_sharding.to_proto().SerializeToString())
   return output
 
-
-def jax_mesh_to_obm_device_assignment_by_coords(
+# TODO(b/424623547): see if we need this anymore or should it be removed.
+def jax_mesh_to_obm_device_assignment_by_coords_proto(
     jax_mesh: jax.sharding.Mesh,
 ) -> obm.manifest_pb2.DeviceAssignmentByCoords:
   """Converts `jax.sharding.Mesh` to proto `DeviceAssignmentByCoords`."""
+
   def spec_for_device(d):
     if d.platform == "tpu":
       return obm.manifest_pb2.DeviceAssignmentByCoords.Device(
