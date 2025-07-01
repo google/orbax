@@ -19,7 +19,6 @@ deserialization for scalar values.
 """
 
 import asyncio
-import dataclasses
 from typing import Awaitable, Sequence, Type
 
 from absl import logging
@@ -36,19 +35,9 @@ ScalarSerializationParam = types.SerializationParam[Scalar]
 ScalarDeserializationParam = types.DeserializationParam["AbstractScalar"]
 
 
-@dataclasses.dataclass
-class AbstractScalar:
-  """Abstract scalar representation of a scalar value.
-
-  This an abstract scalar that can be used to represent
-  the metadata belonging to a scalar value.
-
-  dtype:
-    Dtype of the scalar value. Note extra np.dtype and jnp.dtype are needed
-    to support the v0 ScalarMetadata.
-  """
-
-  dtype: Type[Scalar] | np.dtype | jnp.dtype
+# Optional type hint for a scalar leaf handler. If provided, the restored scalar
+# will be cast to this type.  Only casting to int or float is supported.
+AbstractScalar = Type[Scalar]
 
 
 def _create_v0_saving_paraminfo(
@@ -121,23 +110,12 @@ def _create_v0_restorearg(
 ) -> type_handlers_v0.RestoreArgs:
   """Creates a V0 RestoreArgs from V1 params."""
 
-  if param.value is None:
-    # use default restore args
-    return type_handlers_v0.RestoreArgs()
-  else:
-    v = param.value
-    if isinstance(v, AbstractScalar):
-      restored_dtype = v.dtype
-    elif isinstance(v, Scalar):
-      restored_dtype = type(v)
-    else:
-      raise ValueError(f"Unsupported type: {type(v)}")
+  restore_type = param.value
 
-    logging.vlog(1, "name: %s, v.dtype: %s", param.name, restored_dtype)
-    return type_handlers_v0.RestoreArgs(
-        restore_type=restored_dtype,
-        dtype=v.dtype,
-    )
+  logging.info("setting restore_type: %r", restore_type)
+  return type_handlers_v0.RestoreArgs(
+      restore_type=restore_type,
+  )
 
 
 async def _async_futures(commit_futures: Sequence[future.Future]):
@@ -238,15 +216,21 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
     async def _convert_to_scalar_metadata() -> Sequence[AbstractScalar]:
       v0_metadatas = await self._handler_impl.metadata(paraminfos)
 
-      ret = []
-      for meta in v0_metadatas:
-        scalar_metadata = AbstractScalar(
-            dtype=meta.dtype,
-        )
-        ret.append(scalar_metadata)
+      def _get_type(meta: type_handlers_v0.ScalarMetadata):
+        if meta.dtype is None:
+          # this shouldn't happen even though ScalarMetadata.dtype is Optional,
+          # but each scalar should have a dtype.
+          raise ValueError("dtype is None")
 
-        if logging.vlog_is_on(1):
-          logging.vlog(1, "scalar_metadata: %r", scalar_metadata)
+        if isinstance(meta.dtype, (np.dtype | jnp.dtype)):
+          return meta.dtype.type
+        else:
+          return meta.dtype
+
+      ret = [_get_type(meta) for meta in v0_metadatas]
+
+      if logging.vlog_is_on(1):
+        logging.vlog(1, "scalar_metadata: %r", ret)
 
       return ret
 
