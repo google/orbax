@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.18] - 2025-07-01
+
+### Changed
+
+- For JAX>=0.6.2, JAX layout.Layout renamed to layout.Format
+
 ## [0.11.17] - 2025-06-30
 
 ### Added

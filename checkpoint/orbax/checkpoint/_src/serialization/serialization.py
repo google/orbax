@@ -42,7 +42,10 @@ _REMOVED_VALUE = 'Value removed'
 _CHECKPOINT_SUCCESS = 'checkpoint_write_success'
 
 Index = types.Index
-Format = layout.Format
+if jax.__version_info__ >= (0, 6, 2):
+  Format = layout.Format
+else:
+  Format = layout.Layout
 Shape = types.Shape
 
 
@@ -457,7 +460,7 @@ async def _read_array_index_and_device_put(
       sharding = jax.sharding.SingleDeviceSharding(
           device, memory_kind=memory_kind
       )
-      result.append(jax.device_put(shard, Format(dll, sharding)))
+      result.append(jax.device_put(shard, Format(dll, sharding)))  # pytype: disable=wrong-arg-types
   return result
 
 
@@ -508,7 +511,7 @@ async def read_and_create_array(
 
 
 async def async_deserialize(
-    user_sharding: jax.sharding.Sharding | Format,
+    user_sharding: jax.sharding.Sharding | Format,  # pytype: disable=wrong-arg-types  # pytype: disable=unsupported-operands
     tensorstore_spec: Union[ts.Spec, Dict[str, Any]],
     global_shape: Optional[Shape] = None,
     dtype: Optional[jnp.dtype] = None,

@@ -41,8 +41,10 @@ if jax.__version_info__ >= (0, 6, 3):
   DLL = layout.Layout
 else:
   DLL = layout.DeviceLocalLayout  # type: ignore
-Format = layout.Format
-
+if jax.__version_info__ >= (0, 6, 2):
+  Format = layout.Format
+else:
+  Format = layout.Layout
 jax.config.update('jax_enable_x64', True)
 
 

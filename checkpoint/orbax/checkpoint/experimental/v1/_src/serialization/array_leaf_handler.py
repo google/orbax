@@ -39,6 +39,11 @@ ArraySerializationParam = types.SerializationParam[jax.Array]
 ArrayDeserializationParam = types.DeserializationParam["AbstractArray"]
 Shape = arrays_types_v0.Shape
 
+if jax.__version_info__ >= (0, 6, 2):
+  Format = jax_layout.Format
+else:
+  Format = jax_layout.Layout
+
 
 class AbstractArray(Protocol):
   """Abstract representation of an array.
@@ -63,7 +68,7 @@ class AbstractArray(Protocol):
 
   shape: Shape | None
   dtype: jax.numpy.dtype | None
-  sharding: jax.sharding.Sharding | jax_layout.Format | None
+  sharding: jax.sharding.Sharding | Format | None  # pytype: disable=unsupported-operands
 
 
 @dataclasses.dataclass

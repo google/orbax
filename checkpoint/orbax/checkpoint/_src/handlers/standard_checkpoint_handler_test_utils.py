@@ -42,7 +42,10 @@ if jax.__version_info__ >= (0, 6, 3):
   DLL = layout.Layout
 else:
   DLL = layout.DeviceLocalLayout  # type: ignore
-Format = layout.Format
+if jax.__version_info__ >= (0, 6, 2):
+  Format = layout.Format
+else:
+  Format = layout.Layout
 PyTree = Any
 SaveArgs = type_handlers.SaveArgs
 StandardRestoreArgs = standard_checkpoint_handler.StandardRestoreArgs
@@ -175,7 +178,7 @@ class StandardCheckpointHandlerTestBase:
           if jax.__version_info__ >= (0, 6, 3)
           else arr.format.device_local_layout  # type: ignore
       )
-      custom_layout = Format(
+      custom_layout = Format(  # pytype: disable=wrong-keyword-args
           DLL(
               major_to_minor=arr_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
               _tiling=arr_layout._tiling,  # pytype: disable=attribute-error
