@@ -230,7 +230,8 @@ def broadcast_one_replica_to_all(
       - number of broadcasts performed.
   """
   # num_replicas = global_mesh.devices.shape[replica_axis_index]
-  replica_axis_name = global_mesh.axis_names[replica_axis_index]
+  # replica_axis_name = global_mesh.axis_names[replica_axis_index]
+  replica_axis_name = global_mesh.axis_names[0]  # assuming pp dimension is never used
 
   if memory_limit_bytes is None:
     memory_limit_bytes = get_available_memory(in_tree, memory_scaling_factor)
