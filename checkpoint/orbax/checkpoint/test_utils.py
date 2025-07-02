@@ -266,9 +266,11 @@ def setup_pytree(add: int = 0):
 def setup_sharded_pytree(
     pytree: Optional[pytree_checkpoint_handler.PyTree] = None,
     reverse_devices: bool = False,
+    devices: Optional[list[jax.Device]] = None,
 ):
   """Creates a PyTree of sharded arrays for testing."""
-  devices = jax.devices()
+  if devices is None:
+    devices = jax.devices()
   num_devices = len(devices)
   if reverse_devices:
     devices = np.asarray(list(reversed(devices)))
