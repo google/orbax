@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - For JAX>=0.6.2, JAX layout.Layout renamed to layout.Format
 
+### Added
+
+- #v1 Add dummy `orbax.checkpoint` file to help identify checkpoints.
+
 ## [0.11.17] - 2025-06-30
 
 ### Added
