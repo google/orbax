@@ -245,11 +245,12 @@ def broadcast_one_replica_to_all(
       inp = fake_zero_data(sharding, inp)
     inp = jnp.expand_dims(inp, axis=0)
     in_spec = jax.sharding.PartitionSpec(
-        replica_axis_name,
+        "replication",
         *sharding.spec,
     )
     global_shape = (num_replicas,) + inp.shape[1:]
-    global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
+    _global_mesh = jax.sharding.Mesh(global_mesh.devices.reshape((num_replicas, *(-1 if i == replica_axis_index else n for i, n in enumerate(global_mesh.devices.shape)))), ("replication", *global_mesh.axis_names))
+    global_sharding = jax.sharding.NamedSharding(_global_mesh, in_spec)
     return jax.make_array_from_single_device_arrays(
         global_shape, global_sharding, [s.data for s in inp.addressable_shards]
     )
