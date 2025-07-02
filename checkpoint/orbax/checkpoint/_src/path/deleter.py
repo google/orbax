@@ -93,7 +93,8 @@ class StandardCheckpointDeleter:
 
     client = storage.Client()
     bucket = client.get_bucket(bucket_name)
-    return bucket.hierarchical_namespace_enabled
+    logging.info('is bucket HNS, %s', bucket.hierarchical_namespace.enabled)
+    return bucket.hierarchical_namespace.enabled
 
   def _rm_empty_folders(self, path: epath.Path) -> None:
     """For a hierarchical namespace bucket, delete empty folders recursively."""
@@ -151,6 +152,7 @@ class StandardCheckpointDeleter:
 
     # Step 2: For HNS, clean up the remaining empty directory structure.
     if self._enable_hns_rmtree and self._is_hierarchical_namespace_enabled(
+        logging.info('hns rmtree enabled on the hns bucket')
         path
     ):
       self._rm_empty_folders(path)
