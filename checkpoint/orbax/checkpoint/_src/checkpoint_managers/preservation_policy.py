@@ -17,6 +17,7 @@
 import dataclasses
 import datetime
 from typing import Any, Callable, Dict, Protocol, Sequence, Set
+from absl import logging
 import numpy as np
 from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
 
@@ -45,6 +46,28 @@ class PreservationPolicy(Protocol):
     ...
 
 
+def _log_preservation_decision(
+    policy_name: str,
+    checkpoints: Sequence[PolicyCheckpointInfo],
+    should_preserve_list: Sequence[bool],
+):
+  """Logs preservation decisions."""
+  if logging.vlog_is_on(1):
+    for i, checkpoint in enumerate(checkpoints):
+      if should_preserve_list[i]:
+        logging.vlog(
+            1,
+            f" {policy_name}: Preserving checkpoint at step"
+            f" {checkpoint.step}).",
+        )
+      else:
+        logging.vlog(
+            1,
+            f" {policy_name}: Not preserving checkpoint at step"
+            f" {checkpoint.step}).",
+        )
+
+
 @dataclasses.dataclass
 class PreserveAll(PreservationPolicy):
   """Preserves all checkpoints."""
@@ -55,6 +78,13 @@ class PreserveAll(PreservationPolicy):
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
+    logging.vlog(1, "PreserveAll: Preserving all checkpoints.")
+    result = [True] * len(checkpoints)
+    _log_preservation_decision(
+        "PreserveAll",
+        checkpoints,
+        result
+    )
     return [True] * len(checkpoints)
 
 
@@ -70,9 +100,22 @@ class LatestN(PreservationPolicy):
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
+    logging.vlog(
+        1,
+        "LatestN: Preserves the last n checkpoints.",
+        "LatestN: n=%d.",
+        self.n,
+    )
     if self.n is None or len(checkpoints) <= self.n:
-      return [True] * len(checkpoints)
-    return [False] * (len(checkpoints) - self.n) + [True] * self.n
+      result = [True] * len(checkpoints)
+    else:
+      result = [False] * (len(checkpoints) - self.n) + [True] * self.n
+    _log_preservation_decision(
+        "LatestN",
+        checkpoints,
+        result
+    )
+    return result
 
 
 @dataclasses.dataclass
@@ -87,6 +130,12 @@ class EveryNSeconds(PreservationPolicy):
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
+    logging.vlog(
+        1,
+        "EveryNSeconds: Preserves checkpoint at least after the time interval.",
+        "EveryNSeconds: interval_secs=%d.",
+        self.interval_secs,
+    )
     if not checkpoints:
       return []
     last_preserved_checkpoint = checkpoints[0]
@@ -99,6 +148,11 @@ class EveryNSeconds(PreservationPolicy):
         result.append(True)
       else:
         result.append(False)
+    _log_preservation_decision(
+        "EveryNSeconds",
+        checkpoints,
+        result
+    )
     return result
 
 
@@ -114,9 +168,21 @@ class EveryNSteps(PreservationPolicy):
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
+    logging.vlog(
+        1,
+        "EveryNSteps: Preserves checkpoints at least every N steps.",
+        "EveryNSteps: interval_steps=%d.",
+        self.interval_steps,
+    )
     if self.interval_steps == 0:
-      raise ValueError('interval_steps must not be 0.')
-    return [ckpt.step % self.interval_steps == 0 for ckpt in checkpoints]
+      raise ValueError("interval_steps must not be 0.")
+    result = [ckpt.step % self.interval_steps == 0 for ckpt in checkpoints]
+    _log_preservation_decision(
+        "EveryNSteps",
+        checkpoints,
+        result
+    )
+    return result
 
 
 @dataclasses.dataclass
@@ -136,7 +202,19 @@ class CustomSteps(PreservationPolicy):
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
-    return [ckpt.step in self._steps_set for ckpt in checkpoints]
+    logging.vlog(
+        1,
+        "CustomSteps: Preserving checkpoints at the given steps.",
+        "CustomSteps: steps=%s.",
+        self._steps_set,
+    )
+    result = [ckpt.step in self._steps_set for ckpt in checkpoints]
+    _log_preservation_decision(
+        "CustomSteps",
+        checkpoints,
+        result
+    )
+    return result
 
 
 @dataclasses.dataclass
@@ -151,6 +229,9 @@ class AnyPreservationPolicy(PreservationPolicy):
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
+    logging.vlog(
+        1, "AnyPreservationPolicy: Preserving if any policy preserves."
+    )
     should_preserve_by_policy = np.asarray([
         policy.should_preserve(checkpoints, context=context)
         for policy in self.policies
@@ -185,6 +266,7 @@ class BestN(PreservationPolicy):
       *,
       context: PreservationContext,
   ) -> Sequence[bool]:
+    logging.vlog(1, "BestN: Preserving the best checkpoints.")
     if self.n is None or len(checkpoints) <= self.n:
       return [True] * len(checkpoints)
     if self.n == 0:
@@ -213,4 +295,9 @@ class BestN(PreservationPolicy):
     preserve_flags = [
         i in preserve_indices_set for i in range(len(checkpoints))
     ]
+    _log_preservation_decision(
+        "BestN",
+        checkpoints,
+        preserve_flags
+    )
     return preserve_flags
