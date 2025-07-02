@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- #v1 Add LeafHandlerRegistry
+- #v1 Add StringLeafHandler
+
 ## [0.11.18] - 2025-07-01
 
 ### Changed
