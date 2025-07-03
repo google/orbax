@@ -93,8 +93,8 @@ class StandardCheckpointDeleter:
 
     client = storage.Client()
     bucket = client.get_bucket(bucket_name)
-    logging.info('is bucket HNS, %s', bucket.hierarchical_namespace.enabled)
-    return bucket.hierarchical_namespace.enabled
+    logging.info('is bucket HNS, %s', bucket.hierarchical_namespace_enabled)
+    return bucket.hierarchical_namespace_enabled
 
   def _rm_empty_folders(self, path: epath.Path) -> None:
     """For a hierarchical namespace bucket, delete empty folders recursively."""
@@ -149,7 +149,7 @@ class StandardCheckpointDeleter:
     """
     # Step 1: Delete all files within the tree.
     path.rmtree()
-
+    logging.info('deleted files within the tree')
     # Step 2: For HNS, clean up the remaining empty directory structure.
     if self._enable_hns_rmtree and self._is_hierarchical_namespace_enabled(
       path
@@ -169,7 +169,7 @@ class StandardCheckpointDeleter:
     try:
       if not utils.is_primary_host(self._primary_host):
         logging.info(
-            'Not primary host(%s), skipping deletion of step %d.',
+            'Not primary host(%s), skipping deletion of step %d',
             self._primary_host,
             step,
         )
