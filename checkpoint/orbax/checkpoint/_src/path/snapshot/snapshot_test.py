@@ -15,7 +15,6 @@
 """test cases for colossus snapshot."""
 
 import os
-from unittest import mock
 
 from absl.testing import absltest
 from etils import epath

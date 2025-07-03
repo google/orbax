@@ -19,7 +19,7 @@ import dataclasses
 
 from absl import logging
 from etils import epath
-from orbax.checkpoint._src.path import utils
+from orbax.checkpoint._src.path import utils as ocp_path_utils
 
 
 SNAPSHOTTING_TIME = "snapshotting_time"
@@ -55,8 +55,8 @@ class DefaultSnapshot(Snapshot):
       )
     if not epath.Path(src).exists():
       raise ValueError(f"Snapshot source does not exist: {src}'.")
-    t = utils.Timer()
-    utils.recursively_copy_files(src, dst)
+    t = ocp_path_utils.Timer()
+    ocp_path_utils.recursively_copy_files(src, dst)
     logging.debug(
         "Snapshot copy: %fs",
         t.get_duration(),
