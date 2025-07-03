@@ -152,9 +152,9 @@ class StandardCheckpointDeleter:
 
     # Step 2: For HNS, clean up the remaining empty directory structure.
     if self._enable_hns_rmtree and self._is_hierarchical_namespace_enabled(
-        logging.info('hns rmtree enabled on the hns bucket')
-        path
+      path
     ):
+      logging.info('hns rmtree enabled on the hns bucket.')
       self._rm_empty_folders(path)
 
   def delete(self, step: int) -> None:
