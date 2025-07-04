@@ -257,7 +257,6 @@ def _get_temporary_path(
       # Ensure metadata store is NOT passed, to prevent separate metadata
       # writing.
       checkpoint_metadata_store=None,
-      multiprocessing_options=context.multiprocessing_options.v0(),
       file_options=context.file_options.v0(),
   )
   return tmpdir
