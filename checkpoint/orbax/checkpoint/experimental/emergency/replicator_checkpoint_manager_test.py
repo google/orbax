@@ -31,7 +31,8 @@ from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.experimental.emergency import replicator_checkpoint_manager
-from orbax.checkpoint.experimental.emergency import test_utils as emergency_test_utils
+from orbax.checkpoint.experimental.emergency.test_utils import dataset_iterator_checkpoint_handler
+from orbax.checkpoint.experimental.emergency.test_utils import test_base as emergency_test_utils
 from orbax.checkpoint.path import atomicity
 from orbax.checkpoint.path import step as step_lib
 from .learning.brain.research.jax.tests.multiprocess import multiprocess_test
@@ -47,6 +48,15 @@ ReplicatorCheckpointManager = (
 )
 ReplicatorCheckpointManagerOptions = (
     replicator_checkpoint_manager.ReplicatorCheckpointManagerOptions
+)
+DatasetIteratorCheckpointSave = (
+    dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointSave
+)
+DatasetIteratorCheckpointRestore = (
+    dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointRestore
+)
+DatasetIteratorCheckpointHandler = (
+    dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointHandler
 )
 barrier_compatible_test = test_utils.barrier_compatible_test
 assert_tree_equal = test_utils.assert_tree_equal
@@ -149,6 +159,16 @@ class ReplicatorCheckpointManagerTest(
             name=f'checkpointing_test_pid{multihost.process_index()}'
         ).full_path
     )
+    self.non_replicated_directory = (
+        epath.Path(self._get_tempdir_path_test())
+        / 'non_replicated_checkpointing_test'
+    )
+    if multihost.is_primary_host(primary_host=0):
+      self.non_replicated_directory = epath.Path(
+          self.create_tempdir(
+              name='non_replicated_checkpointing_test'
+          ).full_path
+      )
     logging.info(
         'self.directory=%s',
         self.local_directory,
@@ -242,6 +262,49 @@ class ReplicatorCheckpointManagerTest(
     )
 
     test_utils.assert_tree_equal(self, pytree, restored.state)
+
+  @parameterized.parameters((0,), (1,))
+  def test_save_restore_dataset_iterator(self, replica_axis_index: int):
+    global_mesh = self.make_global_mesh(replica_axis_index=replica_axis_index)
+    pytree, restore_args = self.setup_pytree(global_mesh)
+    options = ReplicatorCheckpointManagerOptions(
+        save_interval_steps=1,
+    )
+    manager = ReplicatorCheckpointManager(
+        self.local_directory,
+        persistent_directory='/tmp/new_directory',
+        options=options,
+        global_mesh=global_mesh,
+    )
+
+    dummy_dataset = [
+        ('hello', 'hola'),
+        ('world', 'mundo'),
+        ('test', 'prueba'),
+    ]
+    dummy_iterator = DatasetIteratorCheckpointHandler.DummyIterator(
+        dummy_dataset
+    )
+
+    manager.save(
+        0,
+        args=args_lib.Composite(
+            state=PyTreeSaveArgs(pytree),
+            dataset=DatasetIteratorCheckpointSave(dummy_iterator),
+        ),
+    )
+    manager.wait_until_finished()
+    self.assert_process_metadata_files_exist(0, global_mesh)
+
+    restored = manager.restore(
+        0,
+        args=args_lib.Composite(
+            state=PyTreeRestoreArgs(restore_args=restore_args),
+            dataset=DatasetIteratorCheckpointRestore(dummy_iterator),
+        ),
+    )
+    test_utils.assert_tree_equal(self, pytree, restored.state)
+    test_utils.assert_tree_equal(self, dummy_iterator, restored.dataset)
 
   def test_no_cleanup(self):
     options = ReplicatorCheckpointManagerOptions(
@@ -663,11 +726,13 @@ class ReplicatorCheckpointManagerTest(
         manager.save(0)
       with self.assertRaises(ValueError):
         manager.save(
-            0, args=get_composite_save_args(self.pytree, args_lib.StandardSave)
+            0,
+            args=get_composite_save_args(self.pytree, args_lib.StandardRestore),
         )
       with self.assertRaises(ValueError):
         manager.save(
-            0, args=get_composite_save_args(self.pytree, args_lib.StandardSave)
+            0,
+            args=get_composite_save_args(self.pytree, args_lib.StandardRestore),
         )
 
   def test_invalid_args_restore(self):

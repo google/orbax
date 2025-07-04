@@ -14,12 +14,12 @@
 
 import jax
 from orbax.checkpoint._src.testing import multiprocess_test
-from orbax.checkpoint.experimental.emergency import test_utils
+from orbax.checkpoint.experimental.emergency.test_utils import test_base
 
 
-@test_utils.barrier_compatible_test
+@test_base.barrier_compatible_test
 class CheckpointManagerTest(
-    test_utils.CheckpointManagerTestBase.Test,
+    test_base.CheckpointManagerTestBase.Test,
     multiprocess_test.MultiProcessTest,
 ):
 
@@ -35,7 +35,7 @@ class CheckpointManagerTest(
 
     # setup global mesh info for 2-slice tests
     slice_processes = [{0, 1}, {2, 3}]
-    mesh = test_utils.get_fake_global_mesh_for_slices(
+    mesh = test_base.get_fake_global_mesh_for_slices(
         slice_processes, replica_axis_index
     )
     if replica_axis_index == 0:
