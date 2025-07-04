@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - #v1 Add `PreservationPolicy` support in Checkpointer.
+- Fix rmtree behavior for GCS HNS enabled buckets.
 - #v1 Update AbstractScalar as a simple `Type`
 
 ### Changed

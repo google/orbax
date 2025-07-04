@@ -13,7 +13,6 @@
 # limitations under the License.
 
 """To test Orbax in single-host setup."""
-
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -34,13 +33,16 @@ class CheckpointDeleterTest(parameterized.TestCase):
       threaded=(False, True),
       todelete_subdir=(None, 'some_delete_dir'),
   )
-  def test_checkpoint_deleter_delete(self, threaded, todelete_subdir):
+  def test_checkpoint_deleter_delete(
+      self, threaded, todelete_subdir, enable_hns_rmtree: bool = False
+  ):
     """Test regular CheckpointDeleter."""
     deleter = deleter_lib.create_checkpoint_deleter(
         primary_host=None,
         directory=self.ckpt_dir,
         todelete_subdir=todelete_subdir,
         name_format=step_lib.standard_name_format(),
+        enable_hns_rmtree=enable_hns_rmtree,
         enable_background_delete=threaded,
     )
 
