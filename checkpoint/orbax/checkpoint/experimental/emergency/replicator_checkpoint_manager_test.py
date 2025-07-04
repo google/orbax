@@ -25,6 +25,7 @@ import jax
 import numpy as np
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
@@ -263,16 +264,38 @@ class ReplicatorCheckpointManagerTest(
 
     test_utils.assert_tree_equal(self, pytree, restored.state)
 
+  def test_preservation_policy(self):
+    global_mesh = self.make_global_mesh(replica_axis_index=0)
+    pytree, _ = self.setup_pytree(global_mesh)
+    options = ReplicatorCheckpointManagerOptions(
+        save_interval_steps=1,
+        preservation_policy=preservation_policy_lib.EveryNSteps(2),
+    )
+    manager = ReplicatorCheckpointManager(
+        self.local_directory,
+        options=options,
+        global_mesh=global_mesh,
+    )
+
+    for i in range(3):
+      manager.save(
+          i,
+          args=get_composite_save_args(pytree),
+      )
+      manager.wait_until_finished()
+    self.assertEqual(manager.all_steps(), [0, 2])
+
   @parameterized.parameters((0,), (1,))
   def test_save_restore_dataset_iterator(self, replica_axis_index: int):
     global_mesh = self.make_global_mesh(replica_axis_index=replica_axis_index)
     pytree, restore_args = self.setup_pytree(global_mesh)
     options = ReplicatorCheckpointManagerOptions(
         save_interval_steps=1,
+        preservation_policy=preservation_policy_lib.LatestN(1),
     )
     manager = ReplicatorCheckpointManager(
         self.local_directory,
-        persistent_directory='/tmp/new_directory',
+        persistent_directory=self.non_replicated_directory,
         options=options,
         global_mesh=global_mesh,
     )
@@ -305,6 +328,16 @@ class ReplicatorCheckpointManagerTest(
     )
     test_utils.assert_tree_equal(self, pytree, restored.state)
     test_utils.assert_tree_equal(self, dummy_iterator, restored.dataset)
+
+    manager.save(
+        1,
+        args=args_lib.Composite(
+            state=PyTreeSaveArgs(pytree),
+            dataset=DatasetIteratorCheckpointSave(dummy_iterator),
+        ),
+    )
+    manager.wait_until_finished()
+    self.assertEqual(manager.all_steps(), [1])
 
   def test_no_cleanup(self):
     options = ReplicatorCheckpointManagerOptions(

@@ -28,6 +28,7 @@ import jax
 from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
@@ -87,6 +88,7 @@ class ReplicatorCheckpointManagerOptions:
   save_interval_steps: int = 1
   step_name_format: step_lib.NameFormat[step_lib.Metadata] | None = None
   should_save_fn: Callable[[int, int | None], bool] | None = None
+  preservation_policy: preservation_policy_lib.PreservationPolicy | None = None
 
 
 def _get_checkpoint_manager_options(
@@ -96,14 +98,14 @@ def _get_checkpoint_manager_options(
   """Get options for persistent checkpoint manager."""
   return checkpoint_manager.CheckpointManagerOptions(
       save_interval_steps=options.save_interval_steps,
-      max_to_keep=None,  # No garbage collection.
       step_name_format=options.step_name_format,
       should_save_fn=options.should_save_fn,
       multiprocessing_options=multiprocessing_options,
       create=True,
       cleanup_tmp_directories=False,  # Handled separately below.
-      enable_background_delete=False,
+      enable_background_delete=True,
       enable_async_checkpointing=True,
+      preservation_policy=options.preservation_policy,
   )
 
 
