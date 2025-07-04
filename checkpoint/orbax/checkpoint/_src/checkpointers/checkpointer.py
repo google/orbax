@@ -157,7 +157,6 @@ class Checkpointer(
     tmpdir = temporary_path_class.from_final(
         directory,
         checkpoint_metadata_store=self._metadata_store,
-        multiprocessing_options=self._multiprocessing_options,
         file_options=self._file_options,
     )
     return tmpdir

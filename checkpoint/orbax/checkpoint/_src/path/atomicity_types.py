@@ -53,9 +53,6 @@ class TemporaryPath(Protocol):
           checkpoint_metadata.MetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
-      multiprocessing_options: Optional[
-          options_lib.MultiprocessingOptions
-      ] = None,
   ) -> TemporaryPath:
     """Creates a TemporaryPath from a final path."""
     ...
