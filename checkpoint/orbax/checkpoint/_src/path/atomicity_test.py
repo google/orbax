@@ -48,15 +48,9 @@ class AtomicRenameTemporaryPathTest(
     file_options = options_lib.FileOptions(
         path_permission_mode=0o777,
     )
-    multiprocessing_options = options_lib.MultiprocessingOptions(
-        primary_host=1,
-        active_processes=set([0, 1]),
-        barrier_sync_key_prefix='test_prefix',
-    )
     tmp_path = AtomicRenameTemporaryPath.from_final(
         path,
         file_options=file_options,
-        multiprocessing_options=multiprocessing_options,
     )
 
     deserialized = AtomicRenameTemporaryPath.from_bytes(tmp_path.to_bytes())
@@ -66,12 +60,6 @@ class AtomicRenameTemporaryPathTest(
     # pylint: disable=protected-access
     self.assertEqual(
         tmp_path._path_permission_mode, deserialized._path_permission_mode
-    )
-    self.assertEqual(tmp_path._primary_host, deserialized._primary_host)
-    self.assertEqual(tmp_path._active_processes, deserialized._active_processes)
-    self.assertEqual(
-        tmp_path._barrier_sync_key_prefix,
-        deserialized._barrier_sync_key_prefix,
     )
     self.assertIsNone(deserialized._checkpoint_metadata_store)
     # pylint: enable=protected-access
