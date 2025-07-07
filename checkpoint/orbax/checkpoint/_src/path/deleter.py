@@ -61,7 +61,7 @@ class StandardCheckpointDeleter:
       directory: epath.Path,
       todelete_subdir: Optional[str],
       name_format: step_lib.NameFormat[step_lib.Metadata],
-      enable_hns_rmtree: bool,
+      enable_hns_rmtree: bool = False,
       duration_metric: Optional[str] = _STANDARD_DELETE_DURATION,
   ):
     """StandardCheckpointDeleter constructor.
