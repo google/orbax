@@ -124,7 +124,7 @@ class StandardCheckpointDeleter:
       leaves = folders - parents
       res = list(
           client.delete_folder(
-              [storage_control_v2.DeleteFolderRequest(name=f) for f in leaves]
+              [storage_control_v2.DeleteFolderRequest(name=f.rstrip('/')) for f in leaves]
           )
       )
       folders = folders - leaves
