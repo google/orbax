@@ -40,6 +40,12 @@ ScalarDeserializationParam = types.DeserializationParam["AbstractScalar"]
 AbstractScalar = Type[Scalar]
 
 
+def _create_v0_scalar_handler() -> type_handlers_v0.ScalarHandler:
+  """Creates a V0 ScalarHandler."""
+  scalar_handler = type_handlers_v0.ScalarHandler()
+  return scalar_handler
+
+
 def _create_v0_saving_paraminfo(
     param: ScalarSerializationParam,
     context: context_lib.Context,
@@ -131,7 +137,7 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
       context: context_lib.Context | None = None,
   ):
     self._context = context_lib.get_context(context)
-    self._handler_impl = type_handlers_v0.ScalarHandler()
+    self._handler_impl = _create_v0_scalar_handler()
 
     logging.info("ScalarLeafHandler created.")
 
