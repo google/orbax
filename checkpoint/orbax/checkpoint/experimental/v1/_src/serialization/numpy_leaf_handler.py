@@ -191,7 +191,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractNumpy]):
     self._context = context_lib.get_context(context)
     self._handler_impl = _create_v0_numpy_handler()
 
-    logging.info("NumpyLeafHandler created.")
+    logging.vlog(1, "NumpyLeafHandler created.")
 
   async def serialize(
       self,

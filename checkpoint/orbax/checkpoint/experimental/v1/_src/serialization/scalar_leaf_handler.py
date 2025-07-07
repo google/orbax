@@ -115,10 +115,7 @@ def _create_v0_restorearg(
     param: ScalarDeserializationParam,
 ) -> type_handlers_v0.RestoreArgs:
   """Creates a V0 RestoreArgs from V1 params."""
-
   restore_type = param.value
-
-  logging.info("setting restore_type: %r", restore_type)
   return type_handlers_v0.RestoreArgs(
       restore_type=restore_type,
   )
@@ -139,7 +136,7 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
     self._context = context_lib.get_context(context)
     self._handler_impl = _create_v0_scalar_handler()
 
-    logging.info("ScalarLeafHandler created.")
+    logging.vlog(1, "ScalarLeafHandler created.")
 
   async def serialize(
       self,

@@ -251,6 +251,12 @@ class CompositeHandlerTest(parameterized.TestCase):
     expected_result = {'foo': Bar(a=1, b='foo'), 'bar': Foo(x=5, y='bar')}
     self.assertDictEqual(expected_result, result)
 
+  def test_orbax_identifier_file_exists(self):
+    checkpointables = {'foo': Foo(x=1, y='foo')}
+    registry = self.create_registry().add(FooHandler, 'foo')
+    self.save(CompositeHandler(registry), self.directory, checkpointables)
+    self.assertTrue((self.directory / 'orbax.checkpoint').exists())
+
 
 if __name__ == '__main__':
   absltest.main()

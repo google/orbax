@@ -23,6 +23,7 @@ from absl import logging
 from etils import epath
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
@@ -37,6 +38,17 @@ CompositeItemMetadata = checkpoint_metadata.CompositeItemMetadata
 
 def _existing_checkpointable_names(directory: epath.Path) -> set[str]:
   return {p.name for p in directory.iterdir() if p.is_dir()}
+
+
+async def _create_orbax_identifier_file(
+    directory: path_types.PathAwaitingCreation, primary_host: int | None
+):
+  """Creates a file called `orbax.checkpoint` for easy identification."""
+  directory = await directory.await_creation()
+  if multihost.is_primary_host(primary_host):
+    await asyncio.to_thread(
+        (directory / 'orbax.checkpoint').touch, exist_ok=False
+    )
 
 
 class CompositeHandler:
@@ -93,6 +105,7 @@ class CompositeHandler:
     Returns:
       An awaitable that represents a background save operation.
     """
+    context = context_lib.get_context()
     handlers_for_save = self.get_handlers_for_save(checkpointables)
     save_ops = []
     for checkpointable_name, checkpointable in checkpointables.items():
@@ -104,7 +117,12 @@ class CompositeHandler:
     save_awaitables = await asyncio.gather(*save_ops)
 
     async def _run_background():
-      await asyncio.gather(*save_awaitables)
+      await asyncio.gather(
+          *save_awaitables,
+          _create_orbax_identifier_file(
+              directory, context.multiprocessing_options.primary_host
+          ),
+      )
 
     return _run_background()
 

@@ -238,7 +238,7 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractArray]):
         self._context,
     )
 
-    logging.info("ArrayLeafHandler created.")
+    logging.vlog(1, "ArrayLeafHandler created.")
 
   async def serialize(
       self,
