@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - #v1 Add dummy `orbax.checkpoint` file to help identify checkpoints.
+- #v1 Add LeafHandlerRegistry
 
 ## [0.11.18] - 2025-07-01
 
