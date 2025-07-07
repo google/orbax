@@ -107,7 +107,6 @@ class StandardCheckpointDeleter:
     prefix = parsed.path
 
     client = storage_control_v2.StorageControlClient()
-    logging.info('inside _rm_empty_folders')
     project_path = client.common_project_path('_')
     bucket_path = f'{project_path}/buckets/{bucket}'
     folders = set(
@@ -123,7 +122,6 @@ class StandardCheckpointDeleter:
     while folders:
       parents = set(os.path.dirname(x.rstrip('/')) + '/' for x in folders)
       leaves = folders - parents
-      logging.info('about to delete a leaves in a folder')
       requests = [
           storage_control_v2.DeleteFolderRequest(name=f) for f in leaves
       ]
