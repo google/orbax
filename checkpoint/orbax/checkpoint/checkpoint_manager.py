@@ -1155,7 +1155,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if last_checkpoint_step is not None and last_checkpoint_step >= step:
       return False
 
-    is_saving_in_progress = self.is_saving_in_progress()
+    # is_saving_in_progress = self.is_saving_in_progress()
     reached_preemption = self.reached_preemption(step)
     current_step_info = checkpoint_info.CheckpointInfo(
         step=step,
@@ -1163,7 +1163,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         metrics=None,
     )
     context = save_decision_policy_lib.DecisionContext(
-        is_saving_in_progress=is_saving_in_progress,
+        # is_saving_in_progress=is_saving_in_progress,
+        is_saving_in_progress=False, # !!! not used. hardcode for now to reduce step time
         reached_preemption=reached_preemption,
         multiprocessing_options=self._multiprocessing_options,
     )
