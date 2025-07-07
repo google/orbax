@@ -54,10 +54,11 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import pickle
 import re
 import threading
 import time
-from typing import Awaitable, Optional, Protocol, Sequence
+from typing import Awaitable, Optional, Protocol, Sequence, Type, TypeVar
 
 from absl import logging
 from etils import epath
@@ -76,6 +77,7 @@ from orbax.checkpoint._src.path import utils
 TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
 COMMIT_SUCCESS_FILE = step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
 
+_T = TypeVar('_T', bound='_TemporaryPathBase')
 _module_unique_count = itertools.count()
 
 
@@ -193,8 +195,8 @@ def _get_tmp_directory_pattern(final_path_name: Optional[str] = None) -> str:
     return final_path_name + suffix
 
 
-class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
-  """TemporaryPath implementation that uses atomic rename."""
+class _TemporaryPathBase(atomicity_types.TemporaryPath):
+  """A base class for TemporaryPath implementations."""
 
   def __init__(
       self,
@@ -223,6 +225,43 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
         multiprocessing_options.barrier_sync_key_prefix
     )
     self._path_permission_mode = file_options.path_permission_mode
+
+  def to_bytes(self) -> bytes:
+    """Serializes the object to bytes."""
+    data = {
+        'tmp_path': self._tmp_path,
+        'final_path': self._final_path,
+        'primary_host': self._primary_host,
+        'active_processes': self._active_processes,
+        'barrier_sync_key_prefix': self._barrier_sync_key_prefix,
+        'path_permission_mode': self._path_permission_mode,
+        'data_governance_annotations': self._data_governance_annotations,
+    }
+    return pickle.dumps(data)
+
+  @classmethod
+  def from_bytes(cls: Type[_T], data: bytes) -> _T:
+    """Deserializes the object from bytes."""
+    data = pickle.loads(data)
+    file_options = options_lib.FileOptions(
+        path_permission_mode=data['path_permission_mode'],
+        data_governance_annotations=data['data_governance_annotations'],
+    )
+    multiprocessing_options = options_lib.MultiprocessingOptions(
+        primary_host=data['primary_host'],
+        active_processes=data['active_processes'],
+        barrier_sync_key_prefix=data['barrier_sync_key_prefix'],
+    )
+    return cls(
+        data['tmp_path'],
+        data['final_path'],
+        file_options=file_options,
+        multiprocessing_options=multiprocessing_options,
+    )
+
+
+class AtomicRenameTemporaryPath(_TemporaryPathBase):
+  """TemporaryPath implementation that uses atomic rename."""
 
   @classmethod
   def from_final(
@@ -319,36 +358,8 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
     )
 
 
-class CommitFileTemporaryPath(atomicity_types.TemporaryPath):
+class CommitFileTemporaryPath(_TemporaryPathBase):
   """TemporaryPath implementation that uses a commit file."""
-
-  def __init__(
-      self,
-      temporary_path: epath.Path,
-      final_path: epath.Path,
-      *,
-      checkpoint_metadata_store: Optional[
-          checkpoint_metadata.MetadataStore
-      ] = None,
-      file_options: Optional[options_lib.FileOptions] = None,
-      multiprocessing_options: Optional[
-          options_lib.MultiprocessingOptions
-      ] = None,
-  ):
-    self._tmp_path = temporary_path
-    self._final_path = final_path
-
-    multiprocessing_options = (
-        multiprocessing_options or options_lib.MultiprocessingOptions()
-    )
-    file_options = file_options or options_lib.FileOptions()
-    self._checkpoint_metadata_store = checkpoint_metadata_store
-    self._primary_host = multiprocessing_options.primary_host
-    self._active_processes = multiprocessing_options.active_processes
-    self._barrier_sync_key_prefix = (
-        multiprocessing_options.barrier_sync_key_prefix
-    )
-    self._path_permission_mode = file_options.path_permission_mode
 
   @classmethod
   def from_final(

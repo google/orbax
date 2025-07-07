@@ -80,6 +80,15 @@ class TemporaryPath(Protocol):
     """Creates the temporary path on disk."""
     ...
 
+  @classmethod
+  def from_bytes(cls, data: bytes) -> TemporaryPath:
+    """Creates a TemporaryPath from bytes."""
+    ...
+
+  def to_bytes(self) -> bytes:
+    """Serializes the TemporaryPath to bytes."""
+    ...
+
   def finalize(
       self,
   ):
