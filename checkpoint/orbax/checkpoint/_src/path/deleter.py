@@ -14,10 +14,13 @@
 
 """Checkpoint deleter."""
 
+import functools
+import os
 import queue
 import threading
 import time
 from typing import Optional, Protocol, Sequence
+from urllib.parse import urlparse  # pylint: disable=g-importing-member
 from absl import logging
 from etils import epath
 import jax
@@ -58,6 +61,7 @@ class StandardCheckpointDeleter:
       directory: epath.Path,
       todelete_subdir: Optional[str],
       name_format: step_lib.NameFormat[step_lib.Metadata],
+      enable_hns_rmtree: bool,
       duration_metric: Optional[str] = _STANDARD_DELETE_DURATION,
   ):
     """StandardCheckpointDeleter constructor.
@@ -67,13 +71,89 @@ class StandardCheckpointDeleter:
       directory: refer to CheckpointManager.directory
       todelete_subdir: refer to CheckpointManagerOptions.todelete_subdir
       name_format: refer to CheckpointManager._name_format
+      enable_hns_rmtree: refer to CheckpointManagerOptions.enable_hns_rmtree
       duration_metric: the name of the total delete duration metric
     """
     self._primary_host = primary_host
     self._directory = directory
     self._todelete_subdir = todelete_subdir
     self._name_format = name_format
+    self._enable_hns_rmtree = enable_hns_rmtree
     self._duration_metric = duration_metric
+
+  @functools.lru_cache(maxsize=32)
+  def _is_hierarchical_namespace_enabled(self, path: epath.Path) -> bool:
+    """Return whether hierarchical namespace is enabled."""
+    # pylint: disable=g-import-not-at-top
+    from google.cloud import storage  # pytype: disable=import-error
+
+    parsed = urlparse(str(path))
+    assert parsed.scheme == 'gs', f'Unsupported scheme for HNS: {parsed.scheme}'
+    bucket_name = parsed.netloc
+
+    client = storage.Client()
+    bucket = client.get_bucket(bucket_name)
+    return bucket.hierarchical_namespace_enabled
+
+  def _rm_empty_folders(self, path: epath.Path) -> None:
+    """For a hierarchical namespace bucket, delete empty folders recursively."""
+    # pylint: disable=g-import-not-at-top
+    from google.cloud import storage_control_v2  # pytype: disable=import-error
+
+    parsed = urlparse(str(path))
+    assert parsed.scheme == 'gs', f'Unsupported scheme for HNS: {parsed.scheme}'
+    bucket = parsed.netloc
+    prefix = parsed.path
+
+    client = storage_control_v2.StorageControlClient()
+    project_path = client.common_project_path('_')
+    bucket_path = f'{project_path}/buckets/{bucket}'
+    folders = set(
+        # Format: "projects/{project}/buckets/{bucket}/folders/{folder}"
+        folder.name
+        for folder in client.list_folders(
+            request=storage_control_v2.ListFoldersRequest(
+                parent=bucket_path, prefix=prefix.strip('/') + '/'
+            )
+        )
+    )
+
+    while folders:
+      parents = set(os.path.dirname(x.rstrip('/')) + '/' for x in folders)
+      leaves = folders - parents
+      requests = [
+          storage_control_v2.DeleteFolderRequest(name=f) for f in leaves
+      ]
+      for req in requests:
+        client.delete_folder(request=req)
+      folders = folders - leaves
+      logging.vlog(
+          1,
+          'Deleted %s folders, %s remaining. [%s][%s]',
+          len(leaves),
+          len(folders),
+          bucket,
+          prefix,
+      )
+
+  def _rmtree(self, path: epath.Path):
+    """Recursively deletes a path.
+
+    For a hierarchical namespace bucket, `path.rmtree()` only removes objects,
+    leaving all the empty parent folders intact. Here we manually delete the
+    empty folders recursively.
+
+    Args:
+      path: the path to delete.
+    """
+    # Step 1: Delete all files within the tree.
+    path.rmtree()
+
+    # Step 2: For HNS, clean up the remaining empty directory structure.
+    if self._enable_hns_rmtree and self._is_hierarchical_namespace_enabled(
+        path
+    ):
+      self._rm_empty_folders(path)
 
   def delete(self, step: int) -> None:
     """Deletes step dir or renames it if _todelete_subdir is set.
@@ -110,7 +190,7 @@ class StandardCheckpointDeleter:
         return
 
       if self._todelete_subdir is None or step_lib.is_gcs_path(self._directory):
-        delete_target.rmtree()
+        self._rmtree(delete_target)
         logging.info('Deleted step %d.', step)
         return
 
@@ -145,6 +225,7 @@ class ThreadedCheckpointDeleter:
       directory: epath.Path,
       todelete_subdir: Optional[str],
       name_format: step_lib.NameFormat[step_lib.Metadata],
+      enable_hns_rmtree: bool,
   ):
     """ThreadedCheckpointDeleter deletes checkpoints in a background thread."""
     self._standard_deleter = StandardCheckpointDeleter(
@@ -152,6 +233,7 @@ class ThreadedCheckpointDeleter:
         directory=directory,
         todelete_subdir=todelete_subdir,
         name_format=name_format,
+        enable_hns_rmtree=enable_hns_rmtree,
         duration_metric=_THREADED_DELETE_DURATION,
     )
     self._delete_queue = queue.Queue()
@@ -196,6 +278,7 @@ def create_checkpoint_deleter(
     directory: epath.Path,
     todelete_subdir: Optional[str],
     name_format: step_lib.NameFormat[step_lib.Metadata],
+    enable_hns_rmtree: bool,
     enable_background_delete: bool,
 ) -> CheckpointDeleter:
   """Creates a CheckpointDeleter."""
@@ -206,6 +289,7 @@ def create_checkpoint_deleter(
         directory,
         todelete_subdir,
         name_format,
+        enable_hns_rmtree,
     )
   else:
     return StandardCheckpointDeleter(
@@ -213,4 +297,5 @@ def create_checkpoint_deleter(
         directory,
         todelete_subdir,
         name_format,
+        enable_hns_rmtree,
     )
