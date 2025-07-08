@@ -1430,44 +1430,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     args = args_lib.Composite(**args_dict)
 
     save_directory = self._get_write_step_directory(step, self.directory)
-    # If a folder for the step to save exists and is not finalized, remove the
-    # existing folder.
-    if step_lib.is_gcs_path(self.directory):
-      if (
-          utils.is_primary_host(self._multiprocessing_options.primary_host)
-          and save_directory.exists()
-          and utils.is_tmp_checkpoint(save_directory)
-      ):
-        logging.warning(
-            '[process=%s] Attempting to save on GCS at step %s which has an'
-            ' unfinalized checkpoint from previous runs. Removing the'
-            ' unfinalized checkpoint before saving.',
-            process_index,
-            step,
-        )
-        # make sure to use a synchronous deleter here
-        deleter.create_checkpoint_deleter(
-            self._multiprocessing_options.primary_host,
-            self._directory,
-            self._options.todelete_subdir,
-            self._step_name_format,
-            self._options.enable_hns_rmtree,
-            enable_background_delete=False,  # no background thread
-        ).delete(step)
-      multihost.sync_global_processes(
-          multihost.unique_barrier_key(
-              'CheckpointManager:delete_unfinalized_step_gcs',
-              prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-          ),
-          timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
-          processes=self._multiprocessing_options.active_processes,
-      )
     logging.info(
         '[process=%s] Saving checkpoint at step %d', process_index, step
     )
     step_stats.checkpointer_blocking_start_time = time.time()
     self._checkpointer.save(
-        save_directory, args=args, custom_metadata=custom_metadata
+        save_directory, args=args, custom_metadata=custom_metadata, force=True
     )
     step_stats.checkpointer_blocking_duration_secs = (
         time.time() - step_stats.checkpointer_blocking_start_time
