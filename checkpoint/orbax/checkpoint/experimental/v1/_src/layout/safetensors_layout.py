@@ -1,0 +1,106 @@
+# Copyright 2025 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Defines `SafetensorsLayout`, a class to handle Safetensors checkpoint formats."""
+import json
+from typing import Any, Awaitable
+import aiofiles
+import numpy as np
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+from orbax.checkpoint.experimental.v1._src.path import types
+
+
+CheckpointLayout = checkpoint_layout.CheckpointLayout
+Path = types.Path
+
+
+def _get_dtypes() -> dict[str, Any]:
+  """Returns the mapping from safetensor dtype strings to numpy dtypes."""
+  return {
+      "BOOL": np.bool_,
+      "I8": np.int8,
+      "U8": np.uint8,
+      "I16": np.int16,
+      "U16": np.uint16,
+      "I32": np.int32,
+      "U32": np.uint32,
+      "I64": np.int64,
+      "U64": np.uint64,
+      "F16": np.float16,
+      "F32": np.float32,
+      "F64": np.float64,
+      "F8_E8M0": "float8_e8m0fnu (specialized ML dtype)",
+      "F4": "float4_e2m1fn_x2 (specialized ML dtype)",
+  }
+
+
+async def _read(directory: Path) -> dict[str, Any]:
+  """Helper method, called by `load()`, to read a safetensors checkpoint.
+
+  Args:
+    directory: The path to load the checkpoint from.
+
+  Returns:
+    A dictionary of checkpointables. Dictionary keys represent the names of the
+    checkpointables, while the values are the checkpointable objects themselves.
+  """
+  tensors = {}
+  # TODO(b/430388022): Use abstract_checkpointables for sharding logic.
+  async with aiofiles.open(directory, mode="rb") as f:
+    # Extract the header
+    header_size_bytes = await f.read(8)
+    header_size = int.from_bytes(
+        header_size_bytes, byteorder="little"
+    )
+    header_bytes = await f.read(header_size)
+    header = json.loads(header_bytes)
+    data_bytes = await f.read()  # TODO(b/430651483)
+
+    # Load and reshape each tensor using the header as a reference
+    for name, info in header.items():
+      try:
+        dtype = _get_dtypes()[info["dtype"]]
+      except KeyError as e:
+        raise ValueError(f"Can't parse this dtype {e}") from e
+      shape = info["shape"]
+      start_offset, end_offset = info["data_offsets"]
+      tensor_bytes = data_bytes[start_offset:end_offset]
+      np_array = np.frombuffer(tensor_bytes, dtype=dtype).reshape(shape)
+      tensors[name] = np_array
+
+    return tensors
+
+
+class SafetensorsLayout(CheckpointLayout):
+  """SafetensorsLayout.
+
+  This class defines a class to handle Safetensors checkpoint formats. It
+  inherits
+  abstract methods from CheckpointLayout. It performs a few core functions:
+    - Resolves handlers for saving and loading.
+    - Saves and loads checkpointables to/from individual subdirectories by
+    delegating to the resolved handlers.
+  """
+
+  def validate(self, path: Path):
+    return path.is_file() and path.suffix == ".safetensors"
+
+  async def load(
+      self,
+      directory: Path,
+      abstract_checkpointables: dict[str, Any] | None = None,
+  ) -> Awaitable[dict[str, Any]]:
+    del abstract_checkpointables
+    # TODO(b/430388193) - Add support for abstract_checkpointables.
+    return _read(directory)
