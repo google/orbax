@@ -116,6 +116,8 @@ def _create_v0_restorearg(
 ) -> type_handlers_v0.RestoreArgs:
   """Creates a V0 RestoreArgs from V1 params."""
   restore_type = param.value
+
+  logging.vlog(1, "setting restore_type: %r", restore_type)
   return type_handlers_v0.RestoreArgs(
       restore_type=restore_type,
   )
@@ -159,8 +161,6 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
         for p in params
     ]
     saveargs = [_create_v0_savearg(p, self._context) for p in params]
-
-    await serialization_context.parent_dir.await_creation()
 
     commit_futures = await self._handler_impl.serialize(
         values, paraminfos, saveargs
@@ -232,8 +232,7 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
 
       ret = [_get_type(meta) for meta in v0_metadatas]
 
-      if logging.vlog_is_on(1):
-        logging.vlog(1, "scalar_metadata: %r", ret)
+      logging.vlog(1, "scalar_metadata: %r", ret)
 
       return ret
 

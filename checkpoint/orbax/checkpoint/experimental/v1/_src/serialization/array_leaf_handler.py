@@ -262,10 +262,6 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractArray]):
     ]
     saveargs = [_create_v0_savearg(p, self._context) for p in params]
 
-    # make sure the parent directory is created
-    # TODO(dnlng): figure a way to do this simultaneously with DTH transfer.
-    await serialization_context.parent_dir.await_creation()
-
     commit_futures = await self._handler_impl.serialize(
         values, paraminfos, saveargs
     )
@@ -332,8 +328,7 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractArray]):
         )
         ret.append(array_metadata)
 
-        if logging.vlog_is_on(1):
-          logging.vlog(1, "array_metadata: %r", array_metadata)
+        logging.vlog(1, "array_metadata: %r", array_metadata)
 
       return ret
 
