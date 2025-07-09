@@ -82,14 +82,10 @@ class StandardCheckpointDeleter:
     self._duration_metric = duration_metric
 
   @functools.lru_cache(maxsize=32)
-  def _is_hierarchical_namespace_enabled(self, path: epath.Path) -> bool:
+  def _is_hierarchical_namespace_enabled(self, bucket_name:str) -> bool:
     """Return whether hierarchical namespace is enabled."""
     # pylint: disable=g-import-not-at-top
     from google.cloud import storage  # pytype: disable=import-error
-
-    parsed = urlparse(str(path))
-    assert parsed.scheme == 'gs', f'Unsupported scheme for HNS: {parsed.scheme}'
-    bucket_name = parsed.netloc
 
     client = storage.Client()
     bucket = client.get_bucket(bucket_name)
@@ -150,10 +146,13 @@ class StandardCheckpointDeleter:
     path.rmtree()
 
     # Step 2: For HNS, clean up the remaining empty directory structure.
-    if self._enable_hns_rmtree and self._is_hierarchical_namespace_enabled(
-        path
-    ):
-      self._rm_empty_folders(path)
+    if self._enable_hns_rmtree:
+      parsed = urlparse(str(path))
+      assert parsed.scheme == 'gs', f'Unsupported scheme for HNS: {parsed.scheme}'
+      bucket_name = parsed.netloc
+
+      if self._is_hierarchical_namespace_enabled(bucket_name):
+        self._rm_empty_folders(path)
 
   def delete(self, step: int) -> None:
     """Deletes step dir or renames it if _todelete_subdir is set.
