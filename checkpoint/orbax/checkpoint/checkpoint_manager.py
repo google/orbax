@@ -345,8 +345,10 @@ class CheckpointManagerOptions:
     instead. Prefer to use this option over others.
   prevent_write_metrics: False by default. If True, metrics will not be written.
   enable_should_save_is_saving_in_progress_check: True by default. If False,
-    `should_save_fn` will not check `is_saving_in_progress` and will assume
-    that it is True. This is an interim workaround for b/428061876. Do not use
+    `should_save_fn` will not check `is_saving_in_progress`, and will assume
+    that no save is in progress. This only affects users of
+    `ContinuousCheckpointingPolicy` - otherwise the value is ignored.
+    This is an interim workaround for b/428061876. Do not use
     without explicit approval.
   """
 
