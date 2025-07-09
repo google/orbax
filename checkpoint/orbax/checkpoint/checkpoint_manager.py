@@ -1178,7 +1178,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         metrics=None,
     )
     context = save_decision_policy_lib.DecisionContext(
-        is_saving_in_progress=is_saving_in_progress,
+        # is_saving_in_progress=is_saving_in_progress,
+        is_saving_in_progress=False, # !!! not used. hardcode for now to reduce step time
         reached_preemption=reached_preemption,
         multiprocessing_options=self._multiprocessing_options,
     )
