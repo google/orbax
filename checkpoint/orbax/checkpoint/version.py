@@ -17,14 +17,14 @@
 # A new PyPI release will be pushed everytime `__version__` is increased.
 # Also modify version and date in CHANGELOG.
 # LINT.IfChange
-__version__ = '0.11.19'
+__version__ = "0.11.19"
 # LINT.ThenChange(//depot//orbax/checkpoint/CHANGELOG.md)
 
 
 # TODO: b/362813406 - Add latest change timestamp and commit number.
 def get_details() -> str:
-  """Returns the Orbax version details.
+    """Returns the Orbax version details.
 
-  It includes release version.
-  """
-  return f'orbax-checkpoint version: {__version__}'
+    It includes release version.
+    """
+    return f"orbax-checkpoint version: {__version__}"
