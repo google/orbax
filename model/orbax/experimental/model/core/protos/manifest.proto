@@ -32,6 +32,7 @@ message TopLevelObject {
   oneof case {
     Function function = 1;
     Value value = 2;
+    PolymorphicFunction poly_fn = 30;
   }
 }
 
@@ -55,6 +56,14 @@ message Value {
     // ...  list, dict, none
   }
 }
+
+// An (ad-hoc) polymorphic function consists of a set of `Function`s which are
+// known as "concrete functions" in this context. When a polymorphic function is
+// called, it will pick a concrete function whose signature (most precisely)
+// matches the arguments.
+message PolymorphicFunction {
+  repeated Function concrete_functions = 1;
+};
 
 // Indicates which data loader to use to load the data from external storage.
 enum LoaderType {
