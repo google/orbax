@@ -22,6 +22,7 @@ import jax
 from jax import numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
+import time
 
 PyTree = Any
 
@@ -60,16 +61,11 @@ def slice_devices(
     replica_id: int = 0,
     replica_axis_index: int = 0,
 ) -> np.ndarray:
-  devices = global_mesh.devices
-  if hasattr(jax.devices()[0], 'slice_index'):
-    get_slice_id = np.vectorize(lambda x: x.slice_index)
-    return devices[get_slice_id(devices) == replica_id]
-  else:
-    return np.take(
-        global_mesh.devices,
-        replica_id,
-        axis=replica_axis_index,
-    )
+  return np.take(
+      global_mesh.devices,
+      replica_id,
+      axis=replica_axis_index,
+  )
 
 
 def slice_count(
@@ -229,9 +225,8 @@ def broadcast_one_replica_to_all(
       - pytree with broadcasted data
       - number of broadcasts performed.
   """
-  # num_replicas = global_mesh.devices.shape[replica_axis_index]
-  # replica_axis_name = global_mesh.axis_names[replica_axis_index]
-  replica_axis_name = global_mesh.axis_names[0]  # assuming pp dimension is never used
+  num_replicas = global_mesh.devices.shape[replica_axis_index]
+  replica_axis_name = global_mesh.axis_names[replica_axis_index]
 
   if memory_limit_bytes is None:
     memory_limit_bytes = get_available_memory(in_tree, memory_scaling_factor)
@@ -247,14 +242,17 @@ def broadcast_one_replica_to_all(
       )
     if not is_source:
       inp = fake_zero_data(sharding, inp)
-    inp = jnp.expand_dims(inp, axis=0)
-    in_spec = jax.sharding.PartitionSpec(
-        "replication",
-        *sharding.spec,
-    )
-    global_shape = (num_replicas,) + inp.shape[1:]
-    _global_mesh = jax.sharding.Mesh(global_mesh.devices.reshape((num_replicas, *(-1 if i == replica_axis_index else n for i, n in enumerate(global_mesh.devices.shape)))), ("replication", *global_mesh.axis_names))
-    global_sharding = jax.sharding.NamedSharding(_global_mesh, in_spec)
+    # inp = jnp.expand_dims(inp, axis=0)
+    # in_spec = jax.sharding.PartitionSpec(
+    #     replica_axis_name,
+    #     *sharding.spec,
+    # )
+    in_spec = jax.sharding.PartitionSpec(sharding.spec[:replica_axis_index] + (replica_axis_name,) + sharding.spec[replica_axis_index + 1:])
+    # global_shape = (num_replicas,) + inp.shape[1:]
+    global_shape = inp.shape[:replica_axis_index] + (num_replicas,) + inp.shape[replica_axis_index + 1:]
+    global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
+    # _global_mesh = jax.sharding.Mesh(global_mesh.devices.reshape((num_replicas, *(-1 if i == replica_axis_index else n for i, n in enumerate(global_mesh.devices.shape)))), ("replication", *global_mesh.axis_names))
+    # global_sharding = jax.sharding.NamedSharding(_global_mesh, in_spec)
     return jax.make_array_from_single_device_arrays(
         global_shape, global_sharding, [s.data for s in inp.addressable_shards]
     )
@@ -264,6 +262,7 @@ def broadcast_one_replica_to_all(
   out_tree = []
   num_broadcasts = 0
   while start < tree_len:
+    start_time = time.perf_counter()
     subtree = []
     current_memory = 0
     end = start
@@ -297,12 +296,13 @@ def broadcast_one_replica_to_all(
     jax.tree.map(lambda x: x.delete(), subtree)
 
     out_subtree = jax.jit(
-        lambda tree: jax.tree.map(functools.partial(jnp.sum, axis=0), tree),
+        lambda tree: jax.tree.map(functools.partial(jnp.sum, axis=replica_axis_index), tree),
         out_shardings=out_sharding,
     )(in_tree_sharded)
     out_tree.extend(out_subtree)
     jax.block_until_ready(out_subtree)
     start = end
+    logging.info('Finished the [%d] broadcast in %s seconds.', num_broadcasts, time.perf_counter() - start_time)
 
   if is_source:
     logging.info('Total number of broadcasts: %d', num_broadcasts)
