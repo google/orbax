@@ -34,7 +34,9 @@ class ShardingTest(absltest.TestCase):
 
   def test_jax_mesh_to_obm_device_assignment_by_coords(self):
     device_assignment_by_coords = (
-        sharding.jax_mesh_to_obm_device_assignment_by_coords(self.get_mesh())
+        sharding.jax_mesh_to_obm_device_assignment_by_coords_proto(
+            self.get_mesh()
+        )
     )
     expected_device_assignment_by_coords_text = """
         devices {
