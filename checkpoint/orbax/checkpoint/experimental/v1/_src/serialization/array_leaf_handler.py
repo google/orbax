@@ -211,7 +211,10 @@ def _create_v0_restorearg(
     return type_handlers_v0.ArrayRestoreArgs(restore_type=jax.Array)
   else:
     v = param.value
-    assert isinstance(v, (jax.Array, jax.ShapeDtypeStruct, ArrayMetadata))
+    if not isinstance(v, (jax.Array, jax.ShapeDtypeStruct, ArrayMetadata)):
+      raise ValueError(
+          f"ArrayDeserializationParam.value is an unsupported type: {type(v)}"
+      )
     return type_handlers_v0.ArrayRestoreArgs(
         restore_type=jax.Array,
         dtype=v.dtype,

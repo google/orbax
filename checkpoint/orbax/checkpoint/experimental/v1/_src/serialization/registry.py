@@ -24,6 +24,7 @@ from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handl
 from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
+from orbax.checkpoint.experimental.v1._src.serialization import string_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import types
 import typing_extensions
 
@@ -55,6 +56,10 @@ STANDARD_TYPE_AND_ABSTRACT_TYPE_TO_HANDLER = {
         np.number,
         np.number,
     ): scalar_leaf_handler.ScalarLeafHandler,
+    (
+        str,
+        str,
+    ): string_leaf_handler.StringLeafHandler,
 }
 
 
