@@ -344,6 +344,10 @@ class CheckpointManagerOptions:
     checkpoints to preserve. If not provided, these other options are used
     instead. Prefer to use this option over others.
   prevent_write_metrics: False by default. If True, metrics will not be written.
+  enable_should_save_is_saving_in_progress_check: True by default. If False,
+    `should_save_fn` will not check `is_saving_in_progress` and will assume
+    that it is True. This is an interim workaround for b/428061876. Do not use
+    without explicit approval.
   """
 
   save_interval_steps: int = 1
@@ -381,6 +385,8 @@ class CheckpointManagerOptions:
       None
   )
   prevent_write_metrics: bool = False
+  # TODO(b/428061876) Remove this option.
+  enable_should_save_is_saving_in_progress_check: bool = True
 
   def __post_init__(self):
     step_name_format_single_host_load_and_broadcast = (
@@ -1159,7 +1165,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if last_checkpoint_step is not None and last_checkpoint_step >= step:
       return False
 
-    is_saving_in_progress = self.is_saving_in_progress()
+    if self._options.enable_should_save_is_saving_in_progress_check:
+      is_saving_in_progress = self.is_saving_in_progress()
+    else:
+      is_saving_in_progress = False
     reached_preemption = self.reached_preemption(step)
     current_step_info = checkpoint_info.CheckpointInfo(
         step=step,
