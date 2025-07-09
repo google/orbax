@@ -82,7 +82,7 @@ class StandardCheckpointDeleter:
     self._duration_metric = duration_metric
 
   @functools.lru_cache(maxsize=32)
-  def _is_hierarchical_namespace_enabled(self, bucket_name:str) -> bool:
+  def _is_hierarchical_namespace_enabled(self, bucket_name: str) -> bool:
     """Return whether hierarchical namespace is enabled."""
     # pylint: disable=g-import-not-at-top
     from google.cloud import storage  # pytype: disable=import-error
@@ -148,9 +148,10 @@ class StandardCheckpointDeleter:
     # Step 2: For HNS, clean up the remaining empty directory structure.
     if self._enable_hns_rmtree:
       parsed = urlparse(str(path))
-      assert parsed.scheme == 'gs', f'Unsupported scheme for HNS: {parsed.scheme}'
+      assert (
+          parsed.scheme == 'gs'
+      ), f'Unsupported scheme for HNS: {parsed.scheme}'
       bucket_name = parsed.netloc
-
       if self._is_hierarchical_namespace_enabled(bucket_name):
         self._rm_empty_folders(path)
 
