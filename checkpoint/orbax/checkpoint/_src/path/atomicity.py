@@ -160,7 +160,7 @@ async def _create_tmp_directory(
     await async_makedir_func(
         tmp_dir,
         parents=True,
-        exist_ok=True,
+        exist_ok=False,
         mode=path_permission_mode,
         **kwargs,
     )
@@ -564,7 +564,7 @@ async def _create_paths(
     creation_ops = []
     for path in paths:
       creation_ops.extend([
-          _mkdir(path / name, parents=False, exist_ok=True)
+          _mkdir(path / name, parents=False, exist_ok=False)
           for name in subdirectories
       ])
     await asyncio.gather(*creation_ops)
