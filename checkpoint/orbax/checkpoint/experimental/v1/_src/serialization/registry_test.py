@@ -17,39 +17,43 @@
 from absl.testing import absltest
 import jax
 import jax.numpy as jnp
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import registry
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
 
 class DummyIntHandlerInt(types.LeafHandler[int, int]):
-  pass
+
+  def __init__(self, context: context_lib.Context | None = None):
+    del context
 
 
 class DummyJaxHandler(
     types.LeafHandler[jax.Array, array_leaf_handler.AbstractArray]
 ):
-  pass
+
+  def __init__(self, context: context_lib.Context | None = None):
+    del context
 
 
 class RegistryTest(absltest.TestCase):
 
   def test_simple_add_and_get(self):
     reg = registry.BaseLeafHandlerRegistry()
-    int_handler = DummyIntHandlerInt()
-    array_handler = DummyJaxHandler()
-    reg.add(int, int, int_handler)
-    reg.add(jax.Array, array_leaf_handler.AbstractArray, array_handler)
+    reg.add(int, int, DummyIntHandlerInt)
+    reg.add(jax.Array, array_leaf_handler.AbstractArray, DummyJaxHandler)
 
-    self.assertEqual(reg.get(type(0)), int_handler)
-    self.assertEqual(reg.get_abstract(int), int_handler)
+    self.assertEqual(DummyIntHandlerInt, reg.get(int))
+    self.assertEqual(DummyIntHandlerInt, reg.get(type(0)))
+    self.assertEqual(DummyIntHandlerInt, reg.get_abstract(int))
 
-    self.assertEqual(reg.get(jax.Array), array_handler)
-    self.assertEqual(reg.get(type(jnp.asarray([1, 2, 3]))), array_handler)
-    self.assertEqual(reg.get(type(jax.random.key(0))), array_handler)
+    self.assertEqual(DummyJaxHandler, reg.get(jax.Array))
+    self.assertEqual(reg.get(type(jnp.asarray([1, 2, 3]))), DummyJaxHandler)
+    self.assertEqual(reg.get(type(jax.random.key(0))), DummyJaxHandler)
     self.assertEqual(
         reg.get_abstract(type(jax.ShapeDtypeStruct((), jnp.float32))),
-        array_handler,
+        DummyJaxHandler,
     )
 
     with self.assertRaisesRegex(ValueError, "Unknown Leaf type"):
@@ -64,78 +68,71 @@ class RegistryTest(absltest.TestCase):
   def test_replace(self):
     reg = registry.StandardLeafHandlerRegistry()
 
-    orig_array_handler = reg.get(jax.Array)
-    orig_int_handler = reg.get(int)
+    orig_array_handler_type = reg.get(jax.Array)
+    orig_int_handler_type = reg.get(int)
 
     self.assertIsNotNone(reg.get(jax.Array))
     self.assertIsNotNone(reg.get_abstract(jax.ShapeDtypeStruct))
     self.assertIsNotNone(reg.get(int))
     self.assertIsNotNone(reg.get_abstract(int))
 
-    int_handler = DummyIntHandlerInt()
-    array_handler = DummyJaxHandler()
-
-    reg.add(int, int, int_handler, override=True)
+    reg.add(int, int, DummyIntHandlerInt, override=True)
     reg.add(
         jax.Array,
         array_leaf_handler.AbstractArray,
-        array_handler,
+        DummyJaxHandler,
         override=True,
     )
 
-    self.assertEqual(reg.get(int), int_handler)
-    self.assertEqual(reg.get_abstract(int), int_handler)
-    self.assertEqual(reg.get(jax.Array), array_handler)
-    self.assertEqual(reg.get_abstract(jax.ShapeDtypeStruct), array_handler)
+    self.assertEqual(DummyIntHandlerInt, reg.get(int))
+    self.assertEqual(DummyJaxHandler, reg.get(jax.Array))
 
-    self.assertNotEqual(reg.get(jax.Array), orig_array_handler)
+    self.assertEqual(DummyIntHandlerInt, reg.get_abstract(int))
+    self.assertEqual(DummyJaxHandler, reg.get_abstract(jax.ShapeDtypeStruct))
+
+    self.assertNotEqual(reg.get(jax.Array), orig_array_handler_type)
     self.assertNotEqual(
         reg.get_abstract(type(jax.ShapeDtypeStruct((), jnp.float32))),
-        orig_array_handler,
+        orig_array_handler_type,
     )
-    self.assertNotEqual(reg.get(int), orig_int_handler)
-    self.assertNotEqual(reg.get_abstract(int), orig_int_handler)
+    self.assertNotEqual(reg.get(int), orig_int_handler_type)
+    self.assertNotEqual(reg.get_abstract(int), orig_int_handler_type)
 
   def test_replace_with_different_abstract_type(self):
+
+    class DummyIntHandlerInt2(types.LeafHandler[int, type(None)]):
+
+      def __init__(self, context: context_lib.Context | None = None):
+        del context
+
     reg = registry.BaseLeafHandlerRegistry()
-    int_handler = DummyIntHandlerInt()
-    array_handler = DummyJaxHandler()
-    reg.add(int, int, int_handler, override=True)
-    reg.add(
-        jax.Array,
-        array_leaf_handler.AbstractArray,
-        array_handler,
-        override=True,
-    )
+    reg.add(int, int, DummyIntHandlerInt)
+    self.assertEqual(reg.get(int), DummyIntHandlerInt)
+    self.assertEqual(reg.get_abstract(int), DummyIntHandlerInt)
 
-    self.assertEqual(reg.get(int), int_handler)
-    self.assertEqual(reg.get_abstract(int), int_handler)
-
-    int_handler2 = DummyIntHandlerInt()
-    reg.add(int, jnp.int64, int_handler2, override=True)
+    # replace AbstractInt
+    reg.add(int, type(None), DummyIntHandlerInt2, override=True)
+    self.assertEqual(DummyIntHandlerInt2, reg.get(int))
+    self.assertEqual(DummyIntHandlerInt2, reg.get_abstract(type(None)))
 
     with self.assertRaisesRegex(ValueError, "Unknown AbstractLeaf type"):
-      reg.get_abstract(int)
-    self.assertEqual(reg.get(int), int_handler2)
-    self.assertEqual(reg.get_abstract(jnp.int64), int_handler2)
+      print(f"{reg.get_abstract(int)=}")
 
   def test_get_all(self):
     reg = registry.BaseLeafHandlerRegistry()
-    int_handler = DummyIntHandlerInt()
-    array_handler = DummyJaxHandler()
-    reg.add(int, int, int_handler)
-    reg.add(jax.Array, array_leaf_handler.AbstractArray, array_handler)
+    reg.add(int, int, DummyIntHandlerInt)
+    reg.add(jax.Array, array_leaf_handler.AbstractArray, DummyJaxHandler)
 
     all_items = reg.get_all()
     self.assertLen(all_items, 2)
 
     for item in all_items:
       if item[0] == int:
-        self.assertEqual(item, (int, int, int_handler))
+        self.assertEqual(item, (int, int, DummyIntHandlerInt))
       elif item[0] == jax.Array:
         self.assertEqual(
             item,
-            (jax.Array, array_leaf_handler.AbstractArray, array_handler),
+            (jax.Array, array_leaf_handler.AbstractArray, DummyJaxHandler),
         )
       else:
         self.fail(f"Unexpected item: {item}")

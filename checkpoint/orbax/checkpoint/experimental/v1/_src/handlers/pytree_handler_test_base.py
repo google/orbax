@@ -25,7 +25,7 @@ import datetime
 import functools
 import json
 import threading
-from typing import Any, Awaitable, Iterator, List, Sequence
+from typing import Any, Awaitable, Iterator, List, Sequence, Type
 from unittest import mock
 
 from absl.testing import parameterized
@@ -56,6 +56,8 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
+from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import registry
 from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
@@ -86,6 +88,20 @@ Path = path_types.Path
 
 async def _run_awaitable(awaitable: Awaitable[Any]) -> Any:
   return await awaitable
+
+
+# Custom dataclasses for testing custom leaf handlers.  PyType check requires
+# these defines outside of the test.
+@dataclasses.dataclass
+class Point:
+  x: int
+  y: float
+
+
+@dataclasses.dataclass
+class AbstractPoint:
+  x: Type[int] = int
+  y: Type[float] = float
 
 
 class PyTreeHandler:
@@ -319,13 +335,10 @@ class PyTreeHandlerTestBase:
         ):
           return value
         if isinstance(value, np.ndarray):
-          return value_metadata.ArrayMetadata(
-              name='',
-              directory=None,
+          return numpy_leaf_handler.NumpyMetadata(
               shape=value.shape,
-              sharding=None,
               dtype=value.dtype,
-              storage=value_metadata.StorageMetadata(
+              storage_metadata=value_metadata.StorageMetadata(
                   chunk_shape=value.shape,
               ),
           )
@@ -334,13 +347,11 @@ class PyTreeHandlerTestBase:
               value.sharding
           )
           expected_chunk_shape = test_utils.get_expected_chunk_shape(value)
-          return value_metadata.ArrayMetadata(
-              name='',
-              directory=None,
+          return array_leaf_handler.ArrayMetadata(
               shape=value.shape,
-              sharding=expected_sharding,
+              sharding_metadata=expected_sharding,
               dtype=value.dtype,
-              storage=value_metadata.StorageMetadata(
+              storage_metadata=value_metadata.StorageMetadata(
                   chunk_shape=expected_chunk_shape,
                   write_shape=(
                       expected_chunk_shape
@@ -350,14 +361,13 @@ class PyTreeHandlerTestBase:
               ),
           )
         if isinstance(value, (float, int)):
-          dtype = np.float64 if isinstance(value, float) else np.int64
-          return value_metadata.ScalarMetadata(
-              name='', directory=None, dtype=dtype
-          )  # pytype: disable=wrong-arg-types  # jnp-type
+          return np.float64 if isinstance(value, float) else np.int64
         if isinstance(value, str):
-          return value_metadata.StringMetadata(name='', directory=None)
+          return str
         if isinstance(value, optax.EmptyState):
           return None
+        if isinstance(value, Point):
+          return AbstractPoint()
         raise ValueError(f'Unrecognized type: {type(value)}.')
 
       expected_metadata = jax.tree.map(
@@ -528,13 +538,23 @@ class PyTreeHandlerTestBase:
               jax.sharding.Mesh(jax.devices(), ('x',))
           ),
       )
+
+      restored_metadata = self.handler.metadata(self.directory)
       self.assertEqual(
           a_sharding_metadata,
-          self.handler.metadata(self.directory)['a'].sharding,
+          restored_metadata['a'].sharding_metadata,
       )
       self.assertEqual(
           b_sharding_metadata,
-          self.handler.metadata(self.directory)['b'].sharding,
+          restored_metadata['b'].sharding_metadata,
+      )
+      self.assertEqual(
+          pytree['a'].sharding,
+          restored_metadata['a'].sharding,
+      )
+      self.assertEqual(
+          pytree['b'].sharding,
+          restored_metadata['b'].sharding,
       )
 
     @parameterized.product(use_ocdbt=(True, False))
@@ -708,27 +728,19 @@ class PyTreeHandlerTestBase:
         restored = self.handler.load(self.directory)
         jax.tree.map(functools.partial(check_dtype, dtype=save_dtype), restored)
 
-    def test_cast_scalar(self):
-      pytree = {'a': 5, 'b': 1.2}
-      abstract_pytree = {'a': 0.0, 'b': 0}
-      self.handler.save(self.directory, pytree)
-      restored = self.handler.load(self.directory, abstract_pytree)
-      self.assertIsInstance(restored['a'], float)
-      self.assertIsInstance(restored['b'], int)
-
-    def test_load_type(self):
+    @parameterized.product(cast_to=(int, float, 0, 0.0))
+    def test_cast_scalar_types(self, cast_to):
       pytree = {'a': 5, 'b': 6.1}
       abstract_pytree = {
-          'a': np.asarray(0.0, dtype=np.float32),
-          'b': np.asarray(0, dtype=np.int32),
+          'a': cast_to,
+          'b': cast_to,
       }
 
       self.handler.save(self.directory, pytree)
       restored = self.handler.load(self.directory, abstract_pytree)
-      self.assertIsInstance(restored['a'], np.ndarray)
-      self.assertIsInstance(restored['b'], np.ndarray)
-      self.assertEqual(restored['a'].dtype, np.float32)
-      self.assertEqual(restored['b'].dtype, np.int32)
+      expected_type = cast_to if isinstance(cast_to, type) else type(cast_to)
+      self.assertIsInstance(restored['a'], expected_type)
+      self.assertIsInstance(restored['b'], expected_type)
 
     @parameterized.product(
         use_ocdbt=(True, False),
@@ -1356,6 +1368,9 @@ class PyTreeHandlerTestBase:
       class PlusOneHandler(scalar_leaf_handler.ScalarLeafHandler):
         """A custom handler that adds one to all scalar values."""
 
+        def __init__(self, context: context_lib.Context | None = None):
+          super().__init__(context=context)
+
         async def serialize(
             self,
             params: Sequence[scalar_leaf_handler.ScalarSerializationParam],
@@ -1371,17 +1386,15 @@ class PyTreeHandlerTestBase:
           return await super().serialize(updated_params, serialization_context)
 
       leaf_registry = registry.BaseLeafHandlerRegistry()
-      leaf_registry.add(int, int, PlusOneHandler())
+      leaf_registry.add(int, int, PlusOneHandler)
 
       with handler_with_options(
           leaf_handler_registry=leaf_registry,
           array_metadata_store=None,
           use_zarr3=True,
       ) as handler:
-        # TODO(b/430598877) V1 Registry error message should be returned intead.
-        with self.assertRaisesRegex(
-            ValueError, "TypeHandler lookup failed for: type=<class 'float'>"
-        ):
+        # TODO(b/430598877) Return V1 Registry error message.
+        with self.assertRaisesRegex(ValueError, 'TypeHandler lookup failed'):
           handler.save(self.directory, {'a': 3, 'b': 1.0})
 
         handler.save(self.directory, {'a': 3})
@@ -1576,26 +1589,16 @@ class PyTreeHandlerTestBase:
           'b': np.array([2]),
           'c': 'hello',
       }
-      expected_metadata_without_directory = {
-          'a': value_metadata.ScalarMetadata(
-              name='a',
-              directory=None,
-              shape=(),
-              sharding=None,
-              dtype=np.dtype('int64'),
-              storage=None,
-          ),
-          'b': value_metadata.ArrayMetadata(
-              name='b',
-              directory=None,
+      expected_metadata = {
+          'a': np.int64,
+          'b': numpy_leaf_handler.NumpyMetadata(
               shape=(1,),
-              sharding=None,
-              dtype=np.dtype('int64'),
-              storage=value_metadata.StorageMetadata(
+              dtype=checkpoint['b'].dtype,
+              storage_metadata=value_metadata.StorageMetadata(
                   chunk_shape=(1,), write_shape=None
               ),
           ),
-          'c': value_metadata.StringMetadata(name='c', directory=None),
+          'c': str,
       }
       with handler_with_options(
           use_ocdbt=use_ocdbt,
@@ -1605,13 +1608,10 @@ class PyTreeHandlerTestBase:
         checkpoint_handler.save(self.directory, checkpoint)
 
         self.assertFalse((self.directory / 'array_metadatas').exists())
-        metadata = checkpoint_handler.metadata(self.directory)
-        metadata_without_directory = jax.tree.map(
-            lambda m: dataclasses.replace(m, directory=None), metadata
-        )
+        restored_metadata = checkpoint_handler.metadata(self.directory)
         self.assertEqual(
-            expected_metadata_without_directory,
-            metadata_without_directory,
+            expected_metadata,
+            restored_metadata,
         )
 
     @parameterized.product(
@@ -1644,7 +1644,7 @@ class PyTreeHandlerTestBase:
         }
         metadata = checkpoint_handler.metadata(self.directory)
         tree_with_write_shapes = jax.tree.map(
-            lambda m: {'write_shape': m.storage.write_shape}, metadata
+            lambda m: {'write_shape': m.storage_metadata.write_shape}, metadata
         )
         self.assertDictEqual(
             expected_tree_with_write_shapes, tree_with_write_shapes
@@ -1684,7 +1684,7 @@ class PyTreeHandlerTestBase:
         }
         metadata = checkpoint_handler.metadata(self.directory)
         tree_with_write_shapes = jax.tree.map(
-            lambda m: {'write_shape': m.storage.write_shape}, metadata
+            lambda m: {'write_shape': m.storage_metadata.write_shape}, metadata
         )
         self.assertDictEqual(
             expected_tree_with_write_shapes, tree_with_write_shapes
@@ -1889,8 +1889,6 @@ class PyTreeHandlerTestBase:
       if multihost.is_pathways_backend():
         # TODO(b/404915487): Reenable when possible.
         self.skipTest('Disabled due to b/404915487.')
-      pytree = dict(arr=np.ones((1024, 512)))
-      self.handler.save(self.directory, pytree)
 
       mesh = jax.sharding.Mesh(
           np.asarray(jax.devices()).reshape((1, len(jax.devices()))), ('x', 'y')
@@ -1898,6 +1896,9 @@ class PyTreeHandlerTestBase:
       sharding = jax.sharding.NamedSharding(
           mesh, jax.sharding.PartitionSpec('x', 'y')
       ).with_memory_kind('pinned_host')
+
+      pytree = dict(arr=jnp.ones((1024, 512), device=sharding))
+      self.handler.save(self.directory, pytree)
 
       abstract_pytree = dict(
           arr=jax.ShapeDtypeStruct(
@@ -2073,3 +2074,100 @@ class PyTreeHandlerTestBase:
               r"Missing 1 keys in structure path \(\), including: \['z'\]",
           ):
             restore_handler.load(directory, reference_item)
+
+    @parameterized.product(use_zarr3=(True, False), use_ocdbt=(True, False))
+    def test_custom_leaf_handler(self, use_zarr3: bool, use_ocdbt: bool):
+
+      class PointLeafHandler(
+          serialization_types.LeafHandler[Point, AbstractPoint]
+      ):
+        """A custom leaf handler for testing."""
+
+        def __init__(self, context: context_lib.Context | None = None):
+          del context
+
+        async def serialize(
+            self,
+            params: Sequence[serialization_types.SerializationParam[Point]],
+            serialization_context: serialization_types.SerializationContext,
+        ) -> Awaitable[None]:
+
+          def _serialize_impl():
+            if multihost.is_primary_host(0):
+              for param in params:
+                with open(
+                    serialization_context.parent_dir.path / f'{param.name}.txt',
+                    'w',
+                ) as f:
+                  f.write(json.dumps(dataclasses.asdict(param.value)))
+
+          return asyncio.to_thread(_serialize_impl)
+
+        async def deserialize(
+            self,
+            params: Sequence[
+                serialization_types.DeserializationParam[AbstractPoint]
+            ],
+            deserialization_context: serialization_types.DeserializationContext,
+        ) -> Awaitable[Sequence[Point]]:
+
+          def _deserialize_impl():
+            ret = []
+            for param in params:
+              with open(
+                  deserialization_context.parent_dir / f'{param.name}.txt',
+                  'r',
+              ) as f:
+                ret.append(Point(**json.loads(f.read())))
+
+            return ret
+
+          return asyncio.to_thread(_deserialize_impl)
+
+        async def metadata(
+            self,
+            params: Sequence[serialization_types.DeserializationParam[None]],
+            deserialization_context: serialization_types.DeserializationContext,
+        ) -> Sequence[AbstractPoint]:
+          return [AbstractPoint()] * len(params)
+
+      pytree = {
+          'point1': Point(1, 2),
+          'point2': Point(3, 4),
+          'nested': {
+              'point3': Point(5, 6),
+              'point4': Point(7, 8),
+          },
+          'string_leaf': 'string_leaf',
+          'number': 123,
+          'pytree': self.pytree,
+      }
+
+      array_metadata_store = ARRAY_METADATA_STORE
+
+      leaf_handler_registry = registry.StandardLeafHandlerRegistry()
+      leaf_handler_registry.add(Point, AbstractPoint, PointLeafHandler)
+
+      def _as_abstract_type(x):
+        if isinstance(x, Point):
+          return AbstractPoint
+        return as_abstract_type(x)
+
+      with handler_with_options(
+          use_ocdbt=use_ocdbt,
+          leaf_handler_registry=leaf_handler_registry,
+          array_metadata_store=array_metadata_store,
+          use_zarr3=use_zarr3,
+      ) as checkpoint_handler:
+        checkpoint_handler.save(self.directory, pytree)
+        abstract_pytree = jax.tree.map(_as_abstract_type, pytree)
+        restored = checkpoint_handler.load(self.directory, abstract_pytree)
+
+        test_utils.assert_tree_equal(self, pytree, restored)
+
+        self.validate_metadata(
+            expected_reference_metadata_tree=pytree,
+            actual_metadata=checkpoint_handler.metadata(self.directory),
+            pytree_metadata_options=self.pytree_metadata_options,
+            array_metadata_store=array_metadata_store,
+        )
