@@ -155,8 +155,8 @@ class ShardingTest(absltest.TestCase):
     )
     compare.assertProtoEqual(
         self,
-        device_assignment_by_coords,
         expected_device_assignment_by_coords,
+        device_assignment_by_coords,
     )
 
 
