@@ -26,6 +26,7 @@ from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
+from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
@@ -123,6 +124,8 @@ class PyTreeOptions:
   Attributes:
     saving: Options for saving PyTrees.
     loading: Options for loading PyTrees.
+    leaf_handler_registry: Optional Leaf Handler Registry. If provided, it will
+      override the default Leaf Handler Registry.
   """
 
   @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -165,7 +168,7 @@ class PyTreeOptions:
 
   saving: Saving = dataclasses.field(default_factory=Saving)
   loading: Loading = dataclasses.field(default_factory=Loading)
-  # TODO(dnlng): Add `LeafHandlerRegistry`.
+  leaf_handler_registry: serialization_types.LeafHandlerRegistry | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

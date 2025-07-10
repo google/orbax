@@ -35,6 +35,7 @@ from orbax.checkpoint.experimental.v1._src.handlers import types as handler_type
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import compatibility
+from orbax.checkpoint.experimental.v1._src.serialization import registry
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -147,7 +148,6 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       self,
       *,
       context: context_lib.Context | None = None,
-      type_handler_registry: type_handlers.TypeHandlerRegistry | None = None,
       array_metadata_validator: array_metadata_store_lib.Validator = (
           array_metadata_store_lib.Validator()
       ),
@@ -155,10 +155,17 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     context = context_lib.get_context(context)
     self._context = context
     self._multiprocessing_options = context.multiprocessing_options
-    if type_handler_registry is None:
-      type_handler_registry = (
-          compatibility.get_compatible_type_handler_registry(self._context)
-      )
+
+    leaf_handler_registry = (
+        self._context.pytree_options.leaf_handler_registry
+        if self._context.pytree_options.leaf_handler_registry is not None
+        else registry.StandardLeafHandlerRegistry(self._context)
+    )
+
+    type_handler_registry = compatibility.get_v0_type_handler_registry(
+        leaf_handler_registry
+    )
+
     self._handler_impl = _create_v0_handler(
         context,
         type_handler_registry=type_handler_registry,

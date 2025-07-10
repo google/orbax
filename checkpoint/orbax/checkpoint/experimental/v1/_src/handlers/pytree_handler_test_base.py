@@ -20,13 +20,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import copy
 import dataclasses
 import datetime
 import functools
 import json
 import threading
-from typing import Any, Awaitable, Iterator, List
+from typing import Any, Awaitable, Iterator, List, Sequence
 from unittest import mock
 
 from absl.testing import parameterized
@@ -57,7 +56,9 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.serialization import compatibility
+from orbax.checkpoint.experimental.v1._src.serialization import registry
+from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
+from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.testing import path_utils as path_test_utils
@@ -206,12 +207,11 @@ def handler_with_options(
     ),
     enable_write_sharding_file: bool = True,
     partial_load: bool = False,
+    leaf_handler_registry: (
+        serialization_types.LeafHandlerRegistry | None
+    ) = None,
 ):
   """Registers handlers with OCDBT support and resets when done."""
-  type_handler_registry = copy.deepcopy(
-      type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY
-  )
-
   context = context_lib.Context(
       array_options=options_lib.ArrayOptions(
           saving=options_lib.ArrayOptions.Saving(
@@ -237,18 +237,14 @@ def handler_with_options(
           loading=options_lib.PyTreeOptions.Loading(
               partial_load=partial_load,
           ),
+          leaf_handler_registry=leaf_handler_registry,
       ),
-  )
-
-  # Get a V0 type handler registry that registered with V1 array leaf handlers.
-  type_handler_registry = compatibility.get_compatible_type_handler_registry(
-      context=context, type_handler_registry=type_handler_registry
   )
 
   handler = PyTreeHandler(
       context=context,
-      type_handler_registry=type_handler_registry,
   )
+
   try:
     yield handler
   finally:
@@ -1357,25 +1353,43 @@ class PyTreeHandlerTestBase:
         # TODO(b/333114195): add proper pathways testing.
         return
 
-      class PlusOneHandler(type_handlers.ScalarHandler):
+      class PlusOneHandler(scalar_leaf_handler.ScalarLeafHandler):
+        """A custom handler that adds one to all scalar values."""
 
-        async def serialize(self, values, infos, args=None):
-          values = [v + 1 for v in values]
-          return await super().serialize(values, infos, args)
+        async def serialize(
+            self,
+            params: Sequence[scalar_leaf_handler.ScalarSerializationParam],
+            serialization_context: serialization_types.SerializationContext,
+        ) -> Awaitable[None]:
+          updated_params = [
+              scalar_leaf_handler.ScalarSerializationParam(
+                  keypath=param.keypath, value=param.value + 1
+              )
+              for param in params
+          ]
 
-      registry = type_handlers.create_type_handler_registry(
-          (int, PlusOneHandler()),
-      )
-      handler = PyTreeHandler(type_handler_registry=registry)
-      with self.assertRaisesRegex(
-          ValueError, "TypeHandler lookup failed for: type=<class 'float'>"
-      ):
-        handler.save(self.directory, {'a': 3, 'b': 1.0})
-      handler.save(self.directory, {'a': 3})
+          return await super().serialize(updated_params, serialization_context)
 
-      restored = handler.load(self.directory)
-      expected = {'a': 4}
-      self.assertEqual(restored, expected)
+      leaf_registry = registry.BaseLeafHandlerRegistry()
+      leaf_registry.add(int, int, PlusOneHandler())
+
+      with handler_with_options(
+          leaf_handler_registry=leaf_registry,
+          array_metadata_store=None,
+          use_zarr3=True,
+      ) as handler:
+        # TODO(b/430598877) V1 Registry error message should be returned intead.
+        with self.assertRaisesRegex(
+            ValueError, "TypeHandler lookup failed for: type=<class 'float'>"
+        ):
+          handler.save(self.directory, {'a': 3, 'b': 1.0})
+
+        handler.save(self.directory, {'a': 3})
+
+        restored = handler.load(self.directory)
+        expected = {'a': 4}
+
+        self.assertEqual(restored, expected)
 
     def test_empty_custom_node(self):
 
