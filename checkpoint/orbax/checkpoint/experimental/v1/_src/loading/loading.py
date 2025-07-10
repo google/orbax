@@ -28,6 +28,8 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
+from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
+from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -41,6 +43,24 @@ PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
 AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeafType]
 CheckpointMetadata = metadata_types.CheckpointMetadata
 PLACEHOLDER = type_handlers.PLACEHOLDER
+
+
+def _get_checkpoint_layout(path: path_types.PathLike):
+  """Returns the checkpoint layout for the given path."""
+  path = epath.Path(path)
+  context = context_lib.get_context()
+
+  orbax_layout_check = orbax_layout.OrbaxLayout(
+      context.checkpointables_options.registry
+  )
+  if orbax_layout_check.validate(path):
+    return orbax_layout.OrbaxLayout
+
+  safetensors_layout_check = safetensors_layout.SafetensorsLayout()
+  if safetensors_layout_check.validate(path):
+    return safetensors_layout.SafetensorsLayout
+
+  raise FileNotFoundError(f"Can't determine format from path:: {path}")
 
 
 def _standardize_abstract_checkpointables(abstract_checkpointables):
@@ -202,10 +222,9 @@ def load_checkpointables(
 
   start_time = time.time()
   logging.info('Loading checkpoint from %s.', path)
+  if not path:
+    raise ValueError('Path must not be None.')
   path = epath.Path(path)
-
-  format_utils.validate_checkpoint_directory(path)
-  format_utils.validate_checkpoint_metadata(path)
 
   return _load_checkpointables_impl(
       path,
@@ -238,13 +257,22 @@ def _load_checkpointables_impl(
   """
 
   context = context_lib.get_context()
-  handler = composite_handler.CompositeHandler(
-      context.checkpointables_options.registry
-  )
+  # These checks doesn't affect anything for other formats (safetensors),
+  # seems harmless to keep it here.
   abstract_checkpointables = _standardize_abstract_checkpointables(
       abstract_checkpointables
   )
   _validate_abstract_checkpointables(abstract_checkpointables)
+  try:
+    layout = _get_checkpoint_layout(path)
+  except ValueError as e:
+    print(f'Abnormal checkpoint format: {e}')
+    raise
+
+  if layout == orbax_layout.OrbaxLayout:
+    handler = orbax_layout.OrbaxLayout(context.checkpointables_options.registry)
+  else:
+    handler = safetensors_layout.SafetensorsLayout()
 
   async def _load() -> dict[str, Any]:
     load_awaitable = await handler.load(path, abstract_checkpointables)
