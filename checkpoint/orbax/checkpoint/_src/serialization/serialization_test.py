@@ -406,12 +406,25 @@ class CheckpointTest(parameterized.TestCase):
       self.assertArraysEqual(np.asarray(l.data), data.astype(np.float32))
 
   def test_deserialize_tensorstore_array_jax_array(self):
+    # Create an event listener to capture Jax monitoring.
+    jax_events = []
+    jax.monitoring.clear_event_listeners()
+    def monitoring_listener(event, **kwargs):
+      jax_events.append((event, kwargs))
+    jax.monitoring.register_event_listener(monitoring_listener)
     global_mesh = create_global_mesh((2,), 'x')
     data = np.arange(1024)
     tspec = ts.array(data).spec()
     (m1,) = deserialize([NamedSharding(global_mesh, P(None))], [tspec])
     for l in m1.addressable_shards:
       self.assertArraysEqual(np.asarray(l.data), data)
+    self.assertLen(jax_events, 1)
+    self.assertEqual(
+        ('/jax/orbax/checkpoint/deserialize', {'resharded': False}),
+        jax_events[0],
+    )
+    # Clear the event listeners to clean up.
+    jax.monitoring.clear_event_listeners()
 
   def test_spec_has_metadata(self):
     spec = {
