@@ -202,6 +202,7 @@ def get_available_memory(
 def broadcast_one_replica_to_all(
     in_tree: Tuple[PyTree, ...],
     global_mesh: jax.sharding.Mesh,
+    num_replicas: int,
     replica_axis_index: int,
     is_source: bool,
     memory_limit_bytes: Optional[Union[int, None]] = None,
@@ -224,8 +225,9 @@ def broadcast_one_replica_to_all(
       - pytree with broadcasted data
       - number of broadcasts performed.
   """
-  num_replicas = global_mesh.devices.shape[replica_axis_index]
-  replica_axis_name = global_mesh.axis_names[replica_axis_index]
+  # num_replicas = global_mesh.devices.shape[replica_axis_index]
+  # replica_axis_name = global_mesh.axis_names[replica_axis_index]
+  replica_axis_name = global_mesh.axis_names[0]  # assuming pp dimension is never used
 
   if memory_limit_bytes is None:
     memory_limit_bytes = get_available_memory(in_tree, memory_scaling_factor)
@@ -243,11 +245,12 @@ def broadcast_one_replica_to_all(
       inp = fake_zero_data(sharding, inp)
     inp = jnp.expand_dims(inp, axis=0)
     in_spec = jax.sharding.PartitionSpec(
-        replica_axis_name,
+        "replication",
         *sharding.spec,
     )
     global_shape = (num_replicas,) + inp.shape[1:]
-    global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
+    _global_mesh = jax.sharding.Mesh(global_mesh.devices.reshape((num_replicas, *(-1 if i == replica_axis_index else n for i, n in enumerate(global_mesh.devices.shape)))), ("replication", *global_mesh.axis_names))
+    global_sharding = jax.sharding.NamedSharding(_global_mesh, in_spec)
     return jax.make_array_from_single_device_arrays(
         global_shape, global_sharding, [s.data for s in inp.addressable_shards]
     )
