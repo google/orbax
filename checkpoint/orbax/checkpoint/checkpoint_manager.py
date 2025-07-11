@@ -305,8 +305,8 @@ class CheckpointManagerOptions:
     deleted from the file system. Useful if checkpoint deletion is time
     consuming. By default, delete the checkpoint assets. Ignored if file system
     is Google Cloud Storage (directory is prefixed with gs://)
-  enable_hns_rmtree: If True, enables additional step of HNS bucket empty folder
-    deletion.
+  enable_hns: If True, enables HNS-specific path manipulation logic.
+    Experimental feature.
   enable_background_delete: If True, old checkpoint deletions will be done in a
     background thread, otherwise, it will be done at the end of each save.  When
     it's enabled, make sure to call CheckpointManager.close() or use context to
@@ -368,7 +368,7 @@ class CheckpointManagerOptions:
   save_on_steps: Optional[Container[int]] = None
   single_host_load_and_broadcast: bool = False
   todelete_subdir: Optional[str] = None
-  enable_hns_rmtree: bool = False
+  enable_hns: bool = False
   enable_background_delete: bool = False
   read_only: bool = False
   enable_async_checkpointing: bool = True
@@ -825,6 +825,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             single_host_load_and_broadcast=(
                 self._options.single_host_load_and_broadcast
             ),
+            enable_hns=self._options.enable_hns,
         )
     )
 
@@ -854,7 +855,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             self._directory,
             self._options.todelete_subdir,
             self._step_name_format,
-            self._options.enable_hns_rmtree,
+            self._options.enable_hns,
             self._options.enable_background_delete,
         )
     )
