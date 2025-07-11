@@ -1,0 +1,487 @@
+/* Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+syntax = "proto3";
+
+package orbax;
+
+// Options for batching on the inference graph.
+message BatchOptions {
+  // Number of scheduling threads for processing batches of work. Determines
+  // the number of batches processed in parallel. This should be roughly in line
+  // with the number of TPU cores available.
+  int32 num_batch_threads = 1;
+
+  // The maximum allowed batch size. Can be larger than allowed_batch_sizes to
+  // utilize large batch splitting.
+  int32 max_batch_size = 2;
+
+  // Maximum number of microseconds to wait before outputting an incomplete
+  // batch.
+  int32 batch_timeout_micros = 3;
+
+  // Optional list of allowed batch sizes. If left empty,
+  // does nothing. Otherwise, supplies a list of batch sizes, causing the op
+  // to pad batches up to one of those sizes. The entries must increase
+  // monotonically, and the final entry must be lower or equal to
+  // max_batch_size.
+  repeated int32 allowed_batch_sizes = 4;
+
+  // Maximum number of batches enqueued for processing before requests are
+  // failed fast. If unset, defaults to 100.
+  int32 max_enqueued_batches = 5;
+
+  // If set, disables large batch splitting which is an efficiency improvement
+  // on batching to reduce padding inefficiency.
+  // Please see
+  bool disable_large_batch_splitting = 6;
+}
+
+// Options for placing ops on devices.
+message ExperimentalPlacerReplacementOptions {
+  // If set to true, unplaced ops outside of the XLA cluster would be placed on
+  // CPU, except for {VarHandleOp, AssignVariableOp, ReadVariableOp}. This
+  // reduces inference latency when the model has a lot of interleaving between
+  // GPU-eligible ops and CPU-only ops. e.g. Bert model. This is only expected
+  // to be used when xla_gpu_convert is true. This is experimental.
+  bool experimental_place_unplaced_non_xla_ops_on_cpu = 1;
+
+  // If set to true, variable related ops {VarHandleOp, AssignVariableOp,
+  // ReadVariableOp} will be placed on CPU. This only takes effect if
+  // experimental_place_unplaced_non_xla_ops_on_cpu is set to true.
+  bool experimental_place_variables_on_cpu = 2;
+}
+
+enum BFloat16Scope {
+  TPU = 0;    // TPUPartitionedCall
+  BATCH = 1;  // BatchFunction
+  ALL = 2;    // Entire model including CPU computations.
+  OTHER = 3;  // Function name specified by `bfloat16_func_prefix`.
+}
+
+message AutoShardingOverrides {
+  // The name of the tensor to match
+  string tensor_name = 1;
+
+  // The dimension to shard
+  int32 shard_dim = 2;
+}
+
+message AutoShardingOptions {
+  enum AutoShardingPolicy {
+    // Shards all tensors using `shard_dim` specified below.
+    DEFAULT_FIXED = 0;
+
+    // Shards all tensors using dim 0
+    FIRST_DIM = 1;
+
+    // Shards all tensors using the last dimension.
+    LAST_DIM = 2;
+
+    // Shards tensors alternately using the first and last dimension (i.e. we
+    // keep track of a count of all tensors we have seen till now, and shard
+    // all the even counts by the first dimension and the odd counts by the
+    // last dimension).
+    ALTERNATE_FIRST_AND_LAST_DIM = 3;
+
+    // Shards the largest dimension
+    LARGEST_DIM = 4;
+  }
+
+  // The autosharding policy to apply.
+  AutoShardingPolicy policy = 6;
+
+  // The dimension on which sharding will be applied. This only applies to the
+  // DEFAULT_FIXED autosharding policy.
+  // Negative values indicate counting from the last dimension.
+  int32 shard_dim = 1;
+
+  // Number of shards.
+  int32 num_shards = 2;
+
+  // Minimum tensor rank for autosharding.
+  int32 min_tensor_rank = 3;
+
+  // Minimum size of the dimension identified for autosharding to enable
+  // autosharding.
+  int32 min_dimension_size = 4;
+
+  // Allows overriding of autosharding decisions for particular tensors.
+  repeated AutoShardingOverrides overrides = 5;
+}
+
+// Options for the TPU rewrite routine.
+message ConverterOptions {
+  // If set to true, assume input graph is TPU graph and no need to convert.
+  bool disable_convert = 1;
+
+  // A list of tensors used as inputs of TPU computation.
+  // Format: "$node_name[:$node_output_index]".
+  // If set, the TPU subgraph will be bounded by input_tensors
+  // on backward-direction.
+  // If $node_output_index is not
+  // specified, we will use 0 as $node_output_index.
+  repeated string input_tensors = 2;
+
+  // A list of tensors used as outputs of TPU computation.
+  // Format: same as "input_tensors" above.
+  // If set, the TPU subgraph will be bounded by output_tensors
+  // on forward-direction.
+  repeated string output_tensors = 3;
+
+  // A list of tensors used as outputs of TPU computation.
+  // If set, nonsplit_output_tensors are guaranteed to be accessible on CPU.
+  repeated string nonsplit_output_tensors = 4;
+
+  // Fetch tensors for session run. It could come from SavedModel's output
+  // signature. If set, TPU subgraph will not output tensors on which a fetch
+  // tensors doesn't depend.
+  // Difference between fetch_tensors and nonsplit_output_tensors:
+  // fetch_tensors need to include *all* tensors required on CPU, while
+  // nonsplit_output_tensors can be used to specify only some of them.
+  repeated string fetch_tensors = 5;
+
+  // Batch options to apply to the TPU Subgraph. If not specified, no batching
+  // will be done.
+  BatchOptions batch_options = 6;
+
+  // Weight of unknown dimensions.
+  // If greater than 0, try to find better input tensor that reduces input cost,
+  // unknown dimensions are assumed to have an average of `unknown_dim_weight`.
+  // Under proto3 the default value is zero.
+  // Empirically, unknown_dim_weight = 10 works good with
+  // get_merge_node_by_type = True.
+  int32 unknown_dim_weight = 7;
+
+  // If true find merge nodes by type in find-better-cut optimization.
+  bool get_merge_node_by_type = 8;
+
+  // If set to true, constant-folding will be enabled.
+  bool constant_folding = 9;
+
+  // filename_tensor_name from saver_def.
+  string filename_tensor_name = 10;
+
+  // save_tensor_name from saver_def.
+  string save_tensor_name = 11;
+
+  // restore_op_name (NoOp) from saver_def.
+  string restore_op_name = 12;
+
+  // Whether saver is sharded.
+  bool saver_sharded = 13;
+
+  // A partition-eligible function must be selected from the list below
+  // if not empty.
+  // This allows users to specify functions to be rewritten in TF2 models.
+  repeated string partition_func_names = 14;
+
+  // Penalty for including an additional edge into input edge set.
+  // Empirically, unknown_dim_weight = 10, get_merge_node_by_type = True, and
+  // edge_penalty = 100 works well.
+  int32 edge_penalty = 15;
+
+  // A list of tensors, whose descendants should be pruned from graph.
+  repeated string prune_output_tensors = 16;
+
+  // Automatically prune unused tensors in the graph.
+  bool prune_model = 17;
+
+  // Maximum number of clusters allowed.
+  //
+  // If not set for TPU, default to 1.
+  // If not set for GPU, defaults to using xla_gpu_cluster_size_threshold
+  // instead. The default behavior is different because TPUs should almost
+  // always use only one cluster. GPUs can use many more clusters without a
+  // major performance penalty. If set for GPU, it will cap the number of
+  // clusters allowed by xla_gpu_cluster_size_threshold.
+  int32 max_num_clusters = 18;
+
+  // If a cluster's cost is greater or equal to this value, the cluster will be
+  // marked for XLA GPU compilation.
+  //
+  // Cost heuristic
+  // ----------------
+  // Conv ops have a cost of 5000
+  // Einsum ops have a cost of 1001
+  // Matmul ops have a cost of 1000
+  // Function call ops are the sum of all the ops in the function that they call
+  // All other ops have a cost of 1
+  //
+  // If you would like an update to the cost heuristic, file a bug against the
+  // Inference-Converter-Optimizer component.
+  //
+  // If not set, it defaults to 10.
+  int32 xla_gpu_cluster_size_threshold = 21;
+
+  // Cluster merging was deprecated due to unexpected and poor behavior.
+  // Previously it attemted to allow merging TPU clusters if they are not
+  // dependent of each other.
+  // Setting this flag has no effect.
+  bool disable_cluster_merging = 19;
+
+  // TPU-compatible nodes that users wish to run on CPU.
+  // This is equivalent to marking a node as TPU-incompatible.
+  repeated string disallowed_nodes = 20;
+
+  // If set to true, do not perform optimization on the graph.
+  bool disable_optimize = 101;
+
+  // If set to true, disable shape optimization for input / outputs.
+  bool disable_io_shape_optim = 102;
+
+  // Permutation to be applied in transpose optimization.
+  // E.g. Passing [0, 3, 1, 2] will apply [NHWC] -> [NCHW] before input,
+  // and [NCHW] -> [NHWC] after, to all 4d input tensors.
+  // LINT: LEGACY_NAMES
+  repeated int64 transpose_4d_perm = 103;
+
+  // If set to true, bfloat16 optimization will not be applied.
+  //
+  // If the bfloat16 optimization fails, consider disabling the bfloat16
+  // optimization or adding XlaCallModule to bfloat16_filterlist (b/330792024).
+  bool disable_bfloat16_optim = 105;
+
+  // If set to true, variable folding will not be applied.
+  bool enable_variable_folding_optim = 106;
+
+  // This can be a regular tensorflow checkpoint prefix, or
+  // a tensorflow saved model variable filename prefix.
+  string input_variables_filename_prefix = 107;
+
+  // This can be a regular tensorflow checkpoint prefix, or
+  // a tensorflow saved model variable filename prefix.
+  string output_variables_filename_prefix = 108;
+
+  // Minimum number of elements required for a variable not to be constantized.
+  int64 var_size_threshold = 109;
+
+  // If set to true, bfloat16 type cast happens outside function around call
+  // node. If false (default) the cast happens inside function after _Arg and
+  // before _Retval.  .
+  bool bfloat16_cast_outside = 110;
+
+  // If set to true, replace TPUPartitionedCall with StatefulPartitionedCall.
+  bool rewrite_tpu_partitioned_call = 111;
+
+  // Specifies which scope bfloat16 applies to for TPU conversion.
+  // If not set, use TPU function by default.
+  BFloat16Scope bfloat16_scope = 112;
+
+  enum GPUBFloat16Scope {
+    DEFAULT = 0;  // Currently defaults to no bfloat16 optimization
+    GPU = 1;      // StatefulPartitionedCall on GPU with _XlaMustCompile
+    BATCH = 2;    // BatchFunction
+    ALL = 3;      // Entire model including CPU computations.
+    OTHER = 4;    // Function name specified by `bfloat16_func_prefix`.
+  }
+
+  // Specifies which scope bfloat16 applies when xla_gpu_convert is True.
+  // If not set, bfloat16 optimization is not applied by default.
+  GPUBFloat16Scope gpu_bfloat16_scope = 120;
+
+  // The FunctionDef's name prefix bfloat16 optimization applies to.
+  // Only effective when bfloat16_scope == OTHER.
+  string bfloat16_func_prefix = 113;
+
+  // Ops that should not be converted to bfloat16.
+  // Inputs into these ops will be cast to float32, and outputs from these ops
+  // will be cast back to bfloat16.
+  repeated string bfloat16_filterlist = 114;
+
+  // If set to true, checkpoint float values will be converted to bfloat16.
+  // This feature is experimental and not guaranteed to work for all models.
+  bool convert_checkpoint_bfloat16 = 115;
+
+  // If set to true, assert cycles will not be removed. Assert ops can cause
+  // cycles in the graph that the inference converter cannot handle. Disabling
+  // their removal may cause crashes or subtly incorrect behavior.
+  bool disable_assert_cycle_removal = 116;
+
+  // Converting a model that has bfloat16 ops can lead to unintended behaviors.
+  // This flag enables the detection of bfloat16 ops in a model. An error will
+  // be thrown if found. Default to false.
+  bool validate_bfloat16_optim_compatibility = 117;
+
+  //  Options for placing ops on devices.
+  ExperimentalPlacerReplacementOptions experimental_placer_replacement_options =
+      119;
+
+  // If set to true, freezes variables in the graph into constant operations.
+  // This is an optimization feature, but may cause the conversion to fail if
+  // the model size is too large.
+  // Default to false.
+  bool freeze_variables = 202;
+
+  // Rewrite SavedModel to be compatible with tfrt.
+  bool tfrt_adapt = 203;
+
+  // Enable XLA sharding.
+  bool enable_spmd_xla_partitioning = 301;
+
+  // num_cores_per_replica for TPUReplicateMetadata.
+  //
+  // This is the number of cores you wish to split your model into using XLA
+  // SPMD.
+  //
+  // This option is only used when enable_spmd_xla_partitioning is set to True.
+  int32 num_cores_per_replica = 302;
+
+  // (optional) device_assignment for TPUReplicateMetadata.
+  //
+  // This is in a flattened [x, y, z, core] format (i.e. core 1 of the chip
+  // located in 2,3,0 will be stored as [2,3,0,1]).
+  //
+  // If this is not specified, then the device assignments will utilize the same
+  // topology as specified in the `topology` attribute.
+  //
+  // This option is only used when enable_spmd_xla_partitioning is set to True.
+  repeated int32 device_assignment = 303;
+
+  // A serialized string of `tensorflow.tpu.TopologyProto` object, used for
+  // `topology` attribute in TPUReplicateMetadata.
+  //
+  // You must specify the `mesh_shape` and `device_coordinates` attributes in
+  // the topology object.
+  //
+  // This option is only used when enable_spmd_xla_partitioning is set to True,
+  // and is required for num_cores_per_replica > 1 cases due to ambiguity of
+  // num_cores_per_replica, e.g., pf_1x2x1 with megacore and df_1x1 both have
+  // num_cores_per_replica = 2, but topology is (1,2,1,1) for pf and (1,1,1,2)
+  // for df.
+  // - For pf_1x2x1, mesh shape and device_coordinates looks like:
+  //   mesh_shape = [1,2,1,1]
+  //   device_coordinates=flatten([0,0,0,0], [0,1,0,0])
+  // - For df_1x1, mesh shape and device_coordinates looks like:
+  //   mesh_shape = [1,1,1,2]
+  //   device_coordinates=flatten([0,0,0,0], [0,0,0,1])
+  // - For df_2x2, mesh shape and device_coordinates looks like:
+  //   mesh_shape = [2,2,1,2]
+  //   device_coordinates=flatten(
+  //    [0,0,0,0],[0,0,0,1],[0,1,0,0],[0,1,0,1]
+  //    [1,0,0,0],[1,0,0,1],[1,1,0,0],[1,1,0,1])
+  bytes topology = 304;
+
+  // An AutoShardingOptions containing information about how sharding should
+  // be applied. If not set, no variables will be auto sharded.
+  //
+  // This option is only used when enable_spmd_xla_partitioning is set to True.
+  AutoShardingOptions auto_sharding_options = 305;
+
+  // An experimental option that initializes both sharded and non-sharded
+  // variables on the TPU. This option allows a model to be served on TPU(s)
+  // without using a `TPUPartitionedCall` op to initialize the TPU variables.
+  // This feature is intended to be used to support XLA SMPD sharding on a TPU
+  // Pod.
+  //
+  // To enable this option, a model should be exported with `tpu_replicate_` and
+  // XLA sharding attributes. The model cannot contain a `TPUPartitionedCall`
+  // op. When this option is set, `disable_convert` and `disable_optimized` must
+  // be set to true and no other options should be enabled.
+  //
+  // This feature is highly experimental and not recommended for most models.
+  // This feature does not currently support TensorFlow 2 models.
+  bool create_and_shard_tpu_variables = 306;
+
+  // If not empty, will run the conversion in a remote target worker, in case
+  // the checkpoint restoring and saving need to access the remote worker
+  // resources, e.g. TPUs.
+  string remote_target = 307;
+
+  // If set to true, auto-cluster xla-gpu jit-compilable nodes and generate
+  // GPU serving graph.
+  bool xla_gpu_convert = 501;
+
+  // For GPU, device need to be specified. E.g. '/device:GPU:0'.
+  string xla_device = 502;
+
+  // If set to true, input packing for XLA GPU will be disabled.
+  //
+  // By default, inputs to the XLA GPU cluster are packed into the most
+  // efficient shapes. Inputs of the same datatype are reshaped into a
+  // single dimension and concatenated outside the XLA GPU cluster then inside
+  // the XLA GPU cluster the inputs are restored to their original shape.
+  //
+  // The XLA GPU input packing can only be done safely if the input tensor
+  // shapes are statically known. Every input tensor with a size
+  // equal to or less than xla_gpu_input_packing_threshold will be packed if
+  // there is at least one other tensor of the same datatype that meets the size
+  // requirement.
+  //
+  // If there are any tensors that have only one unknown dimension and
+  // it is the 0th dimension, they will not be packed by default.
+  // To pack them, set xla_gpu_input_packing_max_batch_size.
+  //
+  // If any input tensor shapes do not fit the descriptions above, they will be
+  // left unpacked.
+  //
+  // This option is only valid when xla_gpu_convert=True.
+  bool disable_xla_gpu_input_packing = 503;
+
+  // The size threshold for XLA GPU input packing in bytes.
+  //
+  // Any input tensors that are above this threshold size, will not be packed.
+  // Packing small tensors can provide a performance improvement but packing
+  // larger tensors can hurt performance.
+  //
+  // If this is unset, it defaults to 1,000,000 bytes (1 MB).
+  uint64 xla_gpu_input_packing_threshold = 504;
+
+  // The maximum possible batch size for the model. Setting this will cause
+  // any tensors with an unknown 0th dimension size but with all other
+  // dimensions statically known, to be batched if they are below
+  // xla_gpu_input_packing_threshold.
+  //
+  // Enabling this flag can provide a performance improvement but it can also
+  // cause the resulting model to crash. The optimization does not know the
+  // future size of the 0th dimension. It must assume it will the be the same as
+  // the batch size. It concats along the 0th dimension of each tensor. If any
+  // tensor's 0th dimension does not evaluate to the batch size at runtime it
+  // will crash.
+  uint32 xla_gpu_input_packing_max_batch_size = 505;
+
+  // Minimum total cost of non-CPU ops. The converter will return an invalid
+  // argument error when the estimated overhead of the operations placed on
+  // TPU/GPU (depending on xla_gpu_convert) in percentage is less than this
+  // value.
+  //
+  // If set to a value in (0.0, 100.0], the behavior above is enabled.
+  // If set to 0.0, the behavior above is disabled as the check always passes.
+  // If set to any value outside [0.0, 100.0], return an invalid argument error.
+  //
+  // The detailed cost percentages of ops placed on TPU can be found in the
+  // conversion report (go/inference-converter-get-started#report).
+  float minimum_non_cpu_cost_pct = 506;
+
+  // Set to true to output more information in the conversion reports. Please
+  // see
+  bool verbose = 601;
+
+  // If true, allow skipping the graph conversion and performing the rest of the
+  // operations on the graph when there is a pre-existing XLA op. Otherwise, the
+  // converter won't check for the presence of XLA ops.
+  bool skip_conversion_when_xla_op_exists = 605;
+
+  // If true, the converter will strictly enforce that the cluster selected for
+  // XLA conversion from a convex subgraph, i.e., there is no directed path any
+  // nodes in the clusters that includes a node outside the clutser. A DAG is
+  // guaranteed to still be a DAG after merging a convex cluster.
+  //
+  // This is turned off by default because it was added later when the cycle
+  // issue was found and could affect existing converter users as it affects how
+  // XLA clusters are formed. Users consider turning it on when they encounter
+  // cycle issue. See b/273546525 for details.
+  bool enforce_xla_cluster_convexity = 606;
+}
