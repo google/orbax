@@ -716,8 +716,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       raise ValueError(
           'Deprecated `checkpointers` can not be used with `handler_registry`.'
           ' Please follow the instructions at'
-          ' https://orbax.readthedocs.io/en/latest/api_refactor.html to'
-          ' migrate.'
+          ' https://orbax.readthedocs.io/en/latest/guides/checkpoint/api_refactor.html'
+          ' to migrate.'
       )
 
     if item_handlers is not None and handler_registry is not None:
@@ -749,8 +749,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       logging.warning(
           'Configured `CheckpointManager` using deprecated legacy API. Please'
           ' follow the instructions at'
-          ' https://orbax.readthedocs.io/en/latest/api_refactor.html to'
-          ' migrate.'
+          ' https://orbax.readthedocs.io/en/latest/guides/checkpoint/api_refactor.html'
+          ' to migrate.'
       )
       self._default_item.set(isinstance(checkpointers, AbstractCheckpointer))
       self._checkpointer = self._configure_checkpointer_legacy_init(
