@@ -104,10 +104,10 @@ class JaxSpecificInfoTest(parameterized.TestCase):
     """
     compare.assertProtoEqual(
         self,
-        jax_specific_info._to_shape_dtype_refinements_proto(input1),
         text_format.Parse(
             expected_text1, jax_supplemental_pb2.ShapeDTypeRefinements()
         ),
+        jax_specific_info._to_shape_dtype_refinements_proto(input1),
     )
     input2 = input1 + [(None, None)] * 4
     expected_text2 = """
@@ -137,10 +137,10 @@ class JaxSpecificInfoTest(parameterized.TestCase):
     """
     compare.assertProtoEqual(
         self,
-        jax_specific_info._to_shape_dtype_refinements_proto(input2),
         text_format.Parse(
             expected_text2, jax_supplemental_pb2.ShapeDTypeRefinements()
         ),
+        jax_specific_info._to_shape_dtype_refinements_proto(input2),
     )
 
   def test_to_shlo_dtype_and_refinement(self):
