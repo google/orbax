@@ -14,8 +14,6 @@
 
 """test cases for colossus snapshot."""
 
-import os
-
 from absl.testing import absltest
 from etils import epath
 from orbax.checkpoint._src.path.snapshot import snapshot
@@ -26,27 +24,32 @@ class DefaultSnapshotTest(absltest.TestCase):
 
   def __init__(self, *args, **kwargs):
     super(DefaultSnapshotTest, self).__init__(*args, **kwargs)
-    self.source_dir = epath.Path(self.create_tempdir(name='source').full_path)
-    # self.source_dir = '/tmp/test/path/to/source/'
-    os.makedirs(self.source_dir, exist_ok=True)
-    with open(os.path.join(self.source_dir, 'data.txt'), 'w') as f:
-      f.write('data')
+    self.root = epath.Path(self.create_tempdir(name='root').full_path)
+
+    self.source_path = self.root / 'path/to/source'
+    self.source_path.mkdir(exist_ok=True, parents=True, mode=0o750)
+    self.source_file = self.source_path / 'data.txt'
+    self.source_file.write_text('data')
+
+    self.dest_path = self.root / 'path/to/dest'
 
   def test_create_snapshot(self):
-    dst_dir = '/tmp/test/path/to/dest/'
-
-    # dst_dir = epath.Path(self.create_tempdir(name='dest').full_path)
-    self.assertFalse(os.path.exists(dst_dir))
-    snapshot.DefaultSnapshot.create_snapshot(str(self.source_dir), str(dst_dir))
-    self.assertTrue(os.path.exists(dst_dir))
-    with open(os.path.join(dst_dir, 'data.txt')) as f:
-      self.assertEqual('data', f.read())
-      f.close()
+    default_snapshot = snapshot.DefaultSnapshot(
+        self.source_path, self.dest_path
+    )
+    self.assertFalse(self.dest_path.exists())
+    default_snapshot.create_snapshot()
+    self.assertTrue(self.dest_path.exists())
+    self.assertEqual('data', (self.dest_path / 'data.txt').read_text())
 
   def test_release_snapshot(self):
-    self.assertTrue(os.path.exists(self.source_dir))
-    self.assertTrue(snapshot.DefaultSnapshot.release_snapshot(self.source_dir))
-    self.assertFalse(os.path.exists(self.source_dir))
+    default_snapshot = snapshot.DefaultSnapshot(
+        self.source_path, self.dest_path
+    )
+    default_snapshot.create_snapshot()
+    self.assertTrue(self.dest_path.exists())
+    self.assertTrue(default_snapshot.release_snapshot())
+    self.assertFalse(self.dest_path.exists())
 
 
 if __name__ == '__main__':
