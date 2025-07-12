@@ -113,7 +113,6 @@ async def _create_tmp_directory(
     async_makedir_func: AsyncMakeDirFunc,
     tmp_dir: epath.Path,
     *,
-    primary_host: Optional[int] = 0,
     path_permission_mode: Optional[int] = None,
     checkpoint_metadata_store: Optional[
         checkpoint_metadata.MetadataStore
@@ -127,7 +126,6 @@ async def _create_tmp_directory(
   Args:
     async_makedir_func: An implementation of AsyncMakeDirFunc to call.
     tmp_dir: The temporary directory path.
-    primary_host: primary host id, default=0.
     path_permission_mode: Path permission mode for the temp directory. e.g.
       0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
@@ -142,37 +140,36 @@ async def _create_tmp_directory(
   Raises:
     FileExistsError: if tmp directory already exists.
   """
-  if multihost.is_primary_host(primary_host):
-    if await _exists(tmp_dir):
-      if await _is_tmp_checkpoint(tmp_dir):
-        logging.warning(
-            'Attempted to create temporary directory %s which already exists.'
-            ' Removing existing directory since it is not finalized.',
-            tmp_dir,
-        )
-        await _rmtree(tmp_dir)
-      else:
-        raise FileExistsError(
-            f'Attempted to create temporary directory {tmp_dir} which already'
-            ' exists but appears a non-temporary checkpoint.'
-        )
-    logging.info('Creating tmp directory %s', tmp_dir)
-    await async_makedir_func(
-        tmp_dir,
-        parents=True,
-        exist_ok=False,
-        mode=path_permission_mode,
-        **kwargs,
-    )
-    if checkpoint_metadata_store is not None:
-      checkpoint_metadata_store.write(
-          file_path=checkpoint_metadata.step_metadata_file_path(tmp_dir),
-          metadata=step_metadata_serialization.serialize(
-              checkpoint_metadata.StepMetadata(
-                  init_timestamp_nsecs=time.time_ns()
-              )
-          ),
+  if await _exists(tmp_dir):
+    if await _is_tmp_checkpoint(tmp_dir):
+      logging.warning(
+          'Attempted to create temporary directory %s which already exists.'
+          ' Removing existing directory since it is not finalized.',
+          tmp_dir,
       )
+      await _rmtree(tmp_dir)
+    else:
+      raise FileExistsError(
+          f'Attempted to create temporary directory {tmp_dir} which already'
+          ' exists but appears a non-temporary checkpoint.'
+      )
+  logging.info('Creating tmp directory %s', tmp_dir)
+  await async_makedir_func(
+      tmp_dir,
+      parents=True,
+      exist_ok=False,
+      mode=path_permission_mode,
+      **kwargs,
+  )
+  if checkpoint_metadata_store is not None:
+    checkpoint_metadata_store.write(
+        file_path=checkpoint_metadata.step_metadata_file_path(tmp_dir),
+        metadata=step_metadata_serialization.serialize(
+            checkpoint_metadata.StepMetadata(
+                init_timestamp_nsecs=time.time_ns()
+            )
+        ),
+    )
 
   return tmp_dir
 
@@ -205,23 +202,12 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
           checkpoint_metadata.MetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
-      multiprocessing_options: Optional[
-          options_lib.MultiprocessingOptions
-      ] = None,
   ):
     self._tmp_path = temporary_path
     self._final_path = final_path
 
-    multiprocessing_options = (
-        multiprocessing_options or options_lib.MultiprocessingOptions()
-    )
     file_options = file_options or options_lib.FileOptions()
     self._checkpoint_metadata_store = checkpoint_metadata_store
-    self._primary_host = multiprocessing_options.primary_host
-    self._active_processes = multiprocessing_options.active_processes
-    self._barrier_sync_key_prefix = (
-        multiprocessing_options.barrier_sync_key_prefix
-    )
     self._path_permission_mode = file_options.path_permission_mode
 
   @classmethod
@@ -242,7 +228,6 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
         final_path,
         checkpoint_metadata_store=checkpoint_metadata_store,
         file_options=file_options,
-        multiprocessing_options=multiprocessing_options,
     )
 
   @classmethod
@@ -288,7 +273,6 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
     return await _create_tmp_directory(
         _mkdir,
         self._tmp_path,
-        primary_host=self._primary_host,
         path_permission_mode=mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
@@ -331,23 +315,12 @@ class CommitFileTemporaryPath(atomicity_types.TemporaryPath):
           checkpoint_metadata.MetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
-      multiprocessing_options: Optional[
-          options_lib.MultiprocessingOptions
-      ] = None,
   ):
     self._tmp_path = temporary_path
     self._final_path = final_path
 
-    multiprocessing_options = (
-        multiprocessing_options or options_lib.MultiprocessingOptions()
-    )
     file_options = file_options or options_lib.FileOptions()
     self._checkpoint_metadata_store = checkpoint_metadata_store
-    self._primary_host = multiprocessing_options.primary_host
-    self._active_processes = multiprocessing_options.active_processes
-    self._barrier_sync_key_prefix = (
-        multiprocessing_options.barrier_sync_key_prefix
-    )
     self._path_permission_mode = file_options.path_permission_mode
 
   @classmethod
@@ -368,7 +341,6 @@ class CommitFileTemporaryPath(atomicity_types.TemporaryPath):
         final_path,
         checkpoint_metadata_store=checkpoint_metadata_store,
         file_options=file_options,
-        multiprocessing_options=multiprocessing_options,
     )
 
   @classmethod
@@ -412,7 +384,6 @@ class CommitFileTemporaryPath(atomicity_types.TemporaryPath):
     return await _create_tmp_directory(
         _mkdir,
         self._tmp_path,
-        primary_host=self._primary_host,
         path_permission_mode=mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
@@ -463,7 +434,8 @@ async def create_all(
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,
   )
-  await asyncio.gather(*[path.create() for path in paths])
+  if multihost.is_primary_host(multiprocessing_options.primary_host):
+    await asyncio.gather(*[path.create() for path in paths])
   multihost.sync_global_processes(
       multihost.unique_barrier_key(
           'create_tmp_directory:post',
@@ -557,17 +529,16 @@ async def _create_paths(
 ):
   """Creates all temporary paths in parallel."""
   start = time.time()
-  paths = await asyncio.gather(*[path.create() for path in tmp_paths])
-  if subdirectories and multihost.is_primary_host(
-      multiprocessing_options.primary_host
-  ):
-    creation_ops = []
-    for path in paths:
-      creation_ops.extend([
-          _mkdir(path / name, parents=False, exist_ok=False)
-          for name in subdirectories
-      ])
-    await asyncio.gather(*creation_ops)
+  if multihost.is_primary_host(multiprocessing_options.primary_host):
+    paths = await asyncio.gather(*[path.create() for path in tmp_paths])
+    if subdirectories:
+      creation_ops = []
+      for path in paths:
+        creation_ops.extend([
+            _mkdir(path / name, parents=False, exist_ok=False)
+            for name in subdirectories
+        ])
+      await asyncio.gather(*creation_ops)
   directory_creation_secs = time.time() - start
   jax.monitoring.record_event_duration_secs(
       '/jax/orbax/write/directory_creation_secs',
