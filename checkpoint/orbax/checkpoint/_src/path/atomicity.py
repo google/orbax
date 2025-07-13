@@ -77,6 +77,7 @@ TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
 COMMIT_SUCCESS_FILE = step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
 
 _module_unique_count = itertools.count()
+_checkpoint_manager_temp_unique_count = {}
 
 
 async def _mkdir(path: epath.Path, *args, **kwargs):
@@ -177,11 +178,25 @@ async def _create_tmp_directory(
   return tmp_dir
 
 
-def _get_tmp_directory(final_path: epath.Path) -> epath.Path:
+def _get_unique_count(barrier_sync_key_prefix: str | None = None) -> int:
+  if barrier_sync_key_prefix is None:
+    return next(_module_unique_count)
+  if barrier_sync_key_prefix not in _checkpoint_manager_temp_unique_count:
+    _checkpoint_manager_temp_unique_count[barrier_sync_key_prefix] = (
+        itertools.count()
+    )
+  return next(_checkpoint_manager_temp_unique_count[barrier_sync_key_prefix])
+
+
+def _get_tmp_directory(
+    final_path: epath.Path, barrier_sync_key_prefix: str | None = None
+) -> epath.Path:
   # Path may not be completely unique if a preemption occurs. We rely on the
   # existing tmp directory being deleted elsewhere.
   return epath.Path(final_path.parent) / (
-      final_path.name + TMP_DIR_SUFFIX + str(next(_module_unique_count))
+      final_path.name
+      + TMP_DIR_SUFFIX
+      + str(_get_unique_count(barrier_sync_key_prefix))
   )
 
 
@@ -237,8 +252,11 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
           options_lib.MultiprocessingOptions
       ] = None,
   ) -> AtomicRenameTemporaryPath:
+    barrier_sync_key_prefix = (
+        multiprocessing_options.barrier_sync_key_prefix
+    ) if multiprocessing_options else None
     return cls(
-        _get_tmp_directory(final_path),
+        _get_tmp_directory(final_path, barrier_sync_key_prefix),
         final_path,
         checkpoint_metadata_store=checkpoint_metadata_store,
         file_options=file_options,
