@@ -52,7 +52,8 @@ docs = [
   'grain',
   'aiofiles',
   'tensorflow_datasets',
-  'opencv-python'
+  'opencv-python',
+  'safetensors',
 ]
 testing = [
     'google-cloud-logging',
@@ -62,6 +63,7 @@ testing = [
     'pytest-xdist',
     'chex',
     'aiofiles',
+    'safetensors',
 ]
 
 [tool.flit.sdist]
