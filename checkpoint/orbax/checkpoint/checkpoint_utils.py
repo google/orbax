@@ -71,7 +71,7 @@ def _snapshot_checkpoint(
 ):
   """Uses `Snapshot` class to create a cheap "copy" of the checkpoint."""
   if multihost.process_index() == 0:
-    logging.info('Snpashotting step: %d.', step)
+    logging.info('Snapshotting step: %d.', step)
     step_dir = step_name_format.find_step(checkpoint_dir, step).path
     if not step_dir.exists():
       raise ValueError(f'Step directory {step_dir} does not exist.')
