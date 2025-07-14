@@ -1972,12 +1972,19 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def is_saving_in_progress(self) -> bool:
     """Returns whether a checkpoint save is in progress."""
+    start_time = time.time()
     processes_saving = self._save_tracker.get_in_progress_ids()
     logging.vlog(
         1,
         '[process=%s][is_saving_in_progress] Processes saving: %s',
         multihost.process_index(),
         processes_saving,
+    )
+    logging.vlog(
+        1,
+        '[process=%s][is_saving_in_progress] Time taken: %s',
+        multihost.process_index(),
+        time.time() - start_time,
     )
     return bool(processes_saving)
 
