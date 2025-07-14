@@ -38,7 +38,7 @@ class Timer(object):
 
 
 
-def recursively_copy_files(src: str, dst: str):
+def recursively_copy_files(src: epath.PathLike, dst: epath.PathLike) -> None:
   """Recursively copies files from src to dst."""
   src_path = epath.Path(src)
   dst_path = epath.Path(dst)
