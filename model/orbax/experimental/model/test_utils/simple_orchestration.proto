@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package orbax_model_simple_orchestration;
+
+// An orchestration pipeline.
+message Pipeline {
+  // The name (in manifest) of the pre-processor function.
+  optional string pre_processor_name = 20;
+
+  // The name (in manifest) of the model function.
+  optional string model_function_name = 30;
+
+  // The name (in manifest) of the value representing the weights.
+  optional string weights_name = 40;
+
+  // The name (in manifest) of the post-processor function.
+  optional string post_processor_name = 50;
+}
