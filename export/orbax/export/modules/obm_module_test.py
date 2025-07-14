@@ -134,8 +134,8 @@ class ObmModuleTest(parameterized.TestCase):
           expected_error=(
               ValueError,
               (
-                  r'The size of apply_fn_map:2 should be equal to the size of'
-                  r' input_polymorphic_shape_map:1.'
+                  r'The keys of `apply_fn` and `input_polymorphic_shape`'
+                  r' should be the same'
               ),
           ),
       ),
@@ -150,10 +150,7 @@ class ObmModuleTest(parameterized.TestCase):
           },
           expected_error=(
               TypeError,
-              (
-                  r'When apply_fn is a mapping, input_polymorphic_shape must'
-                  r' also be a mapping.'
-              ),
+              r'`input_polymorphic_shape` must be a mapping, but got',
           ),
       ),
       dict(
@@ -249,11 +246,7 @@ class ObmModuleTest(parameterized.TestCase):
           },
           expected_error=(
               TypeError,
-              (
-                  r'When apply_fn is a mapping,'
-                  r' input_polymorphic_shape_symbol_values must'
-                  r' also be a mapping from key to List.'
-              ),
+              r'`input_polymorphic_shape_symbol_values` must be a mapping, but',
           ),
       ),
       dict(
@@ -278,9 +271,8 @@ class ObmModuleTest(parameterized.TestCase):
           expected_error=(
               ValueError,
               (
-                  r'The keys of apply_fn_map and'
-                  r' input_polymorphic_shape_symbol_values_map must be the'
-                  r' same.'
+                  r'The keys of `apply_fn` and'
+                  r' `input_polymorphic_shape_symbol_values` should be the same'
               ),
           ),
       ),
@@ -298,7 +290,7 @@ class ObmModuleTest(parameterized.TestCase):
           apply_fn_map={},
           expected_error=(
               ValueError,
-              r'apply_fn_map is empty. Please provide a valid apply_fn_map.',
+              r'`apply_fn` should be a non-empty mapping',
           ),
       ),
       dict(
@@ -316,7 +308,10 @@ class ObmModuleTest(parameterized.TestCase):
           },
           expected_error=(
               ValueError,
-              r'The key simple_add is not found in input_polymorphic_shape.',
+              (
+                  r'The keys of `apply_fn` and `input_polymorphic_shape`'
+                  r' should be the same'
+              ),
           ),
       ),
   )
