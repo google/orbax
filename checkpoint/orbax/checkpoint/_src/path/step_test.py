@@ -485,7 +485,7 @@ class UtilsTest(parameterized.TestCase):
       ('checkpoint_1010_',),
       ('_191',),
       ('.orbax-checkpoint-tmp-191913',),
-      ('0.orbax-checkpoint-tmp-',),
+      ('0.orbax-checkpoint-',),
       ('checkpoint_.orbax-checkpoint-tmp-191913',),
   )
   def test_step_from_checkpoint_name_invalid(self, name):

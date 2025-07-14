@@ -53,7 +53,6 @@ Configuration can be done in the following way::
 from __future__ import annotations
 
 import asyncio
-import itertools
 import re
 import threading
 import time
@@ -75,8 +74,6 @@ from orbax.checkpoint._src.path import utils
 
 TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
 COMMIT_SUCCESS_FILE = step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
-
-_module_unique_count = itertools.count()
 
 
 async def _mkdir(path: epath.Path, *args, **kwargs):
@@ -181,12 +178,12 @@ def _get_tmp_directory(final_path: epath.Path) -> epath.Path:
   # Path may not be completely unique if a preemption occurs. We rely on the
   # existing tmp directory being deleted elsewhere.
   return epath.Path(final_path.parent) / (
-      final_path.name + TMP_DIR_SUFFIX + str(next(_module_unique_count))
+      final_path.name + TMP_DIR_SUFFIX
   )
 
 
 def _get_tmp_directory_pattern(final_path_name: Optional[str] = None) -> str:
-  suffix = r'\.orbax-checkpoint-tmp-.+'
+  suffix = r'\.orbax-checkpoint-tmp'
   if final_path_name is None:
     return '(.+)' + suffix
   else:

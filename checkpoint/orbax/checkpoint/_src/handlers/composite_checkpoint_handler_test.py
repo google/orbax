@@ -1101,11 +1101,11 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertIn('state', tmp_dirs.keys())
     self.assertIn('metadata', tmp_dirs.keys())
     self.assertIn(
-        (self.directory / 'state.orbax-checkpoint-tmp-').as_posix(),
+        (self.directory / 'state.orbax-checkpoint-tmp').as_posix(),
         tmp_dirs['state'].get().as_posix(),
     )
     self.assertIn(
-        (self.directory / 'metadata.orbax-checkpoint-tmp-').as_posix(),
+        (self.directory / 'metadata.orbax-checkpoint-tmp').as_posix(),
         tmp_dirs['metadata'].get().as_posix(),
     )
 

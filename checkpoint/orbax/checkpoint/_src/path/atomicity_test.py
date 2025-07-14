@@ -46,7 +46,7 @@ class AtomicRenameTemporaryPathTest(
       ('ckpt', f'ckpt{TMP_DIR_SUFFIX}11001', True),
       ('state', f'state{TMP_DIR_SUFFIX}1', True),
       ('state', f'state{TMP_DIR_SUFFIX}s', True),
-      ('state', f'state{TMP_DIR_SUFFIX}', False),
+      ('state', f'state{TMP_DIR_SUFFIX}', True),
       ('foo', f'{TMP_DIR_SUFFIX}12', False),
       ('foo', f'f{TMP_DIR_SUFFIX}12', False),
       ('foo', 'foo-checkpoint-tmp-2', False),

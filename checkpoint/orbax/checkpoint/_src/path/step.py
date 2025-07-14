@@ -36,11 +36,11 @@ from orbax.checkpoint._src.multihost import multihost
 
 _GCS_PATH_PREFIX = ('gs://',)
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
-TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp-'
+TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp'
 # prefix_1000.orbax-checkpoint-tmp-1010101
 # OR
 # 1000.orbax-checkpoint-tmp-1010101
-TMP_DIR_STEP_PATTERN = r'.*?_*?(\d+)\.orbax-checkpoint-tmp-\d+'
+TMP_DIR_STEP_PATTERN = r'.*?_*?(\d+)\.orbax-checkpoint-tmp'
 _LAST_CHECKPOINT_WRITE_TIME = time.time()
 
 MetadataT = TypeVar('MetadataT', bound='Metadata')
