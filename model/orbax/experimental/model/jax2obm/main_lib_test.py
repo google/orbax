@@ -28,7 +28,10 @@ import orbax.checkpoint as ocp
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.jax2obm import constants
 from orbax.experimental.model.jax2obm import jax_specific_info
+from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 from orbax.experimental.model.jax2obm import main_lib
+from orbax.experimental.model.test_utils import simple_orchestration
+from orbax.experimental.model.test_utils import simple_orchestration_pb2
 
 from tensorflow.python.util.protobuf import compare
 from google.protobuf import text_format
@@ -61,7 +64,6 @@ class MainLibTest(parameterized.TestCase):
   def test_sharded_jax_e2e(
       self, native_serialization_platforms, polymorphic_shape
   ):
-    output_root_path = os.path.join(self.create_tempdir())
 
     def _jax_model_fn(params, x):
       return jnp.dot(jnp.dot(x, params['a']), params['b'])
@@ -119,8 +121,9 @@ class MainLibTest(parameterized.TestCase):
     model_function_name = 'my_model_fn'
     obm_module[model_function_name] = obm_shlo_fn
 
+    save_dir_path = os.path.join(self.create_tempdir())
     ckpt_subdir = 'my_checkpoint/'
-    ckpt_path = os.path.join(output_root_path, ckpt_subdir)
+    ckpt_path = os.path.join(save_dir_path, ckpt_subdir)
     checkpointer = ocp.Checkpointer(ocp.StandardCheckpointHandler())
     checkpointer.save(ckpt_path, params)
     weights_name = 'my_weights'
@@ -129,24 +132,351 @@ class MainLibTest(parameterized.TestCase):
         mime_type='orbax_checkpoint',
     )
 
+    supplemental_filename = 'my_orchestration.pb'
+
     obm.save(
         obm_module,
-        output_root_path,
+        save_dir_path,
         obm.SaveOptions(
             version=2,
+            supplemental_info={
+                simple_orchestration.TEST_ORCHESTRATION_SUPPLEMENTAL_NAME: (
+                    obm.GlobalSupplemental(
+                        simple_orchestration.create(
+                            model_function_name=model_function_name,
+                            weights_name=weights_name,
+                        ),
+                        supplemental_filename,
+                    )
+                )
+            },
         ),
     )
 
-    manifest_proto = obm.manifest_pb2.Manifest()
-    with open(os.path.join(output_root_path, obm.MANIFEST_FILENAME), 'rb') as f:
-      manifest_proto.ParseFromString(f.read())
-      self.assertIn(model_function_name, manifest_proto.objects)
-      self.assertIn(weights_name, manifest_proto.objects)
-
-    ckpt_path = os.path.join(output_root_path, ckpt_subdir)
+    ckpt_path = os.path.join(save_dir_path, ckpt_subdir)
     self.assertNotEmpty(
         os.listdir(ckpt_path),
         f'Checkpoint directory {ckpt_subdir} is empty.',
+    )
+
+    manifest_proto = obm.manifest_pb2.Manifest()
+    with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), 'rb') as f:
+      manifest_proto.ParseFromString(f.read())
+
+    if polymorphic_shape:
+      batch_size = ''
+      sharding_dims = """
+        tile_assignment_dimensions: 1
+        tile_assignment_dimensions: 4
+        tile_assignment_dimensions: 2
+        """
+    else:
+      sharding_dims = """
+        tile_assignment_dimensions: 4
+        tile_assignment_dimensions: 1
+        tile_assignment_dimensions: 2
+      """
+      batch_size = 'size: 8'
+
+    expected_signature_text = (
+        """
+      signature {
+        input {
+          tuple {
+            elements {
+              tuple {
+                elements {
+                  dict {
+                    string_to_type {
+                      key: "a"
+                      value {
+                        leaf {
+                          tensor_type {
+                            shape {
+                              shape_with_known_rank {
+                                dimension_sizes {
+                                  size: 4
+                                }
+                                dimension_sizes {
+                                  size: 4
+                                }
+                              }
+                            }
+                            dtype: f32
+                            sharding {
+                              type: OTHER
+                              tile_assignment_dimensions: 4
+                              tile_assignment_dimensions: 1
+                              tile_assignment_dimensions: 2
+                              replicate_on_last_tile_dim: true
+                              iota_reshape_dims: 8
+                              iota_transpose_perm: 0
+                            }
+                          }
+                        }
+                      }
+                    }
+                    string_to_type {
+                      key: "b"
+                      value {
+                        leaf {
+                          tensor_type {
+                            shape {
+                              shape_with_known_rank {
+                                dimension_sizes {
+                                  size: 4
+                                }
+                                dimension_sizes {
+                                  size: 16
+                                }
+                              }
+                            }
+                            dtype: f32
+                            sharding {
+                              type: OTHER
+                              tile_assignment_dimensions: 4
+                              tile_assignment_dimensions: 2
+                              iota_reshape_dims: 8
+                              iota_transpose_perm: 0
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                elements {
+                  leaf {
+                    tensor_type {
+                      shape {
+                        shape_with_known_rank {
+                          dimension_sizes {
+                            """
+        + batch_size
+        + """
+                          }
+                          dimension_sizes {
+                            size: 4
+                          }
+                        }
+                      }
+                      dtype: f32
+                      sharding {
+                        type: OTHER
+                        """
+        + sharding_dims
+        + """
+                        replicate_on_last_tile_dim: true
+                        iota_reshape_dims: 8
+                        iota_transpose_perm: 0
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            elements {
+              dict {
+              }
+            }
+          }
+        }
+        output {
+          leaf {
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    """
+        + batch_size
+        + """
+                  }
+                  dimension_sizes {
+                    size: 16
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+        }
+      }
+    """
+    )
+
+    jax_supplemental_filename = f'{model_function_name}_supplemental.pb'
+
+    expected_manifest_proto_text = (
+        """
+      objects {
+        key: \""""
+        + model_function_name
+        + """\"
+        value {
+          function {"""
+        + expected_signature_text
+        + """
+            body {
+              stable_hlo_body {
+                stable_hlo {
+                  inlined_bytes: "ML StableHLO v0.9.0 ..."
+                  mime_type: "mlir_stablehlo"
+                  version: "1.0"
+                }
+                calling_convention_version: 9
+                lowering_platforms: "cpu"
+                module_kept_var_idx: 0
+                module_kept_var_idx: 1
+                module_kept_var_idx: 2
+                supplemental_info {
+                  key: "jax_specific_info"
+                  value {
+                    file_system_location {
+                      string_path: \""""
+        + jax_supplemental_filename
+        + """\"
+                  }
+                  mime_type: \""""
+        + jax_specific_info.CURRENT_JAX_SUPPLEMENTAL_MIME_TYPE
+        + """\"
+                  version: \""""
+        + jax_specific_info.CURRENT_JAX_SUPPLEMENTAL_VERSION
+        + """\"
+                  }
+                }
+              }
+            }
+            visibility: PUBLIC
+          }
+        }
+      }
+      objects {
+        key: \""""
+        + weights_name
+        + """\"
+        value {
+          value {
+            external {
+              data {
+                file_system_location {
+                  string_path: \""""
+        + ckpt_subdir
+        + """\"
+                }
+                mime_type: "orbax_checkpoint"
+              }
+            }
+          }
+        }
+      }
+      supplemental_info {
+          key: \""""
+        + simple_orchestration.TEST_ORCHESTRATION_SUPPLEMENTAL_NAME
+        + """\"
+          value {
+            file_system_location {
+                string_path: \""""
+        + supplemental_filename
+        + """\"
+            }
+            mime_type: \""""
+        + simple_orchestration.TEST_ORCHESTRATION_MIME_TYPE
+        + """\"
+            version: \""""
+        + simple_orchestration.TEST_ORCHESTRATION_VERSION
+        + """\"
+          }
+        }
+      """
+    )
+    expected_manifest_proto = text_format.Parse(
+        expected_manifest_proto_text, obm.manifest_pb2.Manifest()
+    )
+    compare.assertProtoEqual(
+        self,
+        manifest_proto,
+        expected_manifest_proto,
+        ignored_fields=[
+            'objects.function.body.stable_hlo_body.stable_hlo.inlined_bytes'
+        ],
+    )
+    self.assertIn(
+        b'ML\xef',
+        manifest_proto.objects[
+            model_function_name
+        ].function.body.stable_hlo_body.stable_hlo.inlined_bytes,
+    )
+    self.assertIn(
+        b'StableHLO_v',
+        manifest_proto.objects[
+            model_function_name
+        ].function.body.stable_hlo_body.stable_hlo.inlined_bytes,
+    )
+
+    pipeline_proto = simple_orchestration_pb2.Pipeline()
+    with open(os.path.join(save_dir_path, supplemental_filename), 'rb') as f:
+      pipeline_proto.ParseFromString(f.read())
+    expected_orchestration_proto_text = f"""
+      model_function_name: "{model_function_name}"
+      weights_name: "{weights_name}"
+    """
+    expected_orchestration_proto = text_format.Parse(
+        expected_orchestration_proto_text,
+        simple_orchestration_pb2.Pipeline(),
+    )
+    compare.assertProtoEqual(
+        self, pipeline_proto, expected_orchestration_proto
+    )
+
+    jax_supplemental_proto = jax_supplemental_pb2.Function()
+    with open(
+        os.path.join(save_dir_path, jax_supplemental_filename), 'rb'
+    ) as f:
+      jax_supplemental_proto.ParseFromString(f.read())
+    expected_jax_supplemental_proto_text = """
+      nr_devices: 8
+      name: "_jax_model_fn"
+    """
+    if polymorphic_shape:
+      expected_jax_supplemental_proto_text += """
+      uses_shape_polymorphism: true
+      input_spec_refinements {
+        map {
+          idx_to_refinement {
+            key: 2
+            value {
+              shape {
+                dimension_sizes {
+                  size: "b"
+                }
+                dimension_sizes {
+                }
+              }
+            }
+          }
+        }
+      }
+      output_spec_refinements {
+        list {
+          refinements {
+            shape {
+              dimension_sizes {
+                size: "b"
+              }
+              dimension_sizes {
+              }
+            }
+          }
+        }
+      }
+      """
+
+    expected_jax_supplemental_proto = text_format.Parse(
+        expected_jax_supplemental_proto_text,
+        jax_supplemental_pb2.Function(),
+    )
+    compare.assertProtoEqual(
+        self, jax_supplemental_proto, expected_jax_supplemental_proto
     )
 
   def test_mnist_model(self):
