@@ -35,6 +35,8 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 StepMetadata = checkpoint_metadata.StepMetadata
 CompositeItemMetadata = checkpoint_metadata.CompositeItemMetadata
 
+ORBAX_CHECKPOINT_INDICATOR_FILE = 'orbax.checkpoint'
+
 
 def _existing_checkpointable_names(directory: epath.Path) -> set[str]:
   return {p.name for p in directory.iterdir() if p.is_dir()}
