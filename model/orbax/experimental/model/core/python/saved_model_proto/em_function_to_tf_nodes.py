@@ -298,7 +298,7 @@ def _run_shlo_fn_as_tf(
 
   version = shlo_fn.calling_convention_version
 
-  max_supported_version = 9
+  max_supported_version = 10
 
   if version > max_supported_version:
     raise NotImplementedError(

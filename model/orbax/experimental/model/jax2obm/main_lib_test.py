@@ -323,7 +323,7 @@ class MainLibTest(parameterized.TestCase):
                   mime_type: "mlir_stablehlo"
                   version: "1.0"
                 }
-                calling_convention_version: 9
+                calling_convention_version: 10
                 lowering_platforms: "cpu"
                 module_kept_var_idx: 0
                 module_kept_var_idx: 1
@@ -943,7 +943,7 @@ class MainLibTest(parameterized.TestCase):
                     mime_type: "mlir_stablehlo"
                     version: "1.0"
                   }
-                  calling_convention_version: 9
+                  calling_convention_version: 10
                   lowering_platforms: "cpu"
                   module_kept_var_idx: 0
                   module_kept_var_idx: 1
