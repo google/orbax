@@ -150,7 +150,7 @@ def convert(
       native_serialization_disabled_checks,
   )
 
-  utils.assert_jax_trace_state_is_clean()
+  utils.assert_not_in_jax_transformation()
 
   exported = exported_creator(*args_spec, **kwargs_spec)
   return jax_exported_to_shlo_fn(

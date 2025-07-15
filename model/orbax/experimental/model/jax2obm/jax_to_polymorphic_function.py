@@ -117,7 +117,7 @@ def convert_polymorphic_fn(
   ) -> Tuple[obm.tracing.TreeOfGraphEdgeTensors, ...]:
     obm.tracing.assert_tracing()
 
-    utils.assert_jax_trace_state_is_clean()
+    utils.assert_not_in_jax_transformation()
 
     def em_to_jax_arg_spec(a: EmVal) -> jax.ShapeDtypeStruct:
       # The shape and JAX dtype for an EM argument

@@ -51,10 +51,10 @@ def _get_physical_dtype(dtype) -> Optional[obm.ShloDType]:
     return None
 
 
-def assert_jax_trace_state_is_clean():
-  # TODO(b/332755487): Find out if there is a better way to check if we are
-  #   inside a JAX transformation.
-  if not jax.core.trace_state_clean():
+def assert_not_in_jax_transformation():
+  """Raises an error if executed within a JAX transformation."""
+  arr = jax.lax.iota("int32", 0)
+  if isinstance(arr, jax.core.Tracer):
     raise ValueError("convert must be used outside all JAX transformations.")
 
 
