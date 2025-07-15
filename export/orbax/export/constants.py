@@ -33,13 +33,11 @@ DEFAULT_METHOD_KEY = 'jax_module_default_method'
 
 
 # LINT.IfChange
+# TODO: b/380323586 - yunjiexu -  Considering deprecate this enum. And use the
+# manifest_pb2.Platform directly.
 class OrbaxNativeSerializationType(enum.Enum):
   """Defines the native serialization types available for a JAX model through Orbax."""
 
-  CPU = 'cpu'
-  CUDA = 'cuda'
-  ROCM = 'rocm'
-  TPU = 'tpu'
 # LINT.ThenChange(//depot//orbax/experimental/model/jax2obm/constants.py)
 
 ################################################################################
@@ -91,6 +89,9 @@ BATCH_OPTIONS = 'batch_options'
 
 # XLA compile options for the model.
 XLA_COMPILE_OPTIONS = 'xla_compile_options'
+
+# XLA compile options per platform for the model.
+XLA_COMPILE_OPTIONS_PER_PLATFORM = 'xla_compile_options_per_platform'
 
 ################################################################################
 # Proto field names

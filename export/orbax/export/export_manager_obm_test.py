@@ -38,6 +38,7 @@ _VERSIONS = (
 )
 
 
+# TODO: b/380323586 - Add a e2e test for default xla compile options.
 class ExportManagerObmTest(parameterized.TestCase, tf.test.TestCase):
 
   # Dummy test to make copybara happy, will be removed once all the obm
