@@ -16,9 +16,13 @@
 
 import enum
 import itertools
-import logging
-from orbax.checkpoint._src.futures import signaling_client
+import threading
+import time
+from typing import Callable, Generic, TypeVar
+from absl import logging
 from orbax.checkpoint._src.multihost import multihost
+
+_T = TypeVar("_T")
 
 
 class HandlerAwaitableSignal(enum.Enum):
@@ -61,50 +65,47 @@ class OperationIdGenerator:
     return str(cls._operation_id)
 
 
-class OpTracker:
-  """A tracker for tracking host-level op in progress."""
+class MultihostSynchronizedValue(Generic[_T]):
+  """A thread-safe value that is synchronized across all processes."""
 
-  def __init__(self, tracker_prefix: str, operation_id: str):
-    self._operation_id = operation_id
-    self._tracker_prefix = tracker_prefix
-    logging.info(
-        "[process=%s] Created OpTracker for %s with operation id %s",
+  def __init__(
+      self,
+      value: _T,
+      thread_save_barrier_sync_fn: Callable[[str], None],
+      barrier_sync_key_prefix: str | None = None,
+  ):
+    """Initializes the thread-safe value."""
+    self._thread_save_barrier_sync_fn = thread_save_barrier_sync_fn
+    self._barrier_sync_key_prefix = barrier_sync_key_prefix
+    self._lock = threading.RLock()
+    with self._lock:
+      self._value = value
+
+  def get(self) -> _T:
+    """Returns the value."""
+    with self._lock:
+      return self._value
+
+  def set(self, value: _T) -> None:
+    """Sets the value across all processes."""
+    start_time = time.time()
+    self._thread_save_barrier_sync_fn(
+        multihost.unique_barrier_key(
+            "ThreadSaveMultiHostValueHolder:set_value_start",
+            prefix=self._barrier_sync_key_prefix,
+        ),
+    )
+    with self._lock:
+      self._value = value
+      self._thread_save_barrier_sync_fn(
+          multihost.unique_barrier_key(
+              "ThreadSaveMultiHostValueHolder:set_value_end",
+              prefix=self._barrier_sync_key_prefix,
+          ),
+      )
+    logging.vlog(
+        1,
+        "[process=%s]MultihostSynchronizedValue set took %s seconds",
         multihost.process_index(),
-        tracker_prefix,
-        operation_id,
-    )
-
-  def start(self):
-    """Marks the op as in progress for the current process."""
-    process_index = multihost.process_index()
-    signaling_client.get_signaling_client().key_value_set(
-        f"{self._tracker_prefix}_{self._operation_id}/{process_index}",
-        str(process_index),
-        allow_overwrite=True,
-    )
-
-  def complete(self):
-    """Marks the op as complete for the current process."""
-    process_index = multihost.process_index()
-    signaling_client.get_signaling_client().key_value_delete(
-        f"{self._tracker_prefix}_{self._operation_id}/{process_index}"
-    )
-
-  def get_in_progress_ids(self) -> list[int]:
-    """Returns the list of processes in progress for the op."""
-    op_in_progress = signaling_client.get_signaling_client().key_value_dir_get(
-        f"{self._tracker_prefix}_{self._operation_id}/"
-    )
-    return [int(process_id) for _, process_id in op_in_progress]
-
-
-class OpTrackerFactory:
-  """A factory for creating `OpTracker` instances."""
-
-  @classmethod
-  def create_tracker(cls, tracker_prefix: str) -> OpTracker:
-    """Creates a new `OpTracker` instance."""
-    return OpTracker(
-        tracker_prefix,
-        str(OperationIdGenerator.next_operation_id()),
+        time.time() - start_time,
     )
