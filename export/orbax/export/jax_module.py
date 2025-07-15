@@ -96,28 +96,38 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
       jax2obm_kwargs: options passed to the Orbax Model export. Accepted
         arguments are 'native_serialization_platforms' which must be a tuple of
         OrbaxNativeSerializationType.
+
+    raises:
+      ValueError: If the export version is not supported.
     """
     self._export_version = export_version
 
-    if export_version == constants.ExportModelType.ORBAX_MODEL:
-      self._export_module = obm_module.ObmModule(
-          params=params,
-          apply_fn=apply_fn,
-          input_polymorphic_shape=input_polymorphic_shape,
-          jax2obm_kwargs=jax2obm_kwargs,
-      )
-    else:
-      self._export_module = tensorflow_module.TensorFlowModule(
-          params=params,
-          apply_fn=apply_fn,
-          trainable=trainable,
-          input_polymorphic_shape=input_polymorphic_shape,
-          jit_compile=jit_compile,
-          pspecs=pspecs,
-          allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
-          jax2tf_kwargs=jax2tf_kwargs,
-          export_version=export_version,
-      )
+    match export_version:
+      case constants.ExportModelType.TF_SAVEDMODEL:
+        self._export_module = tensorflow_module.TensorFlowModule(
+            params=params,
+            apply_fn=apply_fn,
+            trainable=trainable,
+            input_polymorphic_shape=input_polymorphic_shape,
+            jit_compile=jit_compile,
+            pspecs=pspecs,
+            allow_multi_axis_sharding_consolidation=allow_multi_axis_sharding_consolidation,
+            jax2tf_kwargs=jax2tf_kwargs,
+            export_version=export_version,
+        )
+      case constants.ExportModelType.ORBAX_MODEL:
+        self._export_module = obm_module.ObmModule(
+            params=params,
+            apply_fn=apply_fn,
+            input_polymorphic_shape=input_polymorphic_shape,
+            jax2obm_kwargs=jax2obm_kwargs,
+        )
+      case _:
+        raise ValueError(
+            f'Unsupported export version: {export_version}, '
+            'must be one of'
+            f" {', '.join(c.name for c in constants.ExportModelType)}"
+        )
 
   @property
   def apply_fn_map(self) -> Mapping[str, ApplyFn]:
