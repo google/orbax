@@ -1275,7 +1275,11 @@ class CheckpointManagerTestBase:
 
         if multihost.process_index() == 0:
           test_utils.empty_directory(self.persistent_directory)
-        restored = manager.restore(2)
+        num_replicas = global_mesh.devices.shape[replica_axis_index]
+        with mock.patch.object(
+            multislice, 'get_num_slices', return_value=num_replicas
+        ):
+          restored = manager.restore(2)
         test_utils.assert_tree_equal(self, pytree_double, restored)
         pcm_restore.assert_not_called()
 
@@ -1552,8 +1556,11 @@ class CheckpointManagerTestBase:
             args=get_composite_save_args(pytree_double),
         )  # local
         manager.wait_until_finished()
-
-        restored = manager.restore(5)
+        num_replicas = global_mesh.devices.shape[replica_axis_index]
+        with mock.patch.object(
+            multislice, 'get_num_slices', return_value=num_replicas
+        ):
+          restored = manager.restore(5)
         test_utils.assert_tree_equal(self, pytree_double, restored)
 
     @parameterized.parameters(

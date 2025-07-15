@@ -199,6 +199,16 @@ def get_available_memory(
   return int(available_memory * scaling_factor / MEMORY_FACTOR)
 
 
+def get_num_slices() -> int:
+  """Returns the number of slices."""
+  return (
+      len(
+          set(d.slice_index for d in jax.devices() if hasattr(d, 'slice_index'))
+      )
+      or 1
+  )
+
+
 def broadcast_one_replica_to_all(
     in_tree: Tuple[PyTree, ...],
     global_mesh: jax.sharding.Mesh,
@@ -242,12 +252,32 @@ def broadcast_one_replica_to_all(
     if not is_source:
       inp = fake_zero_data(sharding, inp)
     inp = jnp.expand_dims(inp, axis=0)
-    in_spec = jax.sharding.PartitionSpec(
-        replica_axis_name,
-        *sharding.spec,
-    )
-    global_shape = (num_replicas,) + inp.shape[1:]
-    global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
+
+    num_slices = get_num_slices()
+    if num_slices != num_replicas:
+      in_spec = jax.sharding.PartitionSpec(
+          'replication',
+          *sharding.spec,
+      )
+      global_shape = (num_slices,) + inp.shape[1:]
+      slice_global_mesh = jax.sharding.Mesh(
+          global_mesh.devices.reshape((
+              num_slices,
+              *(
+                  -1 if i == replica_axis_index else n
+                  for i, n in enumerate(global_mesh.devices.shape)
+              ),
+          )),
+          ('replication', *global_mesh.axis_names),
+      )
+      global_sharding = jax.sharding.NamedSharding(slice_global_mesh, in_spec)
+    else:
+      in_spec = jax.sharding.PartitionSpec(
+          replica_axis_name,
+          *sharding.spec,
+      )
+      global_shape = (num_replicas,) + inp.shape[1:]
+      global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
     return jax.make_array_from_single_device_arrays(
         global_shape, global_sharding, [s.data for s in inp.addressable_shards]
     )
