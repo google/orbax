@@ -28,6 +28,7 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
+from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -202,10 +203,9 @@ def load_checkpointables(
 
   start_time = time.time()
   logging.info('Loading checkpoint from %s.', path)
+  if not path:
+    raise ValueError('Path must not be None.')
   path = epath.Path(path)
-
-  format_utils.validate_checkpoint_directory(path)
-  format_utils.validate_checkpoint_metadata(path)
 
   return _load_checkpointables_impl(
       path,
@@ -238,16 +238,14 @@ def _load_checkpointables_impl(
   """
 
   context = context_lib.get_context()
-  handler = composite_handler.CompositeHandler(
-      context.checkpointables_options.registry
-  )
   abstract_checkpointables = _standardize_abstract_checkpointables(
       abstract_checkpointables
   )
   _validate_abstract_checkpointables(abstract_checkpointables)
+  layout = layout_registry.get_checkpoint_layout(path)
 
   async def _load() -> dict[str, Any]:
-    load_awaitable = await handler.load(path, abstract_checkpointables)
+    load_awaitable = await layout.load(path, abstract_checkpointables)
     result = await load_awaitable
     await multihost.sync_global_processes(
         multihost.unique_barrier_key(
