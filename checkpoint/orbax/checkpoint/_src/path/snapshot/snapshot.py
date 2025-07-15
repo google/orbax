@@ -14,8 +14,7 @@
 
 """Snapshot represents operations on how to create, delete snapshots of a checkpoint."""
 
-import abc
-import dataclasses
+from typing import Protocol
 
 from absl import logging
 from etils import epath
@@ -25,52 +24,54 @@ from orbax.checkpoint._src.path import utils as ocp_path_utils
 SNAPSHOTTING_TIME = "snapshotting_time"
 
 
-@dataclasses.dataclass
-class Snapshot(abc.ABC):
+class Snapshot(Protocol):
   """Represents a snapshot of a checkpoint."""
 
-  @classmethod
-  def create_snapshot(cls, src: str, dst: str):
+  _source: epath.Path
+  _snapshot: epath.Path
+
+  def create_snapshot(self) -> None:
     """Creates a snapshot of the checkpoint."""
     pass
 
-  @classmethod
-  def release_snapshot(cls, path: str):
+  def release_snapshot(self) -> bool:
     """Deletes a snapshot of the checkpoint."""
     pass
 
 
 
 
-@dataclasses.dataclass
-class DefaultSnapshot(Snapshot):
+class _DefaultSnapshot(Snapshot):
   """Creates a copy of the checkpoint in the snapshot folder."""
 
-  @classmethod
-  def create_snapshot(cls, src: str, dst: str):
+  def __init__(self, src: epath.PathLike, dst: epath.PathLike):
+    self._source = epath.Path(src)
+    self._snapshot = epath.Path(dst)
+
+  def create_snapshot(self):
     """Creates a deep copy of the checkpoint."""
-    if not epath.Path(dst).is_absolute():
+    if not epath.Path(self._snapshot).is_absolute():
       raise ValueError(
-          f"Snapshot destination must be absolute, but was '{dst}'."
+          f"Snapshot destination must be absolute, but was '{self._snapshot}'."
       )
-    if not epath.Path(src).exists():
-      raise ValueError(f"Snapshot source does not exist: {src}'.")
+    if not epath.Path(self._source).exists():
+      raise ValueError(f"Snapshot source does not exist: {self._source}'.")
+
     t = ocp_path_utils.Timer()
-    ocp_path_utils.recursively_copy_files(src, dst)
+    ocp_path_utils.recursively_copy_files(self._source, self._snapshot)
     logging.debug(
         "Snapshot copy: %fs",
         t.get_duration(),
     )
-    return dst
 
-  @classmethod
-  def release_snapshot(cls, path: str) -> bool:
+  def release_snapshot(self) -> bool:
     """Deletes a snapshot of the checkpoint."""
-    if not epath.Path(path).exists():
-      logging.error("Snapshot does not exist: %s", path)
+    if not epath.Path(self._snapshot).exists():
+      logging.error("Snapshot does not exist: %s", self._snapshot)
       return False
+
     try:
-      epath.Path(path).rmtree()
+      epath.Path(self._snapshot).rmtree()
     except OSError as e:
       logging.error(e)
       return False
@@ -78,5 +79,5 @@ class DefaultSnapshot(Snapshot):
       return True
 
 
-def create_instance(dst: str, *args, **kwargs):
-  return DefaultSnapshot(*args, **kwargs)
+def create_instance(source: epath.Path, snapshot: epath.Path):
+  return _DefaultSnapshot(source, snapshot)
