@@ -800,6 +800,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
 
     self._directory = epath.Path(directory)
+    self._save_tracker = synchronization.OpTrackerFactory.create_tracker(
+        'checkpoint_manager_save'
+    )
     if self._options.read_only:
       logging.warning('Given directory is read only=%s', self._directory)
     if self._options.create:
@@ -854,12 +857,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             self._options.enable_hns_rmtree,
             self._options.enable_background_delete,
         )
-    )
-
-    self._save_progress_tracker = synchronization.MultihostSynchronizedValue(
-        value=False,
-        thread_save_barrier_sync_fn=self._create_thread_safe_barrier_sync_fn(),
-        barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
     )
 
     logging.info(
@@ -1388,9 +1385,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         '/jax/checkpoint/write/wait_for_prev_duration_secs',
         step_stats.wait_for_prev_duration_secs,
     )
-    # We consider the save in progress only when we have finished waiting for
-    # previous save to complete.
-    self._save_progress_tracker.set(True)
+    self._save_tracker = synchronization.OpTrackerFactory.create_tracker(
+        'checkpoint_manager_save'
+    )
+    self._save_tracker.start()
     if step in self.all_steps():
       raise StepAlreadyExistsError(
           f'Checkpoint for step {step} already exists.'
@@ -1974,17 +1972,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def is_saving_in_progress(self) -> bool:
     """Returns whether a checkpoint save is in progress."""
-    start_time = time.time()
-    is_saving_in_progress = self._save_progress_tracker.get()
+    processes_saving = self._save_tracker.get_in_progress_ids()
     logging.vlog(
         1,
-        '[process=%s][is_saving_in_progress] is_saving_in_progress=%s,'
-        ' time_taken=%s',
+        '[process=%s][is_saving_in_progress] Processes saving: %s',
         multihost.process_index(),
-        is_saving_in_progress,
-        time.time() - start_time,
+        processes_saving,
     )
-    return is_saving_in_progress
+    return bool(processes_saving)
 
   def check_for_errors(self):
     """Checks for any outstanding errors in completed asynchronous save operations.
@@ -2048,6 +2043,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           time.time() - remove_steps_start_time,
       )
     finally:
+      self._save_tracker.complete()
       logging.info(
           '[process=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
           ' syncing with other hosts...',
@@ -2055,8 +2051,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           current_thread.name,
           step,
       )
-      # Set save in progress does a barrier sync so we don't need to do it here.
-      self._save_progress_tracker.set(False)
+      barrier_sync_fn = self._create_thread_safe_barrier_sync_fn()
+      barrier_sync_fn(
+          multihost.unique_barrier_key(
+              'CheckpointManager:finalize',
+              prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+              suffix=str(step),
+          )
+      )
       logging.info(
           '[process=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
           ' done on all hosts.',

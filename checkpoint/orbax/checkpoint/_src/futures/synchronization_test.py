@@ -13,13 +13,11 @@
 # limitations under the License.
 
 import itertools
-from unittest import mock
 from absl.testing import absltest
 from orbax.checkpoint._src.futures import synchronization
 
 
 OperationIdGenerator = synchronization.OperationIdGenerator
-MultihostSynchronizedValue = synchronization.MultihostSynchronizedValue
 
 
 class OperationIdGeneratorTest(absltest.TestCase):
@@ -42,24 +40,32 @@ class OperationIdGeneratorTest(absltest.TestCase):
     self.assertEqual(operation_id_2, "2")
 
 
-class MultihostSynchronizedValueTest(absltest.TestCase):
+class OpTrackerTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.thread_save_barrier_sync_fn = mock.MagicMock()
-    self.value_holder = MultihostSynchronizedValue(
-        value="initial_value",
-        thread_save_barrier_sync_fn=self.thread_save_barrier_sync_fn,
+    OperationIdGenerator._operation_id_counter = itertools.count()
+    OperationIdGenerator._operation_id = next(
+        OperationIdGenerator._operation_id_counter
     )
 
-  def test_get(self):
-    self.assertEqual(self.value_holder.get(), "initial_value")
+  def test_op_tracker_factory(self):
+    tracker_1 = synchronization.OpTrackerFactory.create_tracker("test_tracker")
+    tracker_2 = synchronization.OpTrackerFactory.create_tracker("test_tracker")
+    self.assertEqual(tracker_1._operation_id, "1")
+    self.assertEqual(tracker_2._operation_id, "2")
+    self.assertEqual(
+        OperationIdGenerator.get_current_operation_id(),
+        "2",
+    )
 
-  def test_set(self):
-    new_value = "new_value"
-    self.value_holder.set(new_value)
-    self.assertEqual(self.value_holder.get(), new_value)
-    self.assertEqual(self.thread_save_barrier_sync_fn.call_count, 2)
+  def test_op_tracker_get_in_progress_ids(self):
+    tracker = synchronization.OpTrackerFactory.create_tracker("test_tracker")
+    self.assertEmpty(tracker.get_in_progress_ids())
+    tracker.start()
+    self.assertSameElements(tracker.get_in_progress_ids(), [0])
+    tracker.complete()
+    self.assertEmpty(tracker.get_in_progress_ids())
 
 
 if __name__ == "__main__":
