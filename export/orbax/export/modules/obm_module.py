@@ -65,6 +65,8 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         constants.XLA_COMPILE_OPTIONS, None
     )
 
+    self._jax_mesh = jax2obm_kwargs.get(constants.JAX_MESH, None)
+
     self.polymorphic_constraints = self._maybe_set_polymorphic_constraints(
         jax2obm_kwargs
     )
