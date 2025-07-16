@@ -14,10 +14,10 @@
 
 """Checkpoint deleter."""
 
+import concurrent.futures
 import functools
 import os
 import queue
-import threading
 import time
 from typing import Optional, Protocol, Sequence
 from urllib.parse import urlparse  # pylint: disable=g-importing-member
@@ -63,6 +63,7 @@ class StandardCheckpointDeleter:
       name_format: step_lib.NameFormat[step_lib.Metadata],
       enable_hns_rmtree: bool = False,
       duration_metric: Optional[str] = _STANDARD_DELETE_DURATION,
+      deleter_name: Optional[str] = None,
   ):
     """StandardCheckpointDeleter constructor.
 
@@ -73,6 +74,7 @@ class StandardCheckpointDeleter:
       name_format: refer to CheckpointManager._name_format
       enable_hns_rmtree: refer to CheckpointManagerOptions.enable_hns_rmtree
       duration_metric: the name of the total delete duration metric
+      deleter_name: the name of the deleter. This is used for logging.
     """
     self._primary_host = primary_host
     self._directory = directory
@@ -80,6 +82,7 @@ class StandardCheckpointDeleter:
     self._name_format = name_format
     self._enable_hns_rmtree = enable_hns_rmtree
     self._duration_metric = duration_metric
+    self._deleter_name = deleter_name
 
   @functools.lru_cache(maxsize=32)
   def _is_hierarchical_namespace_enabled(self, bucket_name: str) -> bool:
@@ -164,6 +167,7 @@ class StandardCheckpointDeleter:
       step: checkpointing step number.
     """
     start = time.time()
+    action_taken = 'SkippedDelete'
     try:
       if not utils.is_primary_host(self._primary_host):
         logging.info(
@@ -191,7 +195,7 @@ class StandardCheckpointDeleter:
 
       if self._todelete_subdir is None or step_lib.is_gcs_path(self._directory):
         self._rmtree(delete_target)
-        logging.info('Deleted step %d.', step)
+        action_taken = 'Deleted'
         return
 
       # Rename step dir.
@@ -201,11 +205,19 @@ class StandardCheckpointDeleter:
       dst = step_lib.build_step_path(rename_dir, self._name_format, step)
 
       delete_target.replace(dst)
-      logging.info('Renamed step %d to %s', step, dst)
+      action_taken = f'Renamed to {dst}'
     finally:
+      elapsed_time = time.time() - start
+      logging.info(
+          '%s(step=%d)%s took %ss.',
+          action_taken,
+          step,
+          f' by {self._deleter_name}' if self._deleter_name else '',
+          elapsed_time,
+      )
       jax.monitoring.record_event_duration_secs(
           self._duration_metric,
-          time.time() - start,
+          elapsed_time,
       )
 
   def delete_steps(self, steps: Sequence[int]) -> None:
@@ -226,36 +238,48 @@ class ThreadedCheckpointDeleter:
       todelete_subdir: Optional[str],
       name_format: step_lib.NameFormat[step_lib.Metadata],
       enable_hns_rmtree: bool,
+      background_thread_count: int,
   ):
     """ThreadedCheckpointDeleter deletes checkpoints in a background thread."""
-    self._standard_deleter = StandardCheckpointDeleter(
-        primary_host=primary_host,
-        directory=directory,
-        todelete_subdir=todelete_subdir,
-        name_format=name_format,
-        enable_hns_rmtree=enable_hns_rmtree,
-        duration_metric=_THREADED_DELETE_DURATION,
-    )
+    self._primary_host = primary_host
+    self._directory = directory
+    self._todelete_subdir = todelete_subdir
+    self._name_format = name_format
+    self._enable_hns_rmtree = enable_hns_rmtree
+
     self._delete_queue = queue.Queue()
-    # Turn on daemon=True so the thread won't block the main thread and die
-    # when the program exits.
-    self._delete_thread = threading.Thread(
-        target=self._delete_thread_run, name='DeleterThread', daemon=True
+    self._executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=background_thread_count, thread_name_prefix='DeleterThread'
     )
-    self._delete_thread.start()
+    self._background_thread_count = background_thread_count
+    for i in range(self._background_thread_count):
+      self._executor.submit(self._delete_thread_run, i)
 
     jax.monitoring.record_event(
         '/jax/orbax/checkpoint_manager/threaded_checkpoint_deleter/init'
     )
 
-  def _delete_thread_run(self) -> None:
-    logging.info('Delete thread has started.')
+  def _delete_thread_run(self, thread_id: int) -> None:
+    """The actual function run by a DeleteThread."""
+
+    logging.info('DeleteThread%d has started.', thread_id)
+    standard_deleter = StandardCheckpointDeleter(
+        primary_host=self._primary_host,
+        directory=self._directory,
+        todelete_subdir=self._todelete_subdir,
+        name_format=self._name_format,
+        enable_hns_rmtree=self._enable_hns_rmtree,
+        duration_metric=_THREADED_DELETE_DURATION,
+        deleter_name=f'DeleteThread{thread_id}',
+    )
     while True:
       step = self._delete_queue.get(block=True)
       if step < 0:
         break
-      self._standard_deleter.delete(step)
-    logging.info('Delete thread exited.')
+      standard_deleter.delete(step)
+
+    standard_deleter.close()
+    logging.info('Delete thread%d exited.', thread_id)
 
   def delete(self, step: int) -> None:
     self._delete_queue.put(step)
@@ -266,11 +290,9 @@ class ThreadedCheckpointDeleter:
 
   def close(self) -> None:
     # make sure all steps are deleted before exit.
-    if self._delete_thread and self._delete_thread.is_alive():
+    for _ in range(self._background_thread_count):
       self._delete_queue.put(-1)
-      self._delete_thread.join()
-
-    self._standard_deleter.close()
+    self._executor.shutdown(wait=True)
 
 
 def create_checkpoint_deleter(
@@ -280,8 +302,29 @@ def create_checkpoint_deleter(
     name_format: step_lib.NameFormat[step_lib.Metadata],
     enable_hns_rmtree: bool,
     enable_background_delete: bool,
+    background_thread_count: int = 1,
 ) -> CheckpointDeleter:
-  """Creates a CheckpointDeleter."""
+  """Creates a CheckpointDeleter.
+
+  Args:
+    primary_host: The primary_host which wil be reponsible for deleting the
+      checkpoints.
+    directory: The root directory of the checkpoints.
+    todelete_subdir: If set, checkpoints to be deleted will be only renamed into
+      a subdirectory with the provided string.
+    name_format: NameFormat to build or find steps under input root directory.
+    enable_hns_rmtree: If True, enables additional step of HNS bucket empty
+      folder deletion.
+    enable_background_delete: If True, old checkpoint deletions will be done in
+      a background thread, otherwise, it will be done at the end of each save.
+      When it's enabled, make sure to call CheckpointManager.close() or use
+      context to make sure all old steps are deleted before exit.
+    background_thread_count: If enable_background_delete, this is the number of
+      background threads to use in the thread pool.
+
+  Returns:
+    A CheckpointDeleter.
+  """
 
   if enable_background_delete:
     return ThreadedCheckpointDeleter(
@@ -290,6 +333,7 @@ def create_checkpoint_deleter(
         todelete_subdir,
         name_format,
         enable_hns_rmtree,
+        background_thread_count,
     )
   else:
     return StandardCheckpointDeleter(

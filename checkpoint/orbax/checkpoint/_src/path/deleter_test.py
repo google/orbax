@@ -13,6 +13,12 @@
 # limitations under the License.
 
 """To test Orbax in single-host setup."""
+
+import queue
+import threading
+import time
+from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -27,7 +33,7 @@ class CheckpointDeleterTest(parameterized.TestCase):
     self.ckpt_dir = epath.Path(self.create_tempdir('ckpt').full_path)
 
   def _get_save_diretory(self, step: int, directory: epath.Path) -> epath.Path:
-    return directory / str(step)
+    return directory / step_lib.standard_name_format().build_name(step)
 
   @parameterized.product(
       threaded=(False, True),
@@ -61,6 +67,51 @@ class CheckpointDeleterTest(parameterized.TestCase):
       self.assertTrue((self.ckpt_dir / todelete_subdir / str(step)).exists())
 
     deleter.close()
+
+  @parameterized.parameters((1,), (3,), (5,))
+  def test_checkpoint_deleter_thread_count(self, thread_count):
+    """Test CheckpointDeleter with different thread counts."""
+
+    thread_ids = queue.Queue()  # thread safe
+    original_delete = deleter_lib.StandardCheckpointDeleter.delete
+
+    def mock_delete(self, step):
+      thread_ids.put(threading.get_ident())
+      time.sleep(0.01)  # yield control to other threads.
+      original_delete(self, step)
+
+    with mock.patch.object(
+        deleter_lib.StandardCheckpointDeleter, 'delete', new=mock_delete
+    ):
+      deleter = deleter_lib.create_checkpoint_deleter(
+          primary_host=None,
+          directory=self.ckpt_dir,
+          todelete_subdir=None,
+          name_format=step_lib.standard_name_format(),
+          enable_hns_rmtree=False,
+          enable_background_delete=True,
+          background_thread_count=thread_count,
+      )
+
+      steps = list(range(thread_count * 5))
+      step_dirs = []
+      for step in steps:
+        step_dir = self._get_save_diretory(step, self.ckpt_dir)
+        step_dir.mkdir()
+        self.assertTrue(step_dir.exists())
+        step_dirs.append(step_dir)
+
+      deleter.delete_steps(steps)
+      deleter.close()
+
+      # assert the step_dirs are deleted
+      for step_dir in step_dirs:
+        self.assertFalse(step_dir.exists())
+
+      deleter.close()
+
+      # make sure different threads are involved deletion.
+      self.assertLen(set(thread_ids.queue), thread_count)
 
 
 if __name__ == '__main__':
