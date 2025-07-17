@@ -110,7 +110,6 @@ async def _create_tmp_directory(
     async_makedir_func: AsyncMakeDirFunc,
     tmp_dir: epath.Path,
     *,
-    primary_host: Optional[int] = 0,
     path_permission_mode: Optional[int] = None,
     checkpoint_metadata_store: Optional[
         checkpoint_metadata.MetadataStore
@@ -124,7 +123,6 @@ async def _create_tmp_directory(
   Args:
     async_makedir_func: An implementation of AsyncMakeDirFunc to call.
     tmp_dir: The temporary directory path.
-    primary_host: primary host id, default=0.
     path_permission_mode: Path permission mode for the temp directory. e.g.
       0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
@@ -139,37 +137,36 @@ async def _create_tmp_directory(
   Raises:
     FileExistsError: if tmp directory already exists.
   """
-  if multihost.is_primary_host(primary_host):
-    if await _exists(tmp_dir):
-      if await _is_tmp_checkpoint(tmp_dir):
-        logging.warning(
-            'Attempted to create temporary directory %s which already exists.'
-            ' Removing existing directory since it is not finalized.',
-            tmp_dir,
-        )
-        await _rmtree(tmp_dir)
-      else:
-        raise FileExistsError(
-            f'Attempted to create temporary directory {tmp_dir} which already'
-            ' exists but appears a non-temporary checkpoint.'
-        )
-    logging.info('Creating tmp directory %s', tmp_dir)
-    await async_makedir_func(
-        tmp_dir,
-        parents=True,
-        exist_ok=False,
-        mode=path_permission_mode,
-        **kwargs,
-    )
-    if checkpoint_metadata_store is not None:
-      checkpoint_metadata_store.write(
-          file_path=checkpoint_metadata.step_metadata_file_path(tmp_dir),
-          metadata=step_metadata_serialization.serialize(
-              checkpoint_metadata.StepMetadata(
-                  init_timestamp_nsecs=time.time_ns()
-              )
-          ),
+  if await _exists(tmp_dir):
+    if await _is_tmp_checkpoint(tmp_dir):
+      logging.warning(
+          'Attempted to create temporary directory %s which already exists.'
+          ' Removing existing directory since it is not finalized.',
+          tmp_dir,
       )
+      await _rmtree(tmp_dir)
+    else:
+      raise FileExistsError(
+          f'Attempted to create temporary directory {tmp_dir} which already'
+          ' exists but appears a non-temporary checkpoint.'
+      )
+  logging.info('Creating tmp directory %s', tmp_dir)
+  await async_makedir_func(
+      tmp_dir,
+      parents=True,
+      exist_ok=False,
+      mode=path_permission_mode,
+      **kwargs,
+  )
+  if checkpoint_metadata_store is not None:
+    checkpoint_metadata_store.write(
+        file_path=checkpoint_metadata.step_metadata_file_path(tmp_dir),
+        metadata=step_metadata_serialization.serialize(
+            checkpoint_metadata.StepMetadata(
+                init_timestamp_nsecs=time.time_ns()
+            )
+        ),
+    )
 
   return tmp_dir
 
@@ -285,7 +282,6 @@ class AtomicRenameTemporaryPath(atomicity_types.TemporaryPath):
     return await _create_tmp_directory(
         _mkdir,
         self._tmp_path,
-        primary_host=self._primary_host,
         path_permission_mode=mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
@@ -409,7 +405,6 @@ class CommitFileTemporaryPath(atomicity_types.TemporaryPath):
     return await _create_tmp_directory(
         _mkdir,
         self._tmp_path,
-        primary_host=self._primary_host,
         path_permission_mode=mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
@@ -460,7 +455,8 @@ async def create_all(
       timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
       processes=active_processes,
   )
-  await asyncio.gather(*[path.create() for path in paths])
+  if multihost.is_primary_host(multiprocessing_options.primary_host):
+    await asyncio.gather(*[path.create() for path in paths])
   multihost.sync_global_processes(
       multihost.unique_barrier_key(
           'create_tmp_directory:post',
@@ -527,7 +523,6 @@ def create_all_async(
         _create_paths(
             paths,
             subdirectories=subdirectories,
-            multiprocessing_options=multiprocessing_options,
         ),
         send_signals=completion_signals,
         timeout_secs=multihost.DIRECTORY_CREATION_TIMEOUT,
@@ -549,15 +544,11 @@ def create_all_async(
 async def _create_paths(
     tmp_paths: Sequence[atomicity_types.TemporaryPath],
     subdirectories: Sequence[str] | None = None,
-    *,
-    multiprocessing_options: options_lib.MultiprocessingOptions,
 ):
   """Creates all temporary paths in parallel."""
   start = time.time()
   paths = await asyncio.gather(*[path.create() for path in tmp_paths])
-  if subdirectories and multihost.is_primary_host(
-      multiprocessing_options.primary_host
-  ):
+  if subdirectories:
     creation_ops = []
     for path in paths:
       creation_ops.extend([

@@ -39,8 +39,9 @@ class TemporaryPath(Protocol):
   is primarily constructed from this path. The class contains logic to create
   the temporary path, and to finalize it into the final path.
 
-  NOTE: All methods are intended to be called across all active processes,
-  except for `finalize`, which is only called on the primary host.
+  `from_final` should be called from all hosts to construct the temporary path
+  instance from the given final path.
+  `create` and `finalize` must be called only on the primary host.
   """
 
   @classmethod
@@ -77,7 +78,16 @@ class TemporaryPath(Protocol):
       *,
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
   ) -> epath.Path:
-    """Creates the temporary path on disk."""
+    """Creates the temporary path on disk.
+
+    NOTE: This method should be only called on the primary host.
+
+    Args:
+      file_options: options controlling file operations.
+
+    Returns:
+      The created temporary path.
+    """
     ...
 
   def finalize(
@@ -85,9 +95,7 @@ class TemporaryPath(Protocol):
   ):
     """Finalizes the temporary path into the final path.
 
-    NOTE: This method is only called on the primary host. This is in contrast
-    with all other methods in this class, which are called across all active
-    processes.
+    NOTE: This method should be only called on the primary host.
 
     This function is called from a background thread.
 
