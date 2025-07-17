@@ -31,6 +31,7 @@ from orbax.export import serving_config as osc
 from orbax.export import utils
 from orbax.export.modules import obm_module
 from orbax.export.oex_orchestration import oex_orchestration_pb2
+from orbax.export.oex_orchestration import Signature
 from orbax.export.typing import PyTree
 import tensorflow as tf
 
