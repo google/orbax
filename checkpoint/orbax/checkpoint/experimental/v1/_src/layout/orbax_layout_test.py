@@ -25,6 +25,7 @@ import safetensors.numpy
 
 np_save_file = safetensors.numpy.save_file
 OrbaxLayout = orbax_layout.OrbaxLayout
+InvalidLayoutError = orbax_layout.InvalidLayoutError
 
 
 class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
@@ -47,15 +48,17 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     saving.save_pytree(self.orbax_path / '0', self.object_to_save)
 
   def test_valid_orbax_checkpoint(self):
-    self.assertTrue(self.layout.validate(path=self.orbax_path / '0'))
+    self.layout.validate(path=self.orbax_path / '0')
 
   def test_invalid_orbax_checkpoint(self):
-    self.assertFalse(self.layout.validate(path=self.safetensors_path))
+    with self.assertRaises(InvalidLayoutError):
+      self.layout.validate(path=self.safetensors_path)
 
   def test_validate_fails_not_directory(self):
     # This tests `format_utils.validate_checkpoint_directory`
     invalid_path = epath.Path(self.orbax_path / '1')
-    self.assertFalse(self.layout.validate(path=invalid_path))
+    with self.assertRaises(InvalidLayoutError):
+      self.layout.validate(path=invalid_path)
 
   def test_validate_fails_no_metadata_file(self):
     # This tests `format_utils.validate_checkpoint_metadata`
@@ -68,16 +71,16 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     metadata_path = self.orbax_path / '0' / '_CHECKPOINT_METADATA'
     self.assertTrue(metadata_path.exists())
     metadata_path.rmtree()  # Remove the metadata file
-    self.assertFalse(self.layout.validate(path=self.orbax_path / '0'))
+    with self.assertRaises(InvalidLayoutError):
+      self.layout.validate(path=self.orbax_path / '0')
 
   def test_validate_fails_tmp_directory(self):
     # This simulates a temporary directory created by Orbax (should fail)
     test_utils.save_fake_tmp_dir(self.orbax_path, 0, 'test_checkpoint.tmp')
-    self.assertFalse(
-        self.layout.validate(
-            path=epath.Path(self.test_dir.full_path) / 'test_checkpoint.tmp'
-        )
-    )
+    with self.assertRaises(InvalidLayoutError):
+      self.layout.validate(
+          path=epath.Path(self.test_dir.full_path) / 'test_checkpoint.tmp'
+      )
 
   async def test_load_orbax_checkpoint(self):
     restored_checkpointables_await = await self.layout.load(
