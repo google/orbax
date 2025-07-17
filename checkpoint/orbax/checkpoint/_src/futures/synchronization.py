@@ -16,9 +16,14 @@
 
 import enum
 import itertools
-import logging
-from orbax.checkpoint._src.futures import signaling_client
+import threading
+import time
+from typing import Callable, Generic, TypeVar
+from absl import logging
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.multihost import multihost
+
+_T = TypeVar("_T")
 
 
 class HandlerAwaitableSignal(enum.Enum):
@@ -61,50 +66,70 @@ class OperationIdGenerator:
     return str(cls._operation_id)
 
 
-class OpTracker:
-  """A tracker for tracking host-level op in progress."""
+class MultihostSynchronizedValue(Generic[_T]):
+  """A thread-safe value that is synchronized across all processes."""
 
-  def __init__(self, tracker_prefix: str, operation_id: str):
-    self._operation_id = operation_id
-    self._tracker_prefix = tracker_prefix
-    logging.info(
-        "[process=%s] Created OpTracker for %s with operation id %s",
+  def __init__(
+      self,
+      value: _T,
+      multiprocessing_options: options_lib.MultiprocessingOptions,
+      async_options: options_lib.AsyncOptions,
+  ):
+    """Initializes the thread-safe value."""
+    self._multiprocessing_options = multiprocessing_options
+    self._async_options = async_options
+    self._lock = threading.RLock()
+    with self._lock:
+      self._value = value
+
+  def _create_thread_safe_barrier_sync_fn(self) -> Callable[[str], None]:
+    """Returns a barrier sync function to be called from threads.
+
+    The function accepts a key, but the timeout is already set up using
+    `AsyncOptions.timeout_secs` attribute.
+
+    The Jax based barrier sync util, `sync_global_devices`, should not be called
+    concurrently. Otherwise, it may cause a deadlock.
+
+    In general, any Jax function with `collectives` should not be called
+    concurrently to avoid deadlocks.
+    """
+    async_options = self._async_options or options_lib.AsyncOptions()
+    timeout_secs = async_options.timeout_secs
+    barrier_sync_fn = (
+        async_options.barrier_sync_fn
+        or multihost.get_barrier_sync_fn(
+            processes=self._multiprocessing_options.active_processes
+        )
+    )
+    return lambda key: barrier_sync_fn(key=key, timeout_ms=timeout_secs * 1000)
+
+  def get(self) -> _T:
+    """Returns the value."""
+    with self._lock:
+      return self._value
+
+  def set(self, value: _T) -> None:
+    """Sets the value across all processes."""
+    start_time = time.time()
+    thread_safe_barrier_sync_fn = self._create_thread_safe_barrier_sync_fn()
+    thread_safe_barrier_sync_fn(
+        multihost.unique_barrier_key(
+            "ThreadSaveMultiHostValueHolder:set_value_start",
+            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+        ),
+    )
+    with self._lock:
+      self._value = value
+      thread_safe_barrier_sync_fn(
+          multihost.unique_barrier_key(
+              "ThreadSaveMultiHostValueHolder:set_value_end",
+              prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+          ),
+      )
+    logging.vlog(
+        1,
+        "[process=%s]MultihostSynchronizedValue set took %s seconds",
         multihost.process_index(),
-        tracker_prefix,
-        operation_id,
-    )
-
-  def start(self):
-    """Marks the op as in progress for the current process."""
-    process_index = multihost.process_index()
-    signaling_client.get_signaling_client().key_value_set(
-        f"{self._tracker_prefix}_{self._operation_id}/{process_index}",
-        str(process_index),
-        allow_overwrite=True,
-    )
-
-  def complete(self):
-    """Marks the op as complete for the current process."""
-    process_index = multihost.process_index()
-    signaling_client.get_signaling_client().key_value_delete(
-        f"{self._tracker_prefix}_{self._operation_id}/{process_index}"
-    )
-
-  def get_in_progress_ids(self) -> list[int]:
-    """Returns the list of processes in progress for the op."""
-    op_in_progress = signaling_client.get_signaling_client().key_value_dir_get(
-        f"{self._tracker_prefix}_{self._operation_id}/"
-    )
-    return [int(process_id) for _, process_id in op_in_progress]
-
-
-class OpTrackerFactory:
-  """A factory for creating `OpTracker` instances."""
-
-  @classmethod
-  def create_tracker(cls, tracker_prefix: str) -> OpTracker:
-    """Creates a new `OpTracker` instance."""
-    return OpTracker(
-        tracker_prefix,
-        str(OperationIdGenerator.next_operation_id()),
+        time.time() - start_time,
     )

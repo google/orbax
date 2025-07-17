@@ -800,9 +800,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
 
     self._directory = epath.Path(directory)
-    self._save_tracker = synchronization.OpTrackerFactory.create_tracker(
-        'checkpoint_manager_save'
-    )
     if self._options.read_only:
       logging.warning('Given directory is read only=%s', self._directory)
     if self._options.create:
@@ -859,6 +856,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
     )
 
+    self._save_progress_tracker = synchronization.MultihostSynchronizedValue(
+        value=False,
+        multiprocessing_options=self._multiprocessing_options,
+        async_options=self._options.async_options,
+    )
+
     logging.info(
         '[process=%s][thread=%s] CheckpointManager created,  primary_host=%s,'
         ' CheckpointManagerOptions=%s, root_directory=%s: %s',
@@ -869,28 +872,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self.directory,
         self,
     )
-
-  def _create_thread_safe_barrier_sync_fn(self) -> Callable[[str], None]:
-    """Returns a barrier sync function to be called from threads.
-
-    The function accepts a key, but the timeout is already set up using
-    `AsyncOptions.timeout_secs` attribute.
-
-    The Jax based barrier sync util, `sync_global_devices`, should not be called
-    concurrently. Otherwise, it may cause a deadlock.
-
-    In general, any Jax function with `collectives` should not be called
-    concurrently to avoid deadlocks.
-    """
-    async_options = self._options.async_options or AsyncOptions()
-    timeout_secs = async_options.timeout_secs
-    barrier_sync_fn = (
-        async_options.barrier_sync_fn
-        or multihost.get_barrier_sync_fn(
-            processes=self._multiprocessing_options.active_processes
-        )
-    )
-    return lambda key: barrier_sync_fn(key=key, timeout_ms=timeout_secs * 1000)
 
   def _configure_checkpointer_common(
       self,
@@ -1385,10 +1366,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         '/jax/checkpoint/write/wait_for_prev_duration_secs',
         step_stats.wait_for_prev_duration_secs,
     )
-    self._save_tracker = synchronization.OpTrackerFactory.create_tracker(
-        'checkpoint_manager_save'
-    )
-    self._save_tracker.start()
+    # We consider the save in progress only when we have finished waiting for
+    # previous save to complete.
+    self._save_progress_tracker.set(True)
     if step in self.all_steps():
       raise StepAlreadyExistsError(
           f'Checkpoint for step {step} already exists.'
@@ -1972,14 +1952,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def is_saving_in_progress(self) -> bool:
     """Returns whether a checkpoint save is in progress."""
-    processes_saving = self._save_tracker.get_in_progress_ids()
+    start_time = time.time()
+    is_saving_in_progress = self._save_progress_tracker.get()
     logging.vlog(
         1,
-        '[process=%s][is_saving_in_progress] Processes saving: %s',
+        '[process=%s][is_saving_in_progress] is_saving_in_progress=%s,'
+        ' time_taken=%s',
         multihost.process_index(),
-        processes_saving,
+        is_saving_in_progress,
+        time.time() - start_time,
     )
-    return bool(processes_saving)
+    return is_saving_in_progress
 
   def check_for_errors(self):
     """Checks for any outstanding errors in completed asynchronous save operations.
@@ -2043,7 +2026,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           time.time() - remove_steps_start_time,
       )
     finally:
-      self._save_tracker.complete()
       logging.info(
           '[process=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
           ' syncing with other hosts...',
@@ -2051,14 +2033,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           current_thread.name,
           step,
       )
-      barrier_sync_fn = self._create_thread_safe_barrier_sync_fn()
-      barrier_sync_fn(
-          multihost.unique_barrier_key(
-              'CheckpointManager:finalize',
-              prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-              suffix=str(step),
-          )
-      )
+      # Set save in progress does a barrier sync so we don't need to do it here.
+      self._save_progress_tracker.set(False)
       logging.info(
           '[process=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
           ' done on all hosts.',
