@@ -14,6 +14,7 @@
 
 """High-level checkpoint utils provided for user convenience."""
 
+import asyncio
 import contextlib
 import time
 from typing import Any, Callable, Iterator, Optional
@@ -93,7 +94,7 @@ def _snapshot_checkpoint(
   if epath.Path(snapshot_path).exists():
     return True
   snapshot_impl = snapshot_lib.create_instance(step_dir, snapshot_path)
-  snapshot_impl.create_snapshot()
+  asyncio.run(snapshot_impl.create_snapshot())
   return True
 
 
@@ -110,7 +111,7 @@ def _release_snapshot(
       snapshot_dir = checkpoint_dir / _SNAPSHOTS
     snapshot_path = snapshot_dir / step_name_format.build_name(step)
     snapshot_impl = snapshot_lib.create_instance(checkpoint_dir, snapshot_path)
-    snapshot_impl.release_snapshot()
+    asyncio.run(snapshot_impl.release_snapshot())
 
 
 def _reached_desired_step(step: int, until_step: Optional[int]) -> bool:
@@ -339,7 +340,7 @@ def checkpoints_iterator(
   if snapshot_dir.exists():
     for step_dir in snapshot_dir.iterdir():
       snapshot_impl = snapshot_lib.create_instance(checkpoint_dir, step_dir)
-      snapshot_impl.release_snapshot()
+      asyncio.run(snapshot_impl.release_snapshot())
   checkpoint_step = None
   while True:
     until_step = checkpoint_step + 1 if checkpoint_step is not None else None

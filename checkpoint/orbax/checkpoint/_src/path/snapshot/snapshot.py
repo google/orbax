@@ -14,6 +14,7 @@
 
 """Snapshot represents operations on how to create, delete snapshots of a checkpoint."""
 
+import asyncio
 from typing import Protocol
 
 from absl import logging
@@ -30,11 +31,11 @@ class Snapshot(Protocol):
   _source: epath.Path
   _snapshot: epath.Path
 
-  def create_snapshot(self) -> None:
+  async def create_snapshot(self) -> None:
     """Creates a snapshot of the checkpoint."""
     pass
 
-  def release_snapshot(self) -> bool:
+  async def release_snapshot(self) -> bool:
     """Deletes a snapshot of the checkpoint."""
     pass
 
@@ -48,30 +49,34 @@ class _DefaultSnapshot(Snapshot):
     self._source = epath.Path(src)
     self._snapshot = epath.Path(dst)
 
-  def create_snapshot(self):
+  async def create_snapshot(self):
     """Creates a deep copy of the checkpoint."""
-    if not epath.Path(self._snapshot).is_absolute():
+    if not await asyncio.to_thread(epath.Path(self._snapshot).is_absolute):
       raise ValueError(
           f"Snapshot destination must be absolute, but was '{self._snapshot}'."
       )
-    if not epath.Path(self._source).exists():
+    if not await asyncio.to_thread(epath.Path(self._source).exists):
       raise ValueError(f"Snapshot source does not exist: {self._source}'.")
 
     t = ocp_path_utils.Timer()
-    ocp_path_utils.recursively_copy_files(self._source, self._snapshot)
+    await asyncio.to_thread(
+        ocp_path_utils.recursively_copy_files,
+        self._source,
+        self._snapshot,
+    )
     logging.debug(
         "Snapshot copy: %fs",
         t.get_duration(),
     )
 
-  def release_snapshot(self) -> bool:
+  async def release_snapshot(self) -> bool:
     """Deletes a snapshot of the checkpoint."""
-    if not epath.Path(self._snapshot).exists():
+    if not await asyncio.to_thread(epath.Path(self._snapshot).exists):
       logging.error("Snapshot does not exist: %s", self._snapshot)
       return False
 
     try:
-      epath.Path(self._snapshot).rmtree()
+      await asyncio.to_thread(epath.Path(self._snapshot).rmtree)
     except OSError as e:
       logging.error(e)
       return False

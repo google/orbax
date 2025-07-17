@@ -14,6 +14,7 @@
 
 """test cases for colossus snapshot."""
 
+import asyncio
 from unittest import mock
 
 from absl.testing import absltest
@@ -40,7 +41,7 @@ class DefaultSnapshotTest(absltest.TestCase):
         self.source_path, self.dest_path
     )
     self.assertFalse(self.dest_path.exists())
-    default_snapshot.create_snapshot()
+    asyncio.run(default_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
     self.assertEqual('data', (self.dest_path / 'data.txt').read_text())
 
@@ -48,9 +49,9 @@ class DefaultSnapshotTest(absltest.TestCase):
     default_snapshot = snapshot._DefaultSnapshot(
         self.source_path, self.dest_path
     )
-    default_snapshot.create_snapshot()
+    asyncio.run(default_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
-    self.assertTrue(default_snapshot.release_snapshot())
+    self.assertTrue(asyncio.run(default_snapshot.release_snapshot()))
     self.assertFalse(self.dest_path.exists())
 
   def test_create_snapshot_with_relative_dest_path_fails(self):
@@ -60,7 +61,7 @@ class DefaultSnapshotTest(absltest.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'Snapshot destination must be absolute'
     ):
-      default_snapshot.create_snapshot()
+      asyncio.run(default_snapshot.create_snapshot())
 
   def test_create_snapshot_with_non_existent_source_fails(self):
     non_existent_source = self.root / 'non/existent'
@@ -69,25 +70,25 @@ class DefaultSnapshotTest(absltest.TestCase):
         non_existent_source, self.dest_path
     )
     with self.assertRaisesRegex(ValueError, 'Snapshot source does not exist'):
-      default_snapshot.create_snapshot()
+      asyncio.run(default_snapshot.create_snapshot())
 
   def test_release_non_existent_snapshot(self):
     default_snapshot = snapshot._DefaultSnapshot(
         self.source_path, self.dest_path
     )
     self.assertFalse(self.dest_path.exists())
-    self.assertFalse(default_snapshot.release_snapshot())
+    self.assertFalse(asyncio.run(default_snapshot.release_snapshot()))
 
   def test_release_snapshot_fails_on_rmtree_error(self):
     default_snapshot = snapshot._DefaultSnapshot(
         self.source_path, self.dest_path
     )
-    default_snapshot.create_snapshot()
+    asyncio.run(default_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
     mock_rmtree = mock.MagicMock()
     mock_rmtree.side_effect = OSError('fake error')
     with epath.testing.mock_epath(rmtree=mock_rmtree):
-      self.assertFalse(default_snapshot.release_snapshot())
+      self.assertFalse(asyncio.run(default_snapshot.release_snapshot()))
     mock_rmtree.assert_called_once()
 
 
