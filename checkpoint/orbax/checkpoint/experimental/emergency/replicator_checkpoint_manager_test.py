@@ -550,25 +550,25 @@ class ReplicatorCheckpointManagerTest(
 
     self.assertEqual(jax.process_count(), 4)
     self.assertEqual(
-        multislice.process_slice_id(
+        multislice.process_replica_id(
             0, global_mesh, replica_axis_index=replica_axis_index
         ),
         0,
     )
     self.assertEqual(
-        multislice.process_slice_id(
+        multislice.process_replica_id(
             1, global_mesh, replica_axis_index=replica_axis_index
         ),
         0,
     )
     self.assertEqual(
-        multislice.process_slice_id(
+        multislice.process_replica_id(
             2, global_mesh, replica_axis_index=replica_axis_index
         ),
         1,
     )
     self.assertEqual(
-        multislice.process_slice_id(
+        multislice.process_replica_id(
             3, global_mesh, replica_axis_index=replica_axis_index
         ),
         1,
@@ -577,25 +577,25 @@ class ReplicatorCheckpointManagerTest(
         global_mesh, replica_axis_index=replica_axis_index
     )
     self.assertEqual(
-        multislice.process_slice_id(
+        multislice.process_replica_id(
             0, new_global_mesh, replica_axis_index=replica_axis_index
         ),
         1,
     )
     self.assertEqual(
-        multislice.process_slice_id(
+        multislice.process_replica_id(
             1, new_global_mesh, replica_axis_index=replica_axis_index
         ),
         1,
     )
     self.assertEqual(
-        multislice.process_slice_id(
+        multislice.process_replica_id(
             2, new_global_mesh, replica_axis_index=replica_axis_index
         ),
         0,
     )
     self.assertEqual(
-        multislice.process_slice_id(
+        multislice.process_replica_id(
             3, new_global_mesh, replica_axis_index=replica_axis_index
         ),
         0,

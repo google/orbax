@@ -60,10 +60,10 @@ def swap_slices_in_mesh(
   """Reverses the ordering of devices such that slices swap IDs."""
   devices = []
   for slice_id in range(
-      multislice.slice_count(mesh, replica_axis_index=replica_axis_index)
+      multislice.replica_count(mesh, replica_axis_index=replica_axis_index)
   ):
     devices.append(
-        multislice.slice_devices(
+        multislice.replica_devices(
             mesh, replica_id=slice_id, replica_axis_index=replica_axis_index
         )
     )
@@ -1277,7 +1277,7 @@ class CheckpointManagerTestBase:
           test_utils.empty_directory(self.persistent_directory)
         num_replicas = global_mesh.devices.shape[replica_axis_index]
         with mock.patch.object(
-            multislice, 'get_num_slices', return_value=num_replicas
+            multislice, 'slice_count', return_value=num_replicas
         ):
           restored = manager.restore(2)
         test_utils.assert_tree_equal(self, pytree_double, restored)
@@ -1313,7 +1313,7 @@ class CheckpointManagerTestBase:
             manager._checkpoint_manager._persistent_primary_host, 0
         )
         self.assertEqual(manager._checkpoint_manager._local_primary_host, 2)
-        slice_id = multislice.process_slice_id(
+        slice_id = multislice.process_replica_id(
             multihost.process_index(),
             global_mesh,
             replica_axis_index=replica_axis_index,
@@ -1334,25 +1334,25 @@ class CheckpointManagerTestBase:
 
       self.assertEqual(jax.process_count(), 4)
       self.assertEqual(
-          multislice.process_slice_id(
+          multislice.process_replica_id(
               0, global_mesh, replica_axis_index=replica_axis_index
           ),
           0,
       )
       self.assertEqual(
-          multislice.process_slice_id(
+          multislice.process_replica_id(
               1, global_mesh, replica_axis_index=replica_axis_index
           ),
           0,
       )
       self.assertEqual(
-          multislice.process_slice_id(
+          multislice.process_replica_id(
               2, global_mesh, replica_axis_index=replica_axis_index
           ),
           1,
       )
       self.assertEqual(
-          multislice.process_slice_id(
+          multislice.process_replica_id(
               3, global_mesh, replica_axis_index=replica_axis_index
           ),
           1,
@@ -1361,25 +1361,25 @@ class CheckpointManagerTestBase:
           global_mesh, replica_axis_index=replica_axis_index
       )
       self.assertEqual(
-          multislice.process_slice_id(
+          multislice.process_replica_id(
               0, new_global_mesh, replica_axis_index=replica_axis_index
           ),
           1,
       )
       self.assertEqual(
-          multislice.process_slice_id(
+          multislice.process_replica_id(
               1, new_global_mesh, replica_axis_index=replica_axis_index
           ),
           1,
       )
       self.assertEqual(
-          multislice.process_slice_id(
+          multislice.process_replica_id(
               2, new_global_mesh, replica_axis_index=replica_axis_index
           ),
           0,
       )
       self.assertEqual(
-          multislice.process_slice_id(
+          multislice.process_replica_id(
               3, new_global_mesh, replica_axis_index=replica_axis_index
           ),
           0,
@@ -1414,7 +1414,7 @@ class CheckpointManagerTestBase:
             manager._checkpoint_manager._persistent_primary_host, 0
         )
         self.assertEqual(manager._checkpoint_manager._local_primary_host, 2)
-        slice_id = multislice.process_slice_id(
+        slice_id = multislice.process_replica_id(
             multihost.process_index(),
             global_mesh,
             replica_axis_index=replica_axis_index,
@@ -1471,7 +1471,7 @@ class CheckpointManagerTestBase:
             manager._checkpoint_manager._persistent_primary_host, 2
         )
         self.assertEqual(manager._checkpoint_manager._local_primary_host, 0)
-        slice_id = multislice.process_slice_id(
+        slice_id = multislice.process_replica_id(
             multihost.process_index(),
             new_global_mesh,
             replica_axis_index=replica_axis_index,
@@ -1558,7 +1558,7 @@ class CheckpointManagerTestBase:
         manager.wait_until_finished()
         num_replicas = global_mesh.devices.shape[replica_axis_index]
         with mock.patch.object(
-            multislice, 'get_num_slices', return_value=num_replicas
+            multislice, 'slice_count', return_value=num_replicas
         ):
           restored = manager.restore(5)
         test_utils.assert_tree_equal(self, pytree_double, restored)

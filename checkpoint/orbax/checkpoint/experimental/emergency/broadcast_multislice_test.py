@@ -54,29 +54,31 @@ class ReproTest(googletest.TestCase):
     abstract_state = jax.tree.map(utils.to_shape_dtype_struct, state)
     del state
     shape_dtypes, _ = jax.tree.flatten(abstract_state)
-    slice_id = multislice.process_slice_id(
+    replica_id = multislice.process_replica_id(
         multihost.process_index(), global_mesh
     )
 
-    def _get_single_slice_sharding(
+    def _get_single_replica_sharding(
         mesh: jax.sharding.Mesh,
         pspec: jax.sharding.PartitionSpec,
     ):
-      slice_devices = np.asarray([global_mesh.devices[slice_id]])
+      slice_devices = np.asarray([global_mesh.devices[replica_id]])
       slice_mesh = jax.sharding.Mesh(slice_devices, mesh.axis_names)
       ss_sharding = jax.sharding.NamedSharding(slice_mesh, pspec)
       return ss_sharding
 
-    single_slice_shardings = jax.tree.map(
-        lambda arr: _get_single_slice_sharding(
+    single_replica_shardings = jax.tree.map(
+        lambda arr: _get_single_replica_sharding(
             mesh=arr.sharding.mesh,
             pspec=arr.sharding.spec,
         ),
         abstract_state,
     )
-    single_replica_shardings_tuple = jax.tree.flatten(single_slice_shardings)[0]
+    single_replica_shardings_tuple = jax.tree.flatten(single_replica_shardings)[
+        0
+    ]
 
-    is_restoring_slice = multislice.in_slice(
+    is_restoring_slice = multislice.in_replica(
         multihost.process_index(),
         global_mesh,
         replica_axis_index=0,

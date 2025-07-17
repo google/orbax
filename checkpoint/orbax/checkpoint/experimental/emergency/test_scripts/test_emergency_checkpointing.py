@@ -192,7 +192,7 @@ def save_and_restore(
       restored = jax.tree.map(lambda x: None, restored)  # free memory
       del restored
     elif step % 2 == 0:
-      if not multislice.in_slice(
+      if not multislice.in_replica(
           multihost.process_index(),
           global_mesh,
           replica_id=checkpoint_manager._PRIMARY_REPLICA_ID,
@@ -203,7 +203,7 @@ def save_and_restore(
       # Delete one of the local checkpoints on a particular slice.
       if len(global_mesh.devices) > 2:
         logging.info('[test] Deleting checkpoint in slice.')
-        if multislice.in_slice(
+        if multislice.in_replica(
             multihost.process_index(),
             global_mesh,
             replica_id=checkpoint_manager._SECONDARY_REPLICA_ID,
@@ -365,15 +365,15 @@ def main(_):
   logging.info('global_mesh shape: %s', global_mesh.devices.shape)
   logging.info(
       'Local devices (according to mesh): %s',
-      multislice.local_slice_devices(
+      multislice.local_replica_devices(
           global_mesh, replica_axis_index=replica_axis_index
       ),
   )
   logging.info(
       'Slice devices (according to mesh): %s',
-      multislice.slice_devices(
+      multislice.replica_devices(
           global_mesh,
-          replica_id=multislice.process_slice_id(
+          replica_id=multislice.process_replica_id(
               multihost.process_index(),
               global_mesh,
               replica_axis_index=replica_axis_index,
