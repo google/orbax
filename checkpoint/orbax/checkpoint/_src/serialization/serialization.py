@@ -552,6 +552,12 @@ async def async_deserialize(
   )
   global_shape = tuple(t.shape if global_shape is None else global_shape)
   new_shard_shape = sharding.shard_shape(global_shape)
+  # The array will be resharded if the shard shape does not match the shape
+  # of the loaded data.
+  jax.monitoring.record_event(
+      '/jax/orbax/checkpoint/deserialize',
+      resharded=new_shard_shape != t.shape,
+  )
   return await read_and_create_array(
       t,
       global_shape=global_shape,
