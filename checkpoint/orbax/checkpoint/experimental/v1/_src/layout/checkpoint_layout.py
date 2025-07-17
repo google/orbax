@@ -20,6 +20,10 @@ from orbax.checkpoint.experimental.v1._src.path import types
 Path = types.Path
 
 
+class InvalidLayoutError(ValueError):
+  """Raised when the checkpoint layout is invalid."""
+
+
 class CheckpointLayout(Protocol):
   """CheckpointLayout.
 
@@ -32,14 +36,40 @@ class CheckpointLayout(Protocol):
     delegating to the resolved handlers.
   """
 
-  def validate(self, path: Path):
+  @property
+  def path(self) -> Path:
+    """Returns the path of the checkpoint."""
+    ...
+
+  def validate(self, path: Path) -> None:
     """Validates the given path, determining if it conforms to this instance.
 
     Args:
       path: The path to validate.
 
     Returns:
-      True if the path conforms to this instance, False otherwise.
+      None.
+
+    Raises:
+      InvalidLayoutError: If the given path does not conform to this instance.
+    """
+    ...
+
+  def validate_pytree(
+      self, path: Path, checkpointable_name: str | None
+  ) -> None:
+    """Validates the given path as a PyTree checkpoint.
+
+    Args:
+      path: The path to validate.
+      checkpointable_name: The name of the checkpointable to load.
+
+    Returns:
+      None.
+
+    Raises:
+      InvalidLayoutError: If the given path does not conform to this instance
+        as a PyTree checkpoint.
     """
     ...
 
