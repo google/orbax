@@ -40,7 +40,6 @@ from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.tree import utils as tree_utils
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.handlers import registration
-from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
@@ -51,7 +50,6 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 PyTree = tree_types.PyTree
 Path = path_types.Path
-InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 
 create_sharded_array = array_test_utils.create_sharded_array
 create_numpy_pytree = array_test_utils.create_numpy_pytree
@@ -504,7 +502,7 @@ class SaveLoadTestBase:
 
       with self.subTest('load_pytree'):
         with self.assertRaisesRegex(
-            InvalidLayoutError, 'must contain a subdirectory named "pytree"'
+            FileNotFoundError, 'must contain a subdirectory named "pytree"'
         ):
           ocp.load_pytree(self.directory)
 
@@ -847,7 +845,7 @@ class SaveLoadTestBase:
         ocp.save_checkpointables(self.directory, checkpointables)
 
     def test_load_does_not_exist(self):
-      with self.assertRaises(InvalidLayoutError):
+      with self.assertRaises(FileNotFoundError):
         ocp.load_checkpointables(self.directory / 'foobar')
 
     def test_load_tmp_checkpoint(self):

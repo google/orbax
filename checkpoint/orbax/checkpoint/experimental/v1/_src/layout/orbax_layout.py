@@ -21,7 +21,6 @@ from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types
 
-InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 CompositeHandler = composite_handler.CompositeHandler
 Path = types.Path
 CheckpointLayout = checkpoint_layout.CheckpointLayout
@@ -37,43 +36,23 @@ class OrbaxLayout(CheckpointLayout):
     delegating to the resolved handlers.
   """
 
-  def __init__(self, path: Path | None = None):
+  def __init__(self):
     self._context = context_lib.get_context()
     self._handler_registry = registration.local_registry(
         self._context.checkpointables_options.registry,
         include_global_registry=False,
     )
     self._composite_handler = CompositeHandler(self._handler_registry)
-    self._path = path
-
-  @property
-  def path(self) -> Path | None:
-    """Returns the path of the Orbax checkpoint."""
-    return self._path
 
   def validate(self, path: Path):
+    if (path / composite_handler.ORBAX_CHECKPOINT_INDICATOR_FILE).exists():
+      return True
     try:
       format_utils.validate_checkpoint_directory(path)
       format_utils.validate_checkpoint_metadata(path)
-      return
-    except BaseException as e:
-      raise InvalidLayoutError(
-          f"Failed to interpret path {path} as an Orbax checkpoint. Raised"
-          f" error: {e}"
-      ) from e
-
-  def validate_pytree(
-      self, path: Path, checkpointable_name: str | None
-  ) -> None:
-    """Validates the given path as a PyTree checkpoint."""
-    try:
-      format_utils.validate_pytree_checkpoint(
-          path, checkpointable_name=checkpointable_name
-      )
-    except BaseException as e:
-      raise InvalidLayoutError(
-          f"Failed to interpret path {path} as an Orbax PyTree checkpoint: {e}"
-      ) from e
+      return True
+    except (FileNotFoundError, NotADirectoryError, ValueError):
+      return False
 
   async def load(
       self,

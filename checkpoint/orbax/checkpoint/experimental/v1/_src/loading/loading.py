@@ -28,9 +28,6 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
-from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
-from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
-from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -122,6 +119,16 @@ def load_pytree(
   logging.info('Loading checkpoint from %s.', path)
   path = epath.Path(path)
 
+  format_utils.validate_checkpoint_directory(path)
+  format_utils.validate_pytree_checkpoint(
+      path, checkpointable_name=checkpointable_name
+  )
+  if checkpointable_name is not None:
+    # Checkpoint-level metadata is not used for loading if `name` is None,
+    # and is a non-standard place. Only perform metadata validation if
+    # `name` is not None.
+    format_utils.validate_checkpoint_metadata(path)
+
   if checkpointable_name is None:  # `path` is direct path to pytree ckpt.
     # TODO(niketkb): Refactor to load the pytree directly from the path.
 
@@ -131,17 +138,9 @@ def load_pytree(
     path = epath.Path(path)
     checkpointable_name = path.name
     path = path.parent
-    layout = orbax_layout.OrbaxLayout(path)
-  else:
-    try:
-      layout = layout_registry.get_checkpoint_layout(path)
-    except checkpoint_layout.InvalidLayoutError:
-      layout = orbax_layout.OrbaxLayout(path)
-
-  layout.validate_pytree(path, checkpointable_name)
 
   return _load_checkpointables_impl(
-      layout,
+      path,
       abstract_checkpointables={
           checkpointable_name: _standardize_abstract_checkpointables(
               abstract_pytree
@@ -204,26 +203,30 @@ def load_checkpointables(
   start_time = time.time()
   logging.info('Loading checkpoint from %s.', path)
   path = epath.Path(path)
-  layout = layout_registry.get_checkpoint_layout(path)
+
+  format_utils.validate_checkpoint_directory(path)
+  format_utils.validate_checkpoint_metadata(path)
 
   return _load_checkpointables_impl(
-      layout, abstract_checkpointables, start_time=start_time
+      path,
+      abstract_checkpointables,
+      start_time=start_time,
   )
 
 
 def _load_checkpointables_impl(
-    layout: checkpoint_layout.CheckpointLayout,
+    path: path_types.Path,
     abstract_checkpointables: (
         dict[str, Any] | CheckpointMetadata[dict[str, Any]] | None
     ) = None,
     *,
-    start_time: float
+    start_time: float,
 ) -> dict[str, Any]:
   """Implementation of load_checkpointables.
 
   Args:
-    layout: The layout to use for loading the checkpoint (Orbax, SafeTensors, or
-      other.)
+    path: The path to load the checkpoint from. This path must
+      contain a subdirectory for each checkpointable.
     abstract_checkpointables: A dictionary of abstract checkpointables.
       Dictionary keys represent the names of the checkpointables, while the
       values are the abstract checkpointable objects themselves.
@@ -233,17 +236,18 @@ def _load_checkpointables_impl(
     A dictionary of checkpointables. Dictionary keys represent the names of the
     checkpointables, while the values are the checkpointable objects themselves.
   """
-  if not layout.path:
-    raise ValueError('Path must not be None.')
 
   context = context_lib.get_context()
+  handler = composite_handler.CompositeHandler(
+      context.checkpointables_options.registry
+  )
   abstract_checkpointables = _standardize_abstract_checkpointables(
       abstract_checkpointables
   )
   _validate_abstract_checkpointables(abstract_checkpointables)
 
   async def _load() -> dict[str, Any]:
-    load_awaitable = await layout.load(layout.path, abstract_checkpointables)
+    load_awaitable = await handler.load(path, abstract_checkpointables)
     result = await load_awaitable
     await multihost.sync_global_processes(
         multihost.unique_barrier_key(
@@ -259,7 +263,7 @@ def _load_checkpointables_impl(
   logging.info(
       'Finished loading checkpoint in %.2f seconds from %s.',
       duration_secs,
-      layout.path,
+      path,
   )
   return result
 

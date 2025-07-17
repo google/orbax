@@ -22,7 +22,6 @@ from orbax.checkpoint.experimental.v1._src.path import types
 
 
 CheckpointLayout = checkpoint_layout.CheckpointLayout
-InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 Path = types.Path
 
 
@@ -64,9 +63,10 @@ async def _read(directory: Path) -> dict[str, Any]:
     header_size = int.from_bytes(
         header_size_bytes, byteorder="little"
     )
-    header_bytes = await f.read(header_size)  # TODO(b/430651483)
+    header_bytes = await f.read(header_size)
     header = json.loads(header_bytes)
-    data_bytes = await f.read()
+    data_bytes = await f.read()  # TODO(b/430651483)
+
     # Load and reshape each tensor using the header as a reference
     for name, info in header.items():
       try:
@@ -93,26 +93,8 @@ class SafetensorsLayout(CheckpointLayout):
     delegating to the resolved handlers.
   """
 
-  def __init__(self, path: Path | None = None):
-    self._path = path
-
-  @property
-  def path(self) -> Path | None:
-    """Returns the path of the SafeTensors checkpoint."""
-    return self._path
-
   def validate(self, path: Path):
-    if path.is_file() and path.suffix == ".safetensors":
-      return
-    else:
-      raise InvalidLayoutError(
-          f"Failed to interpret path {path} as a SafeTensors checkpoint."
-      )
-
-  def validate_pytree(
-      self, path: Path, checkpointable_name: str | None
-  ) -> None:
-    return
+    return path.is_file() and path.suffix == ".safetensors"
 
   async def load(
       self,

@@ -26,7 +26,6 @@ from orbax.checkpoint._src.checkpointers import checkpointer as v0_checkpointer
 from orbax.checkpoint._src.checkpointers import standard_checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 import orbax.checkpoint.experimental.v1 as ocp
-from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
@@ -35,7 +34,6 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 PyTree = tree_types.PyTree
 Path = path_types.Path
-InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 
 create_sharded_pytree = array_test_utils.create_sharded_pytree
 
@@ -111,7 +109,7 @@ class CompatibilitySaveLoadTestBase:
 
       with self.subTest('no_checkpointable_name_error'):
         with self.assertRaisesRegex(
-            InvalidLayoutError,
+            FileNotFoundError,
             'must contain a subdirectory named "pytree"',
         ):
           ocp.load_pytree(
@@ -119,7 +117,7 @@ class CompatibilitySaveLoadTestBase:
               self.abstract_pytree if with_abstract_pytree else None,
           )
         with self.assertRaisesRegex(
-            InvalidLayoutError,
+            FileNotFoundError,
             'must contain a subdirectory named "pytree"',
         ):
           ocp.load_pytree(
@@ -138,7 +136,7 @@ class CompatibilitySaveLoadTestBase:
 
         with self.subTest(f'pass_{checkpointable_name}_error'):
           with self.assertRaisesRegex(
-              InvalidLayoutError,
+              FileNotFoundError,
               f'must contain a subdirectory named "{checkpointable_name}"',
           ):
             ocp.load_pytree(
@@ -147,7 +145,7 @@ class CompatibilitySaveLoadTestBase:
                 checkpointable_name=checkpointable_name,
             )
           with self.assertRaisesRegex(
-              InvalidLayoutError,
+              FileNotFoundError,
               f'must contain a subdirectory named "{checkpointable_name}"',
           ):
             ocp.load_pytree(
@@ -166,7 +164,7 @@ class CompatibilitySaveLoadTestBase:
 
       with self.subTest('pass_none_error'):
         with self.assertRaisesRegex(
-            InvalidLayoutError, 'does not contain a PyTree metadata file'
+            FileNotFoundError, 'does not contain a PyTree metadata file'
         ):
           ocp.load_pytree(
               step_dir,
@@ -174,7 +172,7 @@ class CompatibilitySaveLoadTestBase:
               checkpointable_name=None,
           )
         with self.assertRaisesRegex(
-            InvalidLayoutError, 'does not contain a PyTree metadata file'
+            FileNotFoundError, 'does not contain a PyTree metadata file'
         ):
           ocp.load_pytree(
               self.root_directory,
@@ -234,7 +232,7 @@ class CompatibilitySaveLoadTestBase:
           )
       with self.subTest('error_with_root_path'):
         with self.assertRaisesRegex(
-            InvalidLayoutError,
+            FileNotFoundError,
             'Please ensure the path specified for loading points to a valid'
             ' Orbax checkpoint',
         ):

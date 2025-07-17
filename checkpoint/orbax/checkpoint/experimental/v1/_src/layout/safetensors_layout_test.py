@@ -18,14 +18,12 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 import numpy as np
-from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.saving import saving
 import safetensors.numpy
 
 SafetensorsLayout = safetensors_layout.SafetensorsLayout
 np_save_file = safetensors.numpy.save_file
-InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 
 
 class SafetensorsLayoutTest(
@@ -50,22 +48,21 @@ class SafetensorsLayoutTest(
     saving.save_pytree(self.orbax_path, self.object_to_save)
 
   def test_valid_safetensors_checkpoint(self):
-    self.layout.validate(path=self.safetensors_path)
+    self.assertTrue(self.layout.validate(path=self.safetensors_path))
 
   def test_invalid_safetensors_checkpoint_orbax(self):
-    with self.assertRaises(InvalidLayoutError):
-      self.layout.validate(path=self.orbax_path / '0')
+    self.assertFalse(self.layout.validate(path=self.orbax_path / '0'))
 
   def test_validate_fails_not_file(self):
-    with self.assertRaises(InvalidLayoutError):
-      self.layout.validate(path=epath.Path(self.test_dir.full_path))
+    self.assertFalse(
+        self.layout.validate(path=epath.Path(self.test_dir.full_path))
+    )
 
   def test_validate_fails_wrong_suffix(self):
     wrong_suffix_path = (
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.txt'
     )
-    with self.assertRaises(InvalidLayoutError):
-      self.layout.validate(path=wrong_suffix_path)
+    self.assertFalse(self.layout.validate(path=wrong_suffix_path))
 
   @parameterized.product(
       dtype=[
