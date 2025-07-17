@@ -3,6 +3,7 @@ syntax = "proto3";
 package orbax_model_manifest;
 
 import "orbax/experimental/model/core/protos/type.proto";
+import "tensorflow/compiler/xla/pjrt/proto/compile_options.proto";
 
 message Manifest {
   map<string, TopLevelObject> objects = 1;
@@ -63,7 +64,7 @@ message Value {
 // matches the arguments.
 message PolymorphicFunction {
   repeated Function concrete_functions = 1;
-};
+}
 
 // Indicates which data loader to use to load the data from external storage.
 enum LoaderType {
@@ -141,4 +142,10 @@ message FileSystemLocation {
 
   // Absence means spanning to the end of the file.
   optional uint64 size_in_byte = 4;
+}
+
+// A map of platform to compilation options. This is used in the XLA compiler to
+// determine the compilation options for a given platform.
+message CompileOptionsProtoMap {
+  map<string, xla.CompileOptionsProto> map = 1;
 }
