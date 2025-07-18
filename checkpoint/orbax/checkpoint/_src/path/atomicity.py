@@ -202,23 +202,12 @@ class _TemporaryPathBase(atomicity_types.TemporaryPath):
           checkpoint_metadata.MetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
-      multiprocessing_options: Optional[
-          options_lib.MultiprocessingOptions
-      ] = None,
   ):
     self._tmp_path = temporary_path
     self._final_path = final_path
 
-    multiprocessing_options = (
-        multiprocessing_options or options_lib.MultiprocessingOptions()
-    )
     file_options = file_options or options_lib.FileOptions()
     self._checkpoint_metadata_store = checkpoint_metadata_store
-    self._primary_host = multiprocessing_options.primary_host
-    self._active_processes = multiprocessing_options.active_processes
-    self._barrier_sync_key_prefix = (
-        multiprocessing_options.barrier_sync_key_prefix
-    )
     self._path_permission_mode = file_options.path_permission_mode
 
   def to_bytes(self) -> bytes:
@@ -226,9 +215,6 @@ class _TemporaryPathBase(atomicity_types.TemporaryPath):
     data = {
         'tmp_path': self._tmp_path,
         'final_path': self._final_path,
-        'primary_host': self._primary_host,
-        'active_processes': self._active_processes,
-        'barrier_sync_key_prefix': self._barrier_sync_key_prefix,
         'path_permission_mode': self._path_permission_mode,
     }
     return pickle.dumps(data)
@@ -240,16 +226,10 @@ class _TemporaryPathBase(atomicity_types.TemporaryPath):
     file_options = options_lib.FileOptions(
         path_permission_mode=data['path_permission_mode'],
     )
-    multiprocessing_options = options_lib.MultiprocessingOptions(
-        primary_host=data['primary_host'],
-        active_processes=data['active_processes'],
-        barrier_sync_key_prefix=data['barrier_sync_key_prefix'],
-    )
     return cls(
         data['tmp_path'],
         data['final_path'],
         file_options=file_options,
-        multiprocessing_options=multiprocessing_options,
     )
 
 
@@ -274,7 +254,6 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
         final_path,
         checkpoint_metadata_store=checkpoint_metadata_store,
         file_options=file_options,
-        multiprocessing_options=multiprocessing_options,
     )
 
   @classmethod
@@ -371,7 +350,6 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
         final_path,
         checkpoint_metadata_store=checkpoint_metadata_store,
         file_options=file_options,
-        multiprocessing_options=multiprocessing_options,
     )
 
   @classmethod
