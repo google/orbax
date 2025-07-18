@@ -33,7 +33,7 @@ import functools
 import itertools
 import operator
 import time
-from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set
+from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set, Union
 
 from absl import logging
 from etils import epath
@@ -45,6 +45,7 @@ from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpoint_utils
+from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.logging import abstract_logger
 from orbax.checkpoint._src.logging import standard_logger
@@ -61,6 +62,7 @@ from typing_extensions import Self  # for Python version < 3.11
 
 PyTree = checkpoint_manager.PyTree
 CheckpointHandler = checkpoint_manager.CheckpointHandler
+CheckpointHandlersDict = Dict[str, CheckpointHandler]
 P = jax.sharding.PartitionSpec
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
 ProcessMetadataCheckpointHandler = (
@@ -77,6 +79,7 @@ _PRIMARY_REPLICA_ID = 0
 _SECONDARY_REPLICA_ID = 1
 _STATE_ITEM_NAME = 'state'
 _PROCESS_METADATA_NAME = 'process_metadata'
+_DATASET_ITEM_NAME = 'dataset'
 
 
 local_all_steps_broadcast_counter = itertools.count()
@@ -1433,6 +1436,13 @@ class CheckpointManager(
       options: Optional[CheckpointManagerOptions] = None,
       metadata: Optional[dict[str, Any]] = None,
       logger: Optional[abstract_logger.AbstractLogger] = None,
+      item_handlers: Optional[
+          Union[CheckpointHandler, CheckpointHandlersDict]
+      ] = None,
+      handler_registry: Optional[
+          handler_registration.CheckpointHandlerRegistry
+      ] = None,
+      persistent_non_replicated_directory: Optional[epath.PathLike] = None,
   ):
     options = options or CheckpointManagerOptions()
     self._global_mesh = global_mesh
@@ -1469,6 +1479,23 @@ class CheckpointManager(
           metadata=metadata,
           logger=logger,
       )
+    multiprocessing_options = checkpoint_manager.MultiprocessingOptions(
+        primary_host=0,
+        barrier_sync_key_prefix='non_replicated',
+    )
+    if persistent_non_replicated_directory is None:
+      persistent_non_replicated_directory = (
+          epath.Path(persistent_directory) / 'non_replicated'
+      )
+    self._non_replicated_checkpoint_manager = (
+        checkpoint_manager.CheckpointManager(
+            directory=persistent_non_replicated_directory,
+            options=_get_persistent_options(options, multiprocessing_options),
+            metadata=metadata,
+            handler_registry=handler_registry,
+            item_handlers=item_handlers,
+        )
+    )
 
   @property
   def directory(self) -> epath.Path:
@@ -1519,6 +1546,15 @@ class CheckpointManager(
       *,
       force: bool = False,
   ) -> bool:
+    if _DATASET_ITEM_NAME in args.keys():
+      logging.info('Maybe saving at step %d (non-replicated).', step)
+      non_replicated_saved = self._non_replicated_checkpoint_manager.save(
+          step, args=args.dataset, force=force
+      )
+      logging.info('non_replicated_saved: %s', non_replicated_saved)
+      args_dict = dict(args.items())
+      args_dict.pop(_DATASET_ITEM_NAME)
+      args = args_lib.Composite(**args_dict)
     return self._checkpoint_manager.save(step, args=args, force=force)
 
   def restore(
@@ -1526,14 +1562,32 @@ class CheckpointManager(
       step: int | None,
       args: args_lib.Composite | None = None,
   ) -> Any:
+    restored_dataset = None
+    if args and _DATASET_ITEM_NAME in args.keys():
+      restored_dataset = self._non_replicated_checkpoint_manager.restore(
+          step=step, args=args.dataset
+      )
     del args
-    args = args_lib.PyTreeRestore(
-        item=self._abstract_state,
-        restore_args=checkpoint_utils.construct_restore_args(
-            self._abstract_state
-        ),
+    args = args_lib.Composite(
+        state=args_lib.PyTreeRestore(
+            item=self._abstract_state,
+            restore_args=checkpoint_utils.construct_restore_args(
+                self._abstract_state
+            ),
+        )
     )
-    return self._checkpoint_manager.restore(step, args=args)
+    if isinstance(self._checkpoint_manager, _MultisliceCheckpointManager):
+      restore = self._checkpoint_manager.restore(
+          step, args=args
+      )
+    else:
+      restore = self._checkpoint_manager.restore(step, args=args)
+    if restored_dataset:
+      return args_lib.Composite(
+          state=restore,
+          dataset=restored_dataset,
+      )
+    return restore
 
   def item_metadata(self, step: int) -> Any:
     raise NotImplementedError(
@@ -1553,12 +1607,15 @@ class CheckpointManager(
     )
 
   def wait_until_finished(self):
+    self._non_replicated_checkpoint_manager.wait_until_finished()
     return self._checkpoint_manager.wait_until_finished()
 
   def check_for_errors(self):
+    self._non_replicated_checkpoint_manager.check_for_errors()
     return self._checkpoint_manager.check_for_errors()
 
   def close(self):
+    self._non_replicated_checkpoint_manager.close()
     return self._checkpoint_manager.close()
 
   def __contextmanager__(
