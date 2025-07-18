@@ -16,11 +16,13 @@ import unittest
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import step as step_lib
+
 
 AtomicRenameTemporaryPath = atomicity.AtomicRenameTemporaryPath
 CommitFileTemporaryPath = atomicity.CommitFileTemporaryPath
@@ -40,6 +42,39 @@ class AtomicRenameTemporaryPathTest(
     path = self.directory / 'ckpt'
     tmp_path = AtomicRenameTemporaryPath.from_final(path)
     self.assertIn(f'ckpt{TMP_DIR_SUFFIX}', tmp_path.get().as_posix())
+
+  def test_serialization(self):
+    path = self.directory / 'ckpt'
+    file_options = options_lib.FileOptions(
+        path_permission_mode=0o777,
+    )
+    multiprocessing_options = options_lib.MultiprocessingOptions(
+        primary_host=1,
+        active_processes=set([0, 1]),
+        barrier_sync_key_prefix='test_prefix',
+    )
+    tmp_path = AtomicRenameTemporaryPath.from_final(
+        path,
+        file_options=file_options,
+        multiprocessing_options=multiprocessing_options,
+    )
+
+    deserialized = AtomicRenameTemporaryPath.from_bytes(tmp_path.to_bytes())
+
+    self.assertEqual(tmp_path.get(), deserialized.get())
+    self.assertEqual(tmp_path.get_final(), deserialized.get_final())
+    # pylint: disable=protected-access
+    self.assertEqual(
+        tmp_path._path_permission_mode, deserialized._path_permission_mode
+    )
+    self.assertEqual(tmp_path._primary_host, deserialized._primary_host)
+    self.assertEqual(tmp_path._active_processes, deserialized._active_processes)
+    self.assertEqual(
+        tmp_path._barrier_sync_key_prefix,
+        deserialized._barrier_sync_key_prefix,
+    )
+    self.assertIsNone(deserialized._checkpoint_metadata_store)
+    # pylint: enable=protected-access
 
   @parameterized.parameters(
       ('ckpt', f'ckpt{TMP_DIR_SUFFIX}5', True),
@@ -105,6 +140,7 @@ class CommitFileTemporaryPathTest(
     path = self.directory / 'ckpt'
     tmp_path = CommitFileTemporaryPath.from_final(path)
     self.assertEqual(path, tmp_path.get())
+
 
   @parameterized.parameters(
       ('ckpt', 'ckpt', True),
