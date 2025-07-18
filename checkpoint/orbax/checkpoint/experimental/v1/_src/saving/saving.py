@@ -29,7 +29,6 @@ from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration as legacy_handler_registration
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.path import atomicity
-from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -43,6 +42,7 @@ from orbax.checkpoint.experimental.v1._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.saving import saving_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
@@ -237,25 +237,6 @@ def save_checkpointables_async(
   )
 
 
-def _get_temporary_path(
-    path: path_types.Path, *, context: context_lib.Context
-) -> atomicity_types.TemporaryPath:
-  """Gets a TemporaryPath for the given path."""
-  temporary_path_class = (
-      context.file_options.temporary_path_class
-      or atomicity_defaults.get_default_temporary_path_class(path)
-  )
-  tmpdir = temporary_path_class.from_final(
-      path,
-      # Ensure metadata store is NOT passed, to prevent separate metadata
-      # writing.
-      checkpoint_metadata_store=None,
-      multiprocessing_options=context.multiprocessing_options.v0(),
-      file_options=context.file_options.v0(),
-  )
-  return tmpdir
-
-
 async def _remove_existing_path(
     path: path_types.Path,
     *,
@@ -436,7 +417,7 @@ def _save_checkpointables_impl(
   checkpointables = _add_internal_checkpointables(
       checkpointables, context=context
   )
-  tmp_path = _get_temporary_path(path, context=context)
+  tmp_path = saving_utils.get_temporary_path(path, context=context)
 
   async def _blocking_save() -> Awaitable[None]:
     await context_lib.synchronize_next_operation_id()
