@@ -53,3 +53,6 @@ from orbax.checkpoint.experimental.v1._src.metadata.types import (
     CheckpointMetadata,
     PyTreeMetadata,
 )
+from orbax.checkpoint.experimental.v1._src.layout.format_utils import (
+    is_orbax_checkpoint,
+)
