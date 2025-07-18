@@ -29,7 +29,6 @@ from orbax.checkpoint.experimental.v1._src.handlers import compatibility as hand
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
-from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
@@ -131,14 +130,11 @@ def load_pytree(
     path = epath.Path(path)
     checkpointable_name = path.name
     path = path.parent
-    layout = orbax_layout.OrbaxLayout(path)
-  else:
-    try:
-      layout = layout_registry.get_checkpoint_layout(path)
-    except checkpoint_layout.InvalidLayoutError:
-      layout = orbax_layout.OrbaxLayout(path)
+  layout = layout_registry.get_checkpoint_layout(
+      path, context_lib.get_context().checkpoint_layout
+  )
 
-  layout.validate_pytree(path, checkpointable_name)
+  layout.validate_pytree(checkpointable_name)
 
   return _load_checkpointables_impl(
       layout,
@@ -204,7 +200,9 @@ def load_checkpointables(
   start_time = time.time()
   logging.info('Loading checkpoint from %s.', path)
   path = epath.Path(path)
-  layout = layout_registry.get_checkpoint_layout(path)
+  layout = layout_registry.get_checkpoint_layout(
+      path, context_lib.get_context().checkpoint_layout
+  )
 
   return _load_checkpointables_impl(
       layout, abstract_checkpointables, start_time=start_time
@@ -243,7 +241,7 @@ def _load_checkpointables_impl(
   _validate_abstract_checkpointables(abstract_checkpointables)
 
   async def _load() -> dict[str, Any]:
-    load_awaitable = await layout.load(layout.path, abstract_checkpointables)
+    load_awaitable = await layout.load(abstract_checkpointables)
     result = await load_awaitable
     await multihost.sync_global_processes(
         multihost.unique_barrier_key(

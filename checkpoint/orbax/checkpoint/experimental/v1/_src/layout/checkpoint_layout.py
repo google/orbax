@@ -41,47 +41,39 @@ class CheckpointLayout(Protocol):
     """Returns the path of the checkpoint."""
     ...
 
-  def validate(self, path: Path) -> None:
-    """Validates the given path, determining if it conforms to this instance.
-
-    Args:
-      path: The path to validate.
+  def validate(self) -> None:
+    """Validates the path, determining if it conforms to this instance.
 
     Returns:
       None.
 
     Raises:
-      InvalidLayoutError: If the given path does not conform to this instance.
+      InvalidLayoutError: If the path does not conform to this instance.
     """
     ...
 
-  def validate_pytree(
-      self, path: Path, checkpointable_name: str | None
-  ) -> None:
-    """Validates the given path as a PyTree checkpoint.
+  def validate_pytree(self, checkpointable_name: str | None) -> None:
+    """Validates the path as a PyTree checkpoint.
 
     Args:
-      path: The path to validate.
       checkpointable_name: The name of the checkpointable to load.
 
     Returns:
       None.
 
     Raises:
-      InvalidLayoutError: If the given path does not conform to this instance
+      InvalidLayoutError: If the path does not conform to this instance
         as a PyTree checkpoint.
     """
     ...
 
   async def load(
       self,
-      directory: Path,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> Awaitable[dict[str, Any]]:
     """Loads the checkpoint from the given directory.
 
     Args:
-      directory: The directory to load the checkpoint from.
       abstract_checkpointables: A dictionary of abstract checkpointables.
         Dictionary keys represent the names of the checkpointables, while the
         values are the abstract checkpointable objects themselves.

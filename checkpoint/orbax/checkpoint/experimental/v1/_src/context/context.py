@@ -75,6 +75,7 @@ class Context(epy.ContextManager):
     multiprocessing_options: Options for multiprocessing behavior.
     file_options: Options for working with the file system.
     checkpointables_options: Options for controlling checkpointables behavior.
+    checkpoint_layout: The layout of the checkpoint. Defaults to ORBAX.
   """
 
   def __init__(
@@ -87,6 +88,7 @@ class Context(epy.ContextManager):
       multiprocessing_options: options_lib.MultiprocessingOptions | None = None,
       file_options: options_lib.FileOptions | None = None,
       checkpointables_options: options_lib.CheckpointablesOptions | None = None,
+      checkpoint_layout: options_lib.CheckpointLayout | None = None,
   ):
     self._pytree_options = pytree_options or (
         context.pytree_options if context else options_lib.PyTreeOptions()
@@ -109,6 +111,11 @@ class Context(epy.ContextManager):
         context.checkpointables_options
         if context
         else options_lib.CheckpointablesOptions()
+    )
+    self._checkpoint_layout = checkpoint_layout or (
+        context.checkpoint_layout
+        if context
+        else options_lib.CheckpointLayout.ORBAX
     )
 
   @property
@@ -134,6 +141,10 @@ class Context(epy.ContextManager):
   @property
   def checkpointables_options(self) -> options_lib.CheckpointablesOptions:
     return self._checkpointables_options
+
+  @property
+  def checkpoint_layout(self) -> options_lib.CheckpointLayout:
+    return self._checkpoint_layout
 
   def operation_id(self) -> str:
     return synchronization.OperationIdGenerator.get_current_operation_id()

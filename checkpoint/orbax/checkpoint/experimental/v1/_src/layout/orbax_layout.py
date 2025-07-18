@@ -26,6 +26,23 @@ CompositeHandler = composite_handler.CompositeHandler
 Path = types.Path
 CheckpointLayout = checkpoint_layout.CheckpointLayout
 
+ORBAX_CHECKPOINT_INDICATOR_FILE = (
+    composite_handler.ORBAX_CHECKPOINT_INDICATOR_FILE
+)
+
+
+_V0_ERROR_MESSAGE = (
+    "If your checkpoint was saved with the Orbax V0 API, please follow the"
+    " instructions at"
+    " https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/orbax_v0_to_v1_migration.html"
+    " to load it with the Orbax V1 API."
+)
+_GENERAL_ERROR_MESSAGE = (
+    " Note that a valid checkpoint path should always contain a file named"
+    f" '{ORBAX_CHECKPOINT_INDICATOR_FILE}' (unless it was saved with the V0"
+    f" API). {_V0_ERROR_MESSAGE}"
+)
+
 
 class OrbaxLayout(CheckpointLayout):
   """OrbaxLayout.
@@ -37,7 +54,7 @@ class OrbaxLayout(CheckpointLayout):
     delegating to the resolved handlers.
   """
 
-  def __init__(self, path: Path | None = None):
+  def __init__(self, path: Path):
     self._context = context_lib.get_context()
     self._handler_registry = registration.local_registry(
         self._context.checkpointables_options.registry,
@@ -47,40 +64,42 @@ class OrbaxLayout(CheckpointLayout):
     self._path = path
 
   @property
-  def path(self) -> Path | None:
+  def path(self) -> Path:
     """Returns the path of the Orbax checkpoint."""
     return self._path
 
-  def validate(self, path: Path):
+  @property
+  def has_indicator_file(self) -> bool:
+    return (self._path / ORBAX_CHECKPOINT_INDICATOR_FILE).exists()
+
+  def validate(self):
     try:
-      format_utils.validate_checkpoint_directory(path)
-      format_utils.validate_checkpoint_metadata(path)
-      return
+      format_utils.validate_checkpoint_directory(self._path)
+      if self.has_indicator_file:
+        format_utils.validate_checkpoint_metadata(self._path)
     except BaseException as e:
       raise InvalidLayoutError(
-          f"Failed to interpret path {path} as an Orbax checkpoint. Raised"
-          f" error: {e}"
+          f"Failed to interpret path {self._path} as an Orbax checkpoint."
+          f" {_GENERAL_ERROR_MESSAGE}"
       ) from e
 
-  def validate_pytree(
-      self, path: Path, checkpointable_name: str | None
-  ) -> None:
+  def validate_pytree(self, checkpointable_name: str | None) -> None:
     """Validates the given path as a PyTree checkpoint."""
     try:
       format_utils.validate_pytree_checkpoint(
-          path, checkpointable_name=checkpointable_name
+          self._path, checkpointable_name=checkpointable_name
       )
     except BaseException as e:
       raise InvalidLayoutError(
-          f"Failed to interpret path {path} as an Orbax PyTree checkpoint: {e}"
+          f"Failed to interpret path {self._path} as an Orbax PyTree"
+          f" checkpoint. {_GENERAL_ERROR_MESSAGE}"
       ) from e
 
   async def load(
       self,
-      directory: Path,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> Awaitable[dict[str, Any]]:
     load_awaitable = await self._composite_handler.load(
-        directory, abstract_checkpointables
+        self._path, abstract_checkpointables
     )
     return load_awaitable
