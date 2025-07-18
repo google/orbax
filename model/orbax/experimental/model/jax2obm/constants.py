@@ -21,11 +21,6 @@ import enum
 class OrbaxNativeSerializationType(enum.Enum):
   """Defines the native serialization types available for a JAX model through Orbax."""
 
-  CPU = 'cpu'
-  CUDA = 'cuda'
-  ROCM = 'rocm'
-  TPU = 'tpu'
-
 
 # LINT.ThenChange(//depot//orbax/export/constants.py)
 
