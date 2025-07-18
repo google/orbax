@@ -17,42 +17,28 @@
 import asyncio
 import time
 from typing import Any, Awaitable
-import uuid
 
 from absl import logging
 from etils import epath
 import jax
 import nest_asyncio
 from orbax.checkpoint._src.checkpointers import async_checkpointer
-from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration as legacy_handler_registration
-from orbax.checkpoint._src.metadata import step_metadata_serialization
-from orbax.checkpoint._src.path import atomicity
-from orbax.checkpoint._src.path import atomicity_types
-from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration as handler_registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
-from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
-from orbax.checkpoint.experimental.v1._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import saving_utils
-from orbax.checkpoint.experimental.v1._src.synchronization import multihost
-from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
-
 PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
-InternalCheckpointMetadata = (
-    step_metadata_serialization.InternalCheckpointMetadata
-)
 
 
 def save_pytree(
@@ -237,163 +223,6 @@ def save_checkpointables_async(
   )
 
 
-async def _remove_existing_path(
-    path: path_types.Path,
-    *,
-    context: context_lib.Context,
-):
-  if multihost.is_primary_host(context.multiprocessing_options.primary_host):
-    logging.info(
-        '[process=%s] Specified `overwrite`: removing existing path.',
-        multihost.process_index(),
-    )
-    await async_path.rmtree(path)
-  await multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'save_checkpointables_async:rmtree',
-          prefix=context.multiprocessing_options.barrier_sync_key_prefix,
-      ),
-      processes=context.multiprocessing_options.active_processes,
-  )
-
-
-class _SaveResponse(async_types.AsyncResponse[None]):
-  """An `AsyncResponse` representing the result of `save_pytree_async`."""
-
-  def __init__(
-      self,
-      operation_id: str,
-      tmp_path: atomicity_types.TemporaryPath,
-      handler_typestrs: dict[str, str],
-      background_awaitable: Awaitable[None],
-      *,
-      start_time: float,
-      custom_metadata: tree_types.JsonType | None,
-      context: context_lib.Context,
-      async_origin: bool,
-  ):
-    self._operation_id = operation_id
-    self._tmp_path = tmp_path
-    self._handler_typestrs = handler_typestrs
-    self._background_awaitable = background_awaitable
-    self._start_time = start_time
-    self._custom_metadata = custom_metadata
-    self._context = context
-    self._async_origin = async_origin
-    self._thread_runner = thread_utils.BackgroundThreadRunner[None](
-        self._finalize_save()
-    )
-
-  async def _finalize_save(self):
-    logging.info(
-        '[process=%s] Finalizing checkpoint on %s',
-        multihost.process_index(),
-        self._tmp_path.get(),
-    )
-    await self._background_awaitable
-    logging.vlog(
-        1,
-        '[process=%s] Finished waiting for background save operations.',
-        multihost.process_index(),
-    )
-
-    if multihost.is_primary_host(
-        self._context.multiprocessing_options.primary_host
-    ):
-      logging.vlog(
-          1,
-          '[process=%s] Writing checkpoint metadata.',
-          multihost.process_index(),
-      )
-      internal_metadata = InternalCheckpointMetadata.create(
-          handler_typestrs=self._handler_typestrs,
-          init_timestamp_nsecs=int(self._start_time * 1e9),
-          commit_timestamp_nsecs=time.time_ns(),
-          custom_metadata=self._custom_metadata,
-      )
-      await metadata_serialization.write(
-          metadata_serialization.checkpoint_metadata_file_path(
-              self._tmp_path.get()
-          ),
-          internal_metadata.serialize(),
-      )
-      logging.vlog(
-          1,
-          '[process=%s] Finished writing checkpoint metadata.',
-          multihost.process_index(),
-      )
-      # Properly, this should be an async function. For now, it's not a big
-      # problem if it isn't though, since we have earlier async executions that
-      # will yield control.
-      atomicity.on_commit_callback(
-          self._tmp_path,
-          checkpoint_start_time=self._start_time,
-      )
-
-    # Clean up all awaitable signals for the current operation id as they are
-    # no longer needed.
-    if self._context.async_options.create_directories_asynchronously:
-      future.remove_all_awaitable_signals(self._operation_id)
-
-    await multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'save_checkpointables_async:finalize',
-            prefix=self._context.multiprocessing_options.barrier_sync_key_prefix,
-        ),
-        processes=self._context.multiprocessing_options.active_processes,
-    )
-    total_duration_secs = time.time() - self._start_time
-    _record_save_completion(
-        self._tmp_path.get_final(),
-        total_duration_secs=total_duration_secs,
-        async_origin=self._async_origin,
-    )
-
-  def result(self, timeout: float | None = None) -> None:
-    return self._thread_runner.result(timeout=timeout)
-
-
-def _record_save_start(path: path_types.Path, *, async_origin: bool):
-  """Records the start of a save operation."""
-  logging.info(
-      '[process=%s] Started %s checkpoint to %s.',
-      multihost.process_index(),
-      'async saving' if async_origin else 'saving',
-      path,
-  )
-  if async_origin:
-    event_name = '/jax/orbax/write/async/start'
-  else:
-    event_name = '/jax/orbax/write/start'
-  jax.monitoring.record_event(event_name)
-  jax.monitoring.record_event(
-      '/jax/orbax/write/storage_type',
-      storage_type=path_utils.get_storage_type(path),
-  )
-
-
-def _record_save_completion(
-    path: path_types.Path,
-    *,
-    total_duration_secs: float,
-    async_origin: bool,
-):
-  """Records the completion of a save operation."""
-  logging.info(
-      'Finished asynchronous save (blocking + background) in %.2f seconds'
-      ' to %s',
-      total_duration_secs,
-      path,
-  )
-  # TODO(cpgaffney): No event is currently being recorded for synchronous saves.
-  # Consider collecting this information
-  if async_origin:
-    jax.monitoring.record_event_duration_secs(
-        '/jax/checkpoint/write/async/total_duration_secs',
-        total_duration_secs,
-    )
-
-
 def _save_checkpointables_impl(
     path: path_types.PathLike,
     checkpointables: dict[str, Any],
@@ -408,24 +237,21 @@ def _save_checkpointables_impl(
   # Prevent internal mutation from affecting the caller.
   checkpointables = dict(checkpointables)
 
-  start_time = time.time()
-  _record_save_start(path, async_origin=async_origin)
   context = context_lib.get_context()
+  start_time = saving_utils.pre_save_checks(
+      path, overwrite=overwrite, context=context
+  )
+
   checkpointables_handler = composite_handler.CompositeHandler(
       context.checkpointables_options.registry
   )
-  checkpointables = _add_internal_checkpointables(
+  checkpointables = saving_utils.add_internal_checkpointables(
       checkpointables, context=context
   )
   tmp_path = saving_utils.get_temporary_path(path, context=context)
 
   async def _blocking_save() -> Awaitable[None]:
     await context_lib.synchronize_next_operation_id()
-    if await async_path.exists(path):
-      if overwrite:
-        await _remove_existing_path(path, context=context)
-      else:
-        raise ValueError(f'Destination {path} already exists.')
 
     tmp_path_awaiting_creation = path_async_utils.start_async_mkdir(
         tmp_path, checkpointables.keys()
@@ -457,7 +283,7 @@ def _save_checkpointables_impl(
           checkpointables
       ).items()
   }
-  return _SaveResponse(
+  return saving_utils.SaveResponse(
       context.operation_id(),
       tmp_path,
       handler_typestrs,
@@ -467,19 +293,6 @@ def _save_checkpointables_impl(
       context=context,
       async_origin=async_origin,
   )
-
-
-def _add_internal_checkpointables(
-    checkpointables: dict[str, Any],
-    *,
-    context: context_lib.Context,
-    metrics: tree_types.JsonType | None = None,
-) -> dict[str, Any]:
-  """Adds descriptor to checkpointables if enabled."""
-  # Global registration ties metrics key to JsonHandler.
-  if metrics:
-    checkpointables[format_utils.METRICS_CHECKPOINTABLE_KEY] = metrics
-  return checkpointables
 
 
 def get_v0_checkpointer_and_args(
@@ -499,7 +312,7 @@ def get_v0_checkpointer_and_args(
     raise ValueError(
         f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
     )
-  checkpointables = _add_internal_checkpointables(
+  checkpointables = saving_utils.add_internal_checkpointables(
       checkpointables, context=context, metrics=metrics
   )
 
