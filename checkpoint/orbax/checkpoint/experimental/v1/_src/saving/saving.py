@@ -39,6 +39,7 @@ from orbax.checkpoint.experimental.v1._src.handlers import registration as handl
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
+from orbax.checkpoint.experimental.v1._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -52,14 +53,6 @@ PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
 InternalCheckpointMetadata = (
     step_metadata_serialization.InternalCheckpointMetadata
 )
-
-
-async def _exists(path: path_types.Path) -> bool:
-  return await asyncio.to_thread(path.exists)
-
-
-async def _rmtree(path: path_types.Path) -> None:
-  return await asyncio.to_thread(path.rmtree)
 
 
 def save_pytree(
@@ -273,7 +266,7 @@ async def _remove_existing_path(
         '[process=%s] Specified `overwrite`: removing existing path.',
         multihost.process_index(),
     )
-    await _rmtree(path)
+    await async_path.rmtree(path)
   await multihost.sync_global_processes(
       multihost.unique_barrier_key(
           'save_checkpointables_async:rmtree',
@@ -447,7 +440,7 @@ def _save_checkpointables_impl(
 
   async def _blocking_save() -> Awaitable[None]:
     await context_lib.synchronize_next_operation_id()
-    if await _exists(path):
+    if await async_path.exists(path):
       if overwrite:
         await _remove_existing_path(path, context=context)
       else:
