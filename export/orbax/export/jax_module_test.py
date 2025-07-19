@@ -24,7 +24,27 @@ DEFAULT_METHOD_KEY = constants.DEFAULT_METHOD_KEY
 JaxModule = obx_export.JaxModule
 
 
+# A simple linear function for testing.
+def _linear(params, x):
+  return jnp.dot(x, params['w']) + params['b']
+
+
 class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
+
+  def test_init_raises_error_when_input_polymorphic_shape_symbol_values(self):
+    # Test init raise error when `input_polymorphic_shape_symbol_values` is
+    # set for non-ORBAX_MODEL export version.
+    params_spec = {
+        'w': jax.ShapeDtypeStruct(shape=(8, 8), dtype=jnp.float32),
+        'b': jax.ShapeDtypeStruct(shape=(8, 1), dtype=jnp.float32),
+    }
+    with self.assertRaises(ValueError):
+      JaxModule(
+          params=params_spec,
+          apply_fn={'linear': _linear},
+          export_version=constants.ExportModelType.TF_SAVEDMODEL,
+          input_polymorphic_shape_symbol_values={'batch_size': (1, 2)},
+      )
 
   def test_jax_module_orbax_model_unimplemented_methods(self):
     @jax.jit
