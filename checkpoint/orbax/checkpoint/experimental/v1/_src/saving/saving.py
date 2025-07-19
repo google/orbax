@@ -29,7 +29,6 @@ from orbax.checkpoint._src.handlers import handler_registration as legacy_handle
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
-from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
@@ -331,25 +330,6 @@ class _SaveResponse(async_types.AsyncResponse[None]):
     return self._thread_runner.result(timeout=timeout)
 
 
-def _record_save_start(path: path_types.Path, *, async_origin: bool):
-  """Records the start of a save operation."""
-  logging.info(
-      '[process=%s] Started %s checkpoint to %s.',
-      multihost.process_index(),
-      'async saving' if async_origin else 'saving',
-      path,
-  )
-  if async_origin:
-    event_name = '/jax/orbax/write/async/start'
-  else:
-    event_name = '/jax/orbax/write/start'
-  jax.monitoring.record_event(event_name)
-  jax.monitoring.record_event(
-      '/jax/orbax/write/storage_type',
-      storage_type=path_utils.get_storage_type(path),
-  )
-
-
 def _record_save_completion(
     path: path_types.Path,
     *,
@@ -387,7 +367,7 @@ def _save_checkpointables_impl(
   checkpointables = dict(checkpointables)
 
   start_time = time.time()
-  _record_save_start(path, async_origin=async_origin)
+  saving_utils.record_save_start(path, async_origin=async_origin)
   context = context_lib.get_context()
   checkpointables_handler = composite_handler.CompositeHandler(
       context.checkpointables_options.registry

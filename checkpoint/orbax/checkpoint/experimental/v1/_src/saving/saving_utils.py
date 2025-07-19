@@ -18,8 +18,10 @@ from typing import Any
 import uuid
 
 from absl import logging
+import jax
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.path import format_utils
@@ -80,3 +82,22 @@ def add_internal_checkpointables(
   if metrics:
     checkpointables[format_utils.METRICS_CHECKPOINTABLE_KEY] = metrics
   return checkpointables
+
+
+def record_save_start(path: path_types.Path, *, async_origin: bool):
+  """Records the start of a save operation."""
+  logging.info(
+      '[process=%s] Started %s checkpoint to %s.',
+      multihost.process_index(),
+      'async saving' if async_origin else 'saving',
+      path,
+  )
+  if async_origin:
+    event_name = '/jax/orbax/write/async/start'
+  else:
+    event_name = '/jax/orbax/write/start'
+  jax.monitoring.record_event(event_name)
+  jax.monitoring.record_event(
+      '/jax/orbax/write/storage_type',
+      storage_type=path_utils.get_storage_type(path),
+  )
