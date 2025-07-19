@@ -320,7 +320,7 @@ class _SaveResponse(async_types.AsyncResponse[None]):
         processes=self._context.multiprocessing_options.active_processes,
     )
     total_duration_secs = time.time() - self._start_time
-    _record_save_completion(
+    saving_utils.record_save_completion(
         self._tmp_path.get_final(),
         total_duration_secs=total_duration_secs,
         async_origin=self._async_origin,

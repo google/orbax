@@ -101,3 +101,25 @@ def record_save_start(path: path_types.Path, *, async_origin: bool):
       '/jax/orbax/write/storage_type',
       storage_type=path_utils.get_storage_type(path),
   )
+
+
+def record_save_completion(
+    path: path_types.Path,
+    *,
+    total_duration_secs: float,
+    async_origin: bool,
+):
+  """Records the completion of a save operation."""
+  logging.info(
+      'Finished asynchronous save (blocking + background) in %.2f seconds'
+      ' to %s',
+      total_duration_secs,
+      path,
+  )
+  # TODO(cpgaffney): No event is currently being recorded for synchronous saves.
+  # Consider collecting this information
+  if async_origin:
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/async/total_duration_secs',
+        total_duration_secs,
+    )
