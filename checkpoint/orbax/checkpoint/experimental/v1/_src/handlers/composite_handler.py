@@ -38,6 +38,14 @@ CompositeItemMetadata = checkpoint_metadata.CompositeItemMetadata
 ORBAX_CHECKPOINT_INDICATOR_FILE = 'orbax.checkpoint'
 
 
+_V0_ERROR_MESSAGE = (
+    'If your checkpoint was saved with the Orbax V0 API, please follow the'
+    ' instructions at'
+    ' https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/orbax_v0_to_v1_migration.html'
+    ' to load it with the Orbax V1 API.'
+)
+
+
 def _existing_checkpointable_names(directory: epath.Path) -> set[str]:
   return {p.name for p in directory.iterdir() if p.is_dir()}
 
@@ -257,14 +265,13 @@ class CompositeHandler:
       if isinstance(saved_metadata.item_handlers, dict):
         return saved_metadata.item_handlers  # found step level metadata.
       raise ValueError(
-          'Expected a valid path containing checkpointable subdirectories, but'
-          ' given path contains subdirectories:'
-          f' {format_utils.subdirs(directory)}... Given path is {directory}.'
-          ' _CHECKPOINT_METADATA file under given path has'
-          f' `item_handlers`={saved_metadata.item_handlers}, whose keys should'
-          ' match the checkpointable subdirectory names. If you intended to'
-          ' load a pytree checkpoint from the given path, then please consider'
-          ' using `loading.load_pytree(..., checkpointable_name=None)` instead.'
+          f'Path at {directory} contains subdirectories:'
+          f' {format_utils.subdirs(directory)}, which are expected to match the'
+          ' keys given by the _CHECKPOINT_METADATA file:'
+          f' {saved_metadata.item_handlers}. If you intended to load a pytree'
+          ' checkpoint from the given path, then please consider using'
+          ' `loading.load_pytree(..., checkpointable_name=None)` instead.'
+          f' {_V0_ERROR_MESSAGE}'
       )
 
     logging.warning(
@@ -286,14 +293,13 @@ class CompositeHandler:
       )
       if isinstance(saved_metadata.item_handlers, dict):
         raise ValueError(
-            'Expected a valid path containing checkpointable subdirectories,'
-            ' but given path contains subdirectories:'
-            f' {format_utils.subdirs(directory)}... Given path is {directory}.'
-            ' _CHECKPOINT_METADATA file under a subdir of given path has'
-            f' `item_handlers`={saved_metadata.item_handlers}, whose keys'
-            ' should match the checkpointable subdirectory names. Did you mean'
-            ' to provide the following subdirectory path instead:'
-            f' {checkpointable_path}?'
+            f'Path at {directory} contains subdirectories:'
+            f' {format_utils.subdirs(directory)}, which are expected to match'
+            ' the keys given by the _CHECKPOINT_METADATA file:'
+            f' {saved_metadata.item_handlers}. If you intended to load a pytree'
+            ' checkpoint from the given path, then please consider using'
+            ' `loading.load_pytree(..., checkpointable_name=None)` instead.'
+            f' {_V0_ERROR_MESSAGE}'
         )
       item_handlers = saved_metadata.item_handlers
       if item_handlers is not None:
