@@ -14,13 +14,18 @@
 
 """Internal utilities for saving whole and partial checkpoints."""
 
+from typing import Any
+import uuid
+
 from absl import logging
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.path import async_path
+from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
+from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
 
@@ -62,3 +67,16 @@ async def remove_existing_path(
       ),
       processes=context.multiprocessing_options.active_processes,
   )
+
+
+def add_internal_checkpointables(
+    checkpointables: dict[str, Any],
+    *,
+    context: context_lib.Context,
+    metrics: tree_types.JsonType | None = None,
+) -> dict[str, Any]:
+  """Adds descriptor to checkpointables if enabled."""
+  # Global registration ties metrics key to JsonHandler.
+  if metrics:
+    checkpointables[format_utils.METRICS_CHECKPOINTABLE_KEY] = metrics
+  return checkpointables

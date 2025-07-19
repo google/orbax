@@ -17,7 +17,6 @@
 import asyncio
 import time
 from typing import Any, Awaitable
-import uuid
 
 from absl import logging
 from etils import epath
@@ -47,7 +46,6 @@ from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
-
 
 PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
 InternalCheckpointMetadata = (
@@ -394,7 +392,7 @@ def _save_checkpointables_impl(
   checkpointables_handler = composite_handler.CompositeHandler(
       context.checkpointables_options.registry
   )
-  checkpointables = _add_internal_checkpointables(
+  checkpointables = saving_utils.add_internal_checkpointables(
       checkpointables, context=context
   )
   tmp_path = saving_utils.get_temporary_path(path, context=context)
@@ -449,19 +447,6 @@ def _save_checkpointables_impl(
   )
 
 
-def _add_internal_checkpointables(
-    checkpointables: dict[str, Any],
-    *,
-    context: context_lib.Context,
-    metrics: tree_types.JsonType | None = None,
-) -> dict[str, Any]:
-  """Adds descriptor to checkpointables if enabled."""
-  # Global registration ties metrics key to JsonHandler.
-  if metrics:
-    checkpointables[format_utils.METRICS_CHECKPOINTABLE_KEY] = metrics
-  return checkpointables
-
-
 def get_v0_checkpointer_and_args(
     checkpointables: dict[str, Any],
     *,
@@ -479,7 +464,7 @@ def get_v0_checkpointer_and_args(
     raise ValueError(
         f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
     )
-  checkpointables = _add_internal_checkpointables(
+  checkpointables = saving_utils.add_internal_checkpointables(
       checkpointables, context=context, metrics=metrics
   )
 
