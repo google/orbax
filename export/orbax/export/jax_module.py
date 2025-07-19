@@ -174,7 +174,7 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
     """Returns the jax2tf_kwargs_map."""
     if self._export_version == constants.ExportModelType.ORBAX_MODEL:
       raise TypeError(
-          'update_variables is not implemented for export version'
+          'jax2tf_kwargs_map is not implemented for export version'
           ' ExportModelType.ORBAX_MODEL.'
       )
     return cast(
@@ -186,7 +186,7 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
     """Returns the polymorphic shapes."""
     if self._export_version == constants.ExportModelType.ORBAX_MODEL:
       raise TypeError(
-          'update_variables is not implemented for export version'
+          'input_polymorphic_shape_map is not implemented for export version'
           ' ExportModelType.ORBAX_MODEL.'
       )
     return cast(
@@ -198,7 +198,7 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
     """Returns the with_gradient."""
     if self._export_version == constants.ExportModelType.ORBAX_MODEL:
       raise TypeError(
-          'obm_module_to_jax_exported_map is not implemented for export version'
+          'with_gradient is not implemented for export version'
           ' ExportModelType.ORBAX_MODEL.'
       )
     return cast(
