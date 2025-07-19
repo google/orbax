@@ -237,26 +237,6 @@ def save_checkpointables_async(
   )
 
 
-async def _remove_existing_path(
-    path: path_types.Path,
-    *,
-    context: context_lib.Context,
-):
-  if multihost.is_primary_host(context.multiprocessing_options.primary_host):
-    logging.info(
-        '[process=%s] Specified `overwrite`: removing existing path.',
-        multihost.process_index(),
-    )
-    await async_path.rmtree(path)
-  await multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'save_checkpointables_async:rmtree',
-          prefix=context.multiprocessing_options.barrier_sync_key_prefix,
-      ),
-      processes=context.multiprocessing_options.active_processes,
-  )
-
-
 class _SaveResponse(async_types.AsyncResponse[None]):
   """An `AsyncResponse` representing the result of `save_pytree_async`."""
 
@@ -423,7 +403,7 @@ def _save_checkpointables_impl(
     await context_lib.synchronize_next_operation_id()
     if await async_path.exists(path):
       if overwrite:
-        await _remove_existing_path(path, context=context)
+        await saving_utils.remove_existing_path(path, context=context)
       else:
         raise ValueError(f'Destination {path} already exists.')
 

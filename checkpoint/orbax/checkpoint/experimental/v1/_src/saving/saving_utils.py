@@ -14,10 +14,13 @@
 
 """Internal utilities for saving whole and partial checkpoints."""
 
+from absl import logging
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 
 
 
@@ -38,3 +41,24 @@ def get_temporary_path(
       file_options=context.file_options.v0(),
   )
   return tmpdir
+
+
+async def remove_existing_path(
+    path: path_types.Path,
+    *,
+    context: context_lib.Context,
+):
+  """Removes the existing path if it exists."""
+  if multihost.is_primary_host(context.multiprocessing_options.primary_host):
+    logging.info(
+        '[process=%s] Specified `overwrite`: removing existing path.',
+        multihost.process_index(),
+    )
+    await async_path.rmtree(path)
+  await multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'save_checkpointables_async:rmtree',
+          prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+      ),
+      processes=context.multiprocessing_options.active_processes,
+  )
