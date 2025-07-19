@@ -42,21 +42,19 @@ def is_subclass_protocol(cls: Type[Any], protocol: Type[Any]) -> bool:
 
   members = typing_extensions.get_protocol_members(protocol)  # pytype: disable=not-supported-yet
 
-  if members and not hasattr(cls, '__annotations__'):
-    # generic types such as int
-    return False
+  if not members:
+    return True  # empty protocol, so it matches any type.
 
   for attr in members:
     logging.vlog(1, 'attribute: %s', attr)
 
     # check if the attribute is defined in annotations or members
-    if attr not in cls.__annotations__ and not hasattr(cls, attr):
-      logging.vlog(
-          1,
-          'no matching attribute: %s, cls[%s] has %s',
-          attr,
-          cls.__name__,
-          dir(cls),
-      )
+    if hasattr(cls, '__annotations__'):
+      # dataclasses
+      if attr not in cls.__annotations__ and not hasattr(cls, attr):
+        return False
+    elif not hasattr(cls, attr):
+      # other types
       return False
+
   return True
