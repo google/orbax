@@ -311,6 +311,8 @@ class CheckpointManagerOptions:
     background thread, otherwise, it will be done at the end of each save.  When
     it's enabled, make sure to call CheckpointManager.close() or use context to
     make sure all old steps are deleted before exit.
+  background_thread_count: The number of threads to use for background deletion
+    when enable_background_delete is True.  Default is 1.
   read_only: If True, then checkpoints save and delete are skipped. However,
     checkpoints restore works as usual.
   enable_async_checkpointing:
@@ -370,6 +372,7 @@ class CheckpointManagerOptions:
   todelete_subdir: Optional[str] = None
   enable_hns_rmtree: bool = False
   enable_background_delete: bool = False
+  background_thread_count: int = 1
   read_only: bool = False
   enable_async_checkpointing: bool = True
   async_options: Optional[AsyncOptions] = None
@@ -853,6 +856,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             self._step_name_format,
             self._options.enable_hns_rmtree,
             self._options.enable_background_delete,
+            self._options.background_thread_count,
         )
     )
 
