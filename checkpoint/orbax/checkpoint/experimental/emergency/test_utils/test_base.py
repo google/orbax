@@ -37,6 +37,8 @@ from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint.experimental.emergency import checkpoint_manager
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.experimental.emergency import process_metadata_checkpoint_handler
+from orbax.checkpoint.experimental.emergency.test_utils import dataset_iterator_checkpoint_handler
+
 
 PyTree = Any
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
@@ -52,6 +54,7 @@ barrier_compatible_test = test_utils.barrier_compatible_test
 assert_tree_equal = test_utils.assert_tree_equal
 get_fake_global_mesh_for_slices = test_utils.get_fake_global_mesh_for_slices
 _STATE_ITEM_NAME = 'state'
+_DATASET_ITEM_NAME = 'dataset'
 
 
 def swap_slices_in_mesh(
@@ -922,9 +925,18 @@ class CheckpointManagerTestBase:
           epath.Path(self._get_tempdir_path_test())
           / 'persistent_checkpointing_test'
       )
+      self.persistent_non_replicated_directory = (
+          epath.Path(self._get_tempdir_path_test())
+          / 'non_replicated_persistent_checkpointing_test'
+      )
       if multihost.is_primary_host(primary_host=0):
         self.persistent_directory = epath.Path(
             self.create_tempdir(name='persistent_checkpointing_test').full_path
+        )
+        self.persistent_non_replicated_directory = epath.Path(
+            self.create_tempdir(
+                name='non_replicated_persistent_checkpointing_test'
+            ).full_path
         )
       logging.info(
           'self.local_directory=%s, self.persistent_directory=%s',
@@ -1614,6 +1626,57 @@ class CheckpointManagerTestBase:
             **{_STATE_ITEM_NAME: PyTreeRestoreArgs()}
             ))
         test_utils.assert_tree_equal(self, pytree_double, restored)
+
+    @parameterized.parameters(
+        (True, 0),
+    )
+    def test_persistent_checkpoint_restore_dataset_iterator(
+        self, enable_async_checkpointing: bool, replica_axis_index: int
+    ):
+      """Test case."""
+      global_mesh, pytree = self.setup_pytree(
+          self.make_global_mesh(replica_axis_index)
+      )
+      abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
+      options = CheckpointManagerOptions(
+          local=LocalCheckpointOptions(save_interval_steps=1, max_to_keep=2),
+          persistent=PersistentCheckpointOptions(
+              save_interval_steps=2, max_to_keep=2
+          ),
+          enable_async_checkpointing=enable_async_checkpointing,
+          replica_axis_index=replica_axis_index,
+      )
+
+      dummy_dataset = [
+          ('hello', 'hola'),
+          ('world', 'mundo'),
+          ('test', 'prueba'),
+      ]
+      dummy_iterator = dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointHandler.DummyIterator(
+          dummy_dataset
+      )
+
+      with CheckpointManager(
+          local_directory=self.local_directory,
+          persistent_directory=self.persistent_directory,
+          global_mesh=global_mesh,
+          abstract_state=abstract_state,
+          options=options,
+          persistent_non_replicated_directory=self.persistent_non_replicated_directory,
+      ) as manager:
+        manager.save(
+            0,
+            args=args_lib.Composite(
+                state=PyTreeSaveArgs(pytree),
+                dataset=dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointSave(
+                    dummy_iterator
+                ),
+            ),
+        )
+        manager.wait_until_finished()
+
+        # remove all the local directories
+        test_utils.empty_directory(self.local_directory)
 
     def test_process_index_metadata(self):
       """Test case."""

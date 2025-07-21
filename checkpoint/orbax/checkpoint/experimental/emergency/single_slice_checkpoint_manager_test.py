@@ -29,6 +29,7 @@ from etils import epath
 import jax
 import numpy as np
 import optax
+from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
@@ -132,11 +133,11 @@ class CheckpointManagerTest(
     self.assertTrue(manager.in_primary_slice)
 
     for i in range(17):
-      manager.save(i, args=PyTreeSaveArgs(pytree))
+      manager.save(i, args=args_lib.Composite(state=PyTreeSaveArgs(pytree)))
     manager.wait_until_finished()
 
     self.assertEqual(manager.all_steps(), [5, 10, 15])
-    test_utils.assert_tree_equal(self, pytree, manager.restore(None))
+    test_utils.assert_tree_equal(self, pytree, manager.restore(None).state)
 
 
 if __name__ == '__main__':
