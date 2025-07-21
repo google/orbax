@@ -33,7 +33,7 @@ def is_orbax_checkpoint(path: path_types.PathLike) -> bool:
   """
   path = epath.Path(path)
   try:
-    orbax_layout.OrbaxLayout().validate(path)
+    orbax_layout.OrbaxLayout(path).validate()
     return True
   except InvalidLayoutError:
     return False

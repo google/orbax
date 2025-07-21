@@ -13,20 +13,21 @@
 # limitations under the License.
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from etils import epath
 import numpy as np
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
-from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.loading import loading
 from orbax.checkpoint.experimental.v1._src.saving import saving
 import safetensors.numpy
 
-SafetensorsLayout = safetensors_layout.SafetensorsLayout
 np_save_file = safetensors.numpy.save_file
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 
 
-class LayoutLoadingTest(absltest.TestCase):
+class LayoutLoadingTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -35,7 +36,6 @@ class LayoutLoadingTest(absltest.TestCase):
     self.safetensors_path = (
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.safetensors'
     )
-    self.layout = SafetensorsLayout()
 
     # Create a mock SafeTensors and Orbax checkpoint
     self.object_to_save = {
@@ -46,39 +46,38 @@ class LayoutLoadingTest(absltest.TestCase):
     saving.save_pytree(self.orbax_path, self.object_to_save)
 
   def test_load_safetensors_checkpoint(self):
-    loaded_checkpointables = loading.load_checkpointables(
-        self.safetensors_path, abstract_checkpointables=None
-    )
-    self.assertIsInstance(loaded_checkpointables, dict)
-    np.testing.assert_array_equal(
-        loaded_checkpointables['a'], self.object_to_save['a']
-    )
+    with context_lib.Context(
+        checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
+    ):
+      pytree = loading.load_pytree(self.safetensors_path)
+    self.assertIsInstance(pytree, dict)
+    np.testing.assert_array_equal(pytree['a'], self.object_to_save['a'])
     # TODO(b/430651483)
-    np.testing.assert_allclose(
-        loaded_checkpointables['b'], self.object_to_save['b']
-    )
+    np.testing.assert_allclose(pytree['b'], self.object_to_save['b'])
 
   def test_load_orbax_checkpoint(self):
-    loaded_checkpointables = loading.load_checkpointables(
-        self.orbax_path, abstract_checkpointables=None
-    )
-    self.assertIsInstance(loaded_checkpointables, dict)
-    np.testing.assert_array_equal(
-        loaded_checkpointables['pytree']['a'], self.object_to_save['a']
-    )
-    np.testing.assert_array_equal(
-        loaded_checkpointables['pytree']['b'], self.object_to_save['b']
-    )
+    pytree = loading.load_pytree(self.orbax_path)
+    self.assertIsInstance(pytree, dict)
+    np.testing.assert_array_equal(pytree['a'], self.object_to_save['a'])
+    np.testing.assert_array_equal(pytree['b'], self.object_to_save['b'])
 
-  def test_load_bad_path_orbax_ckpt(self):
+  @parameterized.parameters(
+      (options_lib.CheckpointLayout.ORBAX,),
+      (options_lib.CheckpointLayout.SAFETENSORS,),
+  )
+  def test_load_bad_path_orbax_ckpt(self, layout_enum):
     # User provides a directory of Orbax checkpoints, not specific one.
-    with self.assertRaises(InvalidLayoutError):
-      loading.load_checkpointables(
-          epath.Path(self.test_dir.full_path),
-          abstract_checkpointables=None,
-      )
+    with context_lib.Context(checkpoint_layout=layout_enum):
+      with self.assertRaises(InvalidLayoutError):
+        loading.load_pytree(
+            epath.Path(self.test_dir.full_path),
+        )
 
-  def test_load_bad_path_safetensors_ckpt(self):
+  @parameterized.parameters(
+      (options_lib.CheckpointLayout.ORBAX,),
+      (options_lib.CheckpointLayout.SAFETENSORS,),
+  )
+  def test_load_bad_path_safetensors_ckpt(self, layout_enum):
     # User provides a directory of SafeTensors checkpoints, not a file.
     for i in range(3):
       tmp_path = (
@@ -87,18 +86,18 @@ class LayoutLoadingTest(absltest.TestCase):
       )
       tmp_path.parent.mkdir(parents=True, exist_ok=True)
       np_save_file(self.object_to_save, tmp_path)
-      with self.assertRaises(InvalidLayoutError):
-        loading.load_checkpointables(
-            epath.Path(self.test_dir.full_path) / str(i),
-            abstract_checkpointables=None,
-        )
+      # with self.assertRaises(InvalidLayoutError):
+      with context_lib.Context(checkpoint_layout=layout_enum):
+        with self.assertRaises(InvalidLayoutError):
+          loading.load_pytree(
+              epath.Path(self.test_dir.full_path) / str(i),
+          )
 
   def test_nonexistent_path(self):
     # User provides a path that does not exist.
     with self.assertRaises(InvalidLayoutError):
-      loading.load_checkpointables(
+      loading.load_pytree(
           epath.Path(self.test_dir.full_path) / 'nonexistent_path',
-          abstract_checkpointables=None,
       )
   # TODO(b/431045454): Add tests for abstract_checkpointables.
 

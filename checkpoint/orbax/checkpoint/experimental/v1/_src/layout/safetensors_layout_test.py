@@ -39,7 +39,6 @@ class SafetensorsLayoutTest(
     self.safetensors_path = (
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.safetensors'
     )
-    self.layout = SafetensorsLayout()
 
     # Create a mock SafeTensors and Orbax checkpoint
     self.object_to_save = {
@@ -50,22 +49,26 @@ class SafetensorsLayoutTest(
     saving.save_pytree(self.orbax_path, self.object_to_save)
 
   def test_valid_safetensors_checkpoint(self):
-    self.layout.validate(path=self.safetensors_path)
+    layout = SafetensorsLayout(self.safetensors_path)
+    layout.validate()
 
   def test_invalid_safetensors_checkpoint_orbax(self):
+    layout = SafetensorsLayout(self.orbax_path / '0')
     with self.assertRaises(InvalidLayoutError):
-      self.layout.validate(path=self.orbax_path / '0')
+      layout.validate()
 
   def test_validate_fails_not_file(self):
+    layout = SafetensorsLayout(epath.Path(self.test_dir.full_path))
     with self.assertRaises(InvalidLayoutError):
-      self.layout.validate(path=epath.Path(self.test_dir.full_path))
+      layout.validate()
 
   def test_validate_fails_wrong_suffix(self):
     wrong_suffix_path = (
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.txt'
     )
+    layout = SafetensorsLayout(wrong_suffix_path)
     with self.assertRaises(InvalidLayoutError):
-      self.layout.validate(path=wrong_suffix_path)
+      layout.validate()
 
   @parameterized.product(
       dtype=[
@@ -93,22 +96,18 @@ class SafetensorsLayoutTest(
     np_save_file(obj_to_save, test_path)
 
     # Load the checkpoint
-    restore_fn = await self.layout.load(directory=test_path)
+    layout = SafetensorsLayout(test_path)
+    restore_fn = await layout.load()
     restored_checkpointables = await restore_fn
+    pytree = restored_checkpointables['pytree']
 
     # Verify restored data
     # TODO(b/430651483)
     if np.issubdtype(dtype, np.floating):
-      np.testing.assert_allclose(
-          restored_checkpointables['x'], obj_to_save['x']
-      )
+      np.testing.assert_allclose(pytree['x'], obj_to_save['x'])
     else:
-      np.testing.assert_array_equal(
-          restored_checkpointables['x'], obj_to_save['x']
-      )
-    np.testing.assert_array_equal(
-        restored_checkpointables['y'], obj_to_save['y']
-    )
+      np.testing.assert_array_equal(pytree['x'], obj_to_save['x'])
+    np.testing.assert_array_equal(pytree['y'], obj_to_save['y'])
 
   async def test_load_fails_with_incomplete_dtypes(self):
     incomplete_dtypes = {
@@ -117,6 +116,7 @@ class SafetensorsLayoutTest(
         # Intentionally missing I32: int32 for testing, which is used in the
         # test checkpoint.
     }
+    layout = SafetensorsLayout(self.safetensors_path)
     with self.assertRaises(ValueError):
       with mock.patch.object(
           safetensors_layout,
@@ -124,7 +124,7 @@ class SafetensorsLayoutTest(
           return_value=incomplete_dtypes,
           spec=True,
       ):
-        awaitable_fn = await self.layout.load(directory=self.safetensors_path)
+        awaitable_fn = await layout.load()
         _ = await awaitable_fn
 
 

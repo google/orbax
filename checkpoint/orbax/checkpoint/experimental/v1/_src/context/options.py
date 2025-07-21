@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import dataclasses
+import enum
 from typing import Any, Callable, Protocol, Type
 
 import numpy as np
@@ -327,3 +328,19 @@ class CheckpointablesOptions:
     for name, handler in named_handlers.items():
       registry.add(handler, name)
     return cls(registry=registry)
+
+
+class CheckpointLayout(enum.Enum):
+  """The layout of the checkpoint.
+
+  By default, Orbax saves and loads checkpoints with its own layout. However,
+  support for other layouts is available, as a means of supporting
+  interoperatibility with other checkpointing libraries.
+
+  Currently supported layouts are:
+    ORBAX: Orbax's own layout.
+    SAFETENSORS: https://huggingface.co/docs/safetensors/en/index
+  """
+
+  ORBAX = 'Orbax'
+  SAFETENSORS = 'SafeTensors'

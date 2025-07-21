@@ -18,6 +18,7 @@ from typing import Any, Awaitable
 import aiofiles
 import numpy as np
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types
 
 
@@ -79,7 +80,7 @@ async def _read(directory: Path) -> dict[str, Any]:
       np_array = np.frombuffer(tensor_bytes, dtype=dtype).reshape(shape)
       tensors[name] = np_array
 
-    return tensors
+    return {format_utils.PYTREE_CHECKPOINTABLE_KEY: tensors}
 
 
 class SafetensorsLayout(CheckpointLayout):
@@ -93,32 +94,31 @@ class SafetensorsLayout(CheckpointLayout):
     delegating to the resolved handlers.
   """
 
-  def __init__(self, path: Path | None = None):
+  def __init__(self, path: Path):
     self._path = path
 
   @property
-  def path(self) -> Path | None:
+  def path(self) -> Path:
     """Returns the path of the SafeTensors checkpoint."""
     return self._path
 
-  def validate(self, path: Path):
-    if path.is_file() and path.suffix == ".safetensors":
+  def validate(self):
+    if self._path.is_file() and self._path.suffix == ".safetensors":
       return
     else:
       raise InvalidLayoutError(
-          f"Failed to interpret path {path} as a SafeTensors checkpoint."
+          f"Failed to interpret path {self._path} as a SafeTensors checkpoint."
+          " A SafeTensors checkpoint must be a file with the '.safetensors'"
+          " suffix."
       )
 
-  def validate_pytree(
-      self, path: Path, checkpointable_name: str | None
-  ) -> None:
+  def validate_pytree(self, checkpointable_name: str | None) -> None:
     return
 
   async def load(
       self,
-      directory: Path,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> Awaitable[dict[str, Any]]:
     del abstract_checkpointables
     # TODO(b/430388193) - Add support for abstract_checkpointables.
-    return _read(directory)
+    return _read(self._path)

@@ -514,9 +514,7 @@ class SaveLoadTestBase:
       ocp.save_checkpointables(self.directory, checkpointables)
 
       with self.subTest('load_pytree'):
-        with self.assertRaisesRegex(
-            InvalidLayoutError, 'must contain a subdirectory named "pytree"'
-        ):
+        with self.assertRaises(InvalidLayoutError):
           ocp.load_pytree(self.directory)
 
       with self.subTest('load_checkpointables'):
@@ -864,7 +862,7 @@ class SaveLoadTestBase:
     def test_load_tmp_checkpoint(self):
       tmp_checkpoint_dir = self.directory / 'foo.orbax-checkpoint-tmp-1234'
       tmp_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-      with self.assertRaisesRegex(ValueError, 'Found incomplete checkpoint'):
+      with self.assertRaises(InvalidLayoutError):
         ocp.load_checkpointables(tmp_checkpoint_dir)
 
     def test_async_save_completes_without_result(self):

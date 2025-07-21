@@ -15,7 +15,7 @@
 """Registry for checkpoint layouts."""
 
 from etils import epath
-from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
+from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
@@ -25,12 +25,13 @@ InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 
 
 def get_checkpoint_layout(
-    path: path_types.PathLike,
+    path: path_types.PathLike, layout_enum: options_lib.CheckpointLayout
 ) -> checkpoint_layout.CheckpointLayout:
   """Returns the checkpoint layout class for the given path.
 
   Args:
     path: The path to the checkpoint.
+    layout_enum: The checkpoint layout to use.
 
   Returns:
     The class of the matching CheckpointLayout.
@@ -40,28 +41,23 @@ def get_checkpoint_layout(
     layout, with details from each layout's validation attempt.
   """
   path = epath.Path(path)
-  error_messages = {}
+
+  match layout_enum:
+    case options_lib.CheckpointLayout.ORBAX:
+      layout_class = orbax_layout.OrbaxLayout
+    case options_lib.CheckpointLayout.SAFETENSORS:
+      layout_class = safetensors_layout.SafetensorsLayout
+    case _:
+      raise ValueError(f"Unsupported checkpoint layout: {layout_enum}")
 
   try:
-    orbax_layout.OrbaxLayout().validate(path)
-    return orbax_layout.OrbaxLayout(path)
+    layout = layout_class(path)
+    layout.validate()
+    return layout
   except InvalidLayoutError as e:
-    error_messages["orbax"] = e
-
-  try:
-    safetensors_layout.SafetensorsLayout().validate(path)
-    return safetensors_layout.SafetensorsLayout(path)
-  except InvalidLayoutError as e:
-    error_messages["safetensors"] = e
-
-  raise InvalidLayoutError(
-      f"Could not recognize the checkpoint at {path} as a valid checkpoint."
-      " Encountered the following error when interpreting as an Orbax"
-      f" checkpoint: {error_messages['orbax']} If you are attempting to load an"
-      " Orbax checkpoint, please verify that the path points to a valid Orbax"
-      " checkpoint with `ocp.is_orbax_checkpoint(path)`. It may also be"
-      " helpful to look for the presence of the"
-      f" {composite_handler.ORBAX_CHECKPOINT_INDICATOR_FILE} file."
-      "Alternatively attempting to interpret as a Safetensors checkpoint failed"
-      f" with message: {error_messages['safetensors']}"
-  )
+    raise InvalidLayoutError(
+        f"Could not recognize the checkpoint at {path} as a valid"
+        f" {layout_enum.value} checkpoint. If you are trying to load a"
+        " checkpoint that does not conform to the stadnard Orbax format, use"
+        " `ocp.Context(layout=...)` to specify the expected checkpoint layout."
+    ) from e
