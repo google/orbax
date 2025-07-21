@@ -27,6 +27,8 @@ from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.path import format_utils
@@ -242,3 +244,47 @@ async def maybe_overwrite_existing(
       await remove_existing_path(path, context=context)
     else:
       raise ValueError(f'Destination {path} already exists.')
+
+
+def create_save_response(
+    background_awaitable: Awaitable[None],
+    checkpointables: dict[str, Any],
+    tmp_path: atomicity_types.TemporaryPath,
+    start_time: float,
+    *,
+    context: context_lib.Context,
+    custom_metadata: tree_types.JsonType | None,
+    async_origin: bool,
+) -> async_types.AsyncResponse[None]:
+  """Creates and returns the final AsyncResponse for a save operation."""
+  blocking_duration_secs = time.time() - start_time
+  jax.monitoring.record_event_duration_secs(
+      '/jax/checkpoint/write/async/blocking_duration_secs',
+      blocking_duration_secs,
+  )
+  logging.info(
+      'Finished blocking save in %.2f seconds. Continuing to write to %s.',
+      blocking_duration_secs,
+      tmp_path.get_final(),
+  )
+
+  handler = composite_handler.CompositeHandler(
+      context.checkpointables_options.registry
+  )
+  handler_typestrs = {
+      name: handler_types.typestr(type(handler))
+      for name, handler in handler.get_handlers_for_save(
+          checkpointables
+      ).items()
+  }
+
+  return SaveResponse(
+      context.operation_id(),
+      tmp_path,
+      handler_typestrs,
+      background_awaitable,
+      start_time=start_time,
+      custom_metadata=custom_metadata,
+      context=context,
+      async_origin=async_origin,
+  )

@@ -18,9 +18,7 @@ import asyncio
 import time
 from typing import Any, Awaitable
 
-from absl import logging
 from etils import epath
-import jax
 import nest_asyncio
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
@@ -29,7 +27,6 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration as handler_registration
-from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
 from orbax.checkpoint.experimental.v1._src.path import format_utils
@@ -269,31 +266,14 @@ def _save_checkpointables_impl(
     return background_awaitable
 
   background_awaitable = asyncio.run(_blocking_save())
-  blocking_duration_secs = time.time() - start_time
-  jax.monitoring.record_event_duration_secs(
-      '/jax/checkpoint/write/async/blocking_duration_secs',
-      blocking_duration_secs,
-  )
-  logging.info(
-      'Finished blocking save in %.2f seconds. Continuing to write to %s.',
-      blocking_duration_secs,
-      path,
-  )
 
-  handler_typestrs = {
-      name: handler_types.typestr(type(handler))
-      for name, handler in checkpointables_handler.get_handlers_for_save(
-          checkpointables
-      ).items()
-  }
-  return saving_utils.SaveResponse(
-      context.operation_id(),
-      tmp_path,
-      handler_typestrs,
+  return saving_utils.create_save_response(
       background_awaitable,
-      start_time=start_time,
-      custom_metadata=custom_metadata,
+      checkpointables,
+      tmp_path,
+      start_time,
       context=context,
+      custom_metadata=custom_metadata,
       async_origin=async_origin,
   )
 
