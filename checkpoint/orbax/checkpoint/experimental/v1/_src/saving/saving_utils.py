@@ -14,21 +14,32 @@
 
 """Internal utilities for saving whole and partial checkpoints."""
 
-from typing import Any
+import time
+from typing import Any, Awaitable
 import uuid
 
 from absl import logging
 import jax
+from orbax.checkpoint._src.futures import future
+from orbax.checkpoint._src.metadata import step_metadata_serialization
+from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
+from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
+from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
+
+InternalCheckpointMetadata = (
+    step_metadata_serialization.InternalCheckpointMetadata
+)
 
 
 def get_temporary_path(
@@ -122,3 +133,99 @@ def record_save_completion(
         '/jax/checkpoint/write/async/total_duration_secs',
         total_duration_secs,
     )
+
+
+class SaveResponse(async_types.AsyncResponse[None]):
+  """An `AsyncResponse` representing the result of `save_pytree_async`."""
+
+  def __init__(
+      self,
+      operation_id: str,
+      tmp_path: atomicity_types.TemporaryPath,
+      handler_typestrs: dict[str, str],
+      background_awaitable: Awaitable[None],
+      *,
+      start_time: float,
+      custom_metadata: tree_types.JsonType | None,
+      context: context_lib.Context,
+      async_origin: bool,
+  ):
+    self._operation_id = operation_id
+    self._tmp_path = tmp_path
+    self._handler_typestrs = handler_typestrs
+    self._background_awaitable = background_awaitable
+    self._start_time = start_time
+    self._custom_metadata = custom_metadata
+    self._context = context
+    self._async_origin = async_origin
+    self._thread_runner = thread_utils.BackgroundThreadRunner[None](
+        self._finalize_save()
+    )
+
+  async def _finalize_save(self):
+    logging.info(
+        '[process=%s] Finalizing checkpoint on %s',
+        multihost.process_index(),
+        self._tmp_path.get(),
+    )
+    await self._background_awaitable
+    logging.vlog(
+        1,
+        '[process=%s] Finished waiting for background save operations.',
+        multihost.process_index(),
+    )
+
+    if multihost.is_primary_host(
+        self._context.multiprocessing_options.primary_host
+    ):
+      logging.vlog(
+          1,
+          '[process=%s] Writing checkpoint metadata.',
+          multihost.process_index(),
+      )
+      internal_metadata = InternalCheckpointMetadata.create(
+          handler_typestrs=self._handler_typestrs,
+          init_timestamp_nsecs=int(self._start_time * 1e9),
+          commit_timestamp_nsecs=time.time_ns(),
+          custom_metadata=self._custom_metadata,
+      )
+      await metadata_serialization.write(
+          metadata_serialization.checkpoint_metadata_file_path(
+              self._tmp_path.get()
+          ),
+          internal_metadata.serialize(),
+      )
+      logging.vlog(
+          1,
+          '[process=%s] Finished writing checkpoint metadata.',
+          multihost.process_index(),
+      )
+      # Properly, this should be an async function. For now, it's not a big
+      # problem if it isn't though, since we have earlier async executions that
+      # will yield control.
+      atomicity.on_commit_callback(
+          self._tmp_path,
+          checkpoint_start_time=self._start_time,
+      )
+
+    # Clean up all awaitable signals for the current operation id as they are
+    # no longer needed.
+    if self._context.async_options.create_directories_asynchronously:
+      future.remove_all_awaitable_signals(self._operation_id)
+
+    await multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'save_checkpointables_async:finalize',
+            prefix=self._context.multiprocessing_options.barrier_sync_key_prefix,
+        ),
+        processes=self._context.multiprocessing_options.active_processes,
+    )
+    total_duration_secs = time.time() - self._start_time
+    record_save_completion(
+        self._tmp_path.get_final(),
+        total_duration_secs=total_duration_secs,
+        async_origin=self._async_origin,
+    )
+
+  def result(self, timeout: float | None = None) -> None:
+    return self._thread_runner.result(timeout=timeout)
