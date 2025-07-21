@@ -638,7 +638,6 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     )
     tmp_item_dir = temporary_path_class.from_final(
         self._get_item_directory(directory, item_name),
-        multiprocessing_options=self._multiprocessing_options,
         file_options=self._file_options,
     )
     return tmp_item_dir
