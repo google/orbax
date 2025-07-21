@@ -27,7 +27,11 @@ def create_sharded_array(
     arr: np.ndarray, sharding: jax.sharding.Sharding
 ) -> jax.Array:
   sharding = cast(jax.sharding.NamedSharding, sharding)
-  return test_utils.create_sharded_array(arr, sharding.mesh, sharding.spec)
+  if isinstance(arr, (int, float)):
+    spec = jax.sharding.PartitionSpec()
+  else:
+    spec = sharding.spec
+  return test_utils.create_sharded_array(arr, sharding.mesh, spec)
 
 
 def create_numpy_pytree(*, add: int = 0, include_scalars: bool = True):
