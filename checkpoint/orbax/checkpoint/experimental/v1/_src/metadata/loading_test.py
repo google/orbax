@@ -24,6 +24,7 @@ import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
+from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
 
@@ -48,30 +49,16 @@ class PyTreeMetadataTest(absltest.TestCase):
           chunk_shape=value.shape,
           write_shape=None,
       )
-      return value_metadata.ArrayMetadata(
-          name='a',
-          directory=self.directory / 'pytree',
+      return numpy_leaf_handler.NumpyMetadata(
           shape=value.shape,
           dtype=value.dtype,
-          sharding=None,
-          storage=storage_metadata,
+          storage_metadata=storage_metadata,
       )
     elif isinstance(value, (int, float)):
       dtype = np.float64
       if isinstance(value, int):
         dtype = np.int64
-      storage_metadata = value_metadata.StorageMetadata(
-          chunk_shape=(),
-          write_shape=(),
-      )
-      return value_metadata.ScalarMetadata(
-          name='a',
-          directory=self.directory / 'pytree',
-          shape=(),
-          dtype=dtype,  # pytype: disable=wrong-arg-types
-          sharding=None,
-          storage=storage_metadata,
-      )
+      return dtype
     else:
       raise TypeError(f'Unsupported type: {type(value)}')
 
@@ -95,10 +82,14 @@ class PyTreeMetadataTest(absltest.TestCase):
     def _set_numpy_cast_type(x):
       if isinstance(x, np.ndarray):
         return x.astype(np.int16)
-      elif isinstance(x, value_metadata.ArrayMetadata) and not isinstance(
-          x, value_metadata.ScalarMetadata
+      elif isinstance(x, numpy_leaf_handler.NumpyMetadata) and not isinstance(
+          x, type
       ):
-        return dataclasses.replace(x, dtype=np.int16)
+        return dataclasses.replace(x, dtype=np.dtype('int16'))
+      elif x == np.int64:
+        return int
+      elif x == np.float64:
+        return float
       else:
         return x
 
@@ -109,6 +100,7 @@ class PyTreeMetadataTest(absltest.TestCase):
 
     with self.subTest('pytree_metadata'):
       loaded_pytree = ocp.load_pytree(self.directory, metadata.metadata)
+
       test_utils.assert_tree_equal(self, expected_pytree, loaded_pytree)
     with self.subTest('full_metadata'):
       loaded_pytree = ocp.load_pytree(self.directory, metadata)

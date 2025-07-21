@@ -37,7 +37,7 @@ ScalarDeserializationParam = types.DeserializationParam["AbstractScalar"]
 
 # Optional type hint for a scalar leaf handler. If provided, the restored scalar
 # will be cast to this type.  Only casting to int or float is supported.
-AbstractScalar = Type[Scalar]
+AbstractScalar = Type[Scalar] | Scalar
 
 
 def _create_v0_scalar_handler() -> type_handlers_v0.ScalarHandler:
@@ -115,7 +115,11 @@ def _create_v0_restorearg(
     param: ScalarDeserializationParam,
 ) -> type_handlers_v0.RestoreArgs:
   """Creates a V0 RestoreArgs from V1 params."""
-  restore_type = param.value
+  if isinstance(param.value, Scalar):
+    # users pass values direclty
+    restore_type = type(param.value)
+  else:
+    restore_type = param.value
 
   logging.vlog(1, "setting restore_type: %r", restore_type)
   return type_handlers_v0.RestoreArgs(

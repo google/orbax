@@ -94,9 +94,10 @@ class ArrayMetadata:
 
   @property
   def sharding(self) -> jax.sharding.Sharding | None:
-    """Returns the jax sharding from the sharding_metadata if possible.
+    """Returns the jax.sharding.Sharding from the sharding_metadata if possible.
 
-    This is needed to comply with the AbstractArray protocol.
+    Exception will be thrown if the hardware topology has changed and the
+    sharding cannot be restored from stored metadata.
     """
     if self.sharding_metadata is None:
       return None
@@ -211,7 +212,11 @@ def _create_v0_restorearg(
     return type_handlers_v0.ArrayRestoreArgs(restore_type=jax.Array)
   else:
     v = param.value
-    assert isinstance(v, (jax.Array, jax.ShapeDtypeStruct, ArrayMetadata))
+    if not isinstance(v, (jax.Array, jax.ShapeDtypeStruct, ArrayMetadata)):
+      raise ValueError(
+          "ArrayDeserializationParam.value is an unsupported type:"
+          f" {type(v)} for param.name: {param.name}"
+      )
     return type_handlers_v0.ArrayRestoreArgs(
         restore_type=jax.Array,
         dtype=v.dtype,

@@ -19,6 +19,7 @@ from typing import Protocol, Sequence
 from absl.testing import absltest
 import jax
 import numpy as np
+from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 
 
@@ -157,6 +158,26 @@ class ProtocolUtilsTest(absltest.TestCase):
 
     self.assertTrue(
         protocol_utils.is_subclass_protocol(AbstractProtocol, AbstractProtocol)
+    )
+
+  def test_abstract_protocol(self):
+    npint = np.int64(1)
+
+    self.assertTrue(
+        protocol_utils.is_subclass_protocol(
+            type(npint), numpy_leaf_handler.AbstractNumpy
+        )
+    )
+
+    self.assertTrue(
+        protocol_utils.is_subclass_protocol(
+            type(
+                numpy_leaf_handler.NumpyShapeDtype(
+                    shape=(), dtype=np.dtype("int32")
+                )
+            ),
+            numpy_leaf_handler.AbstractNumpy,
+        )
     )
 
 

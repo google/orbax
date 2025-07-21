@@ -17,12 +17,11 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
-from typing import Any, Awaitable, Sequence
+from typing import Any, Awaitable, Sequence, get_args
 
+from absl import logging
 import jax
 import numpy as np
-from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import options as v0_options_lib
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
@@ -34,10 +33,15 @@ from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import compatibility
+from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
+from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 from orbax.checkpoint.experimental.v1._src.serialization import registry
+from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+
 
 Path = path_types.Path
 CheckpointableHandler = handler_types.CheckpointableHandler
@@ -112,24 +116,83 @@ def create_v0_save_args(
   )
 
 
+def _restore_type_by_abstract_type(
+    abstract_checkpointable: Any,
+) -> Any:
+  """This is to allow users to override the restored type.
+
+  When users pass in the `value` in the DeserializationParam, the PytreeHandler
+  will try to restore to the specified type. T. This only supports the standard
+  types supported by Orbax.
+  For example:
+    - jax.ShapeDtype -> jax.Array
+    - NumpyAbstractType -> jax.Array
+    - int | float | Type[int] | Type[float] -> int | float | int | float
+
+  Args:
+    abstract_checkpointable: The abstract checkpointable that passed in by the
+      user.
+
+  Returns:
+    Return the restore_type parameter for the V0RestoreArgs.  This is needed to
+    determine which LeafHandler will eventually handle this
+    abstract_checkpointable.
+  """
+
+  if abstract_checkpointable is None:
+    ret = None
+  elif type_handlers.is_placeholder(abstract_checkpointable):
+    ret = type_handlers.PLACEHOLDER
+  else:
+    if isinstance(abstract_checkpointable, type):
+      abstract_type = abstract_checkpointable
+    else:
+      abstract_type = type(abstract_checkpointable)
+
+    # Make sure test with AbstractArray before AbstractNumpy otherwise Numpy
+    # will be matched first.
+    if protocol_utils.is_subclass_protocol(
+        abstract_type, array_leaf_handler.AbstractArray
+    ):
+      ret = jax.Array
+    elif protocol_utils.is_subclass_protocol(
+        abstract_type, numpy_leaf_handler.AbstractNumpy
+    ):
+      ret = np.ndarray
+    elif issubclass(abstract_type, get_args(scalar_leaf_handler.Scalar)):
+      ret = abstract_type
+    else:
+      # this will use registered handler derived from metadata
+      ret = None
+
+  logging.vlog(
+      1,
+      'abstract_checkpointable: %s, restore_type: %s',
+      abstract_checkpointable,
+      ret,
+  )
+  return ret
+
+
 def create_v0_restore_args(
     context: context_lib.Context,
     abstract_checkpointable: PyTree | None,
 ) -> base_pytree_checkpoint_handler.BasePyTreeRestoreArgs:
   """Creates v0 CheckpointArgs for restoration."""
 
-  def _set_enable_padding_and_truncation(a):
-    if not isinstance(a, type_handlers.ArrayRestoreArgs):
-      return a
-    return dataclasses.replace(
-        a,
-        strict=not context.array_options.loading.enable_padding_and_truncation,
+  if abstract_checkpointable:
+    restore_args = jax.tree.map(
+        lambda checkpointable: compatibility.V0RestoreArgs(
+            restore_type=_restore_type_by_abstract_type(checkpointable),
+            abstract_leaf=checkpointable,
+        ),
+        abstract_checkpointable,
     )
+  else:
+    restore_args = None
 
-  restore_args = checkpoint_utils.construct_restore_args(
-      abstract_checkpointable
-  )
-  restore_args = jax.tree.map(_set_enable_padding_and_truncation, restore_args)
+  logging.vlog(1, 'restore_args: %s', restore_args)
+
   return base_pytree_checkpoint_handler.BasePyTreeRestoreArgs(
       item=abstract_checkpointable,
       restore_args=restore_args,
@@ -156,14 +219,14 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     self._context = context
     self._multiprocessing_options = context.multiprocessing_options
 
-    leaf_handler_registry = (
+    self._leaf_handler_registry = (
         self._context.pytree_options.leaf_handler_registry
         if self._context.pytree_options.leaf_handler_registry is not None
         else registry.StandardLeafHandlerRegistry(self._context)
     )
 
     type_handler_registry = compatibility.get_v0_type_handler_registry(
-        leaf_handler_registry
+        self._leaf_handler_registry
     )
 
     self._handler_impl = _create_v0_handler(
@@ -244,25 +307,22 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
   async def metadata(
       self, directory: path_types.Path
   ) -> metadata_types.PyTreeMetadata:
-    return self._handler_impl.metadata(directory).tree
+    v0_metadata = self._handler_impl.metadata(directory).tree
 
+    def _unwrap(metadata):
+      # unwrap the V0Metadata to get the V1 metadata
+      assert isinstance(metadata, compatibility.V0Metadata)
+      return metadata.v1_metadata
+
+    return jax.tree.map(_unwrap, v0_metadata)
+
+  # TODO(b/431262233): Revise the logic to check only the valid Pytree
   def _is_handleable_leaf(self, leaf: Any) -> bool:
-    return (
-        isinstance(leaf, np.ndarray)
-        or isinstance(leaf, jax.Array)
-        or isinstance(leaf, int)
-        or isinstance(leaf, float)
-        or isinstance(leaf, str)
-    )
+    return self._leaf_handler_registry.is_handleable(type(leaf))
 
   def _is_handleable_abstract_leaf(self, leaf: Any) -> bool:
-    return (
-        isinstance(leaf, np.ndarray)
-        or isinstance(leaf, jax.ShapeDtypeStruct)
-        or isinstance(leaf, int)
-        or isinstance(leaf, float)
-        or isinstance(leaf, str)
-    )
+    leaf_type = type(leaf) if not isinstance(leaf, type) else leaf
+    return self._leaf_handler_registry.is_abstract_handleable(leaf_type)
 
   def is_handleable(self, checkpointable: Any) -> bool:
     try:

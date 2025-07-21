@@ -53,10 +53,6 @@ STANDARD_TYPE_AND_ABSTRACT_TYPE_TO_HANDLER = {
         bytes,
     ): scalar_leaf_handler.ScalarLeafHandler,
     (
-        np.number,
-        np.number,
-    ): scalar_leaf_handler.ScalarLeafHandler,
-    (
         str,
         str,
     ): string_leaf_handler.StringLeafHandler,
@@ -153,6 +149,8 @@ class BaseLeafHandlerRegistry:
     if not override and (current_handler or handler_abstract_ty):
       raise ValueError(
           f'Type[{ty}] or Abstract_ty[{abstract_ty}] has already registered.'
+          f' current_handler: {current_handler}, handler_abstract_ty:'
+          f' {handler_abstract_ty}'
       )
 
     logging.vlog(

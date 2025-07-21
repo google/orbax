@@ -160,14 +160,17 @@ def _create_v0_restorearg(
     return type_handlers_v0.RestoreArgs(restore_type=np.ndarray)
   else:
     v = param.value
-    assert isinstance(
+    if not isinstance(
         v,
         (
             np.ndarray,
             NumpyShapeDtype,
-            value_metadata.ArrayMetadata,
+            NumpyMetadata,
         ),
-    ), f"v is an unsupported type: {type(v)}"
+    ):
+      raise ValueError(
+          f"NumpyDeserializationParam.value is an unsupported type: {type(v)}"
+      )
 
     logging.vlog(1, "name: %s, v.dtype: %s", param.name, v.dtype)
     return type_handlers_v0.RestoreArgs(
