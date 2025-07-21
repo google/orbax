@@ -31,12 +31,14 @@ import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pyl
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
+from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+
 
 
 
@@ -140,7 +142,7 @@ def load_pytree(
 
   layout.validate_pytree(path, checkpointable_name)
 
-  return _load_checkpointables_impl(
+  result = _load_checkpointables_impl(
       layout,
       abstract_checkpointables={
           checkpointable_name: _standardize_abstract_checkpointables(
@@ -148,7 +150,10 @@ def load_pytree(
           )
       },
       start_time=start_time,
-  )[checkpointable_name]
+  )
+  if isinstance(layout, safetensors_layout.SafetensorsLayout):
+    return result
+  return result[checkpointable_name]
 
 
 def load_checkpointables(

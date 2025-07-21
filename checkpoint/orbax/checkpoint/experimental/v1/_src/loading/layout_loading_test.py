@@ -70,6 +70,18 @@ class LayoutLoadingTest(absltest.TestCase):
         loaded_checkpointables['pytree']['b'], self.object_to_save['b']
     )
 
+  def test_load_pytree_safetensors_checkpoint(self):
+    loaded_checkpointables = loading.load_pytree(
+        self.safetensors_path, abstract_pytree=None
+    )
+    self.assertIsInstance(loaded_checkpointables, dict)
+    np.testing.assert_array_equal(
+        loaded_checkpointables['a'], self.object_to_save['a']
+    )
+    np.testing.assert_array_equal(
+        loaded_checkpointables['b'], self.object_to_save['b']
+    )
+
   def test_load_bad_path_orbax_ckpt(self):
     # User provides a directory of Orbax checkpoints, not specific one.
     with self.assertRaises(InvalidLayoutError):
