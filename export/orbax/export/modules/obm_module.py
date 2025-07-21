@@ -90,6 +90,8 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         constants.XLA_COMPILE_OPTIONS, None
     )
 
+    self._jax_mesh = jax2obm_kwargs.get(constants.JAX_MESH, None)
+
     self.polymorphic_constraints = self._maybe_set_polymorphic_constraints(
         jax2obm_kwargs
     )
@@ -312,3 +314,8 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
   def jax_methods(self) -> Mapping[str, Callable[..., Any]]:
     """Named methods in JAX context for validation."""
     raise NotImplementedError('apply_fn_map is not implemented for ObmModule.')
+
+  @property
+  def jax_mesh(self) -> jax.sharding.Mesh | None:
+    """Returns the mesh for the model."""
+    return self._jax_mesh
