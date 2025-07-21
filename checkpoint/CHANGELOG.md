@@ -7,12 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add support for loading SafeTensors checkpoints
+- #v1 Add `is_orbax_checkpoint()` method for validation checks
+
 ### Changed
 
 - #v1 Add LeafHandlerRegistry and make it as default for V1 codes
-- #v1 Update all V1 Codes work with V1 (De)SerializationParams and Metadata.
-  Avoid mixing with V0 ones.
-
+- Modify `loading.load_pytree()` method to automatically detect and handle
+different formats
 ## [0.11.19] - 2025-07-08
 
 ### Added
