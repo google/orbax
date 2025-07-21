@@ -31,7 +31,6 @@ from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration as handler_registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
-from orbax.checkpoint.experimental.v1._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -234,13 +233,14 @@ def _save_checkpointables_impl(
 ) -> async_types.AsyncResponse[None]:
   """See caller docstrings."""
   nest_asyncio.apply()
+  context = context_lib.get_context()
   path = epath.Path(path)
   # Prevent internal mutation from affecting the caller.
   checkpointables = dict(checkpointables)
 
   start_time = time.time()
   saving_utils.record_save_start(path, async_origin=async_origin)
-  context = context_lib.get_context()
+
   checkpointables_handler = composite_handler.CompositeHandler(
       context.checkpointables_options.registry
   )
@@ -251,11 +251,10 @@ def _save_checkpointables_impl(
 
   async def _blocking_save() -> Awaitable[None]:
     await context_lib.synchronize_next_operation_id()
-    if await async_path.exists(path):
-      if overwrite:
-        await saving_utils.remove_existing_path(path, context=context)
-      else:
-        raise ValueError(f'Destination {path} already exists.')
+
+    await saving_utils.maybe_overwrite_existing(
+        path, overwrite=overwrite, context=context
+    )
 
     tmp_path_awaiting_creation = path_async_utils.start_async_mkdir(
         tmp_path, checkpointables.keys()

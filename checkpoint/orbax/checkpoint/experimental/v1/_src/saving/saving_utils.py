@@ -65,7 +65,6 @@ async def remove_existing_path(
     *,
     context: context_lib.Context,
 ):
-  """Removes the existing path if it exists."""
   if multihost.is_primary_host(context.multiprocessing_options.primary_host):
     logging.info(
         '[process=%s] Specified `overwrite`: removing existing path.',
@@ -229,3 +228,17 @@ class SaveResponse(async_types.AsyncResponse[None]):
 
   def result(self, timeout: float | None = None) -> None:
     return self._thread_runner.result(timeout=timeout)
+
+
+async def maybe_overwrite_existing(
+    path: path_types.Path,
+    *,
+    overwrite: bool,
+    context: context_lib.Context,
+) -> None:
+  """Checks if the path exists and overwrites it if necessary."""
+  if await async_path.exists(path):
+    if overwrite:
+      await remove_existing_path(path, context=context)
+    else:
+      raise ValueError(f'Destination {path} already exists.')
