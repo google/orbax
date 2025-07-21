@@ -245,9 +245,6 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
           checkpoint_metadata.MetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
-      multiprocessing_options: Optional[
-          options_lib.MultiprocessingOptions
-      ] = None,
   ) -> AtomicRenameTemporaryPath:
     return cls(
         _get_tmp_directory(final_path),
@@ -341,9 +338,6 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
           checkpoint_metadata.MetadataStore
       ] = None,
       file_options: Optional[options_lib.FileOptions] = None,
-      multiprocessing_options: Optional[
-          options_lib.MultiprocessingOptions
-      ] = None,
   ) -> CommitFileTemporaryPath:
     return cls(
         final_path,
