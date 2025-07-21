@@ -163,6 +163,15 @@ class CheckpointTest(parameterized.TestCase):
   def assertDtypesMatch(self, x, y):
     self.assertEqual(_dtype(x), _dtype(y))
 
+  def add_monitoring_listener(self) -> list[tuple[str, dict[str, Any]]]:
+    """Adds a listener to capture Jax monitoring, returns a list of events."""
+    jax_events = []
+    jax.monitoring.clear_event_listeners()
+    def monitoring_listener(event, **kwargs):
+      jax_events.append((event, kwargs))
+    jax.monitoring.register_event_listener(monitoring_listener)
+    return jax_events
+
   def test_memory_consumption(self):
     global_mesh = create_global_mesh((2, 4), ('x', 'y'))
     inp_shape = (2_048, 4_096)
@@ -297,6 +306,8 @@ class CheckpointTest(parameterized.TestCase):
 
   @parameterized.product(input_dtype=[np.int32, jnp.bfloat16])
   def test_checkpointing_with_bigger_shape_jax_array(self, input_dtype):
+    monitoring_events = self.add_monitoring_listener()
+
     global_mesh = create_global_mesh((2, 2), ('x', 'y'))
     global_input_shape = (8, 2)
     num = math.prod(global_input_shape)
@@ -338,6 +349,12 @@ class CheckpointTest(parameterized.TestCase):
     (m2,) = deserialize([new_ds], tspecs, [(8, 2)], [np.float32])
     for l in m2.addressable_shards:
       self.assertArraysEqual(l.data, global_input_data1.astype('float32'))
+
+    self.assertLen(monitoring_events, 1)
+    self.assertEqual(
+        ('/jax/orbax/checkpoint/deserialize/shard_shape_changed', {}),
+        monitoring_events[0],
+    )
 
   @parameterized.product(input_dtype=[jnp.int4, jnp.int8])
   def test_checkpointing_with_int4(self, input_dtype):
