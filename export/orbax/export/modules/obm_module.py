@@ -117,7 +117,9 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       Mapping[str, Union[PyTree, None]],
       Mapping[str, Union[PyTree, None]],
   ]:
-    """Converts all the inputs to a flat map sharing the same keys."""
+    """Converts all the inputs to maps that share the same keys."""
+
+    # Single apply_fn case. Will use the default method key.
     if callable(apply_fn):
       apply_fn_map = {constants.DEFAULT_METHOD_KEY: apply_fn}
       input_polymorphic_shape_map = {
@@ -126,74 +128,68 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       input_polymorphic_shape_symbol_values_map = {
           constants.DEFAULT_METHOD_KEY: input_polymorphic_shape_symbol_values
       }
-    elif len(apply_fn) > 1:
-      apply_fn_map = apply_fn
-      input_polymorphic_shape_map = input_polymorphic_shape
-      if not isinstance(input_polymorphic_shape, Mapping):
-        raise TypeError(
-            'When apply_fn is a mapping, input_polymorphic_shape must also be a'
-            ' mapping.'
-        )
-      if len(apply_fn_map) != len(input_polymorphic_shape_map):
-        raise ValueError(
-            f'The size of apply_fn_map:{len(apply_fn_map)} should be equal to'
-            ' the size of'
-            f' input_polymorphic_shape_map:{len(input_polymorphic_shape_map)}.'
-        )
-      input_polymorphic_shape_symbol_values_map = (
-          input_polymorphic_shape_symbol_values
-          if input_polymorphic_shape_symbol_values is not None
-          else {key: None for key in apply_fn_map}
-      )
-      logging.info(
-          'input_polymorphic_shape_symbol_values_map: %s',
+      return (
+          apply_fn_map,
+          input_polymorphic_shape_map,
           input_polymorphic_shape_symbol_values_map,
       )
-      if not isinstance(input_polymorphic_shape_symbol_values_map, Mapping):
-        raise TypeError(
-            'When apply_fn is a mapping, input_polymorphic_shape_symbol_values'
-            ' must also be a mapping from key to List.'
-        )
-      if set(apply_fn_map.keys()) != set(
-          input_polymorphic_shape_symbol_values_map.keys()
-      ):
-        raise ValueError(
-            'The keys of apply_fn_map and'
-            ' input_polymorphic_shape_symbol_values_map must be the same, but'
-            f' got {apply_fn_map.keys()} vs'
-            f' {input_polymorphic_shape_symbol_values_map.keys()}'
-        )
-    else:
+
+    # Mapping from method key to apply_fn.
+    if isinstance(apply_fn, Mapping):
+      if not apply_fn:
+        raise ValueError('`apply_fn` should be a non-empty mapping')
       apply_fn_map = apply_fn
-      if not apply_fn_map:
-        raise ValueError(
-            'apply_fn_map is empty. Please provide a valid apply_fn_map.'
-        )
-      elif input_polymorphic_shape is None:
-        input_polymorphic_shape_map = {next(iter(apply_fn_map)): None}
-        input_polymorphic_shape_symbol_values_map = {
-            next(iter(apply_fn_map)): None
-        }
-      elif not isinstance(input_polymorphic_shape, Mapping):
-        raise TypeError(
-            'When apply_fn is a mapping, input_polymorphic_shape must also be a'
-            ' mapping.'
-        )
-      elif next(iter(apply_fn_map)) not in input_polymorphic_shape:
-        raise ValueError(
-            f'The key {next(iter(apply_fn_map))} is not found in'
-            ' input_polymorphic_shape.'
-        )
+
+      # Handle `input_polymorphic_shape`
+      if input_polymorphic_shape is None:
+        input_polymorphic_shape_map = {key: None for key in apply_fn_map}
       else:
+        if not isinstance(input_polymorphic_shape, Mapping):
+          raise TypeError(
+              '`input_polymorphic_shape` must be a mapping, but got'
+              f' {type(input_polymorphic_shape)}.'
+          )
         input_polymorphic_shape_map = input_polymorphic_shape
+      if apply_fn_map.keys() != input_polymorphic_shape_map.keys():
+        raise ValueError(
+            'The keys of `apply_fn` and `input_polymorphic_shape` should be'
+            f' the same, but got ({apply_fn_map.keys()}) vs'
+            f' ({input_polymorphic_shape_map.keys()})'
+        )
+
+      # Handle `input_polymorphic_shape_symbol_values`
+      if input_polymorphic_shape_symbol_values is None:
+        input_polymorphic_shape_symbol_values_map = {
+            key: None for key in apply_fn_map
+        }
+      else:
+        if not isinstance(input_polymorphic_shape_symbol_values, Mapping):
+          raise TypeError(
+              '`input_polymorphic_shape_symbol_values` must be a mapping, but'
+              f' got {type(input_polymorphic_shape_symbol_values)}.'
+          )
         input_polymorphic_shape_symbol_values_map = (
             input_polymorphic_shape_symbol_values
         )
+      if (
+          apply_fn_map.keys()
+          != input_polymorphic_shape_symbol_values_map.keys()
+      ):
+        raise ValueError(
+            'The keys of `apply_fn` and'
+            ' `input_polymorphic_shape_symbol_values` should be the same, but'
+            f' got ({apply_fn_map.keys()}) vs'
+            f' ({input_polymorphic_shape_symbol_values_map.keys()})'
+        )
 
-    return (
-        apply_fn_map,
-        input_polymorphic_shape_map,
-        input_polymorphic_shape_symbol_values_map,
+      return (
+          apply_fn_map,
+          input_polymorphic_shape_map,
+          input_polymorphic_shape_symbol_values_map,
+      )
+
+    raise TypeError(
+        f'`apply_fn` must be a callable or a mapping, but got {type(apply_fn)}.'
     )
 
   def _maybe_set_orbax_checkpoint_path(self, jax2obm_kwargs):
