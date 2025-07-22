@@ -222,11 +222,11 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     self._leaf_handler_registry = (
         self._context.pytree_options.leaf_handler_registry
         if self._context.pytree_options.leaf_handler_registry is not None
-        else registry.StandardLeafHandlerRegistry(self._context)
+        else registry.StandardLeafHandlerRegistry()
     )
 
     type_handler_registry = compatibility.get_v0_type_handler_registry(
-        self._leaf_handler_registry
+        self._leaf_handler_registry, self._context
     )
 
     self._handler_impl = _create_v0_handler(

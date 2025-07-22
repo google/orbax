@@ -420,12 +420,14 @@ class CompatibleTypeHandler(
 
 def get_v0_type_handler_registry(
     leaf_handler_registry: types.LeafHandlerRegistry,
+    context: context_lib.Context | None = None,
 ):
   """Returns a v0 type handler registry based on the `leaf_handler_registry`.
 
   Args:
     leaf_handler_registry: The LeafHandlerRegistry to be used to create a v0
       type handler registry.
+    context: The Context to be used to default construct the LeafHandlers.
   """
 
   def _get_typestr(leaf_type: Any) -> str:
@@ -442,7 +444,14 @@ def get_v0_type_handler_registry(
 
   # register standardard v1 leaf handlers to the v0 type handler registry.
   handlers = []
-  for leaf_type, _, leaf_handler in leaf_handler_registry.get_all():
+  for leaf_type, _, leaf_handler_type in leaf_handler_registry.get_all():
+    try:
+      leaf_handler = leaf_handler_type(context=context)  # pytype: disable=wrong-keyword-args
+    except TypeError as e:
+      raise ValueError(
+          f'Failed to default construct LeafHandler[{leaf_type}].  All'
+          ' LeafHandler types must be able to be constructed with a context.'
+      ) from e
     handlers.append((
         leaf_type,
         CompatibleTypeHandler(

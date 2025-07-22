@@ -23,7 +23,6 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 import tensorstore as ts
 
-
 Leaf = TypeVar('Leaf')
 AbstractLeaf = TypeVar('AbstractLeaf')
 
@@ -137,7 +136,7 @@ class LeafHandler(Protocol[Leaf, AbstractLeaf]):
 
 
 LeafHandlerRegistryItem = Tuple[
-    Type[Leaf], Type[AbstractLeaf], LeafHandler[Leaf, AbstractLeaf]
+    Type[Leaf], Type[AbstractLeaf], Type[LeafHandler[Leaf, AbstractLeaf]]
 ]
 
 
@@ -150,54 +149,72 @@ class LeafHandlerRegistry(Protocol):
   get/set/is_handable/is_abstract_handlable.
   """
 
-  def get(self, ty: Type[Leaf]) -> LeafHandler[Leaf, Any]:
-    """Returns the handler registered for a given Leaf type, if available."""
+  def get(self, leaf_type: Type[Leaf]) -> Type[LeafHandler[Leaf, Any]]:
+    """Returns the handler type registered for a given Leaf type.
+
+    Args:
+      leaf_type: The type to get the handler for.
+
+    Returns:
+      The handler type registered for the given Leaf type.
+
+    Raises:
+      ValueError: If the leaf_type is not registered.
+    """
     ...
 
   def get_abstract(
-      self, abstract_ty: Type[AbstractLeaf]
-  ) -> LeafHandler[Any, AbstractLeaf]:
-    """Returns the handler registered for a given abstract type, if available."""
+      self, abstract_type: Type[AbstractLeaf]
+  ) -> Type[LeafHandler[Any, AbstractLeaf]]:
+    """Returns the handler type registered for a given abstract type.
+
+    Args:
+      abstract_type: The abstract type to get the handler for.
+
+    Returns:
+      The handler type registered for the given abstract type.
+
+    Raises:
+      ValueError: If the abstract_type is not registered.
+    """
     ...
 
-  def get_all(
-      self,
-  ) -> Sequence[LeafHandlerRegistryItem]:
+  def get_all(self) -> Sequence[LeafHandlerRegistryItem]:
     """Returns all registered handlers. Useful to examine what is registered.
 
     Returns:
-      A sequence of tuples containing the type, abstract type, and handler for
-      corresponding registered handler.
+      A sequence of tuples containing the type, abstract type, and handler type
+      for corresponding registered handler.
     """
     ...
 
   def add(
       self,
-      ty: Type[Leaf],
-      abstract_ty: Type[AbstractLeaf],
-      handler: LeafHandler[Leaf, AbstractLeaf],
+      leaf_type: Type[Leaf],
+      abstract_type: Type[AbstractLeaf],
+      handler_type: Type[LeafHandler[Leaf, AbstractLeaf]],
       override: bool = False,
   ):
-    """Adds a handler for a given type and abstract type pair.
+    """Registers the handler_type for a leaf_type and abstract_type pair.
 
-    If there is already a registered handler for the a given concrete type, its
-    coressponding abstract_ty and handler will be overridden. If the abstract
-    type has already associated with another concrete type, an error will be
-    raised.
+    If there is already a registered handler_type for the a leaf_type, its
+    coressponding abstract_type and handler_type will be overridden when
+    `override` is True. If the abstract_type has already associated with another
+    leaf_type, an error will be raised if `override` is False.
 
 
     Args:
-      ty: The type to register the handler for.
-      abstract_ty: The abstract type to register the handler for.
-      handler: The handler to register.
+      leaf_type: The type to register the handler for.
+      abstract_type: The abstract type to register the handler for.
+      handler_type: The handler to register.
       override: Whether to override the handler if it already exists.
     """
     ...
 
-  def is_handleable(self, ty: Type[Any]) -> bool:
-    """Returns True if the type is handleable by any registered handler."""
+  def is_handleable(self, leaf_type: Type[Any]) -> bool:
+    """Returns True if the leaf_type is handleable by any registered handler."""
     ...
 
-  def is_abstract_handleable(self, abstract_ty: Type[Any]) -> bool:
-    """Returns True if the abstract type is handlable by any registered handler."""
+  def is_abstract_handleable(self, abstract_type: Type[Any]) -> bool:
+    """Returns True if the abstract_type is handlable by any registered handler."""
     ...

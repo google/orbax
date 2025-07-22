@@ -14,11 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- #v1 Add LeafHandlerRegistry and make it as default for V1 codes
 - Modify `loading.load_pytree()` method to automatically detect and handle
 different formats
 - #v1 Adjust v0/v1 compatibility with CheckpointLayout loading logic.
 Require users to explicitly configure a layout if it is not Orbax.
+- #v1 Update all V1 Codes work with V1 (De)SerializationParams and Metadata.
+  Avoid mixing with V0 ones.
+- #v1 Add LeafHandlerRegistry and make it as default for V1 codes
+- #v1 Update LeafHandlerRegistry to work handler type only.
 
 ## [0.11.19] - 2025-07-08
 
