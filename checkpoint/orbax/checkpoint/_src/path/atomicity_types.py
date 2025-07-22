@@ -70,17 +70,10 @@ class TemporaryPath(Protocol):
     """Returns the final path without creating it."""
     ...
 
-  async def create(
-      self,
-      *,
-      file_options: options_lib.FileOptions = options_lib.FileOptions(),
-  ) -> epath.Path:
+  async def create(self) -> epath.Path:
     """Creates the temporary path on disk.
 
     NOTE: This method should be only called on the primary host.
-
-    Args:
-      file_options: options controlling file operations.
 
     Returns:
       The created temporary path.

@@ -268,11 +268,7 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
   def get_final(self) -> epath.Path:
     return self._final_path
 
-  async def create(
-      self,
-      *,
-      file_options: options_lib.FileOptions = options_lib.FileOptions(),
-  ) -> epath.Path:
+  async def create(self) -> epath.Path:
     """Creates a non-deterministic tmp directory for saving for given `final_dir`.
 
     Also writes checkpoint metadata in the tmp directory.
@@ -281,22 +277,16 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
     directly from multiprocess code can lead to race conditions. Prefer to
     use `atomicity.create_all` in such cases.
 
-    Args:
-      file_options: FileOptions object.
-
     Returns:
       The tmp directory.
 
     Raises:
       FileExistsError: if tmp directory already exists.
     """
-    mode = (
-        file_options.path_permission_mode or self._path_permission_mode or None
-    )
     return await _create_tmp_directory(
         _mkdir,
         self._tmp_path,
-        path_permission_mode=mode,
+        path_permission_mode=self._path_permission_mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
 
@@ -359,11 +349,7 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
   def get_final(self) -> epath.Path:
     return self._final_path
 
-  async def create(
-      self,
-      *,
-      file_options: options_lib.FileOptions = options_lib.FileOptions(),
-  ) -> epath.Path:
+  async def create(self) -> epath.Path:
     """Creates a non-deterministic tmp directory for saving for given `final_dir`.
 
     Also writes checkpoint metadata in the tmp directory.
@@ -372,22 +358,16 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
     directly from multiprocess code can lead to race conditions. Prefer to
     use `atomicity.create_all` in such cases.
 
-    Args:
-      file_options: FileOptions object.
-
     Returns:
       The tmp directory.
 
     Raises:
       FileExistsError: if tmp directory already exists.
     """
-    mode = (
-        file_options.path_permission_mode or self._path_permission_mode or None
-    )
     return await _create_tmp_directory(
         _mkdir,
         self._tmp_path,
-        path_permission_mode=mode,
+        path_permission_mode=self._path_permission_mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
 
