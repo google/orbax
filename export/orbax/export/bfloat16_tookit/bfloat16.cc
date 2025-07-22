@@ -41,6 +41,7 @@ limitations under the License.
 #include "orbax/export/bfloat16_tookit/utils.h"
 #include "tensorflow/compiler/mlir/quantization/stablehlo/passes/passes.h"
 #include "tensorflow/compiler/tf2xla/xla_op_registry.h"
+#include "tensorflow/compiler/xla/status_macros.h"
 #include "tensorflow/compiler/xla/tsl/platform/errors.h"
 #include "tensorflow/compiler/xla/tsl/platform/status.h"
 #include "tensorflow/compiler/xla/tsl/platform/statusor.h"
@@ -1660,6 +1661,96 @@ absl::Status ApplyBFloat16Optimization(
   VLOG(3) << DumpGraphToFile(
       absl::StrCat(bfloat16_func->name(), "_after_bfloat16_optim"),
       *bfloat16_func->get_graph());
+  return absl::OkStatus();
+}
+
+absl::Status ApplyBfloat16OptimizationV2(
+    ::orbax::BFloat16OptimizationOptions bfloat16_options,
+    FunctionInfo* xla_function_info,
+    std::map<string, tensorflow::SignatureDef>* signature_def) {
+  LOG(INFO) << "Applying bfloat16 optimization to "
+            << xla_function_info->name();
+
+  if (!bfloat16_options.skip_safety_checks()) {
+    absl::Status s =
+        ValidateGraphHasNoBFloat16Ops(xla_function_info->get_graph());
+    if (!s.ok()) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "Encountered the following error when screening for bfloat16 ops ",
+          "which can cause problems with the bfloat16 optimization. To ",
+          "disable this set BFloat16OptimizationOptions's skip_safety_check. ",
+          "Error:\n\"", s.message(), "\""));
+    }
+  }
+
+  if (bfloat16_options.preserve_signature() &&
+      bfloat16_options.scope() != BFloat16OptimizationOptions::ALL) {
+    return absl::InvalidArgumentError(
+        "The preserve_signature flag is only supported for the ALL scope. All "
+        "other scopes preserve the signature by default. Set "
+        "preserve_signature to false, or change the scope of the bfloat16 "
+        "optimization.");
+  }
+
+  std::vector<FunctionInfo*> bfloat16_function_infos;
+  ConverterOptions converter_options_v1;
+  switch (bfloat16_options.scope()) {
+    case BFloat16OptimizationOptions::DEFAULT:
+    case BFloat16OptimizationOptions::TPU:
+      bfloat16_function_infos.push_back(xla_function_info);
+      converter_options_v1.set_bfloat16_scope(::orbax::BFloat16Scope::TPU);
+      break;
+    case BFloat16OptimizationOptions::ALL:
+      converter_options_v1.set_bfloat16_scope(::orbax::BFloat16Scope::ALL);
+      if (bfloat16_options.preserve_signature()) {
+        TF_RETURN_IF_ERROR(xla_function_info->GetRoot()->get_children_ptrs(
+            &bfloat16_function_infos));
+      } else {
+        bfloat16_function_infos.push_back(xla_function_info->GetRoot());
+      }
+      break;
+    case BFloat16OptimizationOptions::GPU:
+      bfloat16_function_infos.push_back(xla_function_info);
+      converter_options_v1.set_gpu_bfloat16_scope(ConverterOptions::GPU);
+      break;
+    default:
+      return absl::UnimplementedError(absl::StrCat(
+          "Unexpected value for bfloat16_scope ", bfloat16_options.scope()));
+  }
+
+  // The only case when there may be more than one function to be converted to
+  // bfloat16 is if the model signature should be preserved, in which case we
+  // convert all children of root instead of root itself.
+  if (bfloat16_options.preserve_signature()) {
+    TF_RET_CHECK(!bfloat16_function_infos.empty());
+  } else {
+    TF_RET_CHECK(bfloat16_function_infos.size() == 1);
+  }
+
+  *converter_options_v1.mutable_bfloat16_filterlist() =
+      bfloat16_options.filterlist();
+
+  if (bfloat16_options.enable_cast_outside() &&
+      converter_options_v1.bfloat16_scope() == ::orbax::BFloat16Scope::ALL) {
+    return absl::InvalidArgumentError(
+        "Cannot enable bfloat16 enable_cast_outside if the bfloat16 scope is "
+        "not TPU or GPU.");
+  }
+  converter_options_v1.set_bfloat16_cast_outside(
+      bfloat16_options.enable_cast_outside());
+
+  for (FunctionInfo* bfloat16_function_info : bfloat16_function_infos) {
+    TF_RET_CHECK(bfloat16_function_info != nullptr);
+
+    TF_RETURN_IF_ERROR(FuncFloatToBFloat16(
+        bfloat16_function_info, converter_options_v1, signature_def, true));
+
+    TF_RETURN_IF_ERROR(bfloat16_function_info->MarkMutated(kOptimFuncSuffix));
+
+    VLOG(3) << DumpGraphToFile("after_bfloat16_optimization_model",
+                               *bfloat16_function_info->get_graph());
+  }
+
   return absl::OkStatus();
 }
 
