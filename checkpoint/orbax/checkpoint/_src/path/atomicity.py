@@ -210,27 +210,131 @@ class _TemporaryPathBase(atomicity_types.TemporaryPath):
     self._checkpoint_metadata_store = checkpoint_metadata_store
     self._path_permission_mode = file_options.path_permission_mode
 
-  def to_bytes(self) -> bytes:
-    """Serializes the object to bytes."""
-    data = {
-        'tmp_path': self._tmp_path,
-        'final_path': self._final_path,
-        'path_permission_mode': self._path_permission_mode,
-    }
-    return pickle.dumps(data)
+
+class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
+  """A read-only, serializable object providing path properties access.
+
+  This implementation is not meant to be used for creating or finalizing
+  checkpoints. Its purpose is to be serialized and sent to other processes that
+  only need access to temporary and final checkpoint paths.
+  """
+
+  def __init__(self, *, temporary_path: epath.Path, final_path: epath.Path):
+    """Initializes ReadOnlyTemporaryPath.
+
+    Args:
+      temporary_path: The temporary path.
+      final_path: The final path.
+    """
+    self._tmp_path = temporary_path
+    self._final_path = final_path
+
+  def get(self) -> epath.Path:
+    """Returns the temporary path."""
+    return self._tmp_path
+
+  def get_final(self) -> epath.Path:
+    """Returns the final path."""
+    return self._final_path
 
   @classmethod
-  def from_bytes(cls: Type[_T], data: bytes) -> _T:
-    """Deserializes the object from bytes."""
+  def from_paths(
+      cls,
+      *,
+      temporary_path: epath.Path,
+      final_path: epath.Path,
+  ) -> ReadOnlyTemporaryPath:
+    """Constructs a ReadOnlyTemporaryPath from a temporary and final path.
+
+    Args:
+      temporary_path: The temporary path.
+      final_path: The final path.
+
+    Returns:
+      A ReadOnlyTemporaryPath instance.
+    """
+    return ReadOnlyTemporaryPath(
+        temporary_path=temporary_path, final_path=final_path
+    )
+
+  def to_bytes(self) -> bytes:
+    """Serializes the object to bytes.
+
+    Returns:
+      The serialized object.
+    """
+    return pickle.dumps({
+        'tmp_path': self._tmp_path,
+        'final_path': self._final_path,
+    })
+
+  @classmethod
+  def from_bytes(
+      cls: Type['ReadOnlyTemporaryPath'],
+      data: bytes,
+  ) -> ReadOnlyTemporaryPath:
+    """Deserializes the object from bytes.
+
+    Args:
+      data: The serialized object.
+
+    Returns:
+      A ReadOnlyTemporaryPath instance.
+    """
     data = pickle.loads(data)
-    file_options = options_lib.FileOptions(
-        path_permission_mode=data['path_permission_mode'],
-    )
     return cls(
-        data['tmp_path'],
-        data['final_path'],
-        file_options=file_options,
+        temporary_path=data['tmp_path'],
+        final_path=data['final_path'],
     )
+
+  @classmethod
+  def from_final(
+      cls,
+      final_path: epath.Path,
+      *,
+      checkpoint_metadata_store: Optional[
+          checkpoint_metadata.MetadataStore
+      ] = None,
+      file_options: Optional[options_lib.FileOptions] = None,
+  ) -> ReadOnlyTemporaryPath:
+    """Not implemented for ReadOnlyTemporaryPath."""
+    raise NotImplementedError(
+        'ReadOnlyTemporaryPath is not constructible from a final path.'
+    )
+
+  @classmethod
+  def match(cls, temporary_path: epath.Path, final_path: epath.Path) -> bool:
+    """Checks if temporary and final paths are compatible.
+
+    For ReadOnlyTemporaryPath, this is true if the temporary path and final path
+    are the same. This is because this class is not intended to represent a
+    temporary directory that will be moved to a final location.
+
+    Args:
+      temporary_path: The temporary path.
+      final_path: The final path.
+
+    Returns:
+      True if the paths are compatible, False otherwise.
+    """
+    return (
+        temporary_path.name == final_path.name
+        and temporary_path.parent == final_path.parent
+    )
+
+  async def create(
+      self,
+      *,
+      file_options: options_lib.FileOptions = options_lib.FileOptions(),
+  ) -> epath.Path:
+    """Not supported for ReadOnlyTemporaryPath."""
+    raise NotImplementedError('`create` is not supported.')
+
+  def finalize(
+      self,
+  ) -> None:
+    """Not supported for ReadOnlyTemporaryPath."""
+    raise NotImplementedError('`finalize` is not supported.')
 
 
 class AtomicRenameTemporaryPath(_TemporaryPathBase):
