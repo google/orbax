@@ -31,6 +31,7 @@ from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.path import async_path
+from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
@@ -244,6 +245,51 @@ async def maybe_overwrite_existing(
       await remove_existing_path(path, context=context)
     else:
       raise ValueError(f'Destination {path} already exists.')
+
+
+async def run_blocking_save(
+    tmp_path: atomicity_types.TemporaryPath,
+    checkpointables: dict[str, Any],
+    *,
+    overwrite: bool,
+    context: context_lib.Context,
+) -> Awaitable[None]:
+  """Runs the synchronous portion of the save operation.
+
+  This includes directory creation and calling the handler's save method.
+
+  Args:
+    tmp_path: The temporary path to save the checkpointables to.
+    checkpointables: A mapping from checkpointable name to checkpointable.
+    overwrite: Whether to overwrite an existing checkpoint in `tmp_path`.
+    context: The context to use for the save operation.
+
+  Returns:
+    An awaitable that will be completed when the synchronous portion of the
+    save operation is complete.
+  """
+  await context_lib.synchronize_next_operation_id()
+
+  await maybe_overwrite_existing(
+      tmp_path.get_final(), overwrite=overwrite, context=context
+  )
+
+  handler = composite_handler.CompositeHandler(
+      context.checkpointables_options.registry
+  )
+
+  # Directory creation is handled here.
+  tmp_path_awaiting_creation = path_async_utils.start_async_mkdir(
+      tmp_path, checkpointables.keys()
+  )
+  if not context.async_options.create_directories_asynchronously:
+    await tmp_path_awaiting_creation.await_creation()
+
+  # Delegate to the handler to get the background awaitable.
+  background_awaitable = await handler.save(
+      tmp_path_awaiting_creation, checkpointables
+  )
+  return background_awaitable
 
 
 def create_save_response(

@@ -16,7 +16,7 @@
 
 import asyncio
 import time
-from typing import Any, Awaitable
+from typing import Any
 
 from etils import epath
 import nest_asyncio
@@ -25,10 +25,8 @@ from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration as legacy_handler_registration
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
-from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration as handler_registration
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
-from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import saving_utils
@@ -238,34 +236,20 @@ def _save_checkpointables_impl(
   start_time = time.time()
   saving_utils.record_save_start(path, async_origin=async_origin)
 
-  checkpointables_handler = composite_handler.CompositeHandler(
-      context.checkpointables_options.registry
-  )
+  tmp_path = saving_utils.get_temporary_path(path, context=context)
+
   checkpointables = saving_utils.add_internal_checkpointables(
       checkpointables, context=context
   )
-  tmp_path = saving_utils.get_temporary_path(path, context=context)
 
-  async def _blocking_save() -> Awaitable[None]:
-    await context_lib.synchronize_next_operation_id()
-
-    await saving_utils.maybe_overwrite_existing(
-        path, overwrite=overwrite, context=context
-    )
-
-    tmp_path_awaiting_creation = path_async_utils.start_async_mkdir(
-        tmp_path, checkpointables.keys()
-    )
-    if not context.async_options.create_directories_asynchronously:
-      await tmp_path_awaiting_creation.await_creation()
-
-    # Synchronous portion of the save.
-    background_awaitable = await checkpointables_handler.save(
-        tmp_path_awaiting_creation, checkpointables
-    )
-    return background_awaitable
-
-  background_awaitable = asyncio.run(_blocking_save())
+  background_awaitable = asyncio.run(
+      saving_utils.run_blocking_save(
+          tmp_path,
+          checkpointables,
+          overwrite=overwrite,
+          context=context,
+      )
+  )
 
   return saving_utils.create_save_response(
       background_awaitable,
