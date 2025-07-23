@@ -107,11 +107,6 @@ class ReplicaSlicesTest(parameterized.TestCase):
       self.skipTest('Test requires multiple devices.')
     arr, _, num_replicas = make_multi_device_array(shape, partitioned=False)
 
-    # If we use 128 devices, then for the (64, 64) test, there will be no axis
-    # of each shard such that the axis size is divisibile by num_replicas = 128.
-    if jax.device_count() >= 128:
-      self.skipTest('Test requires < 128 devices.')
-
     rslices = replica_slices.get_replica_slices(
         arr, replica_id=0, use_replica_parallel=True,
         min_slice_bytes_for_replica_parallel=None,
