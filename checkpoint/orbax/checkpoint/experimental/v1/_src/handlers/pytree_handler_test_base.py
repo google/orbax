@@ -116,6 +116,9 @@ class PointLeafHandler(serialization_types.LeafHandler[Point, AbstractPoint]):
       serialization_context: serialization_types.SerializationContext,
   ) -> Awaitable[None]:
 
+    # make sure the parent directory is created
+    await serialization_context.parent_dir.await_creation()
+
     def _background_serialize():
       if multihost.is_primary_host(0):
         for param in params:
