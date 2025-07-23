@@ -14,6 +14,8 @@
 
 """Base class for all value types."""
 
+from collections.abc import Sequence
+
 from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
 from orbax.experimental.model.core.python.concrete_function import TreeOfVars
 from orbax.experimental.model.core.python.function import Function
@@ -21,5 +23,10 @@ from orbax.experimental.model.core.python.polymorphic_function import Polymorphi
 from orbax.experimental.model.core.python.value import Value
 
 Saveable = (
-    Function | ConcreteFunction | PolymorphicFunction | Value | TreeOfVars
+    Function
+    | Sequence[Function]
+    | ConcreteFunction
+    | PolymorphicFunction
+    | Value
+    | TreeOfVars
 )

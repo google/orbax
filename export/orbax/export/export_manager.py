@@ -15,7 +15,6 @@
 """Manage the exporting of a JAXModule."""
 
 from collections.abc import Mapping, Sequence
-import logging
 from typing import Any, Callable, Optional, cast
 
 from etils.epy import reraise_utils
@@ -25,7 +24,6 @@ from orbax.export import jax_module
 from orbax.export import obm_export
 from orbax.export import serving_config as osc
 from orbax.export import tensorflow_export
-from orbax.export.modules import obm_module
 import tensorflow as tf
 
 obx_export_config = config.config
