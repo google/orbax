@@ -227,20 +227,16 @@ class StandardCheckpointDeleter:
                 dest_path = destination_parent_dir / delete_target.name
                 destination_folder_id = str(dest_path.relative_to(f'gs://{bucket_name}'))
                 source_resource_name = f'projects/_/buckets/{bucket_name}/folders/{source_folder_id}'
-
                 logging.info('Rename API call: Source: %s', source_resource_name)
                 logging.info('Rename API call: Destination ID: %s', destination_folder_id)
-
                 request = storage_control_v2.RenameFolderRequest(
                     name=source_resource_name,
                     destination_folder_id=destination_folder_id,
                 )
                 op = client.rename_folder(request=request)
                 op.result()
-
                 logging.info('Successfully renamed step %d to %s', step, dest_path)
                 return
-
             except Exception as e:
                 logging.error(
                     'HNS rename failed for step %d. Error: %s',
