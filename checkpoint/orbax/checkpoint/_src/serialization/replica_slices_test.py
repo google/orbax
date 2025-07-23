@@ -146,9 +146,9 @@ class ReplicaSlicesTest(parameterized.TestCase):
       _ = np.array(rslice.data())  # check this does not hang
 
 
-  @parameterized.parameters([1, 0.5])
+  @parameterized.parameters([False, True])
   def test_get_replica_slices_above_max_replicas_successful(
-    self, max_num_replicas_factor
+    self, halve_num_replicas
   ):
     # If we don't have at least 4 devices, then for max_num_replicas_factor = 0.5,
     # max_num_replicas becomes = 1, causing replica parallel saving to fail.
@@ -163,8 +163,9 @@ class ReplicaSlicesTest(parameterized.TestCase):
         partitioned=partitioned,
     )
 
-    max_num_replicas = int(max_num_replicas_factor * num_replicas)
-    assert max_num_replicas <= num_replicas
+    max_num_replicas = num_replicas
+    if halve_num_replicas:
+      max_num_replicas = max_num_replicas // 2
 
     rslices = replica_slices.get_replica_slices(
         arr, replica_id=0, use_replica_parallel=True,
@@ -207,11 +208,6 @@ class ReplicaSlicesTest(parameterized.TestCase):
       self.assertIsNone(rslice.slice_args)
   
   def test_get_replica_slices_large_max_replicas_successful(self):
-    # If we don't have at least 2 devices, then num_replicas might become
-    # equal to 1, disabling replica parallel saving and breaking the test.
-    if len(jax.devices()) < 2:
-      self.skipTest('Test requires >= 2 devices.')
-
     shape = (64, 64)
     partitioned = False
 
@@ -236,12 +232,7 @@ class ReplicaSlicesTest(parameterized.TestCase):
   @parameterized.parameters([0, 1])
   def test_get_replica_slices_above_min_bytes(
       self, min_bytes_decrement
-  ):
-    # If we don't have at least 2 devices, then the test's max_num_replicas
-    # becomes larger than the num_replicas produced by make_multi_device_array.
-    if len(jax.devices()) < 2:
-      self.skipTest('Test requires >= 2 devices.')
-    
+  ):    
     shape = (64, 64)
     partitioned = False
     max_num_replicas = 2
@@ -269,12 +260,7 @@ class ReplicaSlicesTest(parameterized.TestCase):
       self.assertTrue(rslice.slice_args)
       self.assertEqual(rslice.data().nbytes, expected_bytes_per_slice)
 
-  def test_get_replica_slices_below_min_bytes(self):
-    # If we don't have at least 2 devices, then the test's max_num_replicas 
-    # becomes larger than the num_replicas produced by make_multi_device_array.
-    if len(jax.devices()) < 2:
-      self.skipTest('Test requires >= 2 devices.')
-    
+  def test_get_replica_slices_below_min_bytes(self):    
     shape = (64, 64)
     partitioned = False
     max_num_replicas = 2
@@ -304,8 +290,9 @@ class ReplicaSlicesTest(parameterized.TestCase):
   @parameterized.product(
       partitioned=[False, True],
       use_replica_parallel=[False, True],
+      halve_num_replicas=[False, True],
   )
-  def test_transfer(self, partitioned, use_replica_parallel):
+  def test_transfer(self, partitioned, use_replica_parallel, halve_num_replicas):
     # If we don't have at least 4 devices, then num_replicas might become
     # equal to 1, breaking the test.
     if jax.device_count() < 4:
@@ -316,12 +303,16 @@ class ReplicaSlicesTest(parameterized.TestCase):
         partitioned=partitioned,
     )
 
+    max_num_replicas = num_replicas
+    if halve_num_replicas:
+      max_num_replicas = max_num_replicas // 2
+
     rslices = replica_slices.transfer_arrays_to_host(
         [arr],
         replica_id=0,
         use_replica_parallel=use_replica_parallel,
         min_slice_bytes_for_replica_parallel=None,
-        max_replicas_for_replica_parallel=None,
+        max_replicas_for_replica_parallel=max_num_replicas,
     )[0]
 
     # Replica slices cover every element of the original array exactly once, and
@@ -338,7 +329,7 @@ class ReplicaSlicesTest(parameterized.TestCase):
     if use_replica_parallel:
       # With replica-parallel we transfer each of the `num_partitions` shards
       # as `num_replicas` slices.
-      self.assertLen(rslices.replica_slices, num_partitions * num_replicas)
+      self.assertLen(rslices.replica_slices, num_partitions * max_num_replicas)
     else:
       # With single-replica we transfer a single slice for each shard.
       self.assertLen(rslices.replica_slices, num_partitions)
