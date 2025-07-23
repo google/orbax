@@ -72,7 +72,7 @@ class ReplicaSlicesTest(parameterized.TestCase):
           arr,
           replica_id=replica_id,
           use_replica_parallel=False,
-          min_shard_bytes_for_replica_parallel=None,
+          min_slice_bytes_for_replica_parallel=None,
           max_replicas_for_replica_parallel=None,
       )
       self.assertLen(rslices.replica_slices, num_partitions)
@@ -82,7 +82,7 @@ class ReplicaSlicesTest(parameterized.TestCase):
         arr,
         replica_id=None,
         use_replica_parallel=False,
-        min_shard_bytes_for_replica_parallel=None,
+        min_slice_bytes_for_replica_parallel=None,
         max_replicas_for_replica_parallel=None,
     )
     self.assertLen(rslices.replica_slices, num_partitions)
@@ -92,7 +92,7 @@ class ReplicaSlicesTest(parameterized.TestCase):
         arr,
         replica_id=-1,
         use_replica_parallel=False,
-        min_shard_bytes_for_replica_parallel=None,
+        min_slice_bytes_for_replica_parallel=None,
         max_replicas_for_replica_parallel=None,
     ).replica_slices
     self.assertEmpty(rslices)
@@ -107,9 +107,14 @@ class ReplicaSlicesTest(parameterized.TestCase):
       self.skipTest('Test requires multiple devices.')
     arr, _, num_replicas = make_multi_device_array(shape, partitioned=False)
 
+    # If we use 128 devices, then for the (64, 64) test, there will be no axis
+    # of each shard such that the axis size is divisibile by num_replicas = 128.
+    if jax.device_count() >= 128:
+      self.skipTest('Test requires < 128 devices.')
+
     rslices = replica_slices.get_replica_slices(
         arr, replica_id=0, use_replica_parallel=True,
-        min_shard_bytes_for_replica_parallel=None,
+        min_slice_bytes_for_replica_parallel=None,
         max_replicas_for_replica_parallel=None,
     ).replica_slices
     if expected_axis is None:
@@ -139,101 +144,39 @@ class ReplicaSlicesTest(parameterized.TestCase):
     )
     rslices = replica_slices.get_replica_slices(
         arr, replica_id=0, use_replica_parallel=True,
-        min_shard_bytes_for_replica_parallel=None,
+        min_slice_bytes_for_replica_parallel=None,
         max_replicas_for_replica_parallel=None,
     ).replica_slices
     for rslice in rslices:
       _ = np.array(rslice.data())  # check this does not hang
 
 
-  @parameterized.product(
-    shape=[(64, 64), (32, 16), (8, 8)],
-    expected_axis=[0], 
-    partitioned=[False, True]
-  )
-  def test_get_replica_slices_above_min_bytes(self, shape, expected_axis, partitioned):
-    # If we don't have at least 4 devices, then num_replicas produced by 
-    # make_multi_device_array will be <= 1, breaking the test.
-    if len(jax.devices()) < 4:
-      self.skipTest('Test requires >= 4 devices.')
-    
-    # If we use 16 devices, then the input with shape (8, 8) will not have
-    # any axes divisible by the number of replicas.
-    if len(jax.devices()) >= 16:
-      self.skipTest('Test requires < 16 devices.')
-
-    arr, num_partitions, num_replicas = make_multi_device_array(
-        shape,
-        partitioned=partitioned,
-    )
-
-    min_bytes = arr.addressable_shards[0].data.nbytes
-
-    rslices = replica_slices.get_replica_slices(
-        arr, replica_id=0, use_replica_parallel=True,
-        min_shard_bytes_for_replica_parallel=min_bytes,
-        max_replicas_for_replica_parallel=None,
-    ).replica_slices
-
-    # Replica-parallel expected to succeed.
-    self.assertLen(rslices, num_partitions * num_replicas)
-    for rslice in rslices:
-      self.assertTrue(rslice.slice_args)
-      self.assertEqual(rslice.slice_args.axis, expected_axis)
-
-
-  @parameterized.product(
-    shape=[(64, 64), (32, 13), (12, 4)],
-    partitioned=[False, True]
-  )
-  def test_get_replica_slices_below_min_bytes(self, shape, partitioned):
-    arr, num_partitions, _ = make_multi_device_array(
-        shape,
-        partitioned=partitioned,
-    )
-
-    min_bytes = arr.addressable_shards[0].data.nbytes + 1
-
-    rslices = replica_slices.get_replica_slices(
-        arr, replica_id=0, use_replica_parallel=True,
-        min_shard_bytes_for_replica_parallel=min_bytes,
-        max_replicas_for_replica_parallel=None,
-    ).replica_slices
-
-    # Replica-parallel expected to fail.
-    self.assertLen(rslices, 1 * num_partitions)
-    self.assertIsNone(rslices[0].slice_args)
-  
-
   @parameterized.parameters([
-    ((64, 64), 0, True),
-    ((13, 36), 1, False),
-    ((8, 8), 0, True),
+    ((64, 64), False, 4, 0),
+    ((64, 64), False, 2, 0),
+    ((64, 64), True, 2, 0),
+    ((13, 64), False, 4, 1),
+    ((13, 64), False, 2, 1),
   ])
   def test_get_replica_slices_above_max_replicas_successful(
-    self, shape, expected_axis, partitioned
+    self, shape, partitioned, max_num_replicas, expected_axis
   ):
-    # If we don't have at least 8 devices, then max_num_replicas (computed
-    # as num_replicas // 2) might become equal to 1, breaking the test. 
+    # If we don't have at least 8 devices, then the test's max_num_replicas 
+    # might become larger than the num_replicas produced by 
+    # make_multi_device_array.
     if len(jax.devices()) < 8:
-      self.skipTest('Test requires at least 8 devices.')
+      self.skipTest('Test requires >= 8 devices.')
 
-    # If we use 16 devices, then the input with shape (13, 36) will not have
-    # any axes divisible by the number of replicas.
-    if len(jax.devices()) >= 16:
-      self.skipTest('Test requires < 16 devices.')
-    
     arr, num_partitions, num_replicas = make_multi_device_array(
         shape,
         partitioned=partitioned,
     )
 
-    max_num_replicas = num_replicas // 2
-    assert max_num_replicas < num_replicas
+    assert max_num_replicas <= num_replicas
 
     rslices = replica_slices.get_replica_slices(
         arr, replica_id=0, use_replica_parallel=True,
-        min_shard_bytes_for_replica_parallel=None,
+        min_slice_bytes_for_replica_parallel=None,
         max_replicas_for_replica_parallel=max_num_replicas,
     ).replica_slices
 
@@ -263,11 +206,9 @@ class ReplicaSlicesTest(parameterized.TestCase):
     max_num_replicas = (num_replicas // 2) - 1
     assert max_num_replicas < num_replicas
 
-    print(max_num_replicas)
-
     rslices = replica_slices.get_replica_slices(
         arr, replica_id=0, use_replica_parallel=True,
-        min_shard_bytes_for_replica_parallel=None,
+        min_slice_bytes_for_replica_parallel=None,
         max_replicas_for_replica_parallel=max_num_replicas,
     ).replica_slices
 
@@ -277,22 +218,23 @@ class ReplicaSlicesTest(parameterized.TestCase):
   
 
   @parameterized.parameters([
-    ((64, 64), 0, True),
-    ((13, 32), 1, False),
-    ((16, 8), 0, True),
+    ((64, 64), False, 0),
+    ((32, 8), True, 0),
+    ((13, 64), False, 1),
   ])
-  def test_get_replica_slices_below_max_replicas_successful(
-    self, shape, expected_axis, partitioned
+  def test_get_replica_slices_large_max_replicas_successful(
+    self, shape, partitioned, expected_axis
   ):
     # If we don't have at least 4 devices, then num_replicas might become
     # equal to 1, breaking the test. 
     if len(jax.devices()) < 4:
-      self.skipTest('Test requires at least 4 devices.')
+      self.skipTest('Test requires >= 4 devices.')
 
-    # If we use 32 devices, then the input with shape (16, 8) will not have
-    # any axes divisible by the number of replicas.
-    if len(jax.devices()) >= 32:
-      self.skipTest('Test requires < 32 devices.')
+    # If we use 64 devices, then for the test with shape (32, 8) and 
+    # partitioned = True, there will be no axis over which the size of 
+    # each shard is divisibile by num_replicas = 32.
+    if len(jax.devices()) >= 64:
+      self.skipTest('Test requires < 64 devices.')
 
     arr, num_partitions, num_replicas = make_multi_device_array(
         shape,
@@ -304,7 +246,7 @@ class ReplicaSlicesTest(parameterized.TestCase):
 
     rslices = replica_slices.get_replica_slices(
         arr, replica_id=0, use_replica_parallel=True,
-        min_shard_bytes_for_replica_parallel=None,
+        min_slice_bytes_for_replica_parallel=None,
         max_replicas_for_replica_parallel=max_num_replicas,
     ).replica_slices
 
@@ -315,13 +257,97 @@ class ReplicaSlicesTest(parameterized.TestCase):
       self.assertEqual(rslice.slice_args.axis, expected_axis)
 
 
+  @parameterized.parameters([
+    ((64, 64), False, 4, 0),
+    ((64, 64), False, 2, 0),
+    ((64, 64), True, 2, 0),
+    ((13, 64), False, 4, 1),
+    ((13, 64), False, 2, 1),
+  ])
+  def test_get_replica_slices_above_min_bytes(
+      self, shape, partitioned, max_num_replicas, expected_axis
+  ):
+    # If we don't have at least 8 devices, then the test's max_num_replicas 
+    # might become larger than the num_replicas produced by 
+    # make_multi_device_array.
+    if len(jax.devices()) < 8:
+      self.skipTest('Test requires >= 8 devices.')
+    
+    arr, num_partitions, num_replicas = make_multi_device_array(
+        shape,
+        partitioned=partitioned,
+    )
+
+    assert max_num_replicas <= num_replicas
+
+    min_bytes = arr.addressable_shards[0].data.nbytes
+
+    rslices = replica_slices.get_replica_slices(
+        arr, replica_id=0, use_replica_parallel=True,
+        min_slice_bytes_for_replica_parallel=min_bytes,
+        max_replicas_for_replica_parallel=max_num_replicas,
+    ).replica_slices
+
+    # Replica-parallel expected to succeed.
+    self.assertLen(rslices, num_partitions * max_num_replicas)
+    for rslice in rslices:
+      self.assertTrue(rslice.slice_args)
+      self.assertEqual(rslice.slice_args.axis, expected_axis)
+
+
+  @parameterized.parameters([
+    ((64, 64), False, 4),
+    ((64, 64), False, 2),
+    ((64, 64), True, 2),
+    ((13, 64), False, 4),
+    ((13, 64), False, 2),
+  ])
+  def test_get_replica_slices_below_min_bytes(
+    self, shape, partitioned, max_num_replicas
+  ):
+    # If we don't have at least 8 devices, then the test's max_num_replicas 
+    # might become larger than the num_replicas produced by 
+    # make_multi_device_array.
+    if len(jax.devices()) < 8:
+      self.skipTest('Test requires >= 8 devices.')
+    
+    arr, num_partitions, num_replicas = make_multi_device_array(
+        shape,
+        partitioned=partitioned,
+    )
+
+    assert max_num_replicas <= num_replicas
+
+    expected_bytes_per_slice = (arr.addressable_shards[0].data.nbytes // (num_partitions * num_replicas))
+    min_bytes_per_slice = expected_bytes_per_slice // 2
+
+    rslices = replica_slices.get_replica_slices(
+        arr, replica_id=0, use_replica_parallel=True,
+        min_slice_bytes_for_replica_parallel=min_bytes_per_slice,
+        max_replicas_for_replica_parallel=max_num_replicas,
+    ).replica_slices
+
+    # Replica-parallel expected to fail.
+    self.assertLen(rslices, 1 * num_partitions)
+    self.assertIsNone(rslices[0].slice_args)
+
+
   @parameterized.product(
       partitioned=[False, True],
       use_replica_parallel=[False, True],
   )
   def test_transfer(self, partitioned, use_replica_parallel):
+    # If we don't have at least 4 devices, then num_replicas might become
+    # equal to 1, breaking the test.
     if jax.device_count() < 4:
-      self.skipTest('Not enough devices to test.')
+      self.skipTest('Test requires >= 4 devices.')
+    
+    # If we use 128 devices, then there will be no axis of each shard of the 
+    # (64, 64) array we run the test on such that the axis size is divisibile 
+    # by num_replicas = 128 (when partitioned = False).
+    if jax.device_count() >= 128:
+      self.skipTest('Test requires < 128 devices.')
+    
     arr, num_partitions, num_replicas = make_multi_device_array(
         (64, 64),
         partitioned=partitioned,
@@ -331,7 +357,7 @@ class ReplicaSlicesTest(parameterized.TestCase):
         [arr],
         replica_id=0,
         use_replica_parallel=use_replica_parallel,
-        min_shard_bytes_for_replica_parallel=None,
+        min_slice_bytes_for_replica_parallel=None,
         max_replicas_for_replica_parallel=None,
     )[0]
 

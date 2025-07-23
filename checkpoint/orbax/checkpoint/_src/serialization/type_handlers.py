@@ -886,7 +886,7 @@ class ArrayHandler(types.TypeHandler):
       primary_host: Optional[int] = 0,
       replica_id: Optional[int] = 0,
       use_replica_parallel: bool = True,
-      min_shard_bytes_for_replica_parallel: Optional[int] = None,
+      min_slice_bytes_for_replica_parallel: Optional[int] = None,
       max_replicas_for_replica_parallel: Optional[int] = None,
       enable_write_sharding_file: bool = True,
       array_metadata_store: array_metadata_store_lib.Store | None = None,
@@ -902,8 +902,9 @@ class ArrayHandler(types.TypeHandler):
         set to None, each shards will pick first replica_id to be used.  It's
         useful in the case that all hosts are only working with local storage.
       use_replica_parallel: Whether to parallelize saving across replicas.
-      min_shard_bytes_for_replica_parallel: Minimum number of bytes needed per
-        shard to parallelize saving across replicas.
+      min_slice_bytes_for_replica_parallel: Minimum number of bytes that should 
+        be written by any individual write when use_replica_parallel is True. 
+        Parallel saving is disabled if writes would not meet this threshold.
       max_replicas_for_replica_parallel: Maximum number of replicas over which
         saving will be parallelized if use_replica_parallel is True.
       enable_write_sharding_file: whether to write sharding file, defaults to
@@ -916,7 +917,7 @@ class ArrayHandler(types.TypeHandler):
     self._replica_id = replica_id
     self._enable_write_sharding_file = enable_write_sharding_file
     self._use_replica_parallel = use_replica_parallel
-    self._min_shard_bytes_for_replica_parallel = min_shard_bytes_for_replica_parallel
+    self._min_slice_bytes_for_replica_parallel = min_slice_bytes_for_replica_parallel
     self._max_replicas_for_replica_parallel = max_replicas_for_replica_parallel
     self._array_metadata_store = array_metadata_store
     self._ext_metadata = dict()
@@ -1175,7 +1176,7 @@ class ArrayHandler(types.TypeHandler):
         self._replica_id,
         self._use_replica_parallel,
         enable_pinned_host_transfer=infos[0].enable_pinned_host_transfer,
-        min_shard_bytes_for_replica_parallel=self._min_shard_bytes_for_replica_parallel,
+        min_slice_bytes_for_replica_parallel=self._min_slice_bytes_for_replica_parallel,
         max_replicas_for_replica_parallel=self._max_replicas_for_replica_parallel,
     )
 
@@ -1359,7 +1360,7 @@ class ArrayHandler(types.TypeHandler):
               v,
               replica_id=self._replica_id,
               use_replica_parallel=self._use_replica_parallel,
-              min_shard_bytes_for_replica_parallel=self._min_shard_bytes_for_replica_parallel,
+              min_slice_bytes_for_replica_parallel=self._min_slice_bytes_for_replica_parallel,
               max_replicas_for_replica_parallel=self._max_replicas_for_replica_parallel,
           ).nbytes
       )
