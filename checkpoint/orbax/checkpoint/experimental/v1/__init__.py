@@ -56,3 +56,14 @@ from orbax.checkpoint.experimental.v1._src.metadata.types import (
 from orbax.checkpoint.experimental.v1._src.layout.format_utils import (
     is_orbax_checkpoint,
 )
+from orbax.checkpoint.experimental.v1._src.serialization.types import (
+    LeafHandler,
+    SerializationParam,
+    DeserializationParam,
+    SerializationContext,
+    DeserializationContext,
+)
+from orbax.checkpoint.experimental.v1._src.serialization.registry import (
+    BaseLeafHandlerRegistry,
+    StandardLeafHandlerRegistry,
+)

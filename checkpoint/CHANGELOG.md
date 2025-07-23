@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for loading SafeTensors checkpoints
 - #v1 Add `is_orbax_checkpoint()` method for validation checks
+- #v1 Add custom LeafHandler docs.
 
 ### Changed
 
