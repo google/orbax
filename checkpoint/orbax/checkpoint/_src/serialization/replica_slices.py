@@ -178,15 +178,10 @@ def _sharding_num_replicas(
 
 
 def calculate_replica_parallel_axis_and_local_shape(
-    arr: jax.Array, max_replicas_for_replica_parallel: Optional[int]
+    arr: jax.Array, replica_count: int
 ) -> OptionalAxisAndShape:
   """Calculates a local shape for replica-parallel serialization."""
   shard0 = arr.addressable_shards[0]
-
-  replica_count = _sharding_num_replicas(arr.sharding, arr.shape)
-  if max_replicas_for_replica_parallel is not None:
-    replica_count = min(replica_count, max_replicas_for_replica_parallel)
-
   if shard0.data.size == 0 or replica_count <= 1:
     return None, None
   try:
@@ -263,18 +258,21 @@ def get_replica_slices(
           '`use_replica_parallel` is incompatible with local checkpointing'
       )
 
+    replica_count = _sharding_num_replicas(arr.sharding, arr.shape)
+    if max_replicas_for_replica_parallel is not None:
+      replica_count = min(replica_count, max_replicas_for_replica_parallel)
+
     # Check whether replica-parallel applies: we are dealing with non-empty
     # shards, we have more than one replica, some dimension of the shards
     # is evenly divisible across replicas, and each slice saved would have
     # size at least min_slice_bytes_for_replica_parallel.
     axis, local_shape = calculate_replica_parallel_axis_and_local_shape(
-      arr, max_replicas_for_replica_parallel
+      arr, replica_count
     )
-    slice_nbytes_ok = (
-      min_slice_bytes_for_replica_parallel is None
-      or (local_shape is not None and math.prod(local_shape) * arr.itemsize >= min_slice_bytes_for_replica_parallel)
-    )
-    if axis is None or local_shape is None or not slice_nbytes_ok:
+    if axis is None or local_shape is None:
+      return None
+    min_slice_bytes = min_slice_bytes_for_replica_parallel or 0
+    if math.prod(local_shape) * arr.itemsize < min_slice_bytes:
       return None
 
     rslices: list[ReplicaSlice] = []
@@ -282,10 +280,8 @@ def get_replica_slices(
       # Sanity check that all shards have the same shape.
       assert shard.data.shape == shard0.data.shape
 
-      # Parallelize saving across at most max_replicas_for_replica_parallel 
-      # replicas.
-      if (max_replicas_for_replica_parallel is not None
-          and shard.replica_id >= max_replicas_for_replica_parallel):
+      # Parallelize saving across only `replica_count` replicas.
+      if shard.replica_id >= replica_count:
         continue
 
       size = local_shape[axis]
