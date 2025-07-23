@@ -224,8 +224,9 @@ def get_replica_slices(
     use_replica_parallel: Whether to use replica-parallel serialization to allow
       arrays with replicated shards to be written cooperatively by different
       hosts.
-    min_slice_bytes_for_replica_parallel: Minimum number of bytes needed per
-      write request to allow writing of replicated shards to be parallelized.
+    min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica 
+      slice. Only uses replica-parallel when the amount of data written per 
+      replica is greater than or equal to this number.
     max_replicas_for_replica_parallel: Maximum number of replicas over which
       to parallelize the writing of replicated shards if use_replica_parallel
       is True.
@@ -271,9 +272,9 @@ def get_replica_slices(
     )
     slice_nbytes_ok = (
       min_slice_bytes_for_replica_parallel is None
-      or math.prod(local_shape) * arr.itemsize < min_slice_bytes_for_replica_parallel
+      or (local_shape is not None and math.prod(local_shape) * arr.itemsize >= min_slice_bytes_for_replica_parallel)
     )
-    if (axis is None or local_shape is None or not slice_nbytes_ok):
+    if axis is None or local_shape is None or not slice_nbytes_ok:
       return None
 
     rslices: list[ReplicaSlice] = []
@@ -370,8 +371,9 @@ def transfer_arrays_to_host(
       hosts.
     enable_pinned_host_transfer: Whether to allow transfer to pinned host
       memory. Pinned memory is closely associated with a TPU device and can
-    min_slice_bytes_for_replica_parallel: Minimum number of bytes needed per
-      write request to allow writing of replicated shards to be parallelized.
+    min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica 
+      slice. Only uses replica-parallel when the amount of data written per 
+      replica is greater than or equal to this number.
     max_replicas_for_replica_parallel: Maximum number of replicas over which
       to parallelize the writing of replicated shards if use_replica_parallel
       is True.

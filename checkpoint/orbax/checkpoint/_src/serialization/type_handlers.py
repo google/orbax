@@ -902,9 +902,9 @@ class ArrayHandler(types.TypeHandler):
         set to None, each shards will pick first replica_id to be used.  It's
         useful in the case that all hosts are only working with local storage.
       use_replica_parallel: Whether to parallelize saving across replicas.
-      min_slice_bytes_for_replica_parallel: Minimum number of bytes that should 
-        be written by any individual write when use_replica_parallel is True. 
-        Parallel saving is disabled if writes would not meet this threshold.
+      min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica 
+        slice. Only uses replica-parallel when the amount of data written per 
+        replica is greater than or equal to this number.
       max_replicas_for_replica_parallel: Maximum number of replicas over which
         saving will be parallelized if use_replica_parallel is True.
       enable_write_sharding_file: whether to write sharding file, defaults to
