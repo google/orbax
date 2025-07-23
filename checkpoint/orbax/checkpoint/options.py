@@ -60,6 +60,20 @@ class MultiprocessingOptions:
 
 
 @dataclasses.dataclass(frozen=True)
+class CNSFileOptions:
+  """Options for creating files and directories on CNS.
+
+  Attributes:
+    index_path_permissions: Permissions for index path.
+    cns2_storage_options: Optional. Specifies cns2 storage options such as
+  """
+
+  index_path_permissions: int | None = 0o750
+
+
+
+
+@dataclasses.dataclass(frozen=True)
 class FileOptions:
   """Options used to configure checkpoint directories and files.
 
@@ -67,7 +81,9 @@ class FileOptions:
     path_permission_mode: Path permission mode for step directories, user
       metadata files. e.g. 0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
+        path is supported. default=None.
+    cns_file_options: Optional. Specifies CNS-specific options for files and
   """
 
   path_permission_mode: Optional[int] = None
-
+  cns_file_options: Optional[CNSFileOptions] = None
