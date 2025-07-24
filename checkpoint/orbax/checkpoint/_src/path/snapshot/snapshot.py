@@ -15,6 +15,7 @@
 """Snapshot represents operations on how to create, delete snapshots of a checkpoint."""
 
 import asyncio
+import time
 from typing import Protocol
 
 from absl import logging
@@ -37,6 +38,10 @@ class Snapshot(Protocol):
 
   async def release_snapshot(self) -> bool:
     """Deletes a snapshot of the checkpoint."""
+    pass
+
+  async def replace_source(self) -> None:
+    """Replaces the source checkpoint with the snapshot."""
     pass
 
 
@@ -82,6 +87,29 @@ class _DefaultSnapshot(Snapshot):
       return False
     else:
       return True
+
+  # TODO(b/434025182): Handle recovery path upon restart.
+  async def replace_source(self) -> None:
+    """Replaces the source checkpoint with the snapshot."""
+    if not self._snapshot.is_absolute():
+      raise ValueError(
+          f"Snapshot destination must be absolute, but was '{self._snapshot}'."
+      )
+    if not self._source.is_absolute():
+      raise ValueError(
+          f"Snapshot source must be absolute, but was '{self._source}'."
+      )
+
+    recovery_path = (
+        self._source.parent / f"{self._source.name}._recovery_{time.time()}"
+    )
+
+    def _swap_source_and_snapshot():
+      self._source.rename(recovery_path)
+      self._snapshot.rename(self._source)
+      recovery_path.rmtree()
+
+    await asyncio.to_thread(_swap_source_and_snapshot)
 
 
 def create_instance(source: epath.Path, snapshot: epath.Path):
