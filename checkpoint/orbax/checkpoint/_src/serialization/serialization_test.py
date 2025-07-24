@@ -615,7 +615,7 @@ class CheckpointTest(parameterized.TestCase):
     out_layout = Format(
         DLL(
             arr_layout.major_to_minor[::-1],
-            arr_layout._tiling,
+            arr_layout.tiling,
         ),
         sharding=arr.sharding,
     )

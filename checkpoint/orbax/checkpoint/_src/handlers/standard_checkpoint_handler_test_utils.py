@@ -181,7 +181,7 @@ class StandardCheckpointHandlerTestBase:
       custom_layout = Format(  # pytype: disable=wrong-keyword-args
           DLL(
               major_to_minor=arr_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
-              _tiling=arr_layout._tiling,  # pytype: disable=attribute-error
+              tiling=arr_layout.tiling,  # pytype: disable=attribute-error
           ),
           sharding=arr.sharding,
       )
