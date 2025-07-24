@@ -31,7 +31,7 @@ from orbax.checkpoint._src.multihost import multihost
 
 Shape = types.Shape
 Index = types.Index
-OptionalAxisAndShape = tuple[int | None, Shape| None]
+OptionalAxisShapeReplicaCount = tuple[int, Shape, int] | None
 
 HashableIndex = types.HashableIndex
 HashableSlice = types.HashableSlice
@@ -178,12 +178,17 @@ def _sharding_num_replicas(
 
 
 def calculate_replica_parallel_axis_and_local_shape(
-    arr: jax.Array, replica_count: int
-) -> OptionalAxisAndShape:
+    arr: jax.Array, max_replicas_for_replica_parallel: Optional[int]
+) -> OptionalAxisShapeReplicaCount:
   """Calculates a local shape for replica-parallel serialization."""
+
+  replica_count = _sharding_num_replicas(arr.sharding, arr.shape)
+  if max_replicas_for_replica_parallel is not None:
+    replica_count = min(replica_count, max_replicas_for_replica_parallel)
+
   shard0 = arr.addressable_shards[0]
   if shard0.data.size == 0 or replica_count <= 1:
-    return None, None
+    return None
   try:
     axis = next(
         axis_index
@@ -191,12 +196,12 @@ def calculate_replica_parallel_axis_and_local_shape(
         if axis_size % replica_count == 0
     )
   except StopIteration:
-    return None, None
+    return None
   local_shape = tuple(
       axis_size // (replica_count if axis_index == axis else 1)
       for axis_index, axis_size in enumerate(shard0.data.shape)
   )
-  return axis, local_shape
+  return axis, local_shape, replica_count
 
 
 def get_replica_slices(
@@ -258,19 +263,16 @@ def get_replica_slices(
           '`use_replica_parallel` is incompatible with local checkpointing'
       )
 
-    replica_count = _sharding_num_replicas(arr.sharding, arr.shape)
-    if max_replicas_for_replica_parallel is not None:
-      replica_count = min(replica_count, max_replicas_for_replica_parallel)
-
     # Check whether replica-parallel applies: we are dealing with non-empty
     # shards, we have more than one replica, some dimension of the shards
     # is evenly divisible across replicas, and each slice saved would have
     # size at least min_slice_bytes_for_replica_parallel.
-    axis, local_shape = calculate_replica_parallel_axis_and_local_shape(
-      arr, replica_count
-    )
-    if axis is None or local_shape is None:
+    if (replica_parallel_info := 
+        calculate_replica_parallel_axis_and_local_shape(
+            arr, max_replicas_for_replica_parallel
+        )) is None:
       return None
+    axis, local_shape, replica_count = replica_parallel_info
     min_slice_bytes = min_slice_bytes_for_replica_parallel or 0
     if math.prod(local_shape) * arr.itemsize < min_slice_bytes:
       return None

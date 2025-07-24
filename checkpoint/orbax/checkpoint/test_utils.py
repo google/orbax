@@ -766,14 +766,14 @@ def get_expected_chunk_shape(
   """Expected chunk shape for an array, accounting for replica-parallel."""
   if not use_replica_parallel:
     return arr.sharding.shard_shape(arr.shape)
-  _, local_shape = (
+  
+  if (replica_parallel_info := 
       replica_slices.calculate_replica_parallel_axis_and_local_shape(
         arr, max_replicas_for_replica_parallel
-      )
-  )
-  if local_shape is None:
-    local_shape = arr.sharding.shard_shape(arr.shape)
-  return local_shape
+      )) is None:
+    return arr.sharding.shard_shape(arr.shape)
+
+  return replica_parallel_info[1]
 
 
 def filter_metadata_fields(
