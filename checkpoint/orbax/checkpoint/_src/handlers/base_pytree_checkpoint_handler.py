@@ -105,25 +105,30 @@ def _get_batch_memory_size(
 def _log_io_metrics(
     size: int,
     start_time: float,
-    bytes_per_sec_metric: str,
-    bytes_metric: Optional[str] = None,
+    gbytes_per_sec_metric: str,
+    gbytes_metric: Optional[str] = None,
 ):
   """Logs the bytes per second metric."""
   time_elapsed = time.time() - start_time
   bytes_per_sec = (
       float('nan') if time_elapsed == 0 else float(size) / time_elapsed
   )
+  gbytes_per_sec = bytes_per_sec / (1024 ** 3)
   logging.info(
-      '[process=%d] %s: %s/s (total bytes: %s) (time elapsed: %s) (per-host)',
+      '[process=%d] %s: %s/s (total gbytes: %s) (time elapsed: %s) (per-host)',
       multihost.process_index(),
-      bytes_per_sec_metric,
-      humanize.naturalsize(bytes_per_sec, binary=True),
+      gbytes_per_sec_metric,
+      humanize.naturalsize(gbytes_per_sec, binary=True),
       humanize.naturalsize(size, binary=True),
       humanize.naturaldelta(time_elapsed, minimum_unit='microseconds'),
   )
-  jax.monitoring.record_event_duration_secs(bytes_per_sec_metric, bytes_per_sec)
-  if bytes_metric is not None:
-    jax.monitoring.record_event(bytes_metric, bytes=size)
+  jax.monitoring.record_event(
+      gbytes_per_sec_metric, gbytes_per_sec=int(gbytes_per_sec)
+  )
+  if gbytes_metric is not None:
+    jax.monitoring.record_event(
+        gbytes_metric, gbytes=int(size / (1024 ** 3))
+    )
 
 
 async def _logging_serialize(
@@ -550,7 +555,7 @@ class BasePyTreeCheckpointHandler(
     _log_io_metrics(
         tree_memory_size,
         start_time,
-        '/jax/checkpoint/write/blocking_bytes_per_sec',
+        '/jax/checkpoint/write/blocking_gbytes_per_sec',
     )
     chained_futures = [
         future.ChainedFuture(
@@ -559,8 +564,8 @@ class BasePyTreeCheckpointHandler(
                 _log_io_metrics,
                 tree_memory_size,
                 start_time,
-                '/jax/checkpoint/write/bytes_per_sec',
-                '/jax/checkpoint/write/bytes',
+                '/jax/checkpoint/write/gbytes_per_sec',
+                '/jax/checkpoint/write/gbytes',
             ),
         )
     ]
@@ -831,8 +836,8 @@ class BasePyTreeCheckpointHandler(
     _log_io_metrics(
         tree_memory_size,
         start_time,
-        '/jax/checkpoint/read/bytes_per_sec',
-        '/jax/checkpoint/read/bytes',
+        '/jax/checkpoint/read/gbytes_per_sec',
+        '/jax/checkpoint/read/gbytes',
     )
     return restored_item
 
