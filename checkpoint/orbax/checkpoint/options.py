@@ -69,5 +69,4 @@ class FileOptions:
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
   """
 
-  path_permission_mode: Optional[int] = None
-
+  path_permission_mode: int | None = None

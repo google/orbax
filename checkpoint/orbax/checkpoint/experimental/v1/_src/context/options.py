@@ -102,14 +102,13 @@ class FileOptions:
     temporary_path_class:
       A class that is used to create and finallize temporary paths, and to
       ensure atomicity.
-
   """
 
   path_permission_mode: int | None = None
   temporary_path_class: atomicity_types.TemporaryPath | None = None
 
-
   def v0(self) -> v0_options_lib.FileOptions:
+    """Converts this FileOptions to a v0 FileOptions."""
     return v0_options_lib.FileOptions(
         path_permission_mode=self.path_permission_mode,
     )
@@ -264,6 +263,7 @@ class ArrayOptions:
       stored array shape does not match the target shape. Otherwise, raises an
       error.
     """
+
     concurrent_bytes: int | None = None
     enable_padding_and_truncation: bool = False
     raise_array_data_missing_error: bool = True
