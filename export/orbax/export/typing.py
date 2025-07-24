@@ -14,7 +14,8 @@
 
 """Common typing for export."""
 
-from typing import Any, Callable, Mapping, Sequence, TypeVar, Union
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, TypeVar, Union
 import jaxtyping
 import tensorflow as tf
 

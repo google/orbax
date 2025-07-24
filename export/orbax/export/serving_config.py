@@ -14,8 +14,9 @@
 
 """ServingConfig class."""
 
+from collections.abc import Callable, Mapping, Sequence
 import dataclasses
-from typing import Any, Callable, Mapping, Optional, Sequence, Text, Union
+from typing import Any, Optional, Text, Union
 from absl import logging
 import jax
 import jaxtyping

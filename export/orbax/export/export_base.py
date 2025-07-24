@@ -15,7 +15,8 @@
 """Abstract base class for different export classes."""
 
 import abc
-from typing import Any, Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
 from orbax.export import jax_module
 from orbax.export import serving_config as osc
 
