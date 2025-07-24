@@ -39,6 +39,8 @@ def get_shape_dtype_struct(jax_pytree):
 
 def jax_exported_to_shlo_fn(
     exported: jax_export.Exported,
+    xla_compile_options_per_platform: (
+        obm.manifest_pb2.CompileOptionsProtoMap | None
 ) -> obm.ShloFunction:
   """Converts a `jax.export.Exported` to an Orbax Model `ShloFunction`."""
 
@@ -127,16 +129,17 @@ def convert(
       {class}`jax.ShapeDtypeStruct`, or values with `.shape` and `.dtype`
       attributes, or result of calling `jax_export.symbolic_args_specs()`. These
       will be used to trace the function in jax export.
-    native_serialization_platforms: Optional. Specifies the platform(s) for which to lower
-      the code. Must be a tuple of OrbaxNativeSerializationType. If not set,
-      the JAX default backend will be used. Example can be found in
+    native_serialization_platforms: Optional. Specifies the platform(s) for
+      which to lower the code. Must be a tuple of OrbaxNativeSerializationType.
+      If not set, the JAX default backend will be used. Example can be found in
 
     native_serialization_disabled_checks: A sequence of safety checks to
       disable. Example can be found in
       https://jax.readthedocs.io/en/latest/_autosummary/jax.export.DisabledSafetyCheck.html#jax.export.DisabledSafetyCheck
-    xla_compile_options: XLA compile options to be saved in the model artifact,
-      to ensure XLA compilation consistency and reproducibility between export
-      time and serving time.
+    xla_compile_options_per_platform: XLA compile options to be saved in the
+      model artifact, to ensure XLA compilation consistency and reproducibility
+      between export time and serving time. Each map entry corresponds to a
+      platform type (e.g. TPU, GPU, etc.).
 
   Returns:
     An Orbax Model `ShloFunction`.
@@ -154,7 +157,7 @@ def convert(
 
   exported = exported_creator(*args_spec, **kwargs_spec)
   return jax_exported_to_shlo_fn(
-      exported
+      exported,
   )
 
 
