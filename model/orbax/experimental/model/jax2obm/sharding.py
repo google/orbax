@@ -13,14 +13,15 @@
 # limitations under the License.
 
 """Sharding related utils."""
+from typing import Any
 
 from collections.abc import Sequence
 import jax
-from jax.lib import xla_client
+from jax.extend import sharding as jex_sharding
 from orbax.experimental.model import core as obm
 
 def hlo_sharding_to_op_sharding(
-    hlo_sharding: xla_client.HloSharding | None,
+    hlo_sharding: Any | None,
 ) -> obm.OpSharding | None:
   """Converts `HloSharding` to proto `OpSharding`.
 
@@ -40,7 +41,9 @@ def hlo_sharding_to_op_sharding(
   # and then parse.
   # TODO(b/364954510): See if
   # help us share messages between Python and C++.
-  output.ParseFromString(hlo_sharding.to_proto().SerializeToString())
+  output.ParseFromString(
+      jex_sharding.get_serialized_proto_from_hlo_sharding(hlo_sharding)
+  )
   return output
 
 # TODO(b/424623547): see if we need this anymore or should it be removed.

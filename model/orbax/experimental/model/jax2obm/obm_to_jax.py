@@ -17,7 +17,7 @@
 from typing import Any, List, Sequence, Tuple
 
 import jax
-from jax.lib import xla_client
+import jax.extend as jex
 import numpy as np
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
@@ -225,15 +225,15 @@ def _refine_tensor_specs(
 
 def _shlo_tensor_spec_to_hlo_sharding(
     shlo_tensor_spec: obm.ShloTensorSpec,
-) -> xla_client.HloSharding | None:
+) -> Any | None:
   if shlo_tensor_spec.sharding is None:
     return None
   # `xla_extension.OpSharding` is needed as intermediary, just like the
   # hlo_sharding_to_op_sharding() in
   # orbax/experimental/model/jax2obm/sharding.py.
-  proto = xla_client.OpSharding()
-  proto.ParseFromString(shlo_tensor_spec.sharding.SerializeToString())
-  return xla_client.HloSharding.from_proto(proto)
+  return jex.sharding.get_hlo_sharding_from_serialized_proto(
+      shlo_tensor_spec.sharding.SerializeToString()
+  )
 
 
 def _restore_spec(
@@ -244,7 +244,7 @@ def _restore_spec(
 ) -> Tuple[
     jax.tree_util.PyTreeDef,
     List[_JaxShapeDtype],
-    Tuple[xla_client.HloSharding | None, ...],
+    Tuple[Any | None, ...],
 ]:
   """Restores an input or output signature (and its refinement) into JAX.
 
