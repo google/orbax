@@ -57,11 +57,6 @@ class TemporaryPath(Protocol):
     """Creates a TemporaryPath from a final path."""
     ...
 
-  @classmethod
-  def match(cls, temporary_path: epath.Path, final_path: epath.Path) -> bool:
-    """Determines if `temporary_path` could correspond to `final_path`."""
-    ...
-
   def get(self) -> epath.Path:
     """Constructs the temporary path without actually creating it."""
     ...
