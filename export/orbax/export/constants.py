@@ -93,6 +93,9 @@ XLA_COMPILE_OPTIONS = 'xla_compile_options'
 # XLA compile options per platform for the model.
 XLA_COMPILE_OPTIONS_PER_PLATFORM = 'xla_compile_options_per_platform'
 
+# Mesh for the model.
+JAX_MESH = 'jax_mesh'
+
 ################################################################################
 # Proto field names
 ################################################################################
