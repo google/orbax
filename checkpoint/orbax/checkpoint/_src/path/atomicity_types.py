@@ -21,7 +21,7 @@ paths, which allow other implementations.
 from __future__ import annotations
 
 import typing
-from typing import Optional, Protocol
+from typing import Protocol
 
 from etils import epath
 from orbax.checkpoint import options as options_lib
@@ -49,10 +49,10 @@ class TemporaryPath(Protocol):
       cls,
       final_path: epath.Path,
       *,
-      checkpoint_metadata_store: Optional[
-          checkpoint_metadata.MetadataStore
-      ] = None,
-      file_options: Optional[options_lib.FileOptions] = None,
+      checkpoint_metadata_store: (
+          checkpoint_metadata.MetadataStore | None
+      ) = None,
+      file_options: options_lib.FileOptions | None = None,
   ) -> TemporaryPath:
     """Creates a TemporaryPath from a final path."""
     ...
