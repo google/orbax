@@ -41,6 +41,7 @@ class CheckpointDeleterTest(parameterized.TestCase):
         primary_host=None,
         directory=self.ckpt_dir,
         todelete_subdir=todelete_subdir,
+        todelete_full_path=None,
         name_format=step_lib.standard_name_format(),
         enable_hns_rmtree=enable_hns_rmtree,
         enable_background_delete=threaded,

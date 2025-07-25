@@ -305,6 +305,15 @@ class CheckpointManagerOptions:
     deleted from the file system. Useful if checkpoint deletion is time
     consuming. By default, delete the checkpoint assets. Ignored if file system
     is Google Cloud Storage (directory is prefixed with gs://)
+  todelete_full_path: Specifies a path relative to the bucket root for
+    "soft-deleting" checkpoints on Google Cloud Storage (GCS). Instead of being
+    permanently removed, checkpoints are moved to this new location within
+    the same bucket. For instance, if a checkpoint is in
+    gs://my-bucket/experiments/run1/,
+    providing the value trash/ will move a deleted step to
+    gs://my-bucket/trash/<step_id>. Useful when direct deletion is time
+    consuming. It gathers all deleted items in a centralized path for
+    future cleanup.
   enable_hns_rmtree: If True, enables additional step of HNS bucket empty folder
     deletion.
   enable_background_delete: If True, old checkpoint deletions will be done in a
@@ -368,6 +377,7 @@ class CheckpointManagerOptions:
   save_on_steps: Optional[Container[int]] = None
   single_host_load_and_broadcast: bool = False
   todelete_subdir: Optional[str] = None
+  todelete_full_path: Optional[str] = None
   enable_hns_rmtree: bool = False
   enable_background_delete: bool = False
   read_only: bool = False
@@ -469,6 +479,15 @@ class CheckpointManagerOptions:
       logging.warning(
           'CheckpointManagerOptions.read_only=True, setting'
           ' todelete_subdir=None.'
+      )
+    if self.read_only and self.todelete_full_path is not None:
+      self.todelete_full_path = None
+      logging.warning(
+          ' todelete_full_path=None.'
+      )
+    if self.todelete_subdir is not None and self.todelete_full_path is not None:
+      raise ValueError(
+          'todelete_subdir and todelete_full_path both cannot be set togther'
       )
     if self.read_only and self.should_save_fn is not None:
       self.should_save_fn = None
@@ -850,6 +869,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             self._multiprocessing_options.primary_host,
             self._directory,
             self._options.todelete_subdir,
+            self._options.todelete_full_path,
             self._step_name_format,
             self._options.enable_hns_rmtree,
             self._options.enable_background_delete,
