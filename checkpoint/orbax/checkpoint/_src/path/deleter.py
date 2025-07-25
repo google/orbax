@@ -173,7 +173,6 @@ class StandardCheckpointDeleter:
         )
         return
 
-      # Delete if storage is on gcs or todelete_subdir is not set.
       try:
         delete_target = step_lib.find_step_path(
             self._directory,
@@ -189,6 +188,65 @@ class StandardCheckpointDeleter:
         )
         return
 
+      # Delete if storage is on gcs and todelete_subdir is set.
+      if self._todelete_subdir is not None and step_lib.is_gcs_path(self._directory):
+        logging.info('Condition: GCS path with `todelete_subdir` set. Checking for HNS.')
+        bucket_name = urlparse(str(self._directory)).netloc
+        if self._is_hierarchical_namespace_enabled(bucket_name):
+            logging.info('HNS bucket detected. Attempting to rename step %d.', step)
+            try:
+                from google.cloud import storage_control_v2
+                from google.api_core import exceptions as google_exceptions
+                import google.auth
+
+                # Use default credentials, but without a quota project to avoid quota issues with this API.
+                credentials, _ = google.auth.default()
+                creds_without_quota_project = credentials.with_quota_project(None)
+                client = storage_control_v2.StorageControlClient(
+                   credentials=creds_without_quota_project
+                )
+                # Destination parent is now sibling to the original `checkpoints` directory.
+                destination_parent_dir = self._directory.parent / self._todelete_subdir
+                
+                logging.info('Ensuring destination parent folder exists via HNS API: %s', destination_parent_dir)
+                try:
+                    parent_folder_id = str(destination_parent_dir.relative_to(f'gs://{bucket_name}'))
+                    bucket_resource_name = f'projects/_/buckets/{bucket_name}'
+                    client.create_folder(
+                        request=storage_control_v2.CreateFolderRequest(
+                            parent=bucket_resource_name,
+                            folder_id=parent_folder_id,
+                            recursive=True,
+                        )
+                    )
+                    logging.info('HNS parent folder creation request sent.')
+                except google_exceptions.AlreadyExists:
+                    logging.info('HNS parent folder already exists, proceeding.')
+
+                source_folder_id = str(delete_target.relative_to(f'gs://{bucket_name}'))
+                dest_path = destination_parent_dir / delete_target.name
+                destination_folder_id = str(dest_path.relative_to(f'gs://{bucket_name}'))
+                source_resource_name = f'projects/_/buckets/{bucket_name}/folders/{source_folder_id}'
+                logging.info('Rename API call: Source: %s', source_resource_name)
+                logging.info('Rename API call: Destination ID: %s', destination_folder_id)
+                request = storage_control_v2.RenameFolderRequest(
+                    name=source_resource_name,
+                    destination_folder_id=destination_folder_id,
+                )
+                op = client.rename_folder(request=request)
+                op.result()
+                logging.info('Successfully renamed step %d to %s', step, dest_path)
+                return
+            except Exception as e:
+                logging.error(
+                    'HNS rename failed for step %d. Error: %s',
+                    step, e
+                )
+                return
+        else:
+            logging.info('Bucket is not HNS-enabled. Proceeding to standard deletion logic.')
+
+      # Delete if storage is on gcs or todelete_subdir is not set.
       if self._todelete_subdir is None or step_lib.is_gcs_path(self._directory):
         self._rmtree(delete_target)
         logging.info('Deleted step %d.', step)
