@@ -140,6 +140,8 @@ class ObmExportTest(parameterized.TestCase, tf.test.TestCase):
 
   def setUp(self):
     super().setUp()
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    self._testdata_dir = os.path.join(base_path, 'testdata')
     self._output_dir = self.create_tempdir().full_path
 
   def test_incorrect_export_version(self):
