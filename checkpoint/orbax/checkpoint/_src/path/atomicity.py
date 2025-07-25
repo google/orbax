@@ -380,6 +380,7 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
           commit_timestamp_nsecs=time.time_ns(),
       )
       self._checkpoint_metadata_store.wait_until_finished()
+
     self._tmp_path.rename(self._final_path)
 
   def __repr__(self) -> str:
@@ -454,6 +455,7 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
           commit_timestamp_nsecs=time.time_ns(),
       )
       self._checkpoint_metadata_store.wait_until_finished()
+
     commit_success_file = self._final_path / COMMIT_SUCCESS_FILE
     commit_success_file.write_text(
         f'Checkpoint commit was successful to {self._final_path}'
