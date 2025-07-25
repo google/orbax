@@ -51,7 +51,7 @@ class DefaultSnapshotTest(absltest.TestCase):
     )
     asyncio.run(default_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
-    self.assertTrue(asyncio.run(default_snapshot.release_snapshot()))
+    asyncio.run(default_snapshot.release_snapshot())
     self.assertFalse(self.dest_path.exists())
 
   def test_create_snapshot_with_relative_dest_path_fails(self):
@@ -77,7 +77,8 @@ class DefaultSnapshotTest(absltest.TestCase):
         self.source_path, self.dest_path
     )
     self.assertFalse(self.dest_path.exists())
-    self.assertFalse(asyncio.run(default_snapshot.release_snapshot()))
+    with self.assertRaises(FileNotFoundError):
+      asyncio.run(default_snapshot.release_snapshot())
 
   def test_release_snapshot_fails_on_rmtree_error(self):
     default_snapshot = snapshot._DefaultSnapshot(
@@ -88,7 +89,8 @@ class DefaultSnapshotTest(absltest.TestCase):
     mock_rmtree = mock.MagicMock()
     mock_rmtree.side_effect = OSError('fake error')
     with epath.testing.mock_epath(rmtree=mock_rmtree):
-      self.assertFalse(asyncio.run(default_snapshot.release_snapshot()))
+      with self.assertRaisesRegex(OSError, 'fake error'):
+        asyncio.run(default_snapshot.release_snapshot())
     mock_rmtree.assert_called_once()
 
   def test_replace_source(self):
