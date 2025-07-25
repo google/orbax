@@ -65,6 +65,24 @@ class UtilsTest(tf.test.TestCase, parameterized.TestCase):
     ):
       utils.with_default_args(lambda x: x[0] + x[1], input_signature)
 
+  def test_assert_tensor_spec_with_default(self):
+    input_signature = [
+        TensorSpecWithDefault(
+            tf.TensorSpec([None], tf.int32),
+            np.asarray([1, 2]),
+        )
+    ]
+    utils.assert_tensor_spec_with_default(input_signature)
+
+    input_signature_bad_type = [
+        tf.TensorSpec([None], tf.int32),
+    ]
+    with self.assertRaisesRegex(
+        AssertionError,
+        'x: TensorSpec',
+    ):
+      utils.assert_tensor_spec_with_default(input_signature_bad_type)
+
   def test_with_default_args_nested(self):
     def f(required_arg, optional_args):
       return (

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `assert_tensor_spec_with_default` for input signature testing
 - Add support for loading SafeTensors checkpoints
 - #v1 Add `is_orbax_checkpoint()` method for validation checks
 
