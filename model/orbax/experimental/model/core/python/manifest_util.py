@@ -15,7 +15,7 @@
 """Utilities for building Manifest proto."""
 # TODO(b/356174487):  Add unit tests.
 
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from absl import logging
 from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.python import unstructured_data
@@ -29,13 +29,13 @@ from orbax.experimental.model.core.python.unstructured_data import UnstructuredD
 from orbax.experimental.model.core.python.value import ExternalValue
 
 
-def build_function(
+def _build_function(
     fn: Function,
     path: str,
     name: str,
     visibility: manifest_pb2.Visibility,
 ) -> manifest_pb2.Function:
-  """Builds a TopLevelObject proto from a ShloFunction."""
+  """Builds a `Function` proto from a `Function` object."""
   fn_proto = manifest_pb2.Function()
   fn_proto.visibility = visibility
 
@@ -108,6 +108,13 @@ def build_device_assignment_by_coords_proto(
   return device_assignment_by_coords_proto
 
 
+def _is_seq_of_functions(obj: Saveable) -> bool:
+  """Checks if the object is a sequence of `Function`s."""
+  return isinstance(obj, Sequence) and all(
+      isinstance(elem, Function) for elem in obj
+  )
+
+
 def build_manifest_proto(
     obm_module: dict[str, Saveable],
     path: str,
@@ -122,10 +129,21 @@ def build_manifest_proto(
   for name, obj in obm_module.items():
     if isinstance(obj, Function):
       fn = obj
-      fn_proto = build_function(
+      fn_proto = _build_function(
           fn, path, name, names_to_visibilities.get(name, manifest_pb2.PUBLIC)
       )
       manifest_proto.objects[name].function.CopyFrom(fn_proto)
+    elif _is_seq_of_functions(obj):
+      fn_protos = [
+          _build_function(
+              fn,
+              path,
+              f"__{name}_{i}",
+              names_to_visibilities.get(name, manifest_pb2.PUBLIC),
+          )
+          for i, fn in enumerate(obj)
+      ]
+      manifest_proto.objects[name].poly_fn.concrete_functions.extend(fn_protos)
     elif isinstance(obj, ExternalValue):
       value = obj
       if value.type is not None:

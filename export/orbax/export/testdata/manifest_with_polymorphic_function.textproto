@@ -1,0 +1,725 @@
+# proto-file: experimental/model/core/protos/manifest.proto
+# proto-message: Manifest
+objects {
+  key: "linear_forward_fn"
+  value {
+    poly_fn {
+      concrete_functions {
+        signature {
+          input {
+            tuple {
+              elements {
+                tuple {
+                  elements {
+                    dict {
+                      string_to_type {
+                        key: "params"
+                        value {
+                          dict {
+                            string_to_type {
+                              key: "Dense_0"
+                              value {
+                                dict {
+                                  string_to_type {
+                                    key: "bias"
+                                    value {
+                                      leaf {
+                                        tensor_type {
+                                          shape {
+                                            shape_with_known_rank {
+                                              dimension_sizes {
+                                                size: 4
+                                              }
+                                            }
+                                          }
+                                          dtype: f32
+                                        }
+                                      }
+                                    }
+                                  }
+                                  string_to_type {
+                                    key: "kernel"
+                                    value {
+                                      leaf {
+                                        tensor_type {
+                                          shape {
+                                            shape_with_known_rank {
+                                              dimension_sizes {
+                                                size: 2
+                                              }
+                                              dimension_sizes {
+                                                size: 4
+                                              }
+                                            }
+                                          }
+                                          dtype: f32
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                  elements {
+                    leaf {
+                      tensor_type {
+                        shape {
+                          shape_with_known_rank {
+                            dimension_sizes {
+                              size: 1
+                            }
+                            dimension_sizes {
+                              size: 3
+                            }
+                            dimension_sizes {
+                              size: 2
+                            }
+                          }
+                        }
+                        dtype: f32
+                      }
+                    }
+                  }
+                }
+              }
+              elements {
+                dict {
+                }
+              }
+            }
+          }
+          output {
+            leaf {
+              tensor_type {
+                shape {
+                  shape_with_known_rank {
+                    dimension_sizes {
+                      size: 1
+                    }
+                    dimension_sizes {
+                      size: 3
+                    }
+                    dimension_sizes {
+                      size: 4
+                    }
+                  }
+                }
+                dtype: f32
+              }
+            }
+          }
+        }
+        body {
+          stable_hlo_body {
+            stable_hlo {
+              mime_type: "mlir_stablehlo"
+              version: "1.0"
+            }
+            calling_convention_version: 10
+            lowering_platforms: "cpu"
+            module_kept_var_idx: 0
+            module_kept_var_idx: 1
+            module_kept_var_idx: 2
+            supplemental_info {
+              key: "jax_specific_info"
+              value {
+                file_system_location {
+                  string_path: "linear_forward_fn_supplemental.pb"
+                }
+                mime_type: "orbax_model_jax_supplemental"
+                version: "0.0.1"
+              }
+            }
+            supplemental_info {
+              key: "xla_compile_options"
+              value {
+                inlined_bytes: "\032\000"
+                mime_type: "xla_compile_options"
+              }
+            }
+          }
+        }
+        visibility: PUBLIC
+      }
+      concrete_functions {
+        signature {
+          input {
+            tuple {
+              elements {
+                tuple {
+                  elements {
+                    dict {
+                      string_to_type {
+                        key: "params"
+                        value {
+                          dict {
+                            string_to_type {
+                              key: "Dense_0"
+                              value {
+                                dict {
+                                  string_to_type {
+                                    key: "bias"
+                                    value {
+                                      leaf {
+                                        tensor_type {
+                                          shape {
+                                            shape_with_known_rank {
+                                              dimension_sizes {
+                                                size: 4
+                                              }
+                                            }
+                                          }
+                                          dtype: f32
+                                        }
+                                      }
+                                    }
+                                  }
+                                  string_to_type {
+                                    key: "kernel"
+                                    value {
+                                      leaf {
+                                        tensor_type {
+                                          shape {
+                                            shape_with_known_rank {
+                                              dimension_sizes {
+                                                size: 2
+                                              }
+                                              dimension_sizes {
+                                                size: 4
+                                              }
+                                            }
+                                          }
+                                          dtype: f32
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                  elements {
+                    leaf {
+                      tensor_type {
+                        shape {
+                          shape_with_known_rank {
+                            dimension_sizes {
+                              size: 1
+                            }
+                            dimension_sizes {
+                              size: 4
+                            }
+                            dimension_sizes {
+                              size: 2
+                            }
+                          }
+                        }
+                        dtype: f32
+                      }
+                    }
+                  }
+                }
+              }
+              elements {
+                dict {
+                }
+              }
+            }
+          }
+          output {
+            leaf {
+              tensor_type {
+                shape {
+                  shape_with_known_rank {
+                    dimension_sizes {
+                      size: 1
+                    }
+                    dimension_sizes {
+                      size: 4
+                    }
+                    dimension_sizes {
+                      size: 4
+                    }
+                  }
+                }
+                dtype: f32
+              }
+            }
+          }
+        }
+        body {
+          stable_hlo_body {
+            stable_hlo {
+              mime_type: "mlir_stablehlo"
+              version: "1.0"
+            }
+            calling_convention_version: 10
+            lowering_platforms: "cpu"
+            module_kept_var_idx: 0
+            module_kept_var_idx: 1
+            module_kept_var_idx: 2
+            supplemental_info {
+              key: "jax_specific_info"
+              value {
+                file_system_location {
+                  string_path: "linear_forward_fn_supplemental.pb"
+                }
+                mime_type: "orbax_model_jax_supplemental"
+                version: "0.0.1"
+              }
+            }
+            supplemental_info {
+              key: "xla_compile_options"
+              value {
+                inlined_bytes: "\032\000"
+                mime_type: "xla_compile_options"
+              }
+            }
+          }
+        }
+        visibility: PUBLIC
+      }
+      concrete_functions {
+        signature {
+          input {
+            tuple {
+              elements {
+                tuple {
+                  elements {
+                    dict {
+                      string_to_type {
+                        key: "params"
+                        value {
+                          dict {
+                            string_to_type {
+                              key: "Dense_0"
+                              value {
+                                dict {
+                                  string_to_type {
+                                    key: "bias"
+                                    value {
+                                      leaf {
+                                        tensor_type {
+                                          shape {
+                                            shape_with_known_rank {
+                                              dimension_sizes {
+                                                size: 4
+                                              }
+                                            }
+                                          }
+                                          dtype: f32
+                                        }
+                                      }
+                                    }
+                                  }
+                                  string_to_type {
+                                    key: "kernel"
+                                    value {
+                                      leaf {
+                                        tensor_type {
+                                          shape {
+                                            shape_with_known_rank {
+                                              dimension_sizes {
+                                                size: 2
+                                              }
+                                              dimension_sizes {
+                                                size: 4
+                                              }
+                                            }
+                                          }
+                                          dtype: f32
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                  elements {
+                    leaf {
+                      tensor_type {
+                        shape {
+                          shape_with_known_rank {
+                            dimension_sizes {
+                              size: 2
+                            }
+                            dimension_sizes {
+                              size: 3
+                            }
+                            dimension_sizes {
+                              size: 2
+                            }
+                          }
+                        }
+                        dtype: f32
+                      }
+                    }
+                  }
+                }
+              }
+              elements {
+                dict {
+                }
+              }
+            }
+          }
+          output {
+            leaf {
+              tensor_type {
+                shape {
+                  shape_with_known_rank {
+                    dimension_sizes {
+                      size: 2
+                    }
+                    dimension_sizes {
+                      size: 3
+                    }
+                    dimension_sizes {
+                      size: 4
+                    }
+                  }
+                }
+                dtype: f32
+              }
+            }
+          }
+        }
+        body {
+          stable_hlo_body {
+            stable_hlo {
+              mime_type: "mlir_stablehlo"
+              version: "1.0"
+            }
+            calling_convention_version: 10
+            lowering_platforms: "cpu"
+            module_kept_var_idx: 0
+            module_kept_var_idx: 1
+            module_kept_var_idx: 2
+            supplemental_info {
+              key: "jax_specific_info"
+              value {
+                file_system_location {
+                  string_path: "linear_forward_fn_supplemental.pb"
+                }
+                mime_type: "orbax_model_jax_supplemental"
+                version: "0.0.1"
+              }
+            }
+            supplemental_info {
+              key: "xla_compile_options"
+              value {
+                inlined_bytes: "\032\000"
+                mime_type: "xla_compile_options"
+              }
+            }
+          }
+        }
+        visibility: PUBLIC
+      }
+      concrete_functions {
+        signature {
+          input {
+            tuple {
+              elements {
+                tuple {
+                  elements {
+                    dict {
+                      string_to_type {
+                        key: "params"
+                        value {
+                          dict {
+                            string_to_type {
+                              key: "Dense_0"
+                              value {
+                                dict {
+                                  string_to_type {
+                                    key: "bias"
+                                    value {
+                                      leaf {
+                                        tensor_type {
+                                          shape {
+                                            shape_with_known_rank {
+                                              dimension_sizes {
+                                                size: 4
+                                              }
+                                            }
+                                          }
+                                          dtype: f32
+                                        }
+                                      }
+                                    }
+                                  }
+                                  string_to_type {
+                                    key: "kernel"
+                                    value {
+                                      leaf {
+                                        tensor_type {
+                                          shape {
+                                            shape_with_known_rank {
+                                              dimension_sizes {
+                                                size: 2
+                                              }
+                                              dimension_sizes {
+                                                size: 4
+                                              }
+                                            }
+                                          }
+                                          dtype: f32
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                  elements {
+                    leaf {
+                      tensor_type {
+                        shape {
+                          shape_with_known_rank {
+                            dimension_sizes {
+                              size: 2
+                            }
+                            dimension_sizes {
+                              size: 4
+                            }
+                            dimension_sizes {
+                              size: 2
+                            }
+                          }
+                        }
+                        dtype: f32
+                      }
+                    }
+                  }
+                }
+              }
+              elements {
+                dict {
+                }
+              }
+            }
+          }
+          output {
+            leaf {
+              tensor_type {
+                shape {
+                  shape_with_known_rank {
+                    dimension_sizes {
+                      size: 2
+                    }
+                    dimension_sizes {
+                      size: 4
+                    }
+                    dimension_sizes {
+                      size: 4
+                    }
+                  }
+                }
+                dtype: f32
+              }
+            }
+          }
+        }
+        body {
+          stable_hlo_body {
+            stable_hlo {
+              mime_type: "mlir_stablehlo"
+              version: "1.0"
+            }
+            calling_convention_version: 10
+            lowering_platforms: "cpu"
+            module_kept_var_idx: 0
+            module_kept_var_idx: 1
+            module_kept_var_idx: 2
+            supplemental_info {
+              key: "jax_specific_info"
+              value {
+                file_system_location {
+                  string_path: "linear_forward_fn_supplemental.pb"
+                }
+                mime_type: "orbax_model_jax_supplemental"
+                version: "0.0.1"
+              }
+            }
+            supplemental_info {
+              key: "xla_compile_options"
+              value {
+                inlined_bytes: "\032\000"
+                mime_type: "xla_compile_options"
+              }
+            }
+          }
+        }
+        visibility: PUBLIC
+      }
+    }
+  }
+}
+objects {
+  key: "linear_forward_fn_post"
+  value {
+    function {
+      signature {
+        input {
+          tuple {
+            elements {
+              tuple {
+                elements {
+                  leaf {
+                    tensor_type {
+                      shape {
+                        shape_with_known_rank {
+                          dimension_sizes {
+                          }
+                          dimension_sizes {
+                          }
+                          dimension_sizes {
+                            size: 4
+                          }
+                        }
+                      }
+                      dtype: f64
+                    }
+                  }
+                }
+              }
+            }
+            elements {
+              dict {
+              }
+            }
+          }
+        }
+        output {
+          leaf {
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                  }
+                  dimension_sizes {
+                  }
+                  dimension_sizes {
+                    size: 4
+                  }
+                }
+              }
+              dtype: f64
+            }
+          }
+        }
+      }
+      body {
+        stable_hlo_body {
+          stable_hlo {
+          }
+        }
+      }
+      visibility: PUBLIC
+    }
+  }
+}
+objects {
+  key: "linear_forward_fn_pre"
+  value {
+    function {
+      signature {
+        input {
+          tuple {
+            elements {
+              tuple {
+                elements {
+                  leaf {
+                    tensor_type {
+                      shape {
+                        shape_with_known_rank {
+                          dimension_sizes {
+                          }
+                          dimension_sizes {
+                          }
+                          dimension_sizes {
+                            size: 2
+                          }
+                        }
+                      }
+                      dtype: f64
+                    }
+                  }
+                }
+              }
+            }
+            elements {
+              dict {
+              }
+            }
+          }
+        }
+        output {
+          leaf {
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                  }
+                  dimension_sizes {
+                  }
+                  dimension_sizes {
+                    size: 2
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+        }
+      }
+      body {
+        stable_hlo_body {
+          stable_hlo {
+          }
+        }
+      }
+      visibility: PUBLIC
+    }
+  }
+}
+supplemental_info {
+  key: "orchestration"
+  value {
+    file_system_location {
+      string_path: "orchestration.pb"
+    }
+    mime_type: "oex_orchestration_multi_pipeline"
+    version: "0.0.1"
+  }
+}
+supplemental_info {
+  key: "tensorflow_saved_model"
+  value {
+    file_system_location {
+      string_path: "tf_saved_model/"
+    }
+    mime_type: "tensorflow_saved_model"
+    version: "1.0"
+  }
+}

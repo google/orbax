@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Mapping, Sequence
 import contextlib
 import os
 
@@ -46,100 +47,12 @@ def _assert(b):
   assert b
 
 
-class PolymorphicShapeConcretizerTest(absltest.TestCase):
-
-  def test_init_fails_for_invalid_symbolic_shapes_type(self):
-    with self.assertRaisesRegex(
-        ValueError, 'symbolic_shapes must be a Mapping'
-    ):
-      obm_export.PolymorphicShapeConcretizer(
-          # Symbolic shapes should be a PyTree like the following, but it is
-          # not, which causes the error.
-          # symbolic_shapes={
-          #     'input1': jax.ShapeDtypeStruct(shape=(1, 2), dtype=jnp.int32)
-          # },
-          symbolic_shapes=[jax.ShapeDtypeStruct(shape=(1, 2), dtype=jnp.int32)],
-          symbol_to_values={'b': [1, 2]},
-      )
-
-  def test_init_fails_for_invalid_symbolic_shapes_value_type(self):
-    with self.assertRaisesRegex(
-        ValueError,
-        'symbolic_shapes values must be jax.ShapeDtypeStruct instances',
-    ):
-      obm_export.PolymorphicShapeConcretizer(
-          # Symbolic shape should be a PyTree with value being
-          # jax.ShapeDtypeStruct, but it is not, which causes the error.
-          # symbolic_shapes={
-          #     'input1': jax.ShapeDtypeStruct(shape=(1, 2), dtype=jnp.int32)
-          # },
-          symbolic_shapes={'input1': (1, 2)},
-          symbol_to_values={'b': [1, 2]},
-      )
-
-  def test_init_fails_for_invalid_symbol_to_values_type(self):
-    with self.assertRaisesRegex(
-        ValueError, 'symbol_to_values must be a Mapping'
-    ):
-      obm_export.PolymorphicShapeConcretizer(
-          symbolic_shapes={
-              'input1': jax.ShapeDtypeStruct(shape=(1, 2), dtype=jnp.int32)
-          },
-          # Symbol to values should be a PyTree like the following, but it is
-          # not, which causes the error.
-          # symbol_to_values={'b': [1, 2]},
-          symbol_to_values=[1, 2],
-      )
-
-  def test_invalid_symbol_to_values_value_type(self):
-    with self.assertRaisesRegex(
-        ValueError, 'symbol_to_values values must be Sequences of ints'
-    ):
-      obm_export.PolymorphicShapeConcretizer(
-          symbolic_shapes={
-              'input1': jax.ShapeDtypeStruct(shape=('b',), dtype=jnp.int32)
-          },
-          # Symbol to values should be a PyTree like the following, but it is
-          # not, which causes the error.
-          # symbol_to_values={'b': [1, 2]},
-          symbol_to_values={'b': '1,2'},
-      )
-
-  def test_concretize_succeeds(self):
-    symbolic_shapes = {
-        'params': jax.ShapeDtypeStruct(shape=(2, 2), dtype=jnp.float32),
-        'input': jax.ShapeDtypeStruct(shape=('b', 'l'), dtype=jnp.float32),
-    }
-    symbol_to_values = {'b': [1, 2], 'l': [3, 4]}
-    concretizer = obm_export.PolymorphicShapeConcretizer(
-        symbolic_shapes, symbol_to_values
-    )
-    concrete_shapes_set = concretizer.concretize()
-    expected_concrete_shapes_set = [
-        {
-            'params': jax.ShapeDtypeStruct(shape=(2, 2), dtype=jnp.float32),
-            'input': jax.ShapeDtypeStruct(shape=(1, 3), dtype=jnp.float32),
-        },
-        {
-            'params': jax.ShapeDtypeStruct(shape=(2, 2), dtype=jnp.float32),
-            'input': jax.ShapeDtypeStruct(shape=(1, 4), dtype=jnp.float32),
-        },
-        {
-            'params': jax.ShapeDtypeStruct(shape=(2, 2), dtype=jnp.float32),
-            'input': jax.ShapeDtypeStruct(shape=(2, 3), dtype=jnp.float32),
-        },
-        {
-            'params': jax.ShapeDtypeStruct(shape=(2, 2), dtype=jnp.float32),
-            'input': jax.ShapeDtypeStruct(shape=(2, 4), dtype=jnp.float32),
-        },
-    ]
-    self.assertEqual(concrete_shapes_set, expected_concrete_shapes_set)
-
-
 class ObmExportTest(parameterized.TestCase, tf.test.TestCase):
 
   def setUp(self):
     super().setUp()
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    self._testdata_dir = os.path.join(base_path, 'testdata')
     self._output_dir = self.create_tempdir().full_path
 
   def test_incorrect_export_version(self):
