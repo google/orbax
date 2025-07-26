@@ -34,16 +34,16 @@ class CheckpointDeleterTest(parameterized.TestCase):
       todelete_subdir=(None, 'some_delete_dir'),
   )
   def test_checkpoint_deleter_delete(
-      self, threaded, todelete_subdir, enable_hns_rmtree: bool = False
+      self, threaded, todelete_subdir, enable_hns: bool = False
   ):
     """Test regular CheckpointDeleter."""
     deleter = deleter_lib.create_checkpoint_deleter(
+        self.ckpt_dir,
+        name_format=step_lib.standard_name_format(),
         primary_host=None,
-        directory=self.ckpt_dir,
         todelete_subdir=todelete_subdir,
         todelete_full_path=None,
-        name_format=step_lib.standard_name_format(),
-        enable_hns_rmtree=enable_hns_rmtree,
+        enable_hns=enable_hns,
         enable_background_delete=threaded,
     )
 

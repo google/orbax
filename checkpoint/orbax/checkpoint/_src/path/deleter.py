@@ -59,23 +59,24 @@ class StandardCheckpointDeleter:
 
   def __init__(
       self,
-      primary_host: Optional[int],
       directory: epath.Path,
-      todelete_subdir: Optional[str],
-      todelete_full_path: Optional[str],
+      *,
       name_format: step_lib.NameFormat[step_lib.Metadata],
-      enable_hns_rmtree: bool = False,
+      primary_host: Optional[int] = 0,
+      todelete_subdir: Optional[str] = None,
+      todelete_full_path: Optional[str] = None,
+      enable_hns: bool = False,
       duration_metric: Optional[str] = _STANDARD_DELETE_DURATION,
   ):
     """StandardCheckpointDeleter constructor.
 
     Args:
-      primary_host: refer to CheckpointManager.primary_host
       directory: refer to CheckpointManager.directory
+      name_format: refer to CheckpointManager._name_format
+      primary_host: refer to CheckpointManager.primary_host
       todelete_subdir: refer to CheckpointManagerOptions.todelete_subdir
       todelete_full_path: refer to CheckpointManagerOptions.todelete_full_path
-      name_format: refer to CheckpointManager._name_format
-      enable_hns_rmtree: refer to CheckpointManagerOptions.enable_hns_rmtree
+      enable_hns: refer to CheckpointManagerOptions.enable_hns
       duration_metric: the name of the total delete duration metric
     """
     self._primary_host = primary_host
@@ -83,7 +84,7 @@ class StandardCheckpointDeleter:
     self._todelete_subdir = todelete_subdir
     self._todelete_full_path = todelete_full_path
     self._name_format = name_format
-    self._enable_hns_rmtree = enable_hns_rmtree
+    self._enable_hns = enable_hns
     self._duration_metric = duration_metric
 
   def _rm_empty_folders(self, path: epath.Path) -> None:
@@ -138,7 +139,7 @@ class StandardCheckpointDeleter:
     path.rmtree()
 
     # Step 2: For HNS, clean up the remaining empty directory structure.
-    if self._enable_hns_rmtree:
+    if self._enable_hns:
       if gcs_utils.is_hierarchical_namespace_enabled(path):
         self._rm_empty_folders(path)
 
@@ -309,12 +310,13 @@ class ThreadedCheckpointDeleter:
 
   def __init__(
       self,
-      primary_host: Optional[int],
       directory: epath.Path,
-      todelete_subdir: Optional[str],
-      todelete_full_path: Optional[str],
+      *,
       name_format: step_lib.NameFormat[step_lib.Metadata],
-      enable_hns_rmtree: bool,
+      primary_host: Optional[int] = 0,
+      todelete_subdir: Optional[str] = None,
+      todelete_full_path: Optional[str] = None,
+      enable_hns: bool = False,
   ):
     """ThreadedCheckpointDeleter deletes checkpoints in a background thread."""
     self._standard_deleter = StandardCheckpointDeleter(
@@ -323,7 +325,7 @@ class ThreadedCheckpointDeleter:
         todelete_subdir=todelete_subdir,
         todelete_full_path=todelete_full_path,
         name_format=name_format,
-        enable_hns_rmtree=enable_hns_rmtree,
+        enable_hns=enable_hns,
         duration_metric=_THREADED_DELETE_DURATION,
     )
     self._delete_queue = queue.Queue()
@@ -364,31 +366,32 @@ class ThreadedCheckpointDeleter:
 
 
 def create_checkpoint_deleter(
-    primary_host: Optional[int],
     directory: epath.Path,
-    todelete_subdir: Optional[str],
-    todelete_full_path: Optional[str],
+    *,
     name_format: step_lib.NameFormat[step_lib.Metadata],
-    enable_hns_rmtree: bool,
-    enable_background_delete: bool,
+    primary_host: Optional[int] = 0,
+    todelete_subdir: Optional[str] = None,
+    todelete_full_path: Optional[str] = None,
+    enable_hns: bool = False,
+    enable_background_delete: bool = False,
 ) -> CheckpointDeleter:
   """Creates a CheckpointDeleter."""
 
   if enable_background_delete:
     return ThreadedCheckpointDeleter(
-        primary_host,
         directory,
-        todelete_subdir,
-        todelete_full_path,
-        name_format,
-        enable_hns_rmtree,
+        name_format=name_format,
+        primary_host=primary_host,
+        todelete_subdir=todelete_subdir,
+        todelete_full_path=todelete_full_path,
+        enable_hns=enable_hns,
     )
   else:
     return StandardCheckpointDeleter(
-        primary_host,
         directory,
-        todelete_subdir,
-        todelete_full_path,
-        name_format,
-        enable_hns_rmtree,
+        name_format=name_format,
+        primary_host=primary_host,
+        todelete_subdir=todelete_subdir,
+        todelete_full_path=todelete_full_path,
+        enable_hns=enable_hns,
     )
