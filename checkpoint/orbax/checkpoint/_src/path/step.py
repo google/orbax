@@ -24,7 +24,6 @@ import os
 import re
 import time
 from typing import Callable, Generic, Iterator, List, Optional, Protocol, Sequence, Set, TypeVar
-
 from absl import logging
 from etils import epath
 import jax
@@ -32,6 +31,7 @@ import numpy as np
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import gcs_utils
 
 
 _GCS_PATH_PREFIX = ('gs://',)
@@ -302,11 +302,13 @@ class _StandardNameFormat(NameFormat[Metadata]):
     single_host_load_and_broadcast: If True, the jax process=0 will list all
       steps and broadcast them to all other processes. NOTE: Ignored if jax
       backend is not multi controller.
+    enable_hns: Enables HNS-specific path logic.
   """
 
   step_prefix: Optional[str] = None
   step_format_fixed_length: Optional[int] = None
   single_host_load_and_broadcast: bool = False
+  enable_hns: bool = False
 
   def __str__(self):
     return f'StandardNameFormat("{self.build_name(1234)}")'
@@ -350,6 +352,41 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
     return Metadata(step=step_, path=step_path)
 
+  def _glob_step_paths(self, base_path: epath.PathLike) -> list[epath.Path]:
+    """Returns step paths under `base_path`."""
+    base_path = epath.Path(base_path)
+    # <step_prefix>_?<0 padding>?*
+    if self.enable_hns and gcs_utils.is_hierarchical_namespace_enabled(
+        base_path
+    ):
+      logging.vlog(
+          1,
+          'HNS enabled. Using GCS API to list step paths at %s',
+          base_path.as_posix(),
+      )
+      bucket_name, path_prefix = gcs_utils.parse_gcs_path(base_path)
+      bucket = gcs_utils.get_bucket(bucket_name)
+      result = bucket.list_blobs(
+          prefix=path_prefix,
+          delimiter='/',
+          include_folders_as_prefixes=True,
+      )
+      # Iterate over pages to force a fetch from the server, after which
+      # `result.prefixes` will be populated.
+      for _ in result.pages:
+        pass
+      return [
+          epath.Path(f'gs://{bucket_name}/{folder}')
+          for folder in result.prefixes
+          if folder.startswith(os.path.join(path_prefix, self.step_prefix))
+      ]
+    else:
+      return list(
+          epath.Path(base_path).glob(
+              f'{step_prefix_with_underscore(self.step_prefix)}*'
+          )
+      )
+
   def _find_all_with_single_host_load_and_broadcast(
       self, base_path: epath.PathLike
   ) -> Iterator[Metadata]:
@@ -368,11 +405,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
     process_index = multihost.process_index()
     time_start = time.time()
     # <step_prefix>_?<0 padding>?*
-    step_paths = list(
-        epath.Path(base_path).glob(
-            f'{step_prefix_with_underscore(self.step_prefix)}*'
-        )
-    )
+    step_paths = self._glob_step_paths(base_path)
     if not step_paths:
       logging.info(
           '[process=%s][single_host_load_and_broadcast] No steps found,'
@@ -438,9 +471,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
       return self._find_all_with_single_host_load_and_broadcast(base_path)
 
     # <step_prefix>_?<0 padding>?*
-    step_paths = epath.Path(base_path).glob(
-        f'{step_prefix_with_underscore(self.step_prefix)}*'
-    )
+    step_paths = self._glob_step_paths(base_path)
     return build_step_metadatas(step_paths, self._build_metadata)
 
   def find_step(self, base_path: epath.PathLike, step: int) -> Metadata:
@@ -462,6 +493,7 @@ def standard_name_format(
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
     single_host_load_and_broadcast: bool = False,
+    enable_hns: bool = False,
 ) -> NameFormat[Metadata]:
   """Returns NameFormat for 'standard' steps for common Orbax use cases.
 
@@ -481,11 +513,13 @@ def standard_name_format(
     single_host_load_and_broadcast: If True, the jax process=0 will list all
       steps and broadcast them to all other processes. NOTE: Ignored if jax
       backend is not multi controller.
+    enable_hns: Enables HNS-specific path logic.
   """
   return _StandardNameFormat(
       step_prefix=step_prefix,
       step_format_fixed_length=step_format_fixed_length,
       single_host_load_and_broadcast=single_host_load_and_broadcast,
+      enable_hns=enable_hns,
   )
 
 

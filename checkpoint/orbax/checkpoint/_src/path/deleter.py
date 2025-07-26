@@ -15,18 +15,17 @@
 """Checkpoint deleter."""
 
 import datetime
-import functools
 import os
 import pathlib
 import queue
 import threading
 import time
 from typing import Optional, Protocol, Sequence
-from urllib.parse import urlparse  # pylint: disable=g-importing-member
 from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
 PurePosixPath = pathlib.PurePosixPath
 
@@ -87,25 +86,12 @@ class StandardCheckpointDeleter:
     self._enable_hns_rmtree = enable_hns_rmtree
     self._duration_metric = duration_metric
 
-  @functools.lru_cache(maxsize=32)
-  def _is_hierarchical_namespace_enabled(self, bucket_name: str) -> bool:
-    """Return whether hierarchical namespace is enabled."""
-    # pylint: disable=g-import-not-at-top
-    from google.cloud import storage  # pytype: disable=import-error
-
-    client = storage.Client()
-    bucket = client.get_bucket(bucket_name)
-    return bucket.hierarchical_namespace_enabled
-
   def _rm_empty_folders(self, path: epath.Path) -> None:
     """For a hierarchical namespace bucket, delete empty folders recursively."""
     # pylint: disable=g-import-not-at-top
     from google.cloud import storage_control_v2  # pytype: disable=import-error
 
-    parsed = urlparse(str(path))
-    assert parsed.scheme == 'gs', f'Unsupported scheme for HNS: {parsed.scheme}'
-    bucket = parsed.netloc
-    prefix = parsed.path
+    bucket, prefix = gcs_utils.parse_gcs_path(path)
 
     client = storage_control_v2.StorageControlClient()
     project_path = client.common_project_path('_')
@@ -153,12 +139,7 @@ class StandardCheckpointDeleter:
 
     # Step 2: For HNS, clean up the remaining empty directory structure.
     if self._enable_hns_rmtree:
-      parsed = urlparse(str(path))
-      assert (
-          parsed.scheme == 'gs'
-      ), f'Unsupported scheme for HNS: {parsed.scheme}'
-      bucket_name = parsed.netloc
-      if self._is_hierarchical_namespace_enabled(bucket_name):
+      if gcs_utils.is_hierarchical_namespace_enabled(path):
         self._rm_empty_folders(path)
 
   def delete(self, step: int) -> None:
@@ -235,8 +216,8 @@ class StandardCheckpointDeleter:
     logging.info(
         'Condition: GCS path with `todelete_full_path` set. Checking for HNS.'
     )
-    bucket_name = urlparse(str(self._directory)).netloc
-    if not self._is_hierarchical_namespace_enabled(bucket_name):
+    bucket_name, _ = gcs_utils.parse_gcs_path(self._directory)
+    if not gcs_utils.is_hierarchical_namespace_enabled(self._directory):
       raise ValueError(
           f'Bucket "{bucket_name}" does not have Hierarchical Namespace'
           ' enabled, which is required when _todelete_full_path is set.'
