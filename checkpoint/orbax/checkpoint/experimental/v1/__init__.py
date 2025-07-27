@@ -19,11 +19,12 @@ Prefer to use the style::
   import orbax.checkpoint.experimental.v1 as ocp
 """
 
-# pylint: disable=g-importing-member, g-multiple-import, g-bad-import-order
+# pylint: disable=g-importing-member, g-multiple-import, g-bad-import-order, unused-import
 
 from orbax.checkpoint.experimental.v1 import handlers
 from orbax.checkpoint.experimental.v1 import training
 from orbax.checkpoint.experimental.v1 import path
+from orbax.checkpoint.experimental.v1 import errors
 from orbax.checkpoint.experimental.v1._src.context import options
 from orbax.checkpoint.experimental.v1._src.context.context import (
     Context,
