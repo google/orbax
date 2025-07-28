@@ -730,6 +730,7 @@ class SaveLoadTestBase:
             self,
             directory: path_types.PathAwaitingCreation,
             checkpointable: Foo,
+            partial_save: bool = False,
         ) -> Awaitable[None]:
           return self.background_save(
               directory, Foo(**dataclasses.asdict(checkpointable))

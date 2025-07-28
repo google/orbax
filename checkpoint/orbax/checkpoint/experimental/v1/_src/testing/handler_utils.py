@@ -134,6 +134,7 @@ class FooHandler(handler_types.CheckpointableHandler[Foo, AbstractFoo]):
       self,
       directory: path_types.PathAwaitingCreation,
       checkpointable: Foo,
+      partial_save: bool = False,
   ) -> Awaitable[None]:
     return DataclassHandler().background_save(
         directory,
@@ -181,6 +182,7 @@ class BarHandler(handler_types.CheckpointableHandler[Bar, AbstractBar]):
       self,
       directory: path_types.PathAwaitingCreation,
       checkpointable: Bar,
+      partial_save: bool = False,
   ) -> Awaitable[None]:
     return DataclassHandler().background_save(
         directory,
@@ -232,6 +234,7 @@ class BazHandler(handler_types.CheckpointableHandler[Baz, AbstractBaz]):
       self,
       directory: path_types.PathAwaitingCreation,
       checkpointable: Baz,
+      partial_save: bool = False,
   ) -> Awaitable[None]:
     return DataclassHandler().background_save(
         directory,
@@ -275,6 +278,7 @@ class DictHandler(handler_types.CheckpointableHandler[BasicDict, None]):
       self,
       directory: path_types.PathAwaitingCreation,
       checkpointable: BasicDict,
+      partial_save: bool = False,
   ) -> Awaitable[None]:
     if multihost.is_primary_host(
         context_lib.get_context().multiprocessing_options.primary_host

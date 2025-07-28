@@ -102,6 +102,7 @@ class CompositeHandler:
       self,
       directory: path_types.PathAwaitingCreation,
       checkpointables: dict[str, Any],
+      partial_save: bool = False,
   ) -> Awaitable[None]:
     """Saves multiple checkpointables to individual subdirectories.
 
@@ -111,6 +112,9 @@ class CompositeHandler:
       directory: The directory to save the checkpointables to. The
         checkpointables subdirectories exist under this directory.
       checkpointables: A mapping from checkpointable name to checkpointable.
+      partial_save: If True, reinterprets the `checkpointables` parameter as a
+        collection of additions and replacements to the existing checkpoint on
+        disk.
 
     Returns:
       An awaitable that represents a background save operation.
@@ -121,7 +125,9 @@ class CompositeHandler:
     for checkpointable_name, checkpointable in checkpointables.items():
       save_ops.append(
           handlers_for_save[checkpointable_name].save(
-              directory / checkpointable_name, checkpointable
+              directory / checkpointable_name,
+              checkpointable,
+              partial_save=partial_save,
           )
       )
     save_awaitables = await asyncio.gather(*save_ops)

@@ -31,7 +31,10 @@ class StatefulCheckpointableHandler(
       self,
       directory: path_types.PathAwaitingCreation,
       checkpointable: handler_types.StatefulCheckpointable[T],
+      partial_save: bool = False,
   ) -> Awaitable[None]:
+    del partial_save  # Unused.
+
     return await checkpointable.save(directory)
 
   async def load(

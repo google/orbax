@@ -53,8 +53,13 @@ class JsonHandler(CheckpointableHandler[JsonType, None]):
       await asyncio.to_thread(path.write_text, json.dumps(checkpointable))
 
   async def save(
-      self, directory: path_types.PathAwaitingCreation, checkpointable: JsonType
+      self,
+      directory: path_types.PathAwaitingCreation,
+      checkpointable: JsonType,
+      partial_save: bool = False,
   ) -> Awaitable[None]:
+    del partial_save  # Unused.
+
     context = context_lib.get_context()
     return self._background_save(
         directory=directory,
