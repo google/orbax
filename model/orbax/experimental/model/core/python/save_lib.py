@@ -26,55 +26,11 @@ from absl import logging
 from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.python import file_utils
 from orbax.experimental.model.core.python import manifest_constants
-from orbax.experimental.model.core.python import polymorphic_function
 from orbax.experimental.model.core.python import unstructured_data
-from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
-from orbax.experimental.model.core.python.concrete_function import Variable
 from orbax.experimental.model.core.python.device_assignment import DeviceAssignment
 from orbax.experimental.model.core.python.manifest_util import build_manifest_proto
 from orbax.experimental.model.core.python.saveable import Saveable
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredData
-from orbax.experimental.model.core.python.util import object_identity
-
-
-PolymorphicFunction = polymorphic_function.PolymorphicFunction
-
-
-def named_variables_and_functions(
-    m: dict[str, Saveable],
-) -> tuple[Mapping[Variable, str], Mapping[ConcreteFunction, str]]:
-  """Returns all variables and functions in the Module."""
-  # TODO(b/328686396): Improve naming. The function names are used to name the
-  # SignatureDefs (user-facing). Variable names are not user-facing when serving
-  # but would be nice to have readable names for debugging.
-
-  # Maps vars -> names
-  named_vars = object_identity.ObjectIdentityDictionary()
-  # Maps ConcreteFunction -> string names
-  named_functions = object_identity.ObjectIdentityDictionary()
-  to_visit = list(m.items())
-  while to_visit:
-    key, child = to_visit.pop()
-    if isinstance(child, ConcreteFunction):
-      if child in named_functions:
-        continue
-      named_functions[child] = key
-
-      for i, var in enumerate(child.captured_vars):
-        if var in named_vars:
-          continue
-        named_vars[var] = f'{key}/capture_{i}'
-    elif isinstance(child, PolymorphicFunction):
-      to_visit.extend(
-          (f'{key}/concrete_{i}', fn) for i, fn in enumerate(child.concrete_fns)
-      )
-    elif isinstance(child, Variable):
-      if child not in named_vars:
-        named_vars[child] = key
-    else:
-      raise TypeError(f'Unknown object type: {type(child)}')
-
-  return named_vars, named_functions
 
 
 @dataclasses.dataclass
@@ -117,7 +73,6 @@ class SaveOptions:
       saved in the manifest.pb.
   """
 
-  function_aliases: Mapping[str, ConcreteFunction] | None = None
   version: int | None = None
   supplemental_info: Mapping[str, GlobalSupplemental] | None = None
   visibility: Mapping[str, manifest_pb2.Visibility] | None = None
@@ -165,9 +120,9 @@ def save(
     options: Optional[SaveOptions] = None,
 ) -> None:
   """Saved the Module to disk."""
-  if options is None:
-    raise ValueError('`options` must not be `None` to save version >= 2.')
-  assert options.version is not None and options.version >= 2
+  assert options is not None
+  assert options.version is not None
+  assert options.version >= 2
   logging.info('Save version: %d', options.version)
   # Generate and export the Manifest proto.
   supplemental_info = _save_supplementals(options.supplemental_info, path)

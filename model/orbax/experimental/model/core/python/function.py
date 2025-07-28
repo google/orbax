@@ -91,6 +91,8 @@ def shlo_dtype_to_np_dtype(dtype: ShloDType) -> np.dtype[Any]:
 Sharding = xla_data_pb2.OpSharding
 
 
+# TODO(wangpeng): value.py needs this class, so we should move this class out
+#   of function.py .
 @dataclass
 class ShloTensorSpec:
 

@@ -12,21 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Base class for all value types."""
+"""Base class for all saveable types."""
 
 from collections.abc import Sequence
 
-from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
-from orbax.experimental.model.core.python.concrete_function import TreeOfVars
 from orbax.experimental.model.core.python.function import Function
-from orbax.experimental.model.core.python.polymorphic_function import PolymorphicFunction
 from orbax.experimental.model.core.python.value import Value
 
-Saveable = (
-    Function
-    | Sequence[Function]
-    | ConcreteFunction
-    | PolymorphicFunction
-    | Value
-    | TreeOfVars
-)
+Saveable = Function | Sequence[Function] | Value

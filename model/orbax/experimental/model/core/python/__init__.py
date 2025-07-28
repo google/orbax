@@ -22,28 +22,19 @@ many ML frameworks such as TF, JAX and PyTorch.
 """
 
 # pylint: disable=g-importing-member
-
 from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.protos import type_pb2
-from orbax.experimental.model.core.python import tracing
 from orbax.experimental.model.core.python import tree_util
-from orbax.experimental.model.core.python.concrete_function import ConcreteFunction
-from orbax.experimental.model.core.python.concrete_function import dtype_to_np_dtype
-from orbax.experimental.model.core.python.concrete_function import np_dtype_to_dtype
-from orbax.experimental.model.core.python.concrete_function import partial
-from orbax.experimental.model.core.python.concrete_function import Tensor
-from orbax.experimental.model.core.python.concrete_function import Variable
 from orbax.experimental.model.core.python.constants import *
 from orbax.experimental.model.core.python.function import Function
 from orbax.experimental.model.core.python.function import np_dtype_to_shlo_dtype
+from orbax.experimental.model.core.python.function import Sharding
 from orbax.experimental.model.core.python.function import shlo_dtype_to_np_dtype
 from orbax.experimental.model.core.python.function import ShloDimSize
 from orbax.experimental.model.core.python.function import ShloDType
 from orbax.experimental.model.core.python.function import ShloShape
 from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.manifest_constants import *
-from orbax.experimental.model.core.python.polymorphic_function import function
-from orbax.experimental.model.core.python.polymorphic_function import PolymorphicFunction
 from orbax.experimental.model.core.python.save_lib import GlobalSupplemental
 from orbax.experimental.model.core.python.save_lib import save
 from orbax.experimental.model.core.python.save_lib import SaveOptions
@@ -51,11 +42,6 @@ from orbax.experimental.model.core.python.saveable import Saveable
 from orbax.experimental.model.core.python.serializable_function import SerializableFunction
 from orbax.experimental.model.core.python.shlo_function import ShloFunction
 from orbax.experimental.model.core.python.shlo_function import ShloFunctionSupplementalInfo
-from orbax.experimental.model.core.python.signature import DType
-from orbax.experimental.model.core.python.signature import OpSharding
-from orbax.experimental.model.core.python.signature import Shape
-from orbax.experimental.model.core.python.signature import Signature
-from orbax.experimental.model.core.python.signature import TensorSpec
 from orbax.experimental.model.core.python.test_utils import ObmTestCase
 from orbax.experimental.model.core.python.tree_util import Tree
 from orbax.experimental.model.core.python.type_proto_util import manifest_type_to_shlo_tensor_spec_pytree
@@ -64,6 +50,6 @@ from orbax.experimental.model.core.python.unstructured_data import UnstructuredD
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredDataWithExtName
 from orbax.experimental.model.core.python.value import ExternalValue
 from orbax.experimental.model.core.python.value import Value
-
-
 # pylint: enable=g-importing-member
+
+OpSharding = Sharding

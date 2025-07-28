@@ -19,8 +19,9 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import Optional
 
-from orbax.experimental.model.core.python import signature
 from orbax.experimental.model.core.python import unstructured_data
+from orbax.experimental.model.core.python.function import ShloTensorSpec
+from orbax.experimental.model.core.python.tree_util import Tree
 
 
 class Value(ABC):
@@ -30,4 +31,4 @@ class Value(ABC):
 @dataclass
 class ExternalValue(Value):
   data: unstructured_data.UnstructuredData
-  type: Optional[signature.TreeOfTensorSpecs] = None
+  type: Optional[Tree[ShloTensorSpec]] = None

@@ -22,32 +22,13 @@ from absl.testing import absltest
 import jax
 from jax import export as jax_export
 import jax.numpy as jnp
-import numpy as np
-from orbax.experimental.model.core.protos.saved_model import types_pb2
-from orbax.experimental.model.core.python import concrete_function
 from orbax.experimental.model.core.python import save_lib
-from orbax.experimental.model.core.python import signature
-from orbax.experimental.model.core.python.concrete_function import np_dtype_to_dtype
 from orbax.experimental.model.core.python.function import np_dtype_to_shlo_dtype
 from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.shlo_function import ShloFunction
-import tensorflow as tf
+
 
 save = save_lib.save
-Tensor = concrete_function.Tensor
-Function = concrete_function.ConcreteFunction
-Variable = concrete_function.Variable
-TensorSpec = signature.TensorSpec
-
-
-def read_checkpoint_values(
-    prefix: str,
-) -> dict[str, tuple[np.ndarray, types_pb2.DataType]]:
-  loaded = tf.train.load_checkpoint(prefix)
-  contents = {}
-  for key in loaded.get_variable_to_dtype_map().keys():
-    contents[key] = loaded.get_tensor(key)
-  return contents
 
 
 def jax_spec_from_aval(x: jax.core.AbstractValue) -> jax.ShapeDtypeStruct:
@@ -64,12 +45,10 @@ def jax_spec_to_shlo_spec(
   )
 
 
-def jax_spec_to_tensor_spec(x: jax.ShapeDtypeStruct) -> TensorSpec:
-  return TensorSpec(shape=x.shape, dtype=np_dtype_to_dtype(x.dtype))
-
-
 class SaveTest(absltest.TestCase):
-  # TODO(qidichen): We can move relevant parts of test from orbax/experimental/model/integration_tests/orbax_model_test.py here.
+  # TODO(wangpeng): We can move relevant parts of test from
+  #   orbax/experimental/model/integration_tests/orbax_model_test.py
+  #   here.
   def test_save(self):
     pass
 
