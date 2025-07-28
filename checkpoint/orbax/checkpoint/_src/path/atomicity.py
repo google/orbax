@@ -56,7 +56,7 @@ import asyncio
 import pickle
 import threading
 import time
-from typing import Awaitable, Optional, Protocol, Sequence, Type, TypeVar
+from typing import Awaitable, Protocol, Sequence, TypeVar
 
 from absl import logging
 from etils import epath
@@ -101,7 +101,7 @@ class AsyncMakeDirFunc(Protocol):
       path: epath.Path,
       parents: bool = False,
       exist_ok: bool = False,
-      mode: Optional[int] = None,
+      mode: int | None = None,
       **kwargs,
   ) -> Awaitable[None]:
     """Creates the directory at path."""
@@ -112,10 +112,10 @@ async def _create_tmp_directory(
     async_makedir_func: AsyncMakeDirFunc,
     tmp_dir: epath.Path,
     *,
-    path_permission_mode: Optional[int] = None,
-    checkpoint_metadata_store: Optional[
-        checkpoint_metadata.MetadataStore
-    ] = None,
+    path_permission_mode: int | None = None,
+    checkpoint_metadata_store: (
+        checkpoint_metadata.MetadataStore | None
+    ) = None,
     **kwargs,
 ) -> epath.Path:
   """Creates a non-deterministic tmp directory for saving for given `final_dir`.
@@ -181,7 +181,7 @@ def _get_tmp_directory(final_path: epath.Path) -> epath.Path:
   )
 
 
-def _get_tmp_directory_pattern(final_path_name: Optional[str] = None) -> str:
+def _get_tmp_directory_pattern(final_path_name: str | None = None) -> str:
   suffix = r'\.orbax-checkpoint-tmp'
   if final_path_name is None:
     return '(.+)' + suffix
@@ -197,10 +197,10 @@ class _TemporaryPathBase(atomicity_types.TemporaryPath):
       temporary_path: epath.Path,
       final_path: epath.Path,
       *,
-      checkpoint_metadata_store: Optional[
-          checkpoint_metadata.MetadataStore
-      ] = None,
-      file_options: Optional[options_lib.FileOptions] = None,
+      checkpoint_metadata_store: (
+          checkpoint_metadata.MetadataStore | None
+      ) = None,
+      file_options: options_lib.FileOptions | None = None,
   ):
     self._tmp_path = temporary_path
     self._final_path = final_path
@@ -269,7 +269,7 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
 
   @classmethod
   def from_bytes(
-      cls: Type['ReadOnlyTemporaryPath'],
+      cls: type['ReadOnlyTemporaryPath'],
       data: bytes,
   ) -> ReadOnlyTemporaryPath:
     """Deserializes the object from bytes.
@@ -291,10 +291,10 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
       cls,
       final_path: epath.Path,
       *,
-      checkpoint_metadata_store: Optional[
-          checkpoint_metadata.MetadataStore
-      ] = None,
-      file_options: Optional[options_lib.FileOptions] = None,
+      checkpoint_metadata_store: (
+          checkpoint_metadata.MetadataStore | None
+      ) = None,
+      file_options: options_lib.FileOptions | None = None,
   ) -> ReadOnlyTemporaryPath:
     """Not implemented for ReadOnlyTemporaryPath."""
     raise NotImplementedError(
@@ -324,10 +324,10 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
       cls,
       final_path: epath.Path,
       *,
-      checkpoint_metadata_store: Optional[
-          checkpoint_metadata.MetadataStore
-      ] = None,
-      file_options: Optional[options_lib.FileOptions] = None,
+      checkpoint_metadata_store: (
+          checkpoint_metadata.MetadataStore | None
+      ) = None,
+      file_options: options_lib.FileOptions | None = None,
   ) -> AtomicRenameTemporaryPath:
     return cls(
         _get_tmp_directory(final_path),
@@ -399,10 +399,10 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
       cls,
       final_path: epath.Path,
       *,
-      checkpoint_metadata_store: Optional[
-          checkpoint_metadata.MetadataStore
-      ] = None,
-      file_options: Optional[options_lib.FileOptions] = None,
+      checkpoint_metadata_store: (
+          checkpoint_metadata.MetadataStore | None
+      ) = None,
+      file_options: options_lib.FileOptions | None = None,
   ) -> CommitFileTemporaryPath:
     return cls(
         final_path,
@@ -465,9 +465,7 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
 async def create_all(
     paths: Sequence[atomicity_types.TemporaryPath],
     *,
-    multiprocessing_options: Optional[
-        options_lib.MultiprocessingOptions
-    ] = None,
+    multiprocessing_options: options_lib.MultiprocessingOptions | None = None,
 ):
   """Creates all temporary paths in parallel."""
   start = time.time()
@@ -511,9 +509,7 @@ def create_all_async(
     paths: Sequence[atomicity_types.TemporaryPath],
     completion_signals: Sequence[synchronization.HandlerAwaitableSignal],
     *,
-    multiprocessing_options: Optional[
-        options_lib.MultiprocessingOptions
-    ] = None,
+    multiprocessing_options: options_lib.MultiprocessingOptions | None = None,
     subdirectories: Sequence[str] | None = None,
 ) -> future.Future:
   """Creates all temporary paths in parallel asynchronously.
