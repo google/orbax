@@ -267,8 +267,16 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     )
 
   async def save(
-      self, directory: path_types.PathAwaitingCreation, checkpointable: PyTree
+      self,
+      directory: path_types.PathAwaitingCreation,
+      checkpointable: PyTree,
+      partial_save: bool = False,
   ) -> Awaitable[None]:
+    if partial_save:
+      raise ValueError(
+          'Partial saves are not *yet* supported for PyTreeHandler.'
+      )
+
     commit_futures = await self._handler_impl.async_save(
         directory.path,
         args=create_v0_save_args(self._context, checkpointable),

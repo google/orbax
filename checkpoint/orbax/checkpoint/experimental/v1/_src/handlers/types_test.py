@@ -29,6 +29,7 @@ class FooHandler(handler_types.CheckpointableHandler[Foo, None]):
       self,
       directory: path_types.PathAwaitingCreation,
       checkpointable: Foo,
+      partial_save: bool = False,
   ) -> Awaitable[None]:
     raise NotImplementedError()
 
@@ -67,6 +68,7 @@ class BarHandler(handler_types.CheckpointableHandler[Bar, AbstractBar]):
       self,
       directory: path_types.PathAwaitingCreation,
       checkpointable: Bar,
+      partial_save: bool = False,
   ) -> Awaitable[None]:
     raise NotImplementedError()
 

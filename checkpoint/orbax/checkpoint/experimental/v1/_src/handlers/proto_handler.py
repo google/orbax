@@ -58,7 +58,10 @@ class ProtoHandler(
       self,
       directory: path_types.PathAwaitingCreation,
       checkpointable: message.Message,
+      partial_save: bool = False,
   ) -> Awaitable[None]:
+    del partial_save  # Unused.
+
     context = context_lib.get_context()
     return self._background_save(
         directory,

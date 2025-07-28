@@ -145,7 +145,10 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
   """
 
   async def save(
-      self, directory: path_types.PathAwaitingCreation, checkpointable: T
+      self,
+      directory: path_types.PathAwaitingCreation,
+      checkpointable: T,
+      partial_save: bool = False,
   ) -> Awaitable[None]:
     """Saves the given `checkpointable` to the given `directory`.
 
@@ -184,6 +187,9 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
         being created. To wait for it to be created, use `await_creation`,
         preferably in a background awaitable to avoid blocking the main thread.
       checkpointable: The checkpointable object to save.
+      partial_save: If True, reinterprets the `checkpointable` parameter as a
+        collection of additions and replacements to the existing checkpoint on
+        disk.
 
     Returns:
       An `Awaitable`. This object represents the result of the save
