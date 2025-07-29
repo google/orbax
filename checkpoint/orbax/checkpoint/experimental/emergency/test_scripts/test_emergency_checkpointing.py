@@ -175,7 +175,10 @@ def save_and_restore(
       logging.info('[test] Restoring from local checkpoint.')
       # First restore from local checkpoint.
       restored = manager.restore(
-          step, args=ocp.args.PyTreeRestore(restore_args=restore_args)
+          step,
+          args=ocp.args.Composite(
+              state=ocp.args.PyTreeRestore(restore_args=restore_args)
+          ),
       )
       _log_and_check_restored(test_class, restored, state)
       restored = jax.tree.map(lambda x: None, restored)  # free memory
@@ -186,7 +189,10 @@ def save_and_restore(
       (local_directory / str(step)).rmtree(missing_ok=True)
       manager.reload()
       restored = manager.restore(
-          step, args=ocp.args.PyTreeRestore(restore_args=restore_args)
+          step,
+          args=ocp.args.Composite(
+              state=ocp.args.PyTreeRestore(restore_args=restore_args)
+          ),
       )
       _log_and_check_restored(test_class, restored, state)
       restored = jax.tree.map(lambda x: None, restored)  # free memory
@@ -215,7 +221,10 @@ def save_and_restore(
         )
         manager.reload()
         restored = manager.restore(
-            step, args=ocp.args.PyTreeRestore(restore_args=restore_args)
+            step,
+            args=ocp.args.Composite(
+                state=ocp.args.PyTreeRestore(restore_args=restore_args)
+            ),
         )
         _log_and_check_restored(test_class, restored, state)
         restored = jax.tree.map(lambda x: None, restored)  # free memory
