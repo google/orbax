@@ -27,15 +27,24 @@ from jax import export as jax_export
 from jax import tree_util
 import jaxtyping
 # pylint: disable-next=g-direct-tensorflow-import
-from orbax.export import constants
-from orbax.export import oex_orchestration_pb2
-from orbax.export import serving_config as osc
 import tensorflow as tf
+import typing
+
+
+if typing.TYPE_CHECKING:
+  from orbax.export import constants
+  from orbax.export import oex_orchestration_pb2
+  from orbax.export import serving_config
+else:
+  constants = Any
+  oex_orchestration_pb2 = Any
+  serving_config = Any
 
 
 ConfigProto = Any
 PyTree = jaxtyping.PyTree
 SignatureDef = Any
+
 
 _FILE_TYPE = 'jax_exported'
 
@@ -479,7 +488,7 @@ def get_variable_tree(
 
 def make_e2e_inference_fn(
     model_fn: Callable[..., Any],
-    serving_config: osc.ServingConfig,
+    serving_config: serving_config.ServingConfig,
 ) -> Callable[..., Any]:
   """Creates an concrete end-to-end inference tf.function.
 
