@@ -50,9 +50,11 @@ def _on_commit_callback(
     checkpoint_start_time: float,
 ):
   """Finalize atomic save and record checkpoint save metrics."""
-  atomicity.on_commit_callback(
-      tmpdir,
-      checkpoint_start_time=checkpoint_start_time,
+  asyncio_utils.run_sync(
+      atomicity.on_commit_callback(
+          tmpdir,
+          checkpoint_start_time=checkpoint_start_time,
+      )
   )
   total_duration_secs = time.time() - checkpoint_start_time
   jax.monitoring.record_event_duration_secs(

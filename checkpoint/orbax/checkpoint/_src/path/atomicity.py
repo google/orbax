@@ -96,6 +96,14 @@ async def _rmtree(path: epath.Path):
   return await asyncio.to_thread(path.rmtree)
 
 
+async def _rename(src: epath.Path, dst: epath.Path):
+  return await asyncio.to_thread(src.rename, dst)
+
+
+async def _write_text(path: epath.Path, text: str):
+  return await asyncio.to_thread(path.write_text, text)
+
+
 class AsyncMakeDirFunc(Protocol):
 
   def __call__(
@@ -311,7 +319,7 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
     """Not supported for ReadOnlyTemporaryPath."""
     raise NotImplementedError('`create` is not supported.')
 
-  def finalize(
+  async def finalize(
       self,
   ) -> None:
     """Not supported for ReadOnlyTemporaryPath."""
@@ -366,7 +374,7 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
 
-  def finalize(
+  async def finalize(
       self,
   ):
     """Finalizes atomic save by renaming tmp_dir.
@@ -376,14 +384,19 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
     """
     logging.info('Renaming %s to %s', self._tmp_path, self._final_path)
     if self._checkpoint_metadata_store:
-      self._checkpoint_metadata_store.wait_until_finished()
-      self._checkpoint_metadata_store.update(
+      await asyncio.to_thread(
+          self._checkpoint_metadata_store.wait_until_finished
+      )
+      await asyncio.to_thread(
+          self._checkpoint_metadata_store.update,
           file_path=checkpoint_metadata.step_metadata_file_path(self._tmp_path),
           commit_timestamp_nsecs=time.time_ns(),
       )
-      self._checkpoint_metadata_store.wait_until_finished()
+      await asyncio.to_thread(
+          self._checkpoint_metadata_store.wait_until_finished
+      )
 
-    self._tmp_path.rename(self._final_path)
+    await _rename(self._tmp_path, self._final_path)
 
   def __repr__(self) -> str:
     return (
@@ -441,7 +454,7 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
 
-  def finalize(
+  async def finalize(
       self,
   ):
     """Finalizes atomic save by writing a success file.
@@ -451,16 +464,22 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
     """
     logging.info('Finalizing %s', self._tmp_path)
     if self._checkpoint_metadata_store:
-      self._checkpoint_metadata_store.wait_until_finished()
-      self._checkpoint_metadata_store.update(
+      await asyncio.to_thread(
+          self._checkpoint_metadata_store.wait_until_finished
+      )
+      await asyncio.to_thread(
+          self._checkpoint_metadata_store.update,
           file_path=checkpoint_metadata.step_metadata_file_path(self._tmp_path),
           commit_timestamp_nsecs=time.time_ns(),
       )
-      self._checkpoint_metadata_store.wait_until_finished()
+      await asyncio.to_thread(
+          self._checkpoint_metadata_store.wait_until_finished
+      )
 
     commit_success_file = self._final_path / COMMIT_SUCCESS_FILE
-    commit_success_file.write_text(
-        f'Checkpoint commit was successful to {self._final_path}'
+    await _write_text(
+        commit_success_file,
+        f'Checkpoint commit was successful to {self._final_path}',
     )
 
 
@@ -604,7 +623,7 @@ async def _create_paths(
   )
 
 
-def on_commit_callback(
+async def on_commit_callback(
     tmp_dir: atomicity_types.TemporaryPath,
     *,
     checkpoint_start_time: float,
@@ -619,7 +638,7 @@ def on_commit_callback(
     checkpoint_start_time: The time at which checkpoint saving began. # BEGIN
     tree_verity_options: Options to configure checkpoint signing and integrity
   """
-  tmp_dir.finalize(
+  await tmp_dir.finalize(
   )
   record_saved_duration(checkpoint_start_time)
   jax.monitoring.record_event('/jax/orbax/write/success')
