@@ -69,6 +69,8 @@ def _snapshot_checkpoint(
     step: int,
     step_name_format: step_lib.NameFormat[step_lib.Metadata],
     snapshot_dir: Optional[epath.Path] = None,
+    *,
+    set_immutable: bool | None = None,
 ):
   """Uses `Snapshot` class to create a cheap "copy" of the checkpoint."""
   if multihost.process_index() != 0:
@@ -93,7 +95,9 @@ def _snapshot_checkpoint(
   snapshot_path = get_snapshot_dir_from_step_dir(step_dir, snapshot_dir)
   if epath.Path(snapshot_path).exists():
     return True
-  snapshot_impl = snapshot_lib.create_instance(step_dir, snapshot_path)
+  snapshot_impl = snapshot_lib.create_instance(
+      step_dir, snapshot_path, set_immutable=set_immutable
+  )
   asyncio.run(snapshot_impl.create_snapshot())
   return True
 
@@ -133,6 +137,7 @@ def _wait_for_new_checkpoint(
     timeout: Optional[int] = None,
     timeout_fn: Optional[Callable[[], bool]] = None,
     snapshot_dir: Optional[epath.Path] = None,
+    set_immutable: bool | None = None,
 ) -> int:
   """See documentation for wait_for_new_checkpoint."""
   start = time.time()
@@ -167,7 +172,11 @@ def _wait_for_new_checkpoint(
       checkpoint_step = max(steps) if steps else None
       if _reached_desired_step(checkpoint_step, until_step):
         if not _snapshot_checkpoint(
-            checkpoint_dir, checkpoint_step, step_name_format, snapshot_dir
+            checkpoint_dir,
+            checkpoint_step,
+            step_name_format,
+            snapshot_dir,
+            set_immutable=set_immutable,
         ):
           continue
         result = checkpoint_step
@@ -200,6 +209,7 @@ def wait_for_new_checkpoint(
     step_format_fixed_length: Optional[int] = None,
     step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None,
     snapshot_dir: Optional[epath.Path] = None,
+    set_immutable: bool | None = None,
 ):
   """Waits until a new checkpoint file is found.
 
@@ -226,6 +236,8 @@ def wait_for_new_checkpoint(
       ignored.
     snapshot_dir: The directory in which snapshots are saved. If not provided,
       the snapshot directory is created as `checkpoint_dir / _SNAPSHOTS`.
+    set_immutable: If True and applicable, sets the files in the snapshot to be
+      immutable.
 
   Yields:
     a new checkpoint step, or -1 if the timeout was reached.
@@ -243,6 +255,7 @@ def wait_for_new_checkpoint(
       timeout=timeout,
       timeout_fn=timeout_fn,
       snapshot_dir=snapshot_dir,
+      set_immutable=set_immutable,
   )
   try:
     yield step
@@ -266,6 +279,7 @@ def checkpoints_iterator(
     step_format_fixed_length: Optional[int] = None,
     step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None,
     snapshot_dir: Optional[epath.Path] = None,
+    set_immutable: bool | None = None,
 ) -> Iterator[int]:
   """Continuously yield new checkpoint files as they appear.
 
@@ -325,6 +339,8 @@ def checkpoints_iterator(
       ignored.
     snapshot_dir: The directory in which snapshots are saved. If not provided,
       the snapshot directory is created as `checkpoint_dir / _SNAPSHOTS`.
+    set_immutable: If True and applicable, sets the files in the snapshot to be
+      immutable.
 
   Yields:
     Integer step numbers of the latest checkpoints as they arrive.
@@ -352,6 +368,7 @@ def checkpoints_iterator(
         timeout_fn=timeout_fn,
         step_name_format=step_name_format,
         snapshot_dir=snapshot_dir,
+        set_immutable=set_immutable,
     ) as new_checkpoint_step:
       if new_checkpoint_step == -1:
         if not timeout_fn:

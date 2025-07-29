@@ -112,5 +112,10 @@ class _DefaultSnapshot(Snapshot):
 
 
 
-def create_instance(source: epath.Path, snapshot: epath.Path):
+def create_instance(
+    source: epath.Path,
+    snapshot: epath.Path,
+    *,
+    set_immutable: bool | None = None,
+):
   return _DefaultSnapshot(source, snapshot)
