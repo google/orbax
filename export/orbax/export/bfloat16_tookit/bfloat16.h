@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "third_party/absl/status/status.h"
 #include "orbax/export/bfloat16_tookit/converter_options.proto.h"
+#include "orbax/export/bfloat16_tookit/converter_options_v2.proto.h"
 #include "orbax/export/bfloat16_tookit/function_tree.h"
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/protobuf/meta_graph.proto.h"
@@ -28,6 +29,7 @@ namespace tensorflow {
 namespace orbax {
 
 using ConverterOptions = ::orbax::ConverterOptions;
+using BFloat16OptimizationOptions = ::orbax::BFloat16OptimizationOptions;
 
 // Convert a Function to bfloat16.
 absl::Status FuncFloatToBFloat16(
@@ -42,6 +44,12 @@ enum class DeviceAgnosticBFloat16Scope { kDevice, kBatch, kAll, kOther };
 absl::Status ApplyBFloat16Optimization(
     DeviceAgnosticBFloat16Scope bfloat16_scope, const ConverterOptions& options,
     FunctionInfo* bfloat16_func);
+
+// Convert a Function or its ancester to bfloat16, and this is for TF2.0.
+absl::Status ApplyBfloat16OptimizationV2(
+    BFloat16OptimizationOptions bfloat16_options,
+    FunctionInfo* xla_function_info,
+    std::map<string, tensorflow::SignatureDef>* signature_def);
 
 }  // namespace orbax
 }  // namespace tensorflow
