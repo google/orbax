@@ -699,10 +699,9 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
     must be a directory.
   """
   path = epath.Path(path)
-  if not path.exists():
-    raise ValueError(f'Path {path} does not exist.')
-  if not path.is_dir():
-    raise ValueError(f'Path {path} is not a directory. Not a valid checkpoint')
+
+  # Keep the following line as the first condition.
+  # is_gcs_path is inmemory and fast to bypass when dealing with non-gcs fs
   if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
     logging.warning(
         'This GCS path %s does not contain the %s file used to indicate a'
@@ -716,6 +715,10 @@ def is_checkpoint_finalized(path: epath.PathLike) -> bool:
     )
 
     return False
+  if not path.exists():
+    raise ValueError(f'Path {path} does not exist.')
+  if not path.is_dir():
+    raise ValueError(f'Path {path} is not a directory. Not a valid checkpoint')
   if TMP_DIR_SUFFIX in path.name:
     return False
   return True
