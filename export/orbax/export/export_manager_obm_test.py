@@ -26,8 +26,8 @@ from orbax.export import constants
 from orbax.export import export_manager
 from orbax.export import jax_module
 from orbax.export import oex_orchestration
-from orbax.export import oex_orchestration_pb2
 from orbax.export import serving_config as osc
+from orbax.export.protos import oex_orchestration_pb2
 import tensorflow as tf
 
 os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
