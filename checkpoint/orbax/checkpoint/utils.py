@@ -28,6 +28,7 @@ import jax
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_utils
+from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.tree import utils as tree_utils
 
@@ -62,7 +63,7 @@ is_tmp_checkpoint = step_lib.is_tmp_checkpoint
 tmp_checkpoints = step_lib.tmp_checkpoints
 cleanup_tmp_directories = step_lib.cleanup_tmp_directories
 get_save_directory = step_lib.get_save_directory
-record_saved_duration = step_lib.record_saved_duration
+record_saved_duration = atomicity.record_saved_duration
 step_from_checkpoint_name = step_lib.step_from_checkpoint_name
 checkpoint_steps_paths = step_lib.checkpoint_steps_paths
 
