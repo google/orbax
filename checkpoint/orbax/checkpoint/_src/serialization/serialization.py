@@ -507,7 +507,10 @@ async def read_and_create_array(
       for idx, devices in local_indices_devices_map.items()
   ]
   dbs = sum(await asyncio.gather(*read_array_coros), [])
-  return jax.make_array_from_single_device_arrays(global_shape, sharding, dbs)
+  # dtype = dtype or (dbs[0].dtype if dbs else jnp.dtype(t.dtype.name))
+  return jax.make_array_from_single_device_arrays(
+      global_shape, sharding, dbs  #, dtype=dtype
+  )
 
 
 async def async_deserialize(

@@ -191,6 +191,9 @@ def fully_replicated_host_local_array_to_global_array(
     dbs = [s[0] for s in dbs]
     global_shape = global_shape[1:]
   result = jax.make_array_from_single_device_arrays(
-      global_shape, jax.sharding.NamedSharding(mesh, partition_spec), dbs
+      global_shape,
+      jax.sharding.NamedSharding(mesh, partition_spec),
+      dbs,
+      dtype=arr.dtype,
   )
   return result
