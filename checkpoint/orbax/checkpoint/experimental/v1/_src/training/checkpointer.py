@@ -16,11 +16,14 @@
 
 from __future__ import annotations
 
+import dataclasses
+import time
 from typing import Any, Iterable, Sequence
 
 from absl import logging
 from etils import epy
 from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint._src.logging import standard_logger
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.loading import loading
@@ -34,6 +37,7 @@ from orbax.checkpoint.experimental.v1._src.synchronization import types as async
 from orbax.checkpoint.experimental.v1._src.training import errors
 from orbax.checkpoint.experimental.v1._src.training import preservation_policies
 from orbax.checkpoint.experimental.v1._src.training import save_decision_policies
+from orbax.checkpoint.experimental.v1._src.training.logging import step_statistics
 from orbax.checkpoint.experimental.v1._src.training.metadata import types as training_metadata_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -162,6 +166,7 @@ class Checkpointer(epy.ContextManager):
     self._step_name_format = (
         step_name_format or path_step_lib.standard_name_format()
     )
+    self._logger = standard_logger.StandardLogger()
     options = checkpoint_manager.CheckpointManagerOptions(
         save_decision_policy=save_decision_policy,
         preservation_policy=preservation_policy,
@@ -420,24 +425,37 @@ class Checkpointer(epy.ContextManager):
         step, {PYTREE_CHECKPOINTABLE_KEY: abstract_pytree}
     )[PYTREE_CHECKPOINTABLE_KEY]
 
+  def _record_load_step_statistics_start(
+      self, step: int
+  ) -> step_statistics.LoadStepStatistics:
+    step_stats = step_statistics.LoadStepStatistics()
+    step_stats.step = step
+    step_stats.checkpointer_start_time = time.time()
+    step_stats.directory = str(self.directory)
+    return step_stats
+
+  def _record_load_step_statistics_end(
+      self, step_stats: step_statistics.LoadStepStatistics
+  ) -> None:
+    step_stats.checkpointer_duration_secs = (
+        time.time() - step_stats.checkpointer_start_time
+    )
+    self._logger.log_entry(dataclasses.asdict(step_stats))
+
   def load_checkpointables(
       self,
       step: int | CheckpointMetadata | None = None,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> dict[str, Any]:
     """Loads a set of checkpointables at the given step."""
+    step_stats = self._record_load_step_statistics_start(step)
     step = self._resolve_existing_checkpoint(step).step
-    checkpointer, args = loading.get_v0_checkpointer_and_args(
-        self.directory / self._step_name_format.build_name(step),
-        abstract_checkpointables,
-        context=context_lib.get_context(),
+    step_path = self.directory / self._step_name_format.build_name(step)
+    loaded_checkpointables = loading.load_checkpointables(
+        step_path, abstract_checkpointables
     )
-    self._manager._checkpointer = checkpointer  # pylint: disable=protected-access
-    restored = self._manager.restore(
-        step,
-        args=args,
-    )
-    return {k: v for k, v in zip(restored.keys(), restored.values())}
+    self._record_load_step_statistics_end(step_stats)
+    return loaded_checkpointables
 
   def load_pytree_async(
       self,
