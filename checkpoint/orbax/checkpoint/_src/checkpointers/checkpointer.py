@@ -271,9 +271,11 @@ class Checkpointer(
     if utils.is_primary_host(self._primary_host):
       # finalize does a final StepMetadata update.
       self._handler.finalize(tmpdir.get())
-      atomicity.on_commit_callback(
-          tmpdir,
-          checkpoint_start_time=checkpoint_start_time,
+      asyncio_utils.run_sync(
+          atomicity.on_commit_callback(
+              tmpdir,
+              checkpoint_start_time=checkpoint_start_time,
+          )
       )
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
