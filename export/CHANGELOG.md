@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.7] - 2025-7-29
+
 ### Added
 - Add `orbax_export.config_class` API to set global configs.
 - Add `orbax_export.typing` API
@@ -22,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to the Orbax export pathway.
 - Added github actions CI testing using Python versions 3.10-3.12
 - Fixes native_serialization_platforms bug.
-- Removed the TpuExportManager as it is deprecatd.
+- Removed the TpuExportManager as it is deprecated.
+- [TODO]: Add other changes in last release
 
 ## [0.0.4] - 2024-1-19
 

@@ -37,4 +37,4 @@ from orbax.export.utils import TensorSpecWithDefault
 
 
 # A new PyPI release will be pushed everytime `__version__` is increased.
-__version__ = '0.0.6'
+__version__ = '0.0.7'
