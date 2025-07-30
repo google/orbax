@@ -16,6 +16,7 @@
 import json
 from typing import Any, Awaitable
 import aiofiles
+import jax
 import numpy as np
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.path import format_utils
@@ -47,40 +48,47 @@ def _get_dtypes() -> dict[str, Any]:
   }
 
 
-async def _read(directory: Path) -> dict[str, Any]:
-  """Helper method, called by `load()`, to read a safetensors checkpoint.
-
-  Args:
-    directory: The path to load the checkpoint from.
-
-  Returns:
-    A dictionary of checkpointables. Dictionary keys represent the names of the
-    checkpointables, while the values are the checkpointable objects themselves.
-  """
-  tensors = {}
-  # TODO(b/430388022): Use abstract_checkpointables for sharding logic.
-  async with aiofiles.open(directory, mode="rb") as f:
-    # Extract the header
+async def _read_safetensors_file(path: Path) -> tuple[dict[str, Any], bytes]:
+  """Reads a safetensors file, returning the header and data bytes."""
+  async with aiofiles.open(path, mode="rb") as f:
     header_size_bytes = await f.read(8)
-    header_size = int.from_bytes(
-        header_size_bytes, byteorder="little"
-    )
-    header_bytes = await f.read(header_size)  # TODO(b/430651483)
+    if not header_size_bytes:
+      raise ValueError("Could not read header size from safetensors file.")
+
+    header_size = int.from_bytes(header_size_bytes, byteorder="little")
+    header_bytes = await f.read(header_size)
+    if len(header_bytes) != header_size:
+      raise ValueError("Could not read header content from safetensors file.")
+
     header = json.loads(header_bytes)
     data_bytes = await f.read()
-    # Load and reshape each tensor using the header as a reference
-    for name, info in header.items():
-      try:
-        dtype = _get_dtypes()[info["dtype"]]
-      except KeyError as e:
-        raise ValueError(f"Can't parse this dtype {e}") from e
-      shape = info["shape"]
-      start_offset, end_offset = info["data_offsets"]
-      tensor_bytes = data_bytes[start_offset:end_offset]
-      np_array = np.frombuffer(tensor_bytes, dtype=dtype).reshape(shape)
-      tensors[name] = np_array
+    return header, data_bytes
 
-    return {format_utils.PYTREE_CHECKPOINTABLE_KEY: tensors}
+
+def _get_array_properties(info: dict[str, Any]) -> tuple[tuple[int, ...], Any]:
+  """Parses shape and dtype from a safetensors tensor header."""
+  try:
+    dtype_str = info["dtype"]
+    dtype = _get_dtypes()[dtype_str]
+  except KeyError as e:
+    raise ValueError(f"Unsupported dtype in SafeTensors header: {e}") from e
+  shape = tuple(info["shape"])
+  return shape, dtype
+
+
+async def _load_safetensors(path: Path) -> dict[str, Any]:
+  """Reads a safetensors file and constructs the tensor dictionary."""
+  header, data_bytes = await _read_safetensors_file(path)
+  tensors = {}
+  for name, info in header.items():
+    if name == "__metadata__":
+      continue
+    shape, dtype = _get_array_properties(info)
+    start_offset, end_offset = info["data_offsets"]
+    tensor_bytes = data_bytes[start_offset:end_offset]
+    np_array = np.frombuffer(tensor_bytes, dtype=dtype).reshape(shape)
+    tensors[name] = np_array
+  return {format_utils.PYTREE_CHECKPOINTABLE_KEY: tensors}
 
 
 class SafetensorsLayout(CheckpointLayout):
@@ -102,6 +110,19 @@ class SafetensorsLayout(CheckpointLayout):
     """Returns the path of the SafeTensors checkpoint."""
     return self._path
 
+  async def metadata(self) -> dict[str, Any]:
+    """Returns the metadata of the SafeTensors checkpoint."""
+    header, _ = await _read_safetensors_file(self._path)
+
+    metadata = {}
+    for name, info in header.items():
+      if name == "__metadata__":
+        continue
+      shape, dtype = _get_array_properties(info)
+      metadata[name] = jax.ShapeDtypeStruct(shape=shape, dtype=dtype)
+
+    return {format_utils.PYTREE_CHECKPOINTABLE_KEY: metadata}
+
   def validate(self):
     if self._path.is_file() and self._path.suffix == ".safetensors":
       return
@@ -121,4 +142,4 @@ class SafetensorsLayout(CheckpointLayout):
   ) -> Awaitable[dict[str, Any]]:
     del abstract_checkpointables
     # TODO(b/430388193) - Add support for abstract_checkpointables.
-    return _read(self._path)
+    return _load_safetensors(self._path)

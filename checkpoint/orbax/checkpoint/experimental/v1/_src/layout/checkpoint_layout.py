@@ -41,6 +41,15 @@ class CheckpointLayout(Protocol):
     """Returns the path of the checkpoint."""
     ...
 
+  async def metadata(self) -> dict[str, Any]:
+    """Returns the metadata of the checkpoint.
+
+    Returns:
+      A dictionary of metadata. Dictionary keys represent the names of the
+      checkpointables, while the values are the metadata objects themselves.
+    """
+    ...
+
   def validate(self) -> None:
     """Validates the path, determining if it conforms to this instance.
 

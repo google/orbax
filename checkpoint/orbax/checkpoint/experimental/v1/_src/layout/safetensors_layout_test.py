@@ -17,6 +17,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+import jax
 import numpy as np
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
@@ -126,6 +127,19 @@ class SafetensorsLayoutTest(
       ):
         awaitable_fn = await layout.load()
         _ = await awaitable_fn
+
+  async def test_metadata(self):
+    layout = SafetensorsLayout(self.safetensors_path)
+    metadata = await layout.metadata()
+    self.assertEqual(
+        metadata,
+        {
+            'pytree': {
+                'b': jax.ShapeDtypeStruct(shape=(3,), dtype=np.float32),
+                'a': jax.ShapeDtypeStruct(shape=(9,), dtype=np.int32),
+            }
+        },
+    )
 
 
 if __name__ == '__main__':
