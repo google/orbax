@@ -17,8 +17,6 @@ syntax = "proto3";
 
 package orbax;
 
-import "learning/brain/contrib/tpu_modeling/inference_converter_v2/external_features/external_feature_config.proto";
-
 message ConverterOptionsV2 {
   // TPU conversion options.
   repeated TpuFunction tpu_functions = 1;
@@ -150,10 +148,6 @@ message ConverterOptionsV2 {
   // may not work for all models. They may be experimental or broken at times.
   // Please consult the individual owners to assess whether they are appropriate
   // for your use case.
-  //
-
-  repeated tensorflow.ConverterV2ExternalFeatureConfig
-      external_feature_configs = 301;
 }
 
 message XlaFunctionSpec {
