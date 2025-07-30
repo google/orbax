@@ -514,6 +514,10 @@ class Checkpointer(epy.ContextManager):
     """Reloads internal properties from the root directory."""
     self._manager.reload()
 
+  def is_saving_in_progress(self) -> bool:
+    """Whether a checkpoint is currently being saved in the background."""
+    return self._manager.is_saving_in_progress()
+
   def close(self):
     """Ensures any outstanding async operations are completed before closing."""
     self._manager.close()
