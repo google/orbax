@@ -14,7 +14,11 @@ centralize definitions.
 
 ### Added
 
- - Add `metadata()` method for loading with SafeTensors checkpoint format.
+- Add `metadata()` method for loading with SafeTensors checkpoint format.
+
+### Changed
+
+- #v1 Re-implement `training.Checkpointer` in terms of v1 free functions.
 
 ## [0.11.20] - 2025-07-28
 
