@@ -27,7 +27,6 @@ from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint._src.path import async_utils
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.tree import utils as tree_utils
@@ -49,11 +48,6 @@ sync_global_devices = multihost.sync_global_processes
 broadcast_one_to_all = multihost.broadcast_one_to_all
 reached_preemption = multihost.reached_preemption
 is_primary_host = multihost.is_primary_host
-
-
-async_makedirs = async_utils.async_makedirs
-async_write_bytes = async_utils.async_write_bytes
-async_exists = async_utils.async_exists
 
 is_gcs_path = step_lib.is_gcs_path
 checkpoint_steps = step_lib.checkpoint_steps

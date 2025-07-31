@@ -701,9 +701,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         save_ops.append(handler.async_save(item_directory.get(), args=arg))
       else:
         # Blocking save.
-        async_handler_save_fn = asyncio_utils.as_async_function(handler.save)
         future.CommitFutureAwaitingContractedSignals(
-            async_handler_save_fn(item_directory.get(), args=arg)
+            asyncio.to_thread(handler.save, item_directory.get(), args=arg)
         ).result()
       item_end_time = time.time() - item_start_time
       time_taken_per_item[item_name] = f'{item_end_time:.8f}'

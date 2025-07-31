@@ -16,7 +16,6 @@
 
 # pylint: disable=unused-import
 
-from orbax.checkpoint._src.path import async_utils
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types

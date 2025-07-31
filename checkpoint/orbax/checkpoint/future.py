@@ -16,7 +16,6 @@
 
 # pylint: disable=g-importing-member, unused-import
 
-from orbax.checkpoint._src.asyncio_utils import as_async_function
 from orbax.checkpoint._src.futures.future import ChainedFuture
 from orbax.checkpoint._src.futures.future import CommitFutureAwaitingContractedSignals
 from orbax.checkpoint._src.futures.future import Future

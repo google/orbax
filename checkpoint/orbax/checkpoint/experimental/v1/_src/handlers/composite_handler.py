@@ -24,6 +24,7 @@ from etils import epath
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
@@ -56,8 +57,8 @@ async def _create_orbax_identifier_file(
   """Creates a file called `orbax.checkpoint` for easy identification."""
   directory = await directory.await_creation()
   if multihost.is_primary_host(primary_host):
-    await asyncio.to_thread(
-        (directory / 'orbax.checkpoint').touch, exist_ok=False
+    await async_path.touch(
+        directory / 'orbax.checkpoint', exist_ok=False
     )
 
 

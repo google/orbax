@@ -16,15 +16,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any, Awaitable
 
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+
 
 CheckpointableHandler = handler_types.CheckpointableHandler
 JsonType = tree_types.JsonType
@@ -50,7 +51,7 @@ class JsonHandler(CheckpointableHandler[JsonType, None]):
     directory = await directory.await_creation()
     if multihost.is_primary_host(primary_host):
       path = directory / self._filename
-      await asyncio.to_thread(path.write_text, json.dumps(checkpointable))
+      await async_path.write_text(path, json.dumps(checkpointable))
 
   async def save(
       self, directory: path_types.PathAwaitingCreation, checkpointable: JsonType
@@ -68,8 +69,8 @@ class JsonHandler(CheckpointableHandler[JsonType, None]):
   ):
     for filename in self._supported_filenames:
       path = directory / filename
-      if await asyncio.to_thread(path.exists):
-        return json.loads(await asyncio.to_thread(path.read_text))
+      if await async_path.exists(path):
+        return json.loads(await async_path.read_text(path))
     raise FileNotFoundError(
         f'Unable to parse JSON file in {directory}. Recognized filenames are:'
         f' {self._supported_filenames}'

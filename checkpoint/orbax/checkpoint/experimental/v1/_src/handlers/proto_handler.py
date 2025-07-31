@@ -14,12 +14,12 @@
 
 """ProtoHandler class."""
 
-import asyncio
 import inspect
 from typing import Any, Awaitable, Type
 
 from google.protobuf import message
 from google.protobuf import text_format
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -52,7 +52,7 @@ class ProtoHandler(
       directory = await directory.await_creation()
       path = directory / self._filename
       str_msg = text_format.MessageToString(checkpointable)
-      await asyncio.to_thread(path.write_text, str_msg)
+      await async_path.write_text(path, str_msg)
 
   async def save(
       self,
@@ -72,7 +72,7 @@ class ProtoHandler(
       message_type: Type[message.Message],
   ):
     path = directory / self._filename
-    str_msg = await asyncio.to_thread(path.read_text)
+    str_msg = await async_path.read_text(path)
     return text_format.Parse(str_msg, message_type())
 
   async def load(

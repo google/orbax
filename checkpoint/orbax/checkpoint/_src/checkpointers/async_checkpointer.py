@@ -32,7 +32,7 @@ from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint._src.path import async_utils
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import utils as path_utils
@@ -446,14 +446,14 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         directory,
     )
 
-    if await async_utils.async_exists(directory):
+    if await async_path.exists(directory):
       if force:
         if utils.is_primary_host(self._primary_host):
           logging.info(
               '[process=%s] Specified `force`: removing existing directory.',
               multihost.process_index(),
           )
-          await async_utils.async_rmtree(
+          await async_path.rmtree(
               directory
           )  # Post-sync handled by create_tmp_directory.
       else:

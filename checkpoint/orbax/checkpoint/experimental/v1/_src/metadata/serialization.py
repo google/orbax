@@ -14,26 +14,14 @@
 
 """Metadata serialization functions."""
 
-import asyncio
 import json
 from absl import logging
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 SerializedMetadata = metadata_types.SerializedMetadata
 _CHECKPOINT_METADATA_FILENAME = '_CHECKPOINT_METADATA'
-
-
-async def _exists(path: path_types.Path) -> bool:
-  return await asyncio.to_thread(path.exists)
-
-
-async def _write_text(path: path_types.Path, text: str) -> int:
-  return await asyncio.to_thread(path.write_text, text)
-
-
-async def _read_text(path: path_types.Path) -> str:
-  return await asyncio.to_thread(path.read_text)
 
 
 def checkpoint_metadata_file_path(path: path_types.Path) -> path_types.Path:
@@ -56,7 +44,7 @@ async def write(metadata_file: path_types.Path, metadata: SerializedMetadata):
       exist.
     ValueError: If the metadata file cannot be written to.
   """
-  if not await _exists(metadata_file.parent):
+  if not await async_path.exists(metadata_file.parent):
     raise FileNotFoundError(
         f'Metadata path does not exist: {metadata_file.parent}'
     )
@@ -65,7 +53,7 @@ async def write(metadata_file: path_types.Path, metadata: SerializedMetadata):
         f'Metadata must be an instance of `dict`, got {metadata}.'
     )
   json_data = json.dumps(metadata)
-  bytes_written = await _write_text(metadata_file, json_data)
+  bytes_written = await async_path.write_text(metadata_file, json_data)
   if bytes_written == 0:
     raise ValueError(
         f'Failed to write Metadata={metadata},'
@@ -86,13 +74,13 @@ async def read(metadata_file: path_types.Path) -> SerializedMetadata | None:
     The metadata read from the file, or None if the file does not exist or
     cannot be read.
   """
-  if not await _exists(metadata_file):
+  if not await async_path.exists(metadata_file):
     logging.warning(
         'Metadata file does not exist: %s', metadata_file
     )
     return None
   try:
-    raw_data = await _read_text(metadata_file)
+    raw_data = await async_path.read_text(metadata_file)
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.error(
         'Failed to read Metadata file: %s, error: %s',

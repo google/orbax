@@ -18,6 +18,7 @@ import unittest
 from unittest import mock
 from absl.testing import absltest
 from etils import epath
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint.experimental.v1._src.path import async_utils
 
@@ -44,10 +45,10 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     self.directory = epath.Path(self.create_tempdir().full_path)
 
   async def assertExists(self, path: epath.Path):
-    self.assertTrue(await asyncio.to_thread(path.exists))
+    self.assertTrue(await async_path.exists(path))
 
   async def assertNotExists(self, path: epath.Path):
-    self.assertFalse(await asyncio.to_thread(path.exists))
+    self.assertFalse(await async_path.exists(path))
 
   def assertBetween(self, a, b, c):
     self.assertGreater(b, a)

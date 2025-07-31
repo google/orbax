@@ -15,25 +15,11 @@
 """Provides helper async functions."""
 
 import asyncio
-import functools
 from typing import Any, Coroutine, TypeVar
 import nest_asyncio
 
 
 _T = TypeVar('_T')
-
-
-def as_async_function(func):
-  """Wraps a function to make it async."""
-
-  @functools.wraps(func)
-  async def run(*args, loop=None, executor=None, **kwargs):
-    if loop is None:
-      loop = asyncio.get_event_loop()
-    partial_func = functools.partial(func, *args, **kwargs)
-    return await loop.run_in_executor(executor, partial_func)
-
-  return run
 
 
 def run_sync(
