@@ -18,9 +18,13 @@ from absl.testing import parameterized
 from etils import epath
 import numpy as np
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
+from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
+from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.saving import saving
+from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 import safetensors.numpy
 
 np_save_file = safetensors.numpy.save_file
@@ -43,8 +47,13 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
         'a': np.array(3 * [1, 2, 3], dtype=np.int32),
         'b': np.array([0, 1, 0.2], dtype=np.float32),
     }
+    self.custom_metadata = {'framework': 'JAX', 'version': '1.0'}
     np_save_file(self.object_to_save, self.safetensors_path)
-    saving.save_pytree(self.orbax_path / '0', self.object_to_save)
+    saving.save_pytree(
+        self.orbax_path / '0',
+        self.object_to_save,
+        custom_metadata=self.custom_metadata,
+    )
 
   def test_valid_orbax_checkpoint(self):
     layout = OrbaxLayout(self.orbax_path / '0')
@@ -99,6 +108,38 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     test_utils.assert_tree_equal(
         self, restored_checkpointables['pytree'], self.object_to_save
     )
+
+  async def test_metadata(self):
+    """Tests the metadata() method."""
+    layout = OrbaxLayout(self.orbax_path / '0')
+    result_metadata = await layout.metadata()
+
+    self.assertIsInstance(result_metadata, metadata_types.CheckpointMetadata)
+
+    expected_structs = {
+        format_utils.PYTREE_CHECKPOINTABLE_KEY: {
+            'a': numpy_leaf_handler.NumpyMetadata(
+                shape=(9,),
+                dtype=np.dtype(np.int32),
+                storage_metadata=value_metadata.StorageMetadata(
+                    chunk_shape=(9,), write_shape=None
+                ),
+            ),
+            'b': numpy_leaf_handler.NumpyMetadata(
+                shape=(3,),
+                dtype=np.dtype(np.float32),
+                storage_metadata=value_metadata.StorageMetadata(
+                    chunk_shape=(3,), write_shape=None
+                ),
+            ),
+        }
+    }
+    self.assertEqual(result_metadata.metadata, expected_structs)
+    self.assertEqual(result_metadata.custom_metadata, self.custom_metadata)
+    self.assertIsInstance(result_metadata.init_timestamp_nsecs, int)
+    self.assertGreater(result_metadata.init_timestamp_nsecs, 0)
+    self.assertIsInstance(result_metadata.commit_timestamp_nsecs, int)
+    self.assertGreater(result_metadata.commit_timestamp_nsecs, 0)
 
 
 if __name__ == '__main__':

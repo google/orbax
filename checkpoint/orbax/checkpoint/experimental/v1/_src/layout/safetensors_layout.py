@@ -13,12 +13,16 @@
 # limitations under the License.
 
 """Defines `SafetensorsLayout`, a class to handle Safetensors checkpoint formats."""
+
 import json
+import os
 from typing import Any, Awaitable
+
 import aiofiles
 import jax
 import numpy as np
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types
 
@@ -110,7 +114,7 @@ class SafetensorsLayout(CheckpointLayout):
     """Returns the path of the SafeTensors checkpoint."""
     return self._path
 
-  async def metadata(self) -> dict[str, Any]:
+  async def metadata(self) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
     """Returns the metadata of the SafeTensors checkpoint."""
     header, _ = await _read_safetensors_file(self._path)
 
@@ -121,7 +125,14 @@ class SafetensorsLayout(CheckpointLayout):
       shape, dtype = _get_array_properties(info)
       metadata[name] = jax.ShapeDtypeStruct(shape=shape, dtype=dtype)
 
-    return {format_utils.PYTREE_CHECKPOINTABLE_KEY: metadata}
+    custom_metadata = header.get("__metadata__")
+    commit_timestamp_nsecs = int(os.stat(self._path).st_mtime)
+
+    return metadata_types.CheckpointMetadata[dict[str, Any]](
+        metadata={format_utils.PYTREE_CHECKPOINTABLE_KEY: metadata},
+        commit_timestamp_nsecs=commit_timestamp_nsecs,
+        custom_metadata=custom_metadata,
+    )
 
   def validate(self):
     if self._path.is_file() and self._path.suffix == ".safetensors":

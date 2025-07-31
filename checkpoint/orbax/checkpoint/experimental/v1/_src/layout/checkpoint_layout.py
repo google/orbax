@@ -15,6 +15,7 @@
 """Defines `CheckpointLayout`, a broader protocol used to save and load different checkpoint formats."""
 
 from typing import Any, Awaitable, Protocol
+from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types
 
 Path = types.Path
@@ -41,7 +42,7 @@ class CheckpointLayout(Protocol):
     """Returns the path of the checkpoint."""
     ...
 
-  async def metadata(self) -> dict[str, Any]:
+  async def metadata(self) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
     """Returns the metadata of the checkpoint.
 
     Returns:
