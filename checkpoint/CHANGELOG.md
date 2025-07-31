@@ -9,8 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add `metadata()` method for loading with SafeTensors checkpoint format.
-- Add options to control number of replicas and min bytes in replica-parallel.
+ - Add `metadata()` method for loading with SafeTensors checkpoint format.
 
 ## [0.11.20] - 2025-07-28
 
