@@ -29,6 +29,12 @@ PYBIND11_MODULE(bfloat16, m) {
         "bfloat16_scope",
         pybind11::arg("bfloat16_scope"), pybind11::arg("options"),
         pybind11::arg("bfloat16_func"));
+
+  m.def("apply_bfloat16_optimization_v2", &ApplyBfloat16OptimizationV2,
+        "Convert a Function or its ancester to bfloat16, depending on "
+        "bfloat16_scope",
+        pybind11::arg("bfloat16_options"), pybind11::arg("xla_function_info"),
+        pybind11::arg("signature_def"));
 }
 
 }  // namespace
