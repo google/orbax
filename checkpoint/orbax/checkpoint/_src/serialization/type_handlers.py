@@ -1035,6 +1035,18 @@ class ArrayHandler(types.TypeHandler):
         for (t, info, sharding) in zip(tensorstores, infos, shardings)
     ]
 
+  @functools.lru_cache(maxsize=1024)
+  def get_sharding_metadata(
+      self,
+      sharding: jax.sharding.Sharding,
+  ) -> Optional[str]:
+    """Gets sharding metadata."""
+    serialized_sharding = None
+    sharding_metadata_value = sharding_metadata.from_jax_sharding(sharding)
+    if sharding_metadata_value is not None:
+      serialized_sharding = sharding_metadata_value.to_serialized_string()
+    return serialized_sharding
+
   async def _serialize_sharding(
       self,
       sharding: jax.sharding.Sharding,
@@ -1055,10 +1067,7 @@ class ArrayHandler(types.TypeHandler):
           open=True,
           context=sharding_ts_context,
       )
-      serialized_sharding = None
-      sharding_metadata_value = sharding_metadata.from_jax_sharding(sharding)
-      if sharding_metadata_value is not None:
-        serialized_sharding = sharding_metadata_value.to_serialized_string()
+      serialized_sharding = self.get_sharding_metadata(sharding)
       if serialized_sharding is not None:
         await t.with_transaction(sharding_metadata_txn).write(
             serialized_sharding
