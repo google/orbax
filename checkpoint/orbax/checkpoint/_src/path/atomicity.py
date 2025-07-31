@@ -80,8 +80,20 @@ _LAST_CHECKPOINT_WRITE_TIME = time.time()
 _T = TypeVar('_T', bound='_TemporaryPathBase')
 
 
-async def _mkdir(path: epath.Path, *args, **kwargs):
-  return await asyncio.to_thread(path.mkdir, *args, **kwargs)
+async def _mkdir(
+    path: epath.Path,
+    parents: bool = False,
+    exist_ok: bool = False,
+    mode: int | None = None,
+):
+  """Creates a directory asynchronously."""
+
+  def _mkdir_sync(**thread_kwargs):
+    """Synchronously creates a directory."""
+    path.mkdir(parents=parents, exist_ok=exist_ok, mode=mode)
+
+  thread_kwargs = {}
+  await asyncio.to_thread(_mkdir_sync, **thread_kwargs)
 
 
 async def _exists(path: epath.Path):
