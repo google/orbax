@@ -133,6 +133,147 @@ class ReplicaSlicesTest(parameterized.TestCase):
     for rslice in rslices:
       _ = np.array(rslice.data())  # check this does not hang
 
+  @parameterized.parameters([False, True])
+  def test_get_replica_slices_above_max_replicas_successful(
+      self, halve_num_replicas
+  ):
+    # If we don't have at least 4 devices, then for
+    # max_num_replicas_factor = 0.5, max_num_replicas becomes = 1,
+    # causing replica parallel saving to fail.
+    if len(jax.devices()) < 4:
+      self.skipTest('Test requires >= 4 devices.')
+
+    arr, _, num_replicas = make_multi_device_array(
+        (64, 64),
+        partitioned=False,
+    )
+
+    max_num_replicas = num_replicas
+    if halve_num_replicas:
+      max_num_replicas = max_num_replicas // 2
+
+    rslices = replica_slices.get_replica_slices(
+        arr,
+        replica_id=0,
+        use_replica_parallel=True,
+        min_slice_bytes_for_replica_parallel=None,
+        max_replicas_for_replica_parallel=max_num_replicas,
+    ).replica_slices
+
+    # Replica-parallel expected to succeed.
+    self.assertLen(rslices, max_num_replicas)
+
+    for rslice in rslices:
+      self.assertTrue(rslice.slice_args)
+
+  @parameterized.product(
+      shape=[(64, 64), (32, 16), (8, 8)], partitioned=[False, True]
+  )
+  def test_get_replica_slices_above_max_replicas_unsuccessful(
+      self, shape, partitioned
+  ):
+    arr, num_partitions, num_replicas = make_multi_device_array(
+        shape,
+        partitioned=partitioned,
+    )
+
+    # make_multi_device_array guarantees that num_replicas is a power of
+    # 2, so max_num_replicas computed below will either be 0 or odd. In
+    # either case, we expect replica parallel saving to fail.
+    max_num_replicas = (num_replicas // 2) - 1
+
+    rslices = replica_slices.get_replica_slices(
+        arr,
+        replica_id=0,
+        use_replica_parallel=True,
+        min_slice_bytes_for_replica_parallel=None,
+        max_replicas_for_replica_parallel=max_num_replicas,
+    ).replica_slices
+
+    # Replica-parallel expected to fail.
+    self.assertLen(rslices, num_partitions * 1)
+    for rslice in rslices:
+      self.assertIsNone(rslice.slice_args)
+
+  def test_get_replica_slices_large_max_replicas_successful(self):
+    arr, _, num_replicas = make_multi_device_array(
+        (64, 64),
+        partitioned=False,
+    )
+
+    max_num_replicas = 2 * num_replicas
+
+    rslices = replica_slices.get_replica_slices(
+        arr,
+        replica_id=0,
+        use_replica_parallel=True,
+        min_slice_bytes_for_replica_parallel=None,
+        max_replicas_for_replica_parallel=max_num_replicas,
+    ).replica_slices
+
+    # Replica-parallel expected to succeed.
+    self.assertLen(rslices, num_replicas)
+    for rslice in rslices:
+      self.assertTrue(rslice.slice_args)
+
+  @parameterized.parameters([0, 1])
+  def test_get_replica_slices_above_min_bytes(self, min_bytes_decrement):
+    arr, _, num_replicas = make_multi_device_array(
+        (64, 64),
+        partitioned=False,
+    )
+
+    max_num_replicas = 2
+    assert max_num_replicas <= num_replicas
+
+    expected_bytes_per_slice = (
+        arr.addressable_shards[0].data.nbytes // max_num_replicas
+    )
+    min_bytes_per_slice = expected_bytes_per_slice - min_bytes_decrement
+    assert min_bytes_per_slice <= expected_bytes_per_slice
+
+    rslices = replica_slices.get_replica_slices(
+        arr,
+        replica_id=0,
+        use_replica_parallel=True,
+        min_slice_bytes_for_replica_parallel=min_bytes_per_slice,
+        max_replicas_for_replica_parallel=max_num_replicas,
+    ).replica_slices
+
+    # Replica-parallel expected to succeed.
+    self.assertLen(rslices, max_num_replicas)
+    for rslice in rslices:
+      self.assertTrue(rslice.slice_args)
+      self.assertEqual(rslice.data().nbytes, expected_bytes_per_slice)
+
+  def test_get_replica_slices_below_min_bytes(self):
+    arr, _, num_replicas = make_multi_device_array(
+        (64, 64),
+        partitioned=False,
+    )
+
+    max_num_replicas = 2
+    assert max_num_replicas <= num_replicas
+
+    expected_bytes_per_slice = (
+        arr.addressable_shards[0].data.nbytes // max_num_replicas
+    )
+    min_bytes_per_slice = expected_bytes_per_slice + 1
+    assert min_bytes_per_slice > expected_bytes_per_slice
+
+    rslices = replica_slices.get_replica_slices(
+        arr,
+        replica_id=0,
+        use_replica_parallel=True,
+        min_slice_bytes_for_replica_parallel=min_bytes_per_slice,
+        max_replicas_for_replica_parallel=max_num_replicas,
+    ).replica_slices
+
+    # Replica-parallel expected to fail.
+    self.assertLen(rslices, 1)
+    for rslice in rslices:
+      self.assertIsNone(rslice.slice_args)
+
   @parameterized.product(
       partitioned=[False, True],
       use_replica_parallel=[False, True],
