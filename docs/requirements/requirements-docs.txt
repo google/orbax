@@ -10,7 +10,7 @@ sphinx-autodoc-typehints==1.11.1
 sphinx-design==0.6.1
 docutils==0.21.2
 myst-parser==4.0.1
-protobuf==6.30.0
+protobuf
 
 # Packages used for notebook execution
 ipython==9.0.1
@@ -18,3 +18,4 @@ ipykernel==6.29.5
 myst-nb==1.2.0
 cached_property==2.0.1
 importlib_resources==6.5.2
+tf-nightly
