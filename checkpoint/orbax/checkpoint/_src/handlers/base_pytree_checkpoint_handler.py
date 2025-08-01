@@ -288,6 +288,14 @@ def _fill_missing_save_or_restore_args(
 
 
 
+def _format_bytes(bytes_value: Optional[int]) -> str:
+  return (
+      'None'
+      if bytes_value is None
+      else f'{bytes_value} ({humanize.naturalsize(bytes_value, binary=True)})'
+  )
+
+
 class BasePyTreeCheckpointHandler(
     async_checkpoint_handler.AsyncCheckpointHandler
 ):
@@ -364,16 +372,18 @@ class BasePyTreeCheckpointHandler(
     jax.monitoring.record_event(
         '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
     )
-    logging.vlog(
-        1,
+    logging.info(
         'Created BasePyTreeCheckpointHandler: use_ocdbt=%s, use_zarr3=%s,'
         ' pytree_metadata_options=%s, array_metadata_store=%s,'
-        ' enable_pinned_host_transfer=%s',
+        ' enable_pinned_host_transfer=%s, save_concurrent_bytes: %s,'
+        ' restore_concurrent_bytes: %s',
         self._use_ocdbt,
         self._use_zarr3,
         self._pytree_metadata_options,
         self._array_metadata_store,
         self._enable_pinned_host_transfer,
+        _format_bytes(self._save_concurrent_bytes),
+        _format_bytes(self._restore_concurrent_bytes),
     )
 
   def get_param_names(self, item: PyTree) -> PyTree:
