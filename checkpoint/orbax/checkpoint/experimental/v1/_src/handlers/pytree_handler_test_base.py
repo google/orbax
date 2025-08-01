@@ -29,6 +29,7 @@ from typing import Any, Awaitable, Iterator, List, Sequence, Type
 from unittest import mock
 
 from absl.testing import parameterized
+import aiofiles
 from etils import epath
 import flax
 import flax.training.train_state
@@ -116,16 +117,19 @@ class PointLeafHandler(serialization_types.LeafHandler[Point, AbstractPoint]):
       serialization_context: serialization_types.SerializationContext,
   ) -> Awaitable[None]:
 
-    def _background_serialize():
+    async def _background_serialize():
       if multihost.is_primary_host(0):
+        # make sure the parent directory is created
+        await serialization_context.parent_dir.await_creation()
+
         for param in params:
-          with open(
+          async with aiofiles.open(
               serialization_context.parent_dir.path / f'{param.name}.txt',
               'w',
           ) as f:
-            f.write(json.dumps(dataclasses.asdict(param.value)))
+            await f.write(json.dumps(dataclasses.asdict(param.value)))
 
-    return asyncio.to_thread(_background_serialize)
+    return _background_serialize()
 
   async def deserialize(
       self,
@@ -133,18 +137,18 @@ class PointLeafHandler(serialization_types.LeafHandler[Point, AbstractPoint]):
       deserialization_context: serialization_types.DeserializationContext,
   ) -> Awaitable[Sequence[Point]]:
 
-    def _deserialize_impl():
+    async def _background_deserialize():
       ret = []
       for param in params:
-        with open(
+        async with aiofiles.open(
             deserialization_context.parent_dir / f'{param.name}.txt',
             'r',
         ) as f:
-          ret.append(Point(**json.loads(f.read())))
+          ret.append(Point(**json.loads(await f.read())))
 
       return ret
 
-    return asyncio.to_thread(_deserialize_impl)
+    return _background_deserialize()
 
   async def metadata(
       self,
