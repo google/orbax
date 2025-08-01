@@ -32,6 +32,7 @@ from unittest import mock
 from absl import logging
 from etils import epath
 import jax
+from jax.experimental import multihost_utils
 from jax.experimental import pjit
 import jax.numpy as jnp
 import numpy as np
@@ -55,7 +56,7 @@ PyTree = Any
 
 
 def sync_global_processes(name: str):
-  jax.experimental.multihost_utils.sync_global_devices(name)
+  multihost_utils.sync_global_devices(name)
 
 
 def save_fake_tmp_dir(
