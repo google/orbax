@@ -1306,7 +1306,9 @@ class PyTreeHandlerTestBase:
     def test_unregistered_types(self, use_ocdbt: bool):
       data = {'uncheckpointable_field': datetime.timedelta(seconds=5)}
       with handler_with_options(use_ocdbt=use_ocdbt) as checkpoint_handler:
-        with self.assertRaisesRegex(ValueError, 'TypeHandler lookup failed'):
+        with self.assertRaisesRegex(
+            ValueError, 'The following leaf types are not registered'
+        ):
           checkpoint_handler.save(
               self.directory,
               data,
@@ -1450,14 +1452,20 @@ class PyTreeHandlerTestBase:
           use_zarr3=True,
       ) as handler:
         # TODO(b/430598877) Return V1 Registry error message.
-        with self.assertRaisesRegex(ValueError, 'TypeHandler lookup failed'):
+        with self.assertRaisesRegex(
+            ValueError, 'The following leaf types are not registered'
+        ):
           handler.save(self.directory, {'a': 3, 'b': 1.0})
 
         handler.save(self.directory, {'a': 3})
 
+        with self.assertRaisesRegex(
+            ValueError, 'The following abstract leaf types are not registered'
+        ):
+          handler.load(self.directory, {'a': 3.0})
+
         restored = handler.load(self.directory)
         expected = {'a': 4}
-
         self.assertEqual(restored, expected)
 
     def test_empty_custom_node(self):

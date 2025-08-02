@@ -23,6 +23,7 @@ centralize definitions.
 - Add support for loading SafeTensors checkpoints
 - #v1 Add `is_orbax_checkpoint()` method for validation checks
 - #v1 Add custom LeafHandler docs.
+- #v1 Add leaves and abstract leaves validation before saving and loading.
 
 ### Changed
 

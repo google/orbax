@@ -269,6 +269,9 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
   async def save(
       self, directory: path_types.PathAwaitingCreation, checkpointable: PyTree
   ) -> Awaitable[None]:
+
+    self._validate_leaves_handleable(checkpointable)
+
     commit_futures = await self._handler_impl.async_save(
         directory.path,
         args=create_v0_save_args(self._context, checkpointable),
@@ -301,7 +304,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       directory: path_types.Path,
       abstract_checkpointable: PyTree | None = None,
   ) -> Awaitable[PyTree]:
-    # TODO(b/406252214): Add validation for PyTrees and abstract PyTrees.
+    self._validate_abstract_leaves_handleable(abstract_checkpointable)
     return self._background_load(directory, abstract_checkpointable)
 
   async def metadata(
@@ -316,32 +319,65 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
 
     return jax.tree.map(_unwrap, v0_metadata)
 
-  # TODO(b/431262233): Revise the logic to check only the valid Pytree
-  def _is_handleable_leaf(self, leaf: Any) -> bool:
-    return self._leaf_handler_registry.is_handleable(type(leaf))
+  def _validate_leaves_handleable(self, checkpointable: PyTree):
+    missing_leaf_types = set()
 
-  def _is_handleable_abstract_leaf(self, leaf: Any) -> bool:
-    leaf_type = type(leaf) if not isinstance(leaf, type) else leaf
-    return self._leaf_handler_registry.is_abstract_handleable(leaf_type)
+    def _validate_handleable_leaf(leaf: Any):
+      if type_handlers.is_placeholder(leaf):
+        return
+
+      leaf_type = type(leaf)
+      if not self._leaf_handler_registry.is_handleable(leaf_type):
+        missing_leaf_types.add(leaf_type)
+
+    jax.tree.map(
+        _validate_handleable_leaf,
+        checkpointable,
+    )
+
+    if missing_leaf_types:
+      raise ValueError(
+          'The following leaf types are not registered in the'
+          f' `LeafHandlerRegistry`: [{missing_leaf_types}]. Please register a'
+          ' `LeafHandler` for each type in the `LeafHandlerRegistry` and'
+          ' assign it into the `PyTreeOptions` in the `Context`.'
+      )
+
+  def _validate_abstract_leaves_handleable(
+      self, abstract_checkpointable: PyTree
+  ):
+    missing_abstract_leaf_types = set()
+
+    def _validate_handleable_leaf(leaf: Any):
+      if type_handlers.is_placeholder(leaf):
+        return
+
+      leaf_type = leaf if isinstance(leaf, type) else type(leaf)
+      if not self._leaf_handler_registry.is_abstract_handleable(leaf_type):
+        missing_abstract_leaf_types.add(leaf_type)
+
+    jax.tree.map(
+        _validate_handleable_leaf,
+        abstract_checkpointable,
+    )
+
+    if missing_abstract_leaf_types:
+      raise ValueError(
+          'The following abstract leaf types are not registered in the'
+          f' `LeafHandlerRegistry`: [{missing_abstract_leaf_types}]. Please'
+          ' register a `LeafHandler` for each type in the'
+          ' `LeafHandlerRegistry` and assign it into the `PyTreeOptions` in'
+          ' the `Context`.'
+      )
 
   def is_handleable(self, checkpointable: Any) -> bool:
     try:
-      return jax.tree.reduce(
-          lambda a, b: self._is_handleable_leaf(a)
-          and self._is_handleable_leaf(b),
-          checkpointable,
-          initializer=True,
+      # If it's a leaf or an empty pytree container, it's not handleable.
+      return not jax.tree_util.treedef_is_leaf(
+          jax.tree.structure(checkpointable)
       )
     except Exception:  # pylint: disable=broad-exception-caught
       return False
 
   def is_abstract_handleable(self, abstract_checkpointable: Any) -> bool:
-    try:
-      return jax.tree.reduce(
-          lambda a, b: self._is_handleable_abstract_leaf(a)
-          and self._is_handleable_abstract_leaf(b),
-          abstract_checkpointable,
-          initializer=True,
-      )
-    except Exception:  # pylint: disable=broad-exception-caught
-      return False
+    return self.is_handleable(abstract_checkpointable)
