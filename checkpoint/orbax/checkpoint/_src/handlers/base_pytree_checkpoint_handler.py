@@ -123,11 +123,11 @@ def _log_io_metrics(
       humanize.naturaldelta(time_elapsed, minimum_unit='microseconds'),
   )
   jax.monitoring.record_event(
-      gbytes_per_sec_metric, gbytes_per_sec=int(gbytes_per_sec)
+      gbytes_per_sec_metric, gbytes_per_sec=f'{gbytes_per_sec:.3f}'
   )
   if gbytes_metric is not None:
     jax.monitoring.record_event(
-        gbytes_metric, gbytes=int(size / (1024 ** 3))
+        gbytes_metric, gbytes=f'{size / (1024 ** 3):.3f}'
     )
 
 
