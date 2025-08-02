@@ -80,8 +80,20 @@ _LAST_CHECKPOINT_WRITE_TIME = time.time()
 _T = TypeVar('_T', bound='_TemporaryPathBase')
 
 
-async def _mkdir(path: epath.Path, *args, **kwargs):
-  return await asyncio.to_thread(path.mkdir, *args, **kwargs)
+async def _mkdir(
+    path: epath.Path,
+    parents: bool = False,
+    exist_ok: bool = False,
+    mode: int | None = None,
+):
+  """Creates a directory asynchronously."""
+
+  def _mkdir_sync(**thread_kwargs):
+    """Synchronously creates a directory."""
+    path.mkdir(parents=parents, exist_ok=exist_ok, mode=mode)
+
+  thread_kwargs = {}
+  await asyncio.to_thread(_mkdir_sync, **thread_kwargs)
 
 
 async def _exists(path: epath.Path):
@@ -178,9 +190,7 @@ async def _create_tmp_directory(
 def _get_tmp_directory(final_path: epath.Path) -> epath.Path:
   # Path may not be completely unique if a preemption occurs. We rely on the
   # existing tmp directory being deleted elsewhere.
-  return epath.Path(final_path.parent) / (
-      final_path.name + TMP_DIR_SUFFIX
-  )
+  return epath.Path(final_path.parent) / (final_path.name + TMP_DIR_SUFFIX)
 
 
 def _get_tmp_directory_pattern(final_path_name: str | None = None) -> str:
