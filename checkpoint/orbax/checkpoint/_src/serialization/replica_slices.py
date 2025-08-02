@@ -31,7 +31,7 @@ from orbax.checkpoint._src.multihost import multihost
 
 Shape = types.Shape
 Index = types.Index
-OptionalAxisAndShape = tuple[int | None, Shape| None]
+OptionalAxisShapeReplicaCount = tuple[int, Shape, int] | None
 
 HashableIndex = types.HashableIndex
 HashableSlice = types.HashableSlice
@@ -178,13 +178,17 @@ def _sharding_num_replicas(
 
 
 def calculate_replica_parallel_axis_and_local_shape(
-    arr: jax.Array,
-) -> OptionalAxisAndShape:
+    arr: jax.Array, max_replicas_for_replica_parallel: Optional[int]
+) -> OptionalAxisShapeReplicaCount:
   """Calculates a local shape for replica-parallel serialization."""
-  shard0 = arr.addressable_shards[0]
+
   replica_count = _sharding_num_replicas(arr.sharding, arr.shape)
+  if max_replicas_for_replica_parallel is not None:
+    replica_count = min(replica_count, max_replicas_for_replica_parallel)
+
+  shard0 = arr.addressable_shards[0]
   if shard0.data.size == 0 or replica_count <= 1:
-    return None, None
+    return None
   try:
     axis = next(
         axis_index
@@ -192,18 +196,20 @@ def calculate_replica_parallel_axis_and_local_shape(
         if axis_size % replica_count == 0
     )
   except StopIteration:
-    return None, None
+    return None
   local_shape = tuple(
       axis_size // (replica_count if axis_index == axis else 1)
       for axis_index, axis_size in enumerate(shard0.data.shape)
   )
-  return axis, local_shape
+  return axis, local_shape, replica_count
 
 
 def get_replica_slices(
     arr: jax.Array,
     replica_id: Optional[int],
     use_replica_parallel: bool,
+    min_slice_bytes_for_replica_parallel: Optional[int],
+    max_replicas_for_replica_parallel: Optional[int],
 ) -> ReplicaSlices:
   """Returns the replica slices a given replica is responsible for.
 
@@ -218,6 +224,12 @@ def get_replica_slices(
     use_replica_parallel: Whether to use replica-parallel serialization to allow
       arrays with replicated shards to be written cooperatively by different
       hosts.
+    min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica 
+      slice. Only uses replica-parallel when the amount of data written per 
+      replica is greater than or equal to this number.
+    max_replicas_for_replica_parallel: Maximum number of replicas over which
+      to parallelize the writing of replicated shards if use_replica_parallel
+      is True.
 
   Returns:
     ReplicaSlices object.
@@ -252,16 +264,27 @@ def get_replica_slices(
       )
 
     # Check whether replica-parallel applies: we are dealing with non-empty
-    # shards, we have more than one replica, and some dimension of the shards
-    # is evenly divisible across replicas.
-    axis, local_shape = calculate_replica_parallel_axis_and_local_shape(arr)
-    if axis is None or local_shape is None:
+    # shards, we have more than one replica, some dimension of the shards
+    # is evenly divisible across replicas, and each slice saved would have
+    # size at least min_slice_bytes_for_replica_parallel.
+    if (replica_parallel_info := 
+        calculate_replica_parallel_axis_and_local_shape(
+            arr, max_replicas_for_replica_parallel
+        )) is None:
+      return None
+    axis, local_shape, replica_count = replica_parallel_info
+    min_slice_bytes = min_slice_bytes_for_replica_parallel or 0
+    if math.prod(local_shape) * arr.itemsize < min_slice_bytes:
       return None
 
     rslices: list[ReplicaSlice] = []
     for shard in arr.addressable_shards:
       # Sanity check that all shards have the same shape.
       assert shard.data.shape == shard0.data.shape
+
+      # Parallelize saving across only `replica_count` replicas.
+      if shard.replica_id >= replica_count:
+        continue
 
       size = local_shape[axis]
       slize = shard.index[axis]
@@ -303,6 +326,7 @@ def get_replica_slices(
       and arr.addressable_shards[0].data.size % 1024 == 0
       and arr.addressable_shards[0].data.shape[-1] % 128 == 0
   )
+
   # In order for all processes to agree on the right serialization metadata
   # we want to compute the correct local shape regardless of whether there
   # are any replica slices to save locally.
@@ -328,6 +352,8 @@ def transfer_arrays_to_host(
     use_replica_parallel: bool,
     *,
     enable_pinned_host_transfer: bool = False,
+    min_slice_bytes_for_replica_parallel: Optional[int] = None,
+    max_replicas_for_replica_parallel: Optional[int] = None,
 ) -> Sequence[ReplicaSlices]:
   """Transfers arrays to host memory.
 
@@ -343,6 +369,12 @@ def transfer_arrays_to_host(
       hosts.
     enable_pinned_host_transfer: Whether to allow transfer to pinned host
       memory. Pinned memory is closely associated with a TPU device and can
+    min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica 
+      slice. Only uses replica-parallel when the amount of data written per 
+      replica is greater than or equal to this number.
+    max_replicas_for_replica_parallel: Maximum number of replicas over which
+      to parallelize the writing of replicated shards if use_replica_parallel
+      is True.
 
   Returns:
     ReplicaSlices objects, in host memory.
@@ -383,7 +415,9 @@ def transfer_arrays_to_host(
 
   # Gather the replica slices to be saved for each array.
   rslices_per_array = [
-      get_replica_slices(arr, replica_id, use_replica_parallel)
+      get_replica_slices(arr, replica_id, use_replica_parallel, 
+                         min_slice_bytes_for_replica_parallel, 
+                         max_replicas_for_replica_parallel)
       for arr in arrays
   ]
   # Kick off transfers for all replica slices to be saved.
