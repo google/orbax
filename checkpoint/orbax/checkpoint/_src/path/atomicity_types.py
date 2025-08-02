@@ -26,6 +26,7 @@ from typing import Protocol
 from etils import epath
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
+from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 
 
 
@@ -77,12 +78,18 @@ class TemporaryPath(Protocol):
 
   def finalize(
       self,
-  ):
+      *,
+      snapshot: snapshot_lib.Snapshot | None = None,
+  ):  # pylint: disable=g-doc-args
     """Finalizes the temporary path into the final path.
 
     NOTE: This method should be only called on the primary host.
 
     This function is called from a background thread.
 
+    Args:
+
+      snapshot: The snapshot of the potentially previously partially-saved
+      checkpoint.
     """
     ...
