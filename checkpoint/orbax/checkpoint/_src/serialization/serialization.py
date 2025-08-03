@@ -198,7 +198,7 @@ async def async_serialize(
     context: Optional[ts.Context] = None,
     primary_host: Optional[int] = 0,
     replica_id: int = 0,
-    use_replica_parallel: bool = True,
+    use_replica_parallel: bool = False,
     transaction: Optional[ts.Transaction] = None,
     byte_limiter: Optional[ByteLimiter] = None,
 ):
