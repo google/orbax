@@ -70,6 +70,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path import utils
+from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 
 
 TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
@@ -115,9 +116,7 @@ async def _create_tmp_directory(
     tmp_dir: epath.Path,
     *,
     path_permission_mode: int | None = None,
-    checkpoint_metadata_store: (
-        checkpoint_metadata.MetadataStore | None
-    ) = None,
+    checkpoint_metadata_store: checkpoint_metadata.MetadataStore | None = None,
     **kwargs,
 ) -> epath.Path:
   """Creates a non-deterministic tmp directory for saving for given `final_dir`.
@@ -311,7 +310,8 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
 
   def finalize(
       self,
-  ) -> None:
+      snapshot: snapshot_lib.Snapshot | None = None,
+  ):  # pylint: disable=g-doc-args
     """Not supported for ReadOnlyTemporaryPath."""
     raise NotImplementedError('`finalize` is not supported.')
 
@@ -366,11 +366,16 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
 
   def finalize(
       self,
-  ):
+      snapshot: snapshot_lib.Snapshot | None = None,
+  ):  # pylint: disable=g-doc-args
     """Finalizes atomic save by renaming tmp_dir.
 
     Updates checkpoint metadata with commit_timestamp_nsecs.
 
+    Args:
+
+      snapshot: The snapshot of the potentially previously partially-saved
+      checkpoint.
     """
     logging.info('Renaming %s to %s', self._tmp_path, self._final_path)
     if self._checkpoint_metadata_store:
@@ -381,7 +386,15 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
       )
       self._checkpoint_metadata_store.wait_until_finished()
 
-    self._tmp_path.rename(self._final_path)
+    if snapshot is not None:
+      if snapshot._source != self._final_path:  # pylint: disable=protected-access
+        raise ValueError(
+            'Snapshot source does not match final path. Snapshot source:'
+            f' {snapshot._source}, final path: {self._final_path}'  # pylint: disable=protected-access
+        )
+      snapshot.replace_source()
+    else:
+      self._tmp_path.rename(self._final_path)
 
   def __repr__(self) -> str:
     return (
@@ -441,12 +454,16 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
 
   def finalize(
       self,
-  ):
+      snapshot: snapshot_lib.Snapshot | None = None,
+  ):  # pylint: disable=g-doc-args
     """Finalizes atomic save by writing a success file.
 
     Updates checkpoint metadata with commit_timestamp_nsecs.
 
     """
+    if snapshot is not None:
+      raise ValueError('Snapshot is not supported for CommitFileTemporaryPath.')
+
     logging.info('Finalizing %s', self._tmp_path)
     if self._checkpoint_metadata_store:
       self._checkpoint_metadata_store.wait_until_finished()
