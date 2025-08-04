@@ -1606,7 +1606,12 @@ class PyTreeHandlerTestBase:
       original_transfer_arrays_to_host = replica_slices.transfer_arrays_to_host
 
       def _transfer_arrays_to_host(
-          arrays, replica_id, use_replica_parallel, enable_pinned_host_transfer
+          arrays,
+          replica_id,
+          use_replica_parallel,
+          min_slice_bytes_for_replica_parallel,
+          max_replicas_for_replica_parallel,
+          enable_pinned_host_transfer,
       ):
         nonlocal true_count, false_count
         if enable_pinned_host_transfer:
@@ -1617,6 +1622,8 @@ class PyTreeHandlerTestBase:
             arrays,
             replica_id,
             use_replica_parallel=use_replica_parallel,
+            min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
+            max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
             enable_pinned_host_transfer=enable_pinned_host_transfer,
         )
 
