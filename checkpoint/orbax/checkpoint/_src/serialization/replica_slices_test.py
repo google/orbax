@@ -334,6 +334,109 @@ class ReplicaSlicesTest(parameterized.TestCase):
       # With single-replica we transfer a single slice for each shard.
       self.assertLen(rslices.replica_slices, num_partitions)
 
+  def test_nbytes_no_slicing(self):
+    rslice = replica_slices.ReplicaSlice(
+        index=(slice(None),),
+        unsliced_data=np.zeros((2, 3), dtype=np.float32),
+        slice_args=None,
+    )
+    rslices = replica_slices.ReplicaSlices(
+        global_shape=(2, 3),
+        local_shape=(2, 3),
+        sharding=jax.sharding.NamedSharding(
+            jax.sharding.Mesh(np.array(jax.devices()), ('x',)),
+            jax.sharding.PartitionSpec(),
+        ),
+        dtype=np.dtype(np.float32),
+        is_on_host=True,
+        replica_slices=[rslice],
+    )
+    expected_nbytes = 2 * 3 * np.dtype(np.float32).itemsize
+    self.assertEqual(rslices.nbytes, expected_nbytes)
+
+  def test_nbytes_with_slicing(self):
+    rslice = replica_slices.ReplicaSlice(
+        index=(slice(None),),
+        unsliced_data=jax.numpy.zeros((4, 5), dtype=np.int16),
+        slice_args=replica_slices.SliceArgs(
+            start_index=1, limit_index=3, axis=0
+        ),
+    )
+    rslices = replica_slices.ReplicaSlices(
+        global_shape=(4, 5),
+        local_shape=(4, 5),
+        sharding=jax.sharding.NamedSharding(
+            jax.sharding.Mesh(np.array(jax.devices()), ('x',)),
+            jax.sharding.PartitionSpec(),
+        ),
+        dtype=np.dtype(np.int16),
+        is_on_host=False,  # Set to False to allow slice_args
+        replica_slices=[rslice],
+    )
+    # Shape of the slice is (2, 5)
+    expected_nbytes = 2 * 5 * np.dtype(np.int16).itemsize
+    self.assertEqual(rslices.nbytes, expected_nbytes)
+
+  def test_nbytes_multiple_slices(self):
+    rslice1 = replica_slices.ReplicaSlice(
+        index=(slice(None),),
+        unsliced_data=jax.numpy.zeros((4, 5), dtype=np.int16),
+        slice_args=replica_slices.SliceArgs(
+            start_index=0, limit_index=2, axis=0
+        ),
+    )
+    rslice2 = replica_slices.ReplicaSlice(
+        index=(slice(None),),
+        unsliced_data=jax.numpy.zeros((4, 5), dtype=np.int16),
+        slice_args=replica_slices.SliceArgs(
+            start_index=2, limit_index=4, axis=0
+        ),
+    )
+    rslices = replica_slices.ReplicaSlices(
+        global_shape=(4, 5),
+        local_shape=(4, 5),
+        sharding=jax.sharding.NamedSharding(
+            jax.sharding.Mesh(np.array(jax.devices()), ('x',)),
+            jax.sharding.PartitionSpec(),
+        ),
+        dtype=np.dtype(np.int16),
+        is_on_host=False,  # Set to False to allow slice_args
+        replica_slices=[rslice1, rslice2],
+    )
+    # Shape of each slice is (2, 5)
+    expected_nbytes = (2 * 5 * np.dtype(np.int16).itemsize) * 2
+    self.assertEqual(rslices.nbytes, expected_nbytes)
+
+  def test_nbytes_mixed_slicing(self):
+    rslice1 = replica_slices.ReplicaSlice(
+        index=(slice(None),),
+        unsliced_data=jax.numpy.zeros((4, 5), dtype=np.int16),  # jax.Array
+        slice_args=None,
+    )
+    rslice2 = replica_slices.ReplicaSlice(
+        index=(slice(None),),
+        unsliced_data=jax.numpy.zeros((4, 5), dtype=np.int16),  # jax.Array
+        slice_args=replica_slices.SliceArgs(
+            start_index=0, limit_index=2, axis=1
+        ),
+    )
+    rslices = replica_slices.ReplicaSlices(
+        global_shape=(4, 5),
+        local_shape=(4, 5),
+        sharding=jax.sharding.NamedSharding(
+            jax.sharding.Mesh(np.array(jax.devices()), ('x',)),
+            jax.sharding.PartitionSpec(),
+        ),
+        dtype=np.dtype(np.int16),
+        is_on_host=False,  # Set to False to allow slice_args
+        replica_slices=[rslice1, rslice2],
+    )
+    # bytes for rslice1: (4 * 5)
+    # bytes for rslice2: (4 * 2)
+    expected_nbytes = (4 * 5 * np.dtype(np.int16).itemsize) + (
+        4 * 2 * np.dtype(np.int16).itemsize
+    )
+    self.assertEqual(rslices.nbytes, expected_nbytes)
 
 if __name__ == '__main__':
   absltest.main()

@@ -115,8 +115,22 @@ class ReplicaSlices:
 
   @property
   def nbytes(self) -> int:
-    slice_nbytes = math.prod(self.local_shape) * self.dtype.itemsize
-    return slice_nbytes * len(self.replica_slices)
+    """Returns the total number of bytes for all replica slices."""
+    total_bytes = 0
+    for rslice in self.replica_slices:
+      if rslice.slice_args is None:
+        # No slicing, use the full local_shape
+        slice_nbytes = math.prod(self.local_shape) * self.dtype.itemsize
+      else:
+        # Replica-parallel, calculate bytes for the specific slice
+        slice_shape = list(self.local_shape)
+        axis = rslice.slice_args.axis
+        slice_shape[axis] = (
+            rslice.slice_args.limit_index - rslice.slice_args.start_index
+        )
+        slice_nbytes = math.prod(slice_shape) * self.dtype.itemsize
+      total_bytes += slice_nbytes
+    return total_bytes
 
   def to_fragments(self) -> fragments.Fragments:
     """Converts replica slices to fragments."""
