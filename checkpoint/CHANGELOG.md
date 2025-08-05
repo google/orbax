@@ -14,7 +14,8 @@ centralize definitions.
 
 ### Added
 
-- Add `metadata()` method for loading with SafeTensors checkpoint format.
+ - Add `metadata()` method for loading with SafeTensors checkpoint format.
+Refactored `metadata/loading.py` to allow this change.
 - Add options to control number of replicas and min bytes in replica-parallel.
 
 ## [0.11.20] - 2025-07-28

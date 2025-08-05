@@ -19,7 +19,7 @@ from typing import Any
 from etils import epath
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
-from orbax.checkpoint.experimental.v1._src.loading import loading
+from orbax.checkpoint.experimental.v1._src.loading import v0_compatibility
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -128,7 +128,7 @@ def _checkpointables_metadata_impl(
 ) -> CheckpointMetadata[dict[str, Any]]:
   """Shared implementation for checkpointables_metadata."""
   path = epath.Path(path)
-  checkpointer, _ = loading.get_v0_checkpointer_and_args(
+  checkpointer, _ = v0_compatibility.get_v0_checkpointer_and_args(
       path, None, context=context_lib.get_context()
   )
   metadata = checkpointer.metadata(path)

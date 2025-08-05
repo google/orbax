@@ -21,6 +21,8 @@ import jax
 import numpy as np
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
+from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
+from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.saving import saving
 import safetensors.numpy
 
@@ -46,7 +48,12 @@ class SafetensorsLayoutTest(
         'a': np.array(3 * [1, 2, 3], dtype=np.int32),
         'b': np.array([0, 1, 0.2], dtype=np.float32),
     }
-    np_save_file(self.object_to_save, self.safetensors_path)
+    self.custom_metadata = {'framework': 'JAX', 'version': '1.0'}
+    np_save_file(
+        self.object_to_save,
+        self.safetensors_path,
+        metadata=self.custom_metadata,
+    )
     saving.save_pytree(self.orbax_path, self.object_to_save)
 
   def test_valid_safetensors_checkpoint(self):
@@ -131,15 +138,19 @@ class SafetensorsLayoutTest(
   async def test_metadata(self):
     layout = SafetensorsLayout(self.safetensors_path)
     metadata = await layout.metadata()
+    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
     self.assertEqual(
-        metadata,
+        metadata.metadata,
         {
-            'pytree': {
+            format_utils.PYTREE_CHECKPOINTABLE_KEY: {
                 'b': jax.ShapeDtypeStruct(shape=(3,), dtype=np.float32),
                 'a': jax.ShapeDtypeStruct(shape=(9,), dtype=np.int32),
             }
         },
     )
+    self.assertEqual(metadata.custom_metadata, self.custom_metadata)
+    self.assertIsInstance(metadata.commit_timestamp_nsecs, int)
+    self.assertGreater(metadata.commit_timestamp_nsecs, 0)
 
 
 if __name__ == '__main__':

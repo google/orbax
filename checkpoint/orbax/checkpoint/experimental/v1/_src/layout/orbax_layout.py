@@ -18,6 +18,8 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+from orbax.checkpoint.experimental.v1._src.loading import v0_compatibility
+from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types
 
@@ -71,6 +73,26 @@ class OrbaxLayout(CheckpointLayout):
   @property
   def has_indicator_file(self) -> bool:
     return (self._path / ORBAX_CHECKPOINT_INDICATOR_FILE).exists()
+
+  async def metadata(self) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
+    # Uses the v0 checkpointer to get v0 StepMetadata
+    checkpointer, _ = v0_compatibility.get_v0_checkpointer_and_args(
+        self._path, None, context=context_lib.get_context()
+    )
+    step_metadata = checkpointer.metadata(self._path)
+
+    item_metadata = {k: v for k, v in step_metadata.item_metadata.items()}
+    # Exclude `metrics` if present. This is relevant only for
+    # `training.Checkpointer`, and is separately added to the
+    # `training.CheckpointMetadata` object.
+    item_metadata.pop("metrics", None)
+
+    return metadata_types.CheckpointMetadata[dict[str, Any]](
+        metadata=item_metadata,
+        init_timestamp_nsecs=step_metadata.init_timestamp_nsecs,
+        commit_timestamp_nsecs=step_metadata.commit_timestamp_nsecs,
+        custom_metadata=step_metadata.custom_metadata,
+    )
 
   def validate(self):
     try:
