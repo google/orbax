@@ -67,6 +67,7 @@ from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path import utils
@@ -80,20 +81,8 @@ _LAST_CHECKPOINT_WRITE_TIME = time.time()
 _T = TypeVar('_T', bound='_TemporaryPathBase')
 
 
-async def _mkdir(path: epath.Path, *args, **kwargs):
-  return await asyncio.to_thread(path.mkdir, *args, **kwargs)
-
-
-async def _exists(path: epath.Path):
-  return await asyncio.to_thread(path.exists)
-
-
 async def _is_tmp_checkpoint(path: epath.Path):
   return await asyncio.to_thread(step_lib.is_tmp_checkpoint, path)
-
-
-async def _rmtree(path: epath.Path):
-  return await asyncio.to_thread(path.rmtree)
 
 
 class AsyncMakeDirFunc(Protocol):
@@ -141,14 +130,14 @@ async def _create_tmp_directory(
   Raises:
     FileExistsError: if tmp directory already exists.
   """
-  if await _exists(tmp_dir):
+  if await async_path.exists(tmp_dir):
     if await _is_tmp_checkpoint(tmp_dir):
       logging.warning(
           'Attempted to create temporary directory %s which already exists.'
           ' Removing existing directory since it is not finalized.',
           tmp_dir,
       )
-      await _rmtree(tmp_dir)
+      await async_path.rmtree(tmp_dir)
     else:
       raise FileExistsError(
           f'Attempted to create temporary directory {tmp_dir} which already'
@@ -358,7 +347,7 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
       FileExistsError: if tmp directory already exists.
     """
     return await _create_tmp_directory(
-        _mkdir,
+        async_path.mkdir,
         self._tmp_path,
         path_permission_mode=self._path_permission_mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
@@ -433,7 +422,7 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
       FileExistsError: if tmp directory already exists.
     """
     return await _create_tmp_directory(
-        _mkdir,
+        async_path.mkdir,
         self._tmp_path,
         path_permission_mode=self._path_permission_mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
@@ -583,7 +572,7 @@ async def _create_paths(
     creation_ops = []
     for path in paths:
       creation_ops.extend([
-          _mkdir(path / name, parents=False, exist_ok=False)
+          async_path.mkdir(path / name, parents=False, exist_ok=False)
           for name in subdirectories
       ])
     await asyncio.gather(*creation_ops)

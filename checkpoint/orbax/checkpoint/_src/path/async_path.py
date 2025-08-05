@@ -32,10 +32,18 @@ from etils import epath
 
 async def mkdir(
     path: epath.Path,
-    *args,
-    **kwargs,
+    parents: bool = False,
+    exist_ok: bool = False,
+    mode: int | None = None,
 ):
-  return await asyncio.to_thread(path.mkdir, *args, **kwargs)
+  """Creates a directory asynchronously."""
+
+  def _mkdir_sync(**thread_kwargs):
+    """Synchronously creates a directory."""
+    path.mkdir(parents=parents, exist_ok=exist_ok, mode=mode)
+
+  thread_kwargs = {}
+  return await asyncio.to_thread(_mkdir_sync, **thread_kwargs)
 
 
 
