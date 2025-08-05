@@ -32,6 +32,7 @@ import warnings
 from absl import logging
 from etils import epath
 import jax
+from jax.experimental import colocated_python
 from jax.experimental import layout
 import jax.numpy as jnp
 import numpy as np
@@ -922,7 +923,7 @@ class ArrayHandler(types.TypeHandler):
     )
     self._max_replicas_for_replica_parallel = max_replicas_for_replica_parallel
     self._array_metadata_store = array_metadata_store
-    self._ext_metadata = dict()
+    self.ext_metadata = dict()
 
     logging.vlog(
         1,
@@ -959,7 +960,7 @@ class ArrayHandler(types.TypeHandler):
         use_ocdbt=use_ocdbt,
         process_index=process_index,
         metadata_key=self._metadata_key,
-        ext_metadata=self._ext_metadata.get(info.name),
+        ext_metadata=self.ext_metadata.get(info.name),
     )
 
   def _get_json_tspec_read(
@@ -1134,7 +1135,7 @@ class ArrayHandler(types.TypeHandler):
     check_input_arguments(values, infos, args)
     check_array_values(values, infos)
 
-    self._ext_metadata = dict()
+    self.ext_metadata = dict()
     arrays = []
     for v, info in zip(values, infos):
       if (
@@ -1161,7 +1162,7 @@ class ArrayHandler(types.TypeHandler):
       if jax.dtypes.issubdtype(v.dtype, jax.dtypes.prng_key):
         # a JAX random key
         arrays.append(jax.random.key_data(v))
-        self._ext_metadata[info.name] = {
+        self.ext_metadata[info.name] = {
             array_metadata_lib.RANDOM_KEY_IMPL: str(jax.random.key_impl(v))
         }
       else:
@@ -1805,7 +1806,7 @@ class _TypeHandlerRegistryImpl(types.TypeHandlerRegistry):
             )
         else:
           raise ValueError(
-              f'Type "{ty}" has a `typestr` ("{handler.typestr()}") which'
+              f'Type "{ty}" has a `typestr` (""{handler.typestr()}"") which'
               ' collides with that of an existing TypeHandler.'
           )
       self._type_registry.append((func, handler))
@@ -1955,3 +1956,193 @@ def default_restore_type(args: RestoreArgs) -> Any:
     return np.ndarray
   else:
     raise ValueError(f'Unsupported restore_args type: {type(args)}')
+
+
+@colocated_python.colocated_python
+async def _colocated_serialize(
+    values: Sequence[jax.Array],
+    infos: Sequence[ParamInfo],
+    args: Optional[Sequence[SaveArgs]] = None,
+    handler: Any = None,
+):
+  """Performs serialization on each worker."""
+  if args is None:
+    raise ValueError('Must provide SaveArgs.')
+  check_input_arguments(values, infos, args)
+
+  async def _serialize(value, info, arg):
+    path = info.path
+    use_ocdbt = info.is_ocdbt_checkpoint
+    if not use_ocdbt:
+      await async_path.async_makedirs(path.parent, exist_ok=True)
+
+    ext_metadata = None
+    if handler:
+      ext_metadata = handler.ext_metadata.get(info.name)
+
+    array_write_spec = _build_array_write_spec(
+        info=info,
+        arg=arg,
+        global_shape=value.sharding.shape,
+        local_shape=value.shape,
+        dtype=value.dtype,
+        use_ocdbt=info.is_ocdbt_checkpoint,
+        process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
+        ext_metadata=ext_metadata,
+    )
+    tspec = array_write_spec.json
+    return await serialization.async_serialize(
+        value,
+        tspec,
+        byte_limiter=info.byte_limiter,
+    )
+
+  ops = [_serialize(v, i, a) for v, i, a in zip(values, infos, args)]
+  return await asyncio.gather(*ops)
+
+
+@colocated_python.colocated_python
+async def _colocated_deserialize(
+    infos: Sequence[ParamInfo],
+    args: Optional[Sequence[ArrayRestoreArgs]] = None,
+):
+  """Performs deserialization on each worker."""
+  if args is None:
+    raise ValueError('Must provide ArrayRestoreArgs to restore as jax.Array.')
+  check_input_arguments(infos, args)
+  deserialize_ops = []
+  if infos[0].parent_dir is None:
+    raise ValueError('parent_dir cannot be None')
+  sharding_file_path = infos[0].parent_dir / '_sharding'
+  sharding_file_exists = await async_path.async_exists(sharding_file_path)
+  for info, arg in zip(infos, args):
+    sharding = None
+    arg = cast(ArrayRestoreArgs, arg)
+    if (
+        isinstance(arg, ArrayRestoreArgs)
+        and arg.mesh is not None
+        and arg.mesh_axes is not None
+    ):
+      sharding = jax.sharding.NamedSharding(arg.mesh, arg.mesh_axes)
+    elif isinstance(arg, ArrayRestoreArgs) and arg.sharding is not None:
+      if isinstance(arg.sharding, sharding_metadata.ShardingMetadata):
+        sharding = arg.sharding.to_jax_sharding()
+      else:
+        sharding = arg.sharding
+    elif sharding_file_exists:
+      assert info.parent_dir is not None
+      if info.name:
+        tspec_sharding = get_sharding_tensorstore_spec(
+            info.parent_dir.as_posix(), info.name
+        )
+        t = await ts.open(
+            tspec_sharding,
+            context=info.ts_context,
+            open=True,
+            read=True,
+        )
+        serialized_string = await t.read()
+        if serialized_string:
+          sharding = sharding_metadata.get_sharding_or_none(serialized_string)
+      else:
+        raise ValueError('Unable to deserialize sharding.')
+    else:
+      raise ValueError(
+          'Sharding of jax.Array cannot be None. Provide `mesh`'
+          ' and `mesh_axes` OR `sharding`'
+      )
+    if not info.is_ocdbt_checkpoint:
+      await _assert_parameter_files_exist(
+          info.path,
+          None,  # metadata_key, unused
+          info.use_zarr3,
+      )
+    use_ocdbt = info.is_ocdbt_checkpoint
+    tspec = get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+    tspec = get_cast_tspec_deserialize(tspec, arg)
+    deserialize_ops += [
+        serialization.async_deserialize(
+            sharding,
+            tspec,
+            global_shape=arg.global_shape
+            if hasattr(arg, 'global_shape')
+            else None,
+            byte_limiter=info.byte_limiter,
+            context=info.ts_context,
+            strict=arg.strict if hasattr(arg, 'strict') else True,
+        )
+    ]
+  return await asyncio.gather(*deserialize_ops)
+
+
+class ColocatedPythonArrayHandler(ArrayHandler):
+  """An implementation of TypeHandler for jax.Array on Pathways."""
+
+  def typestr(self) -> str:
+    return 'colocated_python_jax.Array'
+
+  async def serialize(
+      self,
+      values: Sequence[jax.Array],
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[SaveArgs]] = None,
+  ) -> Sequence[future.Future]:
+    """Serializes a jax.Array using colocated python."""
+    args = args or [SaveArgs()] * len(values)
+    check_input_arguments(values, infos, args)
+    check_array_values(values, infos)
+
+    self.ext_metadata = dict()
+    arrays = []
+    for v, info in zip(values, infos):
+      if (
+          isinstance(v, jax.Array)
+          and jax.process_count() > 1
+          and v.is_fully_addressable
+      ):
+        debug_param_info = (
+            f'ParamInfo=[name={info.name},value_typestr={info.value_typestr}]'
+        )
+        debug_array = (
+            f'jax.Array=[value={v},shape={v.shape},dtype={v.dtype},'
+            f'sharding={v.sharding},device={v.device}]'
+        )
+        raise ValueError(
+            f'Cannot serialize host local jax.Array ({debug_param_info},'
+            f' {debug_array}) in multi-host setting. Arrays like this are'
+            ' typically obtained using pmap. Consider using'
+            ' fully_replicated_host_local_array_to_global_array in'
+            f' orbax/checkpoint/utils.py to convert your arrays into'
+            f' serializable objects. Array.sharding: {v.sharding}'
+        )
+
+      if jax.dtypes.issubdtype(v.dtype, jax.dtypes.prng_key):
+        # a JAX random key
+        arrays.append(jax.random.key_data(v))
+        self.ext_metadata[info.name] = {
+            array_metadata_lib.RANDOM_KEY_IMPL: str(jax.random.key_impl(v))
+        }
+      else:
+        # regular array
+        arrays.append(v)
+
+    commit_future = future.CommitFutureAwaitingContractedSignals(
+        _colocated_serialize(arrays, infos, args, self),
+        name='colocated_python_array_handler',
+    )
+    return [commit_future]
+
+  async def deserialize(
+      self,
+      infos: Sequence[ParamInfo],
+      args: Optional[Sequence[RestoreArgs]] = None,
+  ) -> Sequence[jax.Array]:
+    """See superclass documentation."""
+    results = await _colocated_deserialize(infos, args)
+    if self._array_metadata_store is not None:
+      array_metadatas = await self._array_metadata_store.read(
+          checkpoint_dir=infos[0].parent_dir,
+      )
+      if array_metadatas:
+        results = self._parse_array_metadatas(array_metadatas, infos, results)
+    return results
