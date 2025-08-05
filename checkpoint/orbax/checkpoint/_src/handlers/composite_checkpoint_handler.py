@@ -1035,7 +1035,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         # Not an error, as some items may not have been saved.
         continue
       handler.finalize(tmp_dir.get())
-      tmp_dir.finalize(
+      asyncio.run(
+          tmp_dir.finalize(
+          )
       )
 
       # Remove the temporary path once it has been finalized.
