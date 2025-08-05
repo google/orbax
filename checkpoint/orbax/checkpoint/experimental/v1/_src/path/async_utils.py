@@ -56,6 +56,7 @@ class _PathAwaitingCreation(PathAwaitingCreation):
 def start_async_mkdir(
     path: atomicity_types.TemporaryPath,
     subdirectories: Iterable[str] = (),
+    operation_id: str | None = None,
 ) -> PathAwaitingCreation:
   """Starts async directory creation on a TemporaryPath.
 
@@ -75,6 +76,8 @@ def start_async_mkdir(
   Args:
     path: The path to create. May be an instance of `TemporaryPath`.
     subdirectories: A sequence of subdirectories to create under `path`.
+    operation_id: The operation id to use for the barrier keys. If None, the
+      current operation id is used.
 
   Returns:
     A PathAwaitingCreation object.
@@ -94,5 +97,6 @@ def start_async_mkdir(
       completion_signals=completion_signals,
       multiprocessing_options=context.multiprocessing_options.v0(),
       subdirectories=[name for name in subdirectories],
+      operation_id=operation_id,
   )
   return _PathAwaitingCreation(path.get(), f)

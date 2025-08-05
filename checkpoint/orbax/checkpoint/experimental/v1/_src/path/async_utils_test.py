@@ -59,7 +59,7 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
         self.directory / 'tmp', self.directory / 'final'
     )
     start = time.time()
-    p = async_utils.start_async_mkdir(tmpdir)
+    p = async_utils.start_async_mkdir(tmpdir, operation_id='op1')
     await p.await_creation()
     self.assertBetween(1, time.time() - start, 2)
     await self.assertExists(self.directory / 'tmp')
@@ -69,7 +69,7 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
         self.directory / 'tmp', self.directory / 'final'
     )
     start = time.time()
-    p = async_utils.start_async_mkdir(tmpdir, ['a', 'b'])
+    p = async_utils.start_async_mkdir(tmpdir, ['a', 'b'], operation_id='op1')
     await p.await_creation()
     self.assertBetween(1, time.time() - start, 2)
     await self.assertExists(self.directory / 'tmp')
@@ -84,8 +84,8 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
         self.directory / 'tmp2', self.directory / 'final2'
     )
     start = time.time()
-    p1 = async_utils.start_async_mkdir(tmpdir1)
-    p2 = async_utils.start_async_mkdir(tmpdir2)
+    p1 = async_utils.start_async_mkdir(tmpdir1, operation_id='op1')
+    p2 = async_utils.start_async_mkdir(tmpdir2, operation_id='op2')
     await p1.await_creation()
     await p2.await_creation()
     # Awaiting sequentially does not take any longer than awaiting in parallel,
@@ -102,8 +102,8 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
         self.directory / 'tmp2', self.directory / 'final2'
     )
     start = time.time()
-    p1 = async_utils.start_async_mkdir(tmpdir1)
-    p2 = async_utils.start_async_mkdir(tmpdir2)
+    p1 = async_utils.start_async_mkdir(tmpdir1, operation_id='op1')
+    p2 = async_utils.start_async_mkdir(tmpdir2, operation_id='op2')
     await asyncio.gather(p1.await_creation(), p2.await_creation())
     self.assertBetween(1, time.time() - start, 2)
     await self.assertExists(self.directory / 'tmp1')
@@ -113,7 +113,7 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     tmpdir = atomicity.AtomicRenameTemporaryPath(
         self.directory / 'tmp', self.directory / 'final'
     )
-    p = async_utils.start_async_mkdir(tmpdir)
+    p = async_utils.start_async_mkdir(tmpdir, operation_id='op1')
     await self.assertNotExists(self.directory / 'tmp')
     await asyncio.sleep(1)
     await p.await_creation()
