@@ -547,7 +547,7 @@ def _create_root_directory(
           prefix=multiprocessing_options.barrier_sync_key_prefix,
           # suffix=None,
       ),
-      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+      timeout=multihost.coordination_timeout(),
       processes=multiprocessing_options.active_processes,
   )
 
@@ -1236,7 +1236,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             prefix=self._multiprocessing_options.barrier_sync_key_prefix,
             # suffix=str(step),
         ),
-        timeout=multihost.DIRECTORY_DELETION_TIMEOUT,
+        timeout=multihost.coordination_timeout(),
         processes=self._multiprocessing_options.active_processes,
     )
     self._checkpoints.delete_if(lambda info: info.step == step)

@@ -205,7 +205,7 @@ class _SignalingThread(threading.Thread):
       target: Callable[[], Any],
       send_signals: Sequence[synchronization.HandlerAwaitableSignal],
       receive_signals: Sequence[synchronization.HandlerAwaitableSignal],
-      timeout_secs: int = 600,
+      timeout_secs: int | None = None,
       operation_id: str | None = None,
       **kwargs,
   ):
@@ -222,6 +222,11 @@ class _SignalingThread(threading.Thread):
         current operation id is used.
       **kwargs: Keyword arguments passed to the base class.
     """
+    timeout_secs = timeout_secs or multihost.coordination_timeout()
+    if timeout_secs <= 0:
+      raise ValueError(
+          f'Timeout must be positive, but got {timeout_secs} seconds.'
+      )
     self._result = None
 
     def _target_setting_result():
@@ -252,7 +257,7 @@ class _SignalingThread(threading.Thread):
       )
       barrier_key = _get_unique_barrier_key(signal, self._operation_id)
       client = signaling_client.get_signaling_client()
-      client.blocking_key_value_get(barrier_key, self._timeout_secs * 1000)
+      client.blocking_key_value_get(barrier_key, self._timeout_secs)
 
   def _set_signals(self):
     """Sets the barrier keys for the signals using send_signals."""
@@ -314,7 +319,7 @@ class CommitFuture(Future):
       receive_signals: (
           Sequence[synchronization.HandlerAwaitableSignal] | None
       ) = None,
-      timeout_secs: int = 600,
+      timeout_secs: int | None = None,
       operation_id: str | None = None,
   ):
     """Constructor.
@@ -362,7 +367,7 @@ class CommitFutureAwaitingContractedSignals(Future):
       send_signals: (
           Sequence[synchronization.HandlerAwaitableSignal] | None
       ) = None,
-      timeout_secs: int = 600,
+      timeout_secs: int | None = None,
       operation_id: str | None = None,
   ):
     """Constructor.

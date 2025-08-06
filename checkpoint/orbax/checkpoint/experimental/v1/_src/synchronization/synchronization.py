@@ -70,7 +70,7 @@ async def await_contracted_signals(operation_id: str):
   """
   client = signaling_client.get_signaling_client()
 
-  timeout_secs = 600
+  timeout_secs = multihost.coordination_timeout()
   receive_signals = await _get_awaitable_signals_from_contract(
       client, operation_id
   )
@@ -84,4 +84,4 @@ async def await_contracted_signals(operation_id: str):
         timeout_secs,
     )
     barrier_key = _get_unique_barrier_key(signal, operation_id)
-    await client.blocking_key_value_get(barrier_key, timeout_secs * 1000)
+    await client.blocking_key_value_get(barrier_key, timeout_secs)

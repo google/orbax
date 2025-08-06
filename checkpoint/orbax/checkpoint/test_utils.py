@@ -134,7 +134,7 @@ def create_tmp_directory(
           prefix=barrier_sync_key_prefix,
           suffix=f'{final_dir.name}',
       ),
-      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+      timeout=multihost.coordination_timeout(),
       processes=active_processes,
   )
   if multihost.is_primary_host(primary_host):
@@ -168,7 +168,7 @@ def create_tmp_directory(
           prefix=barrier_sync_key_prefix,
           suffix=f'{final_dir.name}',
       ),
-      timeout=multihost.DIRECTORY_CREATION_TIMEOUT,
+      timeout=multihost.coordination_timeout(),
       processes=active_processes,
   )
   return tmp_dir

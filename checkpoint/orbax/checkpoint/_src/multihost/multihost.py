@@ -24,10 +24,7 @@ from jax.experimental import multihost_utils
 import numpy as np
 
 # Default timeout in seconds.
-_DEFAULT_BARRIER_TIMEOUT = 1200
-
-DIRECTORY_CREATION_TIMEOUT = 360
-DIRECTORY_DELETION_TIMEOUT = 360
+_DEFAULT_BARRIER_TIMEOUT = 300
 
 # Used in unit tests with multiple parallel test cases.
 _TEST_CASE_INDEX = None
@@ -44,6 +41,11 @@ EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID = flags.DEFINE_bool(
     'If True, uses jax._src.distributed.global_state.process_id instead of'
     ' jax.process_index().',
 )
+
+
+def coordination_timeout() -> int:
+  """Returns the timeout for coordination operations."""
+  return _DEFAULT_BARRIER_TIMEOUT
 
 
 

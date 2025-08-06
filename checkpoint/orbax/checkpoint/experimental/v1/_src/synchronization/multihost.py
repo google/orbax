@@ -23,9 +23,14 @@ from jax.experimental import multihost_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import signaling_client
 
 # Default timeout in seconds.
-_DEFAULT_BARRIER_TIMEOUT = 1200
+_DEFAULT_BARRIER_TIMEOUT = 300
 
 
+
+
+def coordination_timeout() -> int:
+  """Returns the coordination timeout in seconds."""
+  return _DEFAULT_BARRIER_TIMEOUT
 
 
 def should_skip_process_sync(processes: Collection[int] | None = None) -> bool:
@@ -96,7 +101,9 @@ async def sync_global_processes(
       processes
   )
 
-  timeout = timeout or _DEFAULT_BARRIER_TIMEOUT
+  timeout = timeout or coordination_timeout()
+  if timeout <= 0:
+    raise ValueError(f'Timeout must be positive, but got {timeout} seconds.')
   client = signaling_client.get_signaling_client()
   key = _unique_barrier_key(key)
   if processes is not None:

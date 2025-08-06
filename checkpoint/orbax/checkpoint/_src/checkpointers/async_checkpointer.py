@@ -163,10 +163,15 @@ class _AsyncManager:
       self,
       *,
       barrier_sync_fn: multihost.BarrierSyncFn,
-      timeout_secs: int = 600,
+      timeout_secs: int | None = None,
       primary_host: Optional[int] = 0,
       barrier_sync_key_prefix: Optional[str] = None,
   ):
+    timeout_secs = timeout_secs or multihost.coordination_timeout()
+    if timeout_secs <= 0:
+      raise ValueError(
+          f'Timeout must be positive, but got {timeout_secs} seconds.'
+      )
     logging.info(
         '[process=%s][thread=%s] Using barrier_sync_fn: %s timeout: %d secs and'
         ' primary_host=%s for async checkpoint writes',

@@ -35,6 +35,7 @@ from jax import numpy as jnp
 import numpy as np
 import optax
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.multihost import multihost as multihost_v0
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.tree import utils as tree_utils
@@ -924,3 +925,36 @@ class SaveLoadTestBase:
         loaded = ocp.load_pytree(self.directory, reference_pytree)
 
       test_utils.assert_tree_equal(self, expected, loaded)
+
+    @parameterized.parameters((3,), (8,))
+    def test_primary_host_background_error(self, timeout):
+      def _assert_false(*args, **kwargs):
+        del args, kwargs
+        assert False
+
+      start = time.time()
+      with (
+          mock.patch.object(
+              atomicity, '_create_tmp_directory', new=_assert_false
+          ),
+          mock.patch.object(
+              multihost,
+              'coordination_timeout',
+              return_value=timeout,
+          ),
+          mock.patch.object(
+              multihost_v0,
+              'coordination_timeout',
+              return_value=timeout,
+          ),
+      ):
+        r = ocp.save_pytree_async(self.directory, self.pytree)
+        if multihost.is_primary_host(primary_host=0):
+          with self.assertRaises(AssertionError):
+            r.result()
+          # Error should be raised quickly on primary host.
+          self.assertLessEqual(time.time() - start, timeout - 1)
+        else:
+          with self.assertRaises(BaseException):
+            r.result()
+          self.assertLessEqual(time.time() - start, timeout + 1)

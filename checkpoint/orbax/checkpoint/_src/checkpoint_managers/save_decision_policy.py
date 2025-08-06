@@ -162,7 +162,7 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
     save_result = int(
         client.blocking_key_value_get(
             result_barrier_key,
-            timeout_secs=600,
+            timeout_secs=multihost.coordination_timeout(),
         )
     )
     _log_save_decision(
