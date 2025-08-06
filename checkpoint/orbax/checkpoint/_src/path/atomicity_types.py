@@ -75,9 +75,9 @@ class TemporaryPath(Protocol):
     """
     ...
 
-  async def finalize(
+  def finalize(
       self,
-  ) -> None:
+  ):
     """Finalizes the temporary path into the final path.
 
     NOTE: This method should be only called on the primary host.

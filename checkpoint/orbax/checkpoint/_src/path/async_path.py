@@ -82,7 +82,3 @@ async def rmtree(path: epath.Path):
 
 async def touch(path: epath.Path, *, exist_ok: bool = False):
   return await asyncio.to_thread(path.touch, exist_ok=exist_ok)
-
-
-async def rename(src: epath.Path, dst: epath.Path):
-  return await asyncio.to_thread(src.rename, dst)
