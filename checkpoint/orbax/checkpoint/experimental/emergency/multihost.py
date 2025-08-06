@@ -16,10 +16,20 @@
 
 from typing import List, Optional
 
+from absl import flags
 from absl import logging
 import jax
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
+
+
+EXPERIMENTAL_USE_DISTRIBUTED_ID_FOR_MESH_CONSISTENCY = flags.DEFINE_bool(
+    'experimental_use_distributed_id_for_mesh_consistency',
+    True,
+    'Decides how to Map how device ids changed across restarts. '
+    'If True, use remapping distributed id for consistent restore mesh '
+    'logic. If False, remaps mesh according to jax.devices() order.',
+)
 
 
 def _int_list_flip_index_and_value(int_list: List[int]):
@@ -132,29 +142,40 @@ def consistent_restore_mesh(
   Returns:
     The new mesh devices that should be used to create the mesh.
   """
-  # Map how device ids changed across restarts.
-  device_id_across_restarts = {}
-  for i in range(len(previous_distributed_to_device_ids)):
-    for j in range(len(previous_distributed_to_device_ids[i])):
-      previous_id = previous_distributed_to_device_ids[i][j]
-      current_id = current_distributed_to_device_ids[i][j]
-      device_id_across_restarts[previous_id] = current_id
-  logging.debug(
-      'device_id_across_restarts (key: previous_id, value: current_id): %s',
-      device_id_across_restarts,
-  )
-  # Key devices by id.
-  jax_devices_by_id = {d.id: d for d in devices}
+  if EXPERIMENTAL_USE_DISTRIBUTED_ID_FOR_MESH_CONSISTENCY.value:
+    # Map how device ids changed across restarts.
+    device_id_across_restarts = {}
+    for i in range(len(previous_distributed_to_device_ids)):
+      for j in range(len(previous_distributed_to_device_ids[i])):
+        previous_id = previous_distributed_to_device_ids[i][j]
+        current_id = current_distributed_to_device_ids[i][j]
+        device_id_across_restarts[previous_id] = current_id
+    logging.debug(
+        'device_id_across_restarts (key: previous_id, value: current_id): %s',
+        device_id_across_restarts,
+    )
+    # Key devices by id.
+    jax_devices_by_id = {d.id: d for d in devices}
 
-  new_flattened_mesh_devices = [
-      # Convert old ids to current ids that correspond to the same physical
-      # hardware.
-      jax_devices_by_id[device_id_across_restarts[id]]
-      for id in previous_flattened_mesh_device_ids
-  ]
-  new_mesh_devices = np.array(new_flattened_mesh_devices).reshape(
-      user_mesh.devices.shape
-  )
+    new_flattened_mesh_devices = [
+        # Convert old ids to current ids that correspond to the same physical
+        # hardware.
+        jax_devices_by_id[device_id_across_restarts[id]]
+        for id in previous_flattened_mesh_device_ids
+    ]
+    new_mesh_devices = np.array(new_flattened_mesh_devices).reshape(
+        user_mesh.devices.shape
+    )
+  else:
+    # This logic assumes jax.devices() returns the same output across restarts.
+    # This assumption may break in future Jax releases.
+    device_ids = [x.id for x in devices]
+    new_flattened_mesh_devices = [
+        devices[device_ids.index(i)] for i in previous_flattened_mesh_device_ids
+    ]
+    new_mesh_devices = np.array(new_flattened_mesh_devices).reshape(
+        user_mesh.devices.shape
+    )
   return jax.sharding.Mesh(new_mesh_devices, user_mesh.axis_names)
 
 
