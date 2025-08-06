@@ -14,12 +14,15 @@
 
 """Defines free-function interface for partial saving and finalizing."""
 
+import asyncio
 import os
 
 from etils import epath
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import saving as saving_lib
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -242,18 +245,58 @@ def finalize(path: path_types.PathLike) -> None:
     FileNotFoundError: If no partial save session is found for the given `path`.
       This can happen if `ocp.partial.save_*` was not called first.
   """
-  path = epath.Path(path)
+  context = context_lib.get_context()
 
+  path = epath.Path(path)
   if _is_partial_save_path(path):
     final_path = _remove_partial_save_suffix(path)
+    partial_path = path
   else:
     final_path = path
-    path = _add_partial_save_suffix(path)
+    partial_path = _add_partial_save_suffix(path)
 
+  # make async
+  finalize_error = None  # Sync at barrier before raising error.
   if final_path.exists():
-    raise FileExistsError(f'Finalized checkpoint already exists at {path}.')
+    finalize_error = FileExistsError(
+        f'Finalized checkpoint already exists at {final_path}.'
+    )
+  elif not partial_path.exists():
+    finalize_error = FileNotFoundError(
+        f'Partial save path {partial_path} does not exist.'
+    )
 
-  if not path.exists():
-    raise FileNotFoundError(f'Partial save path {path} does not exist.')
+  asyncio.run(
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'OcpPartialSaving:finalize_error',
+              prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+          ),
+          processes=context.multiprocessing_options.active_processes,
+      )
+  )
 
-  os.rename(path, final_path)
+  if finalize_error is not None:
+    raise finalize_error
+
+  if (
+      multihost.is_primary_host(context.multiprocessing_options.primary_host)
+      and finalize_error is None
+  ):
+    try:
+      os.rename(partial_path, final_path)
+    except (FileExistsError, FileNotFoundError, OSError) as e:
+      finalize_error = e
+
+  asyncio.run(
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'OcpPartialSaving:finalize_complete',
+              prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+          ),
+          processes=context.multiprocessing_options.active_processes,
+      )
+  )
+
+  if finalize_error is not None:
+    raise finalize_error
