@@ -94,7 +94,11 @@ class InternalCheckpointMetadata:
       cls, metadata_dict: SerializedMetadata
   ) -> InternalCheckpointMetadata:
     """Deserializes `metadata_dict` to `InternalCheckpointMetadata`."""
-    assert isinstance(metadata_dict, dict)
+    if not isinstance(metadata_dict, dict):
+      raise ValueError(
+          'Metadata dict must be a dictionary, but got'
+          f' {type(metadata_dict).__name__}'
+      )
     fields = dataclasses.fields(InternalCheckpointMetadata)
     field_names = {field.name for field in fields}
 
@@ -113,7 +117,11 @@ class InternalCheckpointMetadata:
         **validated_metadata_dict['performance_metrics']
     )
 
-    assert isinstance(validated_metadata_dict['custom_metadata'], dict)
+    if not isinstance(validated_metadata_dict['custom_metadata'], dict):
+      raise ValueError(
+          'Custom metadata must be a dictionary, but got'
+          f' {type(validated_metadata_dict["custom_metadata"]).__name__}'
+      )
     for k in metadata_dict:
       if k not in validated_metadata_dict:
         validated_metadata_dict['custom_metadata'][k] = (
