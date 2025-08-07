@@ -629,18 +629,22 @@ def ensure_atomic_save(
 ):
   """Wrapper around TemporaryPath.finalize for testing."""
   if temp_ckpt_dir == final_ckpt_dir:
-    atomicity.CommitFileTemporaryPath(
-        temp_ckpt_dir,
-        final_ckpt_dir,
-        checkpoint_metadata_store=metadata_store,
-    ).finalize(
+    asyncio.run(
+        atomicity.CommitFileTemporaryPath(
+            temp_ckpt_dir,
+            final_ckpt_dir,
+            checkpoint_metadata_store=metadata_store,
+        ).finalize(
+        )
     )
   else:
-    atomicity.AtomicRenameTemporaryPath(
-        temp_ckpt_dir,
-        final_ckpt_dir,
-        checkpoint_metadata_store=metadata_store,
-    ).finalize(
+    asyncio.run(
+        atomicity.AtomicRenameTemporaryPath(
+            temp_ckpt_dir,
+            final_ckpt_dir,
+            checkpoint_metadata_store=metadata_store,
+        ).finalize(
+        )
     )
 
 

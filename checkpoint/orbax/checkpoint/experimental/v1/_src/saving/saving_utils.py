@@ -202,10 +202,7 @@ class SaveResponse(async_types.AsyncResponse[None]):
           '[process=%s] Finished writing checkpoint metadata.',
           multihost.process_index(),
       )
-      # Properly, this should be an async function. For now, it's not a big
-      # problem if it isn't though, since we have earlier async executions that
-      # will yield control.
-      atomicity.on_commit_callback(
+      await atomicity.on_commit_callback(
           self._tmp_path,
           checkpoint_start_time=self._start_time,
       )
