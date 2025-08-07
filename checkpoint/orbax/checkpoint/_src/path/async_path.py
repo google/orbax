@@ -25,6 +25,7 @@ Should be implemented as::
 """
 
 import asyncio
+import os
 from typing import Any
 
 from etils import epath
@@ -86,3 +87,15 @@ async def touch(path: epath.Path, *, exist_ok: bool = False):
 
 async def rename(src: epath.Path, dst: epath.Path):
   return await asyncio.to_thread(src.rename, dst)
+
+
+async def is_dir(path: epath.Path):
+  return await asyncio.to_thread(path.is_dir)
+
+
+async def is_link(path: epath.Path):
+  return await asyncio.to_thread(os.path.islink, path)
+
+
+async def iterdir(path: epath.Path):
+  return await asyncio.to_thread(path.iterdir)

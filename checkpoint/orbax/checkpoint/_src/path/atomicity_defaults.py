@@ -26,20 +26,20 @@ from orbax.checkpoint._src.path import step as step_lib
 
 
 def get_item_default_temporary_path_class(
-    final_path: epath.Path,
+    path: epath.Path,
 ) -> type[atomicity_types.TemporaryPath]:
   """Returns the default temporary path class for a given sub-item path."""
-  if step_lib.is_gcs_path(final_path):
+  if step_lib.is_gcs_path(path):
     return atomicity.CommitFileTemporaryPath
   else:
     return atomicity.AtomicRenameTemporaryPath
 
 
 def get_default_temporary_path_class(
-    final_path: epath.Path,
+    path: epath.Path,
 ) -> type[atomicity_types.TemporaryPath]:
   """Returns the default temporary path class for a given checkpoint path."""
-  if step_lib.is_gcs_path(final_path):
+  if step_lib.is_gcs_path(path):
     return atomicity.CommitFileTemporaryPath
   else:
     return atomicity.AtomicRenameTemporaryPath
