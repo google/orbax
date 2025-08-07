@@ -49,7 +49,7 @@ def read_process_metadata(directory: epath.Path):
         f'Process metadata folder does not exist at {metadata_folder}. The'
         ' local checkpoint cannot be restored.'
     )
-  if step_lib.is_tmp_checkpoint(metadata_folder):
+  if step_lib.is_path_temporary(metadata_folder):
     raise ValueError(
         f'Process metadata folder was not finalized at {metadata_folder}.'
         ' The local checkpoint cannot be restored.'

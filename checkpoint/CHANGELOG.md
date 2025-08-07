@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Allow ArrayMetadataStore to update existing metadatas.
+- Move temporary path detection into `TemporaryPath` class. This class serves
+as a natural place for encapsulating core temporary path detection logic.
 
 ## [0.11.21] - 2025-08-07
 
