@@ -18,4 +18,4 @@ ipykernel==6.29.5
 myst-nb==1.2.0
 cached_property==2.0.1
 importlib_resources==6.5.2
-tf-nightly
+tensorflow==2.20.0rc0

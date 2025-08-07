@@ -47,10 +47,6 @@ homepage = 'http://github.com/google/orbax'
 repository = 'http://github.com/google/orbax'
 
 [project.optional-dependencies]
-docs = [
-  'tensorflow>=2.15.0',
-]
-
 testing = [
     'pytest',
     'pytest-xdist',
