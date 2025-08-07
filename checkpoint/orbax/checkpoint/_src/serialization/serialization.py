@@ -127,6 +127,10 @@ class LimitInFlightBytes(ByteLimiter):
     self._available_bytes = num_bytes
     self._cv = asyncio.Condition(lock=asyncio.Lock())
 
+  @property
+  def max_bytes(self) -> int:
+    return self._max_bytes
+
   async def wait_for_bytes(self, requested_bytes: int):
     """Reserve bytes."""
     if requested_bytes >= self._max_bytes:
