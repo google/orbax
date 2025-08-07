@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.21] - 2025-08-07
+
 ### Fixed
 
 - Fix incorrectly specified timeouts waiting for signals in background threads. Decrease timeout to 60s.
