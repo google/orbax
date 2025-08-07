@@ -14,12 +14,15 @@
 
 """Defines free-function interface for partial saving and finalizing."""
 
+import asyncio
 import os
 
 from etils import epath
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import saving as saving_lib
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -242,18 +245,34 @@ def finalize(path: path_types.PathLike) -> None:
     FileNotFoundError: If no partial save session is found for the given `path`.
       This can happen if `ocp.partial.save_*` was not called first.
   """
-  path = epath.Path(path)
+  context = context_lib.get_context()
+  primary_host = context.multiprocessing_options.primary_host
 
+  path = epath.Path(path)
   if _is_partial_save_path(path):
     final_path = _remove_partial_save_suffix(path)
+    partial_path = path
   else:
     final_path = path
-    path = _add_partial_save_suffix(path)
+    partial_path = _add_partial_save_suffix(path)
 
   if final_path.exists():
-    raise FileExistsError(f'Finalized checkpoint already exists at {path}.')
+    raise FileExistsError(
+        f'Finalized checkpoint already exists at {final_path}.'
+    )
 
-  if not path.exists():
-    raise FileNotFoundError(f'Partial save path {path} does not exist.')
+  if not partial_path.exists():
+    raise FileNotFoundError(f'Partial save path {partial_path} does not exist.')
 
-  os.rename(path, final_path)
+  if multihost.is_primary_host(primary_host) == 0:
+    os.rename(partial_path, final_path)
+
+  asyncio.run(
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'OcpPartialSaving:finalize',
+              prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+          ),
+          processes=context.multiprocessing_options.active_processes,
+      )
+  )

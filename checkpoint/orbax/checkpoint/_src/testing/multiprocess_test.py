@@ -62,6 +62,16 @@ MULTIPROCESS_TEST_WORKER_ID = flags.DEFINE_integer(
     -1,
     "TPU worker id. Set by main test process; should not be set by users.",
 )
+flags.DEFINE_string("deepsea_hal_excluded_devs", "", "Internal use only.")
+flags.DEFINE_string("deepsea_host_bounds", "", "Internal use only.")
+flags.DEFINE_string("deepsea_chips_per_host_bounds", "", "Internal use only.")
+flags.DEFINE_string(
+    "deepsea_slice_builder_worker_addresses", "", "Internal use only."
+)
+flags.DEFINE_integer(
+    "deepsea_slice_builder_worker_port", 0, "Internal use only."
+)
+
 
 expect_failures_with_regex = None
 
