@@ -56,7 +56,7 @@ import asyncio
 import pickle
 import threading
 import time
-from typing import Awaitable, Protocol, Sequence, TypeVar
+from typing import Awaitable, Protocol, Sequence
 
 from absl import logging
 from etils import epath
@@ -77,8 +77,6 @@ TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
 COMMIT_SUCCESS_FILE = step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
 
 _LAST_CHECKPOINT_WRITE_TIME = time.time()
-
-_T = TypeVar('_T', bound='_TemporaryPathBase')
 
 
 async def _is_tmp_checkpoint(path: epath.Path):
@@ -178,12 +176,12 @@ def _get_tmp_directory_pattern(final_path_name: str | None = None) -> str:
     return final_path_name + suffix
 
 
-class _TemporaryPathBase(atomicity_types.TemporaryPath):
+class TemporaryPathBase(atomicity_types.TemporaryPath):
   """A base class for TemporaryPath implementations."""
 
   def __init__(
       self,
-      temporary_path: epath.Path,
+      temporary_path: epath.Path | None,
       final_path: epath.Path,
       *,
       checkpoint_metadata_store: (
@@ -197,6 +195,15 @@ class _TemporaryPathBase(atomicity_types.TemporaryPath):
     file_options = file_options or options_lib.FileOptions()
     self._checkpoint_metadata_store = checkpoint_metadata_store
     self._path_permission_mode = file_options.path_permission_mode
+
+  def get(self) -> epath.Path:
+    """Returns the temporary path."""
+    if not self._tmp_path:
+      raise ValueError(
+          'Temporary path has not been created yet. Please call `create`'
+          ' first.'
+      )
+    return self._tmp_path
 
 
 class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
@@ -305,7 +312,7 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
     raise NotImplementedError('`finalize` is not supported.')
 
 
-class AtomicRenameTemporaryPath(_TemporaryPathBase):
+class AtomicRenameTemporaryPath(TemporaryPathBase):
   """TemporaryPath implementation that uses atomic rename."""
 
   @classmethod
@@ -324,9 +331,6 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
         checkpoint_metadata_store=checkpoint_metadata_store,
         file_options=file_options,
     )
-
-  def get(self) -> epath.Path:
-    return self._tmp_path
 
   def get_final(self) -> epath.Path:
     return self._final_path
@@ -379,13 +383,13 @@ class AtomicRenameTemporaryPath(_TemporaryPathBase):
 
   def __repr__(self) -> str:
     return (
-        f'AtomicRenameTemporaryPath(tmp="{self._tmp_path.name}",'
+        f'AtomicRenameTemporaryPath(tmp="{self.get().name}",'
         f' final="{self._final_path.name}",'
         f' directory="{self._final_path.parent}")'
     )
 
 
-class CommitFileTemporaryPath(_TemporaryPathBase):
+class CommitFileTemporaryPath(TemporaryPathBase):
   """TemporaryPath implementation that uses a commit file."""
 
   @classmethod
@@ -404,9 +408,6 @@ class CommitFileTemporaryPath(_TemporaryPathBase):
         checkpoint_metadata_store=checkpoint_metadata_store,
         file_options=file_options,
     )
-
-  def get(self) -> epath.Path:
-    return self._tmp_path
 
   def get_final(self) -> epath.Path:
     return self._final_path
