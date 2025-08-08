@@ -14,14 +14,21 @@
 
 """Emergency checkpointing utils for multihost / multislice."""
 
+import os
+import time
 from typing import List, Optional
 
 from absl import flags
 from absl import logging
+from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 
+
+REPLICATOR_FILE = 'replicator.yaml'
+TEMP_REPLICATOR_FILE_NAME = REPLICATOR_FILE + '.tmp'
+JAX_INIT_INFO_FILE = 'jax-init-info.txt'
 
 EXPERIMENTAL_USE_DISTRIBUTED_ID_FOR_MESH_CONSISTENCY = flags.DEFINE_bool(
     'experimental_use_distributed_id_for_mesh_consistency',
@@ -200,3 +207,245 @@ def runtime_to_distributed_ids() -> List[int]:
       ].process_index
     assert -1 not in result
   return result
+
+
+def wait_for_replicator_file_to_disappear(
+    local_checkpoint_directory: epath.Path, timeout_seconds: int = 300
+) -> bool:
+  """Waits for a file to disappear."""
+  file_exists = True
+  replicator_file = epath.Path(local_checkpoint_directory / REPLICATOR_FILE)
+  for _ in range(timeout_seconds):
+    if not replicator_file.exists():
+      file_exists = False
+      break
+    time.sleep(1)
+  if file_exists:
+    logging.warning(
+        'There is existing replicator.yaml which did not disappear in time.'
+    )
+  else:
+    logging.info(
+        'replicator.yaml no longer exists, creating new replicator.yaml.'
+    )
+  return file_exists
+
+
+def create_replicator_file(
+    file_path: epath.Path,
+    run_name: str,
+    num_nodes: int,
+    num_slices: int,
+    node_rank: int,
+    peer_ranks: List[int],
+    backup_interval_minutes: int,
+):
+  """Creates a replicator file."""
+  temp_file = epath.Path(file_path / TEMP_REPLICATOR_FILE_NAME)
+  replicator_file = epath.Path(file_path / REPLICATOR_FILE)
+  replicator_yaml = f"""job-name: {run_name}
+  framework: orbax
+  assume-data-parallelism: {num_slices}
+  node-rank: {node_rank}
+  nodes: {num_nodes}
+  peer-ranks: {peer_ranks}
+  backup-interval-minutes: {backup_interval_minutes}"""
+  temp_file.write_text(
+      '\n'.join([l.strip() for l in replicator_yaml.split('\n')])
+  )
+  os.rename(temp_file, replicator_file)
+
+
+def get_num_slices(compile_topology_num_slices: int = 0):
+  """Get the number of slices."""
+  if jax.devices()[0].platform == 'cpu':
+    logging.info('Setting num_slices=1 for CPU hardware type')
+    return 1
+  if compile_topology_num_slices > 0:
+    return compile_topology_num_slices
+  else:
+    devices = jax.devices()
+    try:
+      return 1 + max(d.slice_index for d in devices)
+    except (ValueError, AttributeError):
+      return 1
+
+
+def initialize_multi_tier_checkpointing(
+    local_checkpoint_directory: epath.Path,
+    use_replicator_service: bool = False,
+    backup_interval_minutes: int = 10,
+    num_slices: Optional[int] = None,
+    num_nodes: Optional[int] = None,
+    nodes_per_slice: Optional[int] = None,
+    node_rank: Optional[int] = None,
+    run_name: Optional[str] = None,
+    jax_initialization_timeout_seconds: int = 900,
+    compile_topology_num_slices: int = 0,
+):
+  """Initializes multi-tier checkpointing.
+
+  Args:
+    local_checkpoint_directory: The local checkpoint directory.
+    use_replicator_service: Whether to use the replicator service.
+    backup_interval_minutes: The backup interval for the replicator service, in
+      minutes.
+    num_slices: The number of slices.
+    num_nodes: The number of nodes.
+    nodes_per_slice: The number of nodes per slice.
+    node_rank: The rank of the node.
+    run_name: The name of the run.
+    jax_initialization_timeout_seconds: The timeout for JAX initialization.
+    compile_topology_num_slices: The number of slices from the compile topology.
+  """
+  process_id, coordinator_address = _retrieve_jax_init_info(
+      local_checkpoint_directory
+  )
+  if process_id and coordinator_address:
+    logging.info(
+        'Using process_id %s and coordinator_address %s to initialize JAX'
+        ' distributed runtime...',
+        process_id,
+        coordinator_address,
+    )
+    jax.distributed.initialize(
+        process_id=int(process_id),
+        coordinator_address=coordinator_address,
+        initialization_timeout=jax_initialization_timeout_seconds,
+    )
+    multihost.initialize_runtime_to_distributed_ids()
+    multihost.initialize_distributed_to_device_ids()
+    if use_replicator_service:
+      wait_for_replicator_file_to_disappear(local_checkpoint_directory)
+      num_slices = num_slices or get_num_slices(
+          compile_topology_num_slices
+      )
+      num_nodes = num_nodes or jax.process_count()
+      nodes_per_slice = num_nodes // num_slices or nodes_per_slice
+      node_rank = node_rank or jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
+      my_process_index = jax.process_index()
+      process_index_to_node_rank = runtime_to_distributed_ids()
+      logging.info(
+          'Mapping of IDs: jax-init-info.txt=%s, NodeRank=%s, ProcessIndex=%s,'
+          ' ProcessIndex->NodeRank=%s',
+          process_id,
+          node_rank,
+          my_process_index,
+          process_index_to_node_rank,
+      )
+      my_in_pipeline_index = my_process_index % nodes_per_slice
+      peer_ranks = []
+      for i in range(num_slices):
+        peer_process_index = i * nodes_per_slice + my_in_pipeline_index
+        if peer_process_index != my_process_index:
+          peer_process_rank = process_index_to_node_rank[peer_process_index]
+          peer_ranks.append(peer_process_rank)
+      logging.info('Peers for NodeRank %s: %s', node_rank, peer_ranks)
+      run_name = run_name if run_name else os.environ.get('JOBSET_NAME')
+      create_replicator_file(
+          local_checkpoint_directory,
+          run_name,
+          num_nodes,
+          num_slices,
+          node_rank,
+          peer_ranks,
+          backup_interval_minutes,
+      )
+      wait_for_replicator_file_to_disappear(local_checkpoint_directory)
+      _block_and_proces_restore_dir(local_checkpoint_directory)
+  else:
+    logging.warning(
+        'Initializing JAX distributed runtime without args when emergency'
+        ' checkpointing is enabled. This should not happen and your workload'
+        ' may have unexpected behavior.'
+    )
+    jax.distributed.initialize(
+        initialization_timeout=jax_initialization_timeout_seconds
+    )
+    multihost.initialize_runtime_to_distributed_ids()
+    multihost.initialize_distributed_to_device_ids()
+
+
+def _retrieve_jax_init_info(
+    local_checkpoint_directory: epath.Path, timeout_seconds: int = 900
+) -> List[str]:
+  """Retrieve JAX init info from a local file.
+
+  Args:
+    local_checkpoint_directory: The local checkpoint directory.
+    timeout_seconds: The timeout in seconds.
+
+  Returns:
+    A list of strings containing the JAX init info (process id and coordinator
+    address).
+
+  Allow time for the JAX init info file to be populated by GKE. This is needed
+  because the file is only populated when the worker with process id of 0 is
+  determined. After a disruption, although some workers might be up and
+  running, the init info file won't be populated until the node with process
+  id of 0 is known and this could take time. Using 900 seconds for now and it
+  needs to be increased if the "repair" time is longer.
+  """
+  local_jax_init_info_file = (
+      epath.Path(local_checkpoint_directory) / JAX_INIT_INFO_FILE
+  )
+
+  for i in range(timeout_seconds):
+    if local_jax_init_info_file.exists():
+      return local_jax_init_info_file.read_text().split('\n')[:2]
+    logging.info(
+        'Unable to locate %s after %d seconds,'
+        ' sleeping for 1 second before retrying...',
+        JAX_INIT_INFO_FILE,
+        i,
+    )
+    time.sleep(1)
+  logging.info(
+      'Unable to locate %s after 900 seconds,'
+      'returning empty process id and coordinator address.',
+      JAX_INIT_INFO_FILE,
+  )
+  return ['', '']
+
+
+def _block_and_proces_restore_dir(
+    local_checkpoint_directory: epath.Path, timeout=300
+):
+  """Block until a file ending with `.restore` appears, then extract the step number and rename the directory using the step number.
+
+  Args:
+    local_checkpoint_directory: The local checkpoint directory.
+    timeout: The timeout in seconds.
+  """
+  restore_word = '.restore'
+  for _ in range(timeout):
+    files = os.listdir(local_checkpoint_directory)
+    for f in files:
+      if f.endswith(restore_word):
+        step = _extract_step(f)
+        if step != '0':
+          os.rename(
+              epath.Path(local_checkpoint_directory) / f,
+              epath.Path(local_checkpoint_directory) / step,
+          )
+          logging.info(
+              'Found a restore directory at step %s and renamed it to %s.',
+              step,
+              epath.Path(local_checkpoint_directory) / step,
+          )
+        else:
+          logging.info(
+              'Found a restore directory at step 0, skipping renaming.'
+          )
+        return
+    time.sleep(1)
+  logging.info(
+      '%s seconds have passed but no .restore file was found.', timeout
+  )
+
+
+def _extract_step(f):
+  # The base file name is formatted as:
+  # {job_name}-s{step}-n{node_rank}-w{gpu_rank}
+  return f.rsplit('-', 3)[1][1:]
+
