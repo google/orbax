@@ -14,18 +14,22 @@
 
 """Functions for loading metadata from a checkpoint."""
 
+import asyncio
 from typing import Any
 
 from etils import epath
+from orbax.checkpoint.experimental.v1 import errors
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
-from orbax.checkpoint.experimental.v1._src.loading import v0_compatibility
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 
 CheckpointMetadata = metadata_types.CheckpointMetadata
+InvalidLayoutError = errors.InvalidLayoutError
 PyTreeMetadata = metadata_types.PyTreeMetadata
 PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
 
@@ -77,11 +81,14 @@ def pytree_metadata(
   Returns:
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
-  format_utils.validate_checkpoint_directory(path)
-  format_utils.validate_checkpoint_metadata(path)
-  format_utils.validate_pytree_checkpoint(path)
-
-  metadata = _checkpointables_metadata_impl(path)
+  path = epath.Path(path)
+  context = context_lib.get_context()
+  layout = layout_registry.get_checkpoint_layout(
+      path, context.checkpoint_layout
+  )
+  # TODO(b/436338979): Parameterize pytree name.
+  layout.validate_pytree(PYTREE_CHECKPOINTABLE_KEY)
+  metadata = _checkpointables_metadata_impl(layout)
   return CheckpointMetadata[PyTreeMetadata](
       metadata=metadata.metadata[PYTREE_CHECKPOINTABLE_KEY],
       init_timestamp_nsecs=metadata.init_timestamp_nsecs,
@@ -117,29 +124,24 @@ def checkpointables_metadata(
   Returns:
     A `CheckpointMetadata[dict[str, Any]]` object.
   """
-  format_utils.validate_checkpoint_directory(path)
-  format_utils.validate_checkpoint_metadata(path)
+  path = epath.Path(path)
+  context = context_lib.get_context()
+  layout = layout_registry.get_checkpoint_layout(
+      path, context.checkpoint_layout
+  )
+  layout.validate()
 
-  return _checkpointables_metadata_impl(path)
+  return _checkpointables_metadata_impl(layout)
 
 
 def _checkpointables_metadata_impl(
-    path: path_types.PathLike,
+    layout: checkpoint_layout.CheckpointLayout,
 ) -> CheckpointMetadata[dict[str, Any]]:
   """Shared implementation for checkpointables_metadata."""
-  path = epath.Path(path)
-  checkpointer, _ = v0_compatibility.get_v0_checkpointer_and_args(
-      path, None, context=context_lib.get_context()
-  )
-  metadata = checkpointer.metadata(path)
-  item_metadata = {k: v for k, v in metadata.item_metadata.items()}
-  # Exclude `metrics` if present. This is relevant only for
-  # `training.Checkpointer`, and is separately added to the
-  # `training.CheckpointMetadata` object.
-  item_metadata.pop('metrics', None)
-  return CheckpointMetadata[dict[str, Any]](
-      metadata=item_metadata,
-      init_timestamp_nsecs=metadata.init_timestamp_nsecs,
-      commit_timestamp_nsecs=metadata.commit_timestamp_nsecs,
-      custom_metadata=metadata.custom_metadata,
-  )
+
+  async def _load_metadata() -> (
+      metadata_types.CheckpointMetadata[dict[str, Any]]
+  ):
+    return await layout.metadata()
+
+  return asyncio.run(_load_metadata())

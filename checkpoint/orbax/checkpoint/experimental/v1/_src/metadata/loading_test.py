@@ -24,15 +24,18 @@ import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
+from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
-
+import safetensors.numpy
 
 Foo = handler_utils.Foo
 Bar = handler_utils.Bar
 AbstractFoo = handler_utils.AbstractFoo
 AbstractBar = handler_utils.AbstractBar
+InvalidLayoutError = ocp.errors.InvalidLayoutError
+PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
 
 
 class PyTreeMetadataTest(absltest.TestCase):
@@ -63,9 +66,9 @@ class PyTreeMetadataTest(absltest.TestCase):
       raise TypeError(f'Unsupported type: {type(value)}')
 
   def test_invalid_path(self):
-    with self.assertRaises(FileNotFoundError):
+    with self.assertRaises(InvalidLayoutError):
       ocp.pytree_metadata(self.directory.parent)
-    with self.assertRaises(FileNotFoundError):
+    with self.assertRaises(InvalidLayoutError):
       ocp.pytree_metadata(self.directory.parent / 'foo')
 
   def test_pytree_metadata(self):
@@ -105,6 +108,44 @@ class PyTreeMetadataTest(absltest.TestCase):
     with self.subTest('full_metadata'):
       loaded_pytree = ocp.load_pytree(self.directory, metadata)
       test_utils.assert_tree_equal(self, expected_pytree, loaded_pytree)
+
+  def test_pytree_metadata_safetensors(self):
+    st_path = epath.Path(self.create_tempdir().full_path) / 'model.safetensors'
+    tensor_data = {
+        'x': np.array([[1.0, 2.0]], dtype=np.float32),
+        'y': np.array([1, 2, 3], dtype=np.int64),
+    }
+    st_custom_meta = {'framework': 'test', 'version': '1.0'}
+    safetensors.numpy.save_file(tensor_data, st_path, metadata=st_custom_meta)
+
+    expected_metadata_tree = {
+        'x': jax.ShapeDtypeStruct(shape=(1, 2), dtype=np.float32),
+        'y': jax.ShapeDtypeStruct(shape=(3,), dtype=np.int64),
+    }
+
+    with context_lib.Context(
+        checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
+    ):
+      ckpt_metadata = ocp.pytree_metadata(st_path)
+
+    self.assertIsInstance(ckpt_metadata, metadata_types.CheckpointMetadata)
+    self.assertEqual(
+        ckpt_metadata.metadata.keys(), expected_metadata_tree.keys()
+    )
+    for key, expected_sds in expected_metadata_tree.items():
+      actual_sds = ckpt_metadata.metadata[key]
+      self.assertEqual(actual_sds.shape, expected_sds.shape)
+      self.assertEqual(actual_sds.dtype, expected_sds.dtype)
+    self.assertIsNone(ckpt_metadata.init_timestamp_nsecs)
+    self.assertEqual(ckpt_metadata.custom_metadata, st_custom_meta)
+    self.assertIsNotNone(ckpt_metadata.commit_timestamp_nsecs)
+
+    # Test invalid path
+    with self.assertRaises(ocp.errors.InvalidLayoutError):
+      with context_lib.Context(
+          checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
+      ):
+        ocp.pytree_metadata(self.directory)
 
 
 
@@ -152,6 +193,46 @@ class CheckpointablesMetadataTest(absltest.TestCase):
     )
     self.assertSameElements(loaded.keys(), ['bar'])
     self.assertEqual(Foo(3, 'bar'), loaded['bar'])
+
+  def test_checkpointables_metadata_safetensors(self):
+    st_path = epath.Path(self.create_tempdir().full_path) / 'model.safetensors'
+    tensor_data = {
+        'item1': np.array([1.0], dtype=np.float32),
+        'item2': np.array([1], dtype=np.int32),
+    }
+    st_custom_meta = {'framework': 'test', 'version': '1.0'}
+    safetensors.numpy.save_file(tensor_data, st_path, metadata=st_custom_meta)
+
+    expected_st_metadata = {
+        'item1': jax.ShapeDtypeStruct(shape=(1,), dtype=np.float32),
+        'item2': jax.ShapeDtypeStruct(shape=(1,), dtype=np.int32),
+    }
+
+    with context_lib.Context(
+        checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
+    ):
+      ckpt_metadata = ocp.checkpointables_metadata(st_path)
+
+    self.assertIsInstance(ckpt_metadata, metadata_types.CheckpointMetadata)
+    self.assertIn(PYTREE_CHECKPOINTABLE_KEY, ckpt_metadata.metadata)
+
+    st_pytree_metadata = ckpt_metadata.metadata[PYTREE_CHECKPOINTABLE_KEY]
+    self.assertEqual(st_pytree_metadata.keys(), expected_st_metadata.keys())
+    for key, expected_sds in expected_st_metadata.items():
+      actual_sds = st_pytree_metadata[key]
+      self.assertEqual(actual_sds.shape, expected_sds.shape)
+      self.assertEqual(actual_sds.dtype, expected_sds.dtype)
+
+    self.assertIsNone(ckpt_metadata.init_timestamp_nsecs)
+    self.assertEqual(ckpt_metadata.custom_metadata, st_custom_meta)
+    self.assertIsNotNone(ckpt_metadata.commit_timestamp_nsecs)
+
+    # Test invalid path
+    with self.assertRaises(ocp.errors.InvalidLayoutError):
+      with context_lib.Context(
+          checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
+      ):
+        ocp.checkpointables_metadata(self.directory)
 
 
 
