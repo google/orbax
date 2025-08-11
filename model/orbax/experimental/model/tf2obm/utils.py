@@ -35,10 +35,12 @@ def tf_dtype_to_obm(t: tf.DType) -> obm.ShloDType:
   """
   if t == tf.string:
     return obm.ShloDType.str
+  # need special handling for bfloat16 since numpy doesn't have a bfloat16
+  # dtype.
+  if t == tf.bfloat16:
+    return obm.ShloDType.bf16
   if t in (tf.resource, tf.variant):
-    raise ValueError(
-        f'Can\'t convert TF dtype {t} to OBM.'
-    )
+    raise ValueError(f"Can't convert TF dtype {t} to OBM.")
   np_dtype = t.as_numpy_dtype()
   try:
     np_dtype = np.dtype(np_dtype)
