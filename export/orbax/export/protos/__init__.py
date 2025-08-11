@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pipeline: pre-processor + model-function + post-processor."""
+"""Required __init__ file for package.
 
-from typing import Any, Dict, List, Sequence, Tuple, TypeVar
+Generate compiled proto files for OSS using the following:
 
-from absl import logging
-from orbax.export.protos import oex_orchestration_pb2
-import tensorflow as tf
+sudo apt install -y protobuf-compiler
+protoc --python_out=. ./*.proto
+"""
