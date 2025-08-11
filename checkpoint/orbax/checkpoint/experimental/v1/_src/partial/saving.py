@@ -14,12 +14,15 @@
 
 """Defines free-function interface for partial saving and finalizing."""
 
-import os
+import asyncio
 
 from etils import epath
+from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import saving as saving_lib
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -242,18 +245,49 @@ def finalize(path: path_types.PathLike) -> None:
     FileNotFoundError: If no partial save session is found for the given `path`.
       This can happen if `ocp.partial.save_*` was not called first.
   """
-  path = epath.Path(path)
+  context = context_lib.get_context()
 
+  path = epath.Path(path)
   if _is_partial_save_path(path):
     final_path = _remove_partial_save_suffix(path)
+    partial_path = path
   else:
     final_path = path
-    path = _add_partial_save_suffix(path)
+    partial_path = _add_partial_save_suffix(path)
 
-  if final_path.exists():
-    raise FileExistsError(f'Finalized checkpoint already exists at {path}.')
+  async def _finalize_impl():
+    if await async_path.exists(final_path):
+      raise FileExistsError(
+          f'Finalized checkpoint already exists at {final_path}.'
+      )
+    elif not await async_path.exists(partial_path):
+      raise FileNotFoundError(
+          f'Partial save path {partial_path} does not exist.'
+      )
 
-  if not path.exists():
-    raise FileNotFoundError(f'Partial save path {path} does not exist.')
+    await multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'OcpPartialSaving:finalize_error',
+            prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+        ),
+        processes=context.multiprocessing_options.active_processes,
+    )
 
-  os.rename(path, final_path)
+    rename_failed = False
+    if multihost.is_primary_host(context.multiprocessing_options.primary_host):
+      try:
+        await async_path.rename(partial_path, final_path)
+      except OSError:
+        rename_failed = True
+
+    rename_failed = multihost.broadcast_one_to_all(
+        rename_failed,
+        is_source=multihost.is_primary_host(
+            context.multiprocessing_options.primary_host
+        ),
+    )
+
+    if rename_failed:
+      raise OSError('Partial checkpoint finalization failed during rename.')
+
+  asyncio.run(_finalize_impl())
