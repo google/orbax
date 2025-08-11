@@ -1271,10 +1271,30 @@ class _MultisliceCheckpointManager(
         step,
         directory or self._persistent_directory,
     )
+
+    def _get_restore_args(arr):
+      sharding = arr.sharding
+      single_replica_sharding = self._get_single_slice_sharding(
+          mesh=sharding.mesh,
+          pspec=sharding.spec,
+      )
+      return type_handlers.SingleReplicaArrayRestoreArgs(
+          sharding=sharding,
+          single_replica_sharding=single_replica_sharding,
+      )
+
+    restore_args = jax.tree.map(
+        _get_restore_args,
+        self._abstract_state,
+    )
     args = args_lib.PyTreeRestore(
         item=self._abstract_state,
-        restore_args=checkpoint_utils.construct_restore_args(
-            self._abstract_state
+        restore_args=restore_args,
+    )
+    handler_registry = type_handlers.create_type_handler_registry(
+        (
+            jax.Array,
+            type_handlers.SingleReplicaArrayHandler(),
         ),
     )
 
@@ -1297,6 +1317,7 @@ class _MultisliceCheckpointManager(
         item_handlers=PyTreeCheckpointHandler(
             use_ocdbt=True,
             use_zarr3=True,
+            type_handler_registry=handler_registry,
         ),
     ) as pcm:
       try:
