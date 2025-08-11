@@ -527,8 +527,8 @@ class CheckpointerTestBase:
     async def test_save_with_failing_array_metadata_store_in_finalize(self):
       """ArrayMetadata validation in CheckpointHandler.finalize()."""
 
-      class IncompleteArrayMetadataSerDeserializer(
-          array_metadata_store_lib.SerDeserializer
+      class IncompleteArrayMetadataSerializer(
+          array_metadata_store_lib.Serializer
       ):
         """process 0 metadata should be complete, others should be incomplete.
 
@@ -546,7 +546,7 @@ class CheckpointerTestBase:
             return super().serialize([array_metadatas[0]])  # incomplete
 
       array_metadata_store = array_metadata_store_lib.Store(
-          ser_deser=IncompleteArrayMetadataSerDeserializer()
+          serializer=IncompleteArrayMetadataSerializer()
       )
       type_handler_registry = copy.deepcopy(
           type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY

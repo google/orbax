@@ -19,11 +19,13 @@ import json
 import threading
 import time
 from typing import Any, Iterator, List, Sequence, Tuple
+
 from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint._src.metadata import array_metadata as array_metadata_lib
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.serialization import types
 
 
@@ -53,7 +55,7 @@ class PathResolver:
         checkpoint_dir / self._metadata_subdir / self._file_name(process_index)
     )
 
-  def get_read_file_paths(
+  async def get_read_file_paths(
       self, checkpoint_dir: epath.Path, process_index: int | None = None
   ) -> Iterator[epath.Path] | epath.Path | None:
     """Returns the file paths to read.
@@ -70,16 +72,16 @@ class PathResolver:
     """
     if process_index is None:
       file_name_pattern = self._file_name('*')
-      return checkpoint_dir.glob(f'{self._metadata_subdir}/{file_name_pattern}')
-    file_path = (
-        checkpoint_dir / self._metadata_subdir / self._file_name(process_index)
-    )
-    if file_path.exists():
+      return await async_path.glob(
+          checkpoint_dir, f'{self._metadata_subdir}/{file_name_pattern}'
+      )
+    file_path = self.get_write_file_path(checkpoint_dir, process_index)
+    if await async_path.exists(file_path):
       return file_path
     return None
 
 
-class SerDeserializer:
+class Serializer:
   """Serializes and deserializes `array_metadata.ArrayMetadata`."""
 
   def _to_dict(
@@ -123,7 +125,7 @@ class SerDeserializer:
   ) -> List[array_metadata_lib.SerializedArrayMetadata]:
     """Deserializes `serialized` to `array_metadata.ArrayMetadata`."""
     obj = json.loads(serialized, object_hook=self._from_dict)
-    return obj['array_metadatas']
+    return obj.get('array_metadatas', [])
 
 
 class Store:
@@ -132,12 +134,12 @@ class Store:
   def __init__(
       self,
       path_resolver: PathResolver = PathResolver(),
-      ser_deser: SerDeserializer = SerDeserializer(),
+      serializer: Serializer = Serializer(),
       primary_host: int | None = 0,  # None means all hosts are primary hosts.
       write_timeout_secs: int = 600,  # 10 minutes.
   ):
     self._path_resolver = path_resolver
-    self._ser_deser = ser_deser
+    self._serializer = serializer
     self._primary_host = primary_host
     self._write_timeout_secs = write_timeout_secs
 
@@ -149,13 +151,11 @@ class Store:
     """Primary host creates the base directory, rest of the hosts wait."""
     if multihost.is_primary_host(self._primary_host):
       # primary host creates, rest of the hosts wait.
-      return await asyncio.to_thread(
-          base_dir.mkdir, parents=True, exist_ok=True
-      )
+      return await async_path.mkdir(base_dir, parents=True, exist_ok=True)
 
     # non-primary host waits for primary host to create the base dir/folder.
     async def wait_for_base_dir_creation():
-      while not await asyncio.to_thread(base_dir.exists):
+      while not await async_path.exists(base_dir):
         await asyncio.sleep(0.25)
 
     try:
@@ -192,8 +192,13 @@ class Store:
         checkpoint_dir, process_index
     )
     await self._maybe_create_base_dir(file_path.parent)
-    await asyncio.to_thread(
-        file_path.write_text, self._ser_deser.serialize(array_metadatas)
+    if await async_path.exists(file_path):
+      _, all_array_metadatas = await self._get_array_metadatas(file_path)
+      all_array_metadatas.extend(array_metadatas)
+    else:
+      all_array_metadatas = array_metadatas
+    await async_path.write_text(
+        file_path, self._serializer.serialize(all_array_metadatas)
     )
     logging.info(
         '[process=%s][thread=%s] Wrote %d array_metadata.ArrayMetadata to %s',
@@ -207,8 +212,8 @@ class Store:
       self,
       array_metadatas_file_path: epath.Path,
   ) -> Tuple[epath.Path, list[array_metadata_lib.SerializedArrayMetadata]]:
-    serialized = await asyncio.to_thread(array_metadatas_file_path.read_text)
-    return array_metadatas_file_path, self._ser_deser.deserialize(serialized)
+    serialized = await async_path.read_text(array_metadatas_file_path)
+    return array_metadatas_file_path, self._serializer.deserialize(serialized)
 
   async def read(
       self,
@@ -231,12 +236,12 @@ class Store:
       is None. A list of metadata if `process_index` is not None. None if
       metadata does not exist.
     """
-    if not await asyncio.to_thread(checkpoint_dir.exists):
+    if not await async_path.exists(checkpoint_dir):
       raise ValueError(
           f'Checkpoint directory does not exist: {checkpoint_dir}.'
       )
     start_time = time.time()
-    file_paths = self._path_resolver.get_read_file_paths(
+    file_paths = await self._path_resolver.get_read_file_paths(
         checkpoint_dir, process_index
     )
     if file_paths is None:

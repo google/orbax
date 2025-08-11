@@ -1859,7 +1859,7 @@ class PyTreeHandlerTestBase:
           array_metadata_store_lib.PathResolver
       ):
 
-        def get_read_file_paths(
+        async def get_read_file_paths(
             self, checkpoint_dir: epath.Path, process_index: int | None = None
         ) -> Iterator[epath.Path] | epath.Path | None:
           return None
@@ -1880,8 +1880,8 @@ class PyTreeHandlerTestBase:
       if multihost.process_index() != 0:  # only test on primary host
         self.skipTest('Test only for primary host to avoid barrier timeout.')
 
-      class MissingArrayMetadataSerDeserializer(
-          array_metadata_store_lib.SerDeserializer
+      class MissingArrayMetadataSerializer(
+          array_metadata_store_lib.Serializer
       ):
 
         def deserialize(
@@ -1893,7 +1893,7 @@ class PyTreeHandlerTestBase:
       with handler_with_options(
           use_ocdbt=use_ocdbt,
           array_metadata_store=array_metadata_store_lib.Store(
-              ser_deser=MissingArrayMetadataSerDeserializer()
+              serializer=MissingArrayMetadataSerializer()
           ),
       ) as checkpoint_handler:
         with self.assertRaisesRegex(

@@ -90,6 +90,58 @@ class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
         ],
     )
 
+  async def test_append_to_existing_metadata_file(self):
+    process_index = 0
+    initial_array_metadatas = [
+        array_metadata_lib.ArrayMetadata(
+            param_name='a',
+            shape=(10, 20, 30),
+            dtype=np.dtype(int),
+            write_shape=(10, 20, 30),
+            chunk_shape=(1, 2, 3),
+            use_ocdbt=False,
+            use_zarr3=False,
+        ),
+    ]
+    await self.store.write(
+        self.checkpoint_dir,
+        initial_array_metadatas,
+        process_index=process_index,
+    )
+
+    appended_array_metadatas = [
+        array_metadata_lib.ArrayMetadata(
+            param_name='b',
+            shape=(1, 1, 1),
+            dtype=np.dtype(int),
+            write_shape=(1, 1, 1),
+            chunk_shape=(1, 1, 1),
+            use_ocdbt=False,
+            use_zarr3=False,
+        ),
+    ]
+    await self.store.write(
+        self.checkpoint_dir,
+        appended_array_metadatas,
+        process_index=process_index,
+    )
+
+    self.assertEqual(
+        await self.store.read(self.checkpoint_dir, process_index=process_index),
+        [
+            array_metadata_lib.SerializedArrayMetadata(
+                param_name='a',
+                write_shape=(10, 20, 30),
+                chunk_shape=(1, 2, 3),
+            ),
+            array_metadata_lib.SerializedArrayMetadata(
+                param_name='b',
+                write_shape=(1, 1, 1),
+                chunk_shape=(1, 1, 1),
+            ),
+        ],
+    )
+
   async def test_write_and_read_multiple_process(self):
     for process_index in [0, 1, 2]:
       array_metadatas = [

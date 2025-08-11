@@ -25,7 +25,7 @@ Should be implemented as::
 """
 
 import asyncio
-from typing import Any
+from typing import Any, Iterator
 
 from etils import epath
 
@@ -86,3 +86,7 @@ async def touch(path: epath.Path, *, exist_ok: bool = False):
 
 async def rename(src: epath.Path, dst: epath.Path):
   return await asyncio.to_thread(src.rename, dst)
+
+
+async def glob(path: epath.Path, pattern: str) -> Iterator[epath.Path]:
+  return await asyncio.to_thread(path.glob, pattern)
