@@ -500,7 +500,7 @@ def make_e2e_inference_fn(
 
 def get_lowering_platforms(
     kwargs: Mapping[str, Any],
-) -> Optional[Sequence[constants.OrbaxNativeSerializationType]]:
+) -> Optional[Sequence[str]]:
   """Returns a Sequence of lowering platforms provided by the user.
 
   Args:
@@ -517,16 +517,17 @@ def get_lowering_platforms(
       constants.NATIVE_SERIALIZATION_PLATFORMS
   ]
 
-  if not isinstance(native_serialization_platforms, Sequence):
+  if isinstance(native_serialization_platforms, str):
     native_serialization_platforms = [native_serialization_platforms]
 
+  lower_platforms = set(p.lower() for p in manifest_pb2.Platform.keys())
   if not all(
-      isinstance(p, constants.OrbaxNativeSerializationType)
+      isinstance(p, str) and p in lower_platforms
       for p in native_serialization_platforms
   ):
     raise ValueError(
         'native_serialization_platforms must be a sequence'
-        ' OrbaxNativeSerializationType'
+        ' and should be a Platform enum type.'
     )
 
   return native_serialization_platforms

@@ -26,7 +26,6 @@ from jax.sharding import NamedSharding
 from jax.sharding import PartitionSpec
 import orbax.checkpoint as ocp
 from orbax.experimental.model import core as obm
-from orbax.experimental.model.jax2obm import constants
 from orbax.experimental.model.jax2obm import jax_specific_info
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 from orbax.experimental.model.jax2obm import main_lib
@@ -50,9 +49,7 @@ class MainLibTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='_native_cpu_serialization',
-          native_serialization_platforms=[
-              constants.OrbaxNativeSerializationType.CPU
-          ],
+          native_serialization_platforms=[obm.manifest_pb2.Platform.CPU],
           polymorphic_shape=False,
       ),
       dict(
@@ -115,7 +112,7 @@ class MainLibTest(parameterized.TestCase):
         model_fn,
         (params_args_spec, input_args_spec),
         {},
-        native_serialization_platforms=native_serialization_platforms,
+        platforms=native_serialization_platforms,
     )
     obm_module = dict()
     model_function_name = 'my_model_fn'

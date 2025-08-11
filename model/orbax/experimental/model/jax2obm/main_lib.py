@@ -103,9 +103,7 @@ def convert(
     fun_jax: Callable[..., utils.JaxArrayPyTree],
     args_spec: Sequence[Any],
     kwargs_spec: Dict[str, Any],
-    native_serialization_platforms: (
-        Sequence[constants.OrbaxNativeSerializationType] | None
-    ) = None,
+    platforms: Sequence[obm.manifest_pb2.Platform] | None = None,
     native_serialization_disabled_checks: Sequence[
         jax_export.DisabledSafetyCheck
     ] = (),
@@ -129,9 +127,9 @@ def convert(
       {class}`jax.ShapeDtypeStruct`, or values with `.shape` and `.dtype`
       attributes, or result of calling `jax_export.symbolic_args_specs()`. These
       will be used to trace the function in jax export.
-    native_serialization_platforms: Optional. Specifies the platform(s) for
-      which to lower the code. Must be a tuple of OrbaxNativeSerializationType.
-      If not set, the JAX default backend will be used. Example can be found in
+    platforms: Optional. Specifies the platform(s) for which to lower the code.
+      Must be a tuple of `obm.manifest_pb2.Platform`. If not set, the JAX
+      default backend will be used. Example can be found in
 
     native_serialization_disabled_checks: A sequence of safety checks to
       disable. Example can be found in
@@ -149,7 +147,7 @@ def convert(
 
   exported_creator = utils.make_jax_exported_creator(
       fun_jax,
-      native_serialization_platforms,
+      platforms,
       native_serialization_disabled_checks,
   )
 

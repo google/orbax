@@ -21,7 +21,6 @@ from jax import export as jax_export
 import jax.numpy as jnp
 import numpy as np
 from orbax.experimental.model import core as obm
-from orbax.experimental.model.jax2obm import constants
 
 
 # TODO(b/338269227): Review JaxArrayPyTree, see if PyTreeDef is a better fit.
@@ -60,26 +59,25 @@ def assert_not_in_jax_transformation():
 
 def make_jax_exported_creator(
     fun_jax: Callable[..., JaxArrayPyTree],
-    native_serialization_platforms: (
-        Sequence[constants.OrbaxNativeSerializationType] | None
-    ) = None,
+    platforms: Sequence[obm.manifest_pb2.Platform] | None = None,
     native_serialization_disabled_checks: Sequence[
         jax_export.DisabledSafetyCheck
     ] = (),
 ):
   """Calls jax_export.export and returns a callable that returns Exported."""
-  if native_serialization_platforms:
-    if not isinstance(native_serialization_platforms, (list, tuple)) or not all(
-        p in constants.OrbaxNativeSerializationType
-        for p in native_serialization_platforms
+  native_serialization_platforms = None
+  if platforms:
+    if not isinstance(platforms, (list, tuple)) or not all(
+        isinstance(p, int) and p in obm.manifest_pb2.Platform.values()
+        for p in platforms
     ):
       raise ValueError(
           "native_serialization_platforms must be a sequence "
-          "containing a subset of constants.OrbaxNativeSerializationType."
-          f"Got: {native_serialization_platforms}"
+          "containing a Platform enum type."
+          f"Got: {platforms}"
       )
     native_serialization_platforms = tuple(
-        p.value for p in native_serialization_platforms
+        obm.manifest_pb2.Platform.Name(p).lower() for p in platforms
     )
 
   return jax_export.export(

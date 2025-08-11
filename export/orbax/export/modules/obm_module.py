@@ -273,13 +273,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     return self._apply_fn_map
 
   @property
-  def native_serialization_platforms(
-      self,
-  ) -> Optional[Sequence[constants.OrbaxNativeSerializationType]]:
-    """Returns the native serialization platform."""
-    return self._native_serialization_platforms
-
-  @property
   def export_version(self) -> constants.ExportModelType:
     """Returns the export version."""
     return constants.ExportModelType.ORBAX_MODEL

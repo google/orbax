@@ -13,16 +13,5 @@
 # limitations under the License.
 
 """Constants used in jax2obm."""
-
-import enum
-
-
-# LINT.IfChange
-class OrbaxNativeSerializationType(enum.Enum):
-  """Defines the native serialization types available for a JAX model through Orbax."""
-
-
-# LINT.ThenChange(//depot//orbax/export/constants.py)
-
 # XLA compilation options.
 XLA_COMPILE_OPTIONS = 'xla_compile_options'
