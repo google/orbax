@@ -310,6 +310,7 @@ class BasePyTreeCheckpointHandler(
       *,
       save_concurrent_bytes: Optional[int] = None,
       restore_concurrent_bytes: Optional[int] = None,
+      save_device_host_concurrent_bytes: Optional[int] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
@@ -328,10 +329,16 @@ class BasePyTreeCheckpointHandler(
     Args:
       save_concurrent_bytes: max concurrent bytes that are allowed to be
         written. Can help to reduce the possibility of OOM's when large
-        checkpoints are saved.
+        checkpoints are saved. Note that this also applies when arrays are
+        tranferred to host memory, and so can result in a slowdown of async
+        saves.
       restore_concurrent_bytes: max concurrent bytes that are allowed to be
         restored. Can help to reduce the possibility of OOM's when large
         checkpoints are restored.
+      save_device_host_concurrent_bytes: max concurrent bytes allowed to be
+        transferred from device to host memory at once when saving. When the
+        limit is reached, arrays must be finished writing to the checkpoint
+        before a new array can start being transferred.
       use_ocdbt: Whether to use OCDBT format for saving.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2.
       multiprocessing_options: See orbax.checkpoint.options.
@@ -348,6 +355,7 @@ class BasePyTreeCheckpointHandler(
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
+    self._save_device_host_concurrent_bytes = save_device_host_concurrent_bytes
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
     self._primary_host = multiprocessing_options.primary_host
@@ -399,6 +407,7 @@ class BasePyTreeCheckpointHandler(
       use_zarr3: Optional[bool] = None,
       ocdbt_target_data_file_size: Optional[int] = None,
       byte_limiter: Optional[serialization.ByteLimiter] = None,
+      device_host_byte_limiter: Optional[serialization.ByteLimiter] = None,
       raise_array_data_missing_error: bool = True,
   ) -> PyTree:
     """Returns parameter information for elements in `item`.
@@ -414,6 +423,7 @@ class BasePyTreeCheckpointHandler(
       ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
         OCDBT data file.
       byte_limiter: ByteLimiter object.
+      device_host_byte_limiter: ByteLimiter object for device-to-host transfer.
       raise_array_data_missing_error: See documentation in ParamInfo.
 
     Returns:
@@ -441,6 +451,7 @@ class BasePyTreeCheckpointHandler(
           enable_pinned_host_transfer=self._enable_pinned_host_transfer,
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
           byte_limiter=byte_limiter,
+          device_host_byte_limiter=device_host_byte_limiter,
           ts_context=ts_context,
           value_typestr=types.get_param_typestr(
               value, self._type_handler_registry, self._pytree_metadata_options
@@ -503,12 +514,16 @@ class BasePyTreeCheckpointHandler(
 
     save_args = _fill_missing_save_or_restore_args(item, save_args, mode='save')
     byte_limiter = serialization.get_byte_limiter(self._save_concurrent_bytes)
+    device_host_byte_limiter = serialization.get_byte_limiter(
+        self._save_device_host_concurrent_bytes
+    )
     param_infos = self._get_param_infos(
         item,
         directory,
         use_ocdbt=self._use_ocdbt,
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
         byte_limiter=byte_limiter,
+        device_host_byte_limiter=device_host_byte_limiter,
     )
     assert all(
         leaf.parent_dir == directory for leaf in jax.tree.leaves(param_infos)

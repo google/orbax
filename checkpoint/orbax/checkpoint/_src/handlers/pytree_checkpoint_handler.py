@@ -449,9 +449,14 @@ def _get_impl_save_args(
   )
 
 
-def _concurrent_bytes(concurrent_gb: Optional[int]) -> int:
+def _concurrent_bytes(
+    concurrent_gb: int | None, *, use_default_if_none: bool = True
+) -> int | None:
   if concurrent_gb is None:
-    return DEFAULT_CONCURRENT_GB * 10**9
+    if use_default_if_none:
+      return DEFAULT_CONCURRENT_GB * 10**9
+    else:
+      return None
   else:
     return concurrent_gb * 10**9
 
@@ -483,6 +488,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       *,
       save_concurrent_gb: Optional[int] = None,
       restore_concurrent_gb: Optional[int] = None,
+      save_device_host_concurrent_gb: Optional[int] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
@@ -507,6 +513,15 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       restore_concurrent_gb: max concurrent GB that are allowed for writing. Can
         help to reduce the possibility of OOM's when large checkpoints are
         restored.
+      save_device_host_concurrent_gb: max concurrent GB allowed to be
+        transferred from device to host memory at once when saving, defined on a
+        per-worker basis. When the limit is reached, arrays must be finished
+        writing to the checkpoint before a new array can start being
+        transferred. This option is a stronger version of `save_concurrent_gb`,
+        which only attempts to limit memory usage after all shards have already
+        been transferred to host memory. Note that asynchronous saves may not be
+        truly asynchronous with this option enabled, as we have to block on some
+        array writes before beginning others.
       use_ocdbt: enables Tensorstore OCDBT driver. This option allows using a
         different checkpoint format which is faster to read and write, as well
         as more space efficient.
@@ -535,9 +550,13 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._type_handler_registry = type_handler_registry
     self._save_concurrent_bytes = _concurrent_bytes(save_concurrent_gb)
     self._restore_concurrent_bytes = _concurrent_bytes(restore_concurrent_gb)
+    self._save_device_host_concurrent_bytes = _concurrent_bytes(
+        save_device_host_concurrent_gb, use_default_if_none=False
+    )
     self._handler_impl = handler_impl or BasePyTreeCheckpointHandler(
         save_concurrent_bytes=self._save_concurrent_bytes,
         restore_concurrent_bytes=self._restore_concurrent_bytes,
+        save_device_host_concurrent_bytes=self._save_device_host_concurrent_bytes,
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
         multiprocessing_options=multiprocessing_options,

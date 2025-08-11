@@ -96,8 +96,11 @@ class ParamInfo:
     transformations. Note: this parameter is handled by PyTreeCheckpointHandler,
     so it is unnecessary for TypeHandler implementations to deal with it.
   byte_limiter:
-    Object to limit the number of bytes that can be read in
+    Object to limit the number of bytes that can be read or written in
     parallel.
+  device_host_byte_limiter:
+    Object to limit the number of bytes that can be transferred from device to
+    host memory in parallel.
   is_ocdbt_checkpoint:
     Indicates whether the checkpoint path uses OCDBT format
     or not. Only used for restoration.
@@ -125,7 +128,8 @@ class ParamInfo:
   path: Optional[epath.Path] = None
   parent_dir: Optional[epath.Path] = None
   skip_deserialize: Optional[bool] = None
-  byte_limiter: Optional[serialization.LimitInFlightBytes] = None
+  byte_limiter: Optional[serialization.ByteLimiter] = None
+  device_host_byte_limiter: Optional[serialization.ByteLimiter] = None
   is_ocdbt_checkpoint: Optional[bool] = None
   use_zarr3: Optional[bool] = False
   ocdbt_target_data_file_size: Optional[int] = None
