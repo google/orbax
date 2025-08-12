@@ -1589,13 +1589,15 @@ class CheckpointManager(
           step, args=args
       )
     else:
-      restore = self._checkpoint_manager.restore(step, args=args)
+      restore = self._checkpoint_manager.restore(step, args=args).state
     if restored_dataset:
       return args_lib.Composite(
           state=restore,
           dataset=restored_dataset,
       )
-    return restore
+    return args_lib.Composite(
+        state=restore,
+    )
 
   def item_metadata(self, step: int) -> Any:
     raise NotImplementedError(

@@ -1292,7 +1292,7 @@ class CheckpointManagerTestBase:
             multislice, 'slice_count', return_value=num_replicas
         ):
           restored = manager.restore(2)
-        test_utils.assert_tree_equal(self, pytree_double, restored)
+        test_utils.assert_tree_equal(self, pytree_double, restored.state)
         pcm_restore.assert_not_called()
 
     @parameterized.parameters(
@@ -1547,7 +1547,7 @@ class CheckpointManagerTestBase:
         if not manager.in_primary_slice:
           test_utils.empty_directory(self.local_directory)
         restored = manager.restore(2)
-        test_utils.assert_tree_equal(self, pytree_double, restored)
+        test_utils.assert_tree_equal(self, pytree_double, restored.state)
 
         # Test subsequent saves.
 
@@ -1573,7 +1573,7 @@ class CheckpointManagerTestBase:
             multislice, 'slice_count', return_value=num_replicas
         ):
           restored = manager.restore(5)
-        test_utils.assert_tree_equal(self, pytree_double, restored)
+        test_utils.assert_tree_equal(self, pytree_double, restored.state)
 
     @parameterized.parameters(
         (False, 0),
@@ -1625,7 +1625,7 @@ class CheckpointManagerTestBase:
         restored = manager.restore(2, args=args_lib.Composite(
             **{_STATE_ITEM_NAME: PyTreeRestoreArgs()}
             ))
-        test_utils.assert_tree_equal(self, pytree_double, restored)
+        test_utils.assert_tree_equal(self, pytree_double, restored.state)
 
     @parameterized.parameters(
         (True, 0),
