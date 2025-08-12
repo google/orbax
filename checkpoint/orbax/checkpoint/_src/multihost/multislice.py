@@ -155,7 +155,7 @@ def get_device_memory() -> int:
       'TPU v6 lite': int(32e9),  # one core per chip with 32 GB HBM
       'NVIDIA H100 80GB HBM3': int(80e9),
       'NVIDIA H200': int(144e9),
-      'NVIDIA B200': int(183e9)
+      'NVIDIA B200': int(183e9),
   }
   memory = hbm_memory.get(device.device_kind, None)
   if memory is None:
@@ -218,6 +218,7 @@ def broadcast_one_replica_to_all(
     is_source: bool,
     memory_limit_bytes: Optional[Union[int, None]] = None,
     memory_scaling_factor: Optional[float] = 0.75,
+    use_shard_map: bool = False,
 ) -> Tuple[Tuple[PyTree, ...], int]:
   """One replica reads the data and broadcasts to others.
 
@@ -230,6 +231,9 @@ def broadcast_one_replica_to_all(
     memory_limit_bytes: memory limit for broadcasting in bytes.
     memory_scaling_factor: indicates the fraction of the estimated available
       memory to be used when broadcasting data.
+    use_shard_map: if True, use jax.shard_map to broadcast the data. This is
+      more reliable than using jax.jit with out_shardings when number of slices
+      is not equal to number of replicas.
 
   Returns:
      Tuple containing:
@@ -256,7 +260,7 @@ def broadcast_one_replica_to_all(
     inp = jnp.expand_dims(inp, axis=0)
 
     num_slices = slice_count()
-    if num_slices != num_replicas:
+    if not use_shard_map and num_slices != num_replicas:
       in_spec = jax.sharding.PartitionSpec(
           'replication',
           *sharding.spec,
@@ -274,6 +278,10 @@ def broadcast_one_replica_to_all(
       )
       global_sharding = jax.sharding.NamedSharding(slice_global_mesh, in_spec)
     else:
+      assert replica_axis_name not in sharding.spec, (
+          f'Replica axis name {replica_axis_name} already exists in'
+          f' sharding.spec {sharding.spec}'
+      )
       in_spec = jax.sharding.PartitionSpec(
           replica_axis_name,
           *sharding.spec,
@@ -317,14 +325,47 @@ def broadcast_one_replica_to_all(
         ),
         subtree,
     )
+    subtree_spec = jax.tree.map(lambda x: x.sharding.spec, subtree)
     in_tree_sharded = jax.tree.map(globalize_single_replica_arrays, subtree)
     # Delete immediately to conserve memory.
     jax.tree.map(lambda x: x.delete(), subtree)
+    if use_shard_map:
 
-    out_subtree = jax.jit(
-        lambda tree: jax.tree.map(functools.partial(jnp.sum, axis=0), tree),
-        out_shardings=out_sharding,
-    )(in_tree_sharded)
+      def _broadcast_tree(in_tree):
+        return jax.tree.map(
+            lambda leaf: jax.lax.psum(leaf, axis_name=replica_axis_name),
+            in_tree,
+        )
+
+      in_spec = jax.tree.map(
+          lambda x: jax.sharding.PartitionSpec(
+              replica_axis_name,
+              *x,
+          ),
+          subtree_spec,
+      )
+      out_spec = jax.tree.map(
+          lambda x: jax.sharding.PartitionSpec(
+              None,
+              *x,
+          ),
+          subtree_spec,
+      )
+      out_subtree = jax.jit(
+          jax.shard_map(
+              _broadcast_tree,
+              in_specs=(in_spec,),
+              out_specs=out_spec,
+              mesh=global_mesh,
+              check_vma=True,
+          )
+      )(in_tree_sharded)
+      out_subtree = jax.tree.map(lambda x: x.squeeze(axis=0), out_subtree)
+    else:
+      out_subtree = jax.jit(
+          lambda tree: jax.tree.map(functools.partial(jnp.sum, axis=0), tree),
+          out_shardings=out_sharding,
+      )(in_tree_sharded)
     out_tree.extend(out_subtree)
     jax.block_until_ready(out_subtree)
     start = end

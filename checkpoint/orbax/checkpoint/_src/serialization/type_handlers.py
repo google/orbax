@@ -1424,6 +1424,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
       use_replica_parallel: bool = True,
       enable_write_sharding_file: bool = True,
       array_metadata_store: array_metadata_store_lib.Store | None = None,
+      use_shard_map: bool = False,
   ):
     """Constructor.
 
@@ -1442,6 +1443,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
         True.
       array_metadata_store: Store to manage per host ArrayMetadata. To disable
         ArrayMetadata persistence, set it to None.
+      use_shard_map: if True, use jax.shard_map to broadcast the data. This is
+        more reliable than using jax.jit with out_shardings when number of
+        slices is not equal to number of replicas.
     """
 
     super(SingleReplicaArrayHandler, self).__init__(
@@ -1453,6 +1457,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
     self.primary_replica_id = primary_replica_id
     self.broadcast_memory_limit_bytes = broadcast_memory_limit_bytes
     self.broadcast_memory_scaling_factor = broadcast_memory_scaling_factor
+    self.use_shard_map = use_shard_map
 
   def _validate_sharding_and_get_primary_replica_processes(
       self,
@@ -1598,6 +1603,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
         _is_host_for_primary_replica(primary_replica_pids),
         memory_limit_bytes=self.broadcast_memory_limit_bytes,
         memory_scaling_factor=self.broadcast_memory_scaling_factor,
+        use_shard_map=self.use_shard_map,
     )
     broadcast_elapsed_s = time.time() - start_broadcast
     jax.monitoring.record_event_duration_secs(
