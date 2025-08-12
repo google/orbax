@@ -274,11 +274,13 @@ def finalize(path: path_types.PathLike) -> None:
     )
 
     rename_failed = False
+    rename_error = None
     if multihost.is_primary_host(context.multiprocessing_options.primary_host):
       try:
         await async_path.rename(partial_path, final_path)
-      except OSError:
+      except OSError as e:
         rename_failed = True
+        rename_error = e
 
     rename_failed = multihost.broadcast_one_to_all(
         rename_failed,
@@ -288,6 +290,8 @@ def finalize(path: path_types.PathLike) -> None:
     )
 
     if rename_failed:
+      if rename_error is not None:
+        raise rename_error
       raise OSError('Partial checkpoint finalization failed during rename.')
 
   asyncio.run(_finalize_impl())
