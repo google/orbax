@@ -150,7 +150,7 @@ def consistent_restore_mesh(
         previous_id = previous_distributed_to_device_ids[i][j]
         current_id = current_distributed_to_device_ids[i][j]
         device_id_across_restarts[previous_id] = current_id
-    logging.debug(
+    logging.info(
         'device_id_across_restarts (key: previous_id, value: current_id): %s',
         device_id_across_restarts,
     )
@@ -169,6 +169,10 @@ def consistent_restore_mesh(
   else:
     # This logic assumes jax.devices() returns the same output across restarts.
     # This assumption may break in future Jax releases.
+    logging.info(
+        'Using deprecated logic for mesh consistency. This may break in future'
+        ' Jax releases.'
+    )
     device_ids = [x.id for x in devices]
     new_flattened_mesh_devices = [
         devices[device_ids.index(i)] for i in previous_flattened_mesh_device_ids

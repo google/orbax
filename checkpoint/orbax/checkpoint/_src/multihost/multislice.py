@@ -240,6 +240,14 @@ def broadcast_one_replica_to_all(
       - pytree with broadcasted data
       - number of broadcasts performed.
   """
+  logging.info(
+      'broadcast_one_replica_to_all: in_tree: %s, global_mesh: %s,'
+      ' replica_axis_index: %d, is_source: %s',
+      in_tree,
+      global_mesh,
+      replica_axis_index,
+      is_source,
+  )
   num_replicas = global_mesh.devices.shape[replica_axis_index]
   replica_axis_name = global_mesh.axis_names[replica_axis_index]
 
@@ -261,6 +269,7 @@ def broadcast_one_replica_to_all(
 
     num_slices = slice_count()
     if not use_shard_map and num_slices != num_replicas:
+      logging.info('Not Using shard_map to broadcast data.')
       in_spec = jax.sharding.PartitionSpec(
           'replication',
           *sharding.spec,
@@ -278,6 +287,7 @@ def broadcast_one_replica_to_all(
       )
       global_sharding = jax.sharding.NamedSharding(slice_global_mesh, in_spec)
     else:
+      logging.info('Using shard_map to broadcast data.')
       assert replica_axis_name not in sharding.spec, (
           f'Replica axis name {replica_axis_name} already exists in'
           f' sharding.spec {sharding.spec}'
