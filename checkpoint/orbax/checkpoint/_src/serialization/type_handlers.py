@@ -1516,6 +1516,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
       `args.mesh_axes` or `single_replica_pids` or `single_replica_ids` are
       not provided.
     """
+    logging.info('SingleReplicaArrayHandler.deserialize')
     if args is None:
       raise ValueError(
           'Must provide SingleReplicaArrayRestoreArgs to restore as jax.Array.'
