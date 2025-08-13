@@ -44,6 +44,8 @@ from orbax.checkpoint._src.path import step
 
 from orbax.checkpoint.future import Future
 
+from orbax.checkpoint.google.benchmarks import utils as benchmarks_utils
+
 from orbax.checkpoint.transform_utils import apply_transformations
 from orbax.checkpoint.transform_utils import merge_trees
 from orbax.checkpoint.transform_utils import RestoreTransform

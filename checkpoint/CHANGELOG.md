@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add support for sharded loading from Safetensors checkpoints onto a JAX mesh.
+
 ### Changed
 
 - Allow ArrayMetadataStore to update existing metadatas.
