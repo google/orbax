@@ -45,6 +45,7 @@ from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpoint_utils
+from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.logging import abstract_logger
@@ -157,12 +158,21 @@ class LocalCheckpointOptions:
     accepts step number and optional latest step number as param and returns
     bool. If present then `save_interval_steps` and `save_on_steps` options are
     ignored.
+  save_decision_policy: An object used to determine when a checkpoint should be
+    saved. If provided, overrides any other options dealing with this subject,
+    including `save_interval_steps`, `save_on_steps`, and `should_save_fn`, and
+    is the sole means of determining when a checkpoint should be saved. If not
+    provided, these other options are used instead. Prefer to use this option
+    over others.
   """
 
   save_interval_steps: int = 10
   max_to_keep: int = 1
   read_only: bool = False
   should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
+  save_decision_policy: Optional[
+      save_decision_policy_lib.SaveDecisionPolicy
+  ] = None
 
   debug_use_full_global_mesh: bool = False
 
@@ -188,12 +198,21 @@ class PersistentCheckpointOptions:
     accepts step number and optional latest step number as param and returns
     bool. If present then `save_interval_steps` and `save_on_steps` options are
     ignored.
+  save_decision_policy: An object used to determine when a checkpoint should be
+    saved. If provided, overrides any other options dealing with this subject,
+    including `save_interval_steps`, `save_on_steps`, and `should_save_fn`, and
+    is the sole means of determining when a checkpoint should be saved. If not
+    provided, these other options are used instead. Prefer to use this option
+    over others.
   """
 
   save_interval_steps: int = 1000
   max_to_keep: Optional[int] = None
   keep_period: Optional[int] = None
   should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
+  save_decision_policy: Optional[
+      save_decision_policy_lib.SaveDecisionPolicy
+  ] = None
 
 
 @dataclasses.dataclass
@@ -482,6 +501,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         max_to_keep=options.local.max_to_keep,
         step_name_format=options.step_name_format,
         should_save_fn=options.local.should_save_fn,
+        save_decision_policy=options.local.save_decision_policy,
         create=False,
         # we always clean up local tmp directories explicitly
         cleanup_tmp_directories=False,
@@ -629,6 +649,7 @@ def _get_persistent_options(
       enable_async_checkpointing=options.enable_async_checkpointing,
       should_save_fn=options.persistent.should_save_fn,
       save_root_metadata=False,
+      save_decision_policy=options.persistent.save_decision_policy,
   )
 
 

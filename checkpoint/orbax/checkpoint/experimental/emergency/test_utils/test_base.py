@@ -31,6 +31,7 @@ import optax
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
@@ -1762,6 +1763,51 @@ class CheckpointManagerTestBase:
 
       self.assertSameElements(
           manager.all_steps(), set(local_expectation + persistent_expectation)
+      )
+
+    def test_save_decision_policy(self):
+      """Test case."""
+      max_to_keep = 10
+      total_steps = 10
+      local_save_interval = 2
+      persistent_save_interval = 4
+      local_expectation = set(range(0, total_steps, local_save_interval))
+      persistent_expectation = set(
+          range(0, total_steps, persistent_save_interval)
+      )
+      global_mesh, pytree = self.setup_pytree(self.make_global_mesh())
+      abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
+      options = CheckpointManagerOptions(
+          local=LocalCheckpointOptions(
+              save_decision_policy=save_decision_policy_lib.FixedIntervalPolicy(
+                  local_save_interval
+              ),
+              max_to_keep=max_to_keep,
+          ),
+          persistent=PersistentCheckpointOptions(
+              save_decision_policy=save_decision_policy_lib.FixedIntervalPolicy(
+                  persistent_save_interval
+              ),
+              max_to_keep=max_to_keep,
+          ),
+      )
+      manager = CheckpointManager(
+          local_directory=self.local_directory,
+          persistent_directory=self.persistent_directory,
+          global_mesh=global_mesh,
+          abstract_state=abstract_state,
+          options=options,
+      )
+
+      for i in range(total_steps):
+        manager.save(
+            i,
+            args=get_composite_save_args(pytree),
+        )
+        manager.wait_until_finished()
+
+      self.assertSameElements(
+          manager.all_steps(), local_expectation | persistent_expectation
       )
 
     @parameterized.parameters(
