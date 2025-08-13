@@ -79,6 +79,7 @@ class StandardCheckpointHandler(
       pytree_metadata_options: PyTreeMetadataOptions = (
           pytree_metadata_options_lib.PYTREE_METADATA_OPTIONS
       ),
+      use_ocdbt: bool = True,
   ):
     """Creates StandardCheckpointHandler.
 
@@ -92,6 +93,7 @@ class StandardCheckpointHandler(
       multiprocessing_options: See orbax.checkpoint.options.
       pytree_metadata_options: Options to control types like tuple and
         namedtuple in pytree metadata.
+      use_ocdbt: Whether to enable Tensorstore OCDBT driver.
     """
     self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
     self._impl = pytree_checkpoint_handler.PyTreeCheckpointHandler(
@@ -99,6 +101,7 @@ class StandardCheckpointHandler(
         restore_concurrent_gb=restore_concurrent_gb,
         multiprocessing_options=multiprocessing_options,
         pytree_metadata_options=pytree_metadata_options,
+        use_ocdbt=use_ocdbt,
     )
 
   def _validate_save_state(
