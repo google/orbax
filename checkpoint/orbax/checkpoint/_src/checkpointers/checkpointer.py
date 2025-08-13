@@ -29,7 +29,6 @@ from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
-from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
@@ -304,9 +303,6 @@ class Checkpointer(
     logging.info('Restoring checkpoint from %s.', directory)
     ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
     restored = self._restore(directory, args=ckpt_args)
-
-    event_tracking.record_read_event(directory)
-
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
             'Checkpointer:restore',
