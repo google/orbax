@@ -74,6 +74,32 @@ class AtomicRenameTemporaryPathTest(
     self.assertFalse(paths[0].exists())
     self.assertFalse(paths[1].exists())
 
+  async def test_finalize_with_snapshot(self):
+    path = self.directory / 'ckpt'
+    path.mkdir(parents=True)
+
+    (path / 'foo').write_text('bar')
+    tmp_path = AtomicRenameTemporaryPath.from_final(path, use_snapshot=True)
+    self.assertIsNotNone(tmp_path._snapshot)
+
+    await tmp_path.create()
+    # pylint: disable=protected-access  # pytype: disable=attribute-error
+    self.assertEqual(tmp_path._snapshot._source, path)
+    self.assertEqual(tmp_path._snapshot._snapshot, tmp_path.get())
+    # pylint: enable=protected-access  # pytype: enable=attribute-error
+
+    (tmp_path.get() / 'foo').write_text('new bar')
+    self.assertEqual((path / 'foo').read_text(), 'bar')
+    self.assertEqual((tmp_path.get() / 'foo').read_text(), 'new bar')
+
+    if multihost.process_index() == 0:
+      await tmp_path.finalize(
+      )
+    test_utils.sync_global_processes('test_finalize_with_snapshot')
+    self.assertFalse(tmp_path.get().exists())
+    self.assertTrue(path.exists())
+    self.assertEqual((path / 'foo').read_text(), 'new bar')
+
 
 class CommitFileTemporaryPathTest(
     parameterized.TestCase,
@@ -119,6 +145,11 @@ class CommitFileTemporaryPathTest(
     self.assertTrue(tmp_paths[1].get().exists())
     self.assertTrue(paths[0].exists())
     self.assertTrue(paths[1].exists())
+
+  async def test_finalize_with_snapshot_raises(self):
+    path = self.directory / 'ckpt'
+    with self.assertRaises(ValueError):
+      CommitFileTemporaryPath.from_final(path, use_snapshot=True)
 
 
 class ReadOnlyTemporaryPathTest(
