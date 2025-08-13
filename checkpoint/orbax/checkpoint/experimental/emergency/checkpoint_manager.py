@@ -362,7 +362,19 @@ def _process_local_to_global(
   broadcast_dir_key = f'broadcast_{barrier_name_and_id}/'
   broadcast_dir_key = multihost._unique_barrier_key(broadcast_dir_key) + '/'  # pylint: disable=protected-access
   broadcast_key = broadcast_dir_key + str(multihost.process_index())
+  logging.info(
+      '[process=%s] Setting key %s in key-value store.',
+      multihost.process_index(),
+      broadcast_key,
+  )
+  start_time = time.time()
   client.key_value_set(broadcast_key, ','.join([str(s) for s in values]))
+  logging.info(
+      '[process=%s] Finished setting key %s in key-value store in %f seconds.',
+      multihost.process_index(),
+      broadcast_key,
+      time.time() - start_time,
+  )
 
   barrier_key = f'barrier_{barrier_name_and_id}'
   barrier_key = multihost._unique_barrier_key(barrier_key)  # pylint: disable=protected-access
@@ -378,15 +390,36 @@ def _process_local_to_global(
       multihost.process_index(),
       barrier_processes,
   )
+  start_time = time.time()
   client.wait_at_barrier(
       barrier_key,
       process_ids=list(barrier_processes),
       timeout_in_ms=timeout * 1000,
   )
+  logging.info(
+      '[process=%s] Finished waiting at barrier %s in %f seconds.',
+      multihost.process_index(),
+      barrier_key,
+      time.time() - start_time,
+  )
+
+  logging.info(
+      '[process=%s] Getting key %s from key-value store.',
+      multihost.process_index(),
+      broadcast_dir_key,
+  )
+  start_time = time.time()
+  key_value_dir_get_result = client.key_value_dir_get(broadcast_dir_key)
+  logging.info(
+      '[process=%s] Finished getting key %s from key-value store in %fs.',
+      multihost.process_index(),
+      broadcast_dir_key,
+      time.time() - start_time,
+  )
 
   per_process_values = {
       int(k.split('/')[-1]): {int(s) for s in v.split(',')} if v else set()
-      for k, v in client.key_value_dir_get(broadcast_dir_key)
+      for k, v in key_value_dir_get_result
   }
   assert set(per_process_values.keys()) == barrier_processes
   return per_process_values

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Allow ArrayMetadataStore to update existing metadatas.
+- Add logging for `_broadcast_values_to_processes`.
 
 ## [0.11.21] - 2025-08-07
 
