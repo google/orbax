@@ -21,15 +21,17 @@ from typing import Any, Awaitable
 import aiofiles
 import jax
 import numpy as np
+from orbax.checkpoint._src.arrays import numpy_utils
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types
 
-
 CheckpointLayout = checkpoint_layout.CheckpointLayout
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 Path = types.Path
+
+HEADER_NUM_BYTES = 8
 
 
 def _get_dtypes() -> dict[str, Any]:
@@ -52,10 +54,10 @@ def _get_dtypes() -> dict[str, Any]:
   }
 
 
-async def _read_safetensors_file(path: Path) -> tuple[dict[str, Any], bytes]:
-  """Reads a safetensors file, returning the header and data bytes."""
+async def _read_safetensors_header(path: Path) -> tuple[dict[str, Any], int]:
+  """Reads a safetensors file header, returning the header and data start offset."""
   async with aiofiles.open(path, mode="rb") as f:
-    header_size_bytes = await f.read(8)
+    header_size_bytes = await f.read(HEADER_NUM_BYTES)
     if not header_size_bytes:
       raise ValueError("Could not read header size from safetensors file.")
 
@@ -65,8 +67,8 @@ async def _read_safetensors_file(path: Path) -> tuple[dict[str, Any], bytes]:
       raise ValueError("Could not read header content from safetensors file.")
 
     header = json.loads(header_bytes)
-    data_bytes = await f.read()
-    return header, data_bytes
+    data_start_offset = HEADER_NUM_BYTES + header_size
+    return header, data_start_offset
 
 
 def _get_array_properties(info: dict[str, Any]) -> tuple[tuple[int, ...], Any]:
@@ -80,10 +82,83 @@ def _get_array_properties(info: dict[str, Any]) -> tuple[tuple[int, ...], Any]:
   return shape, dtype
 
 
-async def _load_safetensors(path: Path) -> dict[str, Any]:
+async def _read_non_contiguous_slice(
+    f: aiofiles.threadpool.binary.AsyncBufferedIOBase,
+    idx: tuple[slice, ...],
+    stored_shape: tuple[int, ...],
+    stored_dtype: np.dtype,
+    tensor_file_offset: int,
+) -> np.ndarray:
+  """Reads a slice of a tensor from a file.
+
+  This function solves the problem of reading a multi-dimensional slice from an
+  array, where the slice's data is not stored as a single, contiguous block in 
+  the file. It does so by recursively "walking" the dimensions of the slice.
+
+  Args:
+      f: The asynchronous file object (binary read mode)
+      idx: A tuple of slice objects representing the n-dimensional slice to
+        read.
+      stored_shape: The shape of the tensor.
+      stored_dtype: The dtype of the tensor.
+      tensor_file_offset: The starting byte offset of the tensor's data within
+        the file.
+
+  Returns:
+      The specific tensor slice.
+  """
+  # Handle 0-d scalar case
+  if not idx:
+    await f.seek(tensor_file_offset)
+    num_bytes = np.dtype(stored_dtype).itemsize
+    scalar_bytes = await f.read(num_bytes)
+    # Reshape to () to create a 0-D NumPy array.
+    return np.frombuffer(scalar_bytes, dtype=stored_dtype).reshape(())
+
+  itemsize = np.dtype(stored_dtype).itemsize
+
+  # Calculate the byte strides for the full tensor. The stride for a
+  # dimension is the number of bytes to "jump" to get to the next element
+  # in that dimension while keeping all other indices the same.
+  global_strides = [itemsize] * len(stored_shape)
+  for i in range(len(stored_shape) - 2, -1, -1):
+    global_strides[i] = global_strides[i + 1] * stored_shape[i + 1]
+
+  async def _read_slice_recursively(dim: int, base_offset: int) -> bytes:
+    s = idx[dim]  # The slice for the current dimension.
+
+    # If we are at the last dimension, the data is contiguous.
+    if dim == len(stored_shape) - 1:
+      start = base_offset + s.start * global_strides[dim]
+      num_bytes = (s.stop - s.start) * itemsize
+      await f.seek(tensor_file_offset + start)
+      return await f.read(num_bytes)
+
+    # For all other dimensions, iterate through the indices
+    # of the slice and make a recursive call for the next dimension.
+    chunks = []
+    for i in range(s.start, s.stop):
+      offset = base_offset + i * global_strides[dim]
+      chunk = await _read_slice_recursively(dim + 1, offset)
+      chunks.append(chunk)
+
+    return b"".join(chunks)
+
+  # Start the recursive reading process from the first dimension.
+  slice_bytes = await _read_slice_recursively(dim=0, base_offset=0)
+  shard_shape = numpy_utils.slice_shape(idx)
+  return np.frombuffer(slice_bytes, dtype=stored_dtype).reshape(shard_shape)
+
+
+async def _load_safetensors_fully_replicated(path: Path) -> dict[str, Any]:
+  # TODO(b/438033067)
   """Reads a safetensors file and constructs the tensor dictionary."""
-  header, data_bytes = await _read_safetensors_file(path)
+  header, data_start_offset = await _read_safetensors_header(path)
   tensors = {}
+  async with aiofiles.open(path, mode="rb") as f:
+    await f.seek(data_start_offset)
+    data_bytes = await f.read()
+
   for name, info in header.items():
     if name == "__metadata__":
       continue
@@ -93,6 +168,68 @@ async def _load_safetensors(path: Path) -> dict[str, Any]:
     np_array = np.frombuffer(tensor_bytes, dtype=dtype).reshape(shape)
     tensors[name] = np_array
   return {format_utils.PYTREE_CHECKPOINTABLE_KEY: tensors}
+
+
+async def _load_safetensors_sharded(
+    path: Path, abstract_pytree: dict[str, Any]
+) -> dict[str, Any]:
+  """Loads a safetensors file with sharding."""
+  header, data_start_offset = await _read_safetensors_header(path)
+  flat_abstract, _ = jax.tree.flatten_with_path(abstract_pytree)
+  restored_pytree = {}
+
+  async with aiofiles.open(path, mode="rb") as f:
+    for key_path, abstract_leaf in flat_abstract:
+      if len(key_path) != 1 or not isinstance(
+          key_path[0], jax.tree_util.DictKey
+      ):
+        raise ValueError(
+            f"The PyTree is not a flat dictionary. Key path: {key_path}"
+        )
+      tensor_name = str(key_path[0].key)
+      if tensor_name not in header:
+        raise KeyError(
+            f"Tensor '{tensor_name}' not found in safetensors header."
+        )
+
+      stored_shape, stored_dtype = _get_array_properties(header[tensor_name])
+      st_data_offsets = header[tensor_name]["data_offsets"]
+      sharding = abstract_leaf.sharding
+      target_shape = abstract_leaf.shape
+      target_dtype = abstract_leaf.dtype
+
+      device_indices_map = sharding.addressable_devices_indices_map(
+          target_shape
+      )
+
+      device_map = []
+      for device in device_indices_map:
+        idx = device_indices_map[device]
+        # Determine the slice corresponding to the device that the current
+        # process is responsible for.
+        resolved_idx = numpy_utils.resolve_slice(idx, stored_shape)
+        shard_shape = numpy_utils.slice_shape(resolved_idx)
+
+        shard_np = await _read_non_contiguous_slice(
+            f,
+            resolved_idx,
+            stored_shape,
+            stored_dtype,
+            st_data_offsets[0] + data_start_offset,
+        )
+
+        shard_np = shard_np.reshape(shard_shape)
+
+        if shard_np.dtype != target_dtype:
+          shard_np = shard_np.astype(target_dtype)
+
+        device_map.append(jax.device_put(shard_np, device))
+
+      restored_pytree[tensor_name] = jax.make_array_from_single_device_arrays(
+          target_shape, sharding, device_map
+      )
+
+  return restored_pytree
 
 
 class SafetensorsLayout(CheckpointLayout):
@@ -116,7 +253,7 @@ class SafetensorsLayout(CheckpointLayout):
 
   async def metadata(self) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
     """Returns the metadata of the SafeTensors checkpoint."""
-    header, _ = await _read_safetensors_file(self._path)
+    header, _ = await _read_safetensors_header(self._path)
 
     metadata = {}
     for name, info in header.items():
@@ -151,6 +288,12 @@ class SafetensorsLayout(CheckpointLayout):
       self,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> Awaitable[dict[str, Any]]:
-    del abstract_checkpointables
-    # TODO(b/430388193) - Add support for abstract_checkpointables.
-    return _load_safetensors(self._path)
+    abstract_pytree = None
+    if abstract_checkpointables:
+      abstract_pytree = abstract_checkpointables.get(
+          format_utils.PYTREE_CHECKPOINTABLE_KEY
+      )
+    if abstract_pytree is not None:
+      return _load_safetensors_sharded(self._path, abstract_pytree)
+    else:
+      return _load_safetensors_fully_replicated(self._path)
