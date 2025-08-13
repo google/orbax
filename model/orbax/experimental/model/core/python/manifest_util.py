@@ -49,7 +49,7 @@ def _build_function(
     # TODO(b/356174487): allow customized `file_system_location`,
     #   `mime_type`, `version`.
     stable_hlo_body.stable_hlo.inlined_bytes = fn.mlir_module_serialized
-    stable_hlo_body.stable_hlo.mime_type = "mlir_stablehlo"
+    stable_hlo_body.stable_hlo.mime_type = "application/x.mlir-stablehlo"
     stable_hlo_body.stable_hlo.version = "1.0"
 
     stable_hlo_body.calling_convention_version = fn.calling_convention_version
