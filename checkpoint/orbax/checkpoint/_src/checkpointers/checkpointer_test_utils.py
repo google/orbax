@@ -51,6 +51,7 @@ from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import test_tree_utils
 
+from .privacy.minimization.access_event_logger.gdm import gdm_access_logger
 from .pyglib import gfile
 
 
@@ -715,3 +716,26 @@ class CheckpointerTestBase:
                     partial_restore=True,
                 ),
             )
+
+    def test_restore_logs_read_event(self):
+      """Tests that restore logs a read event to DM Sawmill log."""
+      with self.checkpointer(PyTreeCheckpointHandler()) as checkpointer:
+        checkpointer.save(self.directory, self.pytree)
+        self.wait_if_async(checkpointer)
+
+        with mock.patch.object(
+            gdm_access_logger, 'GdmAccessLogger', autospec=True
+        ) as mock_gdm_access_logger:
+          # Create instance of GdmAccessLogger mock.
+          mock_instance = mock_gdm_access_logger()
+
+          restored = checkpointer.restore(
+              self.directory, restore_args=self.pytree_restore_args
+          )
+
+          mock_instance.read_event.assert_called_with(
+              cns_path=str(self.directory),
+              log_provenance='orbax',
+          )
+
+        test_utils.assert_tree_equal(self, self.pytree, restored)
