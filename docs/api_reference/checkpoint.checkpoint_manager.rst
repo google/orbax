@@ -1,9 +1,9 @@
 CheckpointManager
 ============================================================================
 
-.. currentmodule:: orbax.checkpoint.checkpoint_manager
-
 .. automodule:: orbax.checkpoint.checkpoint_manager
+
+.. currentmodule:: orbax.checkpoint
 
 CheckpointManager
 ------------------------------------------------
@@ -15,17 +15,8 @@ CheckpointManagerOptions
 .. autoclass:: CheckpointManagerOptions
   :members:
 
-AsyncOptions
-------------------------------------------------
-.. autoclass:: AsyncOptions
-  :members:
-
-MultiprocessingOptions
-------------------------------------------------
-.. autoclass:: MultiprocessingOptions
-  :members:
-
 Utility functions
 ------------------------------------------------
+.. currentmodule:: orbax.checkpoint.checkpoint_manager
 
 .. autofunction:: is_async_checkpointer
