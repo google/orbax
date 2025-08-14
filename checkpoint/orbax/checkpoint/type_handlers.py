@@ -27,6 +27,7 @@ from orbax.checkpoint._src.serialization.type_handlers import SingleReplicaArray
 from orbax.checkpoint._src.serialization.type_handlers import SingleReplicaArrayRestoreArgs
 from orbax.checkpoint._src.serialization.type_handlers import StringHandler
 from orbax.checkpoint._src.serialization.type_handlers import TypeHandler
+from orbax.checkpoint._src.serialization.cloud_pathways_type_handlers import ColocatedPythonArrayHandler
 
 # TypeHandler Registry
 from orbax.checkpoint._src.serialization.type_handlers import TypeHandlerRegistry
