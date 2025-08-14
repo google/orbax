@@ -64,7 +64,7 @@ def validate_checkpoint_directory(path: path_types.PathLike):
     raise FileNotFoundError(f'Checkpoint path {path} does not exist.')
   if not path.is_dir():
     raise NotADirectoryError(f'Checkpoint path {path} is not a directory.')
-  if v0_step_lib.is_tmp_checkpoint(path):
+  if v0_step_lib.is_path_temporary(path):
     raise ValueError(f'Found incomplete checkpoint at {path}.')
 
 
