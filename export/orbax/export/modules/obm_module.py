@@ -86,9 +86,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         input_polymorphic_shape_symbol_values,
     )
 
-    self._xla_compile_options = jax2obm_kwargs.get(
-        constants.XLA_COMPILE_OPTIONS, None
-    )
     self._xla_compile_options_per_platform = jax2obm_kwargs.get(
         constants.XLA_COMPILE_OPTIONS_PER_PLATFORM, None
     )

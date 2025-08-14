@@ -79,10 +79,11 @@ ORBAX_CHECKPOINT_MIME_TYPE = 'orbax_checkpoint'
 # - The batching config for the model.
 BATCH_OPTIONS = 'batch_options'
 
-# XLA compile options for the model.
-XLA_COMPILE_OPTIONS = 'xla_compile_options'
 
-# XLA compile options per platform for the model.
+# XLA compile options per platform for the model. This is a mapping from
+# platform name to xla_pb2.CompileOptionsProto. This is used to set the XLA
+# compilation options for the model. If not provided, the default XLA
+# compilation options for default platform (TPU) will be used.
 XLA_COMPILE_OPTIONS_PER_PLATFORM = 'xla_compile_options_per_platform'
 
 # Mesh for the model.
