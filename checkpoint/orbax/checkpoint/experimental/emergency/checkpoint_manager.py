@@ -990,12 +990,20 @@ class _MultisliceCheckpointManager(
     persistent_saved = False
     local_saved = False
     if self.in_primary_slice:
-      logging.info('Maybe saving at step %d (persistent).', step)
+      logging.info(
+          'Maybe saving at step %d (persistent) to %s.',
+          step,
+          self._persistent_checkpoint_manager.directory,
+      )
       persistent_saved = self._persistent_checkpoint_manager.save(
           step, args=args.state, force=force
       )
     else:
-      logging.info('Maybe saving at step %d (local).', step)
+      logging.info(
+          'Maybe saving at step %d (local) to %s.',
+          step,
+          self._local_checkpoint_manager.directory,
+      )
 
       args_dict = dict(args.items())
       args_dict[_PROCESS_METADATA_NAME] = (
@@ -1239,8 +1247,8 @@ class _MultisliceCheckpointManager(
     else:
       logging.vlog(
           1,
-          'emergency.CheckpointManager: secondary slice, create zeros and'
-          ' wait for broacast.',
+          'emergency.CheckpointManager: non-primary slice, create zeros and'
+          ' wait for broadcast.',
       )
 
       @functools.partial(
@@ -1292,41 +1300,125 @@ class _MultisliceCheckpointManager(
         step,
         directory or self._persistent_directory,
     )
-    args = args_lib.PyTreeRestore(
-        item=self._abstract_state,
-        restore_args=checkpoint_utils.construct_restore_args(
-            self._abstract_state
+    step_stats = step_statistics.EmergencyRestoreStepStatistics()
+    step_stats.checkpoint_manager_start_time = time.time()
+    step_stats.step = step
+    step_stats.is_restoring_slice = self.in_primary_slice
+    step_stats.in_primary_slice = self.in_primary_slice
+
+    shape_dtypes, tree_defs = jax.tree.flatten(self._abstract_state)
+    single_slice_shardings = jax.tree.map(
+        lambda arr: self._get_single_slice_sharding(
+            mesh=arr.sharding.mesh,
+            pspec=arr.sharding.spec,
         ),
+        self._abstract_state,
+    )
+    single_slice_shardings_tuple = tuple(
+        jax.tree.flatten(single_slice_shardings)[0]
     )
 
-    # Create a temporarily read-only PersistentCheckpointManager that will
-    # synchronize the restoration with global processes.
-    persistent_options = checkpoint_manager.CheckpointManagerOptions(
-        step_name_format=self._options.step_name_format,
-        create=False,
-        cleanup_tmp_directories=False,
-        read_only=True,
-        enable_async_checkpointing=False,
-        multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
-            barrier_sync_key_prefix='persistent_global',
-        ),
-    )
-    with checkpoint_manager.CheckpointManager(
-        self._persistent_directory,
-        options=persistent_options,
-        metadata=self._metadata,
-        item_handlers=PyTreeCheckpointHandler(
-            use_ocdbt=True,
-            use_zarr3=True,
-        ),
-    ) as pcm:
+    if self.in_primary_slice:
+      logging.info(
+          'emergency.CheckpointManager: restoring from persistent checkpoint.'
+      )
+      restore_directory = self._options.step_name_format.find_step(
+          epath.Path(directory or self._persistent_directory), step
+      ).path
+      step_stats.directory = str(restore_directory)
+
+      primary_slice_processes = multihost.unique_processes_from_devices(
+          multislice.replica_devices(
+              self._global_mesh,
+              replica_axis_index=self._replica_axis_index,
+              replica_id=_PRIMARY_REPLICA_ID,
+          )
+      )
+      primary_host = multislice.primary_process_in_replica(
+          self._global_mesh,
+          replica_axis_index=self._replica_axis_index,
+          replica_id=_PRIMARY_REPLICA_ID,
+      )
+      multiprocessing_options = checkpoint_manager.MultiprocessingOptions(
+          primary_host=primary_host,
+          active_processes=primary_slice_processes,
+          barrier_sync_key_prefix='persistent_primary_slice_restore',
+      )
+
+      single_slice_restore_args = checkpoint_utils.construct_restore_args(
+          self._abstract_state, single_slice_shardings
+      )
+      args = args_lib.PyTreeRestore(
+          item=self._abstract_state,
+          restore_args=single_slice_restore_args,
+      )
+
+      handler = _persistent_checkpoint_handler(multiprocessing_options)
       try:
-        return pcm.restore(step, args=args, directory=directory)
+        step_stats.checkpointer_start_time = time.time()
+        restored_pytree = handler.restore(
+            restore_directory / 'default',
+            args=args,
+        )
+        step_stats.checkpointer_duration_secs = (
+            time.time() - step_stats.checkpointer_start_time
+        )
+        in_tree = tuple(jax.tree.flatten(restored_pytree)[0])
+        logging.info(
+            'Finished restoring from persistent checkpoint on primary replica.'
+        )
       except FileNotFoundError as e:
         raise FileNotFoundError(
             'No steps found in either local or persistent storage when'
             f' requesting restoration of step {step}.'
         ) from e
+    else:
+      logging.info(
+          'emergency.CheckpointManager: non-primary slice, create zeros and'
+          ' wait for broadcast.',
+      )
+
+      @functools.partial(
+          jax.jit,
+          static_argnums=0,
+          out_shardings=single_slice_shardings_tuple,
+      )
+      def create_zeros(shape_dtype_tup):
+        return jax.tree.map(
+            lambda sd: jnp.zeros(sd.shape, dtype=sd.dtype), shape_dtype_tup
+        )
+
+      zeros_pytree = create_zeros(tuple(shape_dtypes))
+      in_tree = tuple(zeros_pytree)
+
+    multihost.sync_global_processes('persistent_restore_pre_broadcast')
+
+    start_broadcast = time.time()
+    shared_states, _ = multislice.broadcast_one_replica_to_all(
+        in_tree,
+        self._global_mesh,
+        replica_axis_index=self._replica_axis_index,
+        is_source=self.in_primary_slice,
+    )
+    broadcast_elapsed_s = time.time() - start_broadcast
+    jax.monitoring.record_event_duration_secs(
+        '/orbax/emergency/checkpoint/read/broadcast_duration_secs',
+        broadcast_elapsed_s,
+    )
+    step_stats.broadcast_start_time = start_broadcast
+    step_stats.broadcast_duration_secs = broadcast_elapsed_s
+    step_stats.checkpoint_manager_duration_secs = (
+        time.time() - step_stats.checkpoint_manager_start_time
+    )
+    self._logger.log_entry(dataclasses.asdict(step_stats))
+
+    logging.info(
+        'Finished broadcasting during persistent restore in %.2f on slice %s',
+        broadcast_elapsed_s,
+        self._slice_id,
+    )
+
+    return jax.tree.unflatten(tree_defs, shared_states)
 
   def restore(
       self,
