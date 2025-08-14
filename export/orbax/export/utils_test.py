@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from absl.testing import parameterized
+import jax.numpy as jnp
 import numpy as np
 from orbax.export import utils
 import tensorflow as tf
