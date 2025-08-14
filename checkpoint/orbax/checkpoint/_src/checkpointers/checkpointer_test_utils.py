@@ -37,6 +37,7 @@ from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
+from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.metadata import array_metadata
@@ -524,6 +525,74 @@ class CheckpointerTestBase:
         self.assertGreater(step_metadata.init_timestamp_nsecs, 0)
         self.assertGreater(step_metadata.commit_timestamp_nsecs, 0)
         self.assertEqual(step_metadata.custom_metadata, {'a': 1, 'b': 2})
+
+    def test_save_and_get_metadata(self):
+      """Basic save and restore test."""
+      with self.checkpointer(PyTreeCheckpointHandler()) as checkpointer:
+        directory = self.directory / 'step_metadata'
+        metadata = {'a': 1, 'b': 2}
+        checkpointer.save(
+            directory, args.PyTreeSave(self.pytree), custom_metadata=metadata
+        )
+        self.wait_if_async(checkpointer)
+        retrieved_metadata = checkpointer.metadata(directory)
+        self.assertEqual(retrieved_metadata.custom_metadata, metadata)
+
+    def test_composite_handler_metadata(self):
+      """Tests Checkpointer.metadata with CompositeCheckpointHandler."""
+      handler = composite_checkpoint_handler.CompositeCheckpointHandler()
+      with self.checkpointer(handler) as ckptr:
+        # Some test classes use a mock handler.
+        if not isinstance(
+            ckptr.handler,
+            composite_checkpoint_handler.CompositeCheckpointHandler,
+        ):
+          self.skipTest('Test only applies to CompositeCheckpointHandler.')
+
+        directory = self.directory / 'composite_metadata'
+        custom_metadata = {'user': 'test', 'version': 1}
+        item_args = args.Composite(
+            state=args.PyTreeSave(self.pytree),
+            other=args.JsonSave({'foo': 'bar'}),
+        )
+        ckptr.save(
+            directory,
+            item_args,
+            custom_metadata=custom_metadata,
+        )
+        self.wait_if_async(ckptr)
+
+        metadata = ckptr.metadata(directory)
+        self.assertIsInstance(metadata, checkpoint.StepMetadata)
+        self.assertEqual(metadata.custom_metadata, custom_metadata)
+
+        self.assertIsNotNone(metadata.item_handlers)
+        self.assertIn('state', metadata.item_handlers)
+        self.assertEqual(
+            metadata.item_handlers['state'],
+            PyTreeCheckpointHandler().typestr(),
+        )
+        self.assertIn('other', metadata.item_handlers)
+        self.assertEqual(
+            metadata.item_handlers['other'],
+            json_checkpoint_handler.JsonCheckpointHandler().typestr(),
+        )
+
+        self.assertIsNotNone(metadata.item_metadata)
+        self.assertIn('state', metadata.item_metadata)
+        self.assertIn('other', metadata.item_metadata)
+        self.assertIsInstance(
+            metadata.item_metadata['state'], tree_metadata.TreeMetadata
+        )
+        expected_pytree_metadata = PyTreeCheckpointHandler().metadata(
+            directory / 'state'
+        )
+        test_utils.assert_tree_equal(
+            self,
+            metadata.item_metadata['state'],
+            expected_pytree_metadata,
+        )
+        self.assertIsNone(metadata.item_metadata['other'])
 
     async def test_save_with_failing_array_metadata_store_in_finalize(self):
       """ArrayMetadata validation in CheckpointHandler.finalize()."""

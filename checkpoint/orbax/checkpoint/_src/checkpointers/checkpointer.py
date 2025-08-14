@@ -327,10 +327,35 @@ class Checkpointer(
   ) -> Any:
     return self._handler.restore(directory, args=args)
 
-  def metadata(self, directory: epath.PathLike) -> StepMetadata | Any | None:
+  def metadata(self, directory: epath.PathLike) -> StepMetadata:
     """See superclass documentation."""
     directory = epath.Path(directory)
-    return self._handler.metadata(directory)
+
+    if isinstance(
+        self._handler, composite_checkpoint_handler.CompositeCheckpointHandler
+    ):
+      # CompositeHandler contains metadata for all items in this step.
+      return self._handler.metadata(directory)
+
+    serialized_metadata = self._metadata_store.read(
+        checkpoint.step_metadata_file_path(directory)
+    )
+    if serialized_metadata is None:
+      step_metadata = StepMetadata()
+    else:
+      step_metadata = step_metadata_serialization.deserialize(
+          serialized_metadata
+      )
+
+    try:
+      step_metadata.item_metadata = self._handler.metadata(directory)
+    except (FileNotFoundError, NotImplementedError, ValueError, TypeError):
+      logging.warning(
+          'Failed to get item metadata from directory %s. Either it was not'
+          ' present in the checkpoint, or the handler does not support it.',
+          directory,
+      )
+    return step_metadata
 
   def _save_step_metadata(
       self, directory: epath.Path, custom_metadata: dict[str, Any] | None
