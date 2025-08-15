@@ -24,7 +24,7 @@ concurrency:
 jobs:
   build-checkpoint:
     name: "build-checkpoint (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: linux-g2-16-l4-1gpu-x4
+    runs-on: linux-x86-n2-32
     container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
@@ -84,7 +84,7 @@ jobs:
 
   build-export:
     name: "build-export (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: linux-g2-16-l4-1gpu-x4
+    runs-on: linux-x86-n2-32
     container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
@@ -110,6 +110,8 @@ jobs:
       with:
         version: '3.x'
         repo-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: sleep
+      run: sleep 10000
     - name: Extract branch name
       shell: bash
       run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
@@ -159,7 +161,7 @@ jobs:
 
   build-orbax-model:
     name: "build-orbax-model (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: linux-g2-16-l4-1gpu-x4
+    runs-on: linux-x86-n2-32
     container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
