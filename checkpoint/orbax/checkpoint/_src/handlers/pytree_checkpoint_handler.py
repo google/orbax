@@ -948,7 +948,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """
     # Try reading metadata file.
     try:
-      internal_tree_metadata = self._handler_impl._read_metadata_file(directory)  # pylint: disable=protected-access
+      internal_tree_metadata = asyncio.run(
+          self._handler_impl._read_metadata_file(directory)  # pylint: disable=protected-access
+      )
       use_zarr3 = internal_tree_metadata.use_zarr3
       value_metadata_tree = internal_tree_metadata.as_nested_tree()
       flat_value_metadatas = tree_utils.to_flat_dict(

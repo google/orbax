@@ -45,6 +45,7 @@ from orbax.checkpoint._src.metadata import array_metadata_store as array_metadat
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
@@ -782,7 +783,9 @@ class BasePyTreeCheckpointHandler(
           f'Requested directory for restore does not exist at {directory}'
       )
     # Get value metadata tree and use_zarr3 from serialized pytree metadata.
-    internal_tree_metadata = self._read_metadata_file(directory)
+    internal_tree_metadata = asyncio_utils.run_sync(
+        self._read_metadata_file(directory)
+    )
     value_metadata_tree = internal_tree_metadata.as_nested_tree()
     if not value_metadata_tree:
       raise ValueError(
@@ -1005,7 +1008,7 @@ class BasePyTreeCheckpointHandler(
         end_time - commit_time,
     )
 
-  def _read_metadata_file(
+  async def _read_metadata_file(
       self, directory: epath.Path
   ) -> tree_metadata.InternalTreeMetadata:
     """Reads metadata file and returns a tree of restore types.
@@ -1020,7 +1023,7 @@ class BasePyTreeCheckpointHandler(
       FileNotFoundError: if the metadata file is not found.
     """
     path = directory / PYTREE_METADATA_FILE
-    if not path.exists():
+    if not await async_path.exists(path):
       raise FileNotFoundError(
           f'Metadata file (named {PYTREE_METADATA_FILE}) does not exist at'
           f' {directory}.'
@@ -1032,7 +1035,7 @@ class BasePyTreeCheckpointHandler(
         self._pytree_metadata_options,
     )
     return tree_metadata.InternalTreeMetadata.from_json(
-        json.loads(path.read_text()),
+        json.loads(await async_path.read_text(path)),
         pytree_metadata_options=self._pytree_metadata_options,
     )
 
@@ -1064,7 +1067,9 @@ class BasePyTreeCheckpointHandler(
       tree containing metadata.
     """
     is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
-    internal_tree_metadata = self._read_metadata_file(directory)
+    internal_tree_metadata = asyncio_utils.run_sync(
+        self._read_metadata_file(directory)
+    )
     return tree_metadata.build_default_tree_metadata(
         internal_tree_metadata.as_custom_metadata(
             directory,
