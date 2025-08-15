@@ -25,7 +25,9 @@ from orbax.experimental.model.tf2obm.utils import TfSignature
 import tensorflow as tf
 
 
-TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE = 'tensorflow_concrete_function_handle'
+TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE = (
+    'application/x.tensorflow-concrete-function-handle'
+)
 TF_CONCRETE_FUNCTION_HANDLE_VERSION = '0.0.1'
 
 
@@ -156,7 +158,7 @@ def tf_concrete_function_name_to_obm_function(
   )
 
 
-SAVED_MODEL_MIME_TYPE = 'tensorflow_saved_model'
+SAVED_MODEL_MIME_TYPE = 'application/x.tensorflow-saved-model'
 SAVED_MODEL_VERSION = '1.0'
 
 

@@ -14,4 +14,4 @@
 
 """Constants used in jax2obm."""
 # XLA compilation options.
-XLA_COMPILE_OPTIONS = 'xla_compile_options'
+XLA_COMPILE_OPTIONS = 'application/x.xla-compile-options'
