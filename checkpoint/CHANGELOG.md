@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add support for sharded loading from Safetensors checkpoints onto a JAX mesh.
+- Ability to have unique per process signalling for directory creation.
 
 ## [0.11.22] - 2025-08-14
 

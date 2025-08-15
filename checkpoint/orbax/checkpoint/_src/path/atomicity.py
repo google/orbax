@@ -213,8 +213,7 @@ class TemporaryPathBase(atomicity_types.TemporaryPath):
     """Returns the temporary path."""
     if not self._tmp_path:
       raise ValueError(
-          'Temporary path has not been created yet. Please call `create`'
-          ' first.'
+          'Temporary path has not been created yet. Please call `create` first.'
       )
     return self._tmp_path
 
@@ -582,7 +581,9 @@ def create_all_async(
         timeout_secs=multihost.coordination_timeout(),
         operation_id=operation_id,
     )
-    future.add_to_awaitable_signals_contract(completion_signals)
+    future.AwaitableSignalsContract.add_to_awaitable_signals_contract(
+        completion_signals
+    )
 
   # Sync to enusre that all hosts have the same awaitable signals contract.
   multihost.sync_global_processes(

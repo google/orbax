@@ -41,6 +41,7 @@ from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as sa
 from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
@@ -359,6 +360,10 @@ class CheckpointManagerOptions:
     `ContinuousCheckpointingPolicy` - otherwise the value is ignored.
     This is an interim workaround for b/428061876. Do not use
     without explicit approval.
+  enable_per_process_directory_creation: Signifies wether directories are
+    supposed to be created per process. This is used to support async
+    directory creation. If True, `multiprocessing_options.primary_host` must be
+    None.
   """
 
   save_interval_steps: int = 1
@@ -399,6 +404,7 @@ class CheckpointManagerOptions:
   prevent_write_metrics: bool = False
   # TODO(b/428061876) Remove this option.
   enable_should_save_is_saving_in_progress_check: bool = True
+  enable_per_process_directory_creation: bool = False
 
   def __post_init__(self):
     step_name_format_single_host_load_and_broadcast = (
@@ -482,12 +488,18 @@ class CheckpointManagerOptions:
       )
     if self.read_only and self.todelete_full_path is not None:
       self.todelete_full_path = None
-      logging.warning(
-          ' todelete_full_path=None.'
-      )
+      logging.warning(' todelete_full_path=None.')
     if self.todelete_subdir is not None and self.todelete_full_path is not None:
       raise ValueError(
           'todelete_subdir and todelete_full_path both cannot be set togther'
+      )
+    if (
+        self.enable_per_process_directory_creation
+        and self.multiprocessing_options.primary_host is not None
+    ):
+      raise ValueError(
+          'enable_per_process_directory_creation can only be used when'
+          ' primary_host is None.'
       )
     if self.read_only and self.should_save_fn is not None:
       self.should_save_fn = None
@@ -690,6 +702,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._options = options or CheckpointManagerOptions()
     self._multiprocessing_options = self._options.multiprocessing_options
+
+    if self._options.enable_per_process_directory_creation:
+      future.AwaitableSignalsContract.awaitable_signals_contract_prefix += (
+          f'_{multihost.process_index()}'
+      )
+
     self._save_decision_policy = (
         self._options.save_decision_policy
         or _get_default_save_decision_policy(self._options)

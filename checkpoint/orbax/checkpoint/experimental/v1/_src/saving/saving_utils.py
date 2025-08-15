@@ -210,7 +210,9 @@ class SaveResponse(async_types.AsyncResponse[None]):
     # Clean up all awaitable signals for the current operation id as they are
     # no longer needed.
     if self._context.async_options.create_directories_asynchronously:
-      future.remove_all_awaitable_signals(self._operation_id)
+      future.AwaitableSignalsContract.remove_all_awaitable_signals(
+          self._operation_id
+      )
 
     await multihost.sync_global_processes(
         multihost.unique_barrier_key(

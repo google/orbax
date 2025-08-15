@@ -17,27 +17,16 @@
 import threading
 from typing import Sequence
 from absl import logging
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import signaling_client
 
 HandlerAwaitableSignal = synchronization.HandlerAwaitableSignal
 OperationIdGenerator = synchronization.OperationIdGenerator
-
-
-def _get_unique_barrier_key(
-    signal: HandlerAwaitableSignal, operation_id: str
-) -> str:
-  """Returns a unique barrier key for the signal.
-
-  Args:
-    signal: The signal to generate a barrier key for.
-    operation_id: The operation id to use as a suffix for the barrier key.
-
-  Returns:
-    A unique barrier key for the signal with operation id as key directory.
-  """
-  return f'{operation_id}/{signal.value}'
+_get_unique_barrier_key = (
+    future.AwaitableSignalsContract.get_unique_awaitable_singal_key
+)
 
 
 async def _get_awaitable_signals_from_contract(
