@@ -159,7 +159,7 @@ jobs:
 
   build-orbax-model:
     name: "build-orbax-model (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: ubuntu-latest
+    runs-on: linux-g2-16-l4-1gpu-x4
     defaults:
       run:
         working-directory: model
