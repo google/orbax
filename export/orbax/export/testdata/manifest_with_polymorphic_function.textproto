@@ -1,4 +1,4 @@
-# proto-file: experimental/model/core/protos/manifest.proto
+# proto-file: //orbax/experimental/model/core/protos/manifest.proto
 # proto-message: Manifest
 objects {
   key: "linear_forward_fn"
