@@ -30,6 +30,7 @@ from typing import Any, Iterator
 from etils import epath
 
 
+
 async def mkdir(
     path: epath.Path,
     parents: bool = False,
@@ -44,8 +45,6 @@ async def mkdir(
 
   thread_kwargs = {}
   return await asyncio.to_thread(_mkdir_sync, **thread_kwargs)
-
-
 
 
 async def write_bytes(path: epath.Path, data: Any) -> int:
