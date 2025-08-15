@@ -119,7 +119,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y protobuf-compiler
 
-        protoc -I=. --python_out=. $(find orbax/export/ -name "*.proto")
+        protoc --experimental_allow_proto3_optional -I=. --python_out=. $(find orbax/export/ -name "*.proto")
 
         pip install .
         pip install .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
@@ -160,6 +160,7 @@ jobs:
   build-orbax-model:
     name: "build-orbax-model (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
     runs-on: linux-g2-16-l4-1gpu-x4
+    container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
         working-directory: model
@@ -194,7 +195,7 @@ jobs:
 
         pip install tensorflow
 
-        protoc -I=. --python_out=. $(find orbax/experimental/model/ -name "*.proto")
+        protoc --experimental_allow_proto3_optional -I=. --python_out=. $(find orbax/experimental/model/ -name "*.proto")
 
         pip install -e .
 
