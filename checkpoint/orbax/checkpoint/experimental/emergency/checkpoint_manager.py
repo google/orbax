@@ -494,8 +494,6 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         active_processes=self._active_processes,
         barrier_sync_key_prefix='local',
     )
-    async_options = options.async_options or checkpoint_manager.AsyncOptions()
-    async_options.create_directories_asynchronously = False
     local_options = checkpoint_manager.CheckpointManagerOptions(
         save_interval_steps=options.local.save_interval_steps,
         max_to_keep=options.local.max_to_keep,
@@ -505,7 +503,6 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         create=False,
         # we always clean up local tmp directories explicitly
         cleanup_tmp_directories=False,
-        async_options=async_options,
         multiprocessing_options=multiprocessing_options,
         enable_async_checkpointing=options.enable_async_checkpointing,
         read_only=options.local.read_only,
@@ -513,6 +510,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         # enable_background_delete set to False to ensure gc is done before save
         enable_background_delete=False,
         save_root_metadata=False,
+        enable_per_process_directory_creation=True,
     )
     self._logger = logger or standard_logger.StandardLogger()
     self._coordination_timeout_secs = (
