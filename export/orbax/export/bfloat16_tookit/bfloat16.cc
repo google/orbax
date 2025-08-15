@@ -272,6 +272,11 @@ absl::Status BuildMirrorBfloat16Variable(Graph* graph, Node* var_handle_node,
   if (xla_sharding_attr != nullptr) {
     var_handle_builder.Attr("_XlaSharding", xla_sharding_attr->s());
   }
+  const AttrValue* xla_sharding_attr_v2 =
+      var_handle_node->attrs().Find("_XlaShardingV2");
+  if (xla_sharding_attr_v2 != nullptr) {
+    var_handle_builder.Attr("_XlaShardingV2", xla_sharding_attr_v2->s());
+  }
 
   TF_RETURN_IF_ERROR(var_handle_builder.Finalize(graph, &var_handle_bfloat16));
 
