@@ -110,8 +110,6 @@ jobs:
       with:
         version: '3.x'
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: sleep
-      run: sleep 10000
     - name: Extract branch name
       shell: bash
       run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
