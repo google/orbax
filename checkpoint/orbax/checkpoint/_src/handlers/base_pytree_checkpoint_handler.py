@@ -923,7 +923,7 @@ class BasePyTreeCheckpointHandler(
 
     return jax.tree.map(update_param_info, param_infos)
 
-  def _write_metadata_file(
+  async def _write_metadata_file(
       self,
       directory: epath.Path,
       *,
@@ -931,33 +931,31 @@ class BasePyTreeCheckpointHandler(
       save_args: PyTree,
       custom_metadata: tree_types.JsonType | None = None,
       use_zarr3: bool = False,
-  ) -> future.Future:
-    async def _save_fn(param_infos):
-      if utils.is_primary_host(self._primary_host):
-        metadata_write_start_time = time.time()
-        path = directory / PYTREE_METADATA_FILE
-        metadata_content = tree_metadata.InternalTreeMetadata.build(
-            param_infos,
-            save_args=save_args,
-            use_zarr3=use_zarr3,
-            custom_metadata=custom_metadata,
-            pytree_metadata_options=self._pytree_metadata_options,
-        )
-        logging.vlog(
-            1,
-            'Writing pytree metadata file: %s with pytree_metadata_options: %s',
-            path,
-            self._pytree_metadata_options,
-        )
-        path.write_text(json.dumps(metadata_content.to_json()))
-        jax.monitoring.record_event_duration_secs(
-            '/jax/checkpoint/write/async/metadata_write_duration_secs',
-            time.time() - metadata_write_start_time,
-        )
-
-    return future.CommitFuture(
-        _save_fn(param_infos),
-    )
+  ) -> None:
+    if utils.is_primary_host(self._primary_host):
+      metadata_write_start_time = time.time()
+      path = directory / PYTREE_METADATA_FILE
+      metadata_content = tree_metadata.InternalTreeMetadata.build(
+          param_infos,
+          save_args=save_args,
+          use_zarr3=use_zarr3,
+          custom_metadata=custom_metadata,
+          pytree_metadata_options=self._pytree_metadata_options,
+      )
+      logging.vlog(
+          1,
+          'Writing pytree metadata file: %s with pytree_metadata_options: %s',
+          path,
+          self._pytree_metadata_options,
+      )
+      await async_path.write_text(
+          path,
+          json.dumps(metadata_content.to_json()),
+      )
+      jax.monitoring.record_event_duration_secs(
+          '/jax/checkpoint/write/async/metadata_write_duration_secs',
+          time.time() - metadata_write_start_time,
+      )
 
   async def _write_metadata_after_commits(
       self,
@@ -989,14 +987,13 @@ class BasePyTreeCheckpointHandler(
           param_infos, checkpoint_dir, self._array_metadata_store
       )
 
-    write_metadata_file_future = self._write_metadata_file(
+    await self._write_metadata_file(
         checkpoint_dir,
         param_infos=param_infos,
         save_args=save_args,
         custom_metadata=custom_metadata,
         use_zarr3=use_zarr3,
     )
-    await asyncio.to_thread(write_metadata_file_future.result)
     end_time = time.time()
     logging.info(
         '[process=%s][thread=%s] Commit + Array metadata written. Time taken:'
