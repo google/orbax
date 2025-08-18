@@ -1399,6 +1399,7 @@ class _MultisliceCheckpointManager(
         self._global_mesh,
         replica_axis_index=self._replica_axis_index,
         is_source=self.in_primary_slice,
+        use_shard_map=self._options.use_shard_map_broadcast,
     )
     broadcast_elapsed_s = time.time() - start_broadcast
     jax.monitoring.record_event_duration_secs(
