@@ -23,3 +23,11 @@ def record_read_event(directory: epath.Path):
   return None
 
 
+def record_write_event(directory: epath.Path):
+  """Records a write event for the checkpoint."""
+  return None
+
+
+def record_delete_event(directory: epath.Path):
+  """Records a deletion event for the checkpoint."""
+  return None
