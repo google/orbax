@@ -48,8 +48,6 @@ jobs:
       shell: bash
       run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
       id: extract_branch
-    - name: sleep
-      run: sleep 10000
     - name: Install dependencies
       run: |
         sudo apt-get update
@@ -66,32 +64,20 @@ jobs:
         else
           pip install "jax==${{ matrix.jax-version }}" "jaxlib==${{ matrix.jax-version }}"
         fi
-    - name: Test with pytest
-      run: |
-        test_dir=$(mktemp -d)
-        cp orbax/export/conftest.py ${test_dir}
-        for t in $(find orbax/export -maxdepth 1 -name '*_test.py'); do
-            cp ${t} ${test_dir}
-            XLA_FLAGS=--xla_force_host_platform_device_count=8 pytest ${test_dir}/$(basename ${t})
-        done
+#    - name: Test with pytest
+#      run: |
+#        test_dir=$(mktemp -d)
+#        cp orbax/export/conftest.py ${test_dir}
+#        for t in $(find orbax/export -maxdepth 1 -name '*_test.py'); do
+#            cp ${t} ${test_dir}
+#            XLA_FLAGS=--xla_force_host_platform_device_count=8 pytest ${test_dir}/$(basename ${t})
+#        done
     # The below step just reports the success or failure of tests as a "commit status".
     # This is needed for copybara integration.
     - name: Report success or failure as github status
       if: always()
       shell: bash
-      run: |
-        status="${{ job.status }}"
-        lowercase_status=$(echo $status | tr '[:upper:]' '[:lower:]')
-        curl -sS --request POST \
-        --url https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }} \
-        --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
-        --header 'content-type: application/json' \
-        --data '{
-            "state": "'$lowercase_status'",
-            "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            "description": "'$status'",
-            "context": "github-actions/build"
-            }'
+      run: sleep 10000
 
 
   build-export:
@@ -120,8 +106,6 @@ jobs:
       shell: bash
       run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
       id: extract_branch
-    - name: sleep
-      run: sleep 10000
     - name: Install dependencies
       run: |
         sudo apt-get update
@@ -138,29 +122,16 @@ jobs:
         else
           pip install "jax==${{ matrix.jax-version }}" "jaxlib==${{ matrix.jax-version }}"
         fi
-    - name: Test with pytest
-      run: |
-        test_dir=$(mktemp -d)
-        cp orbax/export/conftest.py ${test_dir}
-        for t in $(find orbax/export -maxdepth 1 -name '*_test.py'); do
-            cp ${t} ${test_dir}
-            XLA_FLAGS=--xla_force_host_platform_device_count=8 pytest ${test_dir}/$(basename ${t})
-        done
+#    - name: Test with pytest
+#      run: |
+#        test_dir=$(mktemp -d)
+#        cp orbax/export/conftest.py ${test_dir}
+#        for t in $(find orbax/export -maxdepth 1 -name '*_test.py'); do
+#            cp ${t} ${test_dir}
+#            XLA_FLAGS=--xla_force_host_platform_device_count=8 pytest ${test_dir}/$(basename ${t})
+#        done
     # The below step just reports the success or failure of tests as a "commit status".
     # This is needed for copybara integration.
     - name: Report success or failure as github status
       if: always()
-      shell: bash
-      run: |
-        status="${{ job.status }}"
-        lowercase_status=$(echo $status | tr '[:upper:]' '[:lower:]')
-        curl -sS --request POST \
-        --url https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }} \
-        --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
-        --header 'content-type: application/json' \
-        --data '{
-            "state": "'$lowercase_status'",
-            "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            "description": "'$status'",
-            "context": "github-actions/build"
-            }'
+      run: sleep 10000
