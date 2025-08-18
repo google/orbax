@@ -267,6 +267,7 @@ class CheckpointManagerOptions:
   enable_async_checkpointing: bool = True
   async_options: Optional[checkpoint_manager.AsyncOptions] = None
   multiprocessing_options: Optional[MultiprocessingOptions] = None
+  use_shard_map_broadcast: bool = False
 
 
 class _BarrierIdentifier(enum.Enum):
@@ -1270,6 +1271,7 @@ class _MultisliceCheckpointManager(
         self._global_mesh,
         replica_axis_index=self._replica_axis_index,
         is_source=is_restoring_slice,
+        use_shard_map=self._options.use_shard_map_broadcast,
     )
     broadcast_elapsed_s = time.time() - start_broadcast
     jax.monitoring.record_event_duration_secs(
