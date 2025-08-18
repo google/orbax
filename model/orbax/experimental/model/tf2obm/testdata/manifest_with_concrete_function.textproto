@@ -1,0 +1,148 @@
+# proto-file: experimental/model/core/protos/manifest.proto
+# proto-message: Manifest
+  objects {
+        key: "__PRE_PROCESSOR_NAME__"
+        value {
+          function {
+            signature {
+              input {
+                tuple {
+                  elements {
+                    tuple {
+                      elements {
+                        leaf {
+                          tensor_type {
+                            shape {
+                              shape_with_known_rank {
+                                dimension_sizes {
+                                  size: 2
+                                }
+                                dimension_sizes {
+                                  size: 3
+                                }
+                                dimension_sizes {
+                                  size: 4
+                                }
+                              }
+                            }
+                            dtype: f32
+                          }
+                        }
+                      }
+                    }
+                  }
+                  elements {
+                    dict {
+                    }
+                  }
+                }
+              }
+              output {
+                leaf {
+                  tensor_type {
+                    shape {
+                      shape_with_known_rank {
+                        dimension_sizes {
+                          size: 2
+                        }
+                        dimension_sizes {
+                          size: 3
+                        }
+                        dimension_sizes {
+                          size: 4
+                        }
+                      }
+                    }
+                    dtype: f32
+                  }
+                }
+              }
+            }
+            body {
+              other {
+                file_system_location {
+                  string_path: "__PRE_PROCESSOR_PATH__"
+                }
+                mime_type: "__TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE__"
+                version: "__TF_CONCRETE_FUNCTION_HANDLE_VERSION__"
+              }
+            }
+            visibility: PUBLIC
+          }
+        }
+      }
+      objects {
+        key: "__POST_PROCESSOR_NAME__"
+        value {
+          function {
+            signature {
+              input {
+                tuple {
+                  elements {
+                    tuple {
+                      elements {
+                        leaf {
+                          tensor_type {
+                            shape {
+                              shape_with_known_rank {
+                                dimension_sizes {
+                                  size: 5
+                                }
+                                dimension_sizes {
+                                  size: 6
+                                }
+                              }
+                            }
+                            dtype: f64
+                          }
+                        }
+                      }
+                    }
+                  }
+                  elements {
+                    dict {
+                    }
+                  }
+                }
+              }
+              output {
+                leaf {
+                  tensor_type {
+                    shape {
+                      shape_with_known_rank {
+                        dimension_sizes {
+                          size: 5
+                        }
+                        dimension_sizes {
+                          size: 6
+                        }
+                      }
+                    }
+                    dtype: f64
+                  }
+                }
+              }
+            }
+            body {
+              other {
+                file_system_location {
+                  string_path: "__POST_PROCESSOR_PATH__"
+                }
+                mime_type: "__TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE__"
+                version: "__TF_CONCRETE_FUNCTION_HANDLE_VERSION__"
+              }
+            }
+            visibility: PUBLIC
+          }
+        }
+      }
+      supplemental_info {
+            key: "__TF_SAVED_MODEL_SUPPLEMENTAL_NAME__"
+            value {
+              file_system_location {
+                string_path: "__SAVED_MODEL_PATH__"
+              }
+              mime_type: "__SAVED_MODEL_MIME_TYPE__"
+              version: "__SAVED_MODEL_VERSION__"
+            }
+      }

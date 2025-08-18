@@ -69,6 +69,15 @@ class TfConcreteFunctionsToObmTest(
     obm.ObmTestCase,
 ):
 
+  def setUp(self):
+    super().setUp()
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    self._testdata_dir = os.path.join(base_path, "testdata")
+
+  def _get_testdata_path(self, filename: str) -> str:
+    """Returns the full path to a file in the testdata directory."""
+    return os.path.join(self._testdata_dir, filename)
+
   @parameterized.named_parameters(
       (  # pylint: disable=g-complex-comprehension
           f"_{idx}_{as_output_signature}",
@@ -308,180 +317,32 @@ class TfConcreteFunctionsToObmTest(
 
     pre_processor_filename = f"{pre_processor_name}.pb"
     post_processor_filename = f"{post_processor_name}.pb"
-    expected_manifest_proto_text = (
-        """
-      objects {
-        key: \""""
-        + pre_processor_name
-        + """\"
-        value {
-          function {
-            signature {
-              input {
-                tuple {
-                  elements {
-                    tuple {
-                      elements {
-                        leaf {
-                          tensor_type {
-                            shape {
-                              shape_with_known_rank {
-                                dimension_sizes {
-                                  size: 2
-                                }
-                                dimension_sizes {
-                                  size: 3
-                                }
-                                dimension_sizes {
-                                  size: 4
-                                }
-                              }
-                            }
-                            dtype: f32
-                          }
-                        }
-                      }
-                    }
-                  }
-                  elements {
-                    dict {
-                    }
-                  }
-                }
-              }
-              output {
-                leaf {
-                  tensor_type {
-                    shape {
-                      shape_with_known_rank {
-                        dimension_sizes {
-                          size: 2
-                        }
-                        dimension_sizes {
-                          size: 3
-                        }
-                        dimension_sizes {
-                          size: 4
-                        }
-                      }
-                    }
-                    dtype: f32
-                  }
-                }
-              }
-            }
-            body {
-              other {
-                file_system_location {
-                  string_path: \""""
-        + pre_processor_filename
-        + """\"
-                }
-                mime_type: \""""
-        + TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE
-        + """\"
-                version: \""""
-        + TF_CONCRETE_FUNCTION_HANDLE_VERSION
-        + """\"
-              }
-            }
-            visibility: PUBLIC
-          }
-        }
-      }
-      objects {
-        key: \""""
-        + post_processor_name
-        + """\"
-        value {
-          function {
-            signature {
-              input {
-                tuple {
-                  elements {
-                    tuple {
-                      elements {
-                        leaf {
-                          tensor_type {
-                            shape {
-                              shape_with_known_rank {
-                                dimension_sizes {
-                                  size: 5
-                                }
-                                dimension_sizes {
-                                  size: 6
-                                }
-                              }
-                            }
-                            dtype: f64
-                          }
-                        }
-                      }
-                    }
-                  }
-                  elements {
-                    dict {
-                    }
-                  }
-                }
-              }
-              output {
-                leaf {
-                  tensor_type {
-                    shape {
-                      shape_with_known_rank {
-                        dimension_sizes {
-                          size: 5
-                        }
-                        dimension_sizes {
-                          size: 6
-                        }
-                      }
-                    }
-                    dtype: f64
-                  }
-                }
-              }
-            }
-            body {
-              other {
-                file_system_location {
-                  string_path: \""""
-        + post_processor_filename
-        + """\"
-                }
-                mime_type: \""""
-        + TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE
-        + """\"
-                version: \""""
-        + TF_CONCRETE_FUNCTION_HANDLE_VERSION
-        + """\"
-              }
-            }
-            visibility: PUBLIC
-          }
-        }
-      }
-      supplemental_info {
-            key: \""""
-        + TF_SAVED_MODEL_SUPPLEMENTAL_NAME
-        + """\"
-            value {
-              file_system_location {
-                string_path: \""""
-        + saved_model_rel_path
-        + """\"
-              }
-              mime_type: \""""
-        + SAVED_MODEL_MIME_TYPE
-        + """\"
-              version: \""""
-        + SAVED_MODEL_VERSION
-        + """\"
-            }
-      }
-    """
+    expected_manifest_proto_path = self._get_testdata_path(
+        "manifest_with_concrete_function.textproto"
     )
+    with open(expected_manifest_proto_path, "r") as f:
+      expected_manifest_proto_text = f.read()
+    manifest_replace_dict = {
+        "__PRE_PROCESSOR_NAME__": pre_processor_name,
+        "__PRE_PROCESSOR_PATH__": pre_processor_filename,
+        "__POST_PROCESSOR_NAME__": post_processor_name,
+        "__POST_PROCESSOR_PATH__": post_processor_filename,
+        "__TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE__": (
+            TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE
+        ),
+        "__TF_CONCRETE_FUNCTION_HANDLE_VERSION__": (
+            TF_CONCRETE_FUNCTION_HANDLE_VERSION
+        ),
+        "__TF_SAVED_MODEL_SUPPLEMENTAL_NAME__": (
+            TF_SAVED_MODEL_SUPPLEMENTAL_NAME
+        ),
+        "__SAVED_MODEL_PATH__": saved_model_rel_path,
+        "__SAVED_MODEL_MIME_TYPE__": SAVED_MODEL_MIME_TYPE,
+        "__SAVED_MODEL_VERSION__": SAVED_MODEL_VERSION,
+    }
+    for k, v in manifest_replace_dict.items():
+      expected_manifest_proto_text = expected_manifest_proto_text.replace(k, v)
+
     expected_manifest_proto = text_format.Parse(
         expected_manifest_proto_text, obm.manifest_pb2.Manifest()
     )
