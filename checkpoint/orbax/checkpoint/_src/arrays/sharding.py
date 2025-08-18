@@ -94,7 +94,16 @@ def _construct_maximal_sharding(
 
 
 def construct_maximal_shardings(abstract_state: PyTree) -> PyTree:
-  """Construct a sharding that partitions each array as much as possible."""
+  """Construct a sharding that partitions each array as much as possible.
+
+  This method is subject to change and should not be considered stable.
+
+  Args:
+    abstract_state: PyTree of jax.ShapeDtypeStruct.
+
+  Returns:
+    PyTree of jax.sharding.Sharding.
+  """
   shardings = jax.tree.map(_construct_maximal_sharding, abstract_state)
 
   total_size = 0

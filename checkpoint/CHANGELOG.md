@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.23] - 2025-08-18
+
 ### Added
 
 - Add support for sharded loading from Safetensors checkpoints onto a JAX mesh.
