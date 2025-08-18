@@ -17,7 +17,7 @@
 from collections.abc import Callable, Mapping, Sequence
 import copy
 import logging
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import jax
 from orbax.export import constants
