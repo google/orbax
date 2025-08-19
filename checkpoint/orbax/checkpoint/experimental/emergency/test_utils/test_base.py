@@ -159,6 +159,11 @@ class LocalCheckpointManagerTestBase:
       self.doubled_pytree = doubled_pytree
       self.mesh_tree = mesh_tree
       self.axes_tree = axes_tree
+      self.replica_id = multislice.process_replica_id(
+          multihost.process_index(),
+          self.global_mesh,
+          replica_axis_index=0,
+      )
 
       # make sure each process is working on different directories
       self.local_directory = epath.Path(
@@ -197,6 +202,7 @@ class LocalCheckpointManagerTestBase:
       manager = LocalCheckpointManager(
           directory=self.local_directory,
           global_mesh=self.global_mesh,
+          replica_id=self.replica_id,
           options=options,
       )
 
@@ -236,6 +242,7 @@ class LocalCheckpointManagerTestBase:
       manager = LocalCheckpointManager(
           directory=self.local_directory,
           global_mesh=self.global_mesh,
+          replica_id=self.replica_id,
           options=options,
       )
 
@@ -295,6 +302,7 @@ class LocalCheckpointManagerTestBase:
       manager = LocalCheckpointManager(
           directory=self.local_directory,
           global_mesh=self.global_mesh,
+          replica_id=self.replica_id,
           options=options,
       )
       manager.save(
@@ -341,6 +349,7 @@ class LocalCheckpointManagerTestBase:
       manager = LocalCheckpointManager(
           directory=self.local_directory,
           global_mesh=self.global_mesh,
+          replica_id=self.replica_id,
           options=options,
       )
 
@@ -395,6 +404,7 @@ class LocalCheckpointManagerTestBase:
       manager2 = LocalCheckpointManager(
           directory=self.local_directory,
           global_mesh=self.global_mesh,
+          replica_id=self.replica_id,
           options=options,
       )
 
@@ -445,6 +455,7 @@ class LocalCheckpointManagerTestBase:
       manager = LocalCheckpointManager(
           directory=self.local_directory,
           global_mesh=self.global_mesh,
+          replica_id=self.replica_id,
           options=options,
       )
 
@@ -589,304 +600,6 @@ class LocalCheckpointManagerTestBase:
           per_process_steps, self.global_mesh, replica_axis_index=0
       )
       self.assertSameElements(result, expectation)
-
-    @parameterized.parameters((True, []), (True, [0]), (False, [0, 3]))
-    def test_local_all_steps(self, steps_found, processes_to_clear):
-      """Test case."""
-      options = CheckpointManagerOptions(
-          local=LocalCheckpointOptions(
-              save_interval_steps=1,
-              max_to_keep=4,
-              debug_use_full_global_mesh=True,
-          ),
-      )
-      manager = LocalCheckpointManager(
-          directory=self.local_directory,
-          global_mesh=self.global_mesh,
-          options=options,
-      )
-
-      manager.save(
-          0,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.wait_until_finished()
-
-      manager.save(
-          1,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.doubled_pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.wait_until_finished()
-
-      manager.save(
-          2,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.wait_until_finished()
-
-      if multihost.process_index() in processes_to_clear:
-        test_utils.empty_directory(self.local_directory)
-      manager.reload()
-
-      self.assertEqual(manager.all_steps(), [0, 1, 2] if steps_found else [])
-
-      # create a new manager
-      manager2 = LocalCheckpointManager(
-          directory=self.local_directory,
-          global_mesh=self.global_mesh,
-          options=options,
-      )
-      self.assertEqual(manager2.all_steps(), [0, 1, 2] if steps_found else [])
-
-    def test_local_look_for_all_partial_slice(self):
-      p1 = self.global_mesh.devices[0][0].process_index
-      p2 = self.global_mesh.devices[1][-1].process_index
-      empty_process = [p1, p2]
-
-      # steps for processes:
-      # [2, -1], [1, 2]
-      # [1, 2], [2, -1]
-      # end result should be 2 since it's the only common step
-      self.save_local_all_and_remove_partial(False, empty_process)
-
-    def test_local_look_for_all_one_full_slice(self):
-      empty_process = [0]
-
-      # steps for processes:
-      # [2, -1], [1, 2]
-      # [1, 2], [1, 2]
-      # end result should be [1, 2] since it's the common step in the bottom
-      # slice.
-      self.save_local_all_and_remove_partial(True, empty_process)
-
-    def save_local_all_and_remove_partial(self, keep, empty_process):
-      """Test case."""
-      options = CheckpointManagerOptions(
-          local=LocalCheckpointOptions(
-              save_interval_steps=1,
-              max_to_keep=2,
-              debug_use_full_global_mesh=True,
-          ),
-      )
-      manager = LocalCheckpointManager(
-          directory=self.local_directory,
-          global_mesh=self.global_mesh,
-          options=options,
-      )
-
-      manager.save(
-          0,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.wait_until_finished()
-
-      manager.save(
-          1,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.doubled_pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.wait_until_finished()
-
-      if multihost.process_index() in empty_process:
-        test_utils.empty_directory(self.local_directory)
-
-      manager.reload()
-
-      manager.save(
-          2,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.wait_until_finished()
-
-      self.assertEqual(manager.all_steps(), [1, 2] if keep else [2])
-
-      # create a new manager
-      manager2 = LocalCheckpointManager(
-          directory=self.local_directory,
-          global_mesh=self.global_mesh,
-          options=options,
-      )
-
-      all_step = manager2.all_steps()
-
-      self.assertEqual(all_step, [1, 2] if keep else [2])
-
-    @parameterized.parameters(
-        (1, []), (1, [0]), (None, [0, 3]), (None, [0, 1, 2, 3])
-    )
-    def test_local_latest_step(self, expected, empty_process):
-      """Test case."""
-      options = CheckpointManagerOptions(
-          local=LocalCheckpointOptions(
-              save_interval_steps=1,
-              max_to_keep=1,
-              debug_use_full_global_mesh=True,
-          ),
-          persistent=PersistentCheckpointOptions(
-              save_interval_steps=1, max_to_keep=1
-          ),
-      )
-      manager = LocalCheckpointManager(
-          directory=self.local_directory,
-          global_mesh=self.global_mesh,
-          options=options,
-      )
-
-      manager.save(
-          0,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.save(
-          1,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.doubled_pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.wait_until_finished()
-
-      # confirm all hosts have latest step as 1
-      latest_step = manager.latest_step()
-      self.assertEqual(latest_step, 1)
-
-      if multihost.process_index() in empty_process:
-        test_utils.empty_directory(self.local_directory)
-      manager.reload()
-
-      self.assertEqual(manager.latest_step(), expected)
-
-      # create a new manager
-      manager2 = LocalCheckpointManager(
-          directory=self.local_directory,
-          global_mesh=self.global_mesh,
-          options=options,
-      )
-
-      latest_step = manager2.latest_step()
-
-      self.assertEqual(latest_step, expected)
-
-    @parameterized.parameters((1, [3]), (2, [2, 3]))
-    def test_local_latest_step_cached(self, max_to_keep, expected_steps):
-      """Test case."""
-      options = CheckpointManagerOptions(
-          local=LocalCheckpointOptions(
-              save_interval_steps=1,
-              max_to_keep=max_to_keep,
-              debug_use_full_global_mesh=True,
-          )
-      )
-      manager = LocalCheckpointManager(
-          directory=self.local_directory,
-          global_mesh=self.global_mesh,
-          options=options,
-      )
-      self.assertEmpty(manager._steps)
-
-      manager.save(
-          0,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.wait_until_finished()
-
-      # confirm all hosts have latest step as 0
-      self.assertEqual(manager._steps, [0])
-      self.assertEqual(manager.latest_step(), 0)
-
-      test_utils.empty_directory(self.local_directory)
-
-      self.assertEqual(manager.latest_step(), 0)
-      manager.reload()
-      # after reload, latest_step cached should be false
-      self.assertEmpty(manager._steps)
-
-      # latest_step should be None and cached after calling latest_step
-      self.assertIsNone(manager.latest_step())
-      self.assertEqual(manager._steps, [])
-
-      manager.save(
-          1,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.doubled_pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.save(
-          2,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.save(
-          3,
-          args=args_lib.Composite(
-              state=PyTreeSaveArgs(self.doubled_pytree),
-              process_metadata=process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
-                  global_mesh=self.global_mesh
-              ),
-          ),
-      )
-      manager.wait_until_finished()
-
-      if multihost.process_index() == 0:
-        test_utils.empty_directory(self.local_directory)
-      # still should be cache hit
-      self.assertEqual(manager._steps, expected_steps)
-      self.assertEqual(manager.latest_step(), 3)
-
-      manager = LocalCheckpointManager(
-          directory=self.local_directory,
-          global_mesh=self.global_mesh,
-          options=options,
-      )
-      self.assertEqual(manager._steps, expected_steps)
-      self.assertEqual(manager.latest_step(), 3)
 
 
 class CheckpointManagerTestBase:
@@ -1038,9 +751,7 @@ class CheckpointManagerTestBase:
         local_host_inputs = [local_host_inputs]
         expectation = [expectation]
       self.assertEqual(
-          checkpoint_manager._global_max(
-              local_host_inputs, checkpoint_manager._get_global_broadcast_fn()
-          ),
+          checkpoint_manager._global_max(local_host_inputs),
           expectation,
       )
 
@@ -1454,12 +1165,6 @@ class CheckpointManagerTestBase:
         # on the primary slice).
         if manager.in_primary_slice:
           test_utils.empty_directory(self.local_directory)
-          # Increment the counter on the primary slice (it was already
-          # incremented on the secondary slice during the save), otherwise when
-          # we use the counter again below, it will use count 0 *again*, which
-          # will fail, since different barrier processes are used for the
-          # barrier.
-          next(checkpoint_manager.local_all_steps_broadcast_counter)
         test_utils.sync_global_processes('sync_after_local_dir_empty')
 
       new_global_mesh = swap_slices_in_mesh(
@@ -1631,9 +1336,12 @@ class CheckpointManagerTestBase:
         with mock.patch.object(
             multislice, 'slice_count', return_value=num_replicas
         ):
-          restored = manager.restore(2, args=args_lib.Composite(
-              **{_STATE_ITEM_NAME: PyTreeRestoreArgs()}
-              ))
+          restored = manager.restore(
+              2,
+              args=args_lib.Composite(
+                  **{_STATE_ITEM_NAME: PyTreeRestoreArgs()}
+              ),
+          )
           logging.info('restored: %s', restored)
         test_utils.assert_tree_equal(self, pytree_double, restored.state)
 
