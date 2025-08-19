@@ -1,10 +1,9 @@
 CheckpointHandlers
 ============================================================================
 
-.. currentmodule:: orbax.checkpoint.handlers
-
 .. automodule:: orbax.checkpoint.handlers
 
+.. currentmodule:: orbax.checkpoint
 
 CheckpointHandler
 ------------------------------------------------------------
@@ -21,6 +20,8 @@ StandardCheckpointHandler
 .. autoclass:: StandardCheckpointHandler
   :members:
 
+.. currentmodule:: orbax.checkpoint.handlers
+
 .. autoclass:: StandardSaveArgs
   :members:
 
@@ -29,8 +30,12 @@ StandardCheckpointHandler
 
 PyTreeCheckpointHandler
 ----------------------------------------------------------------
+.. currentmodule:: orbax.checkpoint
+
 .. autoclass:: PyTreeCheckpointHandler
   :members:
+
+.. currentmodule:: orbax.checkpoint.handlers
 
 .. autoclass:: PyTreeSaveArgs
   :members:
@@ -40,8 +45,12 @@ PyTreeCheckpointHandler
 
 CompositeCheckpointHandler
 ----------------------------------------------------------
+.. currentmodule:: orbax.checkpoint
+
 .. autoclass:: CompositeCheckpointHandler
   :members:
+
+.. currentmodule:: orbax.checkpoint.handlers
 
 .. autoclass:: CompositeArgs
   :members:
@@ -51,8 +60,12 @@ CompositeCheckpointHandler
 
 JsonCheckpointHandler
 ----------------------------------------------------------
+.. currentmodule:: orbax.checkpoint
+
 .. autoclass:: JsonCheckpointHandler
   :members:
+
+.. currentmodule:: orbax.checkpoint.handlers
 
 .. autoclass:: JsonSaveArgs
   :members:
@@ -60,11 +73,14 @@ JsonCheckpointHandler
 .. autoclass:: JsonRestoreArgs
   :members:
 
-
 ArrayCheckpointHandler
 ----------------------------------------------------------
+.. currentmodule:: orbax.checkpoint
+
 .. autoclass:: ArrayCheckpointHandler
   :members:
+
+.. currentmodule:: orbax.checkpoint.handlers
 
 .. autoclass:: ArraySaveArgs
   :members:
@@ -75,8 +91,12 @@ ArrayCheckpointHandler
 
 ProtoCheckpointHandler
 ----------------------------------------------------------
+.. currentmodule:: orbax.checkpoint
+
 .. autoclass:: ProtoCheckpointHandler
   :members:
+
+.. currentmodule:: orbax.checkpoint.handlers
 
 .. autoclass:: ProtoSaveArgs
   :members:
@@ -87,8 +107,12 @@ ProtoCheckpointHandler
 
 JaxRandomKeyCheckpointHandler
 ----------------------------------------------------------
+.. currentmodule:: orbax.checkpoint
+
 .. autoclass:: JaxRandomKeyCheckpointHandler
   :members: save, async_save, restore
+
+.. currentmodule:: orbax.checkpoint.handlers
 
 .. autoclass:: JaxRandomKeySaveArgs
   :members:
@@ -98,8 +122,12 @@ JaxRandomKeyCheckpointHandler
 
 NumpyRandomKeyCheckpointHandler
 --------------------------------------------------------------
+.. currentmodule:: orbax.checkpoint
+
 .. autoclass:: NumpyRandomKeyCheckpointHandler
   :members: save, async_save, restore
+
+.. currentmodule:: orbax.checkpoint.handlers
 
 .. autoclass:: NumpyRandomKeySaveArgs
   :members:
