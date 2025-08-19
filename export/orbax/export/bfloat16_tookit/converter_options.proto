@@ -400,6 +400,10 @@ message ConverterOptions {
   // resources, e.g. TPUs.
   string remote_target = 307;
 
+  // If true, use Shardy (https://openxla.org/shardy) partitioner. If false, use
+  // GSPMD.
+  bool use_shardy_partitioner = 308;
+
   // If set to true, auto-cluster xla-gpu jit-compilable nodes and generate
   // GPU serving graph.
   bool xla_gpu_convert = 501;
