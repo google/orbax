@@ -807,9 +807,10 @@ class BasePyTreeCheckpointHandler(
       value_metadata_tree = tree_structure_utils.tree_trim(
           item, value_metadata_tree, strict=True
       )
-      restore_args = tree_structure_utils.tree_trim(
-          item, restore_args, strict=True
-      )
+      if restore_args is not None:
+        restore_args = tree_structure_utils.tree_trim(
+            item, restore_args, strict=True
+        )
     else:
       # is_empty_or_leaf is necessary here to treat empty nodes (e.g. empty
       # dicts, lists, custom nodes) as leaves, as they do not contain any
