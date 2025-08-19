@@ -370,7 +370,7 @@ objects {
       body {
         stable_hlo_body {
           stable_hlo {
-            inlined_bytes:"ML\357R\rStableHLO_v...."
+            inlined_bytes: "ML\357R\rStableHLO_v...."
             mime_type: "mlir_stablehlo"
             version: "1.0"
           }
@@ -560,7 +560,7 @@ supplemental_info {
     version: "__OEX_ORCHESTRATION_VERSION__"
   }
 }
-__SAVED_MODEL_SUPPLEMENTAL_PROTO__
-device_assignment_by_coords {
-  __DEVICE_ASSIGNMENT_BY_COORDS__
+__SAVED_MODEL_SUPPLEMENTAL_PROTO__ device_assignment_by_coords
+{
+  __DEVICE_ASSIGNMENT_BY_COORDS__ 
 }
