@@ -58,6 +58,10 @@ all_temporary_paths = lambda *a, **k: asyncio_utils.run_sync(
     temporary_paths.all_temporary_paths(*a, **k)
 )
 
+is_checkpoint_finalized = is_path_finalized
+is_tmp_checkpoint = is_path_temporary
+tmp_checkpoints = all_temporary_paths
+
 
 @dataclasses.dataclass(frozen=True)
 class Metadata:
