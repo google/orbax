@@ -19,11 +19,9 @@ import os
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
-from jax import sharding
-from jax.experimental import mesh_utils
 import jax.numpy as jnp
-import numpy as np
 from orbax.export import constants
+from orbax.export import export_testing_utils
 from orbax.export import jax_module
 from orbax.export import obm_configs
 from orbax.export import obm_export
@@ -32,8 +30,6 @@ from orbax.export import serving_config as osc
 from orbax.export import utils
 from orbax.export.protos import oex_orchestration_pb2
 import tensorflow as tf
-
-os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
 
 
 # TODO(b/363033166): Remove this function once TF isolation is done.
