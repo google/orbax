@@ -64,7 +64,6 @@ import jax
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
-from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
