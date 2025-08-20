@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Orbax step storage entities."""
+"""Orbax step storage entities.
+
+Please reserve this file for entities related to `NameFormat`. Other existing
+functions should be moved out over time.
+"""
 
 import abc
 from collections.abc import Iterable
@@ -23,25 +27,36 @@ import functools
 import os
 import re
 import time
-from typing import Callable, Generic, Iterator, List, Optional, Protocol, Sequence, Set, TypeVar
+from typing import Callable, Generic, Iterator, List, Optional, Protocol, Sequence, TypeVar
 from absl import logging
 from etils import epath
 import numpy as np
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import gcs_utils
+from orbax.checkpoint._src.path import temporary_paths
 
 
-_GCS_PATH_PREFIX = ('gs://',)
-_COMMIT_SUCCESS_FILE = 'commit_success.txt'
-TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp'
+TMP_DIR_SUFFIX = temporary_paths.TMP_DIR_SUFFIX
 # prefix_1000.orbax-checkpoint-tmp-1010101
 # OR
 # 1000.orbax-checkpoint-tmp-1010101
 TMP_DIR_STEP_PATTERN = r'.*?_*?(\d+)\.orbax-checkpoint-tmp'
 
 MetadataT = TypeVar('MetadataT', bound='Metadata')
+
+
+is_path_finalized = lambda *a, **k: asyncio_utils.run_sync(
+    temporary_paths.is_path_finalized(*a, **k)
+)
+is_path_temporary = lambda *a, **k: asyncio_utils.run_sync(
+    temporary_paths.is_path_temporary(*a, **k)
+)
+all_temporary_paths = lambda *a, **k: asyncio_utils.run_sync(
+    temporary_paths.all_temporary_paths(*a, **k)
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -252,12 +267,12 @@ def find_step_path(
     return name_format.find_step(base_path, step).path
 
   # First try finding uncommitted step.
-  if is_gcs_path(base_path):
+  if gcs_utils.is_gcs_path(base_path):
     uncommitted_step_path = build_step_path(base_path, name_format, step)
   else:
     step_name = name_format.build_name(step)
     uncommitted_step_path = None
-    for uncommitted_name in tmp_checkpoints(base_path):
+    for uncommitted_name in all_temporary_paths(base_path):
       if uncommitted_name.startswith(f'{step_name}{TMP_DIR_SUFFIX}'):
         uncommitted_step_path = base_path / uncommitted_name
         break
@@ -325,7 +340,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
       self, step_path: epath.Path, step: Optional[int] = None
   ) -> Optional[Metadata]:
     """Returns metadata for given `step_path` if it is valid or None."""
-    if not _is_checkpoint_finalized_ignore_error(step_path):
+    if not is_path_finalized(step_path):
       return None
 
     if step is not None:
@@ -604,12 +619,6 @@ def composite_name_format(
 
 # TODO(b/337137764) Can't move it to path/utils due to cyclic dependency.
 # Explore other options.
-def is_gcs_path(path: epath.Path) -> bool:
-  return path.as_posix().startswith(_GCS_PATH_PREFIX)
-
-
-# TODO(b/337137764) Can't move it to path/utils due to cyclic dependency.
-# Explore other options.
 def get_save_directory(
     step: int,
     directory: epath.PathLike,
@@ -653,115 +662,6 @@ def get_save_directory(
   return result
 
 
-def is_tmp_checkpoint(path: epath.PathLike) -> bool:
-  """Determines whether a directory is a tmp checkpoint path."""
-  path = epath.Path(path)
-  if os.path.islink(path):
-    logging.warning(
-        'Path %s is a symbolic link, not treating it as a tmp checkpoint.', path
-    )
-    return False
-  if not path.exists():
-    raise ValueError(f'Path {path} does not exist.')
-  if not path.is_dir():
-    return False
-  if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
-    return True
-  if TMP_DIR_SUFFIX in path.name:
-    return True
-  return False
-
-
-def is_checkpoint_finalized(path: epath.PathLike) -> bool:
-  """Determines if the given path represents a finalized checkpoint.
-
-  Path takes the form::
-
-    path/to/my/dir/<name>.orbax-checkpoint-tmp-<timestamp>/  # not finalized
-    path/to/my/dir/<name>/  # finalized
-
-  Alternatively::
-
-    gs://path/to/my/dir/<name>/  # finalized
-      commit_success.txt
-      ...
-    gs://<path/to/my/dir/<name>/  # not finalized
-      ...
-
-  Args:
-    path: Directory.
-
-  Returns:
-    True if the checkpoint is finalized.
-
-  Raises:
-    ValueError if the provided path is not a directory. Valid checkpoint paths
-    must be a directory.
-  """
-  path = epath.Path(path)
-
-  # Keep the following line as the first condition.
-  # is_gcs_path is inmemory and fast to bypass when dealing with non-gcs fs
-  if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
-    logging.warning(
-        'This GCS path %s does not contain the %s file used to indicate a'
-        ' successfully written GCS checkpoint. If the checkpoint was'
-        ' originally saved with GCS, the checkpoint was not successfully'
-        ' written. If the checkpoint was saved differently and copied, you'
-        ' need to add %s to the checkpoint directory.',
-        path,
-        _COMMIT_SUCCESS_FILE,
-        _COMMIT_SUCCESS_FILE,
-    )
-
-    return False
-  if not path.exists():
-    raise ValueError(f'Path {path} does not exist.')
-  if not path.is_dir():
-    raise ValueError(f'Path {path} is not a directory. Not a valid checkpoint')
-  if TMP_DIR_SUFFIX in path.name:
-    return False
-  return True
-
-
-def _is_checkpoint_finalized_ignore_error(path: epath.PathLike) -> bool:
-  try:
-    return is_checkpoint_finalized(path)
-  except ValueError:
-    return False
-
-
-def tmp_checkpoints(checkpoint_dir: epath.PathLike) -> List[str]:
-  """Returns a list of tmp checkpoint dir names in `checkpoint_dir`."""
-  checkpoint_dir = epath.Path(checkpoint_dir)
-  if not checkpoint_dir.exists():
-    return []
-  return [s.name for s in checkpoint_dir.iterdir() if is_tmp_checkpoint(s)]
-
-
-def cleanup_tmp_directories(
-    directory: epath.PathLike,
-    primary_host: Optional[int] = 0,
-    active_processes: Optional[Set[int]] = None,
-    barrier_sync_key_prefix: Optional[str] = None,
-):
-  """Cleanup steps in `directory` with tmp files, as these are not finalized."""
-  directory = epath.Path(directory)
-  if multihost.is_primary_host(primary_host):
-    logging.info('Cleaning up existing temporary directories at %s.', directory)
-    tmp_files = tmp_checkpoints(directory)
-    for tmp_file in tmp_files:
-      (directory / tmp_file).rmtree()
-  multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'cleanup_tmp_dirs',
-          prefix=barrier_sync_key_prefix,
-      ),
-      timeout=multihost.coordination_timeout(),
-      processes=active_processes,
-  )
-
-
 def _is_legacy_step_checkpoint(path: epath.Path) -> bool:
   """Determines if the path resembles an Orbax step directory.
 
@@ -780,9 +680,7 @@ def _is_legacy_step_checkpoint(path: epath.Path) -> bool:
 
 
 def _is_legacy_finalized_step_checkpoint(path: epath.Path) -> bool:
-  return _is_legacy_step_checkpoint(
-      path
-  ) and _is_checkpoint_finalized_ignore_error(path)
+  return _is_legacy_step_checkpoint(path) and is_path_finalized(path)
 
 
 def step_from_checkpoint_name(name: str) -> int:
