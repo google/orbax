@@ -29,6 +29,13 @@ RESTORE_TYPE_NAMED_TUPLE = 'NamedTuple'
 RESTORE_TYPE_UNKNOWN = 'Unknown'
 
 
+def is_empty_container(value: Any) -> bool:
+  return (
+      isinstance(value, (dict, list, tuple, Mapping))
+      or tree_utils.isinstance_of_namedtuple(value)
+  ) and not value
+
+
 def is_supported_empty_value(
     value: Any,
     pytree_metadata_options: PyTreeMetadataOptions = (
@@ -41,9 +48,7 @@ def is_supported_empty_value(
     if pytree_metadata_options.support_rich_types and not value:
       return True
     return False
-  return (
-      isinstance(value, (dict, list, tuple, type(None), Mapping)) and not value
-  )
+  return is_empty_container(value) or value is None
 
 
 def get_empty_value_typestr(

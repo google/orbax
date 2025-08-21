@@ -804,8 +804,19 @@ class BasePyTreeCheckpointHandler(
     if item is None:
       item = value_metadata_tree
     elif args.partial_restore:
+      serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
+      if not self._pytree_metadata_options.support_rich_types:
+        # Replace empty containers with scalar values (zeros). During saving,
+        # some empty containers (like named tuples) were given
+        # ValueMetadataEntries as if they were scalars. We normalize these
+        # containers to scalars so that tree_trim is none the wiser.
+        serialized_item = jax.tree.map(
+            lambda v: 0 if empty_values.is_empty_container(v) else v,
+            serialized_item,
+            is_leaf=tree_utils.is_empty_or_leaf,
+        )
       value_metadata_tree = tree_structure_utils.tree_trim(
-          item, value_metadata_tree, strict=True
+          serialized_item, value_metadata_tree, strict=True
       )
       if restore_args is not None:
         restore_args = tree_structure_utils.tree_trim(

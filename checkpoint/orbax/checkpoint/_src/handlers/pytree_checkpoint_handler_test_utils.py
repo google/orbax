@@ -27,7 +27,7 @@ import datetime
 import functools
 import json
 import re
-from typing import Any, Iterator, List, Optional, Sequence
+from typing import Any, Iterator, List, NamedTuple, Optional, Sequence
 import unittest
 from unittest import mock
 
@@ -2697,6 +2697,54 @@ class PyTreeCheckpointHandlerTestBase:
             'a': 0,
             'c': {
                 'a': 0,
+            },
+        }
+        expected = {
+            'a': pytree['a'],
+            'c': {
+                'a': pytree['c']['a'],
+            },
+        }
+        restored = restore_handler.restore(
+            directory,
+            args=PyTreeRestoreArgs(
+                item=reference_item,
+                partial_restore=True,
+            ),
+        )
+        test_utils.assert_tree_equal(self, expected, restored)
+
+    @parameterized.product(use_ocdbt=(True, False))
+    def test_partial_restore_with_omission_empty_container(
+        self, use_ocdbt: bool
+    ):
+      """Basic save and restore test."""
+      directory = self.directory / 'partial_restore'
+      directory.mkdir(parents=True, exist_ok=True)
+
+      class EmptyContainer(NamedTuple):
+        pass
+
+      pytree = {
+          'a': 0,
+          'b': EmptyContainer(),
+          'c': {'a': EmptyContainer(), 'b': 3},
+      }
+
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=use_ocdbt,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        save_handler.save(directory, pytree)
+
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=use_ocdbt,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as restore_handler:
+        reference_item = {
+            'a': 0,
+            'c': {
+                'a': EmptyContainer(),
             },
         }
         expected = {
