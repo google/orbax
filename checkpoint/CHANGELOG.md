@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Broadcast max steps as well when using single_host_load_and_broadcast.
+- Allow changing tensorstore backend through environment variable
+  `TENSORSTORE_GCS_BACKEND`. The default is `gcs`. Utilizing `gcs_grpc` instead
+  provides roughly double the GCS performance.
 
 ## [0.11.23] - 2025-08-18
 
