@@ -17,8 +17,10 @@ limitations under the License.
 #define THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_BFLOAT16_H_
 
 #include <map>
+#include <memory>
 
 #include "third_party/absl/status/status.h"
+#include "third_party/absl/status/statusor.h"
 #include "orbax/export/bfloat16_tookit/converter_options.proto.h"
 #include "orbax/export/bfloat16_tookit/converter_options_v2.proto.h"
 #include "orbax/export/bfloat16_tookit/function_tree.h"
@@ -50,6 +52,14 @@ absl::Status ApplyBfloat16OptimizationV2(
     BFloat16OptimizationOptions bfloat16_options,
     FunctionInfo* xla_function_info,
     std::map<string, tensorflow::SignatureDef>* signature_def);
+
+// Given a GraphDef, create a FunctionInfo that can be used to interact with
+// the V1 converter. Changes to the FunctionInfo will only be preserved if
+// UpdateGraphDefUsingFunctionInfo is called.
+// This is forked from
+// 
+absl::StatusOr<std::unique_ptr<FunctionInfo>> GetFunctionInfoFromGraphDef(
+    GraphDef& graph_def);
 
 }  // namespace orbax
 }  // namespace tensorflow

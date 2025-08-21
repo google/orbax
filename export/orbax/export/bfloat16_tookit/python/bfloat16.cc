@@ -2,6 +2,10 @@
 
 #include <pybind11/pybind11.h>
 
+#include <memory>
+
+#include "third_party/absl/status/statusor.h"
+#include "orbax/export/bfloat16_tookit/function_tree.h"
 #include "third_party/pybind11/include/pybind11/cast.h"
 #include "third_party/pybind11_abseil/absl_casters.h"
 #include "third_party/pybind11_abseil/no_throw_status.h"
@@ -10,6 +14,11 @@
 
 namespace tensorflow::orbax {
 namespace {
+
+absl::StatusOr<std::unique_ptr<FunctionInfo>>
+GetFunctionInfoFromGraphDefWrapper(GraphDef graph_def) {
+  return GetFunctionInfoFromGraphDef(graph_def);
+}
 
 PYBIND11_MODULE(bfloat16, m) {
   pybind11_protobuf::ImportNativeProtoCasters();
@@ -35,6 +44,11 @@ PYBIND11_MODULE(bfloat16, m) {
         "bfloat16_scope",
         pybind11::arg("bfloat16_options"), pybind11::arg("xla_function_info"),
         pybind11::arg("signature_def"));
+  m.def("get_function_info_from_graph_def", &GetFunctionInfoFromGraphDefWrapper,
+        "Given a GraphDef, create a FunctionInfo that can be used to interact "
+        "with the V1 converter. Changes to the FunctionInfo will only be "
+        "preserved if UpdateGraphDefUsingFunctionInfo is called.",
+        pybind11::arg("graph_def"));
 }
 
 }  // namespace

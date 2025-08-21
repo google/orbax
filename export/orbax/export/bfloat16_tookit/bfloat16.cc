@@ -45,8 +45,11 @@ limitations under the License.
 #include "tensorflow/compiler/xla/tsl/platform/errors.h"
 #include "tensorflow/compiler/xla/tsl/platform/status.h"
 #include "tensorflow/compiler/xla/tsl/platform/statusor.h"
+#include "tensorflow/core/common_runtime/graph_constructor.h"
 #include "tensorflow/core/framework/attr_value.proto.h"
+#include "tensorflow/core/framework/function.h"
 #include "tensorflow/core/framework/node_def_util.h"
+#include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor.proto.h"
@@ -65,7 +68,7 @@ limitations under the License.
 #include "util/gtl/linked_hash_set.h"
 
 // TODO(b/241160425): Make removing all chained casts the default.
-ABSL_FLAG(bool, experimental_remove_all_chained_casts, false,
+ABSL_FLAG(bool, experimental_remove_all_chained_casts_for_obm, false,
           "Whether to remove all chained casts versus just chained casts "
           "that share the same name.");
 
@@ -949,7 +952,7 @@ absl::Status RemoveDuplicateCastNodes(Graph* graph) {
       const Node* second_cast_node = edge->dst();
       if (second_cast_node->type_string() != "Cast") continue;
       // TODO(b/241160425): Make removing all chained casts the default.
-      if (!absl::GetFlag(FLAGS_experimental_remove_all_chained_casts) &&
+      if (!absl::GetFlag(FLAGS_experimental_remove_all_chained_casts_for_obm) &&
           first_cast_node->name() != second_cast_node->name())
         continue;
       duplicate_cast_connecting_edges.push_back(edge);
@@ -1757,6 +1760,26 @@ absl::Status ApplyBfloat16OptimizationV2(
   }
 
   return absl::OkStatus();
+}
+
+absl::StatusOr<std::unique_ptr<FunctionInfo>> GetFunctionInfoFromGraphDef(
+    GraphDef& graph_def) {
+  // Convert graph def to graph. graph will be passed to root_func which will
+  // take ownership of the unique_ptr.
+  auto graph(std::make_unique<Graph>(OpRegistry::Global()));
+  ::tensorflow::ImportGraphDefOptions opts;
+  opts.validate_shape = false;
+  TF_RETURN_IF_ERROR(
+      ImportGraphDef(opts, graph_def, graph.get(), nullptr, nullptr));
+
+  // Build function tree.
+  ::gtl::linked_hash_map<string, int> func_overhead;
+  const FunctionLibraryDefinition flib_def = graph->flib_def();
+  auto root_func = std::make_unique<FunctionInfo>("root");
+  root_func->set_graph(&graph);
+  TF_RETURN_IF_ERROR(root_func->Build(flib_def, &func_overhead));
+
+  return root_func;
 }
 
 }  // namespace orbax

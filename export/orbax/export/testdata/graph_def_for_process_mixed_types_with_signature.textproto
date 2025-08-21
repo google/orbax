@@ -1,0 +1,1483 @@
+# proto-file: tensorflow/core/framework/graph.proto
+# proto-message: GraphDef
+
+node {
+  name: "float_input"
+  op: "Placeholder"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "_user_specified_name"
+    value {
+      s: "float_input"
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "shape"
+    value {
+      shape {
+      }
+    }
+  }
+}
+node {
+  name: "int_input"
+  op: "Placeholder"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "_user_specified_name"
+    value {
+      s: "int_input"
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_INT8
+    }
+  }
+  attr {
+    key: "shape"
+    value {
+      shape {
+      }
+    }
+  }
+}
+node {
+  name: "string_input"
+  op: "Placeholder"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "_user_specified_name"
+    value {
+      s: "string_input"
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_STRING
+    }
+  }
+  attr {
+    key: "shape"
+    value {
+      shape {
+      }
+    }
+  }
+}
+node {
+  name: "array_input"
+  op: "Placeholder"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: -1
+          }
+        }
+      }
+    }
+  }
+  attr {
+    key: "_user_specified_name"
+    value {
+      s: "array_input"
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_INT32
+    }
+  }
+  attr {
+    key: "shape"
+    value {
+      shape {
+        dim {
+          size: -1
+        }
+      }
+    }
+  }
+}
+node {
+  name: "Square"
+  op: "Square"
+  input: "float_input"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+}
+node {
+  name: "Cast"
+  op: "Cast"
+  input: "int_input"
+  attr {
+    key: "DstT"
+    value {
+      type: DT_INT32
+    }
+  }
+  attr {
+    key: "SrcT"
+    value {
+      type: DT_INT8
+    }
+  }
+  attr {
+    key: "Truncate"
+    value {
+      b: false
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+}
+node {
+  name: "mul/y"
+  op: "Const"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_INT32
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_INT32
+        tensor_shape {
+        }
+        int_val: 10
+      }
+    }
+  }
+}
+node {
+  name: "mul"
+  op: "Mul"
+  input: "Cast"
+  input: "mul/y"
+  attr {
+    key: "T"
+    value {
+      type: DT_INT32
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+}
+node {
+  name: "StringJoin/inputs_0"
+  op: "Const"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_STRING
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_STRING
+        tensor_shape {
+        }
+        string_val: "Input string was: "
+      }
+    }
+  }
+}
+node {
+  name: "StringJoin"
+  op: "StringJoin"
+  input: "StringJoin/inputs_0"
+  input: "string_input"
+  attr {
+    key: "N"
+    value {
+      i: 2
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "separator"
+    value {
+      s: ""
+    }
+  }
+}
+node {
+  name: "Const"
+  op: "Const"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: 1
+          }
+        }
+      }
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_INT32
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_INT32
+        tensor_shape {
+          dim {
+            size: 1
+          }
+        }
+        int_val: 0
+      }
+    }
+  }
+}
+node {
+  name: "Sum"
+  op: "Sum"
+  input: "array_input"
+  input: "Const"
+  attr {
+    key: "T"
+    value {
+      type: DT_INT32
+    }
+  }
+  attr {
+    key: "Tidx"
+    value {
+      type: DT_INT32
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "keep_dims"
+    value {
+      b: false
+    }
+  }
+}
+node {
+  name: "StringFormat"
+  op: "StringFormat"
+  attr {
+    key: "T"
+    value {
+      list {
+      }
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "placeholder"
+    value {
+      s: "{}"
+    }
+  }
+  attr {
+    key: "summarize"
+    value {
+      i: 3
+    }
+  }
+  attr {
+    key: "template"
+    value {
+      s: "--- Inside tf.function (with signature) ---"
+    }
+  }
+}
+node {
+  name: "PrintV2"
+  op: "PrintV2"
+  input: "StringFormat"
+  attr {
+    key: "end"
+    value {
+      s: "\n"
+    }
+  }
+  attr {
+    key: "output_stream"
+    value {
+      s: "stderr"
+    }
+  }
+}
+node {
+  name: "StringFormat_1"
+  op: "StringFormat"
+  input: "Square"
+  attr {
+    key: "T"
+    value {
+      list {
+        type: DT_FLOAT
+      }
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "placeholder"
+    value {
+      s: "{}"
+    }
+  }
+  attr {
+    key: "summarize"
+    value {
+      i: 3
+    }
+  }
+  attr {
+    key: "template"
+    value {
+      s: "Processed float: {}"
+    }
+  }
+}
+node {
+  name: "PrintV2_1"
+  op: "PrintV2"
+  input: "StringFormat_1"
+  input: "^PrintV2"
+  attr {
+    key: "end"
+    value {
+      s: "\n"
+    }
+  }
+  attr {
+    key: "output_stream"
+    value {
+      s: "stderr"
+    }
+  }
+}
+node {
+  name: "StringFormat_2"
+  op: "StringFormat"
+  input: "mul"
+  attr {
+    key: "T"
+    value {
+      list {
+        type: DT_INT32
+      }
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "placeholder"
+    value {
+      s: "{}"
+    }
+  }
+  attr {
+    key: "summarize"
+    value {
+      i: 3
+    }
+  }
+  attr {
+    key: "template"
+    value {
+      s: "Processed int: {}"
+    }
+  }
+}
+node {
+  name: "PrintV2_2"
+  op: "PrintV2"
+  input: "StringFormat_2"
+  input: "^PrintV2_1"
+  attr {
+    key: "end"
+    value {
+      s: "\n"
+    }
+  }
+  attr {
+    key: "output_stream"
+    value {
+      s: "stderr"
+    }
+  }
+}
+node {
+  name: "StringFormat_3"
+  op: "StringFormat"
+  input: "StringJoin"
+  attr {
+    key: "T"
+    value {
+      list {
+        type: DT_STRING
+      }
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "placeholder"
+    value {
+      s: "{}"
+    }
+  }
+  attr {
+    key: "summarize"
+    value {
+      i: 3
+    }
+  }
+  attr {
+    key: "template"
+    value {
+      s: "Processed string: {}"
+    }
+  }
+}
+node {
+  name: "PrintV2_3"
+  op: "PrintV2"
+  input: "StringFormat_3"
+  input: "^PrintV2_2"
+  attr {
+    key: "end"
+    value {
+      s: "\n"
+    }
+  }
+  attr {
+    key: "output_stream"
+    value {
+      s: "stderr"
+    }
+  }
+}
+node {
+  name: "StringFormat_4"
+  op: "StringFormat"
+  input: "Sum"
+  attr {
+    key: "T"
+    value {
+      list {
+        type: DT_INT32
+      }
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "placeholder"
+    value {
+      s: "{}"
+    }
+  }
+  attr {
+    key: "summarize"
+    value {
+      i: 3
+    }
+  }
+  attr {
+    key: "template"
+    value {
+      s: "Processed array sum: {}"
+    }
+  }
+}
+node {
+  name: "PrintV2_4"
+  op: "PrintV2"
+  input: "StringFormat_4"
+  input: "^PrintV2_3"
+  attr {
+    key: "end"
+    value {
+      s: "\n"
+    }
+  }
+  attr {
+    key: "output_stream"
+    value {
+      s: "stderr"
+    }
+  }
+}
+node {
+  name: "StringFormat_5"
+  op: "StringFormat"
+  attr {
+    key: "T"
+    value {
+      list {
+      }
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "placeholder"
+    value {
+      s: "{}"
+    }
+  }
+  attr {
+    key: "summarize"
+    value {
+      i: 3
+    }
+  }
+  attr {
+    key: "template"
+    value {
+      s: "-------------------------------------------"
+    }
+  }
+}
+node {
+  name: "PrintV2_5"
+  op: "PrintV2"
+  input: "StringFormat_5"
+  input: "^PrintV2_4"
+  attr {
+    key: "end"
+    value {
+      s: "\n"
+    }
+  }
+  attr {
+    key: "output_stream"
+    value {
+      s: "stderr"
+    }
+  }
+}
+node {
+  name: "NoOp"
+  op: "NoOp"
+  input: "^PrintV2"
+  input: "^PrintV2_1"
+  input: "^PrintV2_2"
+  input: "^PrintV2_3"
+  input: "^PrintV2_4"
+  input: "^PrintV2_5"
+}
+node {
+  name: "Identity"
+  op: "Identity"
+  input: "Sum"
+  input: "^NoOp"
+  attr {
+    key: "T"
+    value {
+      type: DT_INT32
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+}
+node {
+  name: "Identity_1"
+  op: "Identity"
+  input: "Square"
+  input: "^NoOp"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+}
+node {
+  name: "Identity_2"
+  op: "Identity"
+  input: "mul"
+  input: "^NoOp"
+  attr {
+    key: "T"
+    value {
+      type: DT_INT32
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+}
+node {
+  name: "Identity_3"
+  op: "Identity"
+  input: "StringJoin"
+  input: "^NoOp"
+  attr {
+    key: "T"
+    value {
+      type: DT_STRING
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+}
+library {
+  function {
+    signature {
+      name: "__inference_process_mixed_types_with_signature_28"
+      input_arg {
+        name: "float_input"
+        type: DT_FLOAT
+      }
+      input_arg {
+        name: "int_input"
+        type: DT_INT8
+      }
+      input_arg {
+        name: "string_input"
+        type: DT_STRING
+      }
+      input_arg {
+        name: "array_input"
+        type: DT_INT32
+      }
+      output_arg {
+        name: "identity"
+        type: DT_INT32
+      }
+      output_arg {
+        name: "identity_1"
+        type: DT_FLOAT
+      }
+      output_arg {
+        name: "identity_2"
+        type: DT_INT32
+      }
+      output_arg {
+        name: "identity_3"
+        type: DT_STRING
+      }
+      is_stateful: true
+      control_output: "PrintV2"
+      control_output: "PrintV2_1"
+      control_output: "PrintV2_2"
+      control_output: "PrintV2_3"
+      control_output: "PrintV2_4"
+      control_output: "PrintV2_5"
+    }
+    node_def {
+      name: "Square"
+      op: "Square"
+      input: "float_input"
+      attr {
+        key: "T"
+        value {
+          type: DT_FLOAT
+        }
+      }
+    }
+    node_def {
+      name: "Cast"
+      op: "Cast"
+      input: "int_input"
+      attr {
+        key: "DstT"
+        value {
+          type: DT_INT32
+        }
+      }
+      attr {
+        key: "SrcT"
+        value {
+          type: DT_INT8
+        }
+      }
+      attr {
+        key: "Truncate"
+        value {
+          b: false
+        }
+      }
+    }
+    node_def {
+      name: "mul/y"
+      op: "Const"
+      attr {
+        key: "dtype"
+        value {
+          type: DT_INT32
+        }
+      }
+      attr {
+        key: "value"
+        value {
+          tensor {
+            dtype: DT_INT32
+            tensor_shape {
+            }
+            int_val: 10
+          }
+        }
+      }
+    }
+    node_def {
+      name: "mul"
+      op: "Mul"
+      input: "Cast:y:0"
+      input: "mul/y:output:0"
+      attr {
+        key: "T"
+        value {
+          type: DT_INT32
+        }
+      }
+    }
+    node_def {
+      name: "StringJoin/inputs_0"
+      op: "Const"
+      attr {
+        key: "dtype"
+        value {
+          type: DT_STRING
+        }
+      }
+      attr {
+        key: "value"
+        value {
+          tensor {
+            dtype: DT_STRING
+            tensor_shape {
+            }
+            string_val: "Input string was: "
+          }
+        }
+      }
+    }
+    node_def {
+      name: "StringJoin"
+      op: "StringJoin"
+      input: "StringJoin/inputs_0:output:0"
+      input: "string_input"
+      attr {
+        key: "N"
+        value {
+          i: 2
+        }
+      }
+      attr {
+        key: "separator"
+        value {
+          s: ""
+        }
+      }
+    }
+    node_def {
+      name: "Const"
+      op: "Const"
+      attr {
+        key: "dtype"
+        value {
+          type: DT_INT32
+        }
+      }
+      attr {
+        key: "value"
+        value {
+          tensor {
+            dtype: DT_INT32
+            tensor_shape {
+              dim {
+                size: 1
+              }
+            }
+            int_val: 0
+          }
+        }
+      }
+    }
+    node_def {
+      name: "Sum"
+      op: "Sum"
+      input: "array_input"
+      input: "Const:output:0"
+      attr {
+        key: "T"
+        value {
+          type: DT_INT32
+        }
+      }
+      attr {
+        key: "Tidx"
+        value {
+          type: DT_INT32
+        }
+      }
+      attr {
+        key: "keep_dims"
+        value {
+          b: false
+        }
+      }
+    }
+    node_def {
+      name: "StringFormat"
+      op: "StringFormat"
+      attr {
+        key: "T"
+        value {
+          list {
+          }
+        }
+      }
+      attr {
+        key: "placeholder"
+        value {
+          s: "{}"
+        }
+      }
+      attr {
+        key: "summarize"
+        value {
+          i: 3
+        }
+      }
+      attr {
+        key: "template"
+        value {
+          s: "--- Inside tf.function (with signature) ---"
+        }
+      }
+    }
+    node_def {
+      name: "PrintV2"
+      op: "PrintV2"
+      input: "StringFormat:output:0"
+      attr {
+        key: "end"
+        value {
+          s: "\n"
+        }
+      }
+      attr {
+        key: "output_stream"
+        value {
+          s: "stderr"
+        }
+      }
+    }
+    node_def {
+      name: "StringFormat_1"
+      op: "StringFormat"
+      input: "Square:y:0"
+      attr {
+        key: "T"
+        value {
+          list {
+            type: DT_FLOAT
+          }
+        }
+      }
+      attr {
+        key: "placeholder"
+        value {
+          s: "{}"
+        }
+      }
+      attr {
+        key: "summarize"
+        value {
+          i: 3
+        }
+      }
+      attr {
+        key: "template"
+        value {
+          s: "Processed float: {}"
+        }
+      }
+    }
+    node_def {
+      name: "PrintV2_1"
+      op: "PrintV2"
+      input: "StringFormat_1:output:0"
+      input: "^PrintV2"
+      attr {
+        key: "end"
+        value {
+          s: "\n"
+        }
+      }
+      attr {
+        key: "output_stream"
+        value {
+          s: "stderr"
+        }
+      }
+    }
+    node_def {
+      name: "StringFormat_2"
+      op: "StringFormat"
+      input: "mul:z:0"
+      attr {
+        key: "T"
+        value {
+          list {
+            type: DT_INT32
+          }
+        }
+      }
+      attr {
+        key: "placeholder"
+        value {
+          s: "{}"
+        }
+      }
+      attr {
+        key: "summarize"
+        value {
+          i: 3
+        }
+      }
+      attr {
+        key: "template"
+        value {
+          s: "Processed int: {}"
+        }
+      }
+    }
+    node_def {
+      name: "PrintV2_2"
+      op: "PrintV2"
+      input: "StringFormat_2:output:0"
+      input: "^PrintV2_1"
+      attr {
+        key: "end"
+        value {
+          s: "\n"
+        }
+      }
+      attr {
+        key: "output_stream"
+        value {
+          s: "stderr"
+        }
+      }
+    }
+    node_def {
+      name: "StringFormat_3"
+      op: "StringFormat"
+      input: "StringJoin:output:0"
+      attr {
+        key: "T"
+        value {
+          list {
+            type: DT_STRING
+          }
+        }
+      }
+      attr {
+        key: "placeholder"
+        value {
+          s: "{}"
+        }
+      }
+      attr {
+        key: "summarize"
+        value {
+          i: 3
+        }
+      }
+      attr {
+        key: "template"
+        value {
+          s: "Processed string: {}"
+        }
+      }
+    }
+    node_def {
+      name: "PrintV2_3"
+      op: "PrintV2"
+      input: "StringFormat_3:output:0"
+      input: "^PrintV2_2"
+      attr {
+        key: "end"
+        value {
+          s: "\n"
+        }
+      }
+      attr {
+        key: "output_stream"
+        value {
+          s: "stderr"
+        }
+      }
+    }
+    node_def {
+      name: "StringFormat_4"
+      op: "StringFormat"
+      input: "Sum:output:0"
+      attr {
+        key: "T"
+        value {
+          list {
+            type: DT_INT32
+          }
+        }
+      }
+      attr {
+        key: "placeholder"
+        value {
+          s: "{}"
+        }
+      }
+      attr {
+        key: "summarize"
+        value {
+          i: 3
+        }
+      }
+      attr {
+        key: "template"
+        value {
+          s: "Processed array sum: {}"
+        }
+      }
+    }
+    node_def {
+      name: "PrintV2_4"
+      op: "PrintV2"
+      input: "StringFormat_4:output:0"
+      input: "^PrintV2_3"
+      attr {
+        key: "end"
+        value {
+          s: "\n"
+        }
+      }
+      attr {
+        key: "output_stream"
+        value {
+          s: "stderr"
+        }
+      }
+    }
+    node_def {
+      name: "StringFormat_5"
+      op: "StringFormat"
+      attr {
+        key: "T"
+        value {
+          list {
+          }
+        }
+      }
+      attr {
+        key: "placeholder"
+        value {
+          s: "{}"
+        }
+      }
+      attr {
+        key: "summarize"
+        value {
+          i: 3
+        }
+      }
+      attr {
+        key: "template"
+        value {
+          s: "-------------------------------------------"
+        }
+      }
+    }
+    node_def {
+      name: "PrintV2_5"
+      op: "PrintV2"
+      input: "StringFormat_5:output:0"
+      input: "^PrintV2_4"
+      attr {
+        key: "end"
+        value {
+          s: "\n"
+        }
+      }
+      attr {
+        key: "output_stream"
+        value {
+          s: "stderr"
+        }
+      }
+    }
+    node_def {
+      name: "Identity"
+      op: "Identity"
+      input: "Sum:output:0"
+      input: "^NoOp"
+      attr {
+        key: "T"
+        value {
+          type: DT_INT32
+        }
+      }
+    }
+    node_def {
+      name: "Identity_1"
+      op: "Identity"
+      input: "Square:y:0"
+      input: "^NoOp"
+      attr {
+        key: "T"
+        value {
+          type: DT_FLOAT
+        }
+      }
+    }
+    node_def {
+      name: "Identity_2"
+      op: "Identity"
+      input: "mul:z:0"
+      input: "^NoOp"
+      attr {
+        key: "T"
+        value {
+          type: DT_INT32
+        }
+      }
+    }
+    node_def {
+      name: "Identity_3"
+      op: "Identity"
+      input: "StringJoin:output:0"
+      input: "^NoOp"
+      attr {
+        key: "T"
+        value {
+          type: DT_STRING
+        }
+      }
+    }
+    node_def {
+      name: "NoOp"
+      op: "NoOp"
+      input: "^PrintV2"
+      input: "^PrintV2_1"
+      input: "^PrintV2_2"
+      input: "^PrintV2_3"
+      input: "^PrintV2_4"
+      input: "^PrintV2_5"
+    }
+    ret {
+      key: "identity"
+      value: "Identity:output:0"
+    }
+    ret {
+      key: "identity_1"
+      value: "Identity_1:output:0"
+    }
+    ret {
+      key: "identity_2"
+      value: "Identity_2:output:0"
+    }
+    ret {
+      key: "identity_3"
+      value: "Identity_3:output:0"
+    }
+    attr {
+      key: "_construction_context"
+      value {
+        s: "kEagerRuntime"
+      }
+    }
+    control_ret {
+      key: "PrintV2"
+      value: "PrintV2"
+    }
+    control_ret {
+      key: "PrintV2_1"
+      value: "PrintV2_1"
+    }
+    control_ret {
+      key: "PrintV2_2"
+      value: "PrintV2_2"
+    }
+    control_ret {
+      key: "PrintV2_3"
+      value: "PrintV2_3"
+    }
+    control_ret {
+      key: "PrintV2_4"
+      value: "PrintV2_4"
+    }
+    control_ret {
+      key: "PrintV2_5"
+      value: "PrintV2_5"
+    }
+    arg_attr {
+      key: 0
+      value {
+        attr {
+          key: "_output_shapes"
+          value {
+            list {
+              shape {
+              }
+            }
+          }
+        }
+        attr {
+          key: "_user_specified_name"
+          value {
+            s: "float_input"
+          }
+        }
+      }
+    }
+    arg_attr {
+      key: 1
+      value {
+        attr {
+          key: "_output_shapes"
+          value {
+            list {
+              shape {
+              }
+            }
+          }
+        }
+        attr {
+          key: "_user_specified_name"
+          value {
+            s: "int_input"
+          }
+        }
+      }
+    }
+    arg_attr {
+      key: 2
+      value {
+        attr {
+          key: "_output_shapes"
+          value {
+            list {
+              shape {
+              }
+            }
+          }
+        }
+        attr {
+          key: "_user_specified_name"
+          value {
+            s: "string_input"
+          }
+        }
+      }
+    }
+    arg_attr {
+      key: 3
+      value {
+        attr {
+          key: "_output_shapes"
+          value {
+            list {
+              shape {
+                dim {
+                  size: -1
+                }
+              }
+            }
+          }
+        }
+        attr {
+          key: "_user_specified_name"
+          value {
+            s: "array_input"
+          }
+        }
+      }
+    }
+  }
+}
+versions {
+  producer: 2323
+  min_consumer: 12
+}

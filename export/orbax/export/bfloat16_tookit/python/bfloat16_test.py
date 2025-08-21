@@ -55,6 +55,11 @@ class BFloat16Test(googletest.TestCase):
     ):
       bfloat16.apply_bfloat16_optimization_v2(options, xla_function_info, {})
 
+  def test_get_function_info_from_graph_def(self):
+    graph_def = graph_pb2.GraphDef()
+    function_info = bfloat16.get_function_info_from_graph_def(graph_def)
+    self.assertIsInstance(function_info, function_tree.FunctionInfo)
+
 
 if __name__ == "__main__":
   absltest.main()

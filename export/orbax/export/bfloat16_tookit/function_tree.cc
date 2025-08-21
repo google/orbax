@@ -52,7 +52,7 @@ limitations under the License.
 // TODO(b/275392289): Add long term fix that solves b/275392289 by default
 // for Converter V2 models. This emergency fix is needed to unblock an LLM
 // launch.
-ABSL_FLAG(bool, experimental_use_global_op_registry, false,
+ABSL_FLAG(bool, experimental_use_global_op_registry_for_obm, false,
           "Whether to use the Global OpRegistry when creating new graphs "
           "instead of passing the full FunctionLibraryDefinition which uses "
           "significantly more memory. This flag is off by default because "
@@ -299,7 +299,7 @@ absl::Status FunctionInfo::BuildChild(
   FunctionInfo* child = this->children_.back().get();
   // Extract function's graph and other info.
   std::unique_ptr<Graph> func_graph;
-  if (absl::GetFlag(FLAGS_experimental_use_global_op_registry)) {
+  if (absl::GetFlag(FLAGS_experimental_use_global_op_registry_for_obm)) {
     func_graph = std::make_unique<Graph>(OpRegistry::Global());
   } else {
     func_graph = std::make_unique<Graph>(flib_def);

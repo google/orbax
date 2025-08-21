@@ -1,0 +1,229 @@
+# proto-file: tensorflow/core/framework/graph.proto
+# proto-message: GraphDef
+
+node {
+  name: "a"
+  op: "Placeholder"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: -1
+          }
+          dim {
+            size: 2
+          }
+        }
+      }
+    }
+  }
+  attr {
+    key: "_user_specified_name"
+    value {
+      s: "a"
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "shape"
+    value {
+      shape {
+        dim {
+          size: -1
+        }
+        dim {
+          size: 2
+        }
+      }
+    }
+  }
+}
+node {
+  name: "add/y"
+  op: "Const"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_FLOAT
+        tensor_shape {
+        }
+        float_val: 1.0
+      }
+    }
+  }
+}
+node {
+  name: "add"
+  op: "AddV2"
+  input: "a"
+  input: "add/y"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: -1
+          }
+          dim {
+            size: 2
+          }
+        }
+      }
+    }
+  }
+}
+node {
+  name: "Identity"
+  op: "Identity"
+  input: "add"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: -1
+          }
+          dim {
+            size: 2
+          }
+        }
+      }
+    }
+  }
+}
+library {
+  function {
+    signature {
+      name: "__inference__tf_simple_pre_processor_28"
+      input_arg {
+        name: "a"
+        type: DT_FLOAT
+      }
+      output_arg {
+        name: "identity"
+        type: DT_FLOAT
+      }
+    }
+    node_def {
+      name: "add/y"
+      op: "Const"
+      attr {
+        key: "dtype"
+        value {
+          type: DT_FLOAT
+        }
+      }
+      attr {
+        key: "value"
+        value {
+          tensor {
+            dtype: DT_FLOAT
+            tensor_shape {
+            }
+            float_val: 1.0
+          }
+        }
+      }
+    }
+    node_def {
+      name: "add"
+      op: "AddV2"
+      input: "a"
+      input: "add/y:output:0"
+      attr {
+        key: "T"
+        value {
+          type: DT_FLOAT
+        }
+      }
+    }
+    node_def {
+      name: "Identity"
+      op: "Identity"
+      input: "add:z:0"
+      attr {
+        key: "T"
+        value {
+          type: DT_FLOAT
+        }
+      }
+    }
+    ret {
+      key: "identity"
+      value: "Identity:output:0"
+    }
+    attr {
+      key: "_construction_context"
+      value {
+        s: "kEagerRuntime"
+      }
+    }
+    arg_attr {
+      key: 0
+      value {
+        attr {
+          key: "_output_shapes"
+          value {
+            list {
+              shape {
+                dim {
+                  size: -1
+                }
+                dim {
+                  size: 2
+                }
+              }
+            }
+          }
+        }
+        attr {
+          key: "_user_specified_name"
+          value {
+            s: "a"
+          }
+        }
+      }
+    }
+  }
+}
+versions {
+  producer: 2323
+  min_consumer: 12
+}

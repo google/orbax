@@ -1,0 +1,773 @@
+# proto-file: tensorflow/core/framework/graph.proto
+# proto-message: GraphDef
+
+node {
+  name: "a"
+  op: "Placeholder"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: 8
+          }
+          dim {
+            size: 2
+          }
+        }
+      }
+    }
+  }
+  attr {
+    key: "_user_specified_name"
+    value {
+      s: "a"
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "shape"
+    value {
+      shape {
+        dim {
+          size: 8
+        }
+        dim {
+          size: 2
+        }
+      }
+    }
+  }
+}
+node {
+  name: "keys"
+  op: "Const"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: 1
+          }
+        }
+      }
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_STRING
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_STRING
+        tensor_shape {
+          dim {
+            size: 1
+          }
+        }
+        string_val: "v"
+      }
+    }
+  }
+}
+node {
+  name: "values"
+  op: "Const"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: 1
+          }
+        }
+      }
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_FLOAT
+        tensor_shape {
+          dim {
+            size: 1
+          }
+        }
+        float_val: 200.0
+      }
+    }
+  }
+}
+node {
+  name: "Const"
+  op: "Const"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_FLOAT
+        tensor_shape {
+        }
+        float_val: 10000.0
+      }
+    }
+  }
+}
+node {
+  name: "key_value_init/LookupTableImportV2/table_handle"
+  op: "Placeholder"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "_user_specified_name"
+    value {
+      s: "table_handle"
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_RESOURCE
+    }
+  }
+  attr {
+    key: "shape"
+    value {
+      shape {
+      }
+    }
+  }
+}
+node {
+  name: "key_value_init/LookupTableImportV2"
+  op: "LookupTableImportV2"
+  input: "key_value_init/LookupTableImportV2/table_handle"
+  input: "keys"
+  input: "values"
+  attr {
+    key: "Tin"
+    value {
+      type: DT_STRING
+    }
+  }
+  attr {
+    key: "Tout"
+    value {
+      type: DT_FLOAT
+    }
+  }
+}
+node {
+  name: "pow/y"
+  op: "Const"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_FLOAT
+        tensor_shape {
+        }
+        float_val: 2.0
+      }
+    }
+  }
+}
+node {
+  name: "pow"
+  op: "Pow"
+  input: "a"
+  input: "pow/y"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: 8
+          }
+          dim {
+            size: 2
+          }
+        }
+      }
+    }
+  }
+}
+node {
+  name: "add/ReadVariableOp/resource"
+  op: "Placeholder"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "_user_specified_name"
+    value {
+      s: "resource"
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_RESOURCE
+    }
+  }
+  attr {
+    key: "shape"
+    value {
+      shape {
+      }
+    }
+  }
+}
+node {
+  name: "add/ReadVariableOp"
+  op: "ReadVariableOp"
+  input: "add/ReadVariableOp/resource"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+}
+node {
+  name: "add"
+  op: "AddV2"
+  input: "pow"
+  input: "add/ReadVariableOp"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: 8
+          }
+          dim {
+            size: 2
+          }
+        }
+      }
+    }
+  }
+}
+node {
+  name: "Const_1"
+  op: "Const"
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+  attr {
+    key: "dtype"
+    value {
+      type: DT_STRING
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_STRING
+        tensor_shape {
+        }
+        string_val: "v"
+      }
+    }
+  }
+}
+node {
+  name: "None_Lookup/LookupTableFindV2"
+  op: "LookupTableFindV2"
+  input: "key_value_init/LookupTableImportV2/table_handle"
+  input: "Const_1"
+  input: "Const"
+  input: "^key_value_init/LookupTableImportV2"
+  attr {
+    key: "Tin"
+    value {
+      type: DT_STRING
+    }
+  }
+  attr {
+    key: "Tout"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+        }
+      }
+    }
+  }
+}
+node {
+  name: "add_1"
+  op: "AddV2"
+  input: "add"
+  input: "None_Lookup/LookupTableFindV2"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: 8
+          }
+          dim {
+            size: 2
+          }
+        }
+      }
+    }
+  }
+}
+node {
+  name: "NoOp"
+  op: "NoOp"
+  input: "^None_Lookup/LookupTableFindV2"
+  input: "^add/ReadVariableOp"
+  input: "^key_value_init/LookupTableImportV2"
+}
+node {
+  name: "Identity"
+  op: "Identity"
+  input: "add_1"
+  input: "^NoOp"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "_output_shapes"
+    value {
+      list {
+        shape {
+          dim {
+            size: 8
+          }
+          dim {
+            size: 2
+          }
+        }
+      }
+    }
+  }
+}
+library {
+  function {
+    signature {
+      name: "__inference__tf_pre_processor_21"
+      input_arg {
+        name: "a"
+        type: DT_FLOAT
+      }
+      input_arg {
+        name: "key_value_init_lookuptableimportv2_table_handle"
+        type: DT_RESOURCE
+      }
+      input_arg {
+        name: "add_readvariableop_resource"
+        type: DT_RESOURCE
+      }
+      output_arg {
+        name: "identity"
+        type: DT_FLOAT
+      }
+      is_stateful: true
+      control_output: "None_Lookup/LookupTableFindV2"
+      control_output: "add/ReadVariableOp"
+      control_output: "key_value_init/LookupTableImportV2"
+    }
+    node_def {
+      name: "keys"
+      op: "Const"
+      attr {
+        key: "dtype"
+        value {
+          type: DT_STRING
+        }
+      }
+      attr {
+        key: "value"
+        value {
+          tensor {
+            dtype: DT_STRING
+            tensor_shape {
+              dim {
+                size: 1
+              }
+            }
+            string_val: "v"
+          }
+        }
+      }
+    }
+    node_def {
+      name: "values"
+      op: "Const"
+      attr {
+        key: "dtype"
+        value {
+          type: DT_FLOAT
+        }
+      }
+      attr {
+        key: "value"
+        value {
+          tensor {
+            dtype: DT_FLOAT
+            tensor_shape {
+              dim {
+                size: 1
+              }
+            }
+            float_val: 200.0
+          }
+        }
+      }
+    }
+    node_def {
+      name: "Const"
+      op: "Const"
+      attr {
+        key: "dtype"
+        value {
+          type: DT_FLOAT
+        }
+      }
+      attr {
+        key: "value"
+        value {
+          tensor {
+            dtype: DT_FLOAT
+            tensor_shape {
+            }
+            float_val: 10000.0
+          }
+        }
+      }
+    }
+    node_def {
+      name: "key_value_init/LookupTableImportV2"
+      op: "LookupTableImportV2"
+      input: "key_value_init_lookuptableimportv2_table_handle"
+      input: "keys:output:0"
+      input: "values:output:0"
+      attr {
+        key: "Tin"
+        value {
+          type: DT_STRING
+        }
+      }
+      attr {
+        key: "Tout"
+        value {
+          type: DT_FLOAT
+        }
+      }
+    }
+    node_def {
+      name: "pow/y"
+      op: "Const"
+      attr {
+        key: "dtype"
+        value {
+          type: DT_FLOAT
+        }
+      }
+      attr {
+        key: "value"
+        value {
+          tensor {
+            dtype: DT_FLOAT
+            tensor_shape {
+            }
+            float_val: 2.0
+          }
+        }
+      }
+    }
+    node_def {
+      name: "pow"
+      op: "Pow"
+      input: "a"
+      input: "pow/y:output:0"
+      attr {
+        key: "T"
+        value {
+          type: DT_FLOAT
+        }
+      }
+    }
+    node_def {
+      name: "add/ReadVariableOp"
+      op: "ReadVariableOp"
+      input: "add_readvariableop_resource"
+      attr {
+        key: "dtype"
+        value {
+          type: DT_FLOAT
+        }
+      }
+    }
+    node_def {
+      name: "add"
+      op: "AddV2"
+      input: "pow:z:0"
+      input: "add/ReadVariableOp:value:0"
+      attr {
+        key: "T"
+        value {
+          type: DT_FLOAT
+        }
+      }
+    }
+    node_def {
+      name: "Const_1"
+      op: "Const"
+      attr {
+        key: "dtype"
+        value {
+          type: DT_STRING
+        }
+      }
+      attr {
+        key: "value"
+        value {
+          tensor {
+            dtype: DT_STRING
+            tensor_shape {
+            }
+            string_val: "v"
+          }
+        }
+      }
+    }
+    node_def {
+      name: "None_Lookup/LookupTableFindV2"
+      op: "LookupTableFindV2"
+      input: "key_value_init_lookuptableimportv2_table_handle"
+      input: "Const_1:output:0"
+      input: "Const:output:0"
+      input: "^key_value_init/LookupTableImportV2"
+      attr {
+        key: "Tin"
+        value {
+          type: DT_STRING
+        }
+      }
+      attr {
+        key: "Tout"
+        value {
+          type: DT_FLOAT
+        }
+      }
+    }
+    node_def {
+      name: "add_1"
+      op: "AddV2"
+      input: "add:z:0"
+      input: "None_Lookup/LookupTableFindV2:values:0"
+      attr {
+        key: "T"
+        value {
+          type: DT_FLOAT
+        }
+      }
+    }
+    node_def {
+      name: "Identity"
+      op: "Identity"
+      input: "add_1:z:0"
+      input: "^NoOp"
+      attr {
+        key: "T"
+        value {
+          type: DT_FLOAT
+        }
+      }
+    }
+    node_def {
+      name: "NoOp"
+      op: "NoOp"
+      input: "^None_Lookup/LookupTableFindV2"
+      input: "^add/ReadVariableOp"
+      input: "^key_value_init/LookupTableImportV2"
+    }
+    ret {
+      key: "identity"
+      value: "Identity:output:0"
+    }
+    attr {
+      key: "_construction_context"
+      value {
+        s: "kEagerRuntime"
+      }
+    }
+    control_ret {
+      key: "None_Lookup/LookupTableFindV2"
+      value: "None_Lookup/LookupTableFindV2"
+    }
+    control_ret {
+      key: "add/ReadVariableOp"
+      value: "add/ReadVariableOp"
+    }
+    control_ret {
+      key: "key_value_init/LookupTableImportV2"
+      value: "key_value_init/LookupTableImportV2"
+    }
+    arg_attr {
+      key: 0
+      value {
+        attr {
+          key: "_output_shapes"
+          value {
+            list {
+              shape {
+                dim {
+                  size: 8
+                }
+                dim {
+                  size: 2
+                }
+              }
+            }
+          }
+        }
+        attr {
+          key: "_user_specified_name"
+          value {
+            s: "a"
+          }
+        }
+      }
+    }
+    arg_attr {
+      key: 1
+      value {
+        attr {
+          key: "_user_specified_name"
+          value {
+            s: "table_handle"
+          }
+        }
+      }
+    }
+    arg_attr {
+      key: 2
+      value {
+        attr {
+          key: "_user_specified_name"
+          value {
+            s: "resource"
+          }
+        }
+      }
+    }
+  }
+}
+versions {
+  producer: 2323
+  min_consumer: 12
+}

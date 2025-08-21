@@ -28,8 +28,8 @@ from jax import tree_util
 import jaxtyping
 # pylint: disable-next=g-direct-tensorflow-import
 from orbax.export import constants
-from orbax.export.protos import oex_orchestration_pb2
 from orbax.export import serving_config as osc
+from orbax.export.protos import oex_orchestration_pb2
 import tensorflow as tf
 
 
