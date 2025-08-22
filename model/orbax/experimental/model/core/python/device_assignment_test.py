@@ -56,7 +56,7 @@ class DeviceAssignmentTest(parameterized.TestCase):
       return jax.sharding.Mesh(devices, ('b', 'x', 'y'))
 
     mesh = _create_mesh()
-    result = device_assignment.jax_mesh_to_obm_device_assignment_by_coords(mesh)
+    result = device_assignment.jax_mesh_to_device_assignment(mesh)
 
     expected = [
         device_assignment.DeviceAssignment(id=i, coords=None, core_on_chip=None)
@@ -71,7 +71,7 @@ class DeviceAssignmentTest(parameterized.TestCase):
       return jax.sharding.Mesh(devices, ('x', 'y'))
 
     mesh = _create_mesh()
-    result = device_assignment.jax_mesh_to_obm_device_assignment_by_coords(mesh)
+    result = device_assignment.jax_mesh_to_device_assignment(mesh)
 
     expected = [
         device_assignment.DeviceAssignment(
