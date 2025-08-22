@@ -92,7 +92,7 @@ async def _read_non_contiguous_slice(
   """Reads a slice of a tensor from a file.
 
   This function solves the problem of reading a multi-dimensional slice from an
-  array, where the slice's data is not stored as a single, contiguous block in 
+  array, where the slice's data is not stored as a single, contiguous block in
   the file. It does so by recursively "walking" the dimensions of the slice.
 
   Args:
@@ -151,15 +151,13 @@ async def _read_non_contiguous_slice(
   return np.frombuffer(slice_bytes, dtype=stored_dtype).reshape(shard_shape)
 
 
-async def _load_safetensors_fully_replicated(path: Path) -> dict[str, Any]:
-  # TODO(b/438033067)
-  """Reads a safetensors file and constructs the tensor dictionary."""
+async def _load_safetensors_as_numpy(path: Path) -> dict[str, np.ndarray]:
+  """Loads tensors from a safetensors file into host NumPy arrays."""
   header, data_start_offset = await _read_safetensors_header(path)
   tensors = {}
   async with aiofiles.open(path, mode="rb") as f:
     await f.seek(data_start_offset)
     data_bytes = await f.read()
-
   for name, info in header.items():
     if name == "__metadata__":
       continue
@@ -168,18 +166,17 @@ async def _load_safetensors_fully_replicated(path: Path) -> dict[str, Any]:
     tensor_bytes = data_bytes[start_offset:end_offset]
     np_array = np.frombuffer(tensor_bytes, dtype=dtype).reshape(shape)
     tensors[name] = np_array
-  return {format_utils.PYTREE_CHECKPOINTABLE_KEY: tensors}
+  return tensors
 
 
-async def _load_safetensors_sharded(
+async def _load_safetensors_on_device(
     path: Path, abstract_pytree: dict[str, Any]
-) -> dict[str, Any]:
-  """Loads a safetensors file with sharding."""
+) -> dict[str, jax.Array]:
+  """Loads tensors from a safetensors file into on-device JAX arrays."""
   header, data_start_offset = await _read_safetensors_header(path)
-  flat_abstract, _ = jax.tree.flatten_with_path(abstract_pytree)
   restored_pytree = {}
-
   async with aiofiles.open(path, mode="rb") as f:
+    flat_abstract, _ = jax.tree.flatten_with_path(abstract_pytree)
     for key_path, abstract_leaf in flat_abstract:
       if len(key_path) != 1 or not isinstance(
           key_path[0], jax.tree_util.DictKey
@@ -206,8 +203,6 @@ async def _load_safetensors_sharded(
       device_map = []
       for device in device_indices_map:
         idx = device_indices_map[device]
-        # Determine the slice corresponding to the device that the current
-        # process is responsible for.
         resolved_idx = numpy_utils.resolve_slice(idx, stored_shape)
         shard_shape = numpy_utils.slice_shape(resolved_idx)
 
@@ -218,7 +213,6 @@ async def _load_safetensors_sharded(
             stored_dtype,
             st_data_offsets[0] + data_start_offset,
         )
-
         shard_np = shard_np.reshape(shard_shape)
 
         if shard_np.dtype != target_dtype:
@@ -229,6 +223,20 @@ async def _load_safetensors_sharded(
       restored_pytree[tensor_name] = jax.make_array_from_single_device_arrays(
           target_shape, sharding, device_map
       )
+  return restored_pytree
+
+
+async def _load_safetensors(
+    path: Path, abstract_pytree: dict[str, Any] | None = None
+) -> dict[str, Any]:
+  """Calls the correct safetensors loading function."""
+
+  if abstract_pytree is None:
+    # Return NumPy arrays.
+    restored_pytree = await _load_safetensors_as_numpy(path)
+  else:
+    # Return on-device JAX arrays.
+    restored_pytree = await _load_safetensors_on_device(path, abstract_pytree)
 
   return {format_utils.PYTREE_CHECKPOINTABLE_KEY: restored_pytree}
 
@@ -294,7 +302,4 @@ class SafetensorsLayout(CheckpointLayout):
       abstract_pytree = abstract_checkpointables.get(
           format_utils.PYTREE_CHECKPOINTABLE_KEY
       )
-    if abstract_pytree is not None:
-      return _load_safetensors_sharded(self._path, abstract_pytree)
-    else:
-      return _load_safetensors_fully_replicated(self._path)
+    return _load_safetensors(self._path, abstract_pytree)
