@@ -25,8 +25,10 @@ from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
+
 PurePosixPath = pathlib.PurePosixPath
 
 _THREADED_DELETE_DURATION = (
