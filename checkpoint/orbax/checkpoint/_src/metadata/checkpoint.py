@@ -100,11 +100,15 @@ class RootMetadata:
   """Metadata of a checkpoint at root level (contains all steps).
 
   Attributes:
+    internal_metadata: Orbax-provided metadata.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
   """
 
+  internal_metadata: dict[str, Any] | None = dataclasses.field(
+      default_factory=dict
+  )
   custom_metadata: dict[str, Any] | None = dataclasses.field(
       default_factory=dict
   )
