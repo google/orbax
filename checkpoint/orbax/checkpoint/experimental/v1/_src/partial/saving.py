@@ -256,6 +256,13 @@ def finalize(path: path_types.PathLike) -> None:
     partial_path = _add_partial_save_suffix(path)
 
   async def _finalize_impl():
+    await multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'OcpPartialSaving:finalize_path_existence_start',
+            prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+        ),
+        processes=context.multiprocessing_options.active_processes,
+    )
     if await async_path.exists(final_path):
       raise FileExistsError(
           f'Finalized checkpoint already exists at {final_path}.'
@@ -267,7 +274,7 @@ def finalize(path: path_types.PathLike) -> None:
 
     await multihost.sync_global_processes(
         multihost.unique_barrier_key(
-            'OcpPartialSaving:finalize_error',
+            'OcpPartialSaving:finalize_path_rename_start',
             prefix=context.multiprocessing_options.barrier_sync_key_prefix,
         ),
         processes=context.multiprocessing_options.active_processes,
@@ -287,6 +294,14 @@ def finalize(path: path_types.PathLike) -> None:
         is_source=multihost.is_primary_host(
             context.multiprocessing_options.primary_host
         ),
+    )
+
+    await multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'OcpPartialSaving:finalize_rename_complete',
+            prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+        ),
+        processes=context.multiprocessing_options.active_processes,
     )
 
     if rename_failed:
