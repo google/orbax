@@ -126,7 +126,7 @@ class MainLibTest(parameterized.TestCase):
     weights_name = 'my_weights'
     obm_module[weights_name] = main_lib.convert_path_to_value(
         ckpt_subdir,
-        mime_type='orbax_checkpoint',
+        mime_type='application/x.orbax-checkpoint',
     )
 
     supplemental_filename = 'my_orchestration.pb'
@@ -317,7 +317,7 @@ class MainLibTest(parameterized.TestCase):
               stable_hlo_body {
                 stable_hlo {
                   inlined_bytes: "ML StableHLO v0.9.0 ..."
-                  mime_type: "mlir_stablehlo"
+                  mime_type: "application/x.mlir-stablehlo"
                   version: "1.0"
                 }
                 calling_convention_version: 10
@@ -360,7 +360,7 @@ class MainLibTest(parameterized.TestCase):
         + ckpt_subdir
         + """\"
                 }
-                mime_type: "orbax_checkpoint"
+                mime_type: "application/x.orbax-checkpoint"
               }
             }
           }
@@ -543,7 +543,7 @@ class MainLibTest(parameterized.TestCase):
     checkpointer.save(checkpoint_abs_path, params)
     obm_module['my_weights'] = main_lib.convert_path_to_value(
         checkpoint_path,
-        mime_type='orbax_checkpoint',
+        mime_type='application/x.orbax-checkpoint',
     )
 
     obm.save(
@@ -937,7 +937,7 @@ class MainLibTest(parameterized.TestCase):
                 stable_hlo_body {
                   stable_hlo {
                     inlined_bytes:"ML\357R\rStableHLO_v...."
-                    mime_type: "mlir_stablehlo"
+                    mime_type: "application/x.mlir-stablehlo"
                     version: "1.0"
                   }
                   calling_convention_version: 10
@@ -982,7 +982,7 @@ class MainLibTest(parameterized.TestCase):
                   file_system_location {
                     string_path: "my_checkpoint/"
                   }
-                  mime_type: "orbax_checkpoint"
+                  mime_type: "application/x.orbax-checkpoint"
                 }
               }
             }
