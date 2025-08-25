@@ -404,6 +404,56 @@ class _StandardNameFormat(NameFormat[Metadata]):
           )
       )
 
+  def _get_step_paths_and_total_steps(
+      self, base_path: epath.PathLike, is_primary_host: bool
+  ) -> tuple[list[epath.Path], int]:
+    """Broadcasts total steps and get step paths from the primary host."""
+    step_paths = []
+    total_steps = -1
+    if is_primary_host:
+      # <step_prefix>_?<0 padding>?*
+      step_paths = self._glob_step_paths(base_path)
+      logging.info(
+          '[process=%s][single_host_load_and_broadcast] step_paths=%s,'
+          ' root_dir=%s',
+          multihost.process_index(),
+          step_paths,
+          base_path,
+      )
+      total_steps = len(step_paths)
+
+    total_steps = int(
+        multihost.broadcast_one_to_all(total_steps, is_source=is_primary_host)
+    )
+    return step_paths, total_steps
+
+  def _get_broadcasted_step_list(
+      self,
+      step_paths: list[epath.Path],
+      total_steps: int,
+      is_primary_host: bool,
+  ) -> np.ndarray:
+    """Builds the step list on the primary host and broadcasts it."""
+    step_list = np.array([-1] * total_steps)
+    if is_primary_host:
+      steps = []
+      with futures.ThreadPoolExecutor() as executor:
+        metadata_futures = [
+            executor.submit(self._build_metadata, step_path)  # File IO
+            for step_path in step_paths
+        ]
+        for future in futures.as_completed(metadata_futures):
+          metadata = future.result()
+          if metadata is not None:
+            steps.append(metadata.step)
+      steps.sort()
+      assert (
+          len(steps) == total_steps
+      ), f'len(steps)={len(steps)} != total_steps={total_steps}'
+      step_list = np.array(steps)
+
+    return multihost.broadcast_one_to_all(step_list, is_source=is_primary_host)
+
   def _find_all_with_single_host_load_and_broadcast(
       self, base_path: epath.PathLike
   ) -> Iterator[Metadata]:
@@ -420,10 +470,21 @@ class _StandardNameFormat(NameFormat[Metadata]):
       base_path: Root path under which step folders are placed.
     """
     process_index = multihost.process_index()
+    is_primary_host = process_index == 0
     time_start = time.time()
-    # <step_prefix>_?<0 padding>?*
-    step_paths = self._glob_step_paths(base_path)
-    if not step_paths:
+
+    step_paths, total_steps = self._get_step_paths_and_total_steps(
+        base_path, is_primary_host
+    )
+    logging.info(
+        '[process=%s][single_host_load_and_broadcast] total_steps=%s,'
+        ' step_paths=%s, root_dir=%s',
+        process_index,
+        total_steps,
+        step_paths,
+        base_path,
+    )
+    if total_steps <= 0:
       logging.info(
           '[process=%s][single_host_load_and_broadcast] No steps found,'
           ' root_dir=%s',
@@ -432,34 +493,14 @@ class _StandardNameFormat(NameFormat[Metadata]):
       )
       return iter([])
     time_glob_list = time.time()
-    base_path = epath.Path(base_path)
-    max_steps = len(step_paths)
-    padded_step_list = np.array([-1] * max_steps)
-    # Read the step list only on the primary host, and then broadcast the list.
-    # This minimizes queries to underlying storages like GCS when number of
-    # steps is large.
-    is_primary_host = process_index == 0
-    if is_primary_host:
-      steps = []
-      with futures.ThreadPoolExecutor() as executor:
-        metadata_futures = [
-            executor.submit(self._build_metadata, step_path)  # File IO
-            for step_path in step_paths
-        ]
-        for future in futures.as_completed(metadata_futures):
-          metadata = future.result()
-          if metadata is not None:
-            steps.append(metadata.step)
-      steps.sort()
-      steps = np.array(steps)
-      assert len(steps) <= max_steps
-      padded_step_list[0 : len(steps)] = steps
-    padded_step_list = multihost.broadcast_one_to_all(
-        padded_step_list, is_source=is_primary_host
+
+    step_list = self._get_broadcasted_step_list(
+        step_paths, total_steps, is_primary_host
     )
+    base_path = epath.Path(base_path)
     paths_to_step_dict: dict[epath.Path, int] = {
         base_path / self.build_name(step): step
-        for step in padded_step_list
+        for step in step_list
         if step >= 0
     }
     metadatas = build_step_metadatas(
@@ -718,6 +759,7 @@ def checkpoint_steps_paths(
     return [step_dir for step_dir, future in fs.items() if future.result()]
 
 
+# TODO: b/440104517 - Use standard_name_format and remove redundant logic
 def checkpoint_steps(
     checkpoint_dir: epath.PathLike, single_host_load_and_broadcast: bool = False
 ) -> List[int]:
