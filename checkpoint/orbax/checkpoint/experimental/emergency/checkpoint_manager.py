@@ -682,10 +682,27 @@ class _MultisliceCheckpointManager(
     if read:
       per_slice_local_steps = self._get_per_slice_local_steps()
       self._local_steps = list(set.union(*per_slice_local_steps.values()))
-      self._persistent_steps = step_lib.checkpoint_steps(
-          self._persistent_directory,
-          self._options.single_host_load_and_broadcast,
-      )
+      if (
+          step_lib.is_standard_name_format(self._options.step_name_format)
+          and self._options.single_host_load_and_broadcast
+      ):
+        optimized_name_format = (
+            step_lib.single_host_load_and_broadcast_name_format(
+                self._options.step_name_format
+            )
+        )
+      else:
+        logging.warning(
+            'Step name format is not optimized. This may result in a slow'
+            ' find_all operation.'
+        )
+        optimized_name_format = self._options.step_name_format
+      self._persistent_steps = [
+          metadata.step
+          for metadata in optimized_name_format.find_all(
+              self._persistent_directory
+          )
+      ]
     return list(set(self._local_steps) | set(self._persistent_steps))
 
   def latest_step(self) -> Optional[int]:

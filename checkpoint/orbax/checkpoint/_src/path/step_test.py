@@ -493,6 +493,41 @@ class UtilsTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       step_lib.step_from_checkpoint_name(name)
 
+  def test_is_standard_name_format_returns_true(self):
+    self.assertTrue(
+        step_lib.is_standard_name_format(step_lib.standard_name_format())
+    )
+
+  def test_is_standard_name_format_returns_false(self):
+    self.assertFalse(
+        step_lib.is_standard_name_format(
+            step_lib.composite_name_format(
+                write_name_format=step_lib.standard_name_format(),
+                read_name_formats=[step_lib.standard_name_format()],
+            )
+        )
+    )
+
+  def test_single_host_load_and_broadcast_name_format_standard(self):
+    standard_format = step_lib.standard_name_format()
+    new_format = step_lib.single_host_load_and_broadcast_name_format(
+        standard_format
+    )
+
+    self.assertFalse(standard_format.single_host_load_and_broadcast)  # pytype: disable=attribute-error
+    self.assertTrue(new_format.single_host_load_and_broadcast)  # pytype: disable=attribute-error
+
+  def test_single_host_load_and_broadcast_name_format_composite_raises_error(
+      self,
+  ):
+    composite_format = step_lib.composite_name_format(
+        write_name_format=step_lib.standard_name_format(),
+        read_name_formats=[step_lib.standard_name_format()],
+    )
+
+    with self.assertRaises(ValueError):
+      step_lib.single_host_load_and_broadcast_name_format(composite_format)
+
   def test_checkpoint_steps_paths_nonexistent_directory_returns_empty(self):
     self.assertEqual(step_lib.checkpoint_steps_paths('/non/existent/dir'), [])
 
