@@ -248,6 +248,8 @@ def get_replica_slices(
     ReplicaSlices object.
   """
   Result = tuple[list[ReplicaSlice], Shape]
+  # if not arr.addressable_shards:  # array with no local shards
+  #   return ReplicaSlices(arr.shape, (), arr.sharding, arr.dtype, False, [])
   shard0 = arr.addressable_shards[0]
 
   # single-replica: a single replica saves an entire shard.

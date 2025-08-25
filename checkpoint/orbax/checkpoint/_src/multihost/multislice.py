@@ -289,7 +289,10 @@ def broadcast_one_replica_to_all(
       global_shape = (num_replicas,) + inp.shape[1:]
       global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
     return jax.make_array_from_single_device_arrays(
-        global_shape, global_sharding, [s.data for s in inp.addressable_shards]
+        global_shape,
+        global_sharding,
+        [s.data for s in inp.addressable_shards],
+        dtype=inp.dtype,
     )
 
   tree_len = len(in_tree)
