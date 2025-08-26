@@ -20,9 +20,7 @@ paths, which allow other implementations.
 
 from __future__ import annotations
 
-import typing
-from typing import Protocol
-
+import abc
 from etils import epath
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
@@ -31,8 +29,7 @@ from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 
 # TODO(b/326119183) Support configuration of temporary path detection
 # (currently handled by `tmp_checkpoints` util methods).
-@typing.runtime_checkable
-class TemporaryPath(Protocol):
+class TemporaryPath(abc.ABC):
   """Class that represents a temporary path.
 
   Importantly, the temporary path always has a corresponding finalized path, and
@@ -45,6 +42,7 @@ class TemporaryPath(Protocol):
   """
 
   @classmethod
+  @abc.abstractmethod
   def from_final(
       cls,
       final_path: epath.Path,
@@ -57,14 +55,17 @@ class TemporaryPath(Protocol):
     """Creates a TemporaryPath from a final path."""
     ...
 
+  @abc.abstractmethod
   def get(self) -> epath.Path:
     """Constructs the temporary path without actually creating it."""
     ...
 
+  @abc.abstractmethod
   def get_final(self) -> epath.Path:
     """Returns the final path without creating it."""
     ...
 
+  @abc.abstractmethod
   async def create(self) -> epath.Path:
     """Creates the temporary path on disk.
 
@@ -75,6 +76,7 @@ class TemporaryPath(Protocol):
     """
     ...
 
+  @abc.abstractmethod
   async def finalize(
       self,
   ) -> None:
