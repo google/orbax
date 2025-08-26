@@ -18,11 +18,17 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import chex
 import jax
+import numpy as np
 from orbax.checkpoint._src.metadata import tree as tree_metadata_lib
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.testing import test_tree_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
+
+
+InternalTreeMetadata = tree_metadata_lib.InternalTreeMetadata
+TreeMetadata = tree_metadata_lib.TreeMetadata
+_TreeMetadataImpl = tree_metadata_lib._TreeMetadataImpl
 
 
 def _to_param_infos(
@@ -63,17 +69,13 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
       pytree_metadata_options: tree_metadata_lib.PyTreeMetadataOptions,
   ):
     tree = test_pytree.provide_tree()
-    original_internal_tree_metadata = (
-        tree_metadata_lib.InternalTreeMetadata.build(
-            param_infos=_to_param_infos(tree, pytree_metadata_options),
-            pytree_metadata_options=pytree_metadata_options,
-        )
+    original_internal_tree_metadata = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree, pytree_metadata_options),
+        pytree_metadata_options=pytree_metadata_options,
     )
     json_object = original_internal_tree_metadata.to_json()
-    restored_internal_tree_metadata = (
-        tree_metadata_lib.InternalTreeMetadata.from_json(
-            json_object, pytree_metadata_options
-        )
+    restored_internal_tree_metadata = InternalTreeMetadata.from_json(
+        json_object, pytree_metadata_options
     )
 
     if pytree_metadata_options.support_rich_types:
@@ -121,17 +123,13 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
       expected_tree_metadata = test_pytree.expected_nested_tree_metadata
     tree = test_pytree.provide_tree()
 
-    original_internal_tree_metadata = (
-        tree_metadata_lib.InternalTreeMetadata.build(
-            param_infos=_to_param_infos(tree, write_pytree_metadata_options),
-            pytree_metadata_options=write_pytree_metadata_options,
-        )
+    original_internal_tree_metadata = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree, write_pytree_metadata_options),
+        pytree_metadata_options=write_pytree_metadata_options,
     )
     json_object = original_internal_tree_metadata.to_json()
-    restored_internal_tree_metadata = (
-        tree_metadata_lib.InternalTreeMetadata.from_json(
-            json_object, read_pytree_metadata_options
-        )
+    restored_internal_tree_metadata = InternalTreeMetadata.from_json(
+        json_object, read_pytree_metadata_options
     )
 
     restored_tree_metadata = restored_internal_tree_metadata.as_nested_tree()
@@ -145,7 +143,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
   def test_invalid_custom_metadata(self, custom_metadata):
     tree = {'scalar_param': 1}
     with self.assertRaisesRegex(TypeError, 'Failed to encode'):
-      tree_metadata_lib.InternalTreeMetadata.build(
+      InternalTreeMetadata.build(
           param_infos=_to_param_infos(tree), custom_metadata=custom_metadata
       )
 
@@ -155,10 +153,127 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
   )
   def test_custom_metadata(self, custom_metadata):
     tree = {'scalar_param': 1}
-    internal_tree_metadata = tree_metadata_lib.InternalTreeMetadata.build(
+    internal_tree_metadata = InternalTreeMetadata.build(
         param_infos=_to_param_infos(tree), custom_metadata=custom_metadata
     )
     self.assertEqual(internal_tree_metadata.custom_metadata, custom_metadata)
+
+  def test_merge(self):
+    tree1 = {'a': 1, 'b': {'c': 2}}
+    custom1 = {'x': 10, 'y': {'z': 20}}
+    meta1 = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree1), custom_metadata=custom1
+    )
+
+    tree2 = {'b': {'d': 99}, 'e': 4}
+    custom2 = {'y': {'w': 30}, 'u': 40}
+    meta2 = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree2), custom_metadata=custom2
+    )
+
+    merged_meta = InternalTreeMetadata.merge(meta1, meta2, overwrite=False)
+
+    # Check custom_metadata is merged.
+    # The behavior of merge_trees is to merge dicts recursively, but to not
+    # overwrite existing leaf values.
+    expected_custom_metadata = {'x': 10, 'y': {'z': 20, 'w': 30}, 'u': 40}
+    self.assertEqual(merged_meta.custom_metadata, expected_custom_metadata)
+
+    # Check tree_metadata_entries are merged with overwrite=False.
+    expected_merged_tree = {'a': 1, 'b': {'c': 2, 'd': 99}, 'e': 4}
+    # Build expected metadata to compare against.
+    expected_meta = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(expected_merged_tree)
+    )
+    expected_nested_tree = expected_meta.as_nested_tree()
+
+    merged_tree_metadata = merged_meta.as_nested_tree()
+    chex.assert_trees_all_equal(merged_tree_metadata, expected_nested_tree)
+
+  def test_merge_overwrite_true(self):
+    tree1 = {'a': 1, 'b': np.int32(2)}
+    custom1 = {'x': 10, 'y': 20}
+    meta1 = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree1), custom_metadata=custom1
+    )
+
+    tree2 = {'b': np.int64(3), 'c': 4}
+    custom2 = {'y': 30, 'z': 40}
+    meta2 = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree2), custom_metadata=custom2
+    )
+
+    merged_meta = InternalTreeMetadata.merge(meta1, meta2, overwrite=True)
+
+    # Check custom_metadata is merged, with tree2 overwriting tree1.
+    expected_custom_metadata = {'x': 10, 'y': 30, 'z': 40}
+    self.assertEqual(merged_meta.custom_metadata, expected_custom_metadata)
+
+    # Check tree_metadata_entries are merged, with tree2 overwriting tree1.
+    # The value of 'b' from tree1 is replaced by tree2's.
+    expected_merged_tree = {'a': 1, 'b': np.int64(3), 'c': 4}
+    expected_meta = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(expected_merged_tree)
+    )
+    expected_nested_tree = expected_meta.as_nested_tree()
+
+    merged_tree_metadata = merged_meta.as_nested_tree()
+    chex.assert_trees_all_equal(merged_tree_metadata, expected_nested_tree)
+
+  def test_merge_overwrite_false_raises_error(self):
+    tree1 = {'a': 1, 'b': np.int32(2)}
+    meta1 = InternalTreeMetadata.build(param_infos=_to_param_infos(tree1))
+    tree2 = {'b': np.int64(3), 'c': 4}
+    meta2 = InternalTreeMetadata.build(param_infos=_to_param_infos(tree2))
+
+    with self.assertRaisesRegex(ValueError, 'exists in both metadata trees'):
+      InternalTreeMetadata.merge(meta1, meta2, overwrite=False)
+
+  @parameterized.product(overwrite=[True, False])
+  def test_merge_with_rich_types(self, overwrite: bool):
+    pytree_metadata_options = tree_metadata_lib.PyTreeMetadataOptions(
+        support_rich_types=True
+    )
+    tree1 = {'a': 1, 'b': test_tree_utils.IntegerNamedTuple(x=1, y=2)}
+    meta1 = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree1, pytree_metadata_options),
+        pytree_metadata_options=pytree_metadata_options,
+    )
+    tree2 = {'b': test_tree_utils.IntegerNamedTuple(x=3, y=4), 'c': 5}
+    meta2 = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree2, pytree_metadata_options),
+        pytree_metadata_options=pytree_metadata_options,
+    )
+
+    if not overwrite:
+      with self.assertRaises(ValueError):
+        InternalTreeMetadata.merge(meta1, meta2, overwrite=overwrite)
+      return
+
+    merged_meta = InternalTreeMetadata.merge(meta1, meta2, overwrite=True)
+
+    self.assertIsNotNone(merged_meta.value_metadata_tree)
+
+    expected_merged_tree = {
+        'a': 1,
+        'b': test_tree_utils.IntegerNamedTuple(x=3, y=4),
+        'c': 5,
+    }
+    expected_meta = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(
+            expected_merged_tree, pytree_metadata_options
+        ),
+        pytree_metadata_options=pytree_metadata_options,
+    )
+    # This is the important check for value_metadata_tree
+    chex.assert_trees_all_equal(
+        merged_meta.value_metadata_tree, expected_meta.value_metadata_tree
+    )
+
+    # This check is also good to have.
+    merged_tree_metadata = merged_meta.as_nested_tree()
+    expected_nested_tree = expected_meta.as_nested_tree()
+    chex.assert_trees_all_equal(merged_tree_metadata, expected_nested_tree)
 
 
 class NestedNamedTuple(NamedTuple):
@@ -169,9 +284,7 @@ class NestedNamedTuple(NamedTuple):
 
 class TreeMetadataTest(parameterized.TestCase):
 
-  def _check_tree_property(
-      self, expected_tree: Any, metadata: tree_metadata_lib.TreeMetadata
-  ):
+  def _check_tree_property(self, expected_tree: Any, metadata: TreeMetadata):
     if tree_utils.isinstance_of_namedtuple(expected_tree):
       self.assertTrue(tree_utils.isinstance_of_namedtuple(metadata.tree))
     elif isinstance(expected_tree, dict):
@@ -186,9 +299,7 @@ class TreeMetadataTest(parameterized.TestCase):
   @parameterized.parameters(({'a': 1, 'b': 2},), ([1, 2],), ((1, 2),))
   def test_properties(self, tree):
     custom_metadata = {'foo': 1}
-    metadata = tree_metadata_lib._TreeMetadataImpl(
-        tree=tree, custom_metadata=custom_metadata
-    )
+    metadata = _TreeMetadataImpl(tree=tree, custom_metadata=custom_metadata)
     self.assertDictEqual(metadata.custom_metadata, custom_metadata)
     self._check_tree_property(tree, metadata)
 
@@ -199,18 +310,18 @@ class TreeMetadataTest(parameterized.TestCase):
   )
   def test_invalid_tree_type(self, tree):
     with self.assertRaises(ValueError):
-      tree_metadata_lib._TreeMetadataImpl(tree=tree)
+      _TreeMetadataImpl(tree=tree)
 
 
   @parameterized.parameters(({'a': 1, 'b': 2},), ([1, 2],), ((1, 2),))
   def test_multiple_tree_map(self, tree):
-    metadata = tree_metadata_lib._TreeMetadataImpl(tree=tree)
+    metadata = _TreeMetadataImpl(tree=tree)
     with self.assertRaises(ValueError):
       _ = jax.tree.map(lambda x, y: x + y, metadata, tree)
 
   def test_dict_accessors(self):
     tree = {'a': 1, 'b': {'c': 2}}
-    metadata = tree_metadata_lib._TreeMetadataImpl(tree=tree)
+    metadata = _TreeMetadataImpl(tree=tree)
     self.assertLen(metadata, 2)
     self.assertIn('a', metadata)
     self.assertIn('b', metadata)
@@ -227,7 +338,7 @@ class TreeMetadataTest(parameterized.TestCase):
 
   @parameterized.parameters(([1, 2, [3]],), ((1, 2, (3,)),))
   def test_sequence_accessors(self, tree):
-    metadata = tree_metadata_lib._TreeMetadataImpl(tree=tree)
+    metadata = _TreeMetadataImpl(tree=tree)
     self.assertLen(metadata, 3)
     self.assertNotIn(0, metadata)
     self.assertIn(1, metadata)
@@ -260,9 +371,7 @@ class TreeMetadataTest(parameterized.TestCase):
   )
   def test_tree_map(self, tree):
     custom_metadata = {'foo': 1}
-    metadata = tree_metadata_lib._TreeMetadataImpl(
-        tree=tree, custom_metadata=custom_metadata
-    )
+    metadata = _TreeMetadataImpl(tree=tree, custom_metadata=custom_metadata)
     metadata = jax.tree.map(lambda x: x + 1, metadata)
     self.assertDictEqual(metadata.custom_metadata, custom_metadata)
     self._check_tree_property(jax.tree.map(lambda x: x + 1, tree), metadata)
@@ -274,11 +383,11 @@ class TreeMetadataTest(parameterized.TestCase):
       (NestedNamedTuple(a=1, b=2, c={'d': [3, 4]}),),
   )
   def test_tree_flatten(self, tree):
-    metadata = tree_metadata_lib._TreeMetadataImpl(tree=tree)
+    metadata = _TreeMetadataImpl(tree=tree)
     flat, treedef = jax.tree.flatten(metadata)
     self.assertSequenceEqual(flat, [1, 2, 3, 4])
     unflat = jax.tree.unflatten(treedef, flat)
-    self.assertIsInstance(unflat, tree_metadata_lib.TreeMetadata)
+    self.assertIsInstance(unflat, TreeMetadata)
     self._check_tree_property(tree, unflat)
 
   @parameterized.parameters(
@@ -288,7 +397,7 @@ class TreeMetadataTest(parameterized.TestCase):
       (NestedNamedTuple(a=1, b=2, c={'d': [3, 4]}),),
   )
   def test_with_path(self, tree):
-    metadata = tree_metadata_lib._TreeMetadataImpl(tree=tree)
+    metadata = _TreeMetadataImpl(tree=tree)
     metadata = jax.tree_util.tree_map_with_path(lambda _, x: x + 1, metadata)
     self._check_tree_property(
         jax.tree_util.tree_map_with_path(lambda _, x: x + 1, tree), metadata
@@ -307,7 +416,7 @@ class TreeMetadataTest(parameterized.TestCase):
 
     flat, _ = jax.tree.flatten(metadata)
     unflat = jax.tree.unflatten(treedef, flat)
-    self.assertIsInstance(unflat, tree_metadata_lib.TreeMetadata)
+    self.assertIsInstance(unflat, TreeMetadata)
     self._check_tree_property(jax.tree.map(lambda x: x + 1, tree), unflat)
 
   @parameterized.parameters(
@@ -321,11 +430,11 @@ class TreeMetadataTest(parameterized.TestCase):
       (test_tree_utils.EmptyNamedTuple(),),
   )
   def test_flatten_empty_trees(self, tree):
-    metadata = tree_metadata_lib._TreeMetadataImpl(tree=tree)
+    metadata = _TreeMetadataImpl(tree=tree)
     flat, treedef = jax.tree.flatten(metadata)
     self.assertEmpty(flat)
     unflat = jax.tree.unflatten(treedef, flat)
-    self.assertIsInstance(unflat, tree_metadata_lib.TreeMetadata)
+    self.assertIsInstance(unflat, TreeMetadata)
     self._check_tree_property(tree, unflat)
 
   @parameterized.parameters(
@@ -339,7 +448,7 @@ class TreeMetadataTest(parameterized.TestCase):
       (test_tree_utils.EmptyNamedTuple(),),
   )
   def test_with_path_empty_trees(self, tree):
-    metadata = tree_metadata_lib._TreeMetadataImpl(tree=tree)
+    metadata = _TreeMetadataImpl(tree=tree)
     metadata = jax.tree_util.tree_map_with_path(lambda _, x: x + 1, metadata)
     self._check_tree_property(
         jax.tree_util.tree_map_with_path(lambda _, x: x + 1, tree), metadata
