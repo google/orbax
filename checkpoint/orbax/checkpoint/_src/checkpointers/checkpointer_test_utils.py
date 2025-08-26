@@ -31,6 +31,7 @@ import numpy as np
 import optax
 from orbax.checkpoint import args
 from orbax.checkpoint import test_utils
+from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
@@ -46,7 +47,6 @@ from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
-from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import type_handlers
@@ -236,14 +236,12 @@ class CheckpointerTestBase:
         paths = list(self.directory.parent.iterdir())
         self.assertLen(paths, 1)
         tmp_dir = paths[0]
-        self.assertFalse(step.is_path_finalized(tmp_dir))
-        self.assertTrue(step.is_path_temporary(tmp_dir))
+        self.assertFalse(utils.is_checkpoint_finalized(tmp_dir))
+        self.assertTrue(utils.is_tmp_checkpoint(tmp_dir))
         with self.assertRaisesRegex(ValueError, 'Found incomplete checkpoint'):
           checkpointer.restore(tmp_dir)
 
-    @mock.patch.object(
-        gcs_utils, 'is_gcs_path', autospec=True, return_value=True
-    )
+    @mock.patch.object(step, 'is_gcs_path', autospec=True, return_value=True)
     def test_gcs(self, is_gcs_path):
       """Test normal operation in simulated GCS environment."""
       del is_gcs_path
@@ -255,11 +253,9 @@ class CheckpointerTestBase:
             path, restore_args=self.pytree_restore_args
         )
         test_utils.assert_tree_equal(self, self.pytree, restored)
-        self.assertTrue((path / atomicity.COMMIT_SUCCESS_FILE).exists())
+        self.assertTrue((path / step._COMMIT_SUCCESS_FILE).exists())
 
-    @mock.patch.object(
-        gcs_utils, 'is_gcs_path', autospec=True, return_value=True
-    )
+    @mock.patch.object(step, 'is_gcs_path', autospec=True, return_value=True)
     @mock.patch.object(atomicity.CommitFileTemporaryPath, 'finalize')
     def test_save_preempted_gcs(self, *mock_args):
       """Simulate effects of preemption."""
@@ -270,11 +266,11 @@ class CheckpointerTestBase:
         paths = list(self.directory.parent.iterdir())
         self.assertLen(paths, 1)
         tmp_dir = paths[0]
-        self.assertFalse(step.is_path_finalized(tmp_dir))
-        self.assertTrue(step.is_path_temporary(tmp_dir))
+        self.assertFalse(utils.is_checkpoint_finalized(tmp_dir))
+        self.assertTrue(utils.is_tmp_checkpoint(tmp_dir))
         with self.assertRaisesRegex(ValueError, 'Found incomplete checkpoint'):
           checkpointer.restore(tmp_dir)
-        self.assertFalse((tmp_dir / atomicity.COMMIT_SUCCESS_FILE).exists())
+        self.assertFalse((tmp_dir / step._COMMIT_SUCCESS_FILE).exists())
 
     def test_configure_atomicity(self):
       """Test case."""
@@ -289,7 +285,7 @@ class CheckpointerTestBase:
             path, restore_args=self.pytree_restore_args
         )
         test_utils.assert_tree_equal(self, self.pytree, restored)
-        self.assertTrue((path / atomicity.COMMIT_SUCCESS_FILE).exists())  # pylint: disable=protected-access
+        self.assertTrue((path / step._COMMIT_SUCCESS_FILE).exists())  # pylint: disable=protected-access
 
     def test_legacy_api(self):
       """Test case."""

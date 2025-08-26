@@ -29,14 +29,8 @@ from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 
 
 
-TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp'
-COMMIT_SUCCESS_FILE = 'commit_success.txt'
-
-
-class ValidationError(ValueError):
-  """Raised when a TemporaryPath or its final path is invalid."""
-
-
+# TODO(b/326119183) Support configuration of temporary path detection
+# (currently handled by `tmp_checkpoints` util methods).
 @typing.runtime_checkable
 class TemporaryPath(Protocol):
   """Class that represents a temporary path.
@@ -49,22 +43,6 @@ class TemporaryPath(Protocol):
   instance from the given final path.
   `create` and `finalize` must be called only on the primary host.
   """
-
-  @classmethod
-  async def validate(
-      cls,
-      temporary_path: epath.Path,
-  ):
-    """Validates the temporary path or raises a ValidationError."""
-    ...
-
-  @classmethod
-  async def validate_final(
-      cls,
-      final_path: epath.Path,
-  ):
-    """Validates the final path or raises a ValidationError."""
-    ...
 
   @classmethod
   def from_final(

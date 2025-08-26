@@ -178,7 +178,7 @@ class StandardCheckpointDeleter:
 
       # Attempt to rename using GCS HNS API if configured.
       if self._todelete_full_path is not None:
-        if gcs_utils.is_gcs_path(self._directory):
+        if step_lib.is_gcs_path(self._directory):
           self._rename_gcs_step_with_hns(step, delete_target)
           return
         else:
@@ -186,7 +186,7 @@ class StandardCheckpointDeleter:
 
       # Attempt to rename to local subdirectory using `todelete_subdir`
       # if configured.
-      if self._todelete_subdir is not None and not gcs_utils.is_gcs_path(
+      if self._todelete_subdir is not None and not step_lib.is_gcs_path(
           self._directory
       ):
         self._rename_step_to_subdir(step, delete_target)
