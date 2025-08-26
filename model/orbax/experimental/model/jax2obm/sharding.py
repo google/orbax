@@ -15,7 +15,6 @@
 """Sharding related utils."""
 from typing import Any
 
-from collections.abc import Sequence
 import jax
 from jax.extend import sharding as jex_sharding
 from orbax.experimental.model import core as obm
@@ -45,20 +44,3 @@ def hlo_sharding_to_op_sharding(
       jex_sharding.get_serialized_proto_from_hlo_sharding(hlo_sharding)
   )
   return output
-
-# TODO(b/424623547): see if we need this anymore or should it be removed.
-def jax_mesh_to_obm_device_assignment_by_coords_proto(
-    jax_mesh: jax.sharding.Mesh,
-) -> obm.manifest_pb2.DeviceAssignmentByCoords:
-  """Converts `jax.sharding.Mesh` to proto `DeviceAssignmentByCoords`."""
-
-  def spec_for_device(d):
-    if d.platform == "tpu":
-      return obm.manifest_pb2.DeviceAssignmentByCoords.Device(
-          id=d.id, coords=d.coords, core_on_chip=d.core_on_chip
-      )
-    return obm.manifest_pb2.DeviceAssignmentByCoords.Device(id=d.id)
-
-  return obm.manifest_pb2.DeviceAssignmentByCoords(
-      devices=[spec_for_device(d) for d in jax_mesh.devices.flat]
-  )

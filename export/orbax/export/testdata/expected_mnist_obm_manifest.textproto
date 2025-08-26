@@ -560,7 +560,4 @@ supplemental_info {
     version: "__OEX_ORCHESTRATION_VERSION__"
   }
 }
-__SAVED_MODEL_SUPPLEMENTAL_PROTO__ device_assignment_by_coords
-{
-  __DEVICE_ASSIGNMENT_BY_COORDS__ 
-}
+__SAVED_MODEL_SUPPLEMENTAL_PROTO__

@@ -7,25 +7,11 @@ import "orbax/experimental/model/core/protos/type.proto";
 message Manifest {
   map<string, TopLevelObject> objects = 1;
   map<string, UnstructuredData> supplemental_info = 2;
-  optional DeviceAssignmentByCoords device_assignment_by_coords = 4;
 
   // A list of paths frequently used in this manifest. Once a path is added to
   // this list, use sites can refer to it by its index here instead of spelling
   // out the full string.
   repeated string frequent_paths = 5;
-}
-
-// Copied from /third_party/australis/google/ifrt/ifrt_australis.proto.
-// Represents a mapping between device ids and coords. This allows consistently
-// mapping between incompatible id spaces by aligning the coords.
-message DeviceAssignmentByCoords {
-  message Device {
-    int64 id = 1;
-    repeated int64 coords = 2;
-    optional int64 core_on_chip = 3;
-  }
-
-  repeated Device devices = 1;
 }
 
 message TopLevelObject {

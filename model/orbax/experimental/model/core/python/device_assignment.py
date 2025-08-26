@@ -34,7 +34,7 @@ class DeviceAssignment:
   core_on_chip: int | None = None
 
 
-def jax_mesh_to_obm_device_assignment_by_coords(
+def jax_mesh_to_device_assignment(
     jax_mesh: jax.sharding.Mesh,
 ) -> Sequence[DeviceAssignment]:
   """Converts `jax.sharding.Mesh` to a sequence of `DeviceAssignment`s."""

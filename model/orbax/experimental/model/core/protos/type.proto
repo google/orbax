@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package orbax_model_type;
 
-import "orbax/experimental/model/core/protos/xla_data.proto";
+import "tensorflow/compiler/xla/xla_data.proto";
 
 message FunctionSignature {
   Type input = 1;
@@ -59,9 +59,9 @@ message TensorType {
   Shape shape = 1;
   DType dtype = 2;
 
-  // TODO(b/349877692): Replace proto message `orbax_model_xla.OpSharding`
+  // TODO(b/349877692): Replace proto message `xla.OpSharding`
   // with a stable version.
-  optional orbax_model_xla.OpSharding sharding = 3;
+  optional xla.OpSharding sharding = 3;
 }
 
 message Shape {
