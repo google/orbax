@@ -21,6 +21,7 @@ import uuid
 from absl import logging
 import jax
 from orbax.checkpoint._src.futures import future
+from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
@@ -288,6 +289,9 @@ async def run_blocking_save(
   background_awaitable = await handler.save(
       tmp_path_awaiting_creation, checkpointables
   )
+  # Log write event for the final path.
+  event_tracking.record_write_event(tmp_path.get_final())
+
   return background_awaitable
 
 
