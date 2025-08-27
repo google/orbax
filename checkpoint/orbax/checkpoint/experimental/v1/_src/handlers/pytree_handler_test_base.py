@@ -1451,7 +1451,6 @@ class PyTreeHandlerTestBase:
           array_metadata_store=None,
           use_zarr3=True,
       ) as handler:
-        # TODO(b/430598877) Return V1 Registry error message.
         with self.assertRaisesRegex(
             ValueError, 'The following leaf types are not registered'
         ):
