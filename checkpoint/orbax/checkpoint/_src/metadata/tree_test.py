@@ -171,7 +171,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
         param_infos=_to_param_infos(tree2), custom_metadata=custom2
     )
 
-    merged_meta = InternalTreeMetadata.merge(meta1, meta2, overwrite=False)
+    merged_meta = meta1.merge(meta2, overwrite=False)
 
     # Check custom_metadata is merged.
     # The behavior of merge_trees is to merge dicts recursively, but to not
@@ -203,7 +203,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
         param_infos=_to_param_infos(tree2), custom_metadata=custom2
     )
 
-    merged_meta = InternalTreeMetadata.merge(meta1, meta2, overwrite=True)
+    merged_meta = meta1.merge(meta2, overwrite=True)
 
     # Check custom_metadata is merged, with tree2 overwriting tree1.
     expected_custom_metadata = {'x': 10, 'y': 30, 'z': 40}
@@ -227,7 +227,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
     meta2 = InternalTreeMetadata.build(param_infos=_to_param_infos(tree2))
 
     with self.assertRaisesRegex(ValueError, 'exists in both metadata trees'):
-      InternalTreeMetadata.merge(meta1, meta2, overwrite=False)
+      meta1.merge(meta2, overwrite=False)
 
   @parameterized.product(overwrite=[True, False])
   def test_merge_with_rich_types(self, overwrite: bool):
@@ -247,10 +247,10 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
 
     if not overwrite:
       with self.assertRaises(ValueError):
-        InternalTreeMetadata.merge(meta1, meta2, overwrite=overwrite)
+        meta1.merge(meta2, overwrite=overwrite)
       return
 
-    merged_meta = InternalTreeMetadata.merge(meta1, meta2, overwrite=True)
+    merged_meta = meta1.merge(meta2, overwrite=True)
 
     self.assertIsNotNone(merged_meta.value_metadata_tree)
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import copy
 import dataclasses
 import enum
 import functools
@@ -531,60 +532,57 @@ class InternalTreeMetadata:
         flat_metadatas, target=reference_metadata_tree
     )
 
-  @classmethod
   def merge(
-      cls,
-      tree1: InternalTreeMetadata,
-      tree2: InternalTreeMetadata,
+      self,
+      other: InternalTreeMetadata,
       *,
       overwrite: bool = False,
   ) -> InternalTreeMetadata:
     """Create a new InternalTreeMetadata by merging two existing ones.
 
     Args:
-      tree1: The first InternalTreeMetadata to merge.
-      tree2: The second InternalTreeMetadata to merge.
-      overwrite: Whether to overwrite existing entries in tree1 with entries
-        from tree2. If False, an error is raised if there are duplicate entries
-        in the two trees.
+      other: The InternalTreeMetadata to merge.
+      overwrite: Whether to overwrite existing entries in `self` with entries
+        from `other`. If False, an error is raised if there are duplicate
+        entries in the two trees.
 
     Returns:
       A new InternalTreeMetadata containing the merged entries.
     """
-    if tree1.use_zarr3 != tree2.use_zarr3:
+    if self.use_zarr3 != other.use_zarr3:
       raise ValueError('Trees must use the same zarr format.')
-    use_zarr3 = tree1.use_zarr3
+    use_zarr3 = self.use_zarr3
 
-    if tree1.pytree_metadata_options != tree2.pytree_metadata_options:
+    if self.pytree_metadata_options != other.pytree_metadata_options:
       raise ValueError(
           'The pytree_metadata_options of the two metadata trees must be the'
           ' same.'
       )
-    pytree_metadata_options = tree1.pytree_metadata_options
+    pytree_metadata_options = copy.deepcopy(self.pytree_metadata_options)
 
-    if tree1.store_array_data_equal_to_fill_value != (
-        tree2.store_array_data_equal_to_fill_value
+    if self.store_array_data_equal_to_fill_value != (
+        other.store_array_data_equal_to_fill_value
     ):
       raise ValueError(
           'The store_array_data_equal_to_fill_value of the two metadata trees'
           ' must be the same.'
       )
     store_array_data_equal_to_fill_value = (
-        tree1.store_array_data_equal_to_fill_value
+        self.store_array_data_equal_to_fill_value
     )
 
-    tree1_entries = functools.reduce(
+    self_entries = functools.reduce(
         operator.ior,
-        [entry.to_json() for entry in tree1.tree_metadata_entries],
+        [entry.to_json() for entry in self.tree_metadata_entries],
         {},
     )
-    tree2_entries = functools.reduce(
+    other_entries = functools.reduce(
         operator.ior,
-        [entry.to_json() for entry in tree2.tree_metadata_entries],
+        [entry.to_json() for entry in other.tree_metadata_entries],
         {},
     )
-    merged = tree1_entries.copy()
-    for k, v in tree2_entries.items():
+    merged = self_entries.copy()
+    for k, v in other_entries.items():
       if k in merged and not overwrite:
         raise ValueError(
             f'Key {k} exists in both metadata trees and overwrite is False.'
@@ -595,25 +593,27 @@ class InternalTreeMetadata:
         for keypath, entry in merged.items()
     ]
 
-    if tree1.custom_metadata is not None and tree2.custom_metadata is not None:
+    if self.custom_metadata is not None and other.custom_metadata is not None:
       custom_metadata = structure_utils.merge_trees(
-          tree1.custom_metadata, tree2.custom_metadata, overwrite=overwrite
+          self.custom_metadata, other.custom_metadata, overwrite=overwrite
       )
     else:
-      custom_metadata = tree1.custom_metadata or tree2.custom_metadata
+      custom_metadata = copy.deepcopy(
+          self.custom_metadata or other.custom_metadata
+      )
 
     if (
-        tree1.value_metadata_tree is not None
-        and tree2.value_metadata_tree is not None
+        self.value_metadata_tree is not None
+        and other.value_metadata_tree is not None
     ):
       value_metadata_tree = structure_utils.merge_trees(
-          tree1.value_metadata_tree,
-          tree2.value_metadata_tree,
+          self.value_metadata_tree,
+          other.value_metadata_tree,
           overwrite=overwrite,
       )
     else:
-      value_metadata_tree = (
-          tree1.value_metadata_tree or tree2.value_metadata_tree
+      value_metadata_tree = copy.deepcopy(
+          self.value_metadata_tree or other.value_metadata_tree
       )
 
     return InternalTreeMetadata(
