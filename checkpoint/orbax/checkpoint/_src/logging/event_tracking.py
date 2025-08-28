@@ -19,7 +19,12 @@ from etils import epath
 
 
 def record_read_event(directory: epath.Path):
-  """Records a read event for the checkpoint."""
+  """Records a dataread event for the checkpoint."""
+  return None
+
+
+def record_read_metadata_event(directory: epath.Path):
+  """Records a meatadataread event for the checkpoint."""
   return None
 
 

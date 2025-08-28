@@ -41,6 +41,7 @@ from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
@@ -1043,10 +1044,15 @@ class BasePyTreeCheckpointHandler(
         path,
         self._pytree_metadata_options,
     )
-    return tree_metadata.InternalTreeMetadata.from_json(
+    metadata = tree_metadata.InternalTreeMetadata.from_json(
         json.loads(await async_path.read_text(path)),
         pytree_metadata_options=self._pytree_metadata_options,
     )
+
+    # Log the read event for the checkpoint to the DM log.
+    event_tracking.record_read_metadata_event(directory)
+
+    return metadata
 
 
   def metadata(self, directory: epath.Path) -> tree_metadata.TreeMetadata:
