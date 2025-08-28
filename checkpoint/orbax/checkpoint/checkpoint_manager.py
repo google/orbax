@@ -870,15 +870,20 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._metadata_dir = self.directory / METADATA_ITEM_NAME
     if self._options.read_only and not self._metadata_dir.exists():
       custom_metadata = {} if metadata is None else dict(metadata)
+      internal_metadata = {}
     else:
       custom_metadata = None
+      internal_metadata = None
     self._root_metadata = threading_lib.Ref(
         RootMetadata(
             custom_metadata=custom_metadata,
+            internal_metadata=internal_metadata,
         )
     )
 
-    self._maybe_save_root_metadata(metadata)
+    self._maybe_save_root_metadata(
+        metadata, self._build_internal_root_metadata()
+    )
 
     # TODO: b/359854428 - Move Finalize biz logic to a separate class/module.
     self._finalize_thread = threading_lib.OptionalRef[_FinalizeThread]()
@@ -911,6 +916,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self.directory,
         self,
     )
+
+  def _build_internal_root_metadata(self) -> dict[str, Any]:
+    """Builds the internal root metadata for the checkpoint."""
+    internal_metadata = {}
+    internal_metadata['metrics_disabled'] = self._options.prevent_write_metrics
+    return internal_metadata
 
   def _configure_checkpointer_common(
       self,
@@ -1764,21 +1775,26 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     return checkpoint.root_metadata_file_path(self._metadata_dir, legacy=legacy)
 
   def _maybe_save_root_metadata(
-      self, custom_metadata: Mapping[str, Any] | None
+      self,
+      custom_metadata: Mapping[str, Any] | None,
+      internal_metadata: dict[str, Any],
   ):
     """Saves CheckpointManager level metadata, skips if already present."""
     if self._options.save_root_metadata:
-      if (
-          custom_metadata is not None
-          and not self._options.read_only
-          and utils.is_primary_host(self._multiprocessing_options.primary_host)
+      if not self._options.read_only and utils.is_primary_host(
+          self._multiprocessing_options.primary_host
       ):
         self._metadata_dir.mkdir(parents=True, exist_ok=True)
         file_path = self._root_metadata_file_path()
         if not file_path.exists():  # May have been created by a previous run.
           metadata_to_save = self._root_metadata.get()
+          metadata_to_save.internal_metadata = internal_metadata
           if custom_metadata is not None:
             metadata_to_save.custom_metadata = dict(custom_metadata)
+          else:
+            metadata_to_save.custom_metadata = (
+                metadata_to_save.custom_metadata or {}
+            )
           self._blocking_metadata_store.write(
               file_path, serialize_root_metadata(metadata_to_save)
           )
@@ -1792,6 +1808,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
 
   def _get_metrics(self, step: int) -> PyTree | None:
+    internal_metadata = self._get_root_metadata().internal_metadata
+    if internal_metadata and internal_metadata.get('metrics_disabled', False):
+      return None
     try:
       # Use handler directly, since this happens in a background thread and
       # barriers cannot be used. This usage pattern is not
@@ -1836,7 +1855,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     return step_metadata
 
   def _get_root_metadata(self) -> RootMetadata:
-    if self._root_metadata.get().custom_metadata is None:
+    existing_metadata = self._root_metadata.get()
+    if (
+        existing_metadata.custom_metadata is None
+        or existing_metadata.internal_metadata is None
+    ):
       if self._metadata_dir.exists():
         file_path = self._root_metadata_file_path()
         if not file_path.exists():
@@ -1854,6 +1877,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
       else:
         self._root_metadata.get().custom_metadata = {}
+        self._root_metadata.get().internal_metadata = {}
     return self._root_metadata.get()
 
   @overload
