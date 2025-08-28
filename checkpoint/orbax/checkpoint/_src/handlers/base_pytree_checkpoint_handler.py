@@ -465,6 +465,94 @@ class BasePyTreeCheckpointHandler(
         _param_info, names, item, is_leaf=utils.is_empty_or_leaf
     )
 
+  async def _async_partial_save(
+      self,
+      directory: epath.Path,
+      item: PyTree,
+      batch_requests: list[_BatchRequest],
+      param_infos: PyTree,
+      save_args: BasePyTreeSaveArgs,
+  ):
+    value_metadata_tree = (
+        await self._read_metadata_file(directory)
+    ).as_nested_tree()
+
+    tree_diff = tree_structure_utils.tree_difference(item, value_metadata_tree)
+
+    additions = set()
+
+    def _handle_diffs(keypath, diff):
+      keypath = tree_utils.tuple_path_from_keypath(keypath)
+      if diff.lhs is not None:  # Leaf is present in the current item
+        if diff.rhs is None:  # Leaf was not in the on-disk metadata
+          additions.add(keypath)
+        else:  # Leaf was also in the on-disk metadata
+          raise ValueError(
+              f'Key "{keypath}" was found in the on-disk PyTree metadata and'
+              ' supplied item. Partial saving currently does not support'
+              ' REPLACEMENT. Please reach out to the Orbax team if you need'
+              ' this feature.'
+          )
+
+    jax.tree.map_with_path(
+        _handle_diffs,
+        tree_diff,
+        is_leaf=lambda x: isinstance(x, tree_structure_utils.Diff),
+    )
+
+    if not additions:
+      # TODO: b/428711337 - Create PartialSaveError for certain categories of
+      # errors only encountered during partial saving. And subclasses of errors
+      # like PartialSaveReplacementError and such.
+      raise ValueError(
+          'Partial save: No structural differences or new/replaced leaves found'
+          ' in the item compared to on-disk metadata (or item is empty).'
+      )
+
+    logging.info(
+        '[process=%d] Found the following additions during partial save: %s',
+        multihost.process_index(),
+        additions,
+    )
+
+    # Filter out requests that don't have any additions.
+    filtered_requests = []
+    for request in batch_requests:
+      filtered_items = [
+          (key, value, info, arg)
+          for key, value, info, arg in zip(
+              request.keys, request.values, request.infos, request.args
+          )
+          if key in additions
+      ]
+      if filtered_items:
+        keys, values, infos, args = zip(*filtered_items)
+        filtered_requests.append(
+            dataclasses.replace(
+                request,
+                keys=list(keys),
+                values=list(values),
+                infos=list(infos),
+                args=list(args),
+            )
+        )
+
+    serialize_ops = []
+    tree_memory_size = 0
+    for request in filtered_requests:
+      serialize_ops += [
+          _logging_serialize(
+              request.handler,
+              request.handler.serialize(
+                  request.values, request.infos, request.args
+              ),
+          )
+      ]
+      write_size, _ = _get_batch_memory_size(request.handler, request.values)
+      tree_memory_size += write_size
+
+    return serialize_ops, tree_memory_size, param_infos, save_args
+
   async def async_save(
       self,
       directory: epath.Path,
@@ -538,19 +626,37 @@ class BasePyTreeCheckpointHandler(
         save_args,
         self._type_handler_registry,
     )
+
+    # Determine if this is a partial save by checking for the '.partial_save'
+    # suffix in the checkpoint directory name and if the metadata file exists.
+    # Cannot rely solely on the metadata file existing pre-empted saves may be
+    # misclassified as partial saves.
+    partial_save = (
+        await async_path.exists(directory / PYTREE_METADATA_FILE)
+        # TODO: b/428711337 - Use method from v1/_src/partial/path.py instead.
+        and '.partial_save' in directory.parent.name
+    )
+
     batch_requests_ready_time = time.time()
-    tree_memory_size = 0
-    for request in batch_requests:
-      serialize_ops += [
-          _logging_serialize(
-              request.handler,
-              request.handler.serialize(
-                  request.values, request.infos, request.args
-              ),
+    if partial_save:
+      serialize_ops, tree_memory_size, param_infos, save_args = (
+          await self._async_partial_save(
+              directory, item, batch_requests, param_infos, save_args
           )
-      ]
-      write_size, _ = _get_batch_memory_size(request.handler, request.values)
-      tree_memory_size += write_size
+      )
+    else:
+      tree_memory_size = 0
+      for request in batch_requests:
+        serialize_ops += [
+            _logging_serialize(
+                request.handler,
+                request.handler.serialize(
+                    request.values, request.infos, request.args
+                ),
+            )
+        ]
+        write_size, _ = _get_batch_memory_size(request.handler, request.values)
+        tree_memory_size += write_size
     # Await copy futures. Returns List[List[future.Future]].
     commit_futures = await asyncio.gather(*serialize_ops)
     # Flatten to List[future.Future].
@@ -572,6 +678,7 @@ class BasePyTreeCheckpointHandler(
                   save_args=save_args,
                   custom_metadata=custom_metadata,
                   use_zarr3=self._use_zarr3,
+                  partial_save=partial_save,
               ),
               name='write_metadata_after_commits',
           )
@@ -944,6 +1051,7 @@ class BasePyTreeCheckpointHandler(
       save_args: PyTree,
       custom_metadata: tree_types.JsonType | None = None,
       use_zarr3: bool = False,
+      partial_save: bool = False,
   ) -> None:
     if utils.is_primary_host(self._primary_host):
       metadata_write_start_time = time.time()
@@ -955,6 +1063,13 @@ class BasePyTreeCheckpointHandler(
           custom_metadata=custom_metadata,
           pytree_metadata_options=self._pytree_metadata_options,
       )
+
+      if partial_save:
+        old_metadata = await self._read_metadata_file(directory)
+        metadata_content = tree_metadata.InternalTreeMetadata.merge(
+            old_metadata, metadata_content, overwrite=True
+        )
+
       logging.vlog(
           1,
           'Writing pytree metadata file: %s with pytree_metadata_options: %s',
@@ -979,6 +1094,7 @@ class BasePyTreeCheckpointHandler(
       save_args: PyTree,
       custom_metadata: tree_types.JsonType | None = None,
       use_zarr3: bool,
+      partial_save: bool,
   ) -> None:
     start_time = time.time()
     if not utils.is_primary_host(self._primary_host):
@@ -1006,6 +1122,7 @@ class BasePyTreeCheckpointHandler(
         save_args=save_args,
         custom_metadata=custom_metadata,
         use_zarr3=use_zarr3,
+        partial_save=partial_save,
     )
     end_time = time.time()
     logging.info(
