@@ -349,6 +349,21 @@ def get_replica_slices(
   if candidate_slices is None:
     candidate_slices = pick_single_replica()  # pytype: disable=attribute-error
   rslices, local_shape = candidate_slices
+
+  if multihost.process_index() == 0:
+    # record sharded and replicated arrays metrics
+    replica_count = _sharding_num_replicas(arr.sharding, arr.shape)
+    if replica_count > 1:
+      jax.monitoring.record_scalar(
+          '/jax/orbax/write/replicated_array_gb',
+          value=np.prod(arr.shape) * arr.dtype.itemsize / (1024**3),
+      )
+    else:
+      jax.monitoring.record_scalar(
+          '/jax/orbax/write/sharded_array_gb',
+          value=np.prod(arr.shape) * arr.dtype.itemsize / (1024**3),
+      )
+
   return ReplicaSlices(
       global_shape=arr.shape,
       local_shape=local_shape,
