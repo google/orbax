@@ -24,24 +24,12 @@ message Pipeline {
   // steps into a single module to optimize for latency.
   repeated string pre_processor_names = 20;
 
-  // The name (in manifest) of the model function.
-  optional string model_function_name = 30;
-
-  // The name (in manifest) of the value representing the weights PyTree.
-  //
-  // This PyTree will be given as the 1st arg to the model function.
-  //
-  // In the short term when we don't support PyTree,
-  // (the value whose name is) `weights_name` will be a tuple
-  // of tensors, and the model function will take in a flat list
-  // (often longer than 2) of tensors. In that case, we will interpret
-  // "the 1st arg" above as "the left-most args", i.e. we will retrieve the
-  // individual tensors from `weights_name`, and feed them as the
-  // left-most arguments to the model function.
-  //
-  // # TODO(b/329305005): Remove this hacky interpretation once we support
-  //   PyTree.
-  optional string weights_name = 40;
+  // The model functions to be executed in the pipeline. The order of the
+  // model functions determines the order of execution. The output of the nth
+  // model function serves as the input to the (n+1)th model function.
+  // Currently, we ONLY support AT MOST ONE model function (thus, having no
+  // model functions is allowed). See b/421976850.
+  repeated BoundModelFunction model_functions = 30;
 
   // The names (in manifest) of the post-processor functions. For multi-stage
   // postprocessing, the postprocessors are exected in sequence. The output of
@@ -52,6 +40,20 @@ message Pipeline {
 
   // The batch options for the model. If not set, the model will not be batched.
   optional BatchOptions batch_options = 60;
+}
+
+// A bound model function.
+//
+// This message is used to represent a model function that has been bound to
+// a specific weights PyTree. This is needed because the model function will
+// need to be called with the weights as the 1st argument.
+message BoundModelFunction {
+  // The name (in manifest) of the model function.
+  string model_function_name = 1;
+
+  // The name (in manifest) of the value representing the weights PyTree.
+  // This PyTree will be given as the 1st arg to the model function.
+  optional string weights_name = 10;
 }
 
 message BatchOptions {
