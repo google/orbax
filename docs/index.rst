@@ -79,7 +79,8 @@ Install from GitHub using the following.
    guides/checkpoint/optimized_checkpointing
    guides/checkpoint/transformations
    guides/checkpoint/preemption_checkpointing
-   guides/checkpoint/async_checkpointing
+      guides/checkpoint/async_checkpointing
+   guides/checkpoint/colocated_checkpointing
    guides/checkpoint/debug_guide
    api_reference/checkpoint
 
