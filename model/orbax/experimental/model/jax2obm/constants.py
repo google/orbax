@@ -15,3 +15,8 @@
 """Constants used in jax2obm."""
 # XLA compilation options.
 XLA_COMPILE_OPTIONS = 'xla_compile_options'
+
+# XLA compile options mime type.
+XLA_COMPILE_OPTIONS_MIME_TYPE = (
+    'application/protobuf; type=orbax_model_manifest.CompileOptionsProtoMap'
+)
