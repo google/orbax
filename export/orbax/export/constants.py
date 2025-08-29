@@ -73,7 +73,8 @@ DEFAULT_POST_PROCESSOR_NAME = 'post_processor'
 DEFAULT_SUPPLEMENTAL_FILENAME = 'orchestration.pb'
 
 # Orbax MIME types
-ORBAX_CHECKPOINT_MIME_TYPE = 'orbax_checkpoint'
+ORBAX_CHECKPOINT_MIME_TYPE = 'application/x.orbax-checkpoint'
+
 
 # obm_kwargs keys in `ServingConfig`:
 # - The batching config for the model.
