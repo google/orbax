@@ -34,6 +34,7 @@ from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src import threading as threading_lib
 from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
@@ -59,6 +60,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import deleter
 from orbax.checkpoint._src.path import step as step_lib
+from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint._src.path import utils as path_utils
 from typing_extensions import Self  # for Python version < 3.11
 
@@ -849,7 +851,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     # Cleanup directories from previous runs that may not have been finalized.
     if self._options.cleanup_tmp_directories:
-      self._cleanup_tmp_directories()
+      asyncio_utils.run_sync(
+          temporary_paths.cleanup_temporary_paths(
+              self._directory,
+              multiprocessing_options=self._options.multiprocessing_options,
+              temporary_path_cls=self._options.temporary_path_class,
+          )
+      )
 
     self._step_name_format = (
         self._options.step_name_format
@@ -1891,14 +1899,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         with_metrics,
         key=lambda info: self._options.best_fn(info.metrics),
         reverse=(self._options.best_mode == 'min'),
-    )
-
-  def _cleanup_tmp_directories(self):
-    utils.cleanup_tmp_directories(
-        self.directory,
-        primary_host=self._multiprocessing_options.primary_host,
-        active_processes=self._multiprocessing_options.active_processes,
-        barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
     )
 
   def _get_old_steps_to_remove(self) -> List[int]:

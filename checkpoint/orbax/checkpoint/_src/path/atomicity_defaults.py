@@ -22,24 +22,24 @@ than we would want to introduce into the base `atomicity` module.
 from etils import epath
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
-from orbax.checkpoint._src.path import step as step_lib
+from orbax.checkpoint._src.path import gcs_utils
 
 
 def get_item_default_temporary_path_class(
-    final_path: epath.Path,
+    path: epath.Path,
 ) -> type[atomicity_types.TemporaryPath]:
   """Returns the default temporary path class for a given sub-item path."""
-  if step_lib.is_gcs_path(final_path):
+  if gcs_utils.is_gcs_path(path):
     return atomicity.CommitFileTemporaryPath
   else:
     return atomicity.AtomicRenameTemporaryPath
 
 
 def get_default_temporary_path_class(
-    final_path: epath.Path,
+    path: epath.Path,
 ) -> type[atomicity_types.TemporaryPath]:
   """Returns the default temporary path class for a given checkpoint path."""
-  if step_lib.is_gcs_path(final_path):
+  if gcs_utils.is_gcs_path(path):
     return atomicity.CommitFileTemporaryPath
   else:
     return atomicity.AtomicRenameTemporaryPath

@@ -44,6 +44,7 @@ from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import serialization
@@ -73,7 +74,7 @@ def save_fake_tmp_dir(
   step_final_directory = directory / (step_prefix + str(step))
   step_tmp_directory = (
       step_final_directory
-      if step_lib.is_gcs_path(step_final_directory)
+      if gcs_utils.is_gcs_path(step_final_directory)
       else atomicity._get_tmp_directory(step_final_directory)
   )
   create_tmp_directory(step_tmp_directory, step_final_directory)
@@ -81,7 +82,7 @@ def save_fake_tmp_dir(
   item_final_directory = step_tmp_directory / item
   item_tmp_directory = (
       item_final_directory
-      if step_lib.is_gcs_path(item_final_directory)
+      if gcs_utils.is_gcs_path(item_final_directory)
       else atomicity._get_tmp_directory(item_final_directory)
   )
   create_tmp_directory(item_tmp_directory, item_final_directory)
@@ -139,7 +140,7 @@ def create_tmp_directory(
   )
   if multihost.is_primary_host(primary_host):
     if tmp_dir.exists():
-      if step_lib.is_tmp_checkpoint(tmp_dir):
+      if step_lib.is_path_temporary(tmp_dir):
         logging.warning(
             'Attempted to create temporary directory %s which already exists.'
             ' Removing existing directory since it is not finalized.',
