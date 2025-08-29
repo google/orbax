@@ -25,11 +25,14 @@ from etils import epath
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
+from orbax.checkpoint._src.tree import structure_utils as tree_structure_utils
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
+from orbax.checkpoint.experimental.v1._src.partial import path as partial_path_lib
+from orbax.checkpoint.experimental.v1._src.partial import saving as partial_saving
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
 from orbax.checkpoint.experimental.v1._src.testing import path_utils
@@ -66,11 +69,13 @@ class CompositeHandlerTest(parameterized.TestCase):
       handler: CompositeHandler,
       directory: epath.Path,
       checkpointables: dict[str, Any],
+      *,
+      partial_save: bool = False,
   ):
     if multihost.is_primary_host(0):
-      directory.mkdir(parents=False, exist_ok=False)
+      directory.mkdir(parents=False, exist_ok=partial_save)
       for k in checkpointables:
-        (directory / k).mkdir(parents=False, exist_ok=False)
+        (directory / k).mkdir(parents=False, exist_ok=partial_save)
 
     handler_typestrs = {
         name: handler_types.typestr(
@@ -82,11 +87,22 @@ class CompositeHandlerTest(parameterized.TestCase):
         )
         for name in checkpointables.keys()
     }
+    step_metadata_file = checkpoint_metadata.step_metadata_file_path(directory)
+    if partial_save and step_metadata_file.exists():
+      step_metadata = checkpoint_metadata.metadata_store(
+          enable_write=True, blocking_write=True
+      ).read(step_metadata_file)
+      if step_metadata:
+        old_handler_typestrs = step_metadata_serialization.deserialize(
+            step_metadata
+        ).item_handlers
+        handler_typestrs = old_handler_typestrs | handler_typestrs
+
     # Metadata expected to be created outside the handler.
     checkpoint_metadata.metadata_store(
         enable_write=True, blocking_write=True
     ).write(
-        file_path=checkpoint_metadata.step_metadata_file_path(directory),
+        file_path=step_metadata_file,
         metadata=step_metadata_serialization.serialize(
             checkpoint_metadata.StepMetadata(
                 init_timestamp_nsecs=time.time_ns(),
@@ -256,6 +272,148 @@ class CompositeHandlerTest(parameterized.TestCase):
     registry = self.create_registry().add(FooHandler, 'foo')
     self.save(CompositeHandler(registry), self.directory, checkpointables)
     self.assertTrue((self.directory / 'orbax.checkpoint').exists())
+
+  @parameterized.parameters(True, False)
+  def test_partial_save_and_finalize(self, finalize_with_partial_path: bool):
+    final_path = self.directory
+    partial_path = partial_path_lib.add_partial_save_suffix(final_path)
+
+    first_save_checkpointables = {
+        'foo': {'a': 1},
+        'bar': {'x': 5},
+        # Dict elements are the only way to partial save lists.
+        'foo_list': [{'a1': 1, 'b1': 2}, {'a2': 3}],
+    }
+    second_save_checkpointables = {
+        'baz': {'a': 2},
+        'foo': {'b': 3},
+        'foo_list': [{}, {'b2': 4}],
+    }
+    merged_checkpointables = tree_structure_utils.merge_trees(
+        first_save_checkpointables, second_save_checkpointables
+    )
+    registry = self.create_registry()
+    for k in merged_checkpointables:
+      registry.add(PyTreeHandler, k)
+    handler = CompositeHandler(registry)
+
+    self.save(
+        handler, partial_path, first_save_checkpointables, partial_save=True
+    )
+    self.assertTrue(partial_path.exists())
+    self.assertTrue((partial_path / 'orbax.checkpoint').exists())
+
+    self.save(
+        handler, partial_path, second_save_checkpointables, partial_save=True
+    )
+    self.assertTrue(partial_path.exists())
+    self.assertTrue((partial_path / 'orbax.checkpoint').exists())
+
+    restored_checkpointables = self.load(
+        handler, partial_path, merged_checkpointables
+    )
+    test_utils.assert_tree_equal(
+        self, restored_checkpointables, merged_checkpointables
+    )
+
+    partial_saving.finalize(
+        partial_path if finalize_with_partial_path else final_path
+    )
+    self.assertTrue(final_path.exists())
+    self.assertTrue((final_path / 'orbax.checkpoint').exists())
+
+    restored_checkpointables = self.load(
+        handler, final_path, merged_checkpointables
+    )
+    test_utils.assert_tree_equal(
+        self, restored_checkpointables, merged_checkpointables
+    )
+
+  @parameterized.product(
+      second_save_checkpointables=({'foo': {'a': 2}}, {'bar': {'x': 6}})
+  )
+  def test_partial_save_replacement_raises_error(
+      self, second_save_checkpointables
+  ):
+    final_path = self.directory
+    partial_path = partial_path_lib.add_partial_save_suffix(final_path)
+
+    first_save_checkpointables = {'foo': {'a': 1}, 'bar': {'x': 5}}
+
+    registry = self.create_registry()
+    for k in first_save_checkpointables:
+      registry.add(PyTreeHandler, k)
+    handler = CompositeHandler(registry)
+
+    self.save(
+        handler, partial_path, first_save_checkpointables, partial_save=True
+    )
+    with self.assertRaisesRegex(
+        ValueError,
+        'Partial saving currently does not support REPLACEMENT.',
+    ):
+      self.save(
+          handler, partial_path, second_save_checkpointables, partial_save=True
+      )
+
+  @parameterized.product(
+      checkpointable_name=('foo', 'bar'),
+      first_save_leaf_is_subtree=(True, False),
+  )
+  def test_partial_save_subtree_replacement_raises_error(
+      self, checkpointable_name: str, first_save_leaf_is_subtree: bool
+  ):
+    final_path = self.directory
+    partial_path = partial_path_lib.add_partial_save_suffix(final_path)
+
+    if first_save_leaf_is_subtree:
+      tree1 = {'a': {'b': 1}}
+      tree2 = {'a': 2}
+    else:
+      tree1 = {'a': 2}
+      tree2 = {'a': {'b': 1}}
+
+    first_save_checkpointables = {checkpointable_name: tree1, 'other': {'c': 3}}
+    second_save_checkpointables = {checkpointable_name: tree2}
+
+    registry = self.create_registry()
+    for k in first_save_checkpointables:
+      registry.add(PyTreeHandler, k)
+    handler = CompositeHandler(registry)
+
+    self.save(
+        handler, partial_path, first_save_checkpointables, partial_save=True
+    )
+    with self.assertRaisesRegex(
+        ValueError, 'Partial saving currently does not support REPLACEMENT.'
+    ):
+      self.save(
+          handler, partial_path, second_save_checkpointables, partial_save=True
+      )
+
+  def test_partial_save_with_mixed_handlers(self):
+    final_path = self.directory
+    partial_path = partial_path_lib.add_partial_save_suffix(final_path)
+
+    # PyTreeHandler supports partial save, FooHandler does not.
+    registry = self.create_registry(include_global_registry=False)
+    registry.add(PyTreeHandler, 'pytree')
+    registry.add(FooHandler, 'foo')
+    handler = CompositeHandler(registry)
+
+    first_save = {'pytree': {'a': 1}, 'foo': Foo(x=1, y='foo1')}
+    self.save(handler, partial_path, first_save, partial_save=True)
+
+    second_save = {'pytree': {'b': 2}, 'foo': Foo(x=2, y='foo2')}
+    self.save(handler, partial_path, second_save, partial_save=True)
+
+    partial_saving.finalize(final_path)
+
+    # PyTreeHandler should have merged the results.
+    # FooHandler should have overwritten.
+    expected = {'pytree': {'a': 1, 'b': 2}, 'foo': Foo(x=2, y='foo2')}
+    restored = self.load(handler, final_path, None)
+    test_utils.assert_tree_equal(self, expected, restored)
 
 
 if __name__ == '__main__':

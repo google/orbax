@@ -57,9 +57,7 @@ async def _create_orbax_identifier_file(
   """Creates a file called `orbax.checkpoint` for easy identification."""
   directory = await directory.await_creation()
   if multihost.is_primary_host(primary_host):
-    await async_path.touch(
-        directory / 'orbax.checkpoint', exist_ok=False
-    )
+    await async_path.touch(directory / 'orbax.checkpoint', exist_ok=True)
 
 
 class CompositeHandler:
