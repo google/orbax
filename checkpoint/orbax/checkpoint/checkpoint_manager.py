@@ -1822,16 +1822,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     step_metadata.item_metadata = self._maybe_get_default_item(
         step_metadata.item_metadata
     )
-
-    metrics = self._get_metrics(step)
-    if metrics is not None:
-      validated_metrics = step_metadata_serialization.deserialize(
-          {}, metrics=dict(metrics)
-      ).metrics
-      step_metadata = dataclasses.replace(
-          step_metadata,
-          metrics=validated_metrics,
-      )
+    if METRIC_ITEM_NAME in step_metadata.item_handlers:
+      metrics = self._get_metrics(step)
+      if metrics is not None:
+        validated_metrics = step_metadata_serialization.deserialize(
+            {}, metrics=dict(metrics)
+        ).metrics
+        step_metadata = dataclasses.replace(
+            step_metadata,
+            metrics=validated_metrics,
+        )
 
     return step_metadata
 
