@@ -315,6 +315,17 @@ class _SignalingThread(threading.Thread):
 
   def join(self, timeout: Optional[float] = None):
     """Waits for the target function to complete."""
+    if threading.current_thread() is threading.main_thread():
+      logging.warning(
+          '[process=%d][thread=%s][operation_id=%s] _SignalingThread.join()'
+          ' waiting for signals (%r) blocking the main thread will slow down'
+          ' blocking save times. This is likely due to main thread calling'
+          ' result() on a CommitFuture.',
+          multihost.process_index(),
+          threading.current_thread().name,
+          self._operation_id,
+          self._receive_signals,
+      )
     super().join(timeout=timeout)
     if self.is_alive():
       raise TimeoutError(
