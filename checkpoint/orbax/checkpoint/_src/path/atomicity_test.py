@@ -22,6 +22,7 @@ from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path import step as step_lib
 
 
 AtomicRenameTemporaryPath = atomicity.AtomicRenameTemporaryPath
@@ -119,7 +120,7 @@ class CommitFileTemporaryPathTest(
     tmp_path = CommitFileTemporaryPath.from_final(path)
     await tmp_path.create()
     self.assertTrue(tmp_path.get().exists())
-    self.assertFalse((tmp_path.get() / atomicity.COMMIT_SUCCESS_FILE).exists())
+    self.assertFalse((tmp_path.get() / step_lib._COMMIT_SUCCESS_FILE).exists())
 
   async def test_finalize(self):
     path = self.directory / 'ckpt'
@@ -131,7 +132,7 @@ class CommitFileTemporaryPathTest(
     test_utils.sync_global_processes('test_finalize')
     self.assertTrue(tmp_path.get().exists())
     self.assertTrue(path.exists())
-    self.assertTrue((path / atomicity.COMMIT_SUCCESS_FILE).exists())
+    self.assertTrue((path / step_lib._COMMIT_SUCCESS_FILE).exists())
 
   async def test_create_all(self):
     paths = [

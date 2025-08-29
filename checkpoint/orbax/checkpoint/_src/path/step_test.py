@@ -23,7 +23,6 @@ from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.path import atomicity
-from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
 
 
@@ -210,7 +209,7 @@ class StandardNameFormatTest(parameterized.TestCase):
       )
       with self.subTest('uncommitted_gcs_step'):
         with mock.patch.object(
-            gcs_utils, 'is_gcs_path', autospec=True, return_value=True
+            step_lib, 'is_gcs_path', autospec=True, return_value=True
         ):
           with self.assertRaises(ValueError):
             _ = name_format.find_step(self.directory, step)
@@ -228,7 +227,7 @@ class StandardNameFormatTest(parameterized.TestCase):
           'find_uncommited_gcs_step_path_with_include_uncommitted=False'
       ):
         with mock.patch.object(
-            gcs_utils, 'is_gcs_path', autospec=True, return_value=True
+            step_lib, 'is_gcs_path', autospec=True, return_value=True
         ):
           with self.assertRaises(ValueError):
             _ = step_lib.find_step_path(
@@ -255,7 +254,7 @@ class StandardNameFormatTest(parameterized.TestCase):
         step_dir = self.directory / step_name
         step_dir.mkdir(parents=True, exist_ok=True)
         if step_name is not uncommitted_step_name:
-          commit_success_file = step_dir / atomicity.COMMIT_SUCCESS_FILE
+          commit_success_file = step_dir / step_lib._COMMIT_SUCCESS_FILE
           commit_success_file.write_text(
               f'Checkpoint commit was successful to {step_dir}'
           )
@@ -270,7 +269,7 @@ class StandardNameFormatTest(parameterized.TestCase):
 
     if gcs:
       with mock.patch.object(
-          gcs_utils, 'is_gcs_path', autospec=True, return_value=True
+          step_lib, 'is_gcs_path', autospec=True, return_value=True
       ):
         self.assertEqual(
             self.directory / uncommitted_step_name,
@@ -360,7 +359,7 @@ class StandardNameFormatTest(parameterized.TestCase):
     )
     with self.subTest('find_all_uncommitted_gcs_steps'):
       with mock.patch.object(
-          gcs_utils, 'is_gcs_path', autospec=True, return_value=True
+          step_lib, 'is_gcs_path', autospec=True, return_value=True
       ):
         self.assertEmpty([
             metadata.path.name
@@ -444,24 +443,24 @@ class UtilsTest(parameterized.TestCase):
     )
 
   @parameterized.parameters((None,), ('checkpoint_',), ('foobar_',))
-  def test_is_path_temporary(self, step_prefix):
+  def test_is_tmp_checkpoint(self, step_prefix):
     step_dir = step_lib.get_save_directory(
         5, self.directory, step_prefix=step_prefix
     )
     step_dir.mkdir(parents=True)
-    self.assertFalse(step_lib.is_path_temporary(step_dir))
+    self.assertFalse(step_lib.is_tmp_checkpoint(step_dir))
     tmp_step_dir = atomicity._get_tmp_directory(step_dir)
     test_utils.create_tmp_directory(tmp_step_dir, step_dir)
-    self.assertTrue(step_lib.is_path_temporary(tmp_step_dir))
+    self.assertTrue(step_lib.is_tmp_checkpoint(tmp_step_dir))
 
     item_dir = step_lib.get_save_directory(
         10, self.directory, name='params', step_prefix=step_prefix
     )
     item_dir.mkdir(parents=True)
-    self.assertFalse(step_lib.is_path_temporary(item_dir))
+    self.assertFalse(step_lib.is_tmp_checkpoint(item_dir))
     tmp_item_dir = atomicity._get_tmp_directory(item_dir)
     test_utils.create_tmp_directory(tmp_item_dir, item_dir)
-    self.assertTrue(step_lib.is_path_temporary(tmp_item_dir))
+    self.assertTrue(step_lib.is_tmp_checkpoint(tmp_item_dir))
 
   @parameterized.parameters(
       ('0', 0),
