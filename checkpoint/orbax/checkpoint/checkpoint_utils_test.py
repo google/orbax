@@ -232,7 +232,7 @@ class EvalUtilsTest(parameterized.TestCase):
         [2],
         [
             utils.step_from_checkpoint_name(x)
-            for x in step_lib.all_temporary_paths(self.directory)
+            for x in utils.tmp_checkpoints(self.directory)
         ],
     )
     # Only returns latest and does not return incomplete checkpoints.

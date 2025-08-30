@@ -17,6 +17,8 @@
 NOTE: Functions in this file are deprecated in favor of corresponding functions
 in sub-modules. Please use those functions instead, and do not add new
 functions here.
+
+TODO(b/266449081) Increase unit test coverage.
 """
 
 from typing import Any
@@ -26,7 +28,6 @@ import jax
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
-from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.tree import utils as tree_utils
 
@@ -48,12 +49,13 @@ broadcast_one_to_all = multihost.broadcast_one_to_all
 reached_preemption = multihost.reached_preemption
 is_primary_host = multihost.is_primary_host
 
-is_gcs_path = gcs_utils.is_gcs_path
+is_gcs_path = step_lib.is_gcs_path
 checkpoint_steps = step_lib.checkpoint_steps
 any_checkpoint_step = step_lib.any_checkpoint_step
-is_checkpoint_finalized = step_lib.is_path_finalized
-is_tmp_checkpoint = step_lib.is_path_temporary
-tmp_checkpoints = step_lib.all_temporary_paths
+is_checkpoint_finalized = step_lib.is_checkpoint_finalized
+is_tmp_checkpoint = step_lib.is_tmp_checkpoint
+tmp_checkpoints = step_lib.tmp_checkpoints
+cleanup_tmp_directories = step_lib.cleanup_tmp_directories
 get_save_directory = step_lib.get_save_directory
 record_saved_duration = atomicity.record_saved_duration
 step_from_checkpoint_name = step_lib.step_from_checkpoint_name
