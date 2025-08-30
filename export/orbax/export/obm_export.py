@@ -15,10 +15,9 @@
 """Export class that implements the save and load abstract class defined in Export Base for use with the Orbax Model export format."""
 
 from collections.abc import Callable, Mapping, Sequence
-import functools
 import itertools
 import os
-from typing import Any, Dict, Tuple, cast
+from typing import Any, Dict, cast
 
 from absl import logging
 import jax
@@ -31,6 +30,7 @@ from orbax.export import oex_orchestration
 from orbax.export import serving_config as osc
 from orbax.export import typing
 from orbax.export import utils
+from orbax.export.data_processors import tf_data_processor
 from orbax.export.modules import obm_module
 from orbax.export.protos import oex_orchestration_pb2
 import tensorflow as tf

@@ -20,8 +20,8 @@ from typing import Any, Optional, Text, Union
 from absl import logging
 import jax
 import jaxtyping
+from orbax.export.data_processors import data_processor_base
 import tensorflow as tf
-
 
 PyTree = jaxtyping.PyTree
 
@@ -47,6 +47,8 @@ class ServingConfig:
   tf_preprocessor: Optional[Callable[..., Any]] = None
   # Optional post-processing function written in TF.
   tf_postprocessor: Optional[Callable[..., Any]] = None
+  preprocessors: Optional[Sequence[data_processor_base.DataProcessor]] = None
+  postprocessors: Optional[Sequence[data_processor_base.DataProcessor]] = None
   # A nested structure of tf.saved_model.experimental.TrackableResource that are
   # used in `tf_preprocessor` and/or `tf_postprocessor`. If a TrackableResource
   # an attritute of the `tf_preprocessor` (or `tf_postprocessor`), and the
