@@ -2,8 +2,10 @@
 
 #include <pybind11/pybind11.h>
 
+#include <map>
 #include <memory>
 
+#include "third_party/absl/status/status.h"
 #include "third_party/absl/status/statusor.h"
 #include "orbax/export/bfloat16_tookit/function_tree.h"
 #include "third_party/pybind11/include/pybind11/cast.h"
@@ -11,6 +13,7 @@
 #include "third_party/pybind11_abseil/no_throw_status.h"
 #include "third_party/pybind11_abseil/status_casters.h"
 #include "third_party/pybind11_protobuf/native_proto_caster.h"
+#include "tensorflow/core/platform/types.h"
 
 namespace tensorflow::orbax {
 namespace {
@@ -39,11 +42,17 @@ PYBIND11_MODULE(bfloat16, m) {
         pybind11::arg("bfloat16_scope"), pybind11::arg("options"),
         pybind11::arg("bfloat16_func"));
 
-  m.def("apply_bfloat16_optimization_v2", &ApplyBfloat16OptimizationV2,
-        "Convert a Function or its ancester to bfloat16, depending on "
-        "bfloat16_scope",
-        pybind11::arg("bfloat16_options"), pybind11::arg("xla_function_info"),
-        pybind11::arg("signature_def"));
+  m.def("apply_bfloat16_optimization_v2",
+        [](::orbax::BFloat16OptimizationOptions bfloat16_options,
+           FunctionInfo* xla_function_info,
+           std::map<string, tensorflow::SignatureDef>* signature_def) {
+          absl::Status status = ApplyBfloat16OptimizationV2(
+              bfloat16_options, xla_function_info, signature_def);
+          if (!status.ok()) {
+            throw pybind11::google::StatusNotOk(status);
+          }
+          return xla_function_info;
+        });
   m.def("get_function_info_from_graph_def", &GetFunctionInfoFromGraphDefWrapper,
         "Given a GraphDef, create a FunctionInfo that can be used to interact "
         "with the V1 converter. Changes to the FunctionInfo will only be "

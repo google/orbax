@@ -79,6 +79,10 @@ ORBAX_CHECKPOINT_MIME_TYPE = 'orbax_checkpoint'
 # - The batching config for the model.
 BATCH_OPTIONS = 'batch_options'
 
+# obm_kwargs keys in `ServingConfig`:
+# - The converter options for the model.
+CONVERTER_OPTIONS = 'converter_options'
+
 
 # XLA compile options per platform for the model. This is a mapping from
 # platform name to xla_pb2.CompileOptionsProto. This is used to set the XLA
