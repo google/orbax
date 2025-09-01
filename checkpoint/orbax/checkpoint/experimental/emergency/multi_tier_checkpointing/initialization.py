@@ -32,7 +32,7 @@ def _wait_for_replicator_file_to_disappear(
     local_checkpoint_directory: epath.Path, *, timeout_seconds: int = 300
 ):
   """Waits for a file to disappear."""
-  replicator_file = epath.Path(local_checkpoint_directory / _REPLICATOR_FILE)
+  replicator_file = epath.Path(local_checkpoint_directory) / _REPLICATOR_FILE
   for _ in range(timeout_seconds):
     if not replicator_file.exists():
       logging.info('replicator.yaml no longer exists.')
@@ -55,8 +55,8 @@ def _create_replicator_file(
     backup_interval_minutes: int,
 ):
   """Creates a replicator file."""
-  temp_file = epath.Path(file_path / _TEMP_REPLICATOR_FILE_NAME)
-  replicator_file = epath.Path(file_path / _REPLICATOR_FILE)
+  temp_file = epath.Path(file_path) / _TEMP_REPLICATOR_FILE_NAME
+  replicator_file = epath.Path(file_path) / _REPLICATOR_FILE
   replicator_yaml = f"""job-name: {run_name}
   framework: orbax
   assume-data-parallelism: {num_slices}
@@ -88,6 +88,7 @@ def initialize_multi_tier_checkpointing(
     run_name: The name of the run.
     jax_initialization_timeout_seconds: The timeout for JAX initialization.
   """
+  local_checkpoint_directory = epath.Path(local_checkpoint_directory)
   process_id, coordinator_address = _retrieve_jax_init_info(
       local_checkpoint_directory
   )
