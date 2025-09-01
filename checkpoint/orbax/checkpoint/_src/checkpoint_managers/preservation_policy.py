@@ -88,6 +88,21 @@ class PreserveAll(PreservationPolicy):
 
 
 @dataclasses.dataclass
+class _ShouldKeepFnPolicy(PreservationPolicy):
+  """Return true based on a provided function of the step."""
+
+  should_keep_fn: Callable[[int], bool]
+
+  def should_preserve(
+      self,
+      checkpoints: Sequence[PolicyCheckpointInfo],
+      *,
+      context: PreservationContext,
+  ) -> Sequence[bool]:
+    return [self.should_keep_fn(ckpt.step) for ckpt in checkpoints]
+
+
+@dataclasses.dataclass
 class LatestN(PreservationPolicy):
   """Preserves the last n checkpoints. Preserves all checkpoint if n is None."""
 
