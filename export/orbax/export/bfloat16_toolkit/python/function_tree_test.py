@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from orbax.export.bfloat16_tookit.python import function_tree
+from orbax.export.bfloat16_toolkit.python import function_tree
 
 from absl.testing import absltest
 

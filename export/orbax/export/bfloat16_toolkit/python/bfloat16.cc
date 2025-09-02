@@ -1,4 +1,4 @@
-#include "orbax/export/bfloat16_tookit/bfloat16.h"
+#include "orbax/export/bfloat16_toolkit/bfloat16.h"
 
 #include <pybind11/pybind11.h>
 
@@ -7,7 +7,7 @@
 
 #include "third_party/absl/status/status.h"
 #include "third_party/absl/status/statusor.h"
-#include "orbax/export/bfloat16_tookit/function_tree.h"
+#include "orbax/export/bfloat16_toolkit/function_tree.h"
 #include "third_party/pybind11/include/pybind11/cast.h"
 #include "third_party/pybind11_abseil/absl_casters.h"
 #include "third_party/pybind11_abseil/no_throw_status.h"

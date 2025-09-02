@@ -13,10 +13,10 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from orbax.export.bfloat16_tookit import converter_options_pb2
-from orbax.export.bfloat16_tookit import converter_options_v2_pb2
-from orbax.export.bfloat16_tookit.python import bfloat16
-from orbax.export.bfloat16_tookit.python import function_tree
+from orbax.export.bfloat16_toolkit import converter_options_pb2
+from orbax.export.bfloat16_toolkit import converter_options_v2_pb2
+from orbax.export.bfloat16_toolkit.python import bfloat16
+from orbax.export.bfloat16_toolkit.python import function_tree
 from absl.testing import absltest
 from .third_party.pybind11_abseil import status
 

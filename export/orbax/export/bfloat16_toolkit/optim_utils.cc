@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "orbax/export/bfloat16_tookit/optim_utils.h"
+#include "orbax/export/bfloat16_toolkit/optim_utils.h"
 
 #include <map>
 #include <memory>
@@ -27,8 +27,8 @@ limitations under the License.
 #include "third_party/absl/strings/str_cat.h"
 #include "third_party/absl/strings/str_join.h"
 #include "third_party/absl/strings/string_view.h"
-#include "orbax/export/bfloat16_tookit/function_tree.h"
-#include "orbax/export/bfloat16_tookit/utils.h"
+#include "orbax/export/bfloat16_toolkit/function_tree.h"
+#include "orbax/export/bfloat16_toolkit/utils.h"
 #include "tensorflow/compiler/jit/shape_inference.h"
 #include "tensorflow/compiler/xla/tsl/platform/errors.h"
 #include "tensorflow/core/common_runtime/graph_runner.h"

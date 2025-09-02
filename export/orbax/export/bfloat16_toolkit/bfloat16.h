@@ -13,17 +13,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_BFLOAT16_H_
-#define THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_BFLOAT16_H_
+#ifndef THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_BFLOAT16_H_
+#define THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_BFLOAT16_H_
 
 #include <map>
 #include <memory>
 
 #include "third_party/absl/status/status.h"
 #include "third_party/absl/status/statusor.h"
-#include "orbax/export/bfloat16_tookit/converter_options.proto.h"
-#include "orbax/export/bfloat16_tookit/converter_options_v2.proto.h"
-#include "orbax/export/bfloat16_tookit/function_tree.h"
+#include "orbax/export/bfloat16_toolkit/converter_options.proto.h"
+#include "orbax/export/bfloat16_toolkit/converter_options_v2.proto.h"
+#include "orbax/export/bfloat16_toolkit/function_tree.h"
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/protobuf/meta_graph.proto.h"
 
@@ -64,4 +64,4 @@ absl::StatusOr<std::unique_ptr<FunctionInfo>> GetFunctionInfoFromGraphDef(
 }  // namespace orbax
 }  // namespace tensorflow
 
-#endif  // THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_BFLOAT16_H_
+#endif  // THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_BFLOAT16_H_

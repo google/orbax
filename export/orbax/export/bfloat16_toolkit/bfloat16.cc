@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "orbax/export/bfloat16_tookit/bfloat16.h"
+#include "orbax/export/bfloat16_toolkit/bfloat16.h"
 
 #include <algorithm>
 #include <functional>
@@ -34,11 +34,11 @@ limitations under the License.
 #include "third_party/absl/strings/match.h"
 #include "third_party/absl/strings/str_cat.h"
 #include "third_party/absl/strings/string_view.h"
-#include "orbax/export/bfloat16_tookit/converter_options.proto.h"
-#include "orbax/export/bfloat16_tookit/function_tree.h"
-#include "orbax/export/bfloat16_tookit/graph_analysis.h"
-#include "orbax/export/bfloat16_tookit/optim_utils.h"
-#include "orbax/export/bfloat16_tookit/utils.h"
+#include "orbax/export/bfloat16_toolkit/converter_options.proto.h"
+#include "orbax/export/bfloat16_toolkit/function_tree.h"
+#include "orbax/export/bfloat16_toolkit/graph_analysis.h"
+#include "orbax/export/bfloat16_toolkit/optim_utils.h"
+#include "orbax/export/bfloat16_toolkit/utils.h"
 #include "tensorflow/compiler/mlir/quantization/stablehlo/passes/passes.h"
 #include "tensorflow/compiler/tf2xla/xla_op_registry.h"
 #include "tensorflow/compiler/xla/status_macros.h"

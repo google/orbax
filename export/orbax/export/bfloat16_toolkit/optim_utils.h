@@ -13,13 +13,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_OPTIM_UTILS_H_
-#define THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_OPTIM_UTILS_H_
+#ifndef THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_OPTIM_UTILS_H_
+#define THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_OPTIM_UTILS_H_
 
 #include "third_party/absl/status/status.h"
 #include "third_party/absl/strings/string_view.h"
-#include "orbax/export/bfloat16_tookit/converter_options.proto.h"
-#include "orbax/export/bfloat16_tookit/function_tree.h"
+#include "orbax/export/bfloat16_toolkit/converter_options.proto.h"
+#include "orbax/export/bfloat16_toolkit/function_tree.h"
 #include "tensorflow/compiler/jit/shape_inference.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/graph/graph.h"
@@ -58,4 +58,4 @@ absl::Status ValidateGraphHasNoBFloat16Ops(Graph* graph);
 }  // namespace orbax
 }  // namespace tensorflow
 
-#endif  // THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_OPTIM_UTILS_H_
+#endif  // THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_OPTIM_UTILS_H_

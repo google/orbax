@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "orbax/export/bfloat16_tookit/utils.h"
+#include "orbax/export/bfloat16_toolkit/utils.h"
 
 #include <memory>
 #include <string>

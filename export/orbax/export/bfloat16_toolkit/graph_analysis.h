@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_GRAPH_ANALYSIS_H_
-#define THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_GRAPH_ANALYSIS_H_
+#ifndef THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_GRAPH_ANALYSIS_H_
+#define THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_GRAPH_ANALYSIS_H_
 
 #include <functional>
 #include <memory>
@@ -24,7 +24,7 @@ limitations under the License.
 #include "third_party/absl/status/status.h"
 #include "third_party/absl/status/statusor.h"
 #include "third_party/absl/strings/string_view.h"
-#include "orbax/export/bfloat16_tookit/function_tree.h"
+#include "orbax/export/bfloat16_toolkit/function_tree.h"
 #include "tensorflow/core/framework/function.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -355,4 +355,4 @@ absl::Status GetGraphForPartition(
 }  // namespace orbax
 }  // namespace tensorflow
 
-#endif  // THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_GRAPH_ANALYSIS_H_
+#endif  // THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_GRAPH_ANALYSIS_H_

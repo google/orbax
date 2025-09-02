@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "orbax/export/bfloat16_tookit/function_tree.h"
+#include "orbax/export/bfloat16_toolkit/function_tree.h"
 
 #include <deque>
 #include <functional>
@@ -31,7 +31,7 @@ limitations under the License.
 #include "third_party/absl/strings/str_cat.h"
 #include "third_party/absl/strings/str_join.h"
 #include "third_party/absl/types/optional.h"
-#include "orbax/export/bfloat16_tookit/utils.h"
+#include "orbax/export/bfloat16_toolkit/utils.h"
 #include "tensorflow/compiler/xla/tsl/platform/errors.h"
 #include "tensorflow/compiler/xla/tsl/platform/statusor.h"
 #include "tensorflow/core/framework/attr_value.proto.h"

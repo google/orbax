@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_FUNCTION_TREE_H_
-#define THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_FUNCTION_TREE_H_
+#ifndef THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_FUNCTION_TREE_H_
+#define THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_FUNCTION_TREE_H_
 
 #include <functional>
 #include <memory>
@@ -233,4 +233,4 @@ Graph* FunctionInfo::UpdateFuncGraphImpl(T graph) {
 }  // namespace orbax
 }  // namespace tensorflow
 
-#endif  // THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOKIT_FUNCTION_TREE_H_
+#endif  // THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_FUNCTION_TREE_H_

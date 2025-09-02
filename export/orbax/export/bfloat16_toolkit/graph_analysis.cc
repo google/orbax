@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "orbax/export/bfloat16_tookit/graph_analysis.h"
+#include "orbax/export/bfloat16_toolkit/graph_analysis.h"
 
 #include <algorithm>
 #include <functional>
@@ -41,8 +41,8 @@ limitations under the License.
 #include "third_party/absl/strings/str_join.h"
 #include "third_party/absl/strings/str_split.h"
 #include "third_party/absl/strings/string_view.h"
-#include "orbax/export/bfloat16_tookit/function_tree.h"
-#include "orbax/export/bfloat16_tookit/utils.h"
+#include "orbax/export/bfloat16_toolkit/function_tree.h"
+#include "orbax/export/bfloat16_toolkit/utils.h"
 #include "tensorflow/compiler/jit/shape_inference.h"
 #include "tensorflow/compiler/tf2xla/xla_op_registry.h"
 #include "tensorflow/compiler/xla/tsl/platform/errors.h"
