@@ -1695,6 +1695,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       Either metadata for the item itself, if in default-item mode, or a
       Composite of metadata for each item.
     """
+    if step is None:
+      raise ValueError(
+          '`step` must be provided. `item_metadata` only exists at the'
+          ' checkpoint step level, not the root level.'
+      )
     return self.metadata(step).item_metadata
 
   # TODO(b/370812224): Deprecate in favor of StepMetadata.metrics
