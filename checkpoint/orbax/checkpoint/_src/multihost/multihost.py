@@ -42,6 +42,13 @@ EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID = flags.DEFINE_bool(
     ' jax.process_index().',
 )
 
+EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_BARRIER = flags.DEFINE_bool(
+    'experimental_orbax_use_distributed_barrier',
+    False,
+    'If True, uses the JAX distributed client for barriers, which supports'
+    ' timeouts. Otherwise, uses collectives-based barriers.',
+)
+
 
 def coordination_timeout() -> int:
   """Returns the timeout for coordination operations."""
@@ -315,8 +322,20 @@ def sync_global_processes(
     return
   timeout = timeout or _DEFAULT_BARRIER_TIMEOUT
   sync_start_time = time.time()
+  try:
+    use_distributed_barrier = EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_BARRIER.value
+  except Exception:  # pylint: disable=broad-exception-caught
+    logging.log_first_n(
+        logging.INFO,
+        '[thread=%s] Failed to get flag value for'
+        ' EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_BARRIER.',
+        1,
+        threading.current_thread().name,
+    )
+    use_distributed_barrier = False
+
   # Temporarily default to existing behavior to minimize risk of breakage.
-  if processes is None:
+  if processes is None and not use_distributed_barrier:
     key = _unique_barrier_key(name)
     logging.vlog(
         1,
