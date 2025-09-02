@@ -1,0 +1,34 @@
+# The name for the entire test suite run.
+suite_name: "SingleReplicaArrayHandler Benchmark"
+
+mesh_config:
+  mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+  # ICI: Within a slice. Assuming 8 devices per slice.
+  # DCN: Across slices.
+  ici_parallelism: {"fsdp": 2, "tensor": 2, "data": 2}
+  dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
+
+checkpoint_config:
+  spec:
+    a_1d: {dtype: "float32", shape: [32], sharding: [null]}
+    b_1d: {dtype: "float32", shape: [32], sharding: ["tensor"]}
+    c_2d: {dtype: "float32", shape: [32, 32], sharding: [null, "tensor"]}
+    d_2d: {dtype: "float32", shape: [32, 32], sharding: ["tensor", null]}
+    e_2d: {dtype: "float32", shape: [32, 32], sharding: ["tensor", "fsdp"]}
+    f_2d: {dtype: "float32", shape: [32, 32], sharding: ["fsdp", "tensor"]}
+    g_2d: {dtype: "float32", shape: [32, 32], sharding: [null, null]}
+    h_3d: {dtype: "float32", shape: [32, 32, 32], sharding: ["tensor", null, "fsdp"]}
+    i_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, "tensor"]}
+    j_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, "fsdp"]}
+    k_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, null]}
+    custom_array: {dtype: "float32", shape: [8192, 64], sharding: ["tensor", null]}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.single_replica_benchmark.SingleReplicaBenchmark"
+    options:
+      replica_axis_index: [0]  # Index of "data" in mesh_axes, which has DCN parallelism
+      primary_replica_id: [0]
+      use_replica_parallel: [True]
+      broadcast_memory_limit_bytes: null
+      broadcast_memory_scaling_factor: [0.75]
+      use_shard_map: [True]

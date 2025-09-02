@@ -1,0 +1,40 @@
+# The name for the entire test suite run.
+suite_name: "EmergencyCheckpointManager Benchmark"
+
+mesh_config:
+  mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+  # ICI: Within a slice. Assuming 8 devices per slice.
+  # DCN: Across slices.
+  ici_parallelism: {"fsdp": 32, "tensor": 1, "data": 2}
+  dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
+  allow_split_physical_axes: true
+
+checkpoint_config:
+  spec:
+    a_1d: {dtype: "float32", shape: [32], sharding: [null]}
+    b_1d: {dtype: "float32", shape: [32], sharding: ["tensor"]}
+    c_2d: {dtype: "float32", shape: [32, 32], sharding: [null, "tensor"]}
+    d_2d: {dtype: "float32", shape: [32, 32], sharding: ["tensor", null]}
+    e_2d: {dtype: "float32", shape: [32, 32], sharding: ["tensor", "fsdp"]}
+    f_2d: {dtype: "float32", shape: [32, 32], sharding: ["fsdp", "tensor"]}
+    g_2d: {dtype: "float32", shape: [32, 32], sharding: [null, null]}
+    h_3d: {dtype: "float32", shape: [32, 32, 32], sharding: ["tensor", null, "fsdp"]}
+    i_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, "tensor"]}
+    j_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, "fsdp"]}
+    k_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, null]}
+    custom_array: {dtype: "float32", shape: [8192, 64], sharding: ["tensor", null]}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.emergency_checkpoint_manager_benchmark.EmergencyCheckpointManagerBenchmark"
+    options:
+      persistent_save_interval_steps: [2]
+      persistent_max_to_keep: [5]
+      local_save_interval_steps: [2]
+      local_max_to_keep: 2
+      replica_axis_index: 0
+      train_steps: 4
+      use_shard_map_broadcast: true
+      single_host_load_and_broadcast: true
+      experimental_orbax_use_distributed_process_id: true
+      experimental_use_distributed_id_for_mesh_consistency: true
+
