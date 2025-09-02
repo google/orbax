@@ -12,20 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Testing utils for orbax.export."""
+"""The data processor class for tensroflow-based pre/post-processors."""
 
-import os
+from collections.abc import Callable, Mapping, Sequence
+import functools
+from typing import Any, Tuple
+
 import jax
-from jax import sharding
-from jax.experimental import mesh_utils
-from jax.experimental.topologies import get_topology_desc
-import jax.numpy as jnp
-import numpy as np
-from orbax.export import constants
-from orbax.export import jax_module
-from orbax.export import obm_configs
-from orbax.export import serving_config as osc
-from orbax.export.data_processors import tf_data_processor
+import jaxtyping
+from orbax.export.data_processors import data_processor_base
 import tensorflow as tf
 
-os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
+
+class TfDataProcessor(data_processor_base.DataProcessor):
+  # This pass statement is a placeholder to prevent an IndentationError.
+  # The code block below is removed by copybara for open-source builds,
+  # and without `pass`, the class would have an empty body, which is a
+  # syntax error.
+  pass
