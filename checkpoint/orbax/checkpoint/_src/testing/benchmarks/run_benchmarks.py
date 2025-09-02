@@ -66,6 +66,7 @@ def main(argv: List[str]) -> None:
     raise app.UsageError('Too many command-line arguments.')
 
   jax.config.update('jax_enable_x64', True)
+  jax.distributed.initialize()
   run_benchmarks(_CONFIG_FILE.value, _OUTPUT_DIRECTORY.value)
 
 
