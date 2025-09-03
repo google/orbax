@@ -84,7 +84,9 @@ class MultiTierCheckpointingInitializationTest(
       restore_dir = epath.Path(tmp_dir) / "test-run-s1-n0-w0.restore"
       restore_dir.write_text("restore_dir")
       self.assertTrue(restore_dir.exists())
-      initialization._block_and_process_restore_dir(epath.Path(tmp_dir))
+      initialization._block_and_process_restore_dir(
+          epath.Path(tmp_dir), timeout_seconds=10
+      )
       self.assertFalse(restore_dir.exists())
       step_dir = epath.Path(tmp_dir) / "1"
       self.assertTrue(step_dir.exists())

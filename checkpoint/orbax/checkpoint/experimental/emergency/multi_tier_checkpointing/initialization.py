@@ -219,8 +219,8 @@ def _block_and_process_restore_dir(
     TimeoutError: if no .restore file is found within the timeout.
   """
   for _ in range(timeout_seconds):
-    files = local_checkpoint_directory.glob('*.restore')
-    logging.info('Files: %s', files)
+    files = [f.name for f in local_checkpoint_directory.glob('*.restore')]
+    logging.info('block_and_process_restore_dir: restore files: %s', files)
     for f in files:
       step = _extract_step(f)
       if step != '0':
@@ -247,4 +247,4 @@ def _block_and_process_restore_dir(
 def _extract_step(f):
   # The base file name is formatted as:
   # {job_name}-s{step}-n{node_rank}-w{worker_rank}
-  return f.name.rsplit('-', 3)[1][1:]
+  return f.rsplit('-', 3)[1][1:]
