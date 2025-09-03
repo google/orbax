@@ -14,12 +14,15 @@
 
 """Internal utilities for saving whole and partial checkpoints."""
 
+import asyncio
 import time
 from typing import Any, Awaitable
 import uuid
 
 from absl import logging
+from etils import epath
 import jax
+import nest_asyncio
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import step_metadata_serialization
@@ -335,5 +338,49 @@ def create_save_response(
       start_time=start_time,
       custom_metadata=custom_metadata,
       context=context,
+      async_origin=async_origin,
+  )
+
+
+def save_checkpointables_impl(
+    path: path_types.PathLike,
+    checkpointables: dict[str, Any],
+    *,
+    async_origin: bool,
+    overwrite: bool,
+    custom_metadata: tree_types.JsonType | None,
+) -> async_types.AsyncResponse[None]:
+  """See caller docstrings."""
+  nest_asyncio.apply()
+  context = context_lib.get_context()
+  path = epath.Path(path)
+  # Prevent internal mutation from affecting the caller.
+  checkpointables = dict(checkpointables)
+
+  start_time = time.time()
+  record_save_start(path, async_origin=async_origin)
+
+  tmp_path = get_temporary_path(path, context=context)
+
+  checkpointables = add_internal_checkpointables(
+      checkpointables, context=context
+  )
+
+  background_awaitable = asyncio.run(
+      run_blocking_save(
+          tmp_path,
+          checkpointables,
+          overwrite=overwrite,
+          context=context,
+      )
+  )
+
+  return create_save_response(
+      background_awaitable,
+      checkpointables,
+      tmp_path,
+      start_time,
+      context=context,
+      custom_metadata=custom_metadata,
       async_origin=async_origin,
   )
