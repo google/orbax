@@ -7,12 +7,12 @@ import "orbax/experimental/model/core/protos/type.proto";
 message Manifest {
   map<string, TopLevelObject> objects = 1;
   map<string, UnstructuredData> supplemental_info = 2;
-  optional DeviceAssignmentByCoords device_assignment_by_coords = 4;
+  optional DeviceAssignmentByCoords device_assignment_by_coords = 3;
 
   // A list of paths frequently used in this manifest. Once a path is added to
   // this list, use sites can refer to it by its index here instead of spelling
   // out the full string.
-  repeated string frequent_paths = 5;
+  repeated string frequent_paths = 4;
 }
 
 // Copied from /third_party/australis/google/ifrt/ifrt_australis.proto.
@@ -32,7 +32,7 @@ message TopLevelObject {
   oneof case {
     Function function = 1;
     Value value = 2;
-    PolymorphicFunction poly_fn = 30;
+    PolymorphicFunction poly_fn = 3;
   }
 }
 
@@ -41,10 +41,10 @@ message Function {
   FunctionBody body = 2;
   // The names of the dependent data. Each of this corresponds to a key in the
   // checkpoint metadata.
-  repeated string data_names = 5;
+  repeated string data_names = 3;
 
-  Visibility visibility = 3;
-  optional string gradient_function_name = 4;
+  Visibility visibility = 4;
+  optional string gradient_function_name = 5;
 }
 
 message Value {

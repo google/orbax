@@ -18,6 +18,7 @@
 from collections.abc import Mapping, Sequence
 from absl import logging
 from orbax.experimental.model.core.protos import manifest_pb2
+from orbax.experimental.model.core.python import manifest_constants
 from orbax.experimental.model.core.python import unstructured_data
 from orbax.experimental.model.core.python.device_assignment import DeviceAssignment
 from orbax.experimental.model.core.python.function import Function
@@ -27,7 +28,6 @@ from orbax.experimental.model.core.python.shlo_function import ShloFunction
 from orbax.experimental.model.core.python.type_proto_util import to_function_signature_proto
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredData
 from orbax.experimental.model.core.python.value import ExternalValue
-
 
 def _build_function(
     fn: Function,
@@ -112,6 +112,28 @@ def _is_seq_of_functions(obj: Saveable) -> bool:
   """Checks if the object is a sequence of `Function`s."""
   return isinstance(obj, Sequence) and all(
       isinstance(elem, Function) for elem in obj
+  )
+
+
+def build_manifest_version_file() -> str:
+  """Builds a manifest version file content."""
+
+  # TODO(b/365967674): Remove this check once the manifest filename is
+  # configurable by the manifest version file. Currently, the manifest filename
+  # is hardcoded to "manifest.pb" in OBM & JSV codebase and that needs to be
+  # updated first.
+  if manifest_constants.MANIFEST_FILENAME != "manifest.pb":
+    raise ValueError(
+        "Currently, only manifest.pb is supported as the manifest filename."
+    )
+
+  return (
+      f"{manifest_constants.MANIFEST_FILE_PATH_KEY}:"
+      f' "{manifest_constants.MANIFEST_FILENAME}"\n'
+      f"{manifest_constants.VERSION_KEY}:"
+      f' "{manifest_constants.MANIFEST_VERSION}"\n'
+      f"{manifest_constants.MIME_TYPE_KEY}:"
+      f' "{manifest_constants.MANIFEST_MIME_TYPE}"\n'
   )
 
 

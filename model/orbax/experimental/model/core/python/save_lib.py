@@ -29,6 +29,7 @@ from orbax.experimental.model.core.python import manifest_constants
 from orbax.experimental.model.core.python import unstructured_data
 from orbax.experimental.model.core.python.device_assignment import DeviceAssignment
 from orbax.experimental.model.core.python.manifest_util import build_manifest_proto
+from orbax.experimental.model.core.python.manifest_util import build_manifest_version_file
 from orbax.experimental.model.core.python.saveable import Saveable
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredData
 
@@ -137,8 +138,11 @@ def save(
       os.path.join(path, manifest_constants.MANIFEST_FILENAME), 'wb'
   ) as f:
     f.write(manifest_proto.SerializeToString())
-  # Write the manifest version.
+
+  # Write the main metadata to detect and parse an Orbax Model. The version file
+  # should be THE LAST file to be written. It is used to validate the export and
+  # identify an Orbax Model.
   with file_utils.open_file(
       os.path.join(path, manifest_constants.MANIFEST_VERSION_FILENAME), 'w'
   ) as f:
-    f.write(manifest_constants.MANIFEST_VERSION)
+    f.write(build_manifest_version_file())
