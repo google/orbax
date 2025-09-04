@@ -173,6 +173,21 @@ class NameFormat(Protocol, Generic[MetadataT]):
     """
     ...
 
+  def get_checkpoint_path(
+      self, base_path: str, history_index: int | None, step: str | None = None
+  ) -> str:
+    """Returns a checkpoint path based on the provided information.
+
+    Args:
+      base_path: The base directory for checkpoints.
+      history_index: An optional index in the history of checkpoints.
+      step: An optional specific step number.
+
+    Returns:
+      A string representing the path to the checkpoint.
+    """
+    ...
+
 
 def build_step_path(
     base_path: epath.PathLike, name_format: NameFormat[Metadata], step: int
