@@ -26,7 +26,6 @@ import nest_asyncio
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import step_metadata_serialization
-from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -156,20 +155,6 @@ class SaveResponse(async_types.AsyncResponse[None]):
     return self._thread_runner.result(timeout=timeout)
 
 
-async def maybe_overwrite_existing(
-    path: path_types.Path,
-    *,
-    overwrite: bool,
-    context: context_lib.Context,
-) -> None:
-  """Checks if the path exists and overwrites it if necessary."""
-  if await async_path.exists(path):
-    if overwrite:
-      await saving_path_utils.remove_existing_path(path, context=context)
-    else:
-      raise ValueError(f'Destination {path} already exists.')
-
-
 async def run_blocking_save(
     tmp_path: atomicity_types.TemporaryPath,
     checkpointables: dict[str, Any],
@@ -193,7 +178,7 @@ async def run_blocking_save(
   """
   await context_lib.synchronize_next_operation_id()
 
-  await maybe_overwrite_existing(
+  await saving_path_utils.maybe_overwrite_existing(
       tmp_path.get_final(), overwrite=overwrite, context=context
   )
 

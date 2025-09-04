@@ -60,3 +60,17 @@ async def remove_existing_path(
       ),
       processes=context.multiprocessing_options.active_processes,
   )
+
+
+async def maybe_overwrite_existing(
+    path: path_types.Path,
+    *,
+    overwrite: bool,
+    context: context_lib.Context,
+) -> None:
+  """Checks if the path exists and overwrites it if necessary."""
+  if await async_path.exists(path):
+    if overwrite:
+      await remove_existing_path(path, context=context)
+    else:
+      raise ValueError(f'Destination {path} already exists.')
