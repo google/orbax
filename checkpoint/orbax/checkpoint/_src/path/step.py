@@ -415,7 +415,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
       is_primary_host: bool,
   ) -> np.ndarray:
     """Builds the step list on the primary host and broadcasts it."""
-    step_list = np.array([-1] * total_steps)
+    padded_step_list = np.array([-1] * total_steps)
     if is_primary_host:
       steps = []
       with futures.ThreadPoolExecutor() as executor:
@@ -428,12 +428,15 @@ class _StandardNameFormat(NameFormat[Metadata]):
           if metadata is not None:
             steps.append(metadata.step)
       steps.sort()
+      steps = np.array(steps)
       assert (
-          len(steps) == total_steps
-      ), f'len(steps)={len(steps)} != total_steps={total_steps}'
-      step_list = np.array(steps)
+          len(steps) <= total_steps
+      ), f'len(steps)={len(steps)} > total_steps={total_steps}'
+      padded_step_list[0 : len(steps)] = steps
 
-    return multihost.broadcast_one_to_all(step_list, is_source=is_primary_host)
+    return multihost.broadcast_one_to_all(
+        padded_step_list, is_source=is_primary_host
+    )
 
   def _find_all_with_single_host_load_and_broadcast(
       self, base_path: epath.PathLike
@@ -475,13 +478,13 @@ class _StandardNameFormat(NameFormat[Metadata]):
       return iter([])
     time_glob_list = time.time()
 
-    step_list = self._get_broadcasted_step_list(
+    padded_step_list = self._get_broadcasted_step_list(
         step_paths, total_steps, is_primary_host
     )
     base_path = epath.Path(base_path)
     paths_to_step_dict: dict[epath.Path, int] = {
         base_path / self.build_name(step): step
-        for step in step_list
+        for step in padded_step_list
         if step >= 0
     }
     metadatas = build_step_metadatas(
