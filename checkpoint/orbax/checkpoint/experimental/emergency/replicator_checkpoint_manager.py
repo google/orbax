@@ -227,7 +227,7 @@ class ReplicatorCheckpointManager(
     """Remove steps that might be left over from previous runs."""
     logging.info('Running initial garbage collection at %s.', self.directory)
     logging.info('Cleaning up existing temporary directories.')
-    tmp_files = step_lib.tmp_checkpoints(self.directory)
+    tmp_files = step_lib.all_temporary_paths(self.directory)
     logging.info('Found tmp files: %s', tmp_files)
     for tmp_file in tmp_files:
       if (

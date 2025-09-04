@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Move temporary path detection into `TemporaryPath` class. This class serves
+as a natural place for encapsulating core temporary path detection logic.
+
 ## [0.11.24] - 2025-08-28
 
 ### Added
