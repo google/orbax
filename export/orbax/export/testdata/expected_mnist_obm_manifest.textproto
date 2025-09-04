@@ -371,7 +371,7 @@ objects {
         stable_hlo_body {
           stable_hlo {
             inlined_bytes: "ML\357R\rStableHLO_v...."
-            mime_type: "mlir_stablehlo"
+            mime_type: "application/x.mlir-stablehlo"
             version: "1.0"
           }
           calling_convention_version: 10
@@ -410,7 +410,7 @@ objects {
           file_system_location {
             string_path: "__CHECKPOINT_PATH__"
           }
-          mime_type: "orbax_checkpoint"
+          mime_type: "application/x.orbax-checkpoint"
         }
       }
     }

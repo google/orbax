@@ -147,7 +147,9 @@ def _to_shape_dtype_refinements_proto(
         )
     )
 
-CURRENT_JAX_SUPPLEMENTAL_MIME_TYPE: str = "orbax_model_jax_supplemental"
+CURRENT_JAX_SUPPLEMENTAL_MIME_TYPE: str = (
+    "application/protobuf; type=orbax_model_jax_supplemental.Function"
+)
 CURRENT_JAX_SUPPLEMENTAL_VERSION: str = "0.0.1"
 
 
