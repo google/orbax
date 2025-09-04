@@ -29,7 +29,6 @@ from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
-from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
@@ -60,47 +59,6 @@ def add_internal_checkpointables(
   if metrics:
     checkpointables[format_utils.METRICS_CHECKPOINTABLE_KEY] = metrics
   return checkpointables
-
-
-def record_save_start(path: path_types.Path, *, async_origin: bool):
-  """Records the start of a save operation."""
-  logging.info(
-      '[process=%s] Started %s checkpoint to %s.',
-      multihost.process_index(),
-      'async saving' if async_origin else 'saving',
-      path,
-  )
-  if async_origin:
-    event_name = '/jax/orbax/write/async/start'
-  else:
-    event_name = '/jax/orbax/write/start'
-  jax.monitoring.record_event(event_name)
-  jax.monitoring.record_event(
-      '/jax/orbax/write/storage_type',
-      storage_type=path_utils.get_storage_type(path),
-  )
-
-
-def record_save_completion(
-    path: path_types.Path,
-    *,
-    total_duration_secs: float,
-    async_origin: bool,
-):
-  """Records the completion of a save operation."""
-  logging.info(
-      'Finished asynchronous save (blocking + background) in %.2f seconds'
-      ' to %s',
-      total_duration_secs,
-      path,
-  )
-  # TODO(cpgaffney): No event is currently being recorded for synchronous saves.
-  # Consider collecting this information
-  if async_origin:
-    jax.monitoring.record_event_duration_secs(
-        '/jax/checkpoint/write/async/total_duration_secs',
-        total_duration_secs,
-    )
 
 
 class SaveResponse(async_types.AsyncResponse[None]):
@@ -188,7 +146,7 @@ class SaveResponse(async_types.AsyncResponse[None]):
         processes=self._context.multiprocessing_options.active_processes,
     )
     total_duration_secs = time.time() - self._start_time
-    record_save_completion(
+    event_tracking.record_save_completion(
         self._tmp_path.get_final(),
         total_duration_secs=total_duration_secs,
         async_origin=self._async_origin,
@@ -320,7 +278,7 @@ def save_checkpointables_impl(
   checkpointables = dict(checkpointables)
 
   start_time = time.time()
-  record_save_start(path, async_origin=async_origin)
+  event_tracking.record_save_start(path, async_origin=async_origin)
 
   tmp_path = saving_path_utils.get_temporary_path(path, context=context)
 

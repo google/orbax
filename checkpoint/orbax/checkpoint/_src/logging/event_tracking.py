@@ -14,7 +14,11 @@
 
 """Logging utilities for tracking checkpoint events."""
 
+from absl import logging
 from etils import epath
+import jax
+from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import utils as path_utils
 
 
 
@@ -36,3 +40,44 @@ def record_write_event(directory: epath.Path):
 def record_delete_event(directory: epath.Path):
   """Records a deletion event for the checkpoint."""
   return None
+
+
+def record_save_start(path: epath.Path, *, async_origin: bool):
+  """Records the start of a save operation."""
+  logging.info(
+      '[process=%s] Started %s checkpoint to %s.',
+      multihost.process_index(),
+      'async saving' if async_origin else 'saving',
+      path,
+  )
+  if async_origin:
+    event_name = '/jax/orbax/write/async/start'
+  else:
+    event_name = '/jax/orbax/write/start'
+  jax.monitoring.record_event(event_name)
+  jax.monitoring.record_event(
+      '/jax/orbax/write/storage_type',
+      storage_type=path_utils.get_storage_type(path),
+  )
+
+
+def record_save_completion(
+    path: epath.Path,
+    *,
+    total_duration_secs: float,
+    async_origin: bool,
+):
+  """Records the completion of a save operation."""
+  logging.info(
+      'Finished asynchronous save (blocking + background) in %.2f seconds'
+      ' to %s',
+      total_duration_secs,
+      path,
+  )
+  # TODO(cpgaffney): No event is currently being recorded for synchronous saves.
+  # Consider collecting this information
+  if async_origin:
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/async/total_duration_secs',
+        total_duration_secs,
+    )
