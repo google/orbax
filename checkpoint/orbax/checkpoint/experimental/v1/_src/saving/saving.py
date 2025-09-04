@@ -25,7 +25,7 @@ from orbax.checkpoint.experimental.v1._src.handlers import registration as handl
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.saving import saving_utils
+from orbax.checkpoint.experimental.v1._src.saving import execution
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -116,7 +116,7 @@ def save_checkpointables(
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
   """
-  saving_utils.save_checkpointables_impl(
+  execution.save_checkpointables_impl(
       path,
       checkpointables,
       overwrite=overwrite,
@@ -205,7 +205,7 @@ def save_checkpointables_async(
     An `AsyncResponse` that can be used to block until the save is complete.
     Blocking can be done using `response.result()`, which returns `None`.
   """
-  return saving_utils.save_checkpointables_impl(
+  return execution.save_checkpointables_impl(
       path,
       checkpointables,
       overwrite=overwrite,
@@ -231,7 +231,7 @@ def get_v0_checkpointer_and_args(
     raise ValueError(
         f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
     )
-  checkpointables = saving_utils.add_internal_checkpointables(
+  checkpointables = execution.add_internal_checkpointables(
       checkpointables, context=context, metrics=metrics
   )
 
