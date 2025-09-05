@@ -5,14 +5,14 @@ package orbax_model_simple_orchestration;
 // An orchestration pipeline.
 message Pipeline {
   // The name (in manifest) of the pre-processor function.
-  optional string pre_processor_name = 20;
+  optional string pre_processor_name = 1;
 
   // The name (in manifest) of the model function.
-  optional string model_function_name = 30;
+  optional string model_function_name = 2;
 
   // The name (in manifest) of the value representing the weights.
-  optional string weights_name = 40;
+  optional string weights_name = 3;
 
   // The name (in manifest) of the post-processor function.
-  optional string post_processor_name = 50;
+  optional string post_processor_name = 4;
 }

@@ -14,8 +14,8 @@ message TfConcreteFunctionHandle {
   // SavedModel) but we want to allow calling the function with positional
   // arguments.
   //
-  repeated string input_names = 20;
+  repeated string input_names = 2;
 
   // Similar to `input_names`, but for outputs.
-  repeated string output_names = 30;
+  repeated string output_names = 3;
 }
