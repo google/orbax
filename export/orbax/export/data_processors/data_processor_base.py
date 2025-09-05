@@ -12,20 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Testing utils for orbax.export."""
+"""Base class for data processors."""
 
-import os
-import jax
-from jax import sharding
-from jax.experimental import mesh_utils
-from jax.experimental.topologies import get_topology_desc
-import jax.numpy as jnp
-import numpy as np
-from orbax.export import constants
-from orbax.export import jax_module
-from orbax.export import obm_configs
-from orbax.export import serving_config as osc
-from orbax.export.data_processors import tf_data_processor
-import tensorflow as tf
+# pylint: disable=g-importing-member
 
-os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
+import abc
+
+
+class DataProcessor(abc.ABC):
+  """An interface for processing data as part of a model export.
+
+  A `DataProcessor` can be used to represent pre-processing or post-processing
+  functions. After being "prepared", it provides input/output signatures and an
+  `obm.Function` that can be composed with other functions.
+  """
