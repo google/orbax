@@ -19,6 +19,7 @@ import copy
 import logging
 from typing import Any, Optional, Tuple, Union
 
+from google.protobuf import text_format
 import jax
 from orbax.export import constants
 from orbax.export import typing as orbax_export_typing
@@ -86,9 +87,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         input_polymorphic_shape_symbol_values,
     )
 
-    self._xla_compile_options_per_platform = jax2obm_kwargs.get(
-        constants.XLA_COMPILE_OPTIONS_PER_PLATFORM, None
-    )
     self._jax_mesh = jax2obm_kwargs.get(constants.JAX_MESH, None)
     # TODO: b/380323586 - If both xla_compile_options_per_platform and jax_mesh
     # are provided, we need to check if they are compatible.

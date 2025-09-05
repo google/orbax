@@ -85,11 +85,11 @@ BATCH_OPTIONS = 'batch_options'
 CONVERTER_OPTIONS = 'converter_options'
 
 
-# XLA compile options per platform for the model. This is a mapping from
-# platform name to xla_pb2.CompileOptionsProto. This is used to set the XLA
-# compilation options for the model. If not provided, the default XLA
-# compilation options for default platform (TPU) will be used.
-XLA_COMPILE_OPTIONS_PER_PLATFORM = 'xla_compile_options_per_platform'
+# XLA flags per platform for the model. This is a mapping from platform name to
+# a list of xla flags. This is used to set the XLA compilation options for the
+# model. If not provided, the default XLA flags for default platform (TPU) will
+# be used.
+XLA_FLAGS_PER_PLATFORM = 'xla_flags_per_platform'
 
 # Mesh for the model.
 JAX_MESH = 'jax_mesh'
