@@ -67,6 +67,18 @@ class TemporaryPath(abc.ABC):
 
   @classmethod
   @abc.abstractmethod
+  def from_temporary(
+      cls,
+      temporary_path: epath.Path,
+      *,
+      file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
+  ) -> TemporaryPath:
+    """Creates a TemporaryPath from a temporary path."""
+    ...
+
+  @classmethod
+  @abc.abstractmethod
   def from_final(
       cls,
       final_path: epath.Path,

@@ -227,15 +227,15 @@ class ReplicatorCheckpointManager(
     """Remove steps that might be left over from previous runs."""
     logging.info('Running initial garbage collection at %s.', self.directory)
     logging.info('Cleaning up existing temporary directories.')
-    tmp_files = step_lib.all_temporary_paths(self.directory)
-    logging.info('Found tmp files: %s', tmp_files)
-    for tmp_file in tmp_files:
+    tmp_paths = step_lib.all_temporary_paths(self.directory)
+    logging.info('Found tmp files: %s', tmp_paths)
+    for tmp_path in tmp_paths:
       if (
-          tmp_file
+          tmp_path.get().name
           == mesh_consistency.process_metadata_folder(self.directory).name
       ):
         continue
-      (self.directory / tmp_file).rmtree()
+      tmp_path.get().rmtree()
 
   @property
   def directory(self) -> epath.Path:

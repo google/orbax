@@ -147,18 +147,24 @@ class TemporaryPathsTest(
     ]
     await asyncio.gather(*[tmp_path.create() for tmp_path in tmp_paths])
     self.assertSameElements(
-        await temporary_paths.all_temporary_paths(
-            self.directory, temporary_path_cls=tmp_path_cls
-        ),
-        [tmp_path.get().name for tmp_path in tmp_paths],
+        [
+            p.get()
+            for p in await temporary_paths.all_temporary_paths(
+                self.directory, temporary_path_cls=tmp_path_cls
+            )
+        ],
+        [tmp_path.get() for tmp_path in tmp_paths],
     )
 
     await tmp_paths[0].finalize()
     self.assertSameElements(
-        await temporary_paths.all_temporary_paths(
-            self.directory, temporary_path_cls=tmp_path_cls
-        ),
-        [tmp_path.get().name for tmp_path in tmp_paths[1:]],
+        [
+            p.get()
+            for p in await temporary_paths.all_temporary_paths(
+                self.directory, temporary_path_cls=tmp_path_cls
+            )
+        ],
+        [tmp_path.get() for tmp_path in tmp_paths[1:]],
     )
 
   @parameterized.parameters(
