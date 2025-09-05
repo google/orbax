@@ -16,7 +16,7 @@
 
 import asyncio
 import time
-from typing import Any, Awaitable
+from typing import Any, Awaitable, Iterable
 import uuid
 
 from absl import logging
@@ -158,9 +158,11 @@ class SaveResponse(async_types.AsyncResponse[None]):
 async def run_blocking_save(
     tmp_path: atomicity_types.TemporaryPath,
     checkpointables: dict[str, Any],
+    subdirectories: Iterable[str],
     *,
     overwrite: bool,
     context: context_lib.Context,
+    partial_save: bool = False,
 ) -> Awaitable[None]:
   """Runs the synchronous portion of the save operation.
 
@@ -169,8 +171,10 @@ async def run_blocking_save(
   Args:
     tmp_path: The temporary path to save the checkpointables to.
     checkpointables: A mapping from checkpointable name to checkpointable.
+    subdirectories: A list of subdirectories to create under `tmp_path`.
     overwrite: Whether to overwrite an existing checkpoint in `tmp_path`.
     context: The context to use for the save operation.
+    partial_save: Whether to save the checkpoint in partial mode.
 
   Returns:
     An awaitable that will be completed when the synchronous portion of the
@@ -178,9 +182,10 @@ async def run_blocking_save(
   """
   await context_lib.synchronize_next_operation_id()
 
-  await saving_path_utils.maybe_overwrite_existing(
-      tmp_path.get_final(), overwrite=overwrite, context=context
-  )
+  if not partial_save:
+    await saving_path_utils.maybe_overwrite_existing(
+        tmp_path.get_final(), overwrite=overwrite, context=context
+    )
 
   handler = composite_handler.CompositeHandler(
       context.checkpointables_options.registry
@@ -188,9 +193,12 @@ async def run_blocking_save(
 
   # Directory creation is handled here.
   tmp_path_awaiting_creation = path_async_utils.start_async_mkdir(
-      tmp_path, checkpointables.keys()
+      tmp_path, subdirectories
   )
-  if not context.async_options.create_directories_asynchronously:
+  if (
+      partial_save
+      or not context.async_options.create_directories_asynchronously
+  ):
     await tmp_path_awaiting_creation.await_creation()
 
   # Delegate to the handler to get the background awaitable.
@@ -254,29 +262,36 @@ def save_checkpointables_impl(
     async_origin: bool,
     overwrite: bool,
     custom_metadata: tree_types.JsonType | None,
+    partial_save: bool = False,
 ) -> async_types.AsyncResponse[None]:
   """See caller docstrings."""
   nest_asyncio.apply()
   context = context_lib.get_context()
   path = epath.Path(path)
+  path_exists = path.exists() if partial_save else False
   # Prevent internal mutation from affecting the caller.
   checkpointables = dict(checkpointables)
 
   start_time = time.time()
   event_tracking.record_save_start(path, async_origin=async_origin)
 
-  tmp_path = saving_path_utils.get_temporary_path(path, context=context)
+  tmp_path = saving_path_utils.get_temporary_path(
+      path, context=context, use_snapshot=path_exists
+  )
 
   checkpointables = add_internal_checkpointables(
       checkpointables, context=context
   )
+  subdirectories = [] if path_exists else checkpointables.keys()
 
   background_awaitable = asyncio.run(
       run_blocking_save(
           tmp_path,
           checkpointables,
+          subdirectories,
           overwrite=overwrite,
           context=context,
+          partial_save=partial_save,
       )
   )
 

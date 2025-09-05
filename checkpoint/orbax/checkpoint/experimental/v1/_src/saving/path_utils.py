@@ -25,7 +25,10 @@ from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 
 
 def get_temporary_path(
-    path: path_types.Path, *, context: context_lib.Context
+    path: path_types.Path,
+    *,
+    context: context_lib.Context,
+    use_snapshot: bool | None = None,
 ) -> atomicity_types.TemporaryPath:
   """Gets a TemporaryPath for the given path."""
   temporary_path_class = (
@@ -38,6 +41,7 @@ def get_temporary_path(
       # writing.
       checkpoint_metadata_store=None,
       file_options=context.file_options.v0(),
+      use_snapshot=use_snapshot,
   )
   return tmpdir
 

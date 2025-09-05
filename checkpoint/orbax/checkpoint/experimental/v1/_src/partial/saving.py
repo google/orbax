@@ -14,9 +14,8 @@
 
 """Defines free-function interface for partial saving and finalizing."""
 
-import asyncio
-
 from etils import epath
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
@@ -183,12 +182,12 @@ def save_pytree_async(
     Blocking can be done using `response.result()`, which returns `None`.
   """
   return execution.save_checkpointables_impl(
-      path,
+      partial_path_lib.add_partial_save_suffix(path),
       {PYTREE_CHECKPOINTABLE_KEY: pytree},
       overwrite=False,
       custom_metadata=custom_metadata,
       async_origin=True,
-      # partial_save=True,
+      partial_save=True,
   )
 
 
@@ -295,4 +294,4 @@ def finalize(path: path_types.PathLike) -> None:
         raise rename_error
       raise OSError('Partial checkpoint finalization failed during rename.')
 
-  asyncio.run(_finalize_impl())
+  asyncio_utils.run_sync(_finalize_impl())
