@@ -719,7 +719,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self._options.keep_time_interval
         or self._options.max_to_keep
         or self._options.keep_period
-        or self._options.should_keep_fn
     ):
       raise ValueError(
           '`preservation_policy` and `delete options` are mutually exclusive'

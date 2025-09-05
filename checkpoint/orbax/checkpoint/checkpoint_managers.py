@@ -32,6 +32,7 @@ from orbax.checkpoint._src.checkpoint_managers.preservation_policy import (
     PreservationContext,
     PreservationPolicy,
     LatestN,
+    _ShouldKeepFnPolicy,
     EveryNSeconds,
     EveryNSteps,
     CustomSteps,
