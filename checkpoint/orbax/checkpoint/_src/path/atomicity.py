@@ -286,6 +286,7 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
           checkpoint_metadata.MetadataStore | None
       ) = None,
       file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
   ) -> ReadOnlyTemporaryPath:
     """Not implemented for ReadOnlyTemporaryPath."""
     raise NotImplementedError(

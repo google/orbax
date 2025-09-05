@@ -75,6 +75,7 @@ class TemporaryPath(abc.ABC):
           checkpoint_metadata.MetadataStore | None
       ) = None,
       file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
   ) -> TemporaryPath:
     """Creates a TemporaryPath from a final path."""
     ...
