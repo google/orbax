@@ -107,4 +107,28 @@ message BatchOptions {
   // Maximum number of batches enqueued for processing before requests are
   // failed fast.
   int32 max_enqueued_batches = 7;
+
+  // An enum class containing possible values for the batch_padding_policy. This
+  // argument specifies the policy that a batch scheduler is using when deciding
+  // what to do when, say, 18 requests need to be batched, but only 16 and 32
+  // batch sizes are allowed. The following options are available.
+  //
+  //   - PAD_UP: pad to size 32.
+  //   - BATCH_DOWN: schedule a batch of size 16 and leave 2 requests in the
+  //     batch buffer.
+  //   - MINIMIZE_TPU_COST_PER_REQUEST: a smarter greedy policy that chooses
+  //     to either PAD_UP or BATCH_DOWN so as to minimize the TPU costs per
+  //     real request. In this case, it would compare (batch_16_cost / 16) and
+  //     (batch_32_cost / 18).
+  enum BatchPaddingPolicy {
+    // If unspecified, PAD_UP will be used.
+    PADDING_POLICY_UNSPECIFIED = 0;
+    // Pad up to the next allowed batch size.
+    PAD_UP = 1;
+    // TODO: b/416071759 - Add BATCH_DOWN and MINIMIZE_TPU_COST_PER_REQUEST
+    // policies once they're supported in JSV.
+  }
+
+  // The padding policy for the batch.
+  BatchPaddingPolicy batch_padding_policy = 8;
 }

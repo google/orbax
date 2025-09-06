@@ -29,6 +29,18 @@ class BatchComponent(enum.Enum):
   WHOLE_PIPELINE = "whole_pipeline"
   PRE_PROCESSOR_AND_MODEL_FUNCTION = "pre_processor_and_model_function"
   MODEL_FUNCTION_AND_POST_PROCESSOR = "model_function_and_post_processor"
+
+
+@enum.unique
+class BatchPaddingPolicy(enum.Enum):
+  """The batch padding policy for the batch scheduler.
+
+  Options:
+    PAD_UP: Pad up to the next allowed batch size.
+  """
+  PAD_UP = "pad_up"
+  # TODO: b/416071759 - Add BATCH_DOWN and MINIMIZE_TPU_COST_PER_REQUEST
+  # policies once they're supported in JSV.
 # LINT.ThenChange(//depot//orbax/export/obm_export.py)
 
 
@@ -52,6 +64,8 @@ class BatchOptions:
       all batch sizes no larger than `max_batch_size` are allowed. Otherwise,
       supplies a list of batch sizes. The entries must increase monotonically.
     disable_large_batch_splitting: Whether to disable large batch splitting.
+    batch_padding_policy: The batch padding policy for the batch scheduler.
+      Default is PAD_UP.
   """
   batch_component: BatchComponent
   max_batch_size: int | None = None
@@ -60,6 +74,7 @@ class BatchOptions:
   num_batch_threads: int = 1
   max_enqueued_batches: int = 250
   disable_large_batch_splitting: bool = False
+  batch_padding_policy: BatchPaddingPolicy = BatchPaddingPolicy.PAD_UP
 
   def __post_init__(self):
     """Validates the batch options."""
