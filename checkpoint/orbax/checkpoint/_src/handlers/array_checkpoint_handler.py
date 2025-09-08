@@ -152,37 +152,21 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     # checkpoints lacking PYTREE_METADATA_FILE is no longer needed.
     restore_args = args.restore_args or type_handlers.RestoreArgs()
 
-    # TODO(nikhilbansall): Get rid of this case. It is extremely
-    # old by now.
     checkpoint_path = directory / self._checkpoint_name
-    if checkpoint_path.exists() and checkpoint_path.is_file():
-      result = self._aggregate_handler.deserialize(checkpoint_path)
-      result = result[_ELEMENT_KEY]
-      if not self._is_supported_type(result):
-        raise TypeError(f'Unsupported type: {type(result)}.')
-      if isinstance(restore_args, type_handlers.ArrayRestoreArgs):
-        result = result.reshape(restore_args.global_shape)
-        sharding = restore_args.sharding or jax.sharding.NamedSharding(
-            restore_args.mesh, restore_args.mesh_axes
-        )
-        result = jax.make_array_from_callback(
-            result.shape, sharding, lambda idx: result[idx]
-        )
-    else:
-      info = type_handlers.ParamInfo(
-          name=self._checkpoint_name,
-          path=checkpoint_path,
-          parent_dir=directory,
-          skip_deserialize=False,
-          is_ocdbt_checkpoint=type_handlers.is_ocdbt_checkpoint(directory),
-      )
-      restore_type = restore_args.restore_type
-      if restore_type is None:
-        restore_type = type_handlers.default_restore_type(restore_args)
-      type_handler = type_handlers.get_type_handler(restore_type)
-      result = asyncio_utils.run_sync(
-          type_handler.deserialize([info], args=[restore_args])
-      )[0]
+    info = type_handlers.ParamInfo(
+        name=self._checkpoint_name,
+        path=checkpoint_path,
+        parent_dir=directory,
+        skip_deserialize=False,
+        is_ocdbt_checkpoint=type_handlers.is_ocdbt_checkpoint(directory),
+    )
+    restore_type = restore_args.restore_type
+    if restore_type is None:
+      restore_type = type_handlers.default_restore_type(restore_args)
+    type_handler = type_handlers.get_type_handler(restore_type)
+    result = asyncio_utils.run_sync(
+        type_handler.deserialize([info], args=[restore_args])
+    )[0]
 
     return result
 
