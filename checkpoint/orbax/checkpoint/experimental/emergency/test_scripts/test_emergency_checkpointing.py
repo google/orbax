@@ -179,7 +179,7 @@ def save_and_restore(
           args=ocp.args.Composite(
               state=ocp.args.PyTreeRestore(restore_args=restore_args)
           ),
-      )
+      ).state
       _log_and_check_restored(test_class, restored, state)
       restored = jax.tree.map(lambda x: None, restored)  # free memory
       del restored
@@ -193,7 +193,7 @@ def save_and_restore(
           args=ocp.args.Composite(
               state=ocp.args.PyTreeRestore(restore_args=restore_args)
           ),
-      )
+      ).state
       _log_and_check_restored(test_class, restored, state)
       restored = jax.tree.map(lambda x: None, restored)  # free memory
       del restored
@@ -225,7 +225,7 @@ def save_and_restore(
             args=ocp.args.Composite(
                 state=ocp.args.PyTreeRestore(restore_args=restore_args)
             ),
-        )
+        ).state
         _log_and_check_restored(test_class, restored, state)
         restored = jax.tree.map(lambda x: None, restored)  # free memory
         del restored
@@ -259,7 +259,7 @@ def save_and_restore(
       args=ocp.args.Composite(
           state=ocp.args.PyTreeRestore(restore_args=restore_args)
       ),
-  )
+  ).state
   _log_and_check_restored(test_class, restored, final_state)
   manager.close()
 
@@ -316,7 +316,7 @@ def simple_restore(
       args=ocp.args.Composite(
           state=ocp.args.PyTreeRestore(restore_args=restore_args)
       ),
-  )
+  ).state
 
   _log_and_check_restored(test_class, restored, expected_state)
 
