@@ -620,10 +620,10 @@ class _MultisliceCheckpointManager(
         'Cleaning up existing temporary directories at %s.',
         self._local_directory,
     )
-    tmp_files = step_lib.all_temporary_paths(self._local_directory)
-    for tmp_file in tmp_files:
-      logging.info('Deleting temporary checkpoint: %s.', tmp_file)
-      (self._local_directory / tmp_file).rmtree()
+    tmp_paths = step_lib.all_temporary_paths(self._local_directory)
+    for tmp_path in tmp_paths:
+      logging.info('Deleting temporary checkpoint: %s.', tmp_path)
+      tmp_path.get().rmtree()
 
   def _make_persistent_checkpoint_manager(
       self,

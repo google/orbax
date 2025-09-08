@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Move temporary path detection into `TemporaryPath` class. This class serves
 as a natural place for encapsulating core temporary path detection logic.
+- Simplify `find_step_path` logic by removing special casing for different
+filesystems - instead depending on `TemporaryPath` to identify uncommitted
+paths.
 
 ## [0.11.24] - 2025-08-28
 

@@ -58,9 +58,13 @@ all_temporary_paths = lambda *a, **k: asyncio_utils.run_sync(
     temporary_paths.all_temporary_paths(*a, **k)
 )
 
+# Deprecated aliases, use the above functions, or use the temporary_paths module
+# directly instead.
 is_checkpoint_finalized = is_path_finalized
 is_tmp_checkpoint = is_path_temporary
-tmp_checkpoints = all_temporary_paths
+tmp_checkpoints = lambda *a, **k: [
+    p.get().name for p in all_temporary_paths(*a, **k)
+]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -271,15 +275,11 @@ def find_step_path(
     return name_format.find_step(base_path, step).path
 
   # First try finding uncommitted step.
-  if gcs_utils.is_gcs_path(base_path):
-    uncommitted_step_path = build_step_path(base_path, name_format, step)
-  else:
-    step_name = name_format.build_name(step)
-    uncommitted_step_path = None
-    for uncommitted_name in all_temporary_paths(base_path):
-      if uncommitted_name.startswith(f'{step_name}{TMP_DIR_SUFFIX}'):
-        uncommitted_step_path = base_path / uncommitted_name
-        break
+  uncommitted_step_path = None
+  for tmp_path in all_temporary_paths(base_path):
+    if tmp_path.get_final() == build_step_path(base_path, name_format, step):
+      uncommitted_step_path = tmp_path.get()
+      break
   if uncommitted_step_path and uncommitted_step_path.exists():
     return uncommitted_step_path
   # Uncommitted step not found, return committed one or raise error.

@@ -164,6 +164,12 @@ def _get_tmp_directory(final_path: epath.Path) -> epath.Path:
   return epath.Path(final_path.parent) / (final_path.name + TMP_DIR_SUFFIX)
 
 
+def _get_final_directory(tmp_path: epath.Path) -> epath.Path:
+  if (suffix_idx := tmp_path.name.find(TMP_DIR_SUFFIX)) == -1:
+    raise ValueError(f'Expected {tmp_path} to end with "{TMP_DIR_SUFFIX}".')
+  return epath.Path(tmp_path.parent) / tmp_path.name[:suffix_idx]
+
+
 class TemporaryPathBase(atomicity_types.TemporaryPath):
   """A base class for TemporaryPath implementations."""
 
@@ -275,6 +281,19 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
     return cls(
         temporary_path=data['tmp_path'],
         final_path=data['final_path'],
+    )
+
+  @classmethod
+  def from_temporary(
+      cls,
+      temporary_path: epath.Path,
+      *,
+      file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
+  ) -> ReadOnlyTemporaryPath:
+    """Not implemented for ReadOnlyTemporaryPath."""
+    raise NotImplementedError(
+        'ReadOnlyTemporaryPath is not constructible from a temporary path.'
     )
 
   @classmethod
@@ -391,6 +410,21 @@ class AtomicRenameTemporaryPath(TemporaryPathBase):
     await validate_atomic_rename_final_path(cls.__name__, final_path)
 
   @classmethod
+  def from_temporary(
+      cls,
+      temporary_path: epath.Path,
+      *,
+      file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
+  ) -> AtomicRenameTemporaryPath:
+    return cls(
+        temporary_path,
+        _get_final_directory(temporary_path),
+        file_options=file_options,
+        use_snapshot=use_snapshot,
+    )
+
+  @classmethod
   def from_final(
       cls,
       final_path: epath.Path,
@@ -501,6 +535,21 @@ class CommitFileTemporaryPath(TemporaryPathBase):
           f' "{COMMIT_SUCCESS_FILE}" file.'
       )
     await _shared_validate(cls.__name__, final_path)
+
+  @classmethod
+  def from_temporary(
+      cls,
+      temporary_path: epath.Path,
+      *,
+      file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
+  ) -> CommitFileTemporaryPath:
+    return cls(
+        temporary_path,
+        temporary_path,
+        file_options=file_options,
+        use_snapshot=use_snapshot,
+    )
 
   @classmethod
   def from_final(

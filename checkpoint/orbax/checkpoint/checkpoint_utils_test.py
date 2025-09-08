@@ -231,7 +231,7 @@ class EvalUtilsTest(parameterized.TestCase):
     self.assertSameElements(
         [2],
         [
-            utils.step_from_checkpoint_name(x)
+            utils.step_from_checkpoint_name(x.get().name)
             for x in step_lib.all_temporary_paths(self.directory)
         ],
     )

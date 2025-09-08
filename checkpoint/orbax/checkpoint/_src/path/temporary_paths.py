@@ -137,15 +137,23 @@ async def all_temporary_paths(
     root_directory: epath.PathLike,
     *,
     temporary_path_cls: Type[atomicity_types.TemporaryPath] | None = None,
-) -> Iterable[str]:
+) -> Iterable[atomicity_types.TemporaryPath]:
   """Returns a list of tmp checkpoint dir names in `root_directory`."""
   root_directory = epath.Path(root_directory)
   if not await async_path.exists(root_directory):
     return []
+
+  def _build_temporary_path(path: epath.Path) -> atomicity_types.TemporaryPath:
+    path_cls = (
+        temporary_path_cls
+        or atomicity_defaults.get_default_temporary_path_class(path)
+    )
+    return path_cls.from_temporary(path)
+
   return [
-      s.name
-      for s in await async_path.iterdir(root_directory)
-      if await is_path_temporary(s, temporary_path_cls=temporary_path_cls)
+      _build_temporary_path(p)
+      for p in await async_path.iterdir(root_directory)
+      if await is_path_temporary(p, temporary_path_cls=temporary_path_cls)
   ]
 
 
@@ -162,11 +170,11 @@ async def cleanup_temporary_paths(
   )
   logging.info('Cleaning up existing temporary directories at %s.', directory)
   if multihost.is_primary_host(multiprocessing_options.primary_host):
-    tmp_files = await all_temporary_paths(
+    tmp_paths = await all_temporary_paths(
         directory, temporary_path_cls=temporary_path_cls
     )
     await asyncio.gather(
-        *[async_path.rmtree(directory / tmp_file) for tmp_file in tmp_files]
+        *[async_path.rmtree(tmp_path.get()) for tmp_path in tmp_paths]
     )
   multihost.sync_global_processes(
       multihost.unique_barrier_key(
