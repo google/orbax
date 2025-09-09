@@ -39,6 +39,7 @@ from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handl
 from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 from orbax.checkpoint.experimental.v1._src.serialization import registry
 from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
+from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -141,8 +142,8 @@ def _restore_type_by_abstract_type(
 
   if abstract_checkpointable is None:
     ret = None
-  elif type_handlers.is_placeholder(abstract_checkpointable):
-    ret = type_handlers.PLACEHOLDER
+  elif serialization_types.is_placeholder(abstract_checkpointable):
+    ret = serialization_types.PLACEHOLDER
   else:
     if isinstance(abstract_checkpointable, type):
       abstract_type = abstract_checkpointable
@@ -323,7 +324,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     missing_leaf_types = set()
 
     def _validate_handleable_leaf(leaf: Any):
-      if type_handlers.is_placeholder(leaf):
+      if serialization_types.is_placeholder(leaf):
         return
 
       leaf_type = type(leaf)
@@ -349,7 +350,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     missing_abstract_leaf_types = set()
 
     def _validate_handleable_leaf(leaf: Any):
-      if type_handlers.is_placeholder(leaf):
+      if serialization_types.is_placeholder(leaf):
         return
 
       leaf_type = leaf if isinstance(leaf, type) else type(leaf)

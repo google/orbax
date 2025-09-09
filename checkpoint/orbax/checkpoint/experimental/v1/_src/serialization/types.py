@@ -26,6 +26,12 @@ import tensorstore as ts
 Leaf = TypeVar('Leaf')
 AbstractLeaf = TypeVar('AbstractLeaf')
 
+PLACEHOLDER = ...
+
+
+def is_placeholder(value: Any) -> bool:
+  return value is PLACEHOLDER
+
 
 @dataclasses.dataclass
 class SerializationParam(Generic[Leaf]):

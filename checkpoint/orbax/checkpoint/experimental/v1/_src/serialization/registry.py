@@ -88,7 +88,7 @@ class BaseLeafHandlerRegistry:
 
   def get(
       self, leaf_type: Type[types.Leaf]
-  ) -> Type[types.LeafHandler[types.Leaf, Any]] | None:
+  ) -> Type[types.LeafHandler[types.Leaf, Any]]:
     if (handler_type := self._try_get(leaf_type)) is None:
       raise ValueError(
           f'Unknown Leaf type: "{leaf_type}". Must register it with'

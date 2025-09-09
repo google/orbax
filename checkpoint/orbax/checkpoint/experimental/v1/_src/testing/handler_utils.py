@@ -16,9 +16,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
-from typing import Any, Awaitable, Type
+from typing import Any, Awaitable, Generic, Type, TypeVar
 
 import aiofiles
 from etils import epath
@@ -28,9 +29,67 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
+from orbax.checkpoint.experimental.v1._src.testing import path_utils as path_test_utils
 
 
 # pylint: disable=missing-class-docstring
+
+
+T = TypeVar('T')
+AbstractT = TypeVar('AbstractT')
+
+CheckpointableHandler = handler_types.CheckpointableHandler
+Path = path_types.Path
+
+
+async def _run_awaitable(awaitable: Awaitable[Any]) -> Any:
+  return await awaitable
+
+
+class _TestHandler(Generic[T, AbstractT]):
+  """This class facilitates testing of CheckpointableHandlers independently.
+
+  Use `create_test_handler`.
+  """
+
+  def __init__(
+      self, handler_class: type[CheckpointableHandler[T, AbstractT]], **kwargs
+  ):
+    self._handler: CheckpointableHandler[T, AbstractT] = handler_class(**kwargs)
+
+  def save(self, directory: Path, checkpointable: T):
+    path = path_test_utils.PathAwaitingCreationWrapper(directory)
+    awaitable = asyncio.run(self._handler.save(path, checkpointable))
+    return asyncio.run(_run_awaitable(awaitable))
+
+  def save_async(self, directory: Path, checkpointable: T):
+    path = path_test_utils.PathAwaitingCreationWrapper(directory)
+    return asyncio.run(self._handler.save(path, checkpointable))
+
+  def load(self, path: Path, abstract_checkpointable: AbstractT | None = None):
+    awaitable = self.load_async(path, abstract_checkpointable)
+    return asyncio.run(_run_awaitable(awaitable))
+
+  def load_async(
+      self, path: Path, abstract_checkpointable: AbstractT | None = None
+  ):
+    return asyncio.run(self._handler.load(path, abstract_checkpointable))
+
+  def metadata(self, path: Path) -> AbstractT:
+    return asyncio.run(self._handler.metadata(path))
+
+  def is_handleable(self, checkpointable: Any) -> bool:
+    return self._handler.is_handleable(checkpointable)
+
+  def is_abstract_handleable(self, abstract_checkpointable: Any) -> bool | None:
+    return self._handler.is_abstract_handleable(abstract_checkpointable)
+
+
+def create_test_handler(
+    handler_class: type[CheckpointableHandler[T, AbstractT]],
+    **kwargs,
+) -> _TestHandler[T, AbstractT]:
+  return _TestHandler[T, AbstractT](handler_class, **kwargs)
 
 
 class DataclassHandler:

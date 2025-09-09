@@ -64,7 +64,7 @@ from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_hand
 from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
-from orbax.checkpoint.experimental.v1._src.testing import path_utils as path_test_utils
+from orbax.checkpoint.experimental.v1._src.testing import handler_utils as handler_test_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
@@ -156,33 +156,6 @@ class PointLeafHandler(serialization_types.LeafHandler[Point, AbstractPoint]):
       deserialization_context: serialization_types.DeserializationContext,
   ) -> Sequence[AbstractPoint]:
     return [AbstractPoint()] * len(params)
-
-
-class PyTreeHandler:
-  """Wrapper around PyTreeHandler that can block on save and load."""
-
-  def __init__(self, **kwargs):
-    self._handler = pytree_handler.PyTreeHandler(**kwargs)
-
-  def save(self, path: Path, checkpointable: PyTree):
-    awaitable = self.save_async(path, checkpointable)
-    return asyncio.run(_run_awaitable(awaitable))
-
-  def save_async(self, path: Path, checkpointable: PyTree):
-    path = path_test_utils.PathAwaitingCreationWrapper(path)
-    return asyncio.run(self._handler.save(path, checkpointable))
-
-  def load(self, path: Path, abstract_checkpointable: PyTree | None = None):
-    awaitable = self.load_async(path, abstract_checkpointable)
-    return asyncio.run(_run_awaitable(awaitable))
-
-  def load_async(
-      self, path: Path, abstract_checkpointable: PyTree | None = None
-  ):
-    return asyncio.run(self._handler.load(path, abstract_checkpointable))
-
-  def metadata(self, path: Path):
-    return asyncio.run(self._handler.metadata(path))
 
 
 def create_mixed_format_pytree(
@@ -311,8 +284,8 @@ def handler_with_options(
       ),
   )
 
-  handler = PyTreeHandler(
-      context=context,
+  handler = handler_test_utils.create_test_handler(
+      pytree_handler.PyTreeHandler, context=context
   )
 
   try:
@@ -364,7 +337,7 @@ class PyTreeHandlerTestBase:
         path: epath.Path,
         abstract_pytree: PyTree | None,
         expected: PyTree,
-        checkpoint_handler: PyTreeHandler,
+        checkpoint_handler,
     ):
       """Validate save was performed correctly."""
       actual = checkpoint_handler.load(path, abstract_pytree)
@@ -2040,9 +2013,9 @@ class PyTreeHandlerTestBase:
           self.create_tempdir(name='simple_placeholder_dir').full_path
       )
 
-      handler = PyTreeHandler()
-      handler.save(simple_dir, original_item)
-      restored = handler.load(simple_dir, reference_item)
+      with handler_with_options() as handler:
+        handler.save(simple_dir, original_item)
+        restored = handler.load(simple_dir, reference_item)
       test_utils.assert_tree_equal(self, expected, restored)
 
     @parameterized.product(use_ocdbt=(True, False))
