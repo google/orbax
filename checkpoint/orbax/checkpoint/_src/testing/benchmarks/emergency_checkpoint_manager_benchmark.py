@@ -14,6 +14,7 @@
 
 """Benchmarks for orbax.checkpoint.experimental.emergency.checkpoint_manager.CheckpointManager."""
 
+from collections.abc import Sequence
 import dataclasses
 from typing import Any
 from absl import flags
@@ -35,7 +36,7 @@ from orbax.checkpoint.experimental.emergency import checkpoint_manager as emerge
 # ==============================================================================
 # 1. Define the Options Dataclass
 # ==============================================================================
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class EcmBenchmarkOptions(benchmarks_core.BenchmarkOptions):
   """Configuration options for benchmarks targeting EmergencyCheckpointManager.
 
@@ -51,16 +52,18 @@ class EcmBenchmarkOptions(benchmarks_core.BenchmarkOptions):
     train_steps: The number of training steps to run.
   """
 
-  persistent_save_interval_steps: int | list[int] = 5
-  persistent_max_to_keep: int | list[int] = 5
-  local_save_interval_steps: int | list[int] = 2
-  local_max_to_keep: int | list[int] = 2
-  replica_axis_index: int | list[int] = 0
-  train_steps: int | list[int] = 10
-  use_shard_map_broadcast: bool | list[bool] = True
-  single_host_load_and_broadcast: bool | list[bool] = True
-  experimental_use_distributed_id_for_mesh_consistency: bool | list[bool] = True
-  experimental_orbax_use_distributed_process_id: bool | list[bool] = True
+  persistent_save_interval_steps: int | Sequence[int] = 5
+  persistent_max_to_keep: int | Sequence[int] = 5
+  local_save_interval_steps: int | Sequence[int] = 2
+  local_max_to_keep: int | Sequence[int] = 2
+  replica_axis_index: int | Sequence[int] = 0
+  train_steps: int | Sequence[int] = 10
+  use_shard_map_broadcast: bool | Sequence[bool] = True
+  single_host_load_and_broadcast: bool | Sequence[bool] = True
+  experimental_use_distributed_id_for_mesh_consistency: (
+      bool | Sequence[bool]
+  ) = True
+  experimental_orbax_use_distributed_process_id: bool | Sequence[bool] = True
 
 
 # ==============================================================================

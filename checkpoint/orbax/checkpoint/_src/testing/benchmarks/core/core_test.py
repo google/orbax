@@ -31,7 +31,7 @@ from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 from orbax.checkpoint._src.testing.benchmarks.core import directory_setup
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MyBenchmarkOptions(core.BenchmarkOptions):
   opt1: int | List[int] = 1
   opt2: str | List[str] = 'a'

@@ -23,7 +23,7 @@ import yaml
 
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MockOptions(core.BenchmarkOptions):
   param1: int = 1
   param2: str = 'a'

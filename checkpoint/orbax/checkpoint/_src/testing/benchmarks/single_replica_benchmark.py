@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """Benchmarks for orbax.checkpoint._src.serialization.type_handlers.SingleReplicaArrayHandler."""
-
+from collections.abc import Sequence
 import dataclasses
 from typing import Any
 from absl import logging
@@ -31,7 +31,7 @@ from orbax.checkpoint._src.tree import utils
 # ==============================================================================
 # 1. Define the Options Dataclass
 # ==============================================================================
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SingleReplicaBenchmarkOptions(benchmarks_core.BenchmarkOptions):
   """Configuration options for benchmarks targeting SingleReplicaArrayHandler.
 
@@ -43,12 +43,12 @@ class SingleReplicaBenchmarkOptions(benchmarks_core.BenchmarkOptions):
     broadcast_memory_scaling_factor: The scaling factor to use for broadcasting.
   """
 
-  replica_axis_index: int | list[int] = 0
-  primary_replica_id: int | list[int] = 0
-  use_replica_parallel: bool | list[bool] = True
-  broadcast_memory_limit_bytes: int | list[int] | None = None
-  broadcast_memory_scaling_factor: float | list[float] = 0.75
-  use_shard_map: bool | list[bool] = False
+  replica_axis_index: int | Sequence[int] = 0
+  primary_replica_id: int | Sequence[int] = 0
+  use_replica_parallel: bool | Sequence[bool] = True
+  broadcast_memory_limit_bytes: int | Sequence[int] | None = None
+  broadcast_memory_scaling_factor: float | Sequence[float] = 0.75
+  use_shard_map: bool | Sequence[bool] = False
 
 
 # ==============================================================================

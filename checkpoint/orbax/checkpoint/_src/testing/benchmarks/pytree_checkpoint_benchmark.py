@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """Benchmarks for orbax.checkpoint.PyTreeCheckpointHandler."""
-
+from collections.abc import Sequence
 import dataclasses
 from typing import Any
 import jax
@@ -26,7 +26,7 @@ from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_cor
 # ==============================================================================
 # 1. Define the Options Dataclass for this specific benchmark
 # ==============================================================================
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
   """Configuration options for benchmarks targeting PyTreeCheckpointHandler.
 
@@ -38,8 +38,8 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
     use_zarr3: Whether to use Zarr3 for checkpointing.
   """
 
-  use_ocdbt: bool | list[bool] = True
-  use_zarr3: bool | list[bool] = False
+  use_ocdbt: bool | Sequence[bool] = True
+  use_zarr3: bool | Sequence[bool] = False
 
 
 # ==============================================================================

@@ -15,6 +15,7 @@
 """Core classes and functions for benchmarking Orbax."""
 
 import abc
+from collections.abc import MutableMapping, Sequence
 import contextlib
 import dataclasses
 import itertools
@@ -31,7 +32,7 @@ from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 from orbax.checkpoint._src.testing.benchmarks.core import directory_setup
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BenchmarkOptions:
   """Base class for benchmark generator options."""
 
@@ -66,7 +67,7 @@ class Metrics:
     name: The name of the metric group.
   """
 
-  timings: dict[str, float] = dataclasses.field(default_factory=dict)
+  timings: MutableMapping[str, float] = dataclasses.field(default_factory=dict)
   name: str = ""
 
   @contextlib.contextmanager
@@ -280,7 +281,7 @@ class BenchmarksGenerator(abc.ABC):
   def test_fn(self, test_context: TestContext) -> TestResult:
     """A user-defined test function that will be run for every generated benchmark variant."""
 
-  def _get_options_product(self) -> list[BenchmarkOptions]:
+  def _get_options_product(self) -> Sequence[BenchmarkOptions]:
     """Computes the Cartesian product of all options in the dataclass."""
     option_value_lists = []
     option_fields = dataclasses.fields(self._options)
@@ -299,7 +300,7 @@ class BenchmarksGenerator(abc.ABC):
       option_instances.append(type(self._options)(**kwargs))
     return option_instances
 
-  def generate(self) -> list[Benchmark]:
+  def generate(self) -> Sequence[Benchmark]:
     """Generates a list of `Benchmark` objects for all option combinations."""
     benchmarks = []
     option_combinations = self._get_options_product()
@@ -328,7 +329,7 @@ class TestSuite:
   """A class to orchestrate running and comparing a list of benchmarks."""
 
   def __init__(
-      self, name: str, benchmarks_generators: list[BenchmarksGenerator]
+      self, name: str, benchmarks_generators: Sequence[BenchmarksGenerator]
   ):
     self._name = name
     self._benchmarks_generators = benchmarks_generators
