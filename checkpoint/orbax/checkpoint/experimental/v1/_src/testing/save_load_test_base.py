@@ -171,7 +171,7 @@ class SaveLoadTestBase:
         (optax.EmptyState(),),
     )
     def test_empty_tree(self, tree):
-      with self.assertRaisesRegex(ValueError, 'empty'):
+      with self.assertRaises(registration.NotHandleableError):
         ocp.save_pytree(self.directory, tree)
 
     # Note the ommission of jax.Array, since this is covered in
@@ -190,6 +190,42 @@ class SaveLoadTestBase:
         np.testing.assert_array_equal(loaded['k'], value)
       else:
         self.assertEqual(loaded['k'], value)
+
+    # Note the ommission of jax.Array, since this is covered below.
+    @parameterized.parameters(
+        (np.arange(8),),
+        (2,),
+        (2.2,),
+        ('foo',),
+        (np.asarray(3.14),),
+    )
+    def test_standard_leaf_types_as_checkpointable(self, value):
+      with self.subTest('save_pytree'):
+        with self.assertRaises(registration.NotHandleableError):
+          ocp.save_pytree(self.directory, value)
+      with self.subTest('save_checkpointables'):
+        ocp.save_checkpointables(self.directory, {'foo': value})
+        loaded = ocp.load_checkpointables(self.directory)['foo']
+        if isinstance(value, np.ndarray):
+          np.testing.assert_array_equal(loaded, value)
+        else:
+          self.assertEqual(loaded, value)
+
+    def test_jax_array_as_checkpointable(self):
+      value = jnp.arange(
+          16,
+          device=jax.sharding.NamedSharding(
+              jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',)),
+              jax.sharding.PartitionSpec(),
+          ),
+      )
+      with self.subTest('save_pytree'):
+        with self.assertRaises(registration.NotHandleableError):
+          ocp.save_pytree(self.directory, value)
+      with self.subTest('save_checkpointables'):
+        ocp.save_checkpointables(self.directory, {'foo': value})
+        loaded = ocp.load_checkpointables(self.directory)['foo']
+        test_utils.assert_tree_equal(self, value, loaded)
 
     def test_jax_array_leaf_types(self):
       mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
@@ -220,10 +256,23 @@ class SaveLoadTestBase:
             loaded = ocp.load_pytree(self.directory / k, [as_abstract_type(v)])
             test_utils.assert_tree_equal(self, [v], loaded)
           with self.subTest('without_abstract_pytree'):
-            if multihost.is_pathways_backend():
-              self.skipTest('Must provide abstract_pytree for Pathways.')
-            loaded = ocp.load_pytree(self.directory / k)
-            test_utils.assert_tree_equal(self, [v], loaded)
+            if not multihost.is_pathways_backend():
+              loaded = ocp.load_pytree(self.directory / k)
+              test_utils.assert_tree_equal(self, [v], loaded)
+
+    def test_save_unregistered_type_as_pytree(self):
+      with self.assertRaises(registration.NotHandleableError):
+        ocp.save_pytree(self.directory, handler_utils.Foo(1, 'hi'))
+
+    @parameterized.parameters(
+        ({},),
+        ([],),
+        ('hello',),
+        (None,),
+    )
+    def test_save_checkpointables_invalid(self, checkpointables):
+      with self.assertRaises(ValueError):
+        ocp.save_checkpointables(self.directory, checkpointables)
 
     def test_leaf_change_type(self):
       mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))

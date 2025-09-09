@@ -59,6 +59,7 @@ from typing import Any, Callable, Protocol, Sequence, Type, TypeVar
 
 from absl import logging
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
+from orbax.checkpoint.experimental.v1._src.path import format_utils
 
 CheckpointableHandler = handler_types.CheckpointableHandler
 RegistryEntry = tuple[Type[CheckpointableHandler], str | None]
@@ -114,6 +115,10 @@ class AlreadyExistsError(ValueError):
 
 class NoEntryError(KeyError):
   """Raised when no entry exists in the registry."""
+
+
+class NotHandleableError(ValueError):
+  """Raised when a checkpointable is not handleable by a handler."""
 
 
 class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
@@ -346,7 +351,7 @@ def _construct_handler_instance(
 
 def _get_possible_handlers(
     registry: CheckpointableHandlerRegistry,
-    is_handleable_fn: Callable[[CheckpointableHandler, Any], bool],
+    is_handleable: Callable[[CheckpointableHandler, Any], bool],
     checkpointable: Any | None,
     name: str,
 ) -> Sequence[CheckpointableHandler]:
@@ -370,7 +375,7 @@ def _get_possible_handlers(
         handler
         for handler, checkpointable_name in registry_entries
         if checkpointable_name is None
-        and is_handleable_fn(handler, checkpointable)
+        and is_handleable(handler, checkpointable)
     ]
   if not possible_handlers:
     available_handlers = [
@@ -387,6 +392,29 @@ def _get_possible_handlers(
     )
     raise NoEntryError(error_msg)
   return possible_handlers
+
+
+def _maybe_raise_not_handleable_error(
+    handler: CheckpointableHandler,
+    is_handleable: Callable[[CheckpointableHandler, Any], bool],
+    checkpointable: Any,
+    name: str,
+) -> None:
+  """Raises an error if the handler cannot handle the named checkpointable."""
+  if not is_handleable(handler, checkpointable):
+    error_msg = (
+        f'Handler {type(handler)}, explicitly registered for {name}, cannot'
+        ' handle the provided checkpointable.'
+    )
+    if name == format_utils.PYTREE_CHECKPOINTABLE_KEY:
+      error_msg += (
+          ' Usage of the name'
+          f' {format_utils.PYTREE_CHECKPOINTABLE_KEY} indicates that you'
+          ' attempted to save using `save/load_pytree`. Please ensure the'
+          ' provided checkpointable is a nested PyTree, and not a leaf node.'
+      )
+    error_msg += f'Received checkpointable: {checkpointable}.'
+    raise NotHandleableError(error_msg)
 
 
 def resolve_handler_for_save(
@@ -411,22 +439,29 @@ def resolve_handler_for_save(
 
   Raises:
     NoEntryError: If no compatible `CheckpointableHandler` can be found.
+    NotHandleableError: If the resolved handler cannot handle the checkpointable
+      and the handler was explicitly registered for the checkpointable name.
 
   Returns:
     A CheckpointableHandler instance.
   """
+
+  def is_handleable(handler: CheckpointableHandler, ckpt: Any) -> bool:
+    return handler.is_handleable(ckpt)
+
   # If explicitly registered, use that first.
   if registry.has(name):
-    return _construct_handler_instance(name, registry.get(name))
+    handler = _construct_handler_instance(name, registry.get(name))
+    _maybe_raise_not_handleable_error(
+        handler, is_handleable, checkpointable, name
+    )
+    return handler
 
   if checkpointable is None:
     raise ValueError('checkpointable must not be None for saving.')
 
-  def is_handleable_fn(handler: CheckpointableHandler, ckpt: Any) -> bool:
-    return handler.is_handleable(ckpt)
-
   possible_handlers = _get_possible_handlers(
-      registry, is_handleable_fn, checkpointable, name
+      registry, is_handleable, checkpointable, name
   )
 
   # Prefer the first handler in the absence of any other information.
@@ -462,17 +497,27 @@ def resolve_handler_for_load(
     name: The name of the checkpointable.
     handler_typestr: A CheckpointableHandler typestr to guide resolution.
 
+  Raises:
+    NotHandleableError: If the resolved handler cannot handle the abstract
+      checkpointable and the handler was explicitly registered for the
+      checkpointable name.
+
   Returns:
     A CheckpointableHandler instance.
   """
-  # If explicitly registered, use that first.
-  if registry.has(name):
-    return _construct_handler_instance(name, registry.get(name))
-
   def is_handleable_fn(
       handler: CheckpointableHandler, ckpt: Any
   ) -> bool | None:
     return handler.is_abstract_handleable(ckpt)
+
+  # If explicitly registered, use that first.
+  if registry.has(name):
+    handler = _construct_handler_instance(name, registry.get(name))
+    if abstract_checkpointable is not None:
+      _maybe_raise_not_handleable_error(
+          handler, is_handleable_fn, abstract_checkpointable, name
+      )
+    return _construct_handler_instance(name, registry.get(name))
 
   possible_handlers = _get_possible_handlers(
       registry, is_handleable_fn, abstract_checkpointable, name

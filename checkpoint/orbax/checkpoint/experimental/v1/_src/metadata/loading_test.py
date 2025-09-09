@@ -57,11 +57,10 @@ class PyTreeMetadataTest(absltest.TestCase):
           dtype=value.dtype,
           storage_metadata=storage_metadata,
       )
-    elif isinstance(value, (int, float)):
-      dtype = np.float64
-      if isinstance(value, int):
-        dtype = np.int64
-      return dtype
+    elif isinstance(value, (int, np.integer)):
+      return 0
+    elif isinstance(value, (float, np.floating)):
+      return 0.0
     else:
       raise TypeError(f'Unsupported type: {type(value)}')
 

@@ -20,6 +20,7 @@ deserialization for numpy arrays
 
 import asyncio
 import dataclasses
+import typing
 from typing import Awaitable, Sequence
 
 from absl import logging
@@ -33,7 +34,9 @@ from orbax.checkpoint.experimental.v1._src.serialization import types
 
 
 NumpySerializationParam = types.SerializationParam[np.ndarray]
-NumpyDeserializationParam = types.DeserializationParam[types.AbstractArray]
+NumpyDeserializationParam = types.DeserializationParam[
+    types.AbstractArray
+]
 Shape = arrays_types.Shape
 AbstractArray = types.AbstractArray
 
@@ -87,7 +90,7 @@ def _create_v0_saving_paraminfo(
       use_zarr3=saving_options.use_zarr3,
       ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
       ts_context=serialization_context.ts_context,
-      value_typestr="np.ndarray",
+      value_typestr='np.ndarray',
   )
 
 
@@ -121,7 +124,7 @@ def _create_v0_restore_paraminfo(
 ) -> type_handlers_v0.ParamInfo:
   """Creates a V0 ParamInfo from V1 params and contexts for loading."""
 
-  loading_options = context.array_options.Loading
+  loading_options = context.array_options.loading
 
   return type_handlers_v0.ParamInfo(
       name=param.name,
@@ -141,26 +144,17 @@ def _create_v0_restorearg(
 ) -> type_handlers_v0.RestoreArgs:
   """Creates a V0 RestoreArgs from V1 params."""
 
-  if param.value is None:
-    return type_handlers_v0.RestoreArgs(restore_type=np.ndarray)
-  else:
-    v = param.value
-    if not isinstance(
-        v,
-        (
-            np.ndarray,
-            NumpyShapeDtype,
-            NumpyMetadata,
-        ),
-    ):
-      raise ValueError(
-          f"NumpyDeserializationParam.value is an unsupported type: {type(v)}"
-      )
-
-    logging.vlog(1, "name: %s, v.dtype: %s", param.name, v.dtype)
+  value = param.value
+  if value is None or isinstance(value, type):
     return type_handlers_v0.RestoreArgs(
         restore_type=np.ndarray,
-        dtype=v.dtype,
+    )
+  else:
+    value = typing.cast(types.AbstractArray, value)
+    logging.vlog(1, 'name: %s, v.dtype: %s', param.name, value.dtype)
+    return type_handlers_v0.RestoreArgs(
+        restore_type=np.ndarray,
+        dtype=value.dtype,
     )
 
 
@@ -179,7 +173,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
     self._context = context_lib.get_context(context)
     self._handler_impl = _create_v0_numpy_handler()
 
-    logging.vlog(1, "NumpyLeafHandler created.")
+    logging.vlog(1, 'NumpyLeafHandler created.')
 
   async def serialize(
       self,
@@ -212,7 +206,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
 
   async def deserialize(
       self,
-      params: Sequence[types.DeserializationParam[AbstractArray]],
+      params: Sequence[NumpyDeserializationParam],
       deserialization_context: types.DeserializationContext,
   ) -> Awaitable[Sequence[np.ndarray]]:
     """Returns sequence of np.ndarrays from a stored checkpointable location.
@@ -224,7 +218,6 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
     Returns:
       The deserialized sequence of nd.ndarays as leaves.
     """
-
     # validate all parameters
     paraminfos = [
         _create_v0_restore_paraminfo(p, self._context, deserialization_context)
@@ -268,7 +261,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
         )
         ret.append(numpy_metadata)
 
-        logging.vlog(1, "numpy_metadata: %r", numpy_metadata)
+        logging.vlog(1, 'numpy_metadata: %r', numpy_metadata)
 
       return ret
 
