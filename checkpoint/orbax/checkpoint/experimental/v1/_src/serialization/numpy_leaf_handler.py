@@ -20,11 +20,11 @@ deserialization for numpy arrays
 
 import asyncio
 import dataclasses
-from typing import Awaitable, Protocol, Sequence
+from typing import Awaitable, Sequence
 
 from absl import logging
 import numpy as np
-from orbax.checkpoint._src.arrays import types as arrays_types_v0
+from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
@@ -33,36 +33,21 @@ from orbax.checkpoint.experimental.v1._src.serialization import types
 
 
 NumpySerializationParam = types.SerializationParam[np.ndarray]
-NumpyDeserializationParam = types.DeserializationParam["AbstractNumpy"]
-Shape = arrays_types_v0.Shape
-
-
-class AbstractNumpy(Protocol):
-  """Abstract representation of a numpy array.
-
-  This is a protocol for an abstract numpy array that can be used to represent
-  the metadata belonging to a numpy array.
-
-  shape:
-    Tuple of integers describing the array shape.
-  dtype:
-    Dtype of array elements.
-  """
-
-  shape: Shape | None
-  dtype: np.dtype
+NumpyDeserializationParam = types.DeserializationParam[types.AbstractArray]
+Shape = arrays_types.Shape
+AbstractArray = types.AbstractArray
 
 
 @dataclasses.dataclass
-class NumpyShapeDtype:
-  """To implement the AbstractNumpy protocol."""
+class NumpyShapeDtype(AbstractArray):
+  """To implement the AbstractArray protocol."""
 
   shape: Shape | None
-  dtype: np.dtype
+  dtype: np.dtype | None
 
 
 @dataclasses.dataclass
-class NumpyMetadata:
+class NumpyMetadata(AbstractArray):
   """Numpy Metadata for the NumpyLeafHandler.
 
   shape:
@@ -74,7 +59,7 @@ class NumpyMetadata:
   """
 
   shape: Shape | None
-  dtype: np.dtype
+  dtype: np.dtype | None
   storage_metadata: value_metadata.StorageMetadata | None
 
 
@@ -130,7 +115,7 @@ def _create_v0_savearg(
 
 
 def _create_v0_restore_paraminfo(
-    param: types.DeserializationParam[None | AbstractNumpy],
+    param: types.DeserializationParam[AbstractArray | None],
     context: context_lib.Context,
     deserialization_context: types.DeserializationContext,
 ) -> type_handlers_v0.ParamInfo:
@@ -183,7 +168,7 @@ async def _async_futures(commit_futures: Sequence[future.Future]):
   await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
 
 
-class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractNumpy]):
+class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
   """NumpyLeafHandler that implements the types.LeafHandler Protocol."""
 
   def __init__(
@@ -227,7 +212,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractNumpy]):
 
   async def deserialize(
       self,
-      params: Sequence[types.DeserializationParam[AbstractNumpy]],
+      params: Sequence[types.DeserializationParam[AbstractArray]],
       deserialization_context: types.DeserializationContext,
   ) -> Awaitable[Sequence[np.ndarray]]:
     """Returns sequence of np.ndarrays from a stored checkpointable location.
@@ -255,7 +240,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractNumpy]):
       self,
       params: Sequence[types.DeserializationParam[None]],
       deserialization_context: types.DeserializationContext,
-  ) -> Sequence[AbstractNumpy]:
+  ) -> Sequence[AbstractArray]:
     """Returns a squence of NumpyMetadata from a stored checkpointable location.
 
     Args:

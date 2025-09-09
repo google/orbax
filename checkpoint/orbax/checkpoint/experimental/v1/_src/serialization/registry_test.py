@@ -18,7 +18,6 @@ from absl.testing import absltest
 import jax
 import jax.numpy as jnp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
-from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import registry
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
@@ -29,9 +28,7 @@ class DummyIntHandlerInt(types.LeafHandler[int, int]):
     del context
 
 
-class DummyJaxHandler(
-    types.LeafHandler[jax.Array, array_leaf_handler.AbstractArray]
-):
+class DummyJaxHandler(types.LeafHandler[jax.Array, types.AbstractShardedArray]):
 
   def __init__(self, context: context_lib.Context | None = None):
     del context
@@ -42,7 +39,7 @@ class RegistryTest(absltest.TestCase):
   def test_simple_add_and_get(self):
     reg = registry.BaseLeafHandlerRegistry()
     reg.add(int, int, DummyIntHandlerInt)
-    reg.add(jax.Array, array_leaf_handler.AbstractArray, DummyJaxHandler)
+    reg.add(jax.Array, types.AbstractShardedArray, DummyJaxHandler)
 
     self.assertEqual(DummyIntHandlerInt, reg.get(int))
     self.assertEqual(DummyIntHandlerInt, reg.get(type(0)))
@@ -79,7 +76,7 @@ class RegistryTest(absltest.TestCase):
     reg.add(int, int, DummyIntHandlerInt, override=True)
     reg.add(
         jax.Array,
-        array_leaf_handler.AbstractArray,
+        types.AbstractShardedArray,
         DummyJaxHandler,
         override=True,
     )
@@ -121,7 +118,7 @@ class RegistryTest(absltest.TestCase):
   def test_get_all(self):
     reg = registry.BaseLeafHandlerRegistry()
     reg.add(int, int, DummyIntHandlerInt)
-    reg.add(jax.Array, array_leaf_handler.AbstractArray, DummyJaxHandler)
+    reg.add(jax.Array, types.AbstractShardedArray, DummyJaxHandler)
 
     all_items = reg.get_all()
     self.assertLen(all_items, 2)
@@ -132,7 +129,7 @@ class RegistryTest(absltest.TestCase):
       elif item[0] == jax.Array:
         self.assertEqual(
             item,
-            (jax.Array, array_leaf_handler.AbstractArray, DummyJaxHandler),
+            (jax.Array, types.AbstractShardedArray, DummyJaxHandler),
         )
       else:
         self.fail(f"Unexpected item: {item}")

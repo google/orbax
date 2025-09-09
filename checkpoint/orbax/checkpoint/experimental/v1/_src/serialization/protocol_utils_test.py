@@ -21,6 +21,7 @@ import jax
 import numpy as np
 from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
+from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
 
 
 class ProtocolUtilsTest(absltest.TestCase):
@@ -165,7 +166,7 @@ class ProtocolUtilsTest(absltest.TestCase):
 
     self.assertTrue(
         protocol_utils.is_subclass_protocol(
-            type(npint), numpy_leaf_handler.AbstractNumpy
+            type(npint), serialization_types.AbstractArray
         )
     )
 
@@ -176,7 +177,7 @@ class ProtocolUtilsTest(absltest.TestCase):
                     shape=(), dtype=np.dtype("int32")
                 )
             ),
-            numpy_leaf_handler.AbstractNumpy,
+            serialization_types.AbstractArray,
         )
     )
 

@@ -19,7 +19,7 @@ deserialization for scalar values.
 """
 
 import asyncio
-from typing import Awaitable, Sequence, Type
+from typing import Awaitable, Sequence
 
 from absl import logging
 import jax.numpy as jnp
@@ -29,15 +29,10 @@ from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
-
-Scalar = int | float | np.number
+Scalar = types.Scalar
+AbstractScalar = types.AbstractScalar
 ScalarSerializationParam = types.SerializationParam[Scalar]
-ScalarDeserializationParam = types.DeserializationParam["AbstractScalar"]
-
-
-# Optional type hint for a scalar leaf handler. If provided, the restored scalar
-# will be cast to this type.  Only casting to int or float is supported.
-AbstractScalar = Type[Scalar] | Scalar
+ScalarDeserializationParam = types.DeserializationParam[AbstractScalar]
 
 
 def _create_v0_scalar_handler() -> type_handlers_v0.ScalarHandler:
