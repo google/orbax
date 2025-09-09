@@ -544,18 +544,25 @@ def merge_trees(
   )
 
 
-def format_tree_diff(diff: PyTree, path_prefix: str = '') -> str | None:
+def format_tree_diff(
+    diff: PyTree,
+    path_prefix: str = '',
+    source_label: str = 'Source',
+    target_label: str = 'Target',
+) -> str | None:
   """Format a tree difference structure into a readable multi-line string.
 
   Args:
     diff: object representing the difference between two PyTrees
     path_prefix: Current path prefix for nested structures
+    source_label: Label for the source value
+    target_label: Label for the target value
 
   Returns:
     A formatted string showing the differences in a multi-line structure.
   """
-  source_label = '    - Source:'
-  target_label = '    - Target:'
+  source_label = f'    - {source_label}:'
+  target_label = f'    - {target_label}:'
   missing_symbol = 'MISSING'
 
   lines = []

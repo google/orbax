@@ -942,9 +942,12 @@ class BasePyTreeCheckpointHandler(
           leaves_equal=lambda a, b: True,
       )
       if diff is not None:
+        formatted_diff = tree_structure_utils.format_tree_diff(
+            diff, source_label='Item', target_label='Metadata'
+        )
         raise ValueError(
             'User-provided restore item and on-disk value metadata tree'
-            f' structures do not match: {diff}'
+            f' structures do not match:\n{formatted_diff}'
         )
       value_metadata_tree = jax.tree.map(
           lambda v, i: PLACEHOLDER if type_handlers.is_placeholder(i) else v,
