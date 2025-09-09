@@ -17,7 +17,8 @@
 from collections import abc
 from collections.abc import Iterable
 import functools
-from typing import Any, Callable, Generic, Literal, NamedTuple, Protocol, TypeVar, overload
+import operator
+from typing import Any, Callable, Generic, Literal, NamedTuple, Protocol, Type, TypeVar, overload
 
 import jax
 from orbax.checkpoint._src.tree import parts_of
@@ -541,3 +542,85 @@ def merge_trees(
       lambda acc, t: _recursive_merge(t, acc, overwrite, is_leaf_fn),
       trees,
   )
+
+
+def format_tree_diff(diff: PyTree, path_prefix: str = '') -> str | None:
+  """Format a tree difference structure into a readable multi-line string.
+
+  Args:
+    diff: object representing the difference between two PyTrees
+    path_prefix: Current path prefix for nested structures
+
+  Returns:
+    A formatted string showing the differences in a multi-line structure.
+  """
+  source_label = '    - Source:'
+  target_label = '    - Target:'
+  missing_symbol = 'MISSING'
+
+  lines = []
+
+  # Leaf nodes
+  if isinstance(diff, Diff):
+    if path_prefix:
+      lines.append(f'{path_prefix}:')
+    else:
+      lines.append('Mismatch:')
+
+    def _format_value(value):
+      return missing_symbol if value in (None, parts_of.PLACEHOLDER) else value
+
+    lines.append(f'{source_label} {_format_value(diff.lhs)}')
+    lines.append(f'{target_label} {_format_value(diff.rhs)}')
+    return '\n'.join(lines)
+
+  # Nested nodes
+  children, _ = utils.tree_flatten_with_path_one_level(diff)
+  for path, value in children:
+    key = path[0]
+    if value is not None:
+      if isinstance(key, jax.tree_util.SequenceKey):
+        new_path = f'{path_prefix}[{key.idx}]'
+      elif isinstance(key, jax.tree_util.DictKey):
+        new_path = f'{path_prefix}.{key.key}' if path_prefix else str(key.key)
+      elif isinstance(key, jax.tree_util.GetAttrKey):
+        new_path = f'{path_prefix}.{key.name}' if path_prefix else str(key.name)
+      else:
+        raise ValueError(f'Unsupported key type: {type(key)}')
+
+      formatted = format_tree_diff(value, new_path)
+      if formatted:
+        lines.append(formatted)
+  return '\n\n'.join(lines)
+
+
+class TreeStructureError(ValueError):
+  pass
+
+
+_ErrorType = TypeVar('_ErrorType', bound=Exception)
+
+
+def build_mismatched_tree_structure_error(
+    source_tree: PyTreeOf[Any],
+    target_tree: PyTreeOf[Any],
+    log_message: str,
+    exception_cls: Type[_ErrorType] = TreeStructureError,
+) -> Type[_ErrorType]:
+  """Builds a TreeStructureError pointing to where exactly two trees differ."""
+  if isinstance(source_tree, parts_of.PartsOf):
+    source_tree = source_tree.unsafe_structure
+  if isinstance(target_tree, parts_of.PartsOf):
+    target_tree = target_tree.unsafe_structure
+
+  diff = tree_difference(
+      source_tree,
+      target_tree,
+      leaves_equal=operator.eq,
+  )
+
+  if diff is None:
+    return exception_cls(f'{log_message}. But no diff was found.')
+
+  formatted_diff = format_tree_diff(diff)
+  return exception_cls(f'{log_message}.\n\n{formatted_diff}')
