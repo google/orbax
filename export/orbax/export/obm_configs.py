@@ -37,10 +37,16 @@ class BatchPaddingPolicy(enum.Enum):
 
   Options:
     PAD_UP: Pad up to the next allowed batch size.
+    BATCH_DOWN: Batch down to a smaller allowed batch size.
+
+  See the documentation of BatchOptions.BatchPaddingPolicy for details.
   """
   PAD_UP = "pad_up"
-  # TODO: b/416071759 - Add BATCH_DOWN and MINIMIZE_TPU_COST_PER_REQUEST
-  # policies once they're supported in JSV.
+  BATCH_DOWN = "batch_down"
+  # TODO: b/443993280 - Add MINIMIZE_TPU_COST_PER_REQUEST once it's supported in
+  # JSV.
+
+
 # LINT.ThenChange(//depot//orbax/export/obm_export.py)
 
 

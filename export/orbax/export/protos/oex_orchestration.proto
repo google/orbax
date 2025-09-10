@@ -125,8 +125,39 @@ message BatchOptions {
     PADDING_POLICY_UNSPECIFIED = 0;
     // Pad up to the next allowed batch size.
     PAD_UP = 1;
-    // TODO: b/416071759 - Add BATCH_DOWN and MINIMIZE_TPU_COST_PER_REQUEST
-    // policies once they're supported in JSV.
+    // Batch down to a smaller allowed batch size.
+    //
+    // Batch down trimming will only perform if 1) the batch size does not equal
+    // to any of the allowed batch sizes, 2) there are smaller allowed batch
+    // sizes available and 3) no splitting is needed for an input task to fit
+    // into the batch. If the conditions are not met, the batch size will remain
+    // unchanged and be padded up to the next allowed batch size later.
+    //
+    // For example
+    // Case 1:
+    //     - Allowed batch sizes: {1, 2, 4}
+    //     - Input batch with task sizes: {1, 1, 1}
+    //     - The input batch (size 3) will be trimmed to 2 and the last task
+    //       with size 1 will be put into an out trimmed tasks queue.
+    // Case 2:
+    //     - Allowed batch sizes: {1, 2, 4}
+    //     - Input batch with task sizes: {1, 1, 1, 1}
+    //     - The input batch (size 4) will keep unchanged since the batch size
+    //       equals to the allowed batch size 4.
+    // Case 3:
+    //     - Allowed batch sizes: {4, 8}
+    //     - Input batch with task sizes: {1, 1, 1}
+    //     - The input batch (size 3) will keep unchanged since there is no
+    //       smaller allowed batch size available.
+    // Case 4:
+    //     - Allowed batch sizes: {1, 2, 4, 8}
+    //     - Input batch with task sizes: {1, 2}
+    //     - The input batch (size 3) will keep unchanged because the second
+    //       task with size 2 needs to be split to fit into the batch, but
+    //       splitting is not supported.
+    BATCH_DOWN = 2;
+    // TODO: b/443993280 - Add MINIMIZE_TPU_COST_PER_REQUEST once it's supported
+    // in JSV.
   }
 
   // The padding policy for the batch.
