@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.25] - 2025-09-10
+
 ### Changed
 
 - Move temporary path detection into `TemporaryPath` class. This class serves
@@ -17,6 +19,7 @@ paths.
 - Remove the `jax_pmap_no_rank_reduction=False` code path for
 `utils.fully_replicated_host_local_array_to_global_array`.
 `jax_pmap_no_rank_reduction=True` by default in JAX.
+- Changed to minimum jax version requirement to v0.6.0
 
 ## [0.11.24] - 2025-08-28
 

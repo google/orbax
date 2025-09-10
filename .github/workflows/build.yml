@@ -34,7 +34,7 @@ jobs:
         jax-version: ["newest"]
         include:
           - python-version: "3.10"
-            jax-version: "0.5.0"  # keep in sync with minimum version in checkpoint/pyproject.toml
+            jax-version: "0.6.0"  # keep in sync with minimum version in checkpoint/pyproject.toml
           # TODO(b/401258175) Re-enable once JAX nightlies are fixed.
           # - python-version: "3.13"
           #   jax-version: "nightly"
