@@ -26,6 +26,7 @@ from orbax.checkpoint.experimental.v1 import training
 from orbax.checkpoint.experimental.v1 import path
 from orbax.checkpoint.experimental.v1 import errors
 from orbax.checkpoint.experimental.v1 import serialization
+from orbax.checkpoint.experimental.v1 import partial
 from orbax.checkpoint.experimental.v1._src.context import options
 from orbax.checkpoint.experimental.v1._src.context.context import (
     Context,
