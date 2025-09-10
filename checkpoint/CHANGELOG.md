@@ -14,6 +14,9 @@ as a natural place for encapsulating core temporary path detection logic.
 - Simplify `find_step_path` logic by removing special casing for different
 filesystems - instead depending on `TemporaryPath` to identify uncommitted
 paths.
+- Remove the `jax_pmap_no_rank_reduction=False` code path for
+`utils.fully_replicated_host_local_array_to_global_array`.
+`jax_pmap_no_rank_reduction=True` by default in JAX.
 
 ## [0.11.24] - 2025-08-28
 
