@@ -28,15 +28,15 @@ class PreservationPolicyTest(parameterized.TestCase):
     super().setUp()
     self.preservation_context = preservation_policy_lib.PreservationContext()
 
-  def get_checkpoints(self, n: int):
+  def get_checkpoints(self, steps: Sequence[int] = (0, 1, 2, 3, 4)):
     checkpoints = []
     time_increment = datetime.timedelta(seconds=1)
     start_time = datetime.datetime.now()
-    for i in range(n):
+    for i, step in enumerate(steps):
       current_time = start_time + i * time_increment
       checkpoints.append(
           checkpoint_info.CheckpointInfo(
-              step=i,
+              step=step,
               time=current_time,
               metrics=None
           )
@@ -79,7 +79,8 @@ class PreservationPolicyTest(parameterized.TestCase):
 
     self.assertSequenceEqual(
         expected_preserved_steps,
-        self.get_preserved_checkpoints(self.get_checkpoints(5), policy),
+        self.get_preserved_checkpoints(
+            self.get_checkpoints(), policy),
     )
 
   @parameterized.parameters(
@@ -103,35 +104,45 @@ class PreservationPolicyTest(parameterized.TestCase):
 
     self.assertSequenceEqual(
         expected_preserved_steps,
-        self.get_preserved_checkpoints(self.get_checkpoints(5), policy),
+        self.get_preserved_checkpoints(self.get_checkpoints(), policy),
     )
 
   @parameterized.parameters(
       dict(
           interval_steps=1,
+          steps=[0, 1, 2, 3, 4],
           expected_preserved_steps=[0, 1, 2, 3, 4],
       ),
       dict(
           interval_steps=3,
+          steps=[0, 1, 2, 3, 4],
           expected_preserved_steps=[0, 3],
       ),
       dict(
           interval_steps=6,
+          steps=[0, 1, 2, 3, 4],
           expected_preserved_steps=[0],
       ),
+      dict(
+          interval_steps=3,
+          steps=[0, 1, 2, 4, 5, 8, 9, 13, 14, 25],
+          expected_preserved_steps=[0, 4, 8, 13, 25],
+      ),
   )
-  def test_every_n_steps_policy(self, interval_steps, expected_preserved_steps):
+  def test_every_n_steps_policy(
+      self, interval_steps, steps, expected_preserved_steps
+  ):
     policy = preservation_policy_lib.EveryNSteps(interval_steps=interval_steps)
 
     self.assertEqual(
         expected_preserved_steps,
-        self.get_preserved_checkpoints(self.get_checkpoints(5), policy),
+        self.get_preserved_checkpoints(self.get_checkpoints(steps), policy),
     )
 
   def test_every_zero_steps_policy_raises_error(self):
     policy = preservation_policy_lib.EveryNSteps(interval_steps=0)
     with self.assertRaises(ValueError):
-      self.get_preserved_checkpoints(self.get_checkpoints(5), policy)
+      self.get_preserved_checkpoints(self.get_checkpoints(), policy)
 
   @parameterized.parameters(
       dict(
@@ -152,7 +163,7 @@ class PreservationPolicyTest(parameterized.TestCase):
 
     self.assertEqual(
         expected_preserved_steps,
-        self.get_preserved_checkpoints(self.get_checkpoints(5), policy),
+        self.get_preserved_checkpoints(self.get_checkpoints(), policy),
     )
 
   @parameterized.parameters(
@@ -190,7 +201,7 @@ class PreservationPolicyTest(parameterized.TestCase):
         n=n,
         keep_checkpoints_without_metrics=keep_checkpoints_without_metrics,
     )
-    checkpoints = self.get_checkpoints(5)
+    checkpoints = self.get_checkpoints()
     for i, checkpoint in enumerate(checkpoints):
       if loss[i]:
         checkpoint.metrics = {'loss': loss[i]}
@@ -219,7 +230,8 @@ class PreservationPolicyTest(parameterized.TestCase):
         ]
     )
     loss = [5, None, 4, None, 3, None, 11, None, 8, None, 12, None]
-    checkpoints = self.get_checkpoints(12)
+    steps = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11]
+    checkpoints = self.get_checkpoints(steps)
     for i, checkpoint in enumerate(checkpoints):
       if loss[i]:
         checkpoint.metrics = {'loss': loss[i]}
