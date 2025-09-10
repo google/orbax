@@ -249,6 +249,10 @@ _shlo_dtype_for_float0 = obm.ShloDType.bool
 def _to_shlo_dtype_and_refinement(
     jax_dtype: np.dtype[Any],
 ) -> Tuple[obm.ShloDType, DTypeRefinement | None]:
+  if jax_dtype == jax.numpy.int4:
+    return obm.ShloDType.i4, None
+  if jax_dtype == jax.numpy.uint4:
+    return obm.ShloDType.ui4, None
   if jax_dtype == jax.float0:
     return _shlo_dtype_for_float0, DTypeRefinement.f0
   if jax_dtype == jax.numpy.bfloat16:

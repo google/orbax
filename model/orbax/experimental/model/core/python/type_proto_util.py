@@ -25,10 +25,12 @@ from orbax.experimental.model.core.python.tree_util import Tree
 
 _SHLO_DTYPE_TO_MANIFEST_DTYPE: dict[ShloDType, type_pb2.DType] = {
     ShloDType.bool: type_pb2.DType.i1,
+    ShloDType.i4: type_pb2.DType.si4,
     ShloDType.i8: type_pb2.DType.si8,
     ShloDType.i16: type_pb2.DType.si16,
     ShloDType.i32: type_pb2.DType.si32,
     ShloDType.i64: type_pb2.DType.si64,
+    ShloDType.ui4: type_pb2.DType.ui4,
     ShloDType.ui8: type_pb2.DType.ui8,
     ShloDType.ui16: type_pb2.DType.ui16,
     ShloDType.ui32: type_pb2.DType.ui32,

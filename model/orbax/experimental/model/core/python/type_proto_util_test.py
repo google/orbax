@@ -111,7 +111,7 @@ class ManifestTypeToShloTensorSpecTreeTest(test_utils.ObmTestCase):
                             }
                           }
                         }
-                        dtype: f32
+                        dtype: si4
                         sharding {
                           type: OTHER
                           tile_assignment_dimensions: 4
@@ -220,7 +220,7 @@ class ManifestTypeToShloTensorSpecTreeTest(test_utils.ObmTestCase):
             {
                 "a": ShloTensorSpec(
                     shape=(4, 4),
-                    dtype=ShloDType.f32,
+                    dtype=ShloDType.i4,
                     sharding=a_sharding,
                 ),
                 "b": ShloTensorSpec(
