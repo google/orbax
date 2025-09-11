@@ -807,7 +807,7 @@ class CheckpointerTestBase:
           )
 
           mock_instance.read_event.assert_called_with(
-              cns_path=str(self.directory),
+              checkpoint_path=str(self.directory),
               log_provenance='orbax',
           )
 
