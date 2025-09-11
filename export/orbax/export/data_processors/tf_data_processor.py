@@ -16,11 +16,25 @@
 
 from collections.abc import Callable, Mapping, Sequence
 import functools
-from typing import Any, Tuple
+from typing import Any, Tuple, cast
 
+from absl import logging
 import jax
-from orbax.export import typing
+import jaxtyping
+from orbax.export.data_processors import data_processor_base
 import tensorflow as tf
 
 
-PyTree = typing.PyTree
+class TfDataProcessor(data_processor_base.DataProcessor):
+  """DataProcessor class for TensorFlow-based processors.
+
+  The properties of this class are available only after `prepare()` is called.
+  If a property is accessed before `prepare()` is called, it will raise a
+  ValueError.
+  """
+
+  # This pass statement is a placeholder to prevent an IndentationError.
+  # The code block below is removed by copybara for open-source builds,
+  # and without `pass`, the class would have an empty body, which is a
+  # syntax error.
+  pass
