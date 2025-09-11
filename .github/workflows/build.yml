@@ -24,20 +24,15 @@ concurrency:
 jobs:
   build-checkpoint:
     name: "build-checkpoint (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: ubuntu-latest
+    runs-on: linux-g2-16-l4-1gpu-x4
+    container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
         working-directory: checkpoint
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-        jax-version: ["newest"]
-        include:
-          - python-version: "3.10"
-            jax-version: "0.5.0"  # keep in sync with minimum version in checkpoint/pyproject.toml
-          # TODO(b/401258175) Re-enable once JAX nightlies are fixed.
-          # - python-version: "3.13"
-          #   jax-version: "nightly"
+        python-version: ["3.12"]
+        jax-version: ["0.5.0"]
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
     - name: Set up Python ${{ matrix.python-version }}
@@ -83,20 +78,15 @@ jobs:
 
   build-export:
     name: "build-export (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: ubuntu-latest
+    runs-on: linux-g2-16-l4-1gpu-x4
+    container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
         working-directory: export
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-        jax-version: ["newest"]
-        include:
-          - python-version: "3.10"
-            jax-version: "0.4.34"  # keep in sync with minimum version in export/pyproject.toml
-          # TODO(b/401258175) Re-enable once JAX nightlies are fixed.
-          # - python-version: "3.12"  # TODO(jakevdp): update to 3.13 when tf supports it.
-          #   jax-version: "nightly"
+        python-version: ["3.12"]
+        jax-version: ["0.4.34"]
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
     - name: Set up Python ${{ matrix.python-version }}
@@ -157,19 +147,15 @@ jobs:
 
   build-orbax-model:
     name: "build-orbax-model (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: ubuntu-latest
+    runs-on: linux-g2-16-l4-1gpu-x4
+    container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
         working-directory: model
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-        jax-version: ["newest"]
-        include:
-          - python-version: "3.10"
-            jax-version: "0.5.0"  # keep in sync with minimum version in experimental/model/pyproject.toml
-          # - python-version: "3.13"
-          #   jax-version: "nightly"
+        python-version: ["3.12"]
+        jax-version: ["0.5.0"]
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
     - name: Set up Python ${{ matrix.python-version }}
