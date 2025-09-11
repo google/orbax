@@ -518,13 +518,14 @@ class BasePyTreeCheckpointHandler(
     # Filter out requests that don't have any additions.
     filtered_requests = []
     for request in batch_requests:
-      filtered_items = [
-          (key, value, info, arg)
-          for key, value, info, arg in zip(
-              request.keys, request.values, request.infos, request.args
-          )
-          if key in additions
-      ]
+      filtered_items = []
+      for key, value, info, arg in zip(
+          request.keys, request.values, request.infos, request.args
+      ):
+        for add in additions:
+          # Additions may be a prefix/parent of the key.
+          if add == key[: len(add)]:
+            filtered_items.append((key, value, info, arg))
       if filtered_items:
         keys, values, infos, args = zip(*filtered_items)
         filtered_requests.append(
