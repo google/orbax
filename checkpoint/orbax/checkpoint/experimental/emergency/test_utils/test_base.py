@@ -31,6 +31,7 @@ import optax
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
@@ -845,9 +846,7 @@ class CheckpointManagerTestBase:
         manager.save(i, args=get_composite_save_args(pytree))
         manager.wait_until_finished()
 
-      logging.info('all_steps: %s', manager.all_steps(True))
       manager.reload()
-      logging.info('all_steps: %s', manager.all_steps(True))
       self.assertEqual(sorted(manager.all_steps(True)), expectation)
       manager.restore(8)
       manager.restore(9)
@@ -1592,6 +1591,50 @@ class CheckpointManagerTestBase:
                   persistent_save_interval
               ),
               max_to_keep=max_to_keep,
+          ),
+      )
+      manager = CheckpointManager(
+          local_directory=self.local_directory,
+          persistent_directory=self.persistent_directory,
+          global_mesh=global_mesh,
+          abstract_state=abstract_state,
+          options=options,
+      )
+
+      for i in range(total_steps):
+        manager.save(
+            i,
+            args=get_composite_save_args(pytree),
+        )
+        manager.wait_until_finished()
+
+      self.assertSameElements(
+          manager.all_steps(), local_expectation | persistent_expectation
+      )
+
+    def test_preservation_policy(self):
+      """Test case."""
+      total_steps = 10
+      local_keep_n = 2
+      persistent_keep_interval = 4
+      local_expectation = set(range(total_steps - local_keep_n, total_steps))
+      persistent_expectation = set(
+          range(0, total_steps, persistent_keep_interval)
+      )
+      global_mesh, pytree = self.setup_pytree(self.make_global_mesh())
+      abstract_state = jax.tree.map(utils.to_shape_dtype_struct, pytree)
+      options = CheckpointManagerOptions(
+          local=LocalCheckpointOptions(
+              save_interval_steps=1,
+              preservation_policy=preservation_policy_lib.LatestN(
+                  local_keep_n
+              ),
+          ),
+          persistent=PersistentCheckpointOptions(
+              save_interval_steps=1,
+              preservation_policy=preservation_policy_lib.EveryNSteps(
+                  persistent_keep_interval
+              ),
           ),
       )
       manager = CheckpointManager(
