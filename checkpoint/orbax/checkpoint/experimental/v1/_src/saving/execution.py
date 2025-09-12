@@ -255,6 +255,13 @@ def create_save_response(
   )
 
 
+def _maybe_apply_nest_asyncio():
+  try:
+    nest_asyncio.apply()
+  except RuntimeError:
+    pass
+
+
 def save_checkpointables_impl(
     path: path_types.PathLike,
     checkpointables: dict[str, Any],
@@ -265,7 +272,7 @@ def save_checkpointables_impl(
     partial_save: bool = False,
 ) -> async_types.AsyncResponse[None]:
   """See caller docstrings."""
-  nest_asyncio.apply()
+  _maybe_apply_nest_asyncio()
   context = context_lib.get_context()
   path = epath.Path(path)
   path_exists = path.exists() if partial_save else False
