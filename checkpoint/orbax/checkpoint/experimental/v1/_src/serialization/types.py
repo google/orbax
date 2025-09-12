@@ -39,9 +39,8 @@ PLACEHOLDER = ...
 Scalar = int | float | np.number
 # Optional type hint for a scalar leaf handler. If provided, the restored scalar
 # will be cast to this type.  Only casting to int or float is supported.
-AbstractScalar = Type[Scalar] | Scalar
-
-AbstractString = Type[str]
+AbstractScalar = Scalar
+AbstractString = str
 
 
 class AbstractArray(Protocol):
@@ -110,7 +109,7 @@ class SerializationContext:
 @dataclasses.dataclass
 class DeserializationParam(Generic[AbstractLeaf]):
   keypath: tree_types.PyTreeKeyPath
-  value: AbstractLeaf | None = None
+  value: AbstractLeaf | Type[AbstractLeaf] | None = None
 
   @property
   def name(self) -> str:
@@ -171,7 +170,11 @@ class LeafHandler(Protocol[Leaf, AbstractLeaf]):
     confirm the completion of this data transfer.
 
     Args:
-      params: sequence of DeserializationParam per leaf.
+      params: sequence of DeserializationParam per leaf. The Param contains a
+        value corresponding to the `AbstractLeaf` type. `Type[AbstractLeaf]` is
+        always valid. E.g. if the `AbstractLeaf` is `AbstractFoo`, it is always
+        valid to pass `AbstractFoo()` or `AbstractFoo`. Passing the latter two
+        indicates that metadata should be used to restore the leaf.
       deserialization_context: DeserializationContext for the leaf handler.
 
     Returns:

@@ -303,6 +303,24 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       directory: path_types.Path,
       abstract_checkpointable: PyTree | None = None,
   ) -> Awaitable[PyTree]:
+    """Loads a PyTree from a checkpoint directory.
+
+    Args:
+      directory: The directory to load from.
+      abstract_checkpointable: The abstract checkpointable to load into. If
+        None, the handler will attempt to load the entire checkpoint using the
+        recorded metadata. Otherwise, the `abstract_checkpointable` is expected
+        to be a PyTree of abstract leaves. See :py:class:`.LeafHandler` for more
+        details. The abstract leaf may be a value of type `AbstractLeaf`,
+        `Type[AbstractLeaf]`, or `None`. E.g. if the `AbstractLeaf` is
+        `AbstractFoo`, it is always valid to pass `AbstractFoo()` or
+        `AbstractFoo` or `None`. Passing the latter two indicates that metadata
+        should be used to restore the leaf.
+
+    Returns:
+      A awaitable which can be awaited to complete the load operation and
+      obtain a PyTree.
+    """
     self._validate_abstract_leaves_handleable(abstract_checkpointable)
     return self._background_load(directory, abstract_checkpointable)
 
