@@ -185,8 +185,8 @@ class PersistentCheckpointOptions:
     may be considered for deletion when there are more than `max_to_keep`
     checkpoints present.
   keep_period:
-    If set, any existing checkpoints matching checkpoint_step % keep_period == 0
-    will not be deleted.
+    If set, any existing checkpoints after every at least keep_period steps will 
+    be preserved.
   should_save_fn:
     Predicate callable to check if given step can be saved. This callable
     accepts step number and optional latest step number as param and returns
