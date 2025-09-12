@@ -23,6 +23,7 @@ from typing import Any, Dict, Tuple, cast
 from absl import logging
 import jax
 from jax import export as jax_export
+import jaxtyping
 from orbax.export import constants
 from orbax.export import export_base
 from orbax.export import jax_module
@@ -34,9 +35,6 @@ from orbax.export import utils
 from orbax.export.modules import obm_module
 from orbax.export.protos import oex_orchestration_pb2
 import tensorflow as tf
-
-
-PyTree = typing.PyTree
 
 
 class ObmExport(export_base.ExportBase):
