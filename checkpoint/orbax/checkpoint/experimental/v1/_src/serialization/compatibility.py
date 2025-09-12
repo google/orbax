@@ -33,7 +33,6 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
-from orbax.checkpoint.experimental.v1._src.serialization import string_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import types
 from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -114,10 +113,13 @@ def _construct_deserialization_param(
     info: types_v0.ParamInfo,
     restore_args: types_v0.RestoreArgs,
 ) -> types.DeserializationParam[
-    array_leaf_handler.AbstractArray
-    | numpy_leaf_handler.AbstractNumpy
-    | scalar_leaf_handler.AbstractScalar
-    | string_leaf_handler.AbstractString
+    types.AbstractShardedArray
+    | types.AbstractArray
+    | Type[types.AbstractArray]
+    | types.AbstractScalar
+    | Type[types.AbstractScalar]
+    | types.AbstractString
+    | Type[types.AbstractString]
     | None
 ]:
   """Constructs a DeserializationParam from a ParamInfo and RestoreArg."""
@@ -157,15 +159,8 @@ def _construct_deserialization_param(
     else:
       sharding = None
 
-    if sharding is None:
-      # it's a numpy type
-      value = numpy_leaf_handler.NumpyShapeDtype(
-          dtype=arg.dtype,
-          shape=arg.shape,
-      )
-    else:
-      # it's a jax.Array type
-      value = jax.ShapeDtypeStruct(arg.shape, arg.dtype, sharding=sharding)
+    # Restore as jax.Array regardless of whether sharding is None.
+    value = jax.ShapeDtypeStruct(arg.shape, arg.dtype, sharding=sharding)
   elif info.write_shape is not None:
     # TODO(dnlng): this is needed due to write_shape is passed into the
     # metadata() call, and then returned metadata will include this write_shape
@@ -259,7 +254,7 @@ def _validate_deserialization_infos(
 def _convert_v1_metadata_to_v0(
     name: str,
     directory: epath.Path | None,
-    metadata: array_leaf_handler.AbstractArray,
+    metadata: types.AbstractShardedArray,
 ) -> value_metadata.Metadata:
   """Wrap V1 metadata into V0Metadata."""
   return V0Metadata(

@@ -299,18 +299,23 @@ class MultiProcessTest(absltest.TestCase):
   def setUp(self):
     """Start distributed service."""
     super().setUp()
-    assert jax.process_count() == NUM_PROCESSES.value, (
-        jax.process_count(),
-        NUM_PROCESSES.value,
-    )
-    # Make sure all processes are at the same test case.
-    client = multihost.get_jax_distributed_client()
-    # Note that the name of this barrier is long and complicated, to prevent
-    # any collisions with barriers in user test code.
-    client.wait_at_barrier(
-        f"multiprocess_test_ensure_all_processes_arrive_at_test_case_{self._testMethodName}",
-        10000,
-    )
+    if multihost.is_pathways_backend():
+      assert (
+          jax.process_count() == 1
+      ), "Expected 1 process for Pathways backend."
+    else:
+      assert jax.process_count() == NUM_PROCESSES.value, (
+          jax.process_count(),
+          NUM_PROCESSES.value,
+      )
+      # Make sure all processes are at the same test case.
+      client = multihost.get_jax_distributed_client()
+      # Note that the name of this barrier is long and complicated, to prevent
+      # any collisions with barriers in user test code.
+      client.wait_at_barrier(
+          f"multiprocess_test_ensure_all_processes_arrive_at_test_case_{self._testMethodName}",
+          10000,
+      )
 
   def multiprocess_create_tempdir(
       self, name: str | None = None
