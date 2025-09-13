@@ -395,7 +395,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
       return [
           epath.Path(f'gs://{bucket_name}/{folder}')
           for folder in result.prefixes
-          if folder.startswith(os.path.join(path_prefix, self.step_prefix))
+          if folder.startswith(os.path.join(path_prefix, step_prefix_with_underscore(self.step_prefix)))
       ]
     else:
       return list(
