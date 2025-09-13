@@ -20,11 +20,10 @@ deserialization for jax.Arrays.
 
 import asyncio
 import dataclasses
-from typing import Awaitable, Protocol, Sequence, cast
+from typing import Awaitable, Sequence, cast
 
 from absl import logging
 import jax
-import jax.experimental.layout as jax_layout
 import jax.numpy as jnp
 from orbax.checkpoint._src.arrays import types as arrays_types_v0
 from orbax.checkpoint._src.futures import future
@@ -36,43 +35,13 @@ from orbax.checkpoint.experimental.v1._src.serialization import types
 
 
 ArraySerializationParam = types.SerializationParam[jax.Array]
-ArrayDeserializationParam = types.DeserializationParam["AbstractArray"]
+ArrayDeserializationParam = types.DeserializationParam["AbstractShardedArray"]
 Shape = arrays_types_v0.Shape
-
-if jax.__version_info__ >= (0, 6, 2):
-  Format = jax_layout.Format
-else:
-  Format = jax_layout.Layout
-
-
-class AbstractArray(Protocol):
-  """Abstract representation of an array.
-
-  This is a protocol for an abstract array that can be used to represent various
-  metadata types such as jax.ShapeDtypeStruct and ArrayMetadata.
-
-  #TODO(dnlng): All attributes are made optional to support the case where
-  # the ArrayMetadata is passed into the metadata() call to pass only the
-  # `write_shape`.  Optional attributes are not needed once write_shape is
-  # refactored.
-
-
-  shape:
-    Tuple of integers describing the array shape.
-  dtype:
-    Dtype of array elements.
-  Sharding:
-    Sharding to indicate how the array is sharded. This can be jax's Sharding or
-    Layout or None.
-  """
-
-  shape: Shape | None
-  dtype: jax.numpy.dtype | None
-  sharding: jax.sharding.Sharding | Format | None  # pytype: disable=unsupported-operands
+AbstractShardedArray = types.AbstractShardedArray
 
 
 @dataclasses.dataclass
-class ArrayMetadata:
+class ArrayMetadata(AbstractShardedArray):
   """Array Metadata for the ArrayLeafHandler.
 
   shape:
@@ -172,7 +141,7 @@ def _create_v0_savearg(
 def _create_v0_restore_paraminfo(
     param: (
         types.DeserializationParam[None]
-        | types.DeserializationParam[AbstractArray]
+        | types.DeserializationParam[AbstractShardedArray]
     ),
     context: context_lib.Context,
     deserialization_context: types.DeserializationContext,
@@ -230,7 +199,7 @@ async def _async_futures(commit_futures: Sequence[future.Future]):
   await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
 
 
-class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractArray]):
+class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
   """ArrayLeafHandler that implements the types.LeafHandler Protocol."""
 
   def __init__(
@@ -302,9 +271,9 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractArray]):
 
   async def metadata(
       self,
-      params: Sequence[types.DeserializationParam[None | AbstractArray]],
+      params: Sequence[types.DeserializationParam[None | AbstractShardedArray]],
       deserialization_context: types.DeserializationContext,
-  ) -> Sequence[AbstractArray]:
+  ) -> Sequence[AbstractShardedArray]:
     """Returns a squence of ArrayMetadata from a stored checkpointable location.
 
     Args:

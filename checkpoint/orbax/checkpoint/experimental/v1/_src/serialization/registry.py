@@ -34,11 +34,11 @@ import typing_extensions
 STANDARD_TYPE_AND_ABSTRACT_TYPE_TO_HANDLER = {
     (
         jax.Array,
-        array_leaf_handler.AbstractArray,
+        types.AbstractShardedArray,
     ): array_leaf_handler.ArrayLeafHandler,
     (
         np.ndarray,
-        numpy_leaf_handler.AbstractNumpy,
+        types.AbstractArray,
     ): numpy_leaf_handler.NumpyLeafHandler,
     (
         int,
