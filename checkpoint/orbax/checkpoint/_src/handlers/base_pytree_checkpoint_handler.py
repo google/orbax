@@ -115,17 +115,16 @@ def _log_io_metrics(
   bytes_per_sec = (
       float('nan') if time_elapsed == 0 else float(size) / time_elapsed
   )
-  gbytes_per_sec = bytes_per_sec / (1024**3)
   logging.info(
       '[process=%d] %s: %s/s (total gbytes: %s) (time elapsed: %s) (per-host)',
       multihost.process_index(),
       gbytes_per_sec_metric,
-      humanize.naturalsize(gbytes_per_sec, binary=True),
+      humanize.naturalsize(bytes_per_sec, binary=True, format='%.3f'),
       humanize.naturalsize(size, binary=True),
       humanize.naturaldelta(time_elapsed, minimum_unit='microseconds'),
   )
   jax.monitoring.record_event(
-      gbytes_per_sec_metric, gbytes_per_sec=f'{gbytes_per_sec:.3f}'
+      gbytes_per_sec_metric, gbytes_per_sec=f'{bytes_per_sec / (1024 ** 3):.3f}'
   )
   if gbytes_metric is not None:
     jax.monitoring.record_event(
