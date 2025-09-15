@@ -26,6 +26,8 @@ from orbax.export import serving_config as osc
 from orbax.export import utils
 import tensorflow as tf
 
+from .security.bcid.tree_verity.public import tree_verity_pb2
+
 obx_export_config = config.config
 maybe_reraise = reraise_utils.maybe_reraise
 
