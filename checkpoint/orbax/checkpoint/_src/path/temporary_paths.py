@@ -61,9 +61,6 @@ async def is_path_temporary(
 
   Returns:
     True if the checkpoint is a recognized temporary checkpoint.
-
-  Raises:
-    Validation error if the provided path cannot be recognized.
   """
   path = epath.Path(path)
   temporary_path_cls = (
@@ -73,14 +70,7 @@ async def is_path_temporary(
   try:
     await temporary_path_cls.validate(path)
     return True
-  except ValidationError as e:
-    logging.warning(
-        'Path %s could not be identified as a temporary checkpoint path using'
-        ' %s. Got error: %s',
-        path,
-        temporary_path_cls,
-        e,
-    )
+  except ValidationError:
     return False
 
 
@@ -110,9 +100,6 @@ async def is_path_finalized(
 
   Returns:
     True if the checkpoint is finalized.
-
-  Raises:
-    Validation error if the provided path cannot be recognized.
   """
   path = epath.Path(path)
   temporary_path_cls = (
@@ -122,14 +109,7 @@ async def is_path_finalized(
   try:
     await temporary_path_cls.validate_final(path)
     return True
-  except ValidationError as e:
-    logging.warning(
-        'Path %s could not be identified as a finalized checkpoint path using'
-        ' %s. Got error: %s',
-        path,
-        temporary_path_cls,
-        e,
-    )
+  except ValidationError:
     return False
 
 
