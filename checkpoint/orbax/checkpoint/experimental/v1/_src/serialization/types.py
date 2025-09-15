@@ -17,16 +17,73 @@
 import dataclasses
 from typing import Any, Awaitable, Generic, Protocol, Sequence, Tuple, Type, TypeVar
 
+import jax
+import jax.experimental.layout as jax_layout
+import numpy as np
+from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.serialization import serialization as serialization_v0
 from orbax.checkpoint._src.tree import utils as tree_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 import tensorstore as ts
 
+
 Leaf = TypeVar('Leaf')
 AbstractLeaf = TypeVar('AbstractLeaf')
 
+Shape = arrays_types.Shape
+DType = arrays_types.DType
+
 PLACEHOLDER = ...
+
+Scalar = int | float | np.number
+# Optional type hint for a scalar leaf handler. If provided, the restored scalar
+# will be cast to this type.  Only casting to int or float is supported.
+AbstractScalar = Type[Scalar] | Scalar
+
+AbstractString = Type[str]
+
+
+class AbstractArray(Protocol):
+  """Abstract representation of an array.
+
+  This is a protocol for an abstract array that can be used to represent
+  the metadata belonging to an array.
+
+  shape:
+    Tuple of integers describing the array shape.
+  dtype:
+    Dtype of array elements.
+  """
+
+  shape: Shape | None
+  dtype: DType | None
+
+
+class AbstractShardedArray(Protocol):
+  """Abstract representation of an array.
+
+  This is a protocol for an abstract array that can be used to represent various
+  metadata types such as jax.ShapeDtypeStruct and ArrayMetadata.
+
+  #TODO(dnlng): All attributes are made optional to support the case where
+  # the ArrayMetadata is passed into the metadata() call to pass only the
+  # `write_shape`.  Optional attributes are not needed once write_shape is
+  # refactored.
+
+
+  shape:
+    Tuple of integers describing the array shape.
+  dtype:
+    Dtype of array elements.
+  Sharding:
+    Sharding to indicate how the array is sharded. This can be jax's Sharding or
+    Layout or None.
+  """
+
+  shape: Shape | None
+  dtype: DType | None
+  sharding: jax.sharding.Sharding | jax_layout.Format | None = None  # pytype: disable=unsupported-operands
 
 
 def is_placeholder(value: Any) -> bool:

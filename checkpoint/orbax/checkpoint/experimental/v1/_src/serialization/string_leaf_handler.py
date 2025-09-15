@@ -19,7 +19,7 @@ deserialization for strings.
 """
 
 import asyncio
-from typing import Awaitable, Sequence, Type
+from typing import Awaitable, Sequence
 
 from absl import logging
 from orbax.checkpoint._src.futures import future
@@ -27,8 +27,7 @@ from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
-
-AbstractString = Type[str]
+AbstractString = types.AbstractString
 StringSerializationParam = types.SerializationParam[str]
 StringDeserializationParam = types.DeserializationParam[AbstractString]
 

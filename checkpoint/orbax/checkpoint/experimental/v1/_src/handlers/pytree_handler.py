@@ -33,9 +33,7 @@ from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import compatibility
-from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 from orbax.checkpoint.experimental.v1._src.serialization import registry
 from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
@@ -150,14 +148,14 @@ def _restore_type_by_abstract_type(
     else:
       abstract_type = type(abstract_checkpointable)
 
-    # Make sure test with AbstractArray before AbstractNumpy otherwise Numpy
-    # will be matched first.
+    # Make sure test with AbstractShardedArray before AbstractArray otherwise
+    # Numpy will be matched first.
     if protocol_utils.is_subclass_protocol(
-        abstract_type, array_leaf_handler.AbstractArray
+        abstract_type, serialization_types.AbstractShardedArray
     ):
       ret = jax.Array
     elif protocol_utils.is_subclass_protocol(
-        abstract_type, numpy_leaf_handler.AbstractNumpy
+        abstract_type, serialization_types.AbstractArray
     ):
       ret = np.ndarray
     elif issubclass(abstract_type, get_args(scalar_leaf_handler.Scalar)):
