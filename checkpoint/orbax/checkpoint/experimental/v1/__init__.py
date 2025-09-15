@@ -28,6 +28,7 @@ from orbax.checkpoint.experimental.v1 import partial
 from orbax.checkpoint.experimental.v1 import path
 from orbax.checkpoint.experimental.v1 import serialization
 from orbax.checkpoint.experimental.v1 import training
+from orbax.checkpoint.experimental.v1 import tree
 from orbax.checkpoint.experimental.v1.handlers import (
     CheckpointableHandler,
     StatefulCheckpointable,
