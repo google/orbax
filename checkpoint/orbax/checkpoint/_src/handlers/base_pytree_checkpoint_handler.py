@@ -487,7 +487,7 @@ class BasePyTreeCheckpointHandler(
         if diff.rhs is None:  # Leaf was not in the on-disk metadata
           additions.add(keypath)
         else:  # Leaf was also in the on-disk metadata
-          raise ValueError(
+          raise NotImplementedError(
               f'Key "{keypath}" was found in the on-disk PyTree metadata and'
               ' supplied item. Partial saving currently does not support'
               ' REPLACEMENT. Please reach out to the Orbax team if you need'
