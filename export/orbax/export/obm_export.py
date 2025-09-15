@@ -23,7 +23,6 @@ from typing import Any, Dict, Tuple, cast
 from absl import logging
 import jax
 from jax import export as jax_export
-import jaxtyping
 from orbax.export import constants
 from orbax.export import export_base
 from orbax.export import jax_module

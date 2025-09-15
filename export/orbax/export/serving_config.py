@@ -20,8 +20,10 @@ from typing import Any, Optional, Text, Union
 from absl import logging
 import jax
 import jaxtyping
-from orbax.export.data_processors import data_processor_base
 import tensorflow as tf
+
+
+PyTree = jaxtyping.PyTree
 
 
 @dataclasses.dataclass
@@ -40,18 +42,11 @@ class ServingConfig:
   # `tf_preprocessor`, in which case `tf_preprocessor` must be a tf.function
   # with `input_signature` annotation. See
   # https://www.tensorflow.org/api_docs/python/tf/function#input_signatures.
-  input_signature: Optional[Sequence[jaxtyping.PyTree]] = None
+  input_signature: Optional[Sequence[PyTree]] = None
   # Optional pre-precessing function written in TF.
   tf_preprocessor: Optional[Callable[..., Any]] = None
   # Optional post-processing function written in TF.
   tf_postprocessor: Optional[Callable[..., Any]] = None
-  #
-  # Optional sequence of `DataProcessor`s to be applied before the main model
-  # function.
-  preprocessors: Sequence[data_processor_base.DataProcessor] = ()
-  # Optional sequence of `DataProcessor`s to be applied after the main model
-  # function.
-  postprocessors: Sequence[data_processor_base.DataProcessor] = ()
   # A nested structure of tf.saved_model.experimental.TrackableResource that are
   # used in `tf_preprocessor` and/or `tf_postprocessor`. If a TrackableResource
   # an attritute of the `tf_preprocessor` (or `tf_postprocessor`), and the
@@ -129,8 +124,7 @@ class ServingConfig:
   def bind(
       self,
       infer_step_fns: Union[
-          Callable[[jaxtyping.PyTree], jaxtyping.PyTree],
-          Mapping[str, Callable[[jaxtyping.PyTree], jaxtyping.PyTree]],
+          Callable[[PyTree], PyTree], Mapping[str, Callable[[PyTree], PyTree]]
       ],
       require_numpy: bool = True,
   ) -> Mapping[str, Callable[..., Mapping[Text, Any]]]:
