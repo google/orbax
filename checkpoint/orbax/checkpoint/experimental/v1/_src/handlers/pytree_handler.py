@@ -269,7 +269,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       self, directory: path_types.PathAwaitingCreation, checkpointable: PyTree
   ) -> Awaitable[None]:
 
-    self._validate_leaves_handleable(checkpointable)
+    self.validate_leaves_handleable(checkpointable)
 
     commit_futures = await self._handler_impl.async_save(
         directory.path,
@@ -303,7 +303,25 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       directory: path_types.Path,
       abstract_checkpointable: PyTree | None = None,
   ) -> Awaitable[PyTree]:
-    self._validate_abstract_leaves_handleable(abstract_checkpointable)
+    """Loads a PyTree from a checkpoint directory.
+
+    Args:
+      directory: The directory to load from.
+      abstract_checkpointable: The abstract checkpointable to load into. If
+        None, the handler will attempt to load the entire checkpoint using the
+        recorded metadata. Otherwise, the `abstract_checkpointable` is expected
+        to be a PyTree of abstract leaves. See :py:class:`.LeafHandler` for more
+        details. The abstract leaf may be a value of type `AbstractLeaf`,
+        `Type[AbstractLeaf]`, or `None`. E.g. if the `AbstractLeaf` is
+        `AbstractFoo`, it is always valid to pass `AbstractFoo()` or
+        `AbstractFoo` or `None`. Passing the latter two indicates that metadata
+        should be used to restore the leaf.
+
+    Returns:
+      A awaitable which can be awaited to complete the load operation and
+      obtain a PyTree.
+    """
+    self.validate_abstract_leaves_handleable(abstract_checkpointable)
     return self._background_load(directory, abstract_checkpointable)
 
   async def metadata(
@@ -318,7 +336,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
 
     return jax.tree.map(_unwrap, v0_metadata)
 
-  def _validate_leaves_handleable(self, checkpointable: PyTree):
+  def validate_leaves_handleable(self, checkpointable: PyTree):
     missing_leaf_types = set()
 
     def _validate_handleable_leaf(leaf: Any):
@@ -335,14 +353,14 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     )
 
     if missing_leaf_types:
-      raise ValueError(
+      raise registry.UnregisteredTypeError(
           'The following leaf types are not registered in the'
           f' `LeafHandlerRegistry`: [{missing_leaf_types}]. Please register a'
           ' `LeafHandler` for each type in the `LeafHandlerRegistry` and'
           ' assign it into the `PyTreeOptions` in the `Context`.'
       )
 
-  def _validate_abstract_leaves_handleable(
+  def validate_abstract_leaves_handleable(
       self, abstract_checkpointable: PyTree
   ):
     missing_abstract_leaf_types = set()
@@ -361,7 +379,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     )
 
     if missing_abstract_leaf_types:
-      raise ValueError(
+      raise registry.UnregisteredTypeError(
           'The following abstract leaf types are not registered in the'
           f' `LeafHandlerRegistry`: [{missing_abstract_leaf_types}]. Please'
           ' register a `LeafHandler` for each type in the'
@@ -370,7 +388,10 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       )
 
   def is_handleable(self, checkpointable: Any) -> bool:
+    logging.info('is_handleable: %s', checkpointable)
     try:
+      if not checkpointable:
+        return False
       # If it's a leaf or an empty pytree container, it's not handleable.
       return not jax.tree_util.treedef_is_leaf(
           jax.tree.structure(checkpointable)

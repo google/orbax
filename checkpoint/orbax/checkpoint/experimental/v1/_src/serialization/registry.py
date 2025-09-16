@@ -28,6 +28,14 @@ from orbax.checkpoint.experimental.v1._src.serialization import types
 import typing_extensions
 
 
+class AlreadyRegisteredTypeError(ValueError):
+  """Raised when a leaf is already registered."""
+
+
+class UnregisteredTypeError(ValueError):
+  """Raised when a leaf is not registered."""
+
+
 # The standard type and abstract type to handler mapping.
 # The type to abstract type pairs are well defined standard and users should
 # rarely need to override the pair.
@@ -90,7 +98,7 @@ class BaseLeafHandlerRegistry:
       self, leaf_type: Type[types.Leaf]
   ) -> Type[types.LeafHandler[types.Leaf, Any]]:
     if (handler_type := self._try_get(leaf_type)) is None:
-      raise ValueError(
+      raise UnregisteredTypeError(
           f'Unknown Leaf type: "{leaf_type}". Must register it with'
           ' LeafHandlerRegistry.'
       )
@@ -122,7 +130,7 @@ class BaseLeafHandlerRegistry:
       abstract_type: Type[types.AbstractLeaf],
   ) -> Type[types.LeafHandler[Any, types.AbstractLeaf]]:
     if (handler_type := self._try_get_abstract(abstract_type)) is None:
-      raise ValueError(
+      raise UnregisteredTypeError(
           f'Unknown AbstractLeaf type: "{abstract_type}". Must register it with'
           ' LeafHandlerRegistry.'
       )
@@ -156,7 +164,7 @@ class BaseLeafHandlerRegistry:
     current_abstract_handle_type = self._try_get_abstract(abstract_type)
 
     if not override and (current_handler_type or current_abstract_handle_type):
-      raise ValueError(
+      raise AlreadyRegisteredTypeError(
           f'Leaf_type[{leaf_type}] or abstract_type[{abstract_type}] has'
           f' already registered, current_handler: {current_handler_type}, '
           f'current_abstract_handle_type: {current_abstract_handle_type}'
@@ -177,7 +185,7 @@ class BaseLeafHandlerRegistry:
         current_abstract_handle_type
         and current_handler_type != current_abstract_handle_type
     ):
-      raise ValueError(
+      raise AlreadyRegisteredTypeError(
           f'Abstract_type[{abstract_type}] has already registered with a'
           ' different type.'
       )

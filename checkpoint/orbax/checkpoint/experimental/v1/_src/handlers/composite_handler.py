@@ -213,12 +213,15 @@ class CompositeHandler:
       self, checkpointables: dict[str, Any]
   ) -> dict[str, handler_types.CheckpointableHandler]:
     """Returns a mapping from checkpointable name to handler."""
-    return {
+    result = {
         checkpointable_name: registration.resolve_handler_for_save(
             self._handler_registry, checkpointable, name=checkpointable_name
         )
         for checkpointable_name, checkpointable in checkpointables.items()
     }
+    for name, handler in result.items():
+      logging.info('Resolved handler type %s for %s', type(handler), name)
+    return result
 
   def get_handlers_for_load(
       self, directory: path_types.Path, abstract_checkpointables: dict[str, Any]
@@ -247,6 +250,8 @@ class CompositeHandler:
           handler_typestr=handler_typestr,
       )
       loadable_checkpointable_names_to_handlers[name] = handler
+    for name, handler in loadable_checkpointable_names_to_handlers.items():
+      logging.info('Resolved handler type %s for %s', type(handler), name)
     return loadable_checkpointable_names_to_handlers
 
   def _get_saved_handler_typestrs(

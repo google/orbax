@@ -20,6 +20,7 @@ deserialization for jax.Arrays.
 
 import asyncio
 import dataclasses
+import typing
 from typing import Awaitable, Sequence, cast
 
 from absl import logging
@@ -31,13 +32,16 @@ from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
 
-ArraySerializationParam = types.SerializationParam[jax.Array]
-ArrayDeserializationParam = types.DeserializationParam["AbstractShardedArray"]
 Shape = arrays_types_v0.Shape
 AbstractShardedArray = types.AbstractShardedArray
+ArraySerializationParam = types.SerializationParam[jax.Array]
+ArrayDeserializationParam = types.DeserializationParam[
+    AbstractShardedArray
+]
 
 
 @dataclasses.dataclass
@@ -148,12 +152,15 @@ def _create_v0_restore_paraminfo(
 ) -> type_handlers_v0.ParamInfo:
   """Creates a V0 ParamInfo from V1 params and contexts for loading."""
 
-  loading_options = context.array_options.Loading
+  loading_options = context.array_options.loading
 
   if isinstance(param.value, ArrayMetadata):
     # the write_shape is populated for metadata() calls.
     v = cast(ArrayMetadata, param.value)
-    write_shape = v.storage_metadata.write_shape
+    if v.storage_metadata is not None:
+      write_shape = v.storage_metadata.write_shape
+    else:
+      write_shape = None
   else:
     write_shape = None
 
@@ -176,23 +183,20 @@ def _create_v0_restorearg(
     context: context_lib.Context,
 ) -> type_handlers_v0.ArrayRestoreArgs:
   """Creates a V0 ArrayRestoreArgs from V1 params."""
-
-  if param.value is None:
+  value = param.value
+  if value is None or isinstance(value, type):
     return type_handlers_v0.ArrayRestoreArgs(restore_type=jax.Array)
-  else:
-    v = param.value
-    if not isinstance(v, (jax.Array, jax.ShapeDtypeStruct, ArrayMetadata)):
-      raise ValueError(
-          "ArrayDeserializationParam.value is an unsupported type:"
-          f" {type(v)} for param.name: {param.name}"
-      )
+  elif protocol_utils.is_subclass_protocol(value, AbstractShardedArray):
+    value = typing.cast(AbstractShardedArray, value)
     return type_handlers_v0.ArrayRestoreArgs(
         restore_type=jax.Array,
-        dtype=v.dtype,
-        sharding=v.sharding,
-        shape=v.shape,
+        dtype=value.dtype,
+        sharding=value.sharding,
+        shape=value.shape,
         strict=not context.array_options.loading.enable_padding_and_truncation,
     )
+  else:
+    raise TypeError(f'Unrecognized abstract value type: {type(value)}')
 
 
 async def _async_futures(commit_futures: Sequence[future.Future]):
@@ -212,7 +216,7 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
         self._context,
     )
 
-    logging.vlog(1, "ArrayLeafHandler created.")
+    logging.vlog(1, 'ArrayLeafHandler created.')
 
   async def serialize(
       self,
@@ -302,7 +306,7 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
         )
         ret.append(array_metadata)
 
-        logging.vlog(1, "array_metadata: %r", array_metadata)
+        logging.vlog(1, 'array_metadata: %r', array_metadata)
 
       return ret
 

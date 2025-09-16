@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- #v1 Add `LeafHandler` as a `CheckpointableHandler`, so that ordinary PyTree
+leaves can also be saved as individual checkpointables.
+- #v1 Modify LeafHandler definitions so that `AbstractLeaf` or
+`Type[AbstractLeaf]` are always accepted as valid abstract values.
+
 ## [0.11.25] - 2025-09-10
 
 ### Changed
