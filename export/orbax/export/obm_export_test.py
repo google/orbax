@@ -28,7 +28,6 @@ from orbax.export import obm_export
 from orbax.export import oex_orchestration
 from orbax.export import serving_config as osc
 from orbax.export import utils
-from orbax.export.protos import oex_orchestration_pb2
 import tensorflow as tf
 
 

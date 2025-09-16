@@ -17,5 +17,4 @@
 from typing import Any, Dict, List, Sequence, Tuple, TypeVar
 
 from absl import logging
-from orbax.export.protos import oex_orchestration_pb2
 import tensorflow as tf

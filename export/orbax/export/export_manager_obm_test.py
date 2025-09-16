@@ -22,7 +22,6 @@ from orbax.export import constants
 from orbax.export import export_manager
 from orbax.export import export_testing_utils
 from orbax.export import oex_orchestration
-from orbax.export.protos import oex_orchestration_pb2
 import tensorflow as tf
 
 
