@@ -42,6 +42,7 @@ from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpoint_utils
+from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
@@ -158,17 +159,36 @@ class LocalCheckpointOptions:
     is the sole means of determining when a checkpoint should be saved. If not
     provided, these other options are used instead. Prefer to use this option
     over others.
+  preservation_policy: An object used to determine which checkpoints to
+    preserve. If provided, overrides any other options dealing with this
+    subject, including `max_to_keep`, `keep_time_interval`, `keep_period`, and
+    `should_keep_fn`, `best_fn`, and is the sole means of determining which
+    checkpoints to preserve. If not provided, these other options are used
+    instead. Prefer to use this option over others.
   """
 
   save_interval_steps: int = 10
-  max_to_keep: int = 1
+  max_to_keep: Optional[int] = None
   read_only: bool = False
   should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
   save_decision_policy: Optional[
       save_decision_policy_lib.SaveDecisionPolicy
   ] = None
+  preservation_policy: Optional[
+      preservation_policy_lib.PreservationPolicy
+  ] = None
 
   debug_use_full_global_mesh: bool = False
+
+  def __post_init__(self):
+    if self.preservation_policy is not None:
+      if self.max_to_keep is not None:
+        raise ValueError(
+            'If `preservation_policy` is provided, `max_to_keep` must be'
+            ' left to its default value (None).'
+        )
+    elif self.max_to_keep is None:
+      self.max_to_keep = 1
 
 
 @dataclasses.dataclass
@@ -198,6 +218,12 @@ class PersistentCheckpointOptions:
     is the sole means of determining when a checkpoint should be saved. If not
     provided, these other options are used instead. Prefer to use this option
     over others.
+  preservation_policy: An object used to determine which checkpoints to
+    preserve. If provided, overrides any other options dealing with this
+    subject, including `max_to_keep`, `keep_time_interval`, `keep_period`, and
+    `should_keep_fn`, `best_fn`, and is the sole means of determining which
+    checkpoints to preserve. If not provided, these other options are used
+    instead. Prefer to use this option over others.
   """
 
   save_interval_steps: int = 1000
@@ -207,6 +233,22 @@ class PersistentCheckpointOptions:
   save_decision_policy: Optional[
       save_decision_policy_lib.SaveDecisionPolicy
   ] = None
+  preservation_policy: Optional[
+      preservation_policy_lib.PreservationPolicy
+  ] = None
+
+  def __post_init__(self):
+    if self.preservation_policy is not None:
+      if self.max_to_keep is not None:
+        raise ValueError(
+            'If `preservation_policy` is provided, `max_to_keep` must be'
+            ' left to its default value (None).'
+        )
+      if self.keep_period is not None:
+        raise ValueError(
+            'If `preservation_policy` is provided, `keep_period` must be'
+            ' left to its default value (None).'
+        )
 
 
 @dataclasses.dataclass
@@ -396,6 +438,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         step_name_format=options.step_name_format,
         should_save_fn=options.local.should_save_fn,
         save_decision_policy=options.local.save_decision_policy,
+        preservation_policy=options.local.preservation_policy,
         create=False,
         # we always clean up local tmp directories explicitly
         cleanup_tmp_directories=False,
@@ -450,6 +493,7 @@ def _get_persistent_options(
       should_save_fn=options.persistent.should_save_fn,
       save_root_metadata=False,
       save_decision_policy=options.persistent.save_decision_policy,
+      preservation_policy=options.persistent.preservation_policy,
   )
 
 
@@ -598,8 +642,8 @@ class _MultisliceCheckpointManager(
           primary_replica_id
       )
 
-    self._local_steps = []
-    self._persistent_steps = []
+    self._local_latest_step = None
+    self._persistent_latest_step = None
     # clean up tmp directories in ram
     self._cleanup_local_tmp_directories()
 
@@ -666,44 +710,52 @@ class _MultisliceCheckpointManager(
   def global_mesh(self) -> jax.sharding.Mesh:
     return self._global_mesh
 
-  def all_steps(self, read: bool = False) -> Sequence[int]:
+  def all_steps(self, read: bool = True) -> Sequence[int]:
     """Returns all steps tracked by the manager.
 
     Includes steps located in local as well as persistent storage.
 
     Args:
-      read: If True, forces a read directly from the storage location.
-        Otherwise, a cached result can be returned.
+      read: Only `True` is supported, which reads steps directly from the
+        storage location.
 
     Returns:
       A sequence of steps (integers)
     """
+    if not read:
+      raise ValueError(
+          'read=False is not supported by MultisliceCheckpointManager. It'
+          ' always reads from storage to get the list of steps.'
+      )
     logging.info('Retrieving all steps.')
-    if read:
-      per_slice_local_steps = self._get_per_slice_local_steps()
-      self._local_steps = list(set.union(*per_slice_local_steps.values()))
-      if (
-          step_lib.is_standard_name_format(self._options.step_name_format)
-          and self._options.single_host_load_and_broadcast
-      ):
-        optimized_name_format = (
-            step_lib.single_host_load_and_broadcast_name_format(
-                self._options.step_name_format
-            )
-        )
-      else:
-        logging.warning(
-            'Step name format is not optimized. This may result in a slow'
-            ' find_all operation.'
-        )
-        optimized_name_format = self._options.step_name_format
-      self._persistent_steps = [
-          metadata.step
-          for metadata in optimized_name_format.find_all(
-              self._persistent_directory
+    per_slice_local_steps = self._get_per_slice_local_steps()
+    local_steps = list(set.union(*per_slice_local_steps.values()))
+    if (
+        step_lib.is_standard_name_format(self._options.step_name_format)
+        and self._options.single_host_load_and_broadcast
+    ):
+      optimized_name_format = (
+          step_lib.single_host_load_and_broadcast_name_format(
+              self._options.step_name_format
           )
-      ]
-    return list(set(self._local_steps) | set(self._persistent_steps))
+      )
+    else:
+      logging.warning(
+          'Step name format is not optimized. This may result in a slow'
+          ' find_all operation.'
+      )
+      optimized_name_format = self._options.step_name_format
+    persistent_steps = [
+        metadata.step
+        for metadata in optimized_name_format.find_all(
+            self._persistent_directory
+        )
+    ]
+    self._local_latest_step = max(local_steps) if local_steps else None
+    self._persistent_latest_step = (
+        max(persistent_steps) if persistent_steps else None
+    )
+    return list(set(local_steps) | set(persistent_steps))
 
   def latest_step(self) -> Optional[int]:
     """Returns the latest step saved.
@@ -716,8 +768,11 @@ class _MultisliceCheckpointManager(
       A step (int) or None if no steps are present.
     """
     logging.info('Retrieving latest step.')
-    all_steps = self.all_steps()
-    return max(all_steps) if all_steps else None
+    if self._local_latest_step is None:
+      return self._persistent_latest_step
+    if self._persistent_latest_step is None:
+      return self._local_latest_step
+    return max(self._local_latest_step, self._persistent_latest_step)
 
   def best_step(self) -> Optional[int]:
     """Returns the best step saved, as defined by `options.best_fn`.
@@ -849,14 +904,9 @@ class _MultisliceCheckpointManager(
     logging.info('Broadcast `saved` bool in %f seconds.', time.time() - start)
 
     if persistent_saved:
-      self._persistent_steps.append(step)
-      if self._persistent_max_to_keep is not None:
-        self._persistent_steps = self._persistent_steps[
-            -self._persistent_max_to_keep :
-        ]
+      self._persistent_latest_step = step
     if local_saved:
-      self._local_steps.append(step)
-      self._local_steps = self._local_steps[-self._local_max_to_keep :]
+      self._local_latest_step = step
 
     return persistent_saved or local_saved
 
@@ -1461,8 +1511,10 @@ class CheckpointManager(
   def global_mesh(self) -> jax.sharding.Mesh:
     return self._global_mesh
 
-  def all_steps(self, read: bool = False) -> Sequence[int]:
-    return self._checkpoint_manager.all_steps(read=read)
+  def all_steps(self, read: bool | None = None) -> Sequence[int]:
+    if isinstance(self._checkpoint_manager, _MultisliceCheckpointManager):
+      return self._checkpoint_manager.all_steps(read=read or True)
+    return self._checkpoint_manager.all_steps(read=read or False)
 
   def latest_step(self) -> Optional[int]:
     return self._checkpoint_manager.latest_step()
