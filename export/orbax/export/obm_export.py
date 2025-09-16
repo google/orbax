@@ -36,9 +36,6 @@ from orbax.export.modules import obm_module
 import tensorflow as tf
 
 
-PyTree = typing.PyTree
-
-
 class ObmExport(export_base.ExportBase):
   """Defines the save and load methods for exporting a model using Orbax Model export."""
 
