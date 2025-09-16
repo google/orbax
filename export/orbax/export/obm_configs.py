@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Configuration classes for Orbax Model Export."""
+
 from collections.abc import Sequence
 import dataclasses
 import enum
@@ -38,13 +39,15 @@ class BatchPaddingPolicy(enum.Enum):
   Options:
     PAD_UP: Pad up to the next allowed batch size.
     BATCH_DOWN: Batch down to a smaller allowed batch size.
+    MINIMIZE_TPU_COST_PER_REQUEST: Chooses to either PAD_UP or BATCH_DOWN so as
+    to minimize the TPU costs per real request.
 
   See the documentation of BatchOptions.BatchPaddingPolicy for details.
   """
+
   PAD_UP = "pad_up"
   BATCH_DOWN = "batch_down"
-  # TODO: b/443993280 - Add MINIMIZE_TPU_COST_PER_REQUEST once it's supported in
-  # JSV.
+  MINIMIZE_TPU_COST_PER_REQUEST = "minimize_tpu_cost_per_request"
 
 
 # LINT.ThenChange(//depot//orbax/export/obm_export.py)
@@ -73,6 +76,7 @@ class BatchOptions:
     batch_padding_policy: The batch padding policy for the batch scheduler.
       Default is PAD_UP.
   """
+
   batch_component: BatchComponent
   max_batch_size: int | None = None
   batch_timeout_micros: int = 0
