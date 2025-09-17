@@ -115,8 +115,11 @@ def _construct_deserialization_param(
 ) -> types.DeserializationParam[
     types.AbstractShardedArray
     | types.AbstractArray
+    | Type[types.AbstractArray]
     | types.AbstractScalar
+    | Type[types.AbstractScalar]
     | types.AbstractString
+    | Type[types.AbstractString]
     | None
 ]:
   """Constructs a DeserializationParam from a ParamInfo and RestoreArg."""
