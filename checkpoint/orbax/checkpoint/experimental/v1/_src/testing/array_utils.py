@@ -75,7 +75,13 @@ def create_sharded_pytree(
   mesh_axes_0d = jax.sharding.PartitionSpec(
       None,
   )
+  submesh = jax.sharding.Mesh(devices[:1], ('x',))
+  submesh_axes = jax.sharding.PartitionSpec('x')
+  submesh_axes_repl = jax.sharding.PartitionSpec(None)
 
+  raise NotImplementedError(f'submesh: {submesh}')
+
+  # pylint: disable=unreachable
   shardings = {
       'a': jax.sharding.NamedSharding(mesh_0d, mesh_axes_0d),
       'b': jax.sharding.NamedSharding(mesh_1d, mesh_axes_1d),
@@ -83,6 +89,10 @@ def create_sharded_pytree(
           'a': jax.sharding.NamedSharding(mesh_2d, mesh_axes_2d),
           'e': jax.sharding.NamedSharding(mesh_2d, mesh_axes_2d),
       },
+      'd': (
+          jax.sharding.NamedSharding(submesh, submesh_axes),
+          jax.sharding.NamedSharding(submesh, submesh_axes_repl),
+      )
   }
   if include_scalars:
     scalar_axes = jax.sharding.PartitionSpec()
@@ -93,6 +103,7 @@ def create_sharded_pytree(
   pytree, _ = create_numpy_pytree(add=add, include_scalars=include_scalars)
   pytree = jax.tree.map(create_sharded_array, pytree, shardings)
   return pytree, jax.tree.map(as_abstract_type, pytree)
+  # pylint: enable=unreachable
 
 
 def as_abstract_type(value) -> Any:
