@@ -201,6 +201,15 @@ async def run_blocking_save(
   ):
     await tmp_path_awaiting_creation.await_creation()
 
+  if partial_save:
+    await multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'save_checkpointables_async:run_blocking_save:partial_save',
+            prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+        ),
+        processes=context.multiprocessing_options.active_processes,
+    )
+
   # Delegate to the handler to get the background awaitable.
   background_awaitable = await handler.save(
       tmp_path_awaiting_creation, checkpointables
