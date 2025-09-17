@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.8] - 2025-9-17
+
+### Removed
+- Removes the orchestration pipeline proto.
+
 ## [0.0.7] - 2025-7-29
 
 ### Added
