@@ -41,18 +41,11 @@ class ObmExport(export_base.ExportBase):
 
   def __init__(
       self,
-      module: jax_module.JaxModule,
+      module: jax_module.JaxModule | None,
       serving_configs: Sequence[osc.ServingConfig],
   ):
     """Initializes the ObmExport class."""
-    if module.export_version != constants.ExportModelType.ORBAX_MODEL:
-      raise ValueError(
-          "JaxModule export version is not of type ORBAX_MODEL. Please use the"
-          " correct export_version. Expected ORBAX_MODEL, got"
-          f" {module.export_version}"
-      )
-
-    obm_model_module = module.export_module()
+    self._module = _get_obm_module(module)
 
   def save(
       self,
