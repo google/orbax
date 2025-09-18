@@ -36,6 +36,7 @@ PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
 
 def pytree_metadata(
     path: path_types.PathLike,
+    checkpointable_name: str | None = PYTREE_CHECKPOINTABLE_KEY,
 ) -> CheckpointMetadata[PyTreeMetadata]:
   """Loads the PyTree metadata from a checkpoint.
 
@@ -77,20 +78,31 @@ def pytree_metadata(
 
   Args:
     path: The path to the checkpoint.
+    checkpointable_name: The name of the checkpointable to load. Defaults to
+      `pytree`. A subdirectory with this name must exist in `path`. If None then
+      path itself is expected to contain all files relevant for loading the
+      PyTree, rather than any subdirectory. Such files include, for example,
+      manifest.ocdbt, _METADATA, ocdbt.process_X.
 
   Returns:
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
-  path = epath.Path(path)
   context = context_lib.get_context()
+
+  path = epath.Path(path)
+  if checkpointable_name is None:
+    checkpointable_name = path.name
+    path = path.parent
+
   layout = layout_registry.get_checkpoint_layout(
       path, context.checkpoint_layout
   )
-  # TODO(b/436338979): Parameterize pytree name.
-  layout.validate_pytree(PYTREE_CHECKPOINTABLE_KEY)
+  layout.validate_pytree(checkpointable_name)
+
   metadata = _checkpointables_metadata_impl(layout)
+
   return CheckpointMetadata[PyTreeMetadata](
-      metadata=metadata.metadata[PYTREE_CHECKPOINTABLE_KEY],
+      metadata=metadata.metadata[checkpointable_name],
       init_timestamp_nsecs=metadata.init_timestamp_nsecs,
       commit_timestamp_nsecs=metadata.commit_timestamp_nsecs,
       custom_metadata=metadata.custom_metadata,

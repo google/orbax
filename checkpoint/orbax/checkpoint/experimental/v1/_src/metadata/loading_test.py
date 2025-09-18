@@ -70,12 +70,39 @@ class PyTreeMetadataTest(absltest.TestCase):
     with self.assertRaises(InvalidLayoutError):
       ocp.pytree_metadata(self.directory.parent / 'foo')
 
-  def test_pytree_metadata(self):
-    metadata = ocp.pytree_metadata(self.directory)
-    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
+  def test_pytree_metadata_default_checkpointable_name(self):
     expected_pytree_metadata = jax.tree.map(
         self._create_value_metadata, self.pytree
     )
+
+    metadata = ocp.pytree_metadata(self.directory)
+    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
+    self.assertEqual(expected_pytree_metadata, metadata.metadata)
+
+  def test_pytree_metadata_custom_checkpointable_name(self):
+    self.directory.rmtree()
+
+    custom_name = 'custom_pytree'
+    ocp.save_checkpointables(self.directory, {custom_name: self.pytree})
+
+    expected_pytree_metadata = jax.tree.map(
+        self._create_value_metadata, self.pytree
+    )
+
+    metadata = ocp.pytree_metadata(
+        self.directory, checkpointable_name=custom_name
+    )
+    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
+    self.assertEqual(expected_pytree_metadata, metadata.metadata)
+
+  def test_pytree_metadata_checkpointable_name_none(self):
+    expected_pytree_metadata = jax.tree.map(
+        self._create_value_metadata, self.pytree
+    )
+
+    pytree_dir = self.directory / PYTREE_CHECKPOINTABLE_KEY
+    metadata = ocp.pytree_metadata(pytree_dir, checkpointable_name=None)
+    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
     self.assertEqual(expected_pytree_metadata, metadata.metadata)
 
   def test_load_with_metadata(self):
