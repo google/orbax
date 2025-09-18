@@ -58,7 +58,6 @@ class EcmBenchmarkOptions(benchmarks_core.BenchmarkOptions):
   local_max_to_keep: int | Sequence[int] = 2
   replica_axis_index: int | Sequence[int] = 0
   train_steps: int | Sequence[int] = 10
-  use_shard_map_broadcast: bool | Sequence[bool] = True
   single_host_load_and_broadcast: bool | Sequence[bool] = True
   experimental_use_distributed_id_for_mesh_consistency: (
       bool | Sequence[bool]
@@ -92,7 +91,6 @@ def _create_checkpoint_manager(
               max_to_keep=options.persistent_max_to_keep,
           ),
           replica_axis_index=options.replica_axis_index,
-          use_shard_map_broadcast=options.use_shard_map_broadcast,
           single_host_load_and_broadcast=options.single_host_load_and_broadcast,
       ),
   )

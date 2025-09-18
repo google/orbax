@@ -285,6 +285,10 @@ class CheckpointManagerOptions:
     Enable async saving.
   async_options:
     Used to configure properties of async behavior. See above.
+  multiprocessing_options:
+    Used to configure multiprocessing behavior.
+  single_host_load_and_broadcast:
+    If True, load and broadcast checkpoints from primary host only.
   """
 
   local: LocalCheckpointOptions = dataclasses.field(
@@ -303,7 +307,6 @@ class CheckpointManagerOptions:
   enable_async_checkpointing: bool = True
   async_options: Optional[checkpoint_manager.AsyncOptions] = None
   multiprocessing_options: Optional[MultiprocessingOptions] = None
-  use_shard_map_broadcast: bool = True
   single_host_load_and_broadcast: bool = True
 
 
@@ -1157,7 +1160,6 @@ class _MultisliceCheckpointManager(
         self._global_mesh,
         replica_axis_index=self._replica_axis_index,
         is_source=is_restoring_slice,
-        use_shard_map=self._options.use_shard_map_broadcast,
     )
     broadcast_elapsed_s = time.time() - start_broadcast
     jax.monitoring.record_event_duration_secs(
@@ -1285,7 +1287,6 @@ class _MultisliceCheckpointManager(
         self._global_mesh,
         replica_axis_index=self._replica_axis_index,
         is_source=self.in_primary_slice,
-        use_shard_map=self._options.use_shard_map_broadcast,
     )
     broadcast_elapsed_s = time.time() - start_broadcast
     jax.monitoring.record_event_duration_secs(

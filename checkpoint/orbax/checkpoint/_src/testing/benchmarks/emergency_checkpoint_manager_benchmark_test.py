@@ -158,7 +158,6 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
               local_max_to_keep=3,
               replica_axis_index=1,
               train_steps=5,
-              use_shard_map_broadcast=True,
               single_host_load_and_broadcast=True,
           )
       ),
@@ -254,7 +253,6 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
           local=mock.ANY,
           persistent=mock.ANY,
           replica_axis_index=options.replica_axis_index,
-          use_shard_map_broadcast=options.use_shard_map_broadcast,
           single_host_load_and_broadcast=options.single_host_load_and_broadcast,
       )
       local_options = mock_checkpoint_manager_options_cls.call_args[1]['local']
@@ -301,7 +299,6 @@ class HelperFunctionsTest(parameterized.TestCase):
         persistent_save_interval_steps=5,
         persistent_max_to_keep=6,
         replica_axis_index=1,
-        use_shard_map_broadcast=True,
         single_host_load_and_broadcast=True,
     )
 
@@ -319,7 +316,6 @@ class HelperFunctionsTest(parameterized.TestCase):
             max_to_keep=6,
         ),
         replica_axis_index=1,
-        use_shard_map_broadcast=True,
         single_host_load_and_broadcast=True,
     )
     mock_checkpoint_manager_cls.assert_called_once_with(

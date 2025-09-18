@@ -176,7 +176,6 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
               use_replica_parallel=False,
               broadcast_memory_limit_bytes=100,
               broadcast_memory_scaling_factor=0.5,
-              use_shard_map=True,
           )
       ),
       dict(options=SingleReplicaBenchmarkOptions()),
@@ -238,7 +237,6 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
         use_replica_parallel=options.use_replica_parallel,
         broadcast_memory_limit_bytes=options.broadcast_memory_limit_bytes,
         broadcast_memory_scaling_factor=options.broadcast_memory_scaling_factor,
-        use_shard_map=options.use_shard_map,
     )
 
 

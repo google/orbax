@@ -31,4 +31,3 @@ benchmarks:
       use_replica_parallel: [True]
       broadcast_memory_limit_bytes: null
       broadcast_memory_scaling_factor: [0.75]
-      use_shard_map: [True]

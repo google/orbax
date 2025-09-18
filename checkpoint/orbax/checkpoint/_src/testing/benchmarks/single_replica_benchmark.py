@@ -16,6 +16,7 @@
 from collections.abc import Sequence
 import dataclasses
 from typing import Any
+from absl import flags
 from absl import logging
 import jax
 from orbax.checkpoint._src.checkpointers import async_checkpointer
@@ -48,7 +49,6 @@ class SingleReplicaBenchmarkOptions(benchmarks_core.BenchmarkOptions):
   use_replica_parallel: bool | Sequence[bool] = True
   broadcast_memory_limit_bytes: int | Sequence[int] | None = None
   broadcast_memory_scaling_factor: float | Sequence[float] = 0.75
-  use_shard_map: bool | Sequence[bool] = False
 
 
 # ==============================================================================
@@ -96,6 +96,7 @@ class SingleReplicaBenchmark(benchmarks_core.BenchmarksGenerator):
     if mesh is None:
       raise ValueError("Mesh must be provided for SingleReplicaBenchmark")
 
+    flags.FLAGS.experimental_orbax_use_distributed_process_id = True
     if not multihost.is_runtime_to_distributed_ids_initialized():
       multihost.initialize_runtime_to_distributed_ids()
 
@@ -107,7 +108,6 @@ class SingleReplicaBenchmark(benchmarks_core.BenchmarksGenerator):
             use_replica_parallel=options.use_replica_parallel,
             broadcast_memory_limit_bytes=options.broadcast_memory_limit_bytes,
             broadcast_memory_scaling_factor=options.broadcast_memory_scaling_factor,
-            use_shard_map=options.use_shard_map,
         ),
         override=True,
     )

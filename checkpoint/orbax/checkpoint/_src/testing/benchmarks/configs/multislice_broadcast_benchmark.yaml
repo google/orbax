@@ -1,13 +1,12 @@
 # The name for the entire test suite run.
-suite_name: "EmergencyCheckpointManager Benchmark"
+suite_name: "Multislice Broadcast Benchmark"
 
 mesh_config:
   mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
-  # ICI: Within a slice. Assuming 8 devices per slice.
+  # ICI: Within a slice.
+  ici_parallelism: {"fsdp": 16, "data": 16}
   # DCN: Across slices.
-  ici_parallelism: {"fsdp": 32, "tensor": 1, "data": 2}
-  dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
-  allow_split_physical_axes: true
+  dcn_parallelism: {"data": 2}
 
 checkpoint_config:
   spec:
@@ -25,15 +24,6 @@ checkpoint_config:
     custom_array: {dtype: "float32", shape: [8192, 64], sharding: ["tensor", null]}
 
 benchmarks:
-  - generator: "orbax.checkpoint._src.testing.benchmarks.emergency_checkpoint_manager_benchmark.EmergencyCheckpointManagerBenchmark"
+  - generator: "orbax.checkpoint._src.testing.benchmarks.multislice_broadcast_benchmark.MultisliceBroadcastBenchmark"
     options:
-      persistent_save_interval_steps: [2]
-      persistent_max_to_keep: [5]
-      local_save_interval_steps: [2]
-      local_max_to_keep: 2
       replica_axis_index: 0
-      train_steps: 4
-      single_host_load_and_broadcast: true
-      experimental_orbax_use_distributed_process_id: true
-      experimental_use_distributed_id_for_mesh_consistency: true
-
