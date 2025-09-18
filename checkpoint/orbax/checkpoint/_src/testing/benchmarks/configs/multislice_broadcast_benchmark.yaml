@@ -3,10 +3,9 @@ suite_name: "Multislice Broadcast Benchmark"
 
 mesh_config:
   mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
-  # ICI: Within a slice.
-  ici_parallelism: {"fsdp": 16, "data": 16}
-  # DCN: Across slices.
-  dcn_parallelism: {"data": 2}
+  ici_parallelism: {"fsdp": 32, "tensor": 1, "data": 2}
+  dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
+  allow_split_physical_axes: true
 
 checkpoint_config:
   spec:
