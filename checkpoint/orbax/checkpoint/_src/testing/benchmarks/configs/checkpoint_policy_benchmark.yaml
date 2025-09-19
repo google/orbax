@@ -1,0 +1,21 @@
+# The name for the entire test suite run.
+suite_name: "CheckpointPolicy Benchmark"
+
+checkpoint_config:
+  spec:
+    array: {dtype: "float32", shape: [1024, 2048], sharding: ["data", "model"]}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.checkpoint_policy_benchmark.CheckpointPolicyBenchmark"
+    options:
+      num_checkpoints: 100
+      preservation_policy_types: "LatestN,EveryNSeconds,EveryNSteps,CustomSteps"
+      save_decision_policy_types: ["FixedIntervalPolicy,SpecificStepsPolicy,PreemptionCheckpointingPolicy,InitialSavePolicy", "ContinuousCheckpointingPolicy"]
+      preservation_policy_n: 10
+      preservation_policy_interval_secs: 10
+      preservation_policy_interval_steps: 10
+      preservation_policy_custom_steps: [19, 21, 33, 74, 95]
+      save_decision_policy_interval_steps: 10
+      save_decision_policy_interval_secs: 10
+      save_decision_policy_custom_steps: [41, 32, 13, 64, 95]
+      save_decision_policy_min_interval_secs: 2
