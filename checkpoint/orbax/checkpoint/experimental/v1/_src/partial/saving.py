@@ -180,7 +180,14 @@ def save_pytree_async(
   Returns:
     An `AsyncResponse` that can be used to block until the save is complete.
     Blocking can be done using `response.result()`, which returns `None`.
+
+  Raises:
+    FileExistsError: If a finalized checkpoint already exists at `path`. To
+      overwrite, it must be deleted first.
   """
+  if epath.Path(path).exists():
+    raise FileExistsError(f'Finalized checkpoint already exists at {path}.')
+
   return execution.save_checkpointables_impl(
       partial_path_lib.add_partial_save_suffix(path),
       {PYTREE_CHECKPOINTABLE_KEY: pytree},
