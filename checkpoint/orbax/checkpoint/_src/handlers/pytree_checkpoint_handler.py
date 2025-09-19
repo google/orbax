@@ -571,6 +571,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._save_device_host_concurrent_bytes = _concurrent_bytes(
         save_device_host_concurrent_gb, use_default_if_none=False
     )
+    logging.info(
+        'save_device_host_concurrent_bytes=%s',
+        self._save_device_host_concurrent_bytes,
+    )
     self._handler_impl = handler_impl or BasePyTreeCheckpointHandler(
         save_concurrent_bytes=self._save_concurrent_bytes,
         restore_concurrent_bytes=self._restore_concurrent_bytes,
