@@ -64,6 +64,7 @@ from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
+import tensorstore as ts
 
 
 PyTree = Any
@@ -164,6 +165,7 @@ class PyTreeCheckpointHandlerTestBase:
         array_metadata_store: array_metadata_store_lib.Store | None = (
             ARRAY_METADATA_STORE
         ),
+        use_zarr2_compression: bool = True,
     ):
       """Registers handlers with OCDBT support and resets when done."""
       type_handler_registry = copy.deepcopy(
@@ -179,6 +181,7 @@ class PyTreeCheckpointHandlerTestBase:
           type_handler_registry=type_handler_registry,
           pytree_metadata_options=pytree_metadata_options,
           enable_pinned_host_transfer=enable_pinned_host_transfer,
+          use_zarr2_compression=use_zarr2_compression,
       )
       try:
         yield handler
@@ -755,6 +758,69 @@ class PyTreeCheckpointHandlerTestBase:
               pytree_metadata_options=self.pytree_metadata_options,
               array_metadata_store=array_metadata_store,
           )
+
+    @parameterized.product(
+        use_ocdbt=(True, False),
+        use_zarr3=(False,),
+        array_metadata_store=(None, ARRAY_METADATA_STORE),
+        use_zarr2_compression=(True, False),
+    )
+    def test_compression(
+        self,
+        use_ocdbt: bool,
+        use_zarr3: bool,
+        array_metadata_store: array_metadata_store_lib.Store | None,
+        use_zarr2_compression: bool,
+    ):
+      """Test case for zarr2 compression."""
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt,
+          use_zarr3=use_zarr3,
+          array_metadata_store=array_metadata_store,
+          use_zarr2_compression=use_zarr2_compression,
+      ) as checkpoint_handler:
+        checkpoint_handler.save(
+            self.directory, args=PyTreeSaveArgs(self.pytree)
+        )
+        restored = checkpoint_handler.restore(
+            self.directory,
+            args=PyTreeRestoreArgs(restore_args=self.restore_args),
+        )
+        self.validate_restore(self.pytree, restored)
+        if self.should_validate_metadata():
+          self.validate_metadata(
+              expected_reference_metadata_tree=self.pytree,
+              actual_metadata=checkpoint_handler.metadata(self.directory),
+              pytree_metadata_options=self.pytree_metadata_options,
+              array_metadata_store=array_metadata_store,
+          )
+
+        # Check that the zarr2 compression is correctly set.
+        if use_ocdbt:
+          ts_spec = {
+              'driver': 'zarr3' if use_zarr3 else 'zarr',
+              'kvstore': {
+                  'driver': 'ocdbt',
+                  'base': f'file://{self.directory}',
+                  'path': 'a',
+              },
+          }
+        else:
+          ts_spec = {
+              'driver': 'zarr3' if use_zarr3 else 'zarr',
+              'kvstore': {
+                  'driver': 'file',
+                  'path': f'{self.directory}/a',
+              },
+          }
+        ts_store = ts.open(ts_spec).result()
+        read_spec = ts_store.spec().to_json()
+
+        if not use_zarr3:
+          if use_zarr2_compression:
+            self.assertIsNotNone(read_spec['metadata']['compressor'])
+          else:
+            self.assertIsNone(read_spec['metadata']['compressor'])
 
     @parameterized.product(use_ocdbt=(True, False))
     def test_restore_reverse_mesh(self, use_ocdbt: bool):

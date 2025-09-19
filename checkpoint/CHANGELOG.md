@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added an option `use_zarr2_compression` to `PyTreeCheckpointHandler` to
+  control whether compress will be used for zarr2. Default is kept `True`.
+
 ### Changed
 
 - #v1 Modify LeafHandler definitions so that `AbstractLeaf` or
