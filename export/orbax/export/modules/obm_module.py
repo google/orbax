@@ -19,7 +19,6 @@ import copy
 import logging
 from typing import Any, Optional, Tuple, Union
 
-from google.protobuf import text_format
 import jax
 from orbax.export import constants
 from orbax.export import typing as orbax_export_typing
