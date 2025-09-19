@@ -124,9 +124,11 @@ class ParamInfo:
     from tree metadata and should be the same across all parameters.
   write_shape:
     Shape of the array shard. Used in the subchunking context.
+  is_prioritized_key_fn: See `IsPrioritizedKeyFn` definition.
   """
 
   name: Optional[str] = None
+  keypath: Optional[Tuple[Any, ...]] = None
   path: Optional[epath.Path] = None
   parent_dir: Optional[epath.Path] = None
   skip_deserialize: Optional[bool] = None
@@ -141,6 +143,7 @@ class ParamInfo:
   enable_pinned_host_transfer: bool = False
   raise_array_data_missing_error: bool = True
   write_shape: arrays_types.Shape | None = None
+  is_prioritized_key_fn: Optional[IsPrioritizedKeyFn] = None
 
 
 @dataclasses.dataclass
@@ -376,3 +379,29 @@ class TypeHandlerRegistry(Protocol):
       A boolean indicating if ty is registered.
     """
     ...
+
+
+class IsPrioritizedKeyFn(Protocol):
+  """Protocol for checking if a key is prioritized.
+
+  The function accepts a PyTree keypath (obtained
+  using jax.tree.map_with_path) and returns True if the D2H transfer should be
+  scheduled during the blocking part of the save (defaults to True in all places
+  unless False is returned by this function).
+
+  The D2H transfer is scheduled before returning
+  to the caller, so the values will never be corrupted by a concurrent update
+  or donation. Keys that are not prioritized will not
+  be scheduled for transfer until all prioritized keys have been fully
+  written to the checkpoint. This means that these values may be altered
+  if the values are updated concurrently.
+
+  Callers should take care to call
+  `wait_until_finished` before updating array values (e.g.
+  `apply_gradients`) if some keys are not prioritized. Note that any
+  "prioritized" keys are assumed to be lightweight, and
+  `save_device_host_concurrent_gb` will be ignored for them.
+  """
+
+  def __call__(self, keypath: Tuple[Any, ...]) -> bool:
+    """Returns true if the key is prioritized."""

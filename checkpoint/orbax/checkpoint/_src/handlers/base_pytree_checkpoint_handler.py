@@ -326,6 +326,7 @@ class BasePyTreeCheckpointHandler(
           array_metadata_store_lib.Validator()
       ),
       enable_pinned_host_transfer: Optional[bool] = None,
+      is_prioritized_key_fn: Optional[types.IsPrioritizedKeyFn] = None,
   ):
     """Creates BasePyTreeCheckpointHandler.
 
@@ -357,6 +358,18 @@ class BasePyTreeCheckpointHandler(
         transfer from device to host memory. Passing None will enable
         pinned_host memory depending on the platform used (currently only
         enables it for the GPU backend).
+      is_prioritized_key_fn: A function that accepts a PyTree keypath (obtained
+        using jax.tree.map_with_path) that should be scheduled for D2H transfer
+        before other keys. The transfer is scheduled before returning to the
+        caller, so the values will never be corrupted by a concurrent update.
+        Keys that are not prioritized will not be scheduled for transfer until
+        all prioritized keys have been fully written to the checkpoint. This
+        means that these values may be altered if the values are updated
+        concurrently. Callers should take care to call `wait_until_finished`
+        before updating array values (e.g. `apply_gradients`) if some keys are
+        not prioritized. Note that any "prioritized" keys are assumed to be
+        lightweight, and `save_device_host_concurrent_gb` will be ignored for
+        them.
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
@@ -382,6 +395,7 @@ class BasePyTreeCheckpointHandler(
     if enable_pinned_host_transfer is None:
       enable_pinned_host_transfer = jax.default_backend() == 'gpu'
     self._enable_pinned_host_transfer = enable_pinned_host_transfer
+    self._is_prioritized_key_fn = is_prioritized_key_fn
 
     jax.monitoring.record_event(
         '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
@@ -442,7 +456,7 @@ class BasePyTreeCheckpointHandler(
     names = self.get_param_names(item)
     ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
 
-    def _param_info(name, value):
+    def _param_info(keypath, name, value):
       if isinstance(value, tree_metadata.ValueMetadataEntry):
         skip_deserialize = value.skip_deserialize
       elif isinstance(value, type(PLACEHOLDER)):
@@ -451,6 +465,7 @@ class BasePyTreeCheckpointHandler(
         skip_deserialize = False
       return ParamInfo(
           name=name,
+          keypath=keypath,
           path=(directory / name),
           parent_dir=directory,
           skip_deserialize=skip_deserialize,
@@ -466,9 +481,10 @@ class BasePyTreeCheckpointHandler(
               value, self._type_handler_registry, self._pytree_metadata_options
           ),
           raise_array_data_missing_error=raise_array_data_missing_error,
+          is_prioritized_key_fn=self._is_prioritized_key_fn,
       )
 
-    return jax.tree.map(
+    return jax.tree.map_with_path(
         _param_info, names, item, is_leaf=utils.is_empty_or_leaf
     )
 

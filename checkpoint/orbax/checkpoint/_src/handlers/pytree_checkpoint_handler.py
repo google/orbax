@@ -47,6 +47,7 @@ from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.serialization import types as serialization_types
 from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
@@ -502,6 +503,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           array_metadata_store_lib.Validator()
       ),
       enable_pinned_host_transfer: Optional[bool] = None,
+      is_prioritized_key_fn: Optional[
+          serialization_types.IsPrioritizedKeyFn
+      ] = None,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -538,6 +542,18 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         transfer from device to host memory. Passing None will enable
         pinned_host memory depending on the platform used (currently only
         enables it for the GPU backend).
+      is_prioritized_key_fn: A function that accepts a PyTree keypath (obtained
+        using jax.tree.map_with_path) that should be scheduled for D2H transfer
+        before other keys. The transfer is scheduled before returning to the
+        caller, so the values will never be corrupted by a concurrent update.
+        Keys that are not prioritized will not be scheduled for transfer until
+        all prioritized keys have been fully written to the checkpoint. This
+        means that these values may be altered if the values are updated
+        concurrently. Callers should take care to call `wait_until_finished`
+        before updating array values (e.g. `apply_gradients`) if some keys are
+        not prioritized. Note that any "prioritized" keys are assumed to be
+        lightweight, and `save_device_host_concurrent_gb` will be ignored for
+        them.
     """
     self._aggregate_handler = MsgpackHandler(
         primary_host=multiprocessing_options.primary_host,
@@ -567,6 +583,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         pytree_metadata_options=pytree_metadata_options,
         array_metadata_validator=array_metadata_validator,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
+        is_prioritized_key_fn=is_prioritized_key_fn,
     )
     self._pytree_metadata_options = pytree_metadata_options
 
