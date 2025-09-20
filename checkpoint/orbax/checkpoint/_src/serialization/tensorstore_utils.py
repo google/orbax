@@ -44,6 +44,7 @@ ZARR_VER2 = 'zarr'
 ZARR_VER3 = 'zarr3'
 
 _GCS_PATH_RE = r'^gs://([^/]*)/(.*)$'
+_GCS_BUCKET_RE = r'^gs://([^/]*)$'
 
 # Even if the data is equal to the fill value, we still want to write it
 # to the checkpoint. This results in unnecessary writes in some edge
@@ -112,15 +113,35 @@ def get_ts_context(
 
 
 def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
+  """Constructs a TensorStore kvstore spec for a GCS path.
+
+  Args:
+    ckpt_path: A GCS path of the form gs://<bucket>/<path>.
+
+  Returns:
+    A dictionary containing the TensorStore kvstore spec.
+
+  Raises:
+    ValueError: if ckpt_path is not a valid GCS path.
+  """
   m = re.fullmatch(_GCS_PATH_RE, ckpt_path, re.DOTALL)
   if m is None:
-    raise ValueError(
-        'The ckpt_path should contain the bucket name and the '
-        f'file path inside the bucket. Got: {ckpt_path}'
-    )
+    # The path might only be a bucket name.
+    m = re.fullmatch(_GCS_BUCKET_RE, ckpt_path, re.DOTALL)
+    if m is None:
+      raise ValueError(
+          'The ckpt_path should contain the bucket name and the '
+          f'file path inside the bucket. Got: {ckpt_path}'
+      )
   gcs_bucket = m.group(1)
-  path_without_bucket = m.group(2)
-  return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
+  path_without_bucket = m.group(2) if m.lastindex == 2 else None
+  # TODO(mirvine): Switch to gcs_grpc by default.
+  # gcs_grpc performs roughly twice as fast as gcs backend.
+  gcs_backend = os.environ.get('TENSORSTORE_GCS_BACKEND', 'gcs')
+  spec = {'driver': gcs_backend, 'bucket': gcs_bucket}
+  if path_without_bucket:
+    spec['path'] = path_without_bucket
+  return spec
 
 
 def build_kvstore_tspec(
@@ -165,7 +186,7 @@ def build_kvstore_tspec(
           directory, f'{PROCESS_SUBDIR_PREFIX}{process_id}'
       )
     base_driver_spec = (
-        directory
+        _get_kvstore_for_gcs(str(directory))
         if is_gcs_path
         else {'driver': default_driver, 'path': str(directory)}
     )
