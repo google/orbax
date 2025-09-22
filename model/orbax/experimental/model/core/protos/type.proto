@@ -84,7 +84,7 @@ enum DType {
   // Copied from `TensorElementType` of
   // https://github.com/openxla/stablehlo/blob/main/docs/spec.md#types .
   // The right-hand-side values are copied from
-  // /third_party/py/jax/experimental/export/serialization.fbs .
+  // /third_party/py/jax/_src/export/serialization.fbs .
   i1 = 1;  // bool
   si8 = 2;
   si16 = 3;

@@ -29,7 +29,7 @@ ShloShape = Optional[Sequence[ShloDimSize]]
 
 
 # pylint: disable=invalid-name
-# Copied from jax/experimental/export/serialization.fbs
+# Copied from /third_party/py/jax/_src/export/serialization.fbs
 class ShloDType(enum.Enum):  # pylint: disable=missing-class-docstring
   bool = 0
   i8 = 1
