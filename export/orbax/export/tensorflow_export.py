@@ -126,10 +126,6 @@ class TensorFlowExport(export_base.ExportBase):
         corresponding to a serving signature of the exported SavedModel.
       obx_export_tf_preprocess_only: a boolean indicating whether to export only
         the preprocessor.
-      module: A tf module  that will provide the method definitions. The module
-        should have a JaxModule set as a computation_module property.
-      serving_signatures: a map of signature keys to serving functions. This map
-        will be populated by this function.
     """
     tf_trackable_resources = []
     for sc in serving_configs:
