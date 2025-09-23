@@ -77,6 +77,28 @@ class TreeUtilTest(absltest.TestCase):
         lambda: tree_util.assert_tree(assert_int, wrong_tree),
     )
 
+  def test_prune_tree(self):
+    tree = (1, "a", [2, "b", {"c": 3, "d": "e"}], None)
+    pruned_int = tree_util.prune_tree(tree, int)
+    self.assertEqual(
+        pruned_int, (1, None, [2, None, {"c": 3, "d": None}], None)
+    )
+    pruned_str = tree_util.prune_tree(tree, str)
+    self.assertEqual(
+        pruned_str, (None, "a", [None, "b", {"c": None, "d": "e"}], None)
+    )
+    pruned_int_str = tree_util.prune_tree(tree, (int, str))
+    self.assertEqual(pruned_int_str, tree)
+    pruned_empty = tree_util.prune_tree(tree, ())
+    self.assertEqual(
+        pruned_empty, (None, None, [None, None, {"c": None, "d": None}], None)
+    )
+    pruned_not_present = tree_util.prune_tree(tree, float)
+    self.assertEqual(
+        pruned_not_present,
+        (None, None, [None, None, {"c": None, "d": None}], None),
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

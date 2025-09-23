@@ -15,6 +15,7 @@
 from collections.abc import Mapping, Sequence
 import contextlib
 import os
+from typing import Any, Callable
 
 from absl.testing import absltest
 from absl.testing import parameterized
