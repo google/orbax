@@ -92,7 +92,7 @@ class CompileOptionsUtilTest(parameterized.TestCase):
                   ' 0.19125064716453793'
               ),
           ],
-          compile_options_util.merge_proto_formatted_flags_compile_option,
+          compile_options_util.merge_proto_formatted_flags_into_compile_options,
       ),
   )
   def test_merge_flags_into_compile_options(self, xla_flags, merge_fn):

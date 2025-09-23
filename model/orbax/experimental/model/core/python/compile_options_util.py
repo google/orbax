@@ -51,7 +51,7 @@ def generate_tpu_compilation_env(
   if xla_flags:
     is_proto_formatted = False if xla_flags[0].startswith('--') else True
     if is_proto_formatted:
-      merge_proto_formatted_flags_compile_option(xla_flags, env)
+      merge_proto_formatted_flags_into_compile_options(xla_flags, env)
     else:
       parsed_flags = {}
       for flag in xla_flags:
@@ -261,7 +261,7 @@ def merge_flags_into_compile_options(
 
 
 # TODO(b/438187387): remove this path and only allow the "--flag=value" format.
-def merge_proto_formatted_flags_compile_option(
+def merge_proto_formatted_flags_into_compile_options(
     xla_flags: Sequence[str],
     env: tpu_comp_env_pb2.TpuCompilationEnvironment,
 ):
