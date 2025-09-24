@@ -202,7 +202,7 @@ def get_json_tspec_write(
   tspec['metadata'] = ts_utils.build_zarr_shard_and_chunk_metadata(
       global_shape=global_shape,
       shard_shape=local_shape,
-      use_zarr2_compression=info.use_zarr2_compression,
+      use_compression=info.use_compression,
       use_zarr3=info.use_zarr3,
       chunk_shape=chunk_shape,
   )
@@ -238,7 +238,7 @@ def _build_array_write_spec(
       target_dtype=(arg.dtype if arg is not None else None),
       chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
       shard_axes=(arg.shard_axes if arg is not None else tuple()),
-      use_zarr2_compression=info.use_zarr2_compression,
+      use_compression=info.use_compression,
       use_zarr3=info.use_zarr3,
       use_ocdbt=use_ocdbt,
       process_id=process_index,

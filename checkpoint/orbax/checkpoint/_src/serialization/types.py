@@ -104,8 +104,8 @@ class ParamInfo:
   is_ocdbt_checkpoint:
     Indicates whether the checkpoint path uses OCDBT format
     or not. Only used for restoration.
-  use_zarr2_compression:
-    When True and zarr2 is used, turn on zstd compression.
+  use_compression:
+    When True, turn on zstd compression. Default is True.
   use_zarr3:
     If True, use Zarr ver3 otherwise ver2.
   ocdbt_target_data_file_size:
@@ -135,7 +135,7 @@ class ParamInfo:
   byte_limiter: Optional[serialization.ByteLimiter] = None
   device_host_byte_limiter: Optional[serialization.ByteLimiter] = None
   is_ocdbt_checkpoint: Optional[bool] = None
-  use_zarr2_compression: bool | None = True
+  use_compression: bool | None = True
   use_zarr3: Optional[bool] = False
   ocdbt_target_data_file_size: Optional[int] = None
   ts_context: Optional[ts.Context] = None

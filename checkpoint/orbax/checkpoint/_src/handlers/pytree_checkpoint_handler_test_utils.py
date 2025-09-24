@@ -165,7 +165,7 @@ class PyTreeCheckpointHandlerTestBase:
         array_metadata_store: array_metadata_store_lib.Store | None = (
             ARRAY_METADATA_STORE
         ),
-        use_zarr2_compression: bool = True,
+        use_compression: bool = True,
     ):
       """Registers handlers with OCDBT support and resets when done."""
       type_handler_registry = copy.deepcopy(
@@ -181,7 +181,7 @@ class PyTreeCheckpointHandlerTestBase:
           type_handler_registry=type_handler_registry,
           pytree_metadata_options=pytree_metadata_options,
           enable_pinned_host_transfer=enable_pinned_host_transfer,
-          use_zarr2_compression=use_zarr2_compression,
+          use_compression=use_compression,
       )
       try:
         yield handler
@@ -761,23 +761,23 @@ class PyTreeCheckpointHandlerTestBase:
 
     @parameterized.product(
         use_ocdbt=(True, False),
-        use_zarr3=(False,),
+        use_zarr3=(False, True),
         array_metadata_store=(None, ARRAY_METADATA_STORE),
-        use_zarr2_compression=(True, False),
+        use_compression=(True, False),
     )
     def test_compression(
         self,
         use_ocdbt: bool,
         use_zarr3: bool,
         array_metadata_store: array_metadata_store_lib.Store | None,
-        use_zarr2_compression: bool,
+        use_compression: bool,
     ):
       """Test case for zarr2 compression."""
       with self.ocdbt_checkpoint_handler(
           use_ocdbt,
           use_zarr3=use_zarr3,
           array_metadata_store=array_metadata_store,
-          use_zarr2_compression=use_zarr2_compression,
+          use_compression=use_compression,
       ) as checkpoint_handler:
         checkpoint_handler.save(
             self.directory, args=PyTreeSaveArgs(self.pytree)
@@ -816,8 +816,24 @@ class PyTreeCheckpointHandlerTestBase:
         ts_store = ts.open(ts_spec).result()
         read_spec = ts_store.spec().to_json()
 
-        if not use_zarr3:
-          if use_zarr2_compression:
+        if use_zarr3:
+          has_zstd = False
+
+          # check if zstd is in the codecs
+          for codec in read_spec['metadata']['codecs'][0]['configuration'][
+              'codecs'
+          ]:
+            if codec['name'] == 'zstd':
+              has_zstd = True
+              break
+
+          if use_compression:
+            self.assertTrue(has_zstd)
+          else:
+            self.assertFalse(has_zstd)
+
+        else:
+          if use_compression:
             self.assertIsNotNone(read_spec['metadata']['compressor'])
           else:
             self.assertIsNone(read_spec['metadata']['compressor'])

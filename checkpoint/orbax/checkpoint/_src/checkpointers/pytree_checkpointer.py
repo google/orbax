@@ -35,13 +35,13 @@ class PyTreeCheckpointer(checkpointer.Checkpointer):
       primary_host: Optional[int] = 0,
       use_ocdbt: bool = True,
       use_zarr3=False,
-      use_zarr2_compression: bool = True,
+      use_compression: bool = True,
   ):
     super().__init__(
         pytree_checkpoint_handler.PyTreeCheckpointHandler(
             use_ocdbt=use_ocdbt,
             use_zarr3=use_zarr3,
-            use_zarr2_compression=use_zarr2_compression,
+            use_compression=use_compression,
         ),
         multiprocessing_options=options_lib.MultiprocessingOptions(
             primary_host=primary_host

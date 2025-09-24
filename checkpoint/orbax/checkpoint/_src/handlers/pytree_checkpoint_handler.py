@@ -492,7 +492,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       save_device_host_concurrent_gb: Optional[int] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
-      use_zarr2_compression: bool = True,
+      use_compression: bool = True,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
       handler_impl: Optional[BasePyTreeCheckpointHandler] = None,
@@ -531,7 +531,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         different checkpoint format which is faster to read and write, as well
         as more space efficient.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
-      use_zarr2_compression: If True and zarr2 is used, use zstd compression.
+      use_compression: If True and zarr2 is used, use zstd compression.
       multiprocessing_options: See orbax.checkpoint.options
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
         specified, the global type handler registry will be used.
@@ -581,7 +581,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         save_device_host_concurrent_bytes=self._save_device_host_concurrent_bytes,
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
-        use_zarr2_compression=use_zarr2_compression,
+        use_compression=use_compression,
         multiprocessing_options=multiprocessing_options,
         type_handler_registry=type_handler_registry,
         pytree_metadata_options=pytree_metadata_options,

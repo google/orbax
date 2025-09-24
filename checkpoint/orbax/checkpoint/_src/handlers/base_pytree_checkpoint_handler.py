@@ -315,7 +315,7 @@ class BasePyTreeCheckpointHandler(
       save_device_host_concurrent_bytes: Optional[int] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
-      use_zarr2_compression: bool = True,
+      use_compression: bool = True,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
       enable_post_merge_validation: bool = True,
@@ -345,8 +345,7 @@ class BasePyTreeCheckpointHandler(
         before a new array can start being transferred.
       use_ocdbt: Whether to use OCDBT format for saving.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2.
-      use_zarr2_compression: If True and Zarr ver2 is used, use zstd
-        compression.
+      use_compression: If True, use zstd compression.
       multiprocessing_options: See orbax.checkpoint.options.
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
         specified, the global type handler registry will be used.
@@ -376,7 +375,7 @@ class BasePyTreeCheckpointHandler(
     self._save_device_host_concurrent_bytes = save_device_host_concurrent_bytes
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
-    self._use_zarr2_compression = use_zarr2_compression
+    self._use_compression = use_compression
     self._primary_host = multiprocessing_options.primary_host
     self._type_handler_registry = type_handler_registry
     self._enable_post_merge_validation = enable_post_merge_validation
@@ -424,7 +423,7 @@ class BasePyTreeCheckpointHandler(
       directory: epath.Path,
       *,
       use_ocdbt: bool = True,
-      use_zarr2_compression: bool | None = True,
+      use_compression: bool | None = True,
       use_zarr3: Optional[bool] = None,
       ocdbt_target_data_file_size: Optional[int] = None,
       byte_limiter: Optional[serialization.ByteLimiter] = None,
@@ -440,7 +439,7 @@ class BasePyTreeCheckpointHandler(
       item: a PyTree to extract information from.
       directory: a directory where checkpoint files are located.
       use_ocdbt: Whether to use OCDBT for writing or reading.
-      use_zarr2_compression: Whether to use zstd compression for zarr2.
+      use_compression: Whether to use zstd compression
       use_zarr3: Whether to use zarr3.
       ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
         OCDBT data file.
@@ -470,7 +469,7 @@ class BasePyTreeCheckpointHandler(
           parent_dir=directory,
           skip_deserialize=skip_deserialize,
           is_ocdbt_checkpoint=use_ocdbt,
-          use_zarr2_compression=use_zarr2_compression,
+          use_compression=use_compression,
           use_zarr3=use_zarr3,
           enable_pinned_host_transfer=self._enable_pinned_host_transfer,
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
@@ -638,7 +637,7 @@ class BasePyTreeCheckpointHandler(
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
         byte_limiter=byte_limiter,
         device_host_byte_limiter=device_host_byte_limiter,
-        use_zarr2_compression=self._use_zarr2_compression,
+        use_compression=self._use_compression,
         use_zarr3=self._use_zarr3,
     )
     assert all(
