@@ -904,8 +904,8 @@ class ArrayHandler(types.TypeHandler):
         set to None, each shards will pick first replica_id to be used.  It's
         useful in the case that all hosts are only working with local storage.
       use_replica_parallel: Whether to parallelize saving across replicas.
-      min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica 
-        slice. Only uses replica-parallel when the amount of data written per 
+      min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica
+        slice. Only uses replica-parallel when the amount of data written per
         replica is greater than or equal to this number.
       max_replicas_for_replica_parallel: Maximum number of replicas over which
         saving will be parallelized if use_replica_parallel is True.
@@ -1478,27 +1478,32 @@ class SingleReplicaArrayHandler(ArrayHandler):
           'The provided sharding is not a NamedSharding. Please use'
           ' NamedSharding instead.'
       )
-    primary_replica_ids, primary_replica_pids = (
+    primary_replica_device_ids, primary_replica_pids = (
         multislice.get_primary_replica_ids_and_pids(
             replica_axis_idx=self.replica_axis_index,
             mesh=sharding.mesh,  # pytype: disable=attribute-error
             primary_replica_id=self.primary_replica_id,
         )
     )
-    if len(primary_replica_ids) == len(jax.devices()):
+    if len(primary_replica_device_ids) == len(jax.devices()):
       raise InvalidShardingError(
           'All devices are in the primary replica. There are no non-primary'
           ' replicas to broadcast to.'
       )
 
-    expected_primary_replica_ids = {
-        d.id for d in jax.devices() if d.process_index in primary_replica_pids
+    expected_primary_replica_device_ids = {
+        d.id
+        for d in jax.devices()
+        if multihost.process_index_from_device(d) in primary_replica_pids
     }
-    if primary_replica_ids != expected_primary_replica_ids:
+    if not primary_replica_device_ids.issubset(
+        expected_primary_replica_device_ids
+    ):
       raise InvalidShardingError(
           'The provided sharding is not valid. The primary replica has the'
-          f' following devices: {primary_replica_ids}, but process indices'
-          ' associated with primary replica devices are expected to be:'
+          f' following devices: {primary_replica_device_ids}, which is not a'
+          ' subset of the expected devices:'
+          f' {expected_primary_replica_device_ids}. for the primary processes:'
           f' {primary_replica_pids}.'
       )
 

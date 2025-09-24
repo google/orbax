@@ -288,6 +288,7 @@ def _globalize_single_replica_arrays(
       global_shape,
       global_sharding,
       device_buffers,
+      dtype=inp.dtype,
   )
 
 
@@ -400,7 +401,7 @@ def get_primary_replica_ids_and_pids(
       replica_axis_index=replica_axis_idx,
   ).flatten()
   ids = set([d.id for d in devices])
-  pids = set([d.process_index for d in devices])
+  pids = multihost.unique_processes_from_devices(devices)
   return ids, pids
 
 

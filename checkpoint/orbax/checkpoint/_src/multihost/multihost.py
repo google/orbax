@@ -401,12 +401,10 @@ def process_count() -> int:
   return jax.process_count()
 
 
-def process_index() -> int:
-  """Customized logic for obtaining JAX process index."""
+def use_experimental_distributed_process_id() -> bool:
+  """Returns True if the experimental distributed process id is enabled."""
   try:
-    experimental_orbax_use_distributed_process_id = (
-        EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID.value
-    )
+    return EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID.value
   except Exception:  # pylint: disable=broad-exception-caught
     logging.log_first_n(
         logging.INFO,
@@ -415,8 +413,12 @@ def process_index() -> int:
         1,
         threading.current_thread().name,
     )
-    experimental_orbax_use_distributed_process_id = False
-  if experimental_orbax_use_distributed_process_id:
+    return False
+
+
+def process_index() -> int:
+  """Customized logic for obtaining JAX process index."""
+  if use_experimental_distributed_process_id():
     logging.log_first_n(
         logging.INFO,
         '[thread=%s] Using distributed process id.',
@@ -428,8 +430,14 @@ def process_index() -> int:
     return jax.process_index()
 
 
+def process_index_from_device(device: jax.Device) -> int:
+  """Customized logic for obtaining JAX process index from a device."""
+  if use_experimental_distributed_process_id():
+    return runtime_to_distributed_process_id(device.process_index)
+  else:
+    return device.process_index
+
+
 def unique_processes_from_devices(device_array: np.ndarray) -> Set[int]:
-  get_pids_from_devices = np.vectorize(
-      lambda d: runtime_to_distributed_process_id(d.process_index)
-  )
+  get_pids_from_devices = np.vectorize(process_index_from_device)
   return set(get_pids_from_devices(device_array).flat)
