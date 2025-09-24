@@ -87,8 +87,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     )
 
     self._jax_mesh = jax2obm_kwargs.get(constants.JAX_MESH, None)
-    # TODO: b/380323586 - If both xla_compile_options_per_platform and jax_mesh
-    # are provided, we need to check if they are compatible.
 
     self.polymorphic_constraints = self._maybe_set_polymorphic_constraints(
         jax2obm_kwargs
