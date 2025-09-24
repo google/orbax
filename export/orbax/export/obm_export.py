@@ -15,6 +15,7 @@
 """Export class that implements the save and load abstract class defined in Export Base for use with the Orbax Model export format."""
 
 from collections.abc import Callable, Mapping, Sequence
+import copy
 import functools
 import itertools
 import os
@@ -41,18 +42,10 @@ class ObmExport(export_base.ExportBase):
 
   def __init__(
       self,
-      module: jax_module.JaxModule,
+      module: jax_module.JaxModule | None,
       serving_configs: Sequence[osc.ServingConfig],
   ):
     """Initializes the ObmExport class."""
-    if module.export_version != constants.ExportModelType.ORBAX_MODEL:
-      raise ValueError(
-          "JaxModule export version is not of type ORBAX_MODEL. Please use the"
-          " correct export_version. Expected ORBAX_MODEL, got"
-          f" {module.export_version}"
-      )
-
-    obm_model_module = module.export_module()
 
   def save(
       self,
