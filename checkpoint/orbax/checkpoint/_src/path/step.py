@@ -368,7 +368,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
     return Metadata(step=step_, path=step_path)
 
   def _glob_step_paths(self, base_path: epath.PathLike) -> list[epath.Path]:
-  """Returns step paths under `base_path`."""
+    """Returns step paths under `base_path`."""
     base_path = epath.Path(base_path)
 
     # The epath.glob() method relies on the underlying filesystem (GcsFileSystem).
