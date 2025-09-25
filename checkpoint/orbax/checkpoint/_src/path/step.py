@@ -319,13 +319,11 @@ class _StandardNameFormat(NameFormat[Metadata]):
     single_host_load_and_broadcast: If True, the jax process=0 will list all
       steps and broadcast them to all other processes. NOTE: Ignored if jax
       backend is not multi controller.
-    enable_hns: Enables HNS-specific path logic.
   """
 
   step_prefix: Optional[str] = None
   step_format_fixed_length: Optional[int] = None
   single_host_load_and_broadcast: bool = False
-  enable_hns: bool = False
 
   def __str__(self):
     return f'StandardNameFormat("{self.build_name(1234)}")'
@@ -370,39 +368,17 @@ class _StandardNameFormat(NameFormat[Metadata]):
     return Metadata(step=step_, path=step_path)
 
   def _glob_step_paths(self, base_path: epath.PathLike) -> list[epath.Path]:
-    """Returns step paths under `base_path`."""
-    base_path = epath.Path(base_path)
-    # <step_prefix>_?<0 padding>?*
-    if self.enable_hns and gcs_utils.is_hierarchical_namespace_enabled(
-        base_path
-    ):
-      logging.vlog(
-          1,
-          'HNS enabled. Using GCS API to list step paths at %s',
-          base_path.as_posix(),
+  """Returns step paths under `base_path`."""
+  base_path = epath.Path(base_path)
+
+  # The epath.glob() method relies on the underlying filesystem (GcsFileSystem).
+  # This glob call can list step directories (prefixes)
+  # correctly for both HNS and non-HNS (flat) buckets.
+  return list(
+      base_path.glob(
+          f'{step_prefix_with_underscore(self.step_prefix)}*'
       )
-      bucket_name, path_prefix = gcs_utils.parse_gcs_path(base_path)
-      bucket = gcs_utils.get_bucket(bucket_name)
-      result = bucket.list_blobs(
-          prefix=path_prefix,
-          delimiter='/',
-          include_folders_as_prefixes=True,
-      )
-      # Iterate over pages to force a fetch from the server, after which
-      # `result.prefixes` will be populated.
-      for _ in result.pages:
-        pass
-      return [
-          epath.Path(f'gs://{bucket_name}/{folder}')
-          for folder in result.prefixes
-          if folder.startswith(os.path.join(path_prefix, self.step_prefix))
-      ]
-    else:
-      return list(
-          epath.Path(base_path).glob(
-              f'{step_prefix_with_underscore(self.step_prefix)}*'
-          )
-      )
+  )
 
   def _get_step_paths_and_total_steps(
       self, base_path: epath.PathLike, is_primary_host: bool
@@ -554,7 +530,6 @@ def standard_name_format(
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
     single_host_load_and_broadcast: bool = False,
-    enable_hns: bool = False,
 ) -> NameFormat[Metadata]:
   """Returns NameFormat for 'standard' steps for common Orbax use cases.
 
@@ -574,13 +549,11 @@ def standard_name_format(
     single_host_load_and_broadcast: If True, the jax process=0 will list all
       steps and broadcast them to all other processes. NOTE: Ignored if jax
       backend is not multi controller.
-    enable_hns: Enables HNS-specific path logic.
   """
   return _StandardNameFormat(
       step_prefix=step_prefix,
       step_format_fixed_length=step_format_fixed_length,
       single_host_load_and_broadcast=single_host_load_and_broadcast,
-      enable_hns=enable_hns,
   )
 
 
