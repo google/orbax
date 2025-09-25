@@ -138,42 +138,29 @@ def generate_xla_compile_options(
   Raises:
     ValueError: If the supplied XLA flag overrides cannot be parsed.
   """
-
+  tpu_platform_name = manifest_pb2.Platform.Name(
+      manifest_pb2.Platform.TPU
+  ).lower()
   compile_options_map = manifest_pb2.CompileOptionsProtoMap()
-  if native_serialization_platforms is None:
+  platforms = native_serialization_platforms
+  if platforms is None:
     # If no native serialization platforms are specified, we will set the
     # compilation environment for TPU only.
-    xla_flags = None
-    if xla_flags_per_platform is not None:
-      logging.info('Setting XLA flags per platform: %s', xla_flags_per_platform)
-      xla_flags = xla_flags_per_platform.get(
-          manifest_pb2.Platform.Name(manifest_pb2.Platform.TPU).lower(),
-          None,
-      )
-    tpu_compilation_env = generate_tpu_compilation_env(xla_flags)
-    compilation_options = generate_compilation_options(
-        tpu_compilation_env, jax_mesh
+    platforms = [tpu_platform_name]
+
+  if xla_flags_per_platform:
+    logging.info('Setting XLA flags per platform: %s', xla_flags_per_platform)
+
+  for platform in platforms:
+    compile_environment = None
+    if platform.lower() == tpu_platform_name:
+      xla_flags = None
+      if xla_flags_per_platform:
+        xla_flags = xla_flags_per_platform.get(platform, None)
+      compile_environment = generate_tpu_compilation_env(xla_flags)
+    compile_options_map.map[platform.lower()].CopyFrom(
+        generate_compilation_options(compile_environment, jax_mesh)
     )
-    compile_options_map.map[
-        manifest_pb2.Platform.Name(manifest_pb2.Platform.TPU).lower()
-    ].CopyFrom(compilation_options)
-  else:
-    for platform in native_serialization_platforms:
-      compile_environment = None
-      tpu_platform = manifest_pb2.Platform.Name(
-          manifest_pb2.Platform.TPU
-      ).lower()
-      if platform == tpu_platform:
-        # Adding a TPU compilation environment with all values set from global
-        # flag values.
-        compile_environment = generate_tpu_compilation_env(
-            xla_flags_per_platform.get(platform, None)
-            if xla_flags_per_platform is not None
-            else None
-        )
-      compile_options_map.map.get_or_create(platform.lower()).CopyFrom(
-          generate_compilation_options(compile_environment, jax_mesh)
-      )
   return compile_options_map
 
 
