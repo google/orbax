@@ -58,7 +58,7 @@ def generate_tpu_compilation_env(
         if not flag.startswith('--'):
           raise ValueError(
               f"Flag {flag} does not start with '--'. All flags must be in the"
-              ' format of --flag_name=flag_value.'
+              ' format of --flag_name=flag_value when using this format.'
           )
         flag_name, flag_value = flag[2:].split('=', 1)
         parsed_flags[flag_name] = flag_value
