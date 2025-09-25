@@ -30,6 +30,7 @@ class TestShardingMetadata(absltest.TestCase):
         shape=np.array([1]),
         axis_names=(["x"]),
         partition_spec=(None,),
+        axis_types=(jax.sharding.AxisType.Auto,),
         device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
             jax_sharding.mesh
         ),
