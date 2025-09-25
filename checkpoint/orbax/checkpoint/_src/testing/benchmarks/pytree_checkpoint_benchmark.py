@@ -16,10 +16,12 @@
 from collections.abc import Sequence
 import dataclasses
 from typing import Any
+from absl import logging
 import jax
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 
 
@@ -79,6 +81,7 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
     save_path = context.path / "pytree"
     options = context.options
     assert isinstance(options, PyTreeCheckpointOptions)
+
 
     handler = pytree_checkpoint_handler.PyTreeCheckpointHandler(
         use_ocdbt=options.use_ocdbt,
