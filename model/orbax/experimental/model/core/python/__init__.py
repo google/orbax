@@ -36,6 +36,7 @@ from orbax.experimental.model.core.python.function import ShloShape
 from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.manifest_constants import *
 from orbax.experimental.model.core.python.save_lib import GlobalSupplemental
+from orbax.experimental.model.core.python.save_lib import load_manifest
 from orbax.experimental.model.core.python.save_lib import save
 from orbax.experimental.model.core.python.save_lib import SaveOptions
 from orbax.experimental.model.core.python.saveable import Saveable
