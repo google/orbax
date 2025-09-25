@@ -908,6 +908,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         async_options=self._options.async_options,
     )
 
+    self._last_save_time = time.time()
+
     logging.info(
         '[process=%s][thread=%s] CheckpointManager created,  primary_host=%s,'
         ' CheckpointManagerOptions=%s, root_directory=%s: %s',
@@ -1379,6 +1381,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._validate_args(items, args)
     if not force and not self.should_save(step):
       return False
+
+    idle_time_between_consecutive_saves = (
+        step_stats.checkpoint_manager_blocking_start_time - self._last_save_time
+    )
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/checkpoint_manager/time_between_consecutive_saves_secs',
+        idle_time_between_consecutive_saves,
+    )
+    self._last_save_time = step_stats.checkpoint_manager_blocking_start_time
 
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
