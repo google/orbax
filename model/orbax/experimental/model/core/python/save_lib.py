@@ -77,8 +77,6 @@ class SaveOptions:
   version: int | None = None
   supplemental_info: Mapping[str, GlobalSupplemental] | None = None
   visibility: Mapping[str, manifest_pb2.Visibility] | None = None
-  # TODO(b/424623547): make device_assignment required that is always captured
-  # and update attributes.
   device_assignment_by_coords: Sequence[DeviceAssignment] | None = None
 
 
