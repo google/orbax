@@ -369,16 +369,16 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
   def _glob_step_paths(self, base_path: epath.PathLike) -> list[epath.Path]:
   """Returns step paths under `base_path`."""
-  base_path = epath.Path(base_path)
+    base_path = epath.Path(base_path)
 
-  # The epath.glob() method relies on the underlying filesystem (GcsFileSystem).
-  # This glob call can list step directories (prefixes)
-  # correctly for both HNS and non-HNS (flat) buckets.
-  return list(
-      base_path.glob(
-          f'{step_prefix_with_underscore(self.step_prefix)}*'
-      )
-  )
+    # The epath.glob() method relies on the underlying filesystem (GcsFileSystem).
+    # This glob call can list step directories (prefixes)
+    # correctly for both HNS and non-HNS (flat) buckets.
+    return list(
+        base_path.glob(
+            f'{step_prefix_with_underscore(self.step_prefix)}*'
+        )
+    )
 
   def _get_step_paths_and_total_steps(
       self, base_path: epath.PathLike, is_primary_host: bool
