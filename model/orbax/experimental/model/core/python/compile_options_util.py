@@ -132,6 +132,11 @@ def generate_xla_compile_options(
     platform.
 
   Raises:
+    ValueError: If an unknown platform is provided as a native serialization
+      platform.
+    ValueError: If an unknown platform is provided as a platform for XLA flags.
+    ValueError: If a platform is provided for XLA flags which is not provided
+      in the native serialization platforms.
     ValueError: If the supplied XLA flag overrides cannot be parsed.
   """
   tpu_platform_name = manifest_pb2.Platform.Name(
@@ -144,8 +149,31 @@ def generate_xla_compile_options(
     # compilation environment for TPU only.
     platforms = [tpu_platform_name]
 
+  # Validate the platform provided are valid.
+  valid_platforms = {
+      p.lower() for p in manifest_pb2.Platform.DESCRIPTOR.values_by_name
+  }
+  for platform in platforms:
+    if platform.lower() not in valid_platforms:
+      raise ValueError(
+          f'Platform "{platform}" is not a valid platform. Valid platforms are:'
+          f' {sorted(list(valid_platforms))}'
+      )
+
   if xla_flags_per_platform:
     logging.info('Setting XLA flags per platform: %s', xla_flags_per_platform)
+    # validate XLA flags provided are for a provided platform.
+    for xla_platform in xla_flags_per_platform.keys():
+      if xla_platform.lower() not in valid_platforms:
+        raise ValueError(
+            f'Platform "{xla_platform}" is not a valid platform. Valid'
+            f' platforms are: {sorted(list(valid_platforms))}'
+        )
+      if xla_platform.lower() not in platforms:
+        raise ValueError(
+            f'Platform "{xla_platform}" used for XLA flags is not provided in'
+            ' the native_serialization_platforms. '
+        )
 
   for platform in platforms:
     compile_environment = None

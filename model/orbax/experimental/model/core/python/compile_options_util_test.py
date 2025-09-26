@@ -204,25 +204,17 @@ class CompileOptionsUtilTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='with_native_serialization_platforms_no_xla_flags',
-          native_serialization_platforms=['gpu', 'cpu', 'tpu'],
+          native_serialization_platforms=['cpu', 'tpu', 'cuda'],
           xla_flags_per_platform=None,
-          expected_platforms=['gpu', 'cpu', 'tpu'],
+          expected_platforms=['cpu', 'tpu', 'cuda'],
       ),
       dict(
           testcase_name='with_native_serialization_platforms_with_xla_flags',
-          native_serialization_platforms=['gpu', 'cpu', 'tpu'],
+          native_serialization_platforms=['cpu', 'tpu', 'cuda'],
           xla_flags_per_platform={
               'tpu': [f'--{k}={v}' for k, v in XLA_FLAGS_DICT.items()]
           },
-          expected_platforms=['gpu', 'cpu', 'tpu'],
-      ),
-      dict(
-          testcase_name='platforms_without_tpu_with_tpu_xla_flags',
-          native_serialization_platforms=['gpu', 'cpu'],
-          xla_flags_per_platform={
-              'tpu': [f'--{k}={v}' for k, v in XLA_FLAGS_DICT.items()]
-          },
-          expected_platforms=['gpu', 'cpu'],
+          expected_platforms=['cpu', 'tpu', 'cuda'],
       ),
   )
   def test_generate_xla_compile_options_flags_and_platforms(
@@ -272,9 +264,47 @@ class CompileOptionsUtilTest(parameterized.TestCase):
             text_format.MessageToString(expected_env_proto),
         )
 
+  def test_generate_xla_compile_options_invalid_platform(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        'Platform "invalid" is not a valid platform. Valid platforms are:'
+        r" \['cpu', 'cuda', 'platform_unspecified', 'rocm', 'tpu'\]",
+    ):
+      compile_options_util.generate_xla_compile_options(
+          native_serialization_platforms=['invalid'],
+          xla_flags_per_platform={},
+      )
 
-# TODO(b/439870345): add tests with different jax meshes and make sure the
-# generated compile options are correct.
+  def test_generate_xla_compile_options_invalid_xla_flags_platform(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        'Platform "invalid" is not a valid platform. Valid platforms are:'
+        r" \['cpu', 'cuda', 'platform_unspecified', 'rocm', 'tpu'\]",
+    ):
+      compile_options_util.generate_xla_compile_options(
+          native_serialization_platforms=['cpu'],
+          xla_flags_per_platform={
+              'invalid': [f'--{k}={v}' for k, v in XLA_FLAGS_DICT.items()]
+          },
+      )
+
+  def test_generate_xla_compile_options_xla_flags_platform_not_in_native_serialization_platforms(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        'Platform "tpu" used for XLA flags is not provided in the'
+        ' native_serialization_platforms.',
+    ):
+      compile_options_util.generate_xla_compile_options(
+          native_serialization_platforms=['cpu'],
+          xla_flags_per_platform={
+              'tpu': [f'--{k}={v}' for k, v in XLA_FLAGS_DICT.items()]
+          },
+      )
+
+  # TODO(b/439870345): add tests with different jax meshes and make sure the
+  # generated compile options are correct.
 
 if __name__ == '__main__':
   absltest.main()
