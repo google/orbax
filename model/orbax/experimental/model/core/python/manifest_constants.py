@@ -14,18 +14,15 @@
 
 """Manifest model format constants."""
 
-MANIFEST_VERSION_FILENAME = 'orbax_model_version.txt'
+# The filename of the model version metadata file relative to the save
+# directory.
+MODEL_VERSION_FILENAME = 'orbax_model_version.txt'
 
-# The file path of the manifest proto file
-MANIFEST_FILE_PATH_KEY = 'manifest_file_path'
-# TODO(b/439870164): Update the `MANIFEST_FILENAME` to be `MANIFEST_FILE_PATH`
-# and treat it as a configurable path
-MANIFEST_FILENAME = 'manifest.pb'
+# The file path of the manifest proto file relative to the save directory.
+MANIFEST_FILE_PATH = 'manifest.pb'
 
-# The version of the manifest
-VERSION_KEY = 'version'
+# The version of the manifest.
 MANIFEST_VERSION = '0.0.1'
 
-# The mime type of the manifest proto file
-MIME_TYPE_KEY = 'mime_type'
+# The mime type of the manifest proto file.
 MANIFEST_MIME_TYPE = 'application/protobuf; type=orbax_model_manifest.Manifest'

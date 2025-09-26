@@ -64,15 +64,5 @@ class ManifestUtilTest(absltest.TestCase):
       self.assertEqual(device.core_on_chip, 0)  # Proto default
 
 
-def test_build_manifest_version_file_content(self):
-  content = manifest_util.build_manifest_version_file()
-  expected_content = (
-      'manifest_file_path: "manifest.pb"\n'
-      'version: "0.0.1"\n'
-      'mime_type: "application/protobuf; type=orbax_model_manifest.Manifest"\n'
-  )
-  self.assertEqual(content, expected_content)
-
-
 if __name__ == '__main__':
   absltest.main()

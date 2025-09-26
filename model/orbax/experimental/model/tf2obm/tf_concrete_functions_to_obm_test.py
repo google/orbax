@@ -302,7 +302,7 @@ class TfConcreteFunctionsToObmTest(
         save_dir_path,
         obm.SaveOptions(
             version=2,
-            supplemental_info={
+            supplementals={
                 TF_SAVED_MODEL_SUPPLEMENTAL_NAME: obm.GlobalSupplemental(
                     tf_global_supplemental, None
                 ),
@@ -311,9 +311,7 @@ class TfConcreteFunctionsToObmTest(
     )
 
     # Check resulting manifest proto.
-    manifest_proto = obm.manifest_pb2.Manifest()
-    with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), "rb") as f:
-      manifest_proto.ParseFromString(f.read())
+    manifest_proto = obm.load(save_dir_path)
 
     pre_processor_filename = f"{pre_processor_name}.pb"
     post_processor_filename = f"{post_processor_name}.pb"
