@@ -64,7 +64,6 @@ from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
-import tensorstore as ts
 
 
 PyTree = Any
@@ -795,48 +794,15 @@ class PyTreeCheckpointHandlerTestBase:
               array_metadata_store=array_metadata_store,
           )
 
-        # Check that the zarr2 compression is correctly set.
-        if use_ocdbt:
-          ts_spec = {
-              'driver': 'zarr3' if use_zarr3 else 'zarr',
-              'kvstore': {
-                  'driver': 'ocdbt',
-                  'base': f'file://{self.directory}',
-                  'path': 'a',
-              },
-          }
-        else:
-          ts_spec = {
-              'driver': 'zarr3' if use_zarr3 else 'zarr',
-              'kvstore': {
-                  'driver': 'file',
-                  'path': f'{self.directory}/a',
-              },
-          }
-        ts_store = ts.open(ts_spec).result()
-        read_spec = ts_store.spec().to_json()
-
-        if use_zarr3:
-          has_zstd = False
-
-          # check if zstd is in the codecs
-          for codec in read_spec['metadata']['codecs'][0]['configuration'][
-              'codecs'
-          ]:
-            if codec['name'] == 'zstd':
-              has_zstd = True
-              break
-
-          if use_compression:
-            self.assertTrue(has_zstd)
-          else:
-            self.assertFalse(has_zstd)
-
-        else:
-          if use_compression:
-            self.assertIsNotNone(read_spec['metadata']['compressor'])
-          else:
-            self.assertIsNone(read_spec['metadata']['compressor'])
+        self.assertEqual(
+            test_utils.is_compression_used(
+                self.directory,
+                'a',
+                use_zarr3,
+                use_ocdbt,
+            ),
+            use_compression,
+        )
 
     @parameterized.product(use_ocdbt=(True, False))
     def test_restore_reverse_mesh(self, use_ocdbt: bool):
@@ -2396,9 +2362,7 @@ class PyTreeCheckpointHandlerTestBase:
       if multihost.process_index() != 0:  # only test on primary host
         self.skipTest('Test only for primary host to avoid barrier timeout.')
 
-      class MissingArrayMetadataSerializer(
-          array_metadata_store_lib.Serializer
-      ):
+      class MissingArrayMetadataSerializer(array_metadata_store_lib.Serializer):
 
         def deserialize(
             self, serialized: str

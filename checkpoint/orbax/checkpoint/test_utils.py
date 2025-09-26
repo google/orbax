@@ -26,7 +26,7 @@ import copy
 import inspect
 import time
 import typing
-from typing import Any, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from unittest import mock
 
 from absl import logging
@@ -51,6 +51,7 @@ from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
+import tensorstore as ts
 
 
 PyTree = Any
@@ -796,3 +797,54 @@ def filter_metadata_fields(
     return result
 
   return jax.tree.map(_include, pytree)
+
+
+def _get_simple_tensorstore_read_spec(
+    checkpoint_directory: epath.Path,
+    param_name: str,
+    use_zarr3: bool,
+    use_ocdbt: bool,
+) -> Dict[str, Any]:
+  """Returns a simple TensorStore read spec for testing."""
+  if use_ocdbt:
+    ts_spec = {
+        'driver': 'zarr3' if use_zarr3 else 'zarr',
+        'kvstore': {
+            'driver': 'ocdbt',
+            'base': f'file://{checkpoint_directory}',
+            'path': param_name,
+        },
+    }
+  else:
+    ts_spec = {
+        'driver': 'zarr3' if use_zarr3 else 'zarr',
+        'kvstore': {
+            'driver': 'file',
+            'path': f'{checkpoint_directory/ param_name}',
+        },
+    }
+
+  return ts_spec
+
+
+def is_compression_used(
+    checkpoint_directory: epath.Path,
+    param_name: str,
+    use_zarr3: bool,
+    use_ocdbt: bool,
+):
+  """Returns True if compression is used for a given paramin in Tensorstore."""
+  ts_spec = _get_simple_tensorstore_read_spec(
+      checkpoint_directory, param_name, use_zarr3, use_ocdbt
+  )
+  read_spec = ts.open(ts_spec).result().spec().to_json()
+
+  if use_zarr3:
+    # check if zstd is in the codecs
+    for codec in read_spec['metadata']['codecs'][0]['configuration']['codecs']:
+      if codec['name'] == 'zstd':
+        return True
+    return False
+
+  else:
+    return read_spec['metadata']['compressor'] is not None
