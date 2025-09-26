@@ -10,7 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added an option `use_compression` to `PyTreeCheckpointHandler` to
-  control whether compress will be used. Default is kept `True`.
+  control whether compression will be used. Default is kept `True`.
+- v1 Added `ArrayOptions.Saving.use_compression` to control whether compression
+  will be used. Default is kept `True`.
 
 ### Changed
 

@@ -112,6 +112,7 @@ def _create_v0_saving_paraminfo(
       byte_limiter=serialization_context.byte_limiter,
       is_ocdbt_checkpoint=saving_options.use_ocdbt,
       use_zarr3=saving_options.use_zarr3,
+      use_compression=saving_options.use_compression,
       ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
       ts_context=serialization_context.ts_context,
       value_typestr=None,  # TODO(dnlng): Add value typestr.

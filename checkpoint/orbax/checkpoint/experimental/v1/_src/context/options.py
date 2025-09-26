@@ -192,6 +192,7 @@ class ArrayOptions:
         individual leaves. See below.
       use_ocdbt: Enables OCDBT format.
       use_zarr3: If True, use Zarr3 format.
+      use_compression: If True, use ZSTD compression.
       ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
         OCDBT data file. It only applies when OCDBT is enabled and Zarr3 must be
         turned on. If left unspecified, default size is 2GB.  A value of 0
@@ -242,6 +243,7 @@ class ArrayOptions:
     )
     use_ocdbt: bool = True
     use_zarr3: bool = True
+    use_compression: bool = True
     ocdbt_target_data_file_size: int | None = None
     enable_pinned_host_transfer: bool | None = None
     enable_post_merge_validation: bool = True
