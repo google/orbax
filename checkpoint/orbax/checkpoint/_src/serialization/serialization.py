@@ -79,20 +79,22 @@ def _get_kvstore_for_gcs(ckpt_path: str):
   """
   m = re.fullmatch('^gs://([^/]*)/(.*)$', ckpt_path, re.DOTALL)
   if m is None:
-    raise ValueError(
-        'The ckpt_path should contain the bucket name and the '
-        f'file path inside the bucket. Got: {ckpt_path}'
-    )
+    # The path might only be a bucket name.
+    m = re.fullmatch('^gs://([^/]*)$', ckpt_path, re.DOTALL)
+    if m is None:
+      raise ValueError(
+          'The ckpt_path should contain the bucket name and the '
+          f'file path inside the bucket. Got: {ckpt_path}'
+      )
   gcs_bucket = m.group(1)
-  path_without_bucket = m.group(2)
+  path_without_bucket = m.group(2) if m.lastindex == 2 else None
   # TODO(stoelinga): Switch to gcs_grpc by default.
   # gcs_grpc performs roughly twice as fast as gcs backend.
   gcs_backend = os.environ.get('TENSORSTORE_GCS_BACKEND', 'gcs')
-  return {
-      'driver': f'{gcs_backend}',
-      'bucket': gcs_bucket,
-      'path': path_without_bucket,
-  }
+  spec = {'driver': gcs_backend, 'bucket': gcs_bucket}
+  if path_without_bucket:
+    spec['path'] = path_without_bucket
+  return spec
 
 
 def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
@@ -107,7 +109,7 @@ def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
       raise ValueError(f'Checkpoint path should be absolute. Got {ckpt_path}')
     base_path = os.path.dirname(ckpt_path)
     base_driver_spec = (
-        base_path
+        _get_kvstore_for_gcs(base_path)
         if is_gcs_path
         else {'driver': ts_utils.DEFAULT_DRIVER, 'path': base_path}
     )
