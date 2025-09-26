@@ -35,9 +35,10 @@ from orbax.experimental.model.core.python.function import ShloDType
 from orbax.experimental.model.core.python.function import ShloShape
 from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.manifest_constants import *
-from orbax.experimental.model.core.python.save_lib import GlobalSupplemental
-from orbax.experimental.model.core.python.save_lib import save
-from orbax.experimental.model.core.python.save_lib import SaveOptions
+from orbax.experimental.model.core.python.persistence_lib import GlobalSupplemental
+from orbax.experimental.model.core.python.persistence_lib import load
+from orbax.experimental.model.core.python.persistence_lib import save
+from orbax.experimental.model.core.python.persistence_lib import SaveOptions
 from orbax.experimental.model.core.python.saveable import Saveable
 from orbax.experimental.model.core.python.serializable_function import SerializableFunction
 from orbax.experimental.model.core.python.shlo_function import ShloFunction

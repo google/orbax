@@ -22,13 +22,13 @@ from absl.testing import absltest
 import jax
 from jax import export as jax_export
 import jax.numpy as jnp
-from orbax.experimental.model.core.python import save_lib
+from orbax.experimental.model.core.python import persistence_lib
 from orbax.experimental.model.core.python.function import np_dtype_to_shlo_dtype
 from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.shlo_function import ShloFunction
 
 
-save = save_lib.save
+save = persistence_lib.save
 
 
 def jax_spec_from_aval(x: jax.core.AbstractValue) -> jax.ShapeDtypeStruct:
