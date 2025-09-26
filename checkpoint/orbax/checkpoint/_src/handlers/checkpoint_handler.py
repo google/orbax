@@ -15,11 +15,11 @@
 """CheckpointHandler interface."""
 
 import abc
-from typing import Any, Optional
+from typing import Any, Optional, Protocol
 from etils import epath
 
 
-class CheckpointHandler(abc.ABC):
+class CheckpointHandler(Protocol, metaclass=abc.ABCMeta):
   """An interface providing save/restore methods used on a savable item.
 
   Item may be a PyTree, Dataset, or any other supported object.
