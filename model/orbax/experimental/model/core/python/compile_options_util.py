@@ -49,20 +49,16 @@ def generate_tpu_compilation_env(
   )
   # Override with supplied XLA flags if any is provided.
   if xla_flags:
-    is_proto_formatted = False if xla_flags[0].startswith('--') else True
-    if is_proto_formatted:
-      merge_proto_formatted_flags_into_compile_options(xla_flags, env)
-    else:
-      parsed_flags = {}
-      for flag in xla_flags:
-        if not flag.startswith('--'):
-          raise ValueError(
-              f"Flag {flag} does not start with '--'. All flags must be in the"
-              ' format of --flag_name=flag_value when using this format.'
-          )
-        flag_name, flag_value = flag[2:].split('=', 1)
-        parsed_flags[flag_name] = flag_value
-      merge_flags_into_compile_options(parsed_flags, env)
+    parsed_flags = {}
+    for flag in xla_flags:
+      if not flag.startswith('--'):
+        raise ValueError(
+            f"Flag {flag} does not start with '--'. All flags must be in the"
+            ' format of --flag_name=flag_value.'
+        )
+      flag_name, flag_value = flag[2:].split('=', 1)
+      parsed_flags[flag_name] = flag_value
+    merge_flags_into_compile_options(parsed_flags, env)
 
   # Pack the TPU compilation environment into a compilation env proto.
   any_proto = any_pb2.Any()
@@ -231,8 +227,8 @@ def merge_flags_into_compile_options(
   Args:
     xla_flags: A mapping of XLA flag names to their string values. These flags
       will be parsed and merged into the `env` proto.
-    env: The TpuCompilationEnvironment proto to merge the flags into. This
-      proto will be modified in place.
+    env: The TpuCompilationEnvironment proto to merge the flags into. This proto
+      will be modified in place.
   """
   env_override = tpu_comp_env_pb2.TpuCompilationEnvironment()
   for flag_name, value in xla_flags.items():
@@ -244,21 +240,4 @@ def merge_flags_into_compile_options(
     else:
       # For scalar types, we can set the attribute directly.
       setattr(env_override, field_descriptor.name, parsed_value)
-  env.MergeFrom(env_override)
-
-
-# TODO(b/438187387): remove this path and only allow the "--flag=value" format.
-def merge_proto_formatted_flags_into_compile_options(
-    xla_flags: Sequence[str],
-    env: tpu_comp_env_pb2.TpuCompilationEnvironment,
-):
-  """Merges flags into a proto."""
-  env_override = tpu_comp_env_pb2.TpuCompilationEnvironment()
-  xla_flags_str = '\n'.join(xla_flags)
-  try:
-    text_format.Parse(xla_flags_str, env_override)
-  except text_format.ParseError as e:
-    raise ValueError(
-        f'Error parsing supplied XLA flag overrides {xla_flags_str}.'
-    ) from e
   env.MergeFrom(env_override)

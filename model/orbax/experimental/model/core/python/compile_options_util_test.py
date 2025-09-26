@@ -41,16 +41,6 @@ XLA_FLAGS_DICT = {
     'xla_tpu_async_copy_bandwidth_scaling_factor': '0.19125064716453793',
 }
 
-XLA_FLAGS_PROTO_FORMATTED = [
-    'xla_jf_rematerialization_percent_shared_memory_limit: 99',
-    'xla_tpu_allocate_scoped_vmem_at_same_offset: false',
-    (
-        'xla_tpu_alternate_memory_benefit_scaling_factor_for_large_buffers:'
-        " 'NO_SCALE'"
-    ),
-    'xla_tpu_memory_bound_loop_optimizer_options: {enabled:false}',
-    'xla_tpu_async_copy_bandwidth_scaling_factor: 0.19125064716453793',
-]
 
 EXPECTED_ENV = tpu_comp_env_pb2.TpuCompilationEnvironment(
     xla_jf_rematerialization_percent_shared_memory_limit=99,
@@ -122,19 +112,8 @@ class CompileOptionsUtilTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'Flag not found: nonexistent_flag'):
       compile_options_util.parse_flag_from_string('nonexistent_flag', 'value')
 
-  @parameterized.named_parameters(
-      dict(
-          testcase_name='dict_xla_flags',
-          xla_flags=XLA_FLAGS_DICT,
-          merge_fn=compile_options_util.merge_flags_into_compile_options,
-      ),
-      dict(
-          testcase_name='proto_formatted_xla_flags',
-          xla_flags=XLA_FLAGS_PROTO_FORMATTED,
-          merge_fn=compile_options_util.merge_proto_formatted_flags_into_compile_options,
-      ),
-  )
-  def test_merge_flags_into_compile_options(self, xla_flags, merge_fn):
+  def test_merge_flags_into_compile_options(self):
+    xla_flags = XLA_FLAGS_DICT
     # Initialize the environment with some values.
     env = tpu_comp_env_pb2.TpuCompilationEnvironment()
     # Values that should be overridden.
@@ -144,7 +123,7 @@ class CompileOptionsUtilTest(parameterized.TestCase):
     env.xla_tpu_wait_n_cycles_before_program_termination = 1234
 
     # Merge the flags into the environment.
-    merge_fn(xla_flags, env)
+    compile_options_util.merge_flags_into_compile_options(xla_flags, env)
     self.assertEqual(
         env.xla_jf_rematerialization_percent_shared_memory_limit, 99
     )
@@ -168,11 +147,6 @@ class CompileOptionsUtilTest(parameterized.TestCase):
       dict(
           testcase_name='dict_xla_flags',
           xla_flags=[f'--{k}={v}' for k, v in XLA_FLAGS_DICT.items()],
-          expected_env=EXPECTED_ENV,
-      ),
-      dict(
-          testcase_name='proto_formatted_xla_flags',
-          xla_flags=XLA_FLAGS_PROTO_FORMATTED,
           expected_env=EXPECTED_ENV,
       ),
       dict(
@@ -204,7 +178,7 @@ class CompileOptionsUtilTest(parameterized.TestCase):
         ValueError,
         'Flag xla_tpu_allocate_scoped_vmem_at_same_offset: false does not start'
         " with '--'. All flags must be in the format of"
-        ' --flag_name=flag_value when using this format.',
+        ' --flag_name=flag_value.',
     ):
       compile_options_util.generate_tpu_compilation_env(
           xla_flags=[
