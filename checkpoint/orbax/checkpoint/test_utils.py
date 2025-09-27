@@ -231,9 +231,9 @@ def assert_array_equal(testclass, v_expected, v_actual):
       for shard_expected, shard_actual in zip(
           v_expected.addressable_shards, v_actual.addressable_shards
       ):
-        np.testing.assert_array_equal(shard_expected.data, shard_actual.data)
+        np.testing.assert_array_equal(shard_actual.data, shard_expected.data)
   elif isinstance(v_expected, (np.ndarray, jnp.ndarray)):
-    np.testing.assert_array_equal(v_expected, v_actual)
+    np.testing.assert_array_equal(v_actual, v_expected)
   else:
     testclass.assertEqual(v_expected, v_actual)
 
