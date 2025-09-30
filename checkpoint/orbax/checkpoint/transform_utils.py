@@ -18,7 +18,7 @@ import dataclasses
 import functools
 import operator
 import re
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 from absl import logging
 import jax.monitoring
@@ -292,9 +292,7 @@ def apply_transformations(original_tree: PyTree,
   return tree_utils.from_flat_dict(new, target=new_tree, sep='/')
 
 
-def merge_trees(
-    *trees: Sequence[PyTree], target: Optional[PyTree] = None
-) -> PyTree:
+def merge_trees(*trees: PyTree, target: Optional[PyTree] = None) -> PyTree:
   """Merges the provided PyTrees into a single result.
 
   If trees have overlapping keys, the key of the last tree in the list will take
@@ -313,9 +311,7 @@ def merge_trees(
   return tree_utils.from_flat_dict(merged, target=target)
 
 
-def intersect_trees(
-    *trees: Sequence[PyTree], target: Optional[PyTree] = None
-) -> PyTree:
+def intersect_trees(*trees: PyTree, target: Optional[PyTree] = None) -> PyTree:
   """Intersects the provided trees, dropping any keys not in common between all.
 
   For overlapping keys, the key of the last tree in the list will take
