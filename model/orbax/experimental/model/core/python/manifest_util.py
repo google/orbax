@@ -16,6 +16,7 @@
 # TODO(b/356174487):  Add unit tests.
 
 from collections.abc import Mapping, Sequence
+import os
 from absl import logging
 from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.python import manifest_constants
@@ -62,7 +63,7 @@ def _build_function(
         supp = supp.serializable_to_proto()
         supp_proto = supp.proto
         if supp.ext_name is not None:
-          filename = unstructured_data.build_filename_from_extension(
+          filename = unstructured_data.build_relative_filepath_from_extension(
               name + "_supplemental", supp.ext_name
           )
           supp_proto = unstructured_data.write_inlined_data_to_file(
@@ -72,11 +73,13 @@ def _build_function(
   elif isinstance(fn, SerializableFunction):
     body_proto = fn.body.proto
     if fn.body.ext_name is not None:
-      filename = unstructured_data.build_filename_from_extension(
-          name, fn.body.ext_name
+      relative_filepath = (
+          unstructured_data.build_relative_filepath_from_extension(
+              name, fn.body.ext_name, fn.body.subfolder
+          )
       )
       body_proto = unstructured_data.write_inlined_data_to_file(
-          body_proto, path, filename
+          body_proto, path, relative_filepath
       )
     fn_proto.body.other.CopyFrom(body_proto)
   else:
