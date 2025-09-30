@@ -44,7 +44,6 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
-from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.logging import abstract_logger

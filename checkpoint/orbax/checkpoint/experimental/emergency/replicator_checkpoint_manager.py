@@ -29,7 +29,6 @@ from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
-from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
