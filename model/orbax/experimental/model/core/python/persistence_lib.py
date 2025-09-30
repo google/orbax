@@ -26,10 +26,10 @@ from absl import logging
 from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.python import file_utils
 from orbax.experimental.model.core.python import manifest_constants
+from orbax.experimental.model.core.python import metadata
 from orbax.experimental.model.core.python import unstructured_data
 from orbax.experimental.model.core.python.device_assignment import DeviceAssignment
 from orbax.experimental.model.core.python.manifest_util import build_manifest_proto
-from orbax.experimental.model.core.python.manifest_util import build_manifest_version_file
 from orbax.experimental.model.core.python.saveable import Saveable
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredData
 
@@ -60,9 +60,8 @@ class SaveOptions:
   Attributes:
     function_aliases: A mapping from user-chosen function alias name to the
       function that runs on TPU.
-    version: The serializatioin-format version. With version >= 2 it genertes
-      manifest.pb whereas with version <= 1 it generates saved_model.pb .
-      Defaults to 1.
+    version: The serialization format version. With version >= 2 it generates
+      manifest.pb whereas with version <= 1 it generates saved_model.pb.
     supplemental_info: Optional. An `UnstructuredData` (or a string-map of them)
       to be saved in the manifest.pb as the global supplemental info.
     visibility: Optional. A mapping from function name to its visibility (e.g.,
@@ -132,15 +131,49 @@ def save(
       names_to_visibilities=options.visibility,
       device_assignment_by_coords=options.device_assignment_by_coords,
   )
-  with file_utils.open_file(
-      os.path.join(path, manifest_constants.MANIFEST_FILENAME), 'wb'
-  ) as f:
+
+  manifest_path = os.path.join(path, manifest_constants.MANIFEST_FILE_PATH)
+  file_utils.mkdir_p(os.path.dirname(manifest_path))
+  with file_utils.open_file(manifest_path, 'wb') as f:
     f.write(manifest_proto.SerializeToString())
 
+  # TODO(b/446668224): This safeguard can be removed when all users of OBM
+  # are reading the value from the model version file instead of hardcoding
+  # the filename.
+  if manifest_constants.MANIFEST_FILE_PATH != 'manifest.pb':
+    raise ValueError(
+        'Currently, only manifest.pb is supported as the manifest filename'
+    )
+
+  model_version = metadata.ModelVersion(
+      version=manifest_constants.MANIFEST_VERSION,
+      mime_type=manifest_constants.MANIFEST_MIME_TYPE,
+      manifest_file_path=manifest_constants.MANIFEST_FILE_PATH,
+  )
   # Write the main metadata to detect and parse an Orbax Model. The version file
   # should be THE LAST file to be written. It is used to validate the export and
   # identify an Orbax Model.
-  with file_utils.open_file(
-      os.path.join(path, manifest_constants.MANIFEST_VERSION_FILENAME), 'w'
-  ) as f:
-    f.write(build_manifest_version_file())
+  model_version.save(
+      os.path.join(path, manifest_constants.MODEL_VERSION_FILENAME)
+  )
+
+
+def load(saved_state_dir: str) -> manifest_pb2.Manifest:
+  """Discovers and loads the manifest in the saved state directory."""
+  model_version = metadata.ModelVersion.load(
+      os.path.join(saved_state_dir, manifest_constants.MODEL_VERSION_FILENAME)
+  )
+
+  # TODO(b/447665358): Once there is more than one version of the model
+  # we will need to check the list of supported versions and customize the
+  # loading process accordingly.
+  if model_version.version != manifest_constants.MANIFEST_VERSION:
+    raise ValueError(f'Unsupported manifest version "{model_version.version}"')
+  if model_version.mime_type != manifest_constants.MANIFEST_MIME_TYPE:
+    raise ValueError(f'Unsupported manifest type "{model_version.mime_type}"')
+
+  manifest_path = os.path.join(
+      saved_state_dir, model_version.manifest_file_path
+  )
+  with file_utils.open_file(manifest_path, 'rb') as f:
+    return manifest_pb2.Manifest.FromString(f.read())

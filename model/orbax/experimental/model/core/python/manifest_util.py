@@ -115,28 +115,6 @@ def _is_seq_of_functions(obj: Saveable) -> bool:
   )
 
 
-def build_manifest_version_file() -> str:
-  """Builds a manifest version file content."""
-
-  # TODO(b/365967674): Remove this check once the manifest filename is
-  # configurable by the manifest version file. Currently, the manifest filename
-  # is hardcoded to "manifest.pb" in OBM & JSV codebase and that needs to be
-  # updated first.
-  if manifest_constants.MANIFEST_FILENAME != "manifest.pb":
-    raise ValueError(
-        "Currently, only manifest.pb is supported as the manifest filename."
-    )
-
-  return (
-      f"{manifest_constants.MANIFEST_FILE_PATH_KEY}:"
-      f' "{manifest_constants.MANIFEST_FILENAME}"\n'
-      f"{manifest_constants.VERSION_KEY}:"
-      f' "{manifest_constants.MANIFEST_VERSION}"\n'
-      f"{manifest_constants.MIME_TYPE_KEY}:"
-      f' "{manifest_constants.MANIFEST_MIME_TYPE}"\n'
-  )
-
-
 def build_manifest_proto(
     obm_module: dict[str, Saveable],
     path: str,
