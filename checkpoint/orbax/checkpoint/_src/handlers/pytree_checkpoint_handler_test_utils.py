@@ -487,6 +487,7 @@ class PyTreeCheckpointHandlerTestBase:
           shape=np.array([2]),
           axis_names=['x'],
           partition_spec=('x',),
+          axis_types=(jax.sharding.AxisType.Auto,),
           device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
               jax.sharding.Mesh(devices_subset, ('x',))
           ),
@@ -495,6 +496,7 @@ class PyTreeCheckpointHandlerTestBase:
           shape=np.array([8]),
           axis_names=['x'],
           partition_spec=('x',),
+          axis_types=(jax.sharding.AxisType.Auto,),
           device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
               jax.sharding.Mesh(jax.devices(), ('x',))
           ),
