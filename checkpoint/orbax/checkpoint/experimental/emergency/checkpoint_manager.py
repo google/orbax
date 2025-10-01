@@ -26,7 +26,6 @@ always be called across all processes within the primary slice.
 """
 
 import asyncio
-import collections
 import dataclasses
 import functools
 import time
@@ -35,7 +34,6 @@ from absl import logging
 from etils import epath
 from etils import epy
 import jax
-from jax.experimental import multihost_utils
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import abstract_checkpoint_manager
@@ -55,6 +53,7 @@ from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency import local_checkpoint_data_debugging
 from orbax.checkpoint.experimental.emergency import mesh_consistency
+from orbax.checkpoint.experimental.emergency import path as emergency_path_utils
 from orbax.checkpoint.experimental.emergency import process_metadata_checkpoint_handler
 from typing_extensions import override
 from typing_extensions import Self  # for Python version < 3.11
@@ -308,80 +307,6 @@ class CheckpointManagerOptions:
   async_options: Optional[checkpoint_manager.AsyncOptions] = None
   multiprocessing_options: Optional[MultiprocessingOptions] = None
   single_host_load_and_broadcast: bool = True
-
-
-def _common_values_per_slice(
-    per_process_values: Dict[int, Set[int]],
-    global_mesh: jax.sharding.Mesh,
-    *,
-    replica_axis_index: int,
-) -> Dict[int, Set[int]]:
-  """Obtains values shared in common across all processes in each slice.
-
-  Args:
-    per_process_values: A mapping of process index to a list of values local to
-      that process.
-    global_mesh: The global mesh.
-    replica_axis_index: The index of the replica axis in the global mesh.
-
-  Returns:
-    A mapping of slice index to a set of values shared in common across all
-    processes in that slice. A value appearing in one process but not another
-    in the same slice will not appear in the output.
-  """
-  total_num_replicas = multislice.replica_count(
-      global_mesh, replica_axis_index=replica_axis_index
-  )
-  num_processes_per_replica = (
-      global_mesh.devices.size // total_num_replicas // jax.local_device_count()
-  )
-  per_replica_values = collections.defaultdict(list)
-  for pid, values in per_process_values.items():
-    replica_id = multislice.process_replica_id(
-        pid, global_mesh, replica_axis_index=replica_axis_index
-    )
-    per_replica_values[replica_id].extend(values)
-
-  for replica_id, values in per_replica_values.items():
-    counter = collections.Counter(values)
-    common_values = [
-        k for k in counter if counter[k] == num_processes_per_replica
-    ]
-    # Here `len(common_values)`` will be less than or equal to `len(values)`
-    # because a value can only appear in `common_values` if it occurs
-    # `num_processes_per_slice` times in `values`.
-    if len(common_values) > len(values):
-      raise AssertionError(
-          f' len(common_values) ({common_values}) exceeded length of input'
-          f' values ({values}).'
-      )
-    per_replica_values[replica_id] = common_values
-
-  return {k: set(v) for k, v in per_replica_values.items()}
-
-
-def _global_max(values: list[int]) -> list[int]:
-  """Computes the global max of a list of values across all hosts."""
-  host_mesh = jax.sharding.Mesh(
-      np.asarray(jax.devices()).reshape(
-          multihost.process_count(), jax.local_device_count()
-      ),
-      ['host', 'dev'],
-  )
-  sharding = jax.sharding.NamedSharding(host_mesh, P('host', None))
-  local_array = np.array([values], dtype=np.int32)
-  # Create the global array, which is sharded across hosts.
-  global_array = jax.make_array_from_process_local_data(sharding, local_array)
-
-  @jax.jit
-  @functools.partial(
-      jax.shard_map, mesh=host_mesh, in_specs=P('host', None), out_specs=P()
-  )
-  def reduce_max_fn(x):
-    return jax.lax.pmax(x, axis_name='host')
-
-  max_values_array = reduce_max_fn(global_array).squeeze(axis=0)
-  return list(np.asarray(max_values_array).astype(int))
 
 
 class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
@@ -825,7 +750,7 @@ class _MultisliceCheckpointManager(
       should_save = self._persistent_checkpoint_manager.should_save(step)
     else:
       should_save = self._local_checkpoint_manager.should_save(step)
-    return bool(_global_max([int(should_save)])[0])
+    return bool(multihost.global_max([int(should_save)])[0])
 
   def delete(self, step: int):
     """Deletes a step checkpoint."""
@@ -901,7 +826,8 @@ class _MultisliceCheckpointManager(
 
     start = time.time()
     saved = tuple(
-        bool(e) for e in _global_max([int(persistent_saved), int(local_saved)])
+        bool(e)
+        for e in multihost.global_max([int(persistent_saved), int(local_saved)])
     )
     persistent_saved, local_saved = saved
     logging.info('Broadcast `saved` bool in %f seconds.', time.time() - start)
@@ -914,42 +840,12 @@ class _MultisliceCheckpointManager(
     return persistent_saved or local_saved
 
   def _get_per_slice_local_steps(self) -> Dict[int, Set[int]]:
-    """Gets the set of steps present in each slice from all hosts."""
-    local_steps = set(step_lib.checkpoint_steps(self._local_directory))
-    logging.info(
-        'Found steps: %s in local host storage: %s.',
-        local_steps,
+    return emergency_path_utils.get_per_replica_local_steps(
         self._local_directory,
-    )
-
-    num_local_steps = len(local_steps)
-    max_num_local_steps = _global_max([num_local_steps])[0]
-    # Pad the local steps so all hosts have an array of the same length.
-    padded_local_steps = list(local_steps) + [-1] * (
-        max_num_local_steps - num_local_steps
-    )
-    local_steps_per_process_array = np.array(
-        [multihost.process_index()] + padded_local_steps, dtype=np.int32
-    )
-
-    # Use all_gather to collect the arrays from every host.
-    global_steps_per_process = multihost_utils.process_allgather(
-        local_steps_per_process_array, tiled=False
-    )
-
-    # The rest of the logic works on the gathered NumPy array.
-    per_process_steps = {}
-    for process_and_steps in global_steps_per_process:
-      per_process_steps[process_and_steps[0]] = set(
-          s for s in process_and_steps[1:] if s != -1
-      )
-    per_slice_steps = _common_values_per_slice(
-        per_process_steps,
-        self._global_mesh,
+        step_name_format=self._options.step_name_format,
+        global_mesh=self._global_mesh,
         replica_axis_index=self._replica_axis_index,
     )
-    logging.vlog(1, 'per_slice_steps=%s', per_slice_steps)
-    return per_slice_steps
 
   def _find_slice_with_complete_local_checkpoint(self, step: int) -> int:
     """Return the slice id which has the step."""

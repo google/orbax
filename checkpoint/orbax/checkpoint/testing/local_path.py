@@ -16,15 +16,22 @@
 
 from __future__ import annotations
 
+import os
 import typing
-from typing import Iterator, Protocol
+from typing import Iterator
 
 from etils import epath
 from orbax.checkpoint._src.multihost import multihost
 
 
-@typing.runtime_checkable
-class LocalPath(Protocol):
+# The following is a hack to pass the type checker.
+if typing.TYPE_CHECKING:
+  _BasePath = epath.Path
+else:
+  _BasePath = object
+
+
+class LocalPath(_BasePath):
   """A Path implementation for testing process-local paths.
 
   In the future, this class may more completely provide all functions and
@@ -45,106 +52,14 @@ class LocalPath(Protocol):
   process index must be appended when path operations are performed.
   """
 
-  @property
-  def path(self) -> epath.Path:
-    ...
-
-  def exists(self) -> bool:
-    """Returns True if self exists."""
-    ...
-
-  def is_dir(self) -> bool:
-    """Returns True if self is a dir."""
-    ...
-
-  def is_file(self) -> bool:
-    """Returns True if self is a file."""
-    ...
-
-  def iterdir(self) -> Iterator[LocalPath]:
-    """Iterates over the directory."""
-    ...
-
-  def glob(self, pattern: str) -> Iterator[LocalPath]:
-    """Yields all matching files (of any kind)."""
-    ...
-
-  def read_bytes(self) -> bytes:
-    """Reads contents of self as bytes."""
-    ...
-
-  def read_text(self, encoding: str | None = None) -> str:
-    """Reads contents of self as a string."""
-    ...
-
-  def mkdir(
-      self,
-      mode: int | None = None,
-      parents: bool = False,
-      exist_ok: bool = False,
-  ) -> None:
-    """Create a new directory at this given path."""
-    ...
-
-  def rmdir(self) -> None:
-    """Remove the empty directory at this given path."""
-    ...
-
-  def rmtree(self, missing_ok: bool = False) -> None:
-    """Remove the directory, including all sub-files."""
-    ...
-
-  def unlink(self, missing_ok: bool = False) -> None:
-    """Remove this file or symbolic link."""
-    ...
-
-  def write_bytes(self, data: bytes) -> int:
-    """Writes content as bytes."""
-    ...
-
-  def write_text(
-      self,
-      data: str,
-      encoding: str | None = None,
-      errors: str | None = None,
-  ) -> int:
-    """Writes content as str."""
-    ...
-
-  ### PosixPath methods ###
-
-  def as_posix(self) -> str:
-    ...
-
-  def __truediv__(self, key: epath.PathLike) -> epath.Path:
-    ...
-
-  @property
-  def name(self) -> str:
-    ...
-
-  @property
-  def parent(self) -> epath.Path:
-    ...
-
-
-LocalPathLike = LocalPath | str
-
-
-def _resolve_local_path_like(path: LocalPathLike) -> epath.Path:
-  if isinstance(path, LocalPath):
-    return typing.cast(LocalPath, path).path
-  return epath.Path(path)
-
-
-class _LocalPathImpl(LocalPath):
-  """etils.epath.Path implementation for multiprocess tests."""
-
-  def __init__(self, path: epath.PathLike):
-    self._path = epath.Path(path)
+  def __init__(self, *parts: epath.PathLike):
+    self._path = epath.Path('/'.join(os.fspath(p) for p in parts))
 
   def __repr__(self) -> str:
     return f'{self.__class__.__name__}({self.path})'
+
+  def __str__(self) -> str:
+    return str(self.path)
 
   @property
   def base_path(self) -> epath.Path:
@@ -168,11 +83,11 @@ class _LocalPathImpl(LocalPath):
 
   def iterdir(self) -> Iterator[LocalPath]:
     """Iterates over the directory."""
-    return (_LocalPathImpl(p) for p in self.path.iterdir())
+    return (LocalPath(p) for p in self.path.iterdir())
 
   def glob(self, pattern: str) -> Iterator[LocalPath]:
     """Yields all matching files (of any kind)."""
-    return (_LocalPathImpl(p) for p in self.path.glob(pattern))
+    return (LocalPath(p) for p in self.path.glob(pattern))
 
   def read_bytes(self) -> bytes:
     """Reads contents of self as bytes."""
@@ -231,7 +146,5 @@ class _LocalPathImpl(LocalPath):
   def parent(self) -> epath.Path:
     return self.path.parent
 
-
-def local_path(path: epath.PathLike) -> LocalPath:
-  """Returns a LocalPath for the given path."""
-  return _LocalPathImpl(path)
+  def __fspath__(self) -> str:
+    return os.fspath(self.path)
