@@ -908,6 +908,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         async_options=self._options.async_options,
     )
 
+    self._last_save_time = None
+
     logging.info(
         '[process=%s][thread=%s] CheckpointManager created,  primary_host=%s,'
         ' CheckpointManagerOptions=%s, root_directory=%s: %s',
@@ -1403,6 +1405,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # checkpointers are AsyncCheckpointers.
     # Must happen after `should_save` to avoid blocking callers.
     step_stats.wait_for_prev_start_time = time.time()
+    if self._last_save_time is not None:
+      # This may be negative if we arrive at
+      # wait_until_finished() before the save completed.
+      # TODO: b/448361885 - Investigate if we can make this more robust to
+      # manual wait_until_finished() calls.
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/checkpoint_manager/time_between_consecutive_saves_secs',
+          step_stats.wait_for_prev_start_time - self._last_save_time,
+      )
     self.wait_until_finished()
     step_stats.wait_for_prev_duration_secs = (
         time.time() - step_stats.wait_for_prev_start_time
@@ -2085,6 +2096,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           current_thread.name,
           step,
       )
+      # This time is tracked for metric purposes only.
+      self._last_save_time = time.time()
 
   def close(self):
     """Waits for outstanding operations to finish and closes internal objects."""
