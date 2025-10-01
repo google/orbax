@@ -181,7 +181,7 @@ class CustomSteps(PreservationPolicy):
   """Preserves checkpoints at the given steps."""
 
   steps: dataclasses.InitVar[Sequence[int]]
-  _steps_set: Set[int] = dataclasses.field(init=False, repr=False)
+  _steps_set: Set[int] = dataclasses.field(init=False)
 
   def __post_init__(self, steps_init: Sequence[int]):
     """Initializes the internal set of steps after the object is created."""

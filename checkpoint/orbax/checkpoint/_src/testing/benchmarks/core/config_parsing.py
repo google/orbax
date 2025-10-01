@@ -153,7 +153,10 @@ def create_test_suite_from_config(
 
     generator_options_dict = benchmark_group['options']
     try:
-      generator_options = options_class(**generator_options_dict)
+      if hasattr(options_class, 'from_dict'):
+        generator_options = options_class.from_dict(generator_options_dict)
+      else:
+        generator_options = options_class(**generator_options_dict)
     except TypeError as e:
       logging.error(
           'Failed to instantiate options class %s with provided options %s: %s',
