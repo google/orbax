@@ -947,9 +947,14 @@ class BasePyTreeCheckpointHandler(
             serialized_item,
             is_leaf=tree_utils.is_empty_or_leaf,
         )
-      value_metadata_tree = tree_structure_utils.tree_trim(
-          serialized_item, value_metadata_tree, strict=True
-      )
+      try:
+        value_metadata_tree = tree_structure_utils.tree_trim(
+            serialized_item, value_metadata_tree, strict=True
+        )
+      except ValueError as e:
+        raise ValueError(
+            'Missing keys were found in the user-provided restore item.'
+        ) from e
       if restore_args is not None:
         restore_args = tree_structure_utils.tree_trim(
             item, restore_args, strict=True

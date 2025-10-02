@@ -2710,7 +2710,7 @@ class PyTreeCheckpointHandlerTestBase:
           }
           with self.assertRaisesRegex(
               ValueError,
-              r"Missing 1 keys in structure path \(\), including: \['z'\]",
+              'Missing keys were found in the user-provided restore item.',
           ):
             restore_handler.restore(
                 directory,
