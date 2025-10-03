@@ -1410,9 +1410,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # wait_until_finished() before the save completed.
       # TODO: b/448361885 - Investigate if we can make this more robust to
       # manual wait_until_finished() calls.
+      step_stats.time_between_consecutive_saves_sec = (
+          step_stats.wait_for_prev_start_time - self._last_save_time
+      )
       jax.monitoring.record_event_duration_secs(
           '/jax/orbax/checkpoint_manager/time_between_consecutive_saves_secs',
-          step_stats.wait_for_prev_start_time - self._last_save_time,
+          step_stats.time_between_consecutive_saves_sec,
       )
     self.wait_until_finished()
     step_stats.wait_for_prev_duration_secs = (
