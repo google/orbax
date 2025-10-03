@@ -103,6 +103,7 @@ METADATA_ITEM_NAME = 'metadata'
 RESERVED_ITEM_NAMES = []
 
 _INIT_TIME = datetime.datetime.now(tz=datetime.timezone.utc)
+_WAIT_FOR_PREV_SAVE_WARNING_THRESHOLD_SECS = 1.0
 
 
 def _metrics_file_exists(metrics_item_path: epath.Path) -> bool:
@@ -1426,6 +1427,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         '/jax/checkpoint/write/wait_for_prev_duration_secs',
         step_stats.wait_for_prev_duration_secs,
     )
+    if (
+        step_stats.wait_for_prev_duration_secs
+        > _WAIT_FOR_PREV_SAVE_WARNING_THRESHOLD_SECS
+    ):
+      logging.warning(
+          'Waiting for previous save to complete took %f seconds. If this'
+          ' number is high, consider checkpointing less frequently.',
+          step_stats.wait_for_prev_duration_secs,
+      )
     # We consider the save in progress only when we have finished waiting for
     # previous save to complete.
     self._save_progress_tracker.set(True)
