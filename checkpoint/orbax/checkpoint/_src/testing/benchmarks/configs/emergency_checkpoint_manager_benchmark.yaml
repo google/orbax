@@ -5,7 +5,7 @@ mesh_config:
   mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
   # ICI: Within a slice. Assuming 8 devices per slice.
   # DCN: Across slices.
-  ici_parallelism: {"fsdp": 32, "tensor": 1, "data": 2}
+  ici_parallelism: {"fsdp": 4, "tensor": 1, "data": 2}
   dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
   allow_split_physical_axes: true
 
