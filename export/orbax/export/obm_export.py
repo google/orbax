@@ -42,7 +42,7 @@ class ObmExport(export_base.ExportBase):
 
   def __init__(
       self,
-      module: jax_module.JaxModule,
+      module: jax_module.JaxModule | None,
       serving_configs: Sequence[osc.ServingConfig],
   ):
     """Initializes the ObmExport class."""
