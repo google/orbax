@@ -137,14 +137,6 @@ def save(
   with file_utils.open_file(manifest_path, 'wb') as f:
     f.write(manifest_proto.SerializeToString())
 
-  # TODO(b/446668224): This safeguard can be removed when all users of OBM
-  # are reading the value from the model version file instead of hardcoding
-  # the filename.
-  if manifest_constants.MANIFEST_FILE_PATH != 'manifest.pb':
-    raise ValueError(
-        'Currently, only manifest.pb is supported as the manifest filename'
-    )
-
   model_version = metadata.ModelVersion(
       version=manifest_constants.MANIFEST_VERSION,
       mime_type=manifest_constants.MANIFEST_MIME_TYPE,
