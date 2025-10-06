@@ -4,7 +4,7 @@ suite_name: "Multislice Broadcast Benchmark"
 mesh_config:
   mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
   # ICI: Within a slice.
-  ici_parallelism: {"fsdp": 16, "data": 16}
+  ici_parallelism: {"fsdp": 4, "data": 2}
   # DCN: Across slices.
   dcn_parallelism: {"data": 2}
 
