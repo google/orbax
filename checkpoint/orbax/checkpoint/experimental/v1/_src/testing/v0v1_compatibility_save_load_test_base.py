@@ -32,17 +32,11 @@ from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
-
 PyTree = tree_types.PyTree
 Path = path_types.Path
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 
 create_sharded_pytree = array_test_utils.create_sharded_pytree
-
-_V0_ERROR_SUBSTR = (
-    'If your checkpoint was saved with the Orbax V0 API, please follow the'
-    ' instructions at'
-)
 
 
 class CompatibilitySaveLoadTestBase:
@@ -116,12 +110,12 @@ class CompatibilitySaveLoadTestBase:
         test_utils.assert_tree_equal(self, self.pytree, loaded)
 
       with self.subTest('no_checkpointable_name_error'):
-        with self.assertRaisesRegex(InvalidLayoutError, _V0_ERROR_SUBSTR):
+        with self.assertRaises(InvalidLayoutError):
           ocp.load_pytree(
               self.ckpt_directory,
               self.abstract_pytree if with_abstract_pytree else None,
           )
-        with self.assertRaisesRegex(InvalidLayoutError, _V0_ERROR_SUBSTR):
+        with self.assertRaises(InvalidLayoutError):
           ocp.load_pytree(
               self.root_directory,
               self.abstract_pytree if with_abstract_pytree else None,
@@ -137,13 +131,13 @@ class CompatibilitySaveLoadTestBase:
           test_utils.assert_tree_equal(self, self.pytree, loaded)
 
         with self.subTest(f'pass_{checkpointable_name}_error'):
-          with self.assertRaisesRegex(InvalidLayoutError, _V0_ERROR_SUBSTR):
+          with self.assertRaises(InvalidLayoutError):
             ocp.load_pytree(
                 self.ckpt_directory,
                 self.abstract_pytree if with_abstract_pytree else None,
                 checkpointable_name=checkpointable_name,
             )
-          with self.assertRaisesRegex(InvalidLayoutError, _V0_ERROR_SUBSTR):
+          with self.assertRaises(InvalidLayoutError):
             ocp.load_pytree(
                 self.root_directory,
                 self.abstract_pytree if with_abstract_pytree else None,
@@ -157,18 +151,80 @@ class CompatibilitySaveLoadTestBase:
             checkpointable_name=None,
         )
         test_utils.assert_tree_equal(self, self.pytree, loaded)
-
-      with self.subTest('pass_none_error'):
-        with self.assertRaisesRegex(InvalidLayoutError, _V0_ERROR_SUBSTR):
-          ocp.load_pytree(
-              step_dir,
-              self.abstract_pytree if with_abstract_pytree else None,
-              checkpointable_name=None,
-          )
-        with self.assertRaisesRegex(InvalidLayoutError, _V0_ERROR_SUBSTR):
+        loaded = ocp.load_pytree(
+            step_dir,
+            self.abstract_pytree if with_abstract_pytree else None,
+            checkpointable_name=None,
+        )
+        test_utils.assert_tree_equal(self, self.pytree, loaded)
+        with self.assertRaises(InvalidLayoutError):
           ocp.load_pytree(
               self.root_directory,
               self.abstract_pytree if with_abstract_pytree else None,
+              checkpointable_name=None,
+          )
+
+    def test_load_v0_checkpoint_with_v1_pytree_metadata(self):
+      checkpointable_names = ['default', 'state', 'pytree']
+      step_dir = self.root_directory / 'load_pytree_0'
+      self.save_v0_checkpoints(
+          step_dir,
+          checkpointable_names=checkpointable_names,
+      )
+      self.save_v0_checkpoint(self.ckpt_directory)
+
+      with self.subTest('no_checkpointable_name'):
+        loaded = ocp.pytree_metadata(step_dir)
+        test_utils.assert_tree_same_structure(
+            self, self.abstract_pytree, loaded.metadata
+        )
+
+      with self.subTest('no_checkpointable_name_error'):
+        with self.assertRaises(InvalidLayoutError):
+          ocp.pytree_metadata(self.ckpt_directory)
+        with self.assertRaises(InvalidLayoutError):
+          ocp.pytree_metadata(self.root_directory)
+
+      for checkpointable_name in checkpointable_names:
+        with self.subTest(f'pass_{checkpointable_name}'):
+          loaded = ocp.pytree_metadata(
+              step_dir,
+              checkpointable_name=checkpointable_name,
+          )
+          test_utils.assert_tree_same_structure(
+              self, self.abstract_pytree, loaded.metadata
+          )
+
+        with self.subTest(f'pass_{checkpointable_name}_error'):
+          with self.assertRaises(InvalidLayoutError):
+            ocp.pytree_metadata(
+                self.ckpt_directory,
+                checkpointable_name=checkpointable_name,
+            )
+          with self.assertRaises(InvalidLayoutError):
+            ocp.pytree_metadata(
+                self.root_directory,
+                checkpointable_name=checkpointable_name,
+            )
+
+      with self.subTest('pass_none'):
+        loaded = ocp.pytree_metadata(
+            self.ckpt_directory,
+            checkpointable_name=None,
+        )
+        test_utils.assert_tree_same_structure(
+            self, self.abstract_pytree, loaded.metadata
+        )
+        loaded = ocp.pytree_metadata(
+            step_dir,
+            checkpointable_name=None,
+        )
+        test_utils.assert_tree_same_structure(
+            self, self.abstract_pytree, loaded.metadata
+        )
+        with self.assertRaises(InvalidLayoutError):
+          ocp.pytree_metadata(
+              self.root_directory,
               checkpointable_name=None,
           )
 
@@ -224,11 +280,7 @@ class CompatibilitySaveLoadTestBase:
               self.ckpt_directory, abstract_checkpointables
           )
       with self.subTest('error_with_root_path'):
-        with self.assertRaisesRegex(
-            ValueError,
-            'which are expected to match the keys given by the'
-            ' _CHECKPOINT_METADATA file',
-        ):
+        with self.assertRaises(InvalidLayoutError):
           ocp.load_checkpointables(
               self.root_directory, abstract_checkpointables
           )

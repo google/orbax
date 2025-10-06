@@ -28,7 +28,7 @@ from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import stateful_checkpointable_handler
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
-from orbax.checkpoint.experimental.v1._src.path import format_utils
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 
 
 def _try_register_handler(
@@ -48,9 +48,9 @@ _try_register_handler(
 )
 _try_register_handler(
     json_handler.MetricsHandler,
-    format_utils.METRICS_CHECKPOINTABLE_KEY,
+    checkpoint_layout.METRICS_CHECKPOINTABLE_KEY,
 )
 _try_register_handler(pytree_handler.PyTreeHandler)
 _try_register_handler(
-    pytree_handler.PyTreeHandler, format_utils.PYTREE_CHECKPOINTABLE_KEY
+    pytree_handler.PyTreeHandler, checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 )

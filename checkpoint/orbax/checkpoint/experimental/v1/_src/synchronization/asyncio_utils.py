@@ -12,18 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Validation functions involved in loading."""
+"""Helpers for asyncio usage."""
 
-from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+import nest_asyncio
 
 
-def validate_abstract_checkpointables(abstract_checkpointables):
-  if abstract_checkpointables is None:
-    return
-  if (
-      provided_reserved_keys := abstract_checkpointables.keys()
-      & checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
-  ):
-    raise ValueError(
-        f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
-    )
+def maybe_apply_nest_asyncio():
+  try:
+    nest_asyncio.apply()
+  except RuntimeError:
+    pass
