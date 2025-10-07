@@ -14,12 +14,23 @@
 
 import os
 
-from orbax.experimental.model.core.python import unstructured_data
-
 from absl.testing import absltest
+from orbax.experimental.model.core.python import unstructured_data
 
 
 class UnstructuredDataTest(absltest.TestCase):
+
+  def test_build_relative_filepath_from_extension(self):
+    self.assertEqual(
+        unstructured_data.build_relative_filepath_from_extension("foo", "txt"),
+        "foo.txt",
+    )
+    self.assertEqual(
+        unstructured_data.build_relative_filepath_from_extension(
+            "foo", "txt", subfolder="bar"
+        ),
+        "bar/foo.txt",
+    )
 
   def test_write_inlined_string_to_file(self):
     proto = unstructured_data.UnstructuredData()
