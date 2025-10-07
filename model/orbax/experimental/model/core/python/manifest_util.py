@@ -18,7 +18,6 @@
 from collections.abc import Mapping, Sequence
 from absl import logging
 from orbax.experimental.model.core.protos import manifest_pb2
-from orbax.experimental.model.core.python import manifest_constants
 from orbax.experimental.model.core.python import unstructured_data
 from orbax.experimental.model.core.python.device_assignment import DeviceAssignment
 from orbax.experimental.model.core.python.function import Function
@@ -28,6 +27,7 @@ from orbax.experimental.model.core.python.shlo_function import ShloFunction
 from orbax.experimental.model.core.python.type_proto_util import to_function_signature_proto
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredData
 from orbax.experimental.model.core.python.value import ExternalValue
+
 
 def _build_function(
     fn: Function,
@@ -63,7 +63,7 @@ def _build_function(
         supp_proto = supp.proto
         if supp.ext_name is not None:
           filename = unstructured_data.build_filename_from_extension(
-              name + "_supplemental", supp.ext_name
+              name + "_" + supp_name + "_supplemental", supp.ext_name
           )
           supp_proto = unstructured_data.write_inlined_data_to_file(
               supp_proto, path, filename

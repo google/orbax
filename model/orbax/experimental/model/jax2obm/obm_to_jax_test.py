@@ -294,7 +294,7 @@ class ObmToJaxTest(parameterized.TestCase):
         save_dir_path,
         obm.SaveOptions(
             version=2,
-            supplemental_info={
+            supplementals={
                 simple_orchestration.TEST_ORCHESTRATION_SUPPLEMENTAL_NAME: (
                     obm.GlobalSupplemental(
                         simple_orchestration.create(
@@ -443,7 +443,7 @@ class ObmToJaxTest(parameterized.TestCase):
         save_dir_path,
         obm.SaveOptions(
             version=2,
-            supplemental_info={
+            supplementals={
                 simple_orchestration.TEST_ORCHESTRATION_SUPPLEMENTAL_NAME: (
                     obm.GlobalSupplemental(
                         simple_orchestration.create(

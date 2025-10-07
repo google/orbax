@@ -135,7 +135,7 @@ class MainLibTest(parameterized.TestCase):
         save_dir_path,
         obm.SaveOptions(
             version=2,
-            supplemental_info={
+            supplementals={
                 simple_orchestration.TEST_ORCHESTRATION_SUPPLEMENTAL_NAME: (
                     obm.GlobalSupplemental(
                         simple_orchestration.create(
@@ -298,7 +298,9 @@ class MainLibTest(parameterized.TestCase):
     """
     )
 
-    jax_supplemental_filename = f'{model_function_name}_supplemental.pb'
+    jax_supplemental_filename = (
+        f'{model_function_name}_jax_specific_info_supplemental.pb'
+    )
 
     expected_manifest_proto_text = (
         """
@@ -552,7 +554,9 @@ class MainLibTest(parameterized.TestCase):
     )
 
     manifest_proto = obm.load(save_dir_path)
-    jax_supplemental_filename = f'{model_function_name}_supplemental.pb'
+    jax_supplemental_filename = (
+        f'{model_function_name}_jax_specific_info_supplemental.pb'
+    )
 
     expected_manifest_proto_text = (
         """
