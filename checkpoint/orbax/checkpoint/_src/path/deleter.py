@@ -183,7 +183,7 @@ class StandardCheckpointDeleter:
       if self._todelete_full_path is not None:
         if gcs_utils.is_gcs_path(self._directory):
           # this is recommeneded for GCS buckets with HNS enabled.
-          self._rename_gcs_step(step, delete_target)
+          self._gcs_rename_step(step, delete_target)
         else:
           raise NotImplementedError()
       # Attempt to rename to local subdirectory using `todelete_subdir`
@@ -204,7 +204,7 @@ class StandardCheckpointDeleter:
           time.time() - start,
       )
 
-  def _rename_gcs_step(
+  def _gcs_rename_step(
       self, step: int, delete_target: epath.Path
   ):
     """Renames a GCS directory to a temporary location for deletion.
