@@ -81,6 +81,14 @@ DEFAULT_CONCURRENT_GB = 96
 
 
 
+class PartialSaveError(Exception):
+  """Raised when there is an error during partial saving."""
+
+
+class PartialSaveReplacementError(PartialSaveError):
+  """Raised when a replacement is attempted during partial saving."""
+
+
 def _default_sizeof_values(values: Sequence[Any]) -> Sequence[int]:
   return [sys.getsizeof(v) for v in values]
 
@@ -508,7 +516,7 @@ class BasePyTreeCheckpointHandler(
         if diff.rhs is None:  # Leaf was not in the on-disk metadata
           additions.add(keypath)
         else:  # Leaf was also in the on-disk metadata
-          raise NotImplementedError(
+          raise PartialSaveReplacementError(
               f'Key "{keypath}" was found in the on-disk PyTree metadata and'
               ' supplied item. Partial saving currently does not support'
               ' REPLACEMENT. Please reach out to the Orbax team if you need'

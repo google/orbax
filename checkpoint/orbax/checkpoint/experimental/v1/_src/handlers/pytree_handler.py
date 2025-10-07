@@ -45,6 +45,10 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 Path = path_types.Path
 CheckpointableHandler = handler_types.CheckpointableHandler
 PyTree = tree_types.PyTree
+PartialSaveError = base_pytree_checkpoint_handler.PartialSaveError
+PartialSaveReplacementError = (
+    base_pytree_checkpoint_handler.PartialSaveReplacementError
+)
 
 PYTREE_CHECKPOINTABLE_KEY = 'pytree'
 
