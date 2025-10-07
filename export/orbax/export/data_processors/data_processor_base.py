@@ -25,4 +25,9 @@ class DataProcessor(abc.ABC):
   A `DataProcessor` can be used to represent pre-processing or post-processing
   functions. After being "prepared", it provides input/output signatures and an
   `obm.Function` that can be composed with other functions.
+
+  The properties of any DataProcessor class are available only after `prepare()`
+  is called.
+  If a property is accessed before `prepare()` is called, it will raise a
+  RuntimeError.
   """
