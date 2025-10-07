@@ -204,53 +204,53 @@ class StandardCheckpointDeleter:
           time.time() - start,
       )
 
-def _rename_gcs_step(
-    self, step: int, delete_target: epath.Path
-):
-  """Renames a GCS directory to a temporary location for deletion.
+  def _rename_gcs_step(
+      self, step: int, delete_target: epath.Path
+  ):
+    """Renames a GCS directory to a temporary location for deletion.
 
-  This method renames the directory using the
-  underlying `tf.io.gfile.rename` method. This underlying
-  implementation will automatically detect if the bucket is HNS-enabled
-  and use a fast atomic rename, or fall back to a legacy
-  copy/delete rename if it is not.
+    This method renames the directory using the
+    underlying `tf.io.gfile.rename` method. This underlying
+    implementation will automatically detect if the bucket is HNS-enabled
+    and use a fast atomic rename, or fall back to a legacy
+    copy/delete rename if it is not.
 
-  Args:
-    step: The checkpoint step number.
-    delete_target: The path to the directory to be renamed.
-  """
-  try:
-    # Get the bucket name from the source path
-    bucket_name = urlparse(str(delete_target)).netloc
-    if not bucket_name:
-      raise ValueError(f'Could not parse bucket name from path: {delete_target}')
+    Args:
+      step: The checkpoint step number.
+      delete_target: The path to the directory to be renamed.
+    """
+    try:
+      # Get the bucket name from the source path
+      bucket_name = urlparse(str(delete_target)).netloc
+      if not bucket_name:
+        raise ValueError(f'Could not parse bucket name from path: {delete_target}')
 
-    # Construct the destination path inside the `_todelete_full_path` dir.
-    destination_parent_path = epath.Path(
-        f'gs://{bucket_name}/{self._todelete_full_path}'
-    )
-    destination_parent_path.mkdir(parents=True, exist_ok=True)
+      # Construct the destination path inside the `_todelete_full_path` dir.
+      destination_parent_path = epath.Path(
+          f'gs://{bucket_name}/{self._todelete_full_path}'
+      )
+      destination_parent_path.mkdir(parents=True, exist_ok=True)
 
-    # Create a unique name for the destination to avoid collisions.
-    now = datetime.datetime.now()
-    timestamp_str = now.strftime('%Y%m%d-%H%M%S-%f')
-    new_name_with_timestamp = f'{delete_target.name}-{timestamp_str}'
-    dest_path = destination_parent_path / new_name_with_timestamp
+      # Create a unique name for the destination to avoid collisions.
+      now = datetime.datetime.now()
+      timestamp_str = now.strftime('%Y%m%d-%H%M%S-%f')
+      new_name_with_timestamp = f'{delete_target.name}-{timestamp_str}'
+      dest_path = destination_parent_path / new_name_with_timestamp
 
-    logging.info(
-        'Executing filesystem-aware rename: Source=`%s`, Destination=`%s`',
-        delete_target,
-        dest_path,
-    )
+      logging.info(
+          'Executing filesystem-aware rename: Source=`%s`, Destination=`%s`',
+          delete_target,
+          dest_path,
+      )
 
-    # Call the high-level rename method.
-    # This will be fast on HNS and slow (but functional) on non-HNS.
-    delete_target.rename(dest_path)
-    logging.info('Successfully renamed step %d to %s', step, dest_path)
+      # Call the high-level rename method.
+      # This will be fast on HNS and slow (but functional) on non-HNS.
+      delete_target.rename(dest_path)
+      logging.info('Successfully renamed step %d to %s', step, dest_path)
 
-  except Exception as e:
-    logging.error('Rename failed for step %d. Error: %s', step, e)
-    raise
+    except Exception as e:
+      logging.error('Rename failed for step %d. Error: %s', step, e)
+      raise
 
   def _rename_step_to_subdir(self, step: int, delete_target: epath.Path):
     """Renames a step directory to its corresponding todelete_subdir."""
