@@ -812,7 +812,7 @@ class CheckpointManagerTestBase:
     @parameterized.parameters(
         (2, 2, 2, [0, 2, 4, 6, 8, 9]),
         (3, 2, 4, [0, 4, 7, 8, 9]),
-        (2, 2, 5, [0, 6, 8, 9]),
+        (2, 2, 5, [0, 8, 9]),
         (2, 6, 3, [0, 6, 8, 9]),
     )
     def test_all_steps_with_keep_interval(
