@@ -14,8 +14,8 @@
 
 from absl.testing import absltest
 from orbax.experimental.model.core.protos import manifest_pb2
+from orbax.experimental.model.core.python import device_assignment
 from orbax.experimental.model.core.python import manifest_util
-from orbax.experimental.model.core.python.device_assignment import DeviceAssignment
 
 
 class ManifestUtilTest(absltest.TestCase):
@@ -30,8 +30,8 @@ class ManifestUtilTest(absltest.TestCase):
 
     # Test with a list of fully populated device assignments.
     device_assignments = [
-        DeviceAssignment(id=0, coords=[0, 1], core_on_chip=0),
-        DeviceAssignment(id=1, coords=[1, 0], core_on_chip=1),
+        device_assignment.DeviceAssignment(id=0, coords=[0, 1], core_on_chip=0),
+        device_assignment.DeviceAssignment(id=1, coords=[1, 0], core_on_chip=1),
     ]
     proto = manifest_util.build_device_assignment_by_coords_proto(
         device_assignments
@@ -49,9 +49,9 @@ class ManifestUtilTest(absltest.TestCase):
 
     # Test with a list of device assignments with optional fields None.
     device_assignments = [
-        DeviceAssignment(id=0),
-        DeviceAssignment(id=1),
-        DeviceAssignment(id=2),
+        device_assignment.DeviceAssignment(id=0),
+        device_assignment.DeviceAssignment(id=1),
+        device_assignment.DeviceAssignment(id=2),
     ]
     proto = manifest_util.build_device_assignment_by_coords_proto(
         device_assignments

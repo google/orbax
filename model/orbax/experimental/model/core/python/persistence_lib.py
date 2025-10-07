@@ -98,9 +98,9 @@ def save(
   manifest_proto = manifest_util.build_manifest_proto(
       module,
       target_dir,
-      supplemental_info=supplemental_info,
-      names_to_visibilities=options.visibility,
-      device_assignment_by_coords=options.device_assignment_by_coords,
+      supplementals=supplemental_info,
+      visibilities=options.visibility,
+      device_assignments=options.device_assignment_by_coords,
   )
 
   manifest_path = os.path.join(
