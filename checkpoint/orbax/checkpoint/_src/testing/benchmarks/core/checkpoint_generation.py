@@ -54,7 +54,9 @@ def _create_array(
     logging.info(
         'No mesh and sharding spec provided, create an array with no sharding.'
     )
-    return jnp.arange(np.prod(shape), dtype=dtype).reshape(shape)
+    return jnp.asarray(
+        np.random.normal(size=shape, scale=np.prod(shape)), dtype=dtype
+    )
   else:
     if sharding_spec is None:
       logging.info(
@@ -70,7 +72,7 @@ def _create_array(
         dtype,
         sharding,
     )
-    np_array = np.arange(np.prod(shape), dtype=dtype).reshape(shape)
+    np_array = np.random.normal(size=shape, scale=np.prod(shape)).astype(dtype)
     return jax.make_array_from_callback(
         shape, sharding, lambda index: np_array[index]
     )
@@ -93,6 +95,9 @@ def generate_checkpoint(
       ValueError: If the spec string is not supported.
   """
   pytree = {}
+  if config.random_seed is not None:
+    np.random.seed(config.random_seed)
+
   for name, spec in config.spec.items():
     if isinstance(spec, str):
       if spec == 'int':
