@@ -17,15 +17,21 @@
 from __future__ import annotations
 
 import os
-import pathlib
+import typing
 from typing import Iterator
 
 from etils import epath
 from orbax.checkpoint._src.multihost import multihost
 
 
-@epath.register_path_cls
-class LocalPath(pathlib.PurePosixPath):
+# The following is a hack to pass the type checker.
+if typing.TYPE_CHECKING:
+  _BasePath = epath.Path
+else:
+  _BasePath = object
+
+
+class LocalPath(_BasePath):
   """A Path implementation for testing process-local paths.
 
   In the future, this class may more completely provide all functions and
@@ -47,11 +53,13 @@ class LocalPath(pathlib.PurePosixPath):
   """
 
   def __init__(self, *parts: epath.PathLike):
-    super().__init__(*parts)
     self._path = epath.Path('/'.join(os.fspath(p) for p in parts))
 
   def __repr__(self) -> str:
     return f'{self.__class__.__name__}({self.path})'
+
+  def __str__(self) -> str:
+    return str(self.path)
 
   @property
   def base_path(self) -> epath.Path:
@@ -137,3 +145,6 @@ class LocalPath(pathlib.PurePosixPath):
   @property
   def parent(self) -> epath.Path:
     return self.path.parent
+
+  def __fspath__(self) -> str:
+    return os.fspath(self.path)
