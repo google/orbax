@@ -529,15 +529,6 @@ class BasePyTreeCheckpointHandler(
         is_leaf=lambda x: isinstance(x, tree_structure_utils.Diff),
     )
 
-    if not additions:
-      # TODO: b/428711337 - Create PartialSaveError for certain categories of
-      # errors only encountered during partial saving. And subclasses of errors
-      # like PartialSaveReplacementError and such.
-      raise ValueError(
-          'Partial save: No structural differences or new/replaced leaves found'
-          ' in the item compared to on-disk metadata (or item is empty).'
-      )
-
     logging.info(
         '[process=%d] Found the following additions during partial save: %s',
         multihost.process_index(),
