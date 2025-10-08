@@ -18,6 +18,7 @@ import abc
 from collections.abc import MutableMapping, Sequence
 import contextlib
 import dataclasses
+import hashlib
 import itertools
 import time
 from typing import Any, Callable
@@ -142,12 +143,12 @@ class Benchmark(abc.ABC):
       options: BenchmarkOptions,
       name: str,
       output_dir: str | None = None,
-      mesh_config: configs.MeshConfig | None = None,
+      mesh: jax.sharding.Mesh | None = None,
   ):
     self.test_fn = test_fn
     self.checkpoint_config = checkpoint_config
     self.options = options
-    self.mesh_config = mesh_config
+    self.mesh = mesh
     self.name = name
     self.output_dir = output_dir
 
@@ -170,14 +171,9 @@ class Benchmark(abc.ABC):
     ):
       multihost.sync_global_processes("benchmark:setup_test_directory")
 
-    if self.mesh_config is not None:
-      mesh = device_mesh.create_mesh(self.mesh_config)
-    else:
-      mesh = None
-
     if self.checkpoint_config.path is None:
       data = checkpoint_generation.generate_checkpoint(
-          self.checkpoint_config, mesh=mesh
+          self.checkpoint_config, mesh=self.mesh
       )
     else:
       data = checkpoint_generation.load_checkpoint(self.checkpoint_config.path)
@@ -186,7 +182,7 @@ class Benchmark(abc.ABC):
       multihost.sync_global_processes("benchmark:setup_pytree")
 
     context = TestContext(
-        pytree=data, path=path, options=self.options, mesh=mesh
+        pytree=data, path=path, options=self.options, mesh=self.mesh
     )
 
     pytree_summary = jax.tree_util.tree_map(
@@ -248,7 +244,7 @@ class BenchmarksGenerator(abc.ABC):
       checkpoint_config: configs.CheckpointConfig,
       options: BenchmarkOptions,
       output_dir: str | None = None,
-      mesh_config: configs.MeshConfig | None = None,
+      mesh_configs: Sequence[configs.MeshConfig] | None = None,
   ):
     """Initializes the generator.
 
@@ -257,7 +253,7 @@ class BenchmarksGenerator(abc.ABC):
           generated benchmarks.
         options: A dataclass instance defining the parameters to sweep over.
         output_dir: The directory to store the benchmark results in.
-        mesh_config: The mesh configuration, shared across all generated
+        mesh_configs: The mesh configurations, shared across all generated
           benchmarks. If None, no mesh will be created.
     """
     if self.options_class is None:
@@ -273,7 +269,7 @@ class BenchmarksGenerator(abc.ABC):
       )
 
     self._checkpoint_config = checkpoint_config
-    self._mesh_config = mesh_config
+    self._mesh_configs = mesh_configs
     self._options = options
     self._output_dir = output_dir
 
@@ -300,27 +296,64 @@ class BenchmarksGenerator(abc.ABC):
       option_instances.append(type(self._options)(**kwargs))
     return option_instances
 
-  def generate(self) -> Sequence[Benchmark]:
+  def _get_meshes(
+      self, skip_incompatible_mesh_configs: bool
+  ) -> Sequence[jax.sharding.Mesh]:
+    """Returns a list of meshes for all mesh configs that are compatible with the runtime environment."""
+    meshes = []
+    for mesh_config in self._mesh_configs:
+      try:
+        mesh = device_mesh.create_mesh(mesh_config)
+        meshes.append(mesh)
+      except ValueError as e:
+        if not skip_incompatible_mesh_configs:
+          raise ValueError(
+              f"Failed to create mesh with config {mesh_config}: {e}"
+          ) from e
+        else:
+          logging.warning(
+              "Failed to create mesh with config %s: %s", mesh_config, e
+          )
+    return meshes
+
+  def generate_benchmark_name(
+      self,
+      test_config_options: BenchmarkOptions,
+      mesh: jax.sharding.Mesh,
+  ) -> str:
+    """Generates a unique and short benchmark name."""
+    long_name = (
+        f"{self.__class__.__name__}-{repr(test_config_options)}-{repr(mesh)}"
+    )
+    # The concise, one-liner version of the hashing logic
+    short_hash = hashlib.md5(long_name.encode()).hexdigest()[:12]
+    return f"{self.__class__.__name__}_{short_hash}"
+
+  def generate(
+      self, skip_incompatible_mesh_configs: bool = True
+  ) -> Sequence[Benchmark]:
     """Generates a list of `Benchmark` objects for all option combinations."""
     benchmarks = []
     option_combinations = self._get_options_product()
+    if self._mesh_configs is None:
+      meshes = [None]
+    else:
+      meshes = self._get_meshes(skip_incompatible_mesh_configs)
+    for mesh in meshes:
+      for test_config_options in option_combinations:
+        benchmark_name = self.generate_benchmark_name(
+            test_config_options, mesh
+        )
 
-    for test_config_options in option_combinations:
-      name_parts = [
-          f"{field.name}_{getattr(test_config_options, field.name)}"
-          for field in dataclasses.fields(test_config_options)
-      ]
-      benchmark_name = f"{self.__class__.__name__}_{'_'.join(name_parts)}"
-
-      benchmark_obj = Benchmark(
-          test_fn=self.test_fn,
-          name=benchmark_name,
-          checkpoint_config=self._checkpoint_config,
-          options=test_config_options,
-          output_dir=self._output_dir,
-          mesh_config=self._mesh_config,
-      )
-      benchmarks.append(benchmark_obj)
+        benchmark_obj = Benchmark(
+            test_fn=self.test_fn,
+            name=benchmark_name,
+            checkpoint_config=self._checkpoint_config,
+            options=test_config_options,
+            output_dir=self._output_dir,
+            mesh=mesh,
+        )
+        benchmarks.append(benchmark_obj)
 
     return benchmarks
 
@@ -329,10 +362,14 @@ class TestSuite:
   """A class to orchestrate running and comparing a list of benchmarks."""
 
   def __init__(
-      self, name: str, benchmarks_generators: Sequence[BenchmarksGenerator]
+      self,
+      name: str,
+      benchmarks_generators: Sequence[BenchmarksGenerator],
+      skip_incompatible_mesh_configs: bool = True,
   ):
     self._name = name
     self._benchmarks_generators = benchmarks_generators
+    self._skip_incompatible_mesh_configs = skip_incompatible_mesh_configs
 
   def run(self):
     """Runs all benchmarks in the suite sequentially."""
@@ -349,7 +386,9 @@ class TestSuite:
           generator.__class__.__name__,
           "-" * 15,
       )
-      generated_benchmarks = generator.generate()
+      generated_benchmarks = generator.generate(
+          self._skip_incompatible_mesh_configs
+      )
       if not generated_benchmarks:
         logging.warning(
             "Generator %s produced no benchmarks.", generator.__class__.__name__

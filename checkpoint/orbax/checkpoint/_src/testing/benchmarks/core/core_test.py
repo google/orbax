@@ -107,12 +107,13 @@ class BenchmarkTest(parameterized.TestCase):
         ici_parallelism={'x': 1},
         dcn_parallelism={},
     )
+    mesh = device_mesh.create_mesh(mesh_config)
     benchmark = core.Benchmark(
         test_fn=test_fn,
         checkpoint_config=ckpt_config,
         options=options,
         name='test_benchmark',
-        mesh_config=mesh_config,
+        mesh=mesh,
     )
 
     result = benchmark.run()
@@ -153,16 +154,18 @@ class BenchmarkTest(parameterized.TestCase):
       return core.TestResult(metrics=metrics)
 
     ckpt_config = configs.CheckpointConfig(path='/tmp/path', spec={})
+    mesh_config = configs.MeshConfig(
+        mesh_axes=['x'],
+        ici_parallelism={'x': 1},
+        dcn_parallelism={},
+    )
+    mesh = device_mesh.create_mesh(mesh_config)
     benchmark = core.Benchmark(
         test_fn=test_fn,
         checkpoint_config=ckpt_config,
         options=options,
         name='test_benchmark',
-        mesh_config=configs.MeshConfig(
-            mesh_axes=['x'],
-            ici_parallelism={'x': 1},
-            dcn_parallelism={},
-        ),
+        mesh=mesh,
     )
 
     result = benchmark.run()
@@ -170,7 +173,7 @@ class BenchmarkTest(parameterized.TestCase):
     self.assertEqual(result.metrics.timings, {'restore': 2.0})
     mock_setup_test_directory.assert_called_once_with('test_benchmark', None)
     mock_load_checkpoint.assert_called_once_with('/tmp/path')
-    mock_create_mesh.assert_called_once_with(benchmark.mesh_config)
+    mock_create_mesh.assert_called_once_with(mesh_config)
     self.assertEqual(mock_metrics_report.call_count, 2)
 
 
@@ -192,6 +195,82 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
         ],
     )
 
+  def test_generate_benchmark_name(self):
+    gen = MyGenerator(
+        checkpoint_config=configs.CheckpointConfig(),
+        options=MyBenchmarkOptions(),
+    )
+    options1 = MyBenchmarkOptions(opt1=1, opt2='a')
+    options2 = MyBenchmarkOptions(opt1=2, opt2='a')
+    mesh = mock.create_autospec(jax.sharding.Mesh, instance=True)
+
+    name1 = gen.generate_benchmark_name(options1, mesh)
+    name2 = gen.generate_benchmark_name(options2, mesh)
+
+    self.assertRegex(name1, r'^MyGenerator_[a-f0-9]{12}$')
+    self.assertRegex(name2, r'^MyGenerator_[a-f0-9]{12}$')
+    self.assertNotEqual(name1, name2)
+
+    options3 = MyBenchmarkOptions(opt1=1, opt2='a')
+    mesh2 = mock.create_autospec(jax.sharding.Mesh, instance=True)
+    name3 = gen.generate_benchmark_name(options3, mesh2)
+    self.assertRegex(name3, r'^MyGenerator_[a-f0-9]{12}$')
+    self.assertNotEqual(name1, name3)
+
+  @mock.patch.object(device_mesh, 'create_mesh')
+  @mock.patch.object(logging, 'warning')
+  def test_get_meshes_skip_incompatible(
+      self, mock_logging_warning, mock_create_mesh
+  ):
+    mesh_config1 = configs.MeshConfig(
+        mesh_axes=['x'], ici_parallelism={'x': 1}
+    )
+    mesh_config2 = configs.MeshConfig(
+        mesh_axes=['y'], ici_parallelism={'y': 1}
+    )
+    mock_mesh = mock.create_autospec(jax.sharding.Mesh, instance=True)
+    mock_create_mesh.return_value = mock_mesh
+    exception = ValueError('Incompatible')
+    mock_create_mesh.side_effect = [exception, mock_mesh]
+
+    gen = MyGenerator(
+        checkpoint_config=configs.CheckpointConfig(),
+        options=MyBenchmarkOptions(),
+        mesh_configs=[mesh_config1, mesh_config2],
+    )
+
+    meshes = gen._get_meshes(skip_incompatible_mesh_configs=True)
+
+    self.assertLen(meshes, 1)
+    self.assertEqual(meshes[0], mock_mesh)
+    mock_create_mesh.assert_has_calls(
+        [mock.call(mesh_config1), mock.call(mesh_config2)]
+    )
+    mock_logging_warning.assert_called_once_with(
+        'Failed to create mesh with config %s: %s', mesh_config1, exception
+    )
+
+  @mock.patch.object(device_mesh, 'create_mesh')
+  def test_get_meshes_no_skip_incompatible(self, mock_create_mesh):
+    mesh_config1 = configs.MeshConfig(
+        mesh_axes=['x'], ici_parallelism={'x': 1}
+    )
+    mesh_config2 = configs.MeshConfig(
+        mesh_axes=['y'], ici_parallelism={'y': 1}
+    )
+    mock_mesh = mock.create_autospec(jax.sharding.Mesh, instance=True)
+    mock_create_mesh.return_value = mock_mesh
+    mock_create_mesh.side_effect = [ValueError('Incompatible'), mock_mesh]
+
+    gen = MyGenerator(
+        checkpoint_config=configs.CheckpointConfig(),
+        options=MyBenchmarkOptions(),
+        mesh_configs=[mesh_config1, mesh_config2],
+    )
+
+    with self.assertRaisesRegex(ValueError, 'Failed to create mesh'):
+      gen._get_meshes(skip_incompatible_mesh_configs=False)
+
   def test_generate(self):
     gen = MyGenerator(
         checkpoint_config=configs.CheckpointConfig(),
@@ -201,11 +280,6 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
     benchmarks = gen.generate()
 
     self.assertLen(benchmarks, 4)
-    names = [b.name for b in benchmarks]
-    self.assertIn('MyGenerator_opt1_1_opt2_a', names)
-    self.assertIn('MyGenerator_opt1_1_opt2_b', names)
-    self.assertIn('MyGenerator_opt1_2_opt2_a', names)
-    self.assertIn('MyGenerator_opt1_2_opt2_b', names)
 
   def test_options_class(self):
     self.assertEqual(MyGenerator.options_class, MyBenchmarkOptions)

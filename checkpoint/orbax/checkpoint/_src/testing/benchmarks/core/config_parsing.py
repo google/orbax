@@ -122,9 +122,16 @@ def create_test_suite_from_config(
 
   suite_name = config['suite_name']
   checkpoint_config = config_lib.CheckpointConfig(**config['checkpoint_config'])
-  mesh_config = None
-  if 'mesh_config' in config:
-    mesh_config = config_lib.MeshConfig(**config['mesh_config'])
+
+  if 'mesh_configs' in config:
+    mesh_configs = [
+        config_lib.MeshConfig(**mc) for mc in config['mesh_configs']
+    ]
+  elif 'mesh_config' in config:
+    mesh_configs = [config_lib.MeshConfig(**config['mesh_config'])]
+  else:
+    mesh_configs = None
+
   generators: List[core.BenchmarksGenerator] = []
 
   for i, benchmark_group in enumerate(config['benchmarks']):
@@ -170,7 +177,7 @@ def create_test_suite_from_config(
         checkpoint_config=checkpoint_config,
         options=generator_options,
         output_dir=output_dir,
-        mesh_config=mesh_config,
+        mesh_configs=mesh_configs,
     )
     generators.append(generator)
 

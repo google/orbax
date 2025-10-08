@@ -18,6 +18,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.checkpoint._src.testing.benchmarks.core import config_parsing
+from orbax.checkpoint._src.testing.benchmarks.core import configs as config_lib
 from orbax.checkpoint._src.testing.benchmarks.core import core
 import yaml
 
@@ -170,6 +171,104 @@ benchmarks:
     opts = test_suite._benchmarks_generators[1]._options
     assert isinstance(opts, MockOptions)
     self.assertEqual(opts.param1, [20, 30])
+    self.assertIsNone(test_suite._benchmarks_generators[0]._mesh_configs)
+    self.assertIsNone(test_suite._benchmarks_generators[1]._mesh_configs)
+
+  def _get_yaml_with_mesh_config(self):
+    return """
+suite_name: Full Test Suite
+checkpoint_config:
+  spec: { 'a': 'numpy.ndarray:float32:10' }
+mesh_config:
+  mesh_axes: ['data', 'model']
+  ici_parallelism: {'data': 2, 'model': 2}
+benchmarks:
+  -
+    generator: MockGenerator
+    options:
+      param1: 10
+      param2: 'test'
+"""
+
+  def _get_yaml_with_mesh_configs(self):
+    return """
+suite_name: Full Test Suite
+checkpoint_config:
+  spec: { 'a': 'numpy.ndarray:float32:10' }
+mesh_configs:
+  -
+    mesh_axes: ['data', 'model']
+    ici_parallelism: {'data': 2, 'model': 2}
+  -
+    mesh_axes: ['data', 'model']
+    ici_parallelism: {'data': 4, 'model': 1}
+benchmarks:
+  -
+    generator: MockGenerator
+    options:
+      param1: 10
+      param2: 'test'
+"""
+
+  @mock.patch.object(config_parsing, '_load_yaml_config')
+  @mock.patch.object(config_parsing, '_import_class')
+  def test_valid_creation_with_mesh_config(self, mock_import, mock_load):
+    mock_load.return_value = yaml.safe_load(self._get_yaml_with_mesh_config())
+    mock_import.return_value = MockGenerator
+
+    test_suite = config_parsing.create_test_suite_from_config('fake.yaml')
+
+    self.assertEqual(mock_import.call_count, 1)
+    mock_import.assert_called_with('MockGenerator')
+    self.assertIsInstance(test_suite, core.TestSuite)
+    self.assertEqual(test_suite._name, 'Full Test Suite')
+    self.assertLen(test_suite._benchmarks_generators, 1)
+    self.assertIsInstance(test_suite._benchmarks_generators[0], MockGenerator)
+    self.assertEqual(
+        test_suite._benchmarks_generators[0]._options,
+        MockOptions(param1=10, param2='test'),
+    )
+    self.assertEqual(
+        test_suite._benchmarks_generators[0]._mesh_configs,
+        [
+            config_lib.MeshConfig(
+                mesh_axes=['data', 'model'],
+                ici_parallelism={'data': 2, 'model': 2},
+            )
+        ],
+    )
+
+  @mock.patch.object(config_parsing, '_load_yaml_config')
+  @mock.patch.object(config_parsing, '_import_class')
+  def test_valid_creation_with_mesh_configs(self, mock_import, mock_load):
+    mock_load.return_value = yaml.safe_load(self._get_yaml_with_mesh_configs())
+    mock_import.return_value = MockGenerator
+
+    test_suite = config_parsing.create_test_suite_from_config('fake.yaml')
+
+    self.assertEqual(mock_import.call_count, 1)
+    mock_import.assert_called_with('MockGenerator')
+    self.assertIsInstance(test_suite, core.TestSuite)
+    self.assertEqual(test_suite._name, 'Full Test Suite')
+    self.assertLen(test_suite._benchmarks_generators, 1)
+    self.assertIsInstance(test_suite._benchmarks_generators[0], MockGenerator)
+    self.assertEqual(
+        test_suite._benchmarks_generators[0]._options,
+        MockOptions(param1=10, param2='test'),
+    )
+    self.assertEqual(
+        test_suite._benchmarks_generators[0]._mesh_configs,
+        [
+            config_lib.MeshConfig(
+                mesh_axes=['data', 'model'],
+                ici_parallelism={'data': 2, 'model': 2},
+            ),
+            config_lib.MeshConfig(
+                mesh_axes=['data', 'model'],
+                ici_parallelism={'data': 4, 'model': 1},
+            ),
+        ],
+    )
 
   @mock.patch.object(config_parsing, '_load_yaml_config')
   @mock.patch.object(config_parsing, '_import_class')
