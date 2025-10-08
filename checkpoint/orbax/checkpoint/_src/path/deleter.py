@@ -21,13 +21,15 @@ import queue
 import threading
 import time
 from typing import Optional, Protocol, Sequence
+
 from absl import logging
 from etils import epath
 import jax
-from orbax.checkpoint import utils
 from orbax.checkpoint._src.logging import event_tracking
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
+
 
 PurePosixPath = pathlib.PurePosixPath
 
@@ -155,7 +157,7 @@ class StandardCheckpointDeleter:
     """
     start = time.time()
     try:
-      if not utils.is_primary_host(self._primary_host):
+      if not multihost.is_primary_host(self._primary_host):
         logging.info(
             'Not primary host(%s), skipping deletion of step %d.',
             self._primary_host,
