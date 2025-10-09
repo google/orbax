@@ -96,7 +96,7 @@ class OrbaxLayout(CheckpointLayout):
         custom_metadata=step_metadata.custom_metadata,
     )
 
-  def validate(self):
+  async def validate(self):
     try:
       format_utils.validate_checkpoint_directory(self._path)
       if self.has_indicator_file:
@@ -107,7 +107,7 @@ class OrbaxLayout(CheckpointLayout):
           f" {_GENERAL_ERROR_MESSAGE}"
       ) from e
 
-  def validate_pytree(self, checkpointable_name: str | None) -> None:
+  async def validate_pytree(self, checkpointable_name: str | None) -> None:
     """Validates the given path as a PyTree checkpoint."""
     try:
       format_utils.validate_pytree_checkpoint(

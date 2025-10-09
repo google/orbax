@@ -51,7 +51,7 @@ class CheckpointLayout(Protocol):
     """
     ...
 
-  def validate(self) -> None:
+  async def validate(self) -> None:
     """Validates the path, determining if it conforms to this instance.
 
     Returns:
@@ -62,7 +62,7 @@ class CheckpointLayout(Protocol):
     """
     ...
 
-  def validate_pytree(self, checkpointable_name: str | None) -> None:
+  async def validate_pytree(self, checkpointable_name: str | None) -> None:
     """Validates the path as a PyTree checkpoint.
 
     Args:

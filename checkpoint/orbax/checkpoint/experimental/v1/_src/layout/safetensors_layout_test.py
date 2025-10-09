@@ -56,27 +56,27 @@ class SafetensorsLayoutTest(
     )
     saving.save_pytree(self.orbax_path, self.object_to_save)
 
-  def test_valid_safetensors_checkpoint(self):
+  async def test_valid_safetensors_checkpoint(self):
     layout = SafetensorsLayout(self.safetensors_path)
-    layout.validate()
+    await layout.validate()
 
-  def test_invalid_safetensors_checkpoint_orbax(self):
+  async def test_invalid_safetensors_checkpoint_orbax(self):
     layout = SafetensorsLayout(self.orbax_path / '0')
     with self.assertRaises(InvalidLayoutError):
-      layout.validate()
+      await layout.validate()
 
-  def test_validate_fails_not_file(self):
+  async def test_validate_fails_not_file(self):
     layout = SafetensorsLayout(epath.Path(self.test_dir.full_path))
     with self.assertRaises(InvalidLayoutError):
-      layout.validate()
+      await layout.validate()
 
-  def test_validate_fails_wrong_suffix(self):
+  async def test_validate_fails_wrong_suffix(self):
     wrong_suffix_path = (
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.txt'
     )
     layout = SafetensorsLayout(wrong_suffix_path)
     with self.assertRaises(InvalidLayoutError):
-      layout.validate()
+      await layout.validate()
 
   @parameterized.product(
       dtype=[
