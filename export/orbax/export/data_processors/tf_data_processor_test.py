@@ -179,6 +179,23 @@ class TfDataProcessorTest(googletest.TestCase):
           ),
       )
 
+  def test_prepare_with_shlo_bf16_inputs(self):
+    processor = tf_data_processor.TfDataProcessor(lambda x: x)
+    processor.prepare(
+        'identity',
+        input_signature=(
+            obm.ShloTensorSpec(shape=(1,), dtype=obm.ShloDType.bf16),
+        ),
+    )
+    self.assertEqual(
+        processor.concrete_function.structured_input_signature[0][0].dtype,
+        tf.bfloat16,
+    )
+    self.assertEqual(
+        processor.input_signature[0][0],
+        obm.ShloTensorSpec(shape=(1,), dtype=obm.ShloDType.bf16),
+    )
+
 
 if __name__ == '__main__':
   googletest.main()
