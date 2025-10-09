@@ -20,9 +20,9 @@ import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.saving import saving
 from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 import safetensors.numpy
@@ -55,22 +55,22 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
         custom_metadata=self.custom_metadata,
     )
 
-  def test_valid_orbax_checkpoint(self):
+  async def test_valid_orbax_checkpoint(self):
     layout = OrbaxLayout(self.orbax_path / '0')
-    layout.validate()
+    await layout.validate()
 
-  def test_invalid_orbax_checkpoint(self):
+  async def test_invalid_orbax_checkpoint(self):
     layout = OrbaxLayout(self.safetensors_path)
     with self.assertRaises(InvalidLayoutError):
-      layout.validate()
+      await layout.validate()
 
-  def test_validate_fails_not_directory(self):
+  async def test_validate_fails_not_directory(self):
     layout = OrbaxLayout(self.orbax_path / '1')
     # This tests `format_utils.validate_checkpoint_directory`
     with self.assertRaises(InvalidLayoutError):
-      layout.validate()
+      await layout.validate()
 
-  def test_skips_metadata_validation_if_no_indicator_file(self):
+  async def test_skips_metadata_validation_if_no_indicator_file(self):
     layout = OrbaxLayout(self.orbax_path / '0')
     indicator_path = (
         self.orbax_path
@@ -81,25 +81,25 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     metadata_path = self.orbax_path / '0' / '_CHECKPOINT_METADATA'
     self.assertTrue(metadata_path.exists())
     metadata_path.rmtree()  # Remove the metadata file
-    layout.validate()
+    await layout.validate()
 
-  def test_validate_fails_no_metadata_file(self):
+  async def test_validate_fails_no_metadata_file(self):
     layout = OrbaxLayout(self.orbax_path / '0')
     # This tests `format_utils.validate_checkpoint_metadata`
     metadata_path = self.orbax_path / '0' / '_CHECKPOINT_METADATA'
     self.assertTrue(metadata_path.exists())
     metadata_path.rmtree()  # Remove the metadata file
     with self.assertRaises(InvalidLayoutError):
-      layout.validate()
+      await layout.validate()
 
-  def test_validate_fails_tmp_directory(self):
+  async def test_validate_fails_tmp_directory(self):
     # This simulates a temporary directory created by Orbax (should fail)
     test_utils.save_fake_tmp_dir(self.orbax_path, 0, 'test_checkpoint.tmp')
     layout = OrbaxLayout(
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.tmp'
     )
     with self.assertRaises(InvalidLayoutError):
-      layout.validate()
+      await layout.validate()
 
   async def test_load_orbax_checkpoint(self):
     layout = OrbaxLayout(self.orbax_path / '0')
@@ -117,7 +117,7 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     self.assertIsInstance(result_metadata, metadata_types.CheckpointMetadata)
 
     expected_structs = {
-        format_utils.PYTREE_CHECKPOINTABLE_KEY: {
+        checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: {
             'a': numpy_leaf_handler.NumpyMetadata(
                 shape=(9,),
                 dtype=np.dtype(np.int32),

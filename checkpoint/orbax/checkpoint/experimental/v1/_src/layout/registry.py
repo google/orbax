@@ -24,7 +24,7 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 
 
-def get_checkpoint_layout(
+async def get_checkpoint_layout(
     path: path_types.PathLike, layout_enum: options_lib.CheckpointLayout
 ) -> checkpoint_layout.CheckpointLayout:
   """Returns the checkpoint layout class for the given path.
@@ -52,7 +52,7 @@ def get_checkpoint_layout(
 
   try:
     layout = layout_class(path)
-    layout.validate()
+    await layout.validate()
     return layout
   except InvalidLayoutError as e:
     raise InvalidLayoutError(
