@@ -33,7 +33,7 @@ class CheckpointConfig:
   """
 
   path: str | None = None
-  random_seed: int | None = None
+  random_seed: int = 0
   spec: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
