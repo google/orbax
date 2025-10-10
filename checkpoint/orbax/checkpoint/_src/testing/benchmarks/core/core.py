@@ -37,6 +37,15 @@ from orbax.checkpoint._src.testing.benchmarks.core import directory_setup
 class BenchmarkOptions:
   """Base class for benchmark generator options."""
 
+  @classmethod
+  def from_dict(cls, options_dict: dict[str, Any]) -> "BenchmarkOptions":
+    """Creates a BenchmarkOptions subclass from a dictionary of options."""
+    return cls(**options_dict)
+
+  def is_valid(self) -> bool:
+    """Returns whether the current option combination is valid."""
+    return True
+
 
 def benchmark_options(options_cls):
   """Decorator to associate a BenchmarkOptions subclass with a BenchmarksGenerator."""
@@ -241,7 +250,7 @@ class BenchmarksGenerator(abc.ABC):
 
   def __init__(
       self,
-      checkpoint_config: configs.CheckpointConfig,
+      checkpoint_configs: Sequence[configs.CheckpointConfig],
       options: BenchmarkOptions,
       output_dir: str | None = None,
       mesh_configs: Sequence[configs.MeshConfig] | None = None,
@@ -249,7 +258,7 @@ class BenchmarksGenerator(abc.ABC):
     """Initializes the generator.
 
     Args:
-        checkpoint_config: The checkpoint configuration, shared across all
+        checkpoint_configs: The checkpoint configurations, shared across all
           generated benchmarks.
         options: A dataclass instance defining the parameters to sweep over.
         output_dir: The directory to store the benchmark results in.
@@ -268,7 +277,7 @@ class BenchmarksGenerator(abc.ABC):
           f" {type(options).__name__}"
       )
 
-    self._checkpoint_config = checkpoint_config
+    self._checkpoint_configs = checkpoint_configs
     self._mesh_configs = mesh_configs
     self._options = options
     self._output_dir = output_dir
@@ -293,7 +302,14 @@ class BenchmarksGenerator(abc.ABC):
     option_names = [field.name for field in option_fields]
     for p in product:
       kwargs = dict(zip(option_names, p))
-      option_instances.append(type(self._options)(**kwargs))
+      option_instance = self._options.__class__(**kwargs)
+      if option_instance.is_valid():
+        option_instances.append(option_instance)
+      else:
+        logging.info(
+            "Skipping invalid option combination: %s",
+            option_instance,
+        )
     return option_instances
 
   def _get_meshes(
@@ -314,20 +330,24 @@ class BenchmarksGenerator(abc.ABC):
           logging.warning(
               "Failed to create mesh with config %s: %s", mesh_config, e
           )
+    if not meshes:
+      raise ValueError("No compatibile meshes found.")
     return meshes
 
   def generate_benchmark_name(
       self,
-      test_config_options: BenchmarkOptions,
+      option: BenchmarkOptions,
       mesh: jax.sharding.Mesh,
+      checkpoint_config: configs.CheckpointConfig,
   ) -> str:
     """Generates a unique and short benchmark name."""
+    class_name = self.__class__.__name__
     long_name = (
-        f"{self.__class__.__name__}-{repr(test_config_options)}-{repr(mesh)}"
+        f"{class_name}-{repr(option)}-{repr(mesh)}-{repr(checkpoint_config)}"
     )
     # The concise, one-liner version of the hashing logic
     short_hash = hashlib.md5(long_name.encode()).hexdigest()[:12]
-    return f"{self.__class__.__name__}_{short_hash}"
+    return f"{class_name}_{short_hash}"
 
   def generate(
       self, skip_incompatible_mesh_configs: bool = True
@@ -339,21 +359,22 @@ class BenchmarksGenerator(abc.ABC):
       meshes = [None]
     else:
       meshes = self._get_meshes(skip_incompatible_mesh_configs)
-    for mesh in meshes:
-      for test_config_options in option_combinations:
-        benchmark_name = self.generate_benchmark_name(
-            test_config_options, mesh
-        )
 
-        benchmark_obj = Benchmark(
-            test_fn=self.test_fn,
-            name=benchmark_name,
-            checkpoint_config=self._checkpoint_config,
-            options=test_config_options,
-            output_dir=self._output_dir,
-            mesh=mesh,
-        )
-        benchmarks.append(benchmark_obj)
+    for test_config_options, mesh, checkpoint_config in itertools.product(
+        option_combinations, meshes, self._checkpoint_configs
+    ):
+      benchmark_name = self.generate_benchmark_name(
+          test_config_options, mesh, checkpoint_config
+      )
+      benchmark_obj = Benchmark(
+          test_fn=self.test_fn,
+          name=benchmark_name,
+          checkpoint_config=checkpoint_config,
+          options=test_config_options,
+          output_dir=self._output_dir,
+          mesh=mesh,
+      )
+      benchmarks.append(benchmark_obj)
 
     return benchmarks
 

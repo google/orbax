@@ -40,7 +40,7 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.benchmark = SingleReplicaBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=SingleReplicaBenchmarkOptions(),
     )
 
@@ -160,7 +160,7 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
         replica_axis_index=[0, 1], primary_replica_id=[0, 1]
     )
     benchmark = SingleReplicaBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=options,
     )
     benchmarks = benchmark.generate()
