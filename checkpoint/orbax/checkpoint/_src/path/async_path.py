@@ -91,6 +91,10 @@ async def is_dir(path: epath.Path):
   return await asyncio.to_thread(path.is_dir)
 
 
+async def is_file(path: epath.Path):
+  return await asyncio.to_thread(path.is_file)
+
+
 async def is_link(path: epath.Path):
   return await asyncio.to_thread(os.path.islink, path)
 
@@ -101,3 +105,7 @@ async def iterdir(path: epath.Path):
 
 async def glob(path: epath.Path, pattern: str) -> Iterator[epath.Path]:
   return await asyncio.to_thread(path.glob, pattern)
+
+
+async def unlink(path: epath.Path, missing_ok: bool = False):
+  return await asyncio.to_thread(path.unlink, missing_ok=missing_ok)

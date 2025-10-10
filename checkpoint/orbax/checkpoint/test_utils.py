@@ -252,6 +252,13 @@ def assert_tree_equal(testclass, expected, actual):
   jax.tree.map(_eq, expected, actual, is_leaf=lambda x: x is None)
 
 
+def assert_tree_same_structure(testclass, expected, actual):
+  """Asserts that two PyTrees have the same structure."""
+  expected_structure = jax.tree.structure(expected)
+  actual_structure = jax.tree.structure(actual)
+  testclass.assertEqual(expected_structure, actual_structure)
+
+
 def setup_pytree(add: int = 0):
   """Creates a numpy PyTree for testing."""
   pytree = {

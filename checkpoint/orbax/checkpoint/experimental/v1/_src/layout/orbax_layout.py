@@ -16,6 +16,7 @@
 
 from typing import Any, Awaitable
 
+from etils import epath
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration
@@ -23,16 +24,15 @@ from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.loading import v0_compatibility
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
-from orbax.checkpoint.experimental.v1._src.path import types
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 CompositeHandler = composite_handler.CompositeHandler
-Path = types.Path
+Path = path_types.Path
 CheckpointLayout = checkpoint_layout.CheckpointLayout
 
-ORBAX_CHECKPOINT_INDICATOR_FILE = (
-    composite_handler.ORBAX_CHECKPOINT_INDICATOR_FILE
-)
+PYTREE_METADATA_FILE = "_METADATA"
+ORBAX_CHECKPOINT_INDICATOR_FILE = "orbax.checkpoint"
 
 
 _V0_ERROR_MESSAGE = (
@@ -46,6 +46,23 @@ _GENERAL_ERROR_MESSAGE = (
     f" '{ORBAX_CHECKPOINT_INDICATOR_FILE}' (unless it was saved with the V0"
     f" API). {_V0_ERROR_MESSAGE}"
 )
+
+
+def is_orbax_checkpoint(path: path_types.PathLike) -> bool:
+  """Determines if the given path is an Orbax checkpoint.
+
+  Args:
+    path: The path to the checkpoint directory.
+
+  Returns:
+    True if the path is an Orbax checkpoint, False otherwise.
+  """
+  path = epath.Path(path)
+  try:
+    OrbaxLayout(path).validate()
+    return True
+  except InvalidLayoutError:
+    return False
 
 
 class OrbaxLayout(CheckpointLayout):
@@ -96,7 +113,7 @@ class OrbaxLayout(CheckpointLayout):
         custom_metadata=step_metadata.custom_metadata,
     )
 
-  def validate(self):
+  async def validate(self):
     try:
       format_utils.validate_checkpoint_directory(self._path)
       if self.has_indicator_file:
@@ -107,7 +124,7 @@ class OrbaxLayout(CheckpointLayout):
           f" {_GENERAL_ERROR_MESSAGE}"
       ) from e
 
-  def validate_pytree(self, checkpointable_name: str | None) -> None:
+  async def validate_pytree(self, checkpointable_name: str | None) -> None:
     """Validates the given path as a PyTree checkpoint."""
     try:
       format_utils.validate_pytree_checkpoint(

@@ -26,6 +26,7 @@ from orbax.checkpoint.experimental.v1._src.layout import registry as layout_regi
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.synchronization import asyncio_utils
 
 
 CheckpointMetadata = metadata_types.CheckpointMetadata
@@ -87,6 +88,7 @@ def pytree_metadata(
   Returns:
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
+  asyncio_utils.maybe_apply_nest_asyncio()
   context = context_lib.get_context()
 
   path = epath.Path(path)
@@ -94,13 +96,15 @@ def pytree_metadata(
     checkpointable_name = path.name
     path = path.parent
 
-  layout = layout_registry.get_checkpoint_layout(
-      path, context.checkpoint_layout
-  )
-  layout.validate_pytree(checkpointable_name)
+  async def _get_layout():
+    layout = await layout_registry.get_checkpoint_layout(
+        path, context.checkpoint_layout
+    )
+    await layout.validate_pytree(checkpointable_name)
+    return layout
 
+  layout = asyncio.run(_get_layout())
   metadata = _checkpointables_metadata_impl(layout)
-
   return CheckpointMetadata[PyTreeMetadata](
       metadata=metadata.metadata[checkpointable_name],
       init_timestamp_nsecs=metadata.init_timestamp_nsecs,
@@ -136,13 +140,12 @@ def checkpointables_metadata(
   Returns:
     A `CheckpointMetadata[dict[str, Any]]` object.
   """
+  asyncio_utils.maybe_apply_nest_asyncio()
   path = epath.Path(path)
   context = context_lib.get_context()
-  layout = layout_registry.get_checkpoint_layout(
-      path, context.checkpoint_layout
+  layout = asyncio.run(
+      layout_registry.get_checkpoint_layout(path, context.checkpoint_layout)
   )
-  layout.validate()
-
   return _checkpointables_metadata_impl(layout)
 
 

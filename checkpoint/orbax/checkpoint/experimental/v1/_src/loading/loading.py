@@ -30,6 +30,7 @@ from orbax.checkpoint.experimental.v1._src.loading import validation
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.synchronization import asyncio_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -102,6 +103,7 @@ def load_pytree(
     The restored PyTree.
   """
   start_time = time.time()
+  asyncio_utils.maybe_apply_nest_asyncio()
   logging.info('Loading checkpoint from %s.', path)
   path = epath.Path(path)
 
@@ -114,11 +116,15 @@ def load_pytree(
     path = epath.Path(path)
     checkpointable_name = path.name
     path = path.parent
-  layout = layout_registry.get_checkpoint_layout(
-      path, context_lib.get_context().checkpoint_layout
-  )
 
-  layout.validate_pytree(checkpointable_name)
+  async def _get_layout():
+    layout = await layout_registry.get_checkpoint_layout(
+        path, context_lib.get_context().checkpoint_layout
+    )
+    await layout.validate_pytree(checkpointable_name)
+    return layout
+
+  layout = asyncio.run(_get_layout())
 
   return _load_checkpointables_impl(
       layout,
@@ -180,12 +186,13 @@ def load_checkpointables(
   Raises:
     FileNotFoundError: If the checkpoint path does not exist.
   """
-
   start_time = time.time()
+  asyncio_utils.maybe_apply_nest_asyncio()
   logging.info('Loading checkpoint from %s.', path)
   path = epath.Path(path)
-  layout = layout_registry.get_checkpoint_layout(
-      path, context_lib.get_context().checkpoint_layout
+  context = context_lib.get_context()
+  layout = asyncio.run(
+      layout_registry.get_checkpoint_layout(path, context.checkpoint_layout)
   )
 
   return _load_checkpointables_impl(

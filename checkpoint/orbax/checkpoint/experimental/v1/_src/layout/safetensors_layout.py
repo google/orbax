@@ -22,6 +22,7 @@ import aiofiles
 import jax
 import numpy as np
 from orbax.checkpoint._src.arrays import numpy_utils
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import format_utils
@@ -280,8 +281,11 @@ class SafetensorsLayout(CheckpointLayout):
         custom_metadata=custom_metadata,
     )
 
-  def validate(self):
-    if self._path.is_file() and self._path.suffix == ".safetensors":
+  async def validate(self):
+    if (
+        await async_path.is_file(self._path)
+        and self._path.suffix == ".safetensors"
+    ):
       return
     else:
       raise InvalidLayoutError(
@@ -290,7 +294,7 @@ class SafetensorsLayout(CheckpointLayout):
           " suffix."
       )
 
-  def validate_pytree(self, checkpointable_name: str | None) -> None:
+  async def validate_pytree(self, checkpointable_name: str | None) -> None:
     return
 
   async def load(

@@ -22,7 +22,6 @@ import uuid
 from absl import logging
 from etils import epath
 import jax
-import nest_asyncio
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import step_metadata_serialization
@@ -36,6 +35,7 @@ from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async
 from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import path_utils as saving_path_utils
+from orbax.checkpoint.experimental.v1._src.synchronization import asyncio_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
@@ -264,13 +264,6 @@ def create_save_response(
   )
 
 
-def _maybe_apply_nest_asyncio():
-  try:
-    nest_asyncio.apply()
-  except RuntimeError:
-    pass
-
-
 def save_checkpointables_impl(
     path: path_types.PathLike,
     checkpointables: dict[str, Any],
@@ -281,7 +274,7 @@ def save_checkpointables_impl(
     partial_save: bool = False,
 ) -> async_types.AsyncResponse[None]:
   """See caller docstrings."""
-  _maybe_apply_nest_asyncio()
+  asyncio_utils.maybe_apply_nest_asyncio()
   context = context_lib.get_context()
   path = epath.Path(path)
   path_exists = path.exists() if partial_save else False
