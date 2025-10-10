@@ -475,7 +475,14 @@ class CheckpointTest(parameterized.TestCase):
     spec = serialization.get_tensorstore_spec(path, ocdbt=True)
     is_gcs_path = path.startswith('gs://')
     if is_gcs_path:
-      self.assertEqual(spec['kvstore']['base'], os.path.dirname(path))
+      self.assertEqual(
+          spec['kvstore']['base'],
+          {
+              'driver': 'gcs',
+              'bucket': 'my',
+              'path': 'ckpt/dir',
+          },
+      )
     else:
       self.assertEqual(
           spec['kvstore']['base'],
@@ -492,6 +499,52 @@ class CheckpointTest(parameterized.TestCase):
         ValueError, 'Checkpoint path should be absolute'
     ):
       serialization.get_tensorstore_spec(path, ocdbt=True)
+
+  @parameterized.named_parameters(
+      dict(testcase_name='none', backend=None, target_driver='gcs'),
+      dict(testcase_name='gcs', backend='gcs', target_driver='gcs'),
+      dict(
+          testcase_name='gcs_grpc', backend='gcs_grpc', target_driver='gcs_grpc'
+      ),
+  )
+  def test_get_tensorstore_spec_ocdbt_grpc(self, backend, target_driver):
+    if backend:
+      os.environ['TENSORSTORE_GCS_BACKEND'] = backend
+      self.addCleanup(lambda: os.environ.pop('TENSORSTORE_GCS_BACKEND'))
+    spec = serialization.get_tensorstore_spec(
+        'gs://my/ckpt/dir/path', ocdbt=True
+    )
+    self.assertEqual(
+        spec['kvstore']['base'],
+        {
+            'driver': target_driver,
+            'bucket': 'my',
+            'path': 'ckpt/dir',
+        },
+    )
+
+  @parameterized.named_parameters(
+      dict(testcase_name='none', backend=None, target_driver='gcs'),
+      dict(testcase_name='gcs', backend='gcs', target_driver='gcs'),
+      dict(
+          testcase_name='gcs_grpc', backend='gcs_grpc', target_driver='gcs_grpc'
+      ),
+  )
+  def test_get_tensorstore_spec_grpc(self, backend, target_driver):
+    if backend:
+      os.environ['TENSORSTORE_GCS_BACKEND'] = backend
+      self.addCleanup(lambda: os.environ.pop('TENSORSTORE_GCS_BACKEND'))
+    spec = serialization.get_tensorstore_spec(
+        'gs://my/ckpt/dir/path', ocdbt=False
+    )
+    self.assertEqual(
+        spec['kvstore'],
+        {
+            'driver': target_driver,
+            'bucket': 'my',
+            'path': 'ckpt/dir/path',
+        },
+    )
 
   def test_deserialization_with_int4(self):
     dtype = jnp.int4
