@@ -64,7 +64,7 @@ class CheckpointManagerBenchmarkTest(parameterized.TestCase):
   )
   def test_generate_benchmarks(self, options, expected_len):
     generator = CheckpointManagerBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(spec={}),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=options,
     )
     benchmarks = generator.generate()
@@ -76,7 +76,7 @@ class CheckpointManagerBenchmarkTest(parameterized.TestCase):
 
   def test_benchmark_test_fn_succeeds(self):
     generator = CheckpointManagerBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(spec={}),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=CheckpointManagerBenchmarkOptions(),
     )
     mock_cm_instance = self.mock_checkpoint_manager_cls.return_value

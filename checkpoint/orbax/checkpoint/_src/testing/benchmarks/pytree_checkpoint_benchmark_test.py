@@ -67,7 +67,7 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
   )
   def test_generate_benchmarks(self, options, expected_len):
     generator = PyTreeCheckpointBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(spec={}),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=options,
     )
     benchmarks = generator.generate()
@@ -82,7 +82,7 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
   )
   def test_benchmark_test_fn(self, use_ocdbt, use_zarr3):
     generator = PyTreeCheckpointBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(spec={}),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=PyTreeCheckpointOptions(),
     )
     mock_save = self.mock_checkpointer.return_value.save

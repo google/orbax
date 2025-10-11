@@ -86,13 +86,31 @@ class TestValidateConfig(parameterized.TestCase):
     except ValueError:
       self.fail('Validation failed on a valid config.')
 
-  @parameterized.parameters('suite_name', 'checkpoint_config', 'benchmarks')
+  def test_valid_with_checkpoint_configs(self):
+    config = self._get_valid_config()
+    del config['checkpoint_config']
+    config['checkpoint_configs'] = [{'spec': {}}]
+    try:
+      config_parsing._validate_config(config)
+    except ValueError:
+      self.fail('Validation failed on config with checkpoint_configs.')
+
+  @parameterized.parameters('suite_name', 'benchmarks')
   def test_missing_required_keys(self, key_to_remove):
     config = self._get_valid_config()
     del config[key_to_remove]
-
     with self.assertRaisesRegex(
         ValueError, f'Missing required key.*{key_to_remove}'
+    ):
+      config_parsing._validate_config(config)
+
+  def test_missing_checkpoint_config_and_configs(self):
+    config = self._get_valid_config()
+    del config['checkpoint_config']
+    with self.assertRaisesRegex(
+        ValueError,
+        'Missing required key in YAML config: checkpoint_config or'
+        ' checkpoint_configs',
     ):
       config_parsing._validate_config(config)
 
@@ -210,6 +228,22 @@ benchmarks:
       param2: 'test'
 """
 
+  def _get_yaml_with_checkpoint_configs(self):
+    return """
+suite_name: Full Test Suite
+checkpoint_configs:
+  -
+    spec: { 'a': 'numpy.ndarray:float32:10' }
+  -
+    spec: { 'b': 'numpy.ndarray:float32:20' }
+benchmarks:
+  -
+    generator: MockGenerator
+    options:
+      param1: 10
+      param2: 'test'
+"""
+
   @mock.patch.object(config_parsing, '_load_yaml_config')
   @mock.patch.object(config_parsing, '_import_class')
   def test_valid_creation_with_mesh_config(self, mock_import, mock_load):
@@ -266,6 +300,42 @@ benchmarks:
             config_lib.MeshConfig(
                 mesh_axes=['data', 'model'],
                 ici_parallelism={'data': 4, 'model': 1},
+            ),
+        ],
+    )
+
+  @mock.patch.object(config_parsing, '_load_yaml_config')
+  @mock.patch.object(config_parsing, '_import_class')
+  def test_valid_creation_with_checkpoint_configs(self, mock_import, mock_load):
+    mock_load.return_value = yaml.safe_load(
+        self._get_yaml_with_checkpoint_configs()
+    )
+    mock_import.return_value = MockGenerator
+
+    test_suite = config_parsing.create_test_suite_from_config('fake.yaml')
+
+    self.assertEqual(mock_import.call_count, 1)
+    mock_import.assert_called_with('MockGenerator')
+    self.assertIsInstance(test_suite, core.TestSuite)
+    self.assertEqual(test_suite._name, 'Full Test Suite')
+    self.assertLen(test_suite._benchmarks_generators, 1)
+    self.assertIsInstance(test_suite._benchmarks_generators[0], MockGenerator)
+    self.assertEqual(
+        test_suite._benchmarks_generators[0]._options,
+        MockOptions(param1=10, param2='test'),
+    )
+    self.assertLen(
+        test_suite._benchmarks_generators[0]._checkpoint_configs,
+        2,
+    )
+    self.assertEqual(
+        test_suite._benchmarks_generators[0]._checkpoint_configs,
+        [
+            config_lib.CheckpointConfig(
+                spec={'a': 'numpy.ndarray:float32:10'}
+            ),
+            config_lib.CheckpointConfig(
+                spec={'b': 'numpy.ndarray:float32:20'}
             ),
         ],
     )
