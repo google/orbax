@@ -24,7 +24,6 @@ import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pyl
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import asyncio_utils
 
@@ -32,7 +31,7 @@ from orbax.checkpoint.experimental.v1._src.synchronization import asyncio_utils
 CheckpointMetadata = metadata_types.CheckpointMetadata
 InvalidLayoutError = errors.InvalidLayoutError
 PyTreeMetadata = metadata_types.PyTreeMetadata
-PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
+PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 
 
 def pytree_metadata(
