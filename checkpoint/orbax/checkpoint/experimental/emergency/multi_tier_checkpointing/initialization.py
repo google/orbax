@@ -73,7 +73,7 @@ def _create_replicator_file(
 def initialize_multi_tier_checkpointing(
     local_checkpoint_directory: epath.Path,
     *,
-    backup_interval_minutes: int = 10,
+    backup_interval_minutes: int = 30,
     num_slices: Optional[int] = None,
     run_name: Optional[str] = None,
     data_parallelism: Optional[int] = None,
