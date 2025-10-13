@@ -37,7 +37,7 @@ PreservationPolicyOptions = (
 SaveDecisionPolicyOptions = (
     checkpoint_policy_benchmark.SaveDecisionPolicyOptions
 )
-checkpoint_policy_benchmark = (
+CheckpointPolicyBenchmark = (
     checkpoint_policy_benchmark.CheckpointPolicyBenchmark
 )
 
@@ -71,8 +71,8 @@ class CheckpointPolicyBenchmarkTest(parameterized.TestCase):
   def test_get_checkpoint_policies_returns_correct_policy_types(
       self, options, expected_len
   ):
-    generator = checkpoint_policy_benchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(spec={}),
+    generator = CheckpointPolicyBenchmark(
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=options,
     )
     benchmarks = generator.generate()
@@ -112,8 +112,8 @@ class CheckpointPolicyBenchmarkTest(parameterized.TestCase):
       ),
   )
   def test_benchmark_test_fn_success(self, options):
-    generator = checkpoint_policy_benchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(spec={}),
+    generator = CheckpointPolicyBenchmark(
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=options,
     )
     pytree = {'a': jnp.arange(1000)}

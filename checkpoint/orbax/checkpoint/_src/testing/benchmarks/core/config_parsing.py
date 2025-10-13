@@ -78,10 +78,16 @@ def _load_yaml_config(config_path: str) -> Dict[str, Any]:
 
 def _validate_config(config: Dict[str, Any]) -> None:
   """Performs basic validation on the loaded YAML config."""
-  required_keys = ['suite_name', 'checkpoint_config', 'benchmarks']
+  required_keys = ['suite_name', 'benchmarks']
   for key in required_keys:
     if key not in config:
       raise ValueError(f'Missing required key in YAML config: {key}')
+
+  if 'checkpoint_config' not in config and 'checkpoint_configs' not in config:
+    raise ValueError(
+        'Missing required key in YAML config: checkpoint_config or'
+        ' checkpoint_configs'
+    )
 
   if not isinstance(config['benchmarks'], list):
     raise ValueError("'benchmarks' must be a list.")
@@ -121,7 +127,14 @@ def create_test_suite_from_config(
   _validate_config(config)
 
   suite_name = config['suite_name']
-  checkpoint_config = config_lib.CheckpointConfig(**config['checkpoint_config'])
+  if 'checkpoint_configs' in config:
+    checkpoint_configs = [
+        config_lib.CheckpointConfig(**cc) for cc in config['checkpoint_configs']
+    ]
+  else:
+    checkpoint_configs = [
+        config_lib.CheckpointConfig(**config['checkpoint_config'])
+    ]
 
   if 'mesh_configs' in config:
     mesh_configs = [
@@ -160,10 +173,7 @@ def create_test_suite_from_config(
 
     generator_options_dict = benchmark_group['options']
     try:
-      if hasattr(options_class, 'from_dict'):
-        generator_options = options_class.from_dict(generator_options_dict)
-      else:
-        generator_options = options_class(**generator_options_dict)
+      generator_options = options_class.from_dict(generator_options_dict)
     except TypeError as e:
       logging.error(
           'Failed to instantiate options class %s with provided options %s: %s',
@@ -174,7 +184,7 @@ def create_test_suite_from_config(
       raise
 
     generator = generator_class(
-        checkpoint_config=checkpoint_config,
+        checkpoint_configs=checkpoint_configs,
         options=generator_options,
         output_dir=output_dir,
         mesh_configs=mesh_configs,

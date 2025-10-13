@@ -76,7 +76,7 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
         mock.patch.object(mesh_utils, 'get_local_replica_mesh', autospec=True)
     )
     benchmark = EmergencyCheckpointManagerBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=EcmBenchmarkOptions(),
     )
     mesh_shape = (jax.device_count(), 1)
@@ -140,7 +140,7 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
         replica_axis_index=[0, 1],
     )
     benchmark = EmergencyCheckpointManagerBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=options,
     )
     benchmarks = benchmark.generate()
@@ -212,7 +212,7 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
         mock.patch.object(mesh_utils, 'get_local_replica_mesh', autospec=True)
     )
     self.benchmark = EmergencyCheckpointManagerBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=options,
     )
     mesh_shape = (jax.device_count(), 1)

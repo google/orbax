@@ -36,6 +36,9 @@ class MyBenchmarkOptions(core.BenchmarkOptions):
   opt1: int | List[int] = 1
   opt2: str | List[str] = 'a'
 
+  def is_valid(self) -> bool:
+    return not (self.opt1 == 2 and self.opt2 == 'a')
+
 
 @core.benchmark_options(MyBenchmarkOptions)
 class MyGenerator(core.BenchmarksGenerator):
@@ -181,7 +184,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
 
   def test_get_options_product(self):
     gen = MyGenerator(
-        checkpoint_config=configs.CheckpointConfig(),
+        checkpoint_configs=[configs.CheckpointConfig()],
         options=MyBenchmarkOptions(opt1=[1, 2], opt2='a'),
     )
 
@@ -191,21 +194,21 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
         options_product,
         [
             MyBenchmarkOptions(opt1=1, opt2='a'),
-            MyBenchmarkOptions(opt1=2, opt2='a'),
         ],
     )
 
   def test_generate_benchmark_name(self):
+    ckpt_config = configs.CheckpointConfig()
     gen = MyGenerator(
-        checkpoint_config=configs.CheckpointConfig(),
+        checkpoint_configs=[ckpt_config],
         options=MyBenchmarkOptions(),
     )
     options1 = MyBenchmarkOptions(opt1=1, opt2='a')
-    options2 = MyBenchmarkOptions(opt1=2, opt2='a')
+    options2 = MyBenchmarkOptions(opt1=1, opt2='b')
     mesh = mock.create_autospec(jax.sharding.Mesh, instance=True)
 
-    name1 = gen.generate_benchmark_name(options1, mesh)
-    name2 = gen.generate_benchmark_name(options2, mesh)
+    name1 = gen.generate_benchmark_name(options1, mesh, ckpt_config)
+    name2 = gen.generate_benchmark_name(options2, mesh, ckpt_config)
 
     self.assertRegex(name1, r'^MyGenerator_[a-f0-9]{12}$')
     self.assertRegex(name2, r'^MyGenerator_[a-f0-9]{12}$')
@@ -213,9 +216,14 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
 
     options3 = MyBenchmarkOptions(opt1=1, opt2='a')
     mesh2 = mock.create_autospec(jax.sharding.Mesh, instance=True)
-    name3 = gen.generate_benchmark_name(options3, mesh2)
+    name3 = gen.generate_benchmark_name(options3, mesh2, ckpt_config)
     self.assertRegex(name3, r'^MyGenerator_[a-f0-9]{12}$')
     self.assertNotEqual(name1, name3)
+
+    ckpt_config2 = configs.CheckpointConfig(path='/some/path')
+    name4 = gen.generate_benchmark_name(options1, mesh, ckpt_config2)
+    self.assertRegex(name4, r'^MyGenerator_[a-f0-9]{12}$')
+    self.assertNotEqual(name1, name4)
 
   @mock.patch.object(device_mesh, 'create_mesh')
   @mock.patch.object(logging, 'warning')
@@ -234,7 +242,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
     mock_create_mesh.side_effect = [exception, mock_mesh]
 
     gen = MyGenerator(
-        checkpoint_config=configs.CheckpointConfig(),
+        checkpoint_configs=[configs.CheckpointConfig()],
         options=MyBenchmarkOptions(),
         mesh_configs=[mesh_config1, mesh_config2],
     )
@@ -263,7 +271,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
     mock_create_mesh.side_effect = [ValueError('Incompatible'), mock_mesh]
 
     gen = MyGenerator(
-        checkpoint_config=configs.CheckpointConfig(),
+        checkpoint_configs=[configs.CheckpointConfig()],
         options=MyBenchmarkOptions(),
         mesh_configs=[mesh_config1, mesh_config2],
     )
@@ -273,13 +281,14 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
 
   def test_generate(self):
     gen = MyGenerator(
-        checkpoint_config=configs.CheckpointConfig(),
+        checkpoint_configs=[configs.CheckpointConfig()],
         options=MyBenchmarkOptions(opt1=[1, 2], opt2=['a', 'b']),
     )
 
     benchmarks = gen.generate()
 
-    self.assertLen(benchmarks, 4)
+    # Combinations: (1,a), (1,b), (2,b). (2,a) is invalid.
+    self.assertLen(benchmarks, 3)
 
   def test_options_class(self):
     self.assertEqual(MyGenerator.options_class, MyBenchmarkOptions)
@@ -294,7 +303,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
         TypeError, 'must be decorated with @benchmark_options'
     ):
       UndecoratedGenerator(
-          checkpoint_config=configs.CheckpointConfig(),
+          checkpoint_configs=[configs.CheckpointConfig()],
           options=MyBenchmarkOptions(),
       )
 
@@ -303,7 +312,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
         TypeError, 'Expected options of type MyBenchmarkOptions'
     ):
       MyGenerator(
-          checkpoint_config=configs.CheckpointConfig(),
+          checkpoint_configs=[configs.CheckpointConfig()],
           options=core.BenchmarkOptions(),
       )
 
@@ -313,31 +322,31 @@ class TestSuiteTest(parameterized.TestCase):
   @mock.patch.object(core.Benchmark, 'run')
   def test_run(self, mock_benchmark_run):
     gen = MyGenerator(
-        checkpoint_config=configs.CheckpointConfig(),
+        checkpoint_configs=[configs.CheckpointConfig()],
         options=MyBenchmarkOptions(opt1=[1, 2]),
     )
     suite = core.TestSuite(name='my_suite', benchmarks_generators=[gen])
 
     suite.run()
 
-    self.assertEqual(mock_benchmark_run.call_count, 2)
+    self.assertEqual(mock_benchmark_run.call_count, 1)
 
   @mock.patch.object(core.Benchmark, 'run')
   def test_run_multiple_generators(self, mock_benchmark_run):
     gen1 = MyGenerator(
-        checkpoint_config=configs.CheckpointConfig(),
+        checkpoint_configs=[configs.CheckpointConfig()],
         options=MyBenchmarkOptions(opt1=[1, 2]),
     )
     gen2 = MyGenerator(
-        checkpoint_config=configs.CheckpointConfig(),
+        checkpoint_configs=[configs.CheckpointConfig()],
         options=MyBenchmarkOptions(opt2=['c', 'd']),
     )
     suite = core.TestSuite(name='my_suite', benchmarks_generators=[gen1, gen2])
 
     suite.run()
 
-    # gen1 produces 2 benchmarks, gen2 produces 2 benchmarks
-    self.assertEqual(mock_benchmark_run.call_count, 4)
+    # gen1 produces 1 benchmark (2,a is invalid), gen2 produces 2 benchmarks
+    self.assertEqual(mock_benchmark_run.call_count, 3)
 
   @mock.patch.object(core.Benchmark, 'run')
   @mock.patch.object(logging, 'warning')
@@ -346,7 +355,7 @@ class TestSuiteTest(parameterized.TestCase):
   ):
     # This generator will produce no benchmarks because opt1 is an empty list
     gen = MyGenerator(
-        checkpoint_config=configs.CheckpointConfig(),
+        checkpoint_configs=[configs.CheckpointConfig()],
         options=MyBenchmarkOptions(opt1=[], opt2='a'),
     )
     suite = core.TestSuite(name='empty_suite', benchmarks_generators=[gen])
