@@ -49,7 +49,7 @@ class EcmBenchmarkOptions(benchmarks_core.BenchmarkOptions):
       saved.
     local_max_to_keep: The maximum number of local checkpoints to keep.
     replica_axis_index: The index of the replica axis in the global mesh.
-    train_steps: The number of training steps to run.
+    train_steps: The number of training steps to run. Added to test
   """
 
   persistent_save_interval_steps: int | Sequence[int] = 5
