@@ -237,5 +237,28 @@ class ManifestTypeToShloTensorSpecTreeTest(test_utils.ObmTestCase):
     self.assertTreeEquiv(shlo_tensor_spec_tree, expected_shlo_tensor_spec_tree)
 
 
+class ShloTensorSpecPyTreeToManifestTypeTest(
+    test_utils.ObmTestCase, parameterized.TestCase
+):
+
+  class MyCustomClass:
+
+    def __init__(self, x):
+      self.x = x
+
+  @parameterized.named_parameters(
+      ("int", 1, "Unsupported tree type: <class 'int'>"),
+      ("str", "hello", "Unsupported tree type: <class 'str'>"),
+      (
+          "custom_class",
+          MyCustomClass(1),
+          "Unsupported tree type: <class '.*MyCustomClass'>",
+      ),
+  )
+  def test_unsupported_leaf_type_raises_error(self, value, regex):
+    with self.assertRaisesRegex(ValueError, regex):
+      type_proto_util.shlo_tensor_spec_pytree_to_manifest_type(value)  # pytype: disable=wrong-arg-types
+
+
 if __name__ == "__main__":
   absltest.main()
