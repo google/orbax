@@ -101,6 +101,9 @@ def _run_benchmarks(config_file: str, output_directory: str) -> None:
   Args:
     config_file: Path to the YAML configuration file.
     output_directory: Directory to store benchmark results in.
+
+  Raises:
+    RuntimeError: If any benchmark test fails.
   """
   logging.info('Running benchmarks from config: %s', config_file)
   logging.info('Output directory: %s', output_directory)
@@ -122,8 +125,21 @@ def _run_benchmarks(config_file: str, output_directory: str) -> None:
     raise
 
   logging.info('Benchmark test suite created successfully.')
-  test_suite.run()
-  logging.info('Benchmark test suite run completed.')
+  results = test_suite.run()
+  failed_results = [result for result in results if not result.is_successful()]
+  if not failed_results:
+    logging.info('Benchmark test suite run completed successfully.')
+  else:
+    error_messages = []
+    for result in failed_results:
+      error_messages.append(
+          f'Test: {result.metrics.name}, Error: {repr(result.error)}'
+      )
+    exception_message = (
+        'Benchmark test suite run failed with following errors:\n'
+        + '\n'.join(error_messages)
+    )
+    raise RuntimeError(exception_message)
 
 
 def main(argv: List[str]) -> None:

@@ -72,6 +72,17 @@ metric2: 4.5600 seconds
       mock_log.assert_any_call(expected_report)
 
 
+class TestResultTest(parameterized.TestCase):
+
+  def test_is_successful_with_error(self):
+    result = core.TestResult(metrics=core.Metrics(), error=ValueError())
+    self.assertFalse(result.is_successful())
+
+  def test_is_successful_without_error(self):
+    result = core.TestResult(metrics=core.Metrics(), error=None)
+    self.assertTrue(result.is_successful())
+
+
 class BenchmarkTest(parameterized.TestCase):
 
   def _get_test_tree(self):
@@ -369,6 +380,50 @@ class TestSuiteTest(parameterized.TestCase):
         'No benchmarks were run for this suite.'
     )
     mock_benchmark_run.assert_not_called()
+
+  @mock.patch.object(directory_setup, 'setup_test_directory')
+  @mock.patch.object(checkpoint_generation, 'generate_checkpoint')
+  @mock.patch.object(logging, 'info')
+  def test_run_generates_report_with_failures(
+      self,
+      mock_logging_info,
+      mock_generate_checkpoint,
+      mock_setup_test_directory,
+  ):
+    path = epath.Path(self.create_tempdir().full_path)
+    mock_setup_test_directory.return_value = path
+    mock_generate_checkpoint.return_value = {}
+
+    @core.benchmark_options(MyBenchmarkOptions)
+    class MyGeneratorWithFailure(core.BenchmarksGenerator):
+
+      def test_fn(self, test_context: core.TestContext) -> core.TestResult:
+        if test_context.options.opt1 == 2 and test_context.options.opt2 == 'b':  # pytype: disable=attribute-error
+          raise ValueError('opt1=2, opt2=b failed')
+        metrics = core.Metrics()
+        metrics.timings['fake_metric'] = 0.1
+        return core.TestResult(metrics=metrics)
+
+    gen = MyGeneratorWithFailure(
+        checkpoint_configs=[configs.CheckpointConfig()],
+        options=MyBenchmarkOptions(opt1=[1, 2], opt2=['a', 'b']),
+    )
+    suite = core.TestSuite(name='report_suite', benchmarks_generators=[gen])
+    suite.run()
+
+    # 3 benchmarks generated: (1,a), (1,b), (2,b).
+    # (1,a), (1,b) pass. (2,b) fails because (2,a) is invalid.
+
+    # The last call to logging.info should be the report
+    report_log_call = mock_logging_info.call_args_list[-1]
+    report_log = report_log_call[0][0]
+
+    self.assertIn(' Test Suite Report: report_suite ', report_log)
+    self.assertIn('Total tests run: 3', report_log)
+    self.assertIn('Passed: 2', report_log)
+    self.assertIn('Failed: 1', report_log)
+    self.assertIn('--- Failed Tests ---', report_log)
+    self.assertIn("Error: ValueError('opt1=2, opt2=b failed')", report_log)
 
 
 if __name__ == '__main__':

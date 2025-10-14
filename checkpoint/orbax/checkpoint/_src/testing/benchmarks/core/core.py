@@ -20,6 +20,7 @@ import contextlib
 import dataclasses
 import hashlib
 import itertools
+import sys
 import time
 from typing import Any, Callable
 
@@ -140,6 +141,13 @@ class TestResult:
   """Output object returned by each test function, containing the results of the test run, including collected metrics."""
 
   metrics: Metrics
+  error: Exception | None = (
+      None  # The error raised during the test run, if any.
+  )
+
+  def is_successful(self) -> bool:
+    """Returns whether the test run was successful."""
+    return self.error is None
 
 
 class Benchmark(abc.ABC):
@@ -160,6 +168,22 @@ class Benchmark(abc.ABC):
     self.mesh = mesh
     self.name = name
     self.output_dir = output_dir
+
+  def _build_test_context_summary(self, context: TestContext) -> str:
+    """Builds a string summary of the test context."""
+    pytree_summary = jax.tree_util.tree_map(
+        lambda x: (
+            f"shape={x.shape}, dtype={x.dtype}"
+            if hasattr(x, "shape") and hasattr(x, "dtype")
+            else str(x)
+        ),
+        context.pytree,
+    )
+    test_context_str = f"TestContext for '{self.name}':\n"
+    test_context_str += f"Path: {context.path}\n"
+    test_context_str += f"Options: {context.options}\n"
+    test_context_str += f"PyTree Summary:\n{pytree_summary}\n"
+    return test_context_str
 
   def run(self) -> TestResult:
     """Executes the benchmark test case."""
@@ -194,32 +218,30 @@ class Benchmark(abc.ABC):
         pytree=data, path=path, options=self.options, mesh=self.mesh
     )
 
-    pytree_summary = jax.tree_util.tree_map(
-        lambda x: (
-            f"shape={x.shape}, dtype={x.dtype}"
-            if hasattr(x, "shape") and hasattr(x, "dtype")
-            else str(x)
-        ),
-        context.pytree,
-    )
-    logging.info(
-        "--- TestContext for '%s' ---\n"
-        "Path: %s\n"
-        "Options: %s\n"
-        "PyTree Summary:\n%s\n"
-        "----------------------------------",
-        self.name,
-        context.path,
-        context.options,
-        pytree_summary,
-    )
+    test_context_summary = self._build_test_context_summary(context)
+    logging.info(test_context_summary)
 
     logging.info(
         "[process_id=%s] Executing test function: %s",
         multihost.process_index(),
         self.name,
     )
-    result = self.test_fn(context)
+    try:
+      result = self.test_fn(context)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      # We catch all exceptions to ensure that any error during the test
+      # execution is recorded in the TestResult.
+      if sys.version_info >= (3, 11):
+        e.add_note(
+            f"[process_id={multihost.process_index()}], {test_context_summary}"
+        )
+      logging.error(
+          "[process_id=%s] Test function '%s' raised an exception: %s",
+          multihost.process_index(),
+          self.name,
+          e,
+      )
+      result = TestResult(metrics=Metrics(), error=e)
     result.metrics.name = self.name
 
     result.metrics.report()
@@ -392,13 +414,43 @@ class TestSuite:
     self._benchmarks_generators = benchmarks_generators
     self._skip_incompatible_mesh_configs = skip_incompatible_mesh_configs
 
-  def run(self):
+  def _generate_report(self, results: Sequence[TestResult]) -> str:
+    """Generates a report from the test results."""
+    passed_count = 0
+    failed_tests = []
+    for result in results:
+      if result.is_successful():
+        passed_count += 1
+      else:
+        failed_tests.append(result)
+
+    failed_count = len(failed_tests)
+    report_lines = []
+    title = f" Test Suite Report: {self._name} "
+    report_lines.append(f"\n{title:=^80}")
+    report_lines.append(f"Total tests run: {len(results)}")
+    report_lines.append(f"Passed: {passed_count}")
+    report_lines.append(f"Failed: {failed_count}")
+
+    if failed_count > 0:
+      report_lines.append("-" * 80)
+      report_lines.append("--- Failed Tests ---")
+      for result in failed_tests:
+        error_repr = repr(result.error)
+        # Limit error length to avoid flooding logs.
+        if len(error_repr) > 1000:
+          error_repr = error_repr[:1000] + "..."
+        report_lines.append(f"Test: {result.metrics.name}, Error: {error_repr}")
+    report_lines.append("=" * 80)
+    return "\n".join(report_lines)
+
+  def run(self) -> Sequence[TestResult]:
     """Runs all benchmarks in the suite sequentially."""
     logging.info(
         "\n%s Running Test Suite: %s %s", "=" * 25, self._name, "=" * 25
     )
 
-    has_run_benchmarks = False
+    results = []
     for i, generator in enumerate(self._benchmarks_generators):
       logging.info(
           "\n%s Running Generator %d: %s %s",
@@ -416,14 +468,12 @@ class TestSuite:
         )
         continue
 
-      has_run_benchmarks = True
       for benchmark in generated_benchmarks:
         logging.info("\n--- Running test: %s ---", benchmark.name)
-        benchmark.run()
+        results.append(benchmark.run())
 
-    if not has_run_benchmarks:
+    if not results:
       logging.warning("No benchmarks were run for this suite.")
 
-    logging.info(
-        "\n%s Finished Test Suite: %s %s", "=" * 25, self._name, "=" * 25
-    )
+    logging.info(self._generate_report(results))
+    return results
