@@ -13,16 +13,32 @@
 # limitations under the License.
 
 """Benchmarks for orbax.checkpoint.PyTreeCheckpointHandler."""
+
 from collections.abc import Sequence
+import contextlib
 import dataclasses
+import functools
 from typing import Any
+from unittest import mock
+
 from absl import logging
 import jax
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint._src.checkpointers import async_checkpointer
+from orbax.checkpoint._src.checkpointers import checkpointer as sync_checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
+
+
+@contextlib.contextmanager
+def _profile(metrics, operation_name, tracemalloc_enabled):
+  with contextlib.ExitStack() as stack:
+    stack.enter_context(metrics.time(operation_name))
+    stack.enter_context(metrics.process_rss(operation_name))
+    if tracemalloc_enabled:
+      stack.enter_context(metrics.tracemalloc(operation_name))
+    yield
 
 
 # ==============================================================================
@@ -42,6 +58,8 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
 
   use_ocdbt: bool | Sequence[bool] = True
   use_zarr3: bool | Sequence[bool] = False
+  async_checkpointer: bool | Sequence[bool] = True
+  tracemalloc_enabled: bool | Sequence[bool] = False
 
 
 # ==============================================================================
@@ -87,19 +105,27 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
         use_ocdbt=options.use_ocdbt,
         use_zarr3=options.use_zarr3,
     )
-    checkpointer = async_checkpointer.AsyncCheckpointer(handler)
 
-    with metrics.time("save"):
+    if options.async_checkpointer:
+      checkpointer = async_checkpointer.AsyncCheckpointer(handler)
+    else:
+      checkpointer = sync_checkpointer.Checkpointer(handler)
+
+    with _profile(metrics, "save", options.tracemalloc_enabled):
       checkpointer.save(
           save_path, args=pytree_checkpoint_handler.PyTreeSaveArgs(pytree)
       )
 
-    with metrics.time("wait_until_finished"):
-      checkpointer.wait_until_finished()
+    if options.async_checkpointer:
+      with _profile(
+          metrics, "wait_until_finished", options.tracemalloc_enabled
+      ):
+        assert hasattr(checkpointer, "wait_until_finished")
+        checkpointer.wait_until_finished()
 
     context.pytree = self._clear_pytree(context.pytree)
 
-    with metrics.time("restore"):
+    with _profile(metrics, "restore", options.tracemalloc_enabled):
       checkpointer.restore(
           save_path,
           args=pytree_checkpoint_handler.PyTreeRestoreArgs(
