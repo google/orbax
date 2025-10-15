@@ -109,8 +109,13 @@ class CheckpointManagerBenchmarkTest(parameterized.TestCase):
     self.mock_checkpoint_manager_cls.assert_called_once()
     self.assertIsInstance(result, benchmarks_core.TestResult)
     self.assertContainsSubset(
-        {'save_0', 'wait_until_finished_0', 'restore_0', 'correctness_check'},
-        result.metrics.timings.keys(),
+        {
+            'save_0_time',
+            'wait_until_finished_0_time',
+            'restore_0_time',
+            'correctness_check_time',
+        },
+        result.metrics.results.keys(),
     )
     mock_cm_instance.save.assert_called_once()
     mock_cm_instance.wait_until_finished.assert_called_once()

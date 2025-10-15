@@ -111,8 +111,8 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
     )
     self.assertIsInstance(result, benchmarks_core.TestResult)
     self.assertContainsSubset(
-        {'save', 'wait_until_finished', 'restore'},
-        result.metrics.timings.keys(),
+        {'save_time', 'wait_until_finished_time', 'restore_time'},
+        result.metrics.results.keys(),
     )
     mock_save.assert_called_once()
     save_args = mock_save.call_args[1]['args']

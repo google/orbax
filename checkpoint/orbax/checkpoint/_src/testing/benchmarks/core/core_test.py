@@ -14,6 +14,7 @@
 
 import dataclasses
 import time
+import tracemalloc
 from typing import List
 from unittest import mock
 
@@ -56,14 +57,48 @@ class MetricsTest(parameterized.TestCase):
       with metrics.time('test_metric'):
         pass
 
-    self.assertEqual(metrics.timings, {'test_metric': 2.0})
+    self.assertEqual(metrics.results, {'test_metric_time': (2.0, 's')})
+
+  @mock.patch(
+      'orbax.checkpoint._src.testing.benchmarks.core.core.psutil.Process'
+  )
+  def test_process_rss(self, mock_process):
+    mock_process.return_value.memory_info.side_effect = [
+        mock.Mock(rss=1 * 1024 * 1024),
+        mock.Mock(rss=3 * 1024 * 1024),
+    ]
+    metrics = core.Metrics()
+    with metrics.process_rss('test_metric'):
+      pass
+    self.assertEqual(metrics.results, {'test_metric_rss': (2.0, 'MB')})
+
+  @mock.patch('orbax.checkpoint._src.testing.benchmarks.core.core.tracemalloc')
+  def test_tracemalloc(self, mock_tracemalloc):
+    mock_tracemalloc.Snapshot = tracemalloc.Snapshot
+    mock_tracemalloc.get_traced_memory.side_effect = [
+        (0, 1 * 1024 * 1024),
+        (0, 3 * 1024 * 1024),
+    ]
+    mock_snapshot = mock.Mock()
+    mock_snapshot.__class__ = tracemalloc.Snapshot
+    mock_snapshot.compare_to.return_value = []
+    mock_tracemalloc.take_snapshot.return_value = mock_snapshot
+    core.TracemallocMetric._active_count = 0
+
+    metrics = core.Metrics()
+    with metrics.tracemalloc('test_metric'):
+      self.assertEqual(core.TracemallocMetric._active_count, 1)
+    self.assertEqual(metrics.results, {'test_metric_tracemalloc': (2.0, 'MB')})
+    self.assertEqual(core.TracemallocMetric._active_count, 0)
+    mock_tracemalloc.start.assert_called_once()
+    mock_tracemalloc.stop.assert_called_once()
 
   def test_report(self):
     metrics = core.Metrics(name='TestMetrics')
-    metrics.timings = {'metric1': 1.23, 'metric2': 4.56}
+    metrics.results = {'metric1': (1.23, 's'), 'metric2': (4.56, 's')}
     expected_report = """---[process_id=0] TestMetrics Metrics Report ---
-metric1: 1.2300 seconds
-metric2: 4.5600 seconds
+metric1: 1.2300 s
+metric2: 4.5600 s
 ----------------------"""
 
     with mock.patch.object(logging, 'info') as mock_log:
@@ -112,7 +147,7 @@ class BenchmarkTest(parameterized.TestCase):
       self.assertEqual(context.options, options)
       self.assertEqual(context.mesh, mock_mesh)
       metrics = core.Metrics()
-      metrics.timings['save'] = 1.0
+      metrics.results['save'] = (1.0, 's')
       return core.TestResult(metrics=metrics)
 
     ckpt_config = configs.CheckpointConfig(path=None, spec={})
@@ -132,7 +167,7 @@ class BenchmarkTest(parameterized.TestCase):
 
     result = benchmark.run()
 
-    self.assertEqual(result.metrics.timings, {'save': 1.0})
+    self.assertEqual(result.metrics.results, {'save': (1.0, 's')})
     mock_setup_test_directory.assert_called_once_with('test_benchmark', None)
     mock_create_mesh.assert_called_once_with(mesh_config)
     mock_generate_checkpoint.assert_called_once_with(
@@ -164,7 +199,7 @@ class BenchmarkTest(parameterized.TestCase):
       self.assertEqual(context.options, options)
       self.assertEqual(context.mesh, mock_mesh)
       metrics = core.Metrics()
-      metrics.timings['restore'] = 2.0
+      metrics.results['restore'] = (2.0, 's')
       return core.TestResult(metrics=metrics)
 
     ckpt_config = configs.CheckpointConfig(path='/tmp/path', spec={})
@@ -184,7 +219,7 @@ class BenchmarkTest(parameterized.TestCase):
 
     result = benchmark.run()
 
-    self.assertEqual(result.metrics.timings, {'restore': 2.0})
+    self.assertEqual(result.metrics.results, {'restore': (2.0, 's')})
     mock_setup_test_directory.assert_called_once_with('test_benchmark', None)
     mock_load_checkpoint.assert_called_once_with('/tmp/path')
     mock_create_mesh.assert_called_once_with(mesh_config)
@@ -241,12 +276,8 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
   def test_get_meshes_skip_incompatible(
       self, mock_logging_warning, mock_create_mesh
   ):
-    mesh_config1 = configs.MeshConfig(
-        mesh_axes=['x'], ici_parallelism={'x': 1}
-    )
-    mesh_config2 = configs.MeshConfig(
-        mesh_axes=['y'], ici_parallelism={'y': 1}
-    )
+    mesh_config1 = configs.MeshConfig(mesh_axes=['x'], ici_parallelism={'x': 1})
+    mesh_config2 = configs.MeshConfig(mesh_axes=['y'], ici_parallelism={'y': 1})
     mock_mesh = mock.create_autospec(jax.sharding.Mesh, instance=True)
     mock_create_mesh.return_value = mock_mesh
     exception = ValueError('Incompatible')
@@ -271,12 +302,8 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
 
   @mock.patch.object(device_mesh, 'create_mesh')
   def test_get_meshes_no_skip_incompatible(self, mock_create_mesh):
-    mesh_config1 = configs.MeshConfig(
-        mesh_axes=['x'], ici_parallelism={'x': 1}
-    )
-    mesh_config2 = configs.MeshConfig(
-        mesh_axes=['y'], ici_parallelism={'y': 1}
-    )
+    mesh_config1 = configs.MeshConfig(mesh_axes=['x'], ici_parallelism={'x': 1})
+    mesh_config2 = configs.MeshConfig(mesh_axes=['y'], ici_parallelism={'y': 1})
     mock_mesh = mock.create_autospec(jax.sharding.Mesh, instance=True)
     mock_create_mesh.return_value = mock_mesh
     mock_create_mesh.side_effect = [ValueError('Incompatible'), mock_mesh]
@@ -401,7 +428,7 @@ class TestSuiteTest(parameterized.TestCase):
         if test_context.options.opt1 == 2 and test_context.options.opt2 == 'b':  # pytype: disable=attribute-error
           raise ValueError('opt1=2, opt2=b failed')
         metrics = core.Metrics()
-        metrics.timings['fake_metric'] = 0.1
+        metrics.results['fake_metric'] = (0.1, 's')
         return core.TestResult(metrics=metrics)
 
     gen = MyGeneratorWithFailure(

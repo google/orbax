@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - v1 Added `ArrayOptions.Saving.use_compression` to control whether compression
   will be used. Default is kept `True`.
 - Add `LocalPath` for testing process-local storage.
+- Added new memory metrics into benchmark library
 
 ### Changed
 
