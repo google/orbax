@@ -27,7 +27,7 @@ jobs:
         working-directory: checkpoint
     strategy:
       matrix:
-        python-version: ["3.12"]
+        python-version: ["3.10"]
         jax-version: ["0.8.0"]
           # TODO(b/401258175) Re-enable once JAX nightlies are fixed.
           # - python-version: "3.13"
