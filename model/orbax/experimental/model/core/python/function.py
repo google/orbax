@@ -14,18 +14,20 @@
 
 """The `Function` base class."""
 
-from dataclasses import dataclass  # pylint: disable=g-importing-member
+import dataclasses
 import enum
 from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
-from orbax.experimental.model.core.python.tree_util import Tree
+from orbax.experimental.model.core.python import tree_util
 
-from tensorflow.compiler.xla import xla_data_pb2
+from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
 
 
+Sharding = xla_data_pb2.OpSharding
 ShloDimSize = Optional[int]
 ShloShape = Optional[Sequence[ShloDimSize]]
+Tree = tree_util.Tree
 
 
 # pylint: disable=invalid-name
@@ -89,12 +91,9 @@ def shlo_dtype_to_np_dtype(dtype: ShloDType) -> np.dtype[Any]:
   return _SHLO_DTYPE_TO_NP_DTYPE[dtype]
 
 
-Sharding = xla_data_pb2.OpSharding
-
-
 # TODO(wangpeng): value.py needs this class, so we should move this class out
 #   of function.py .
-@dataclass
+@dataclasses.dataclass
 class ShloTensorSpec:
 
   shape: ShloShape
@@ -103,18 +102,20 @@ class ShloTensorSpec:
   sharding: Optional[Sharding] = None
 
 
-@dataclass(kw_only=True)
+@dataclasses.dataclass(kw_only=True)
 class Function:
   """An abstract base class for functions whose signatures are StableHLO types.
 
   Attributes:
     input_signature: the input signature of the function.
     output_signature: the output signature of the function.
+    data_names: checkpoint data names used by the function.
     signature: the pair `(input_signature, output_signature)`.
   """
 
   input_signature: Tree[ShloTensorSpec]
   output_signature: Tree[ShloTensorSpec]
+  data_names: Sequence[str] | None = None
   # TODO(b/372084833): Add `vjp_name``.
 
   @property

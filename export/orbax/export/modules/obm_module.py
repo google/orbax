@@ -102,6 +102,9 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     self._prune_custom_pytree_nodes = jax2obm_kwargs.get(
         constants.PRUNE_CUSTOM_PYTREE_NODES, False
     )
+    self._populate_data_names = jax2obm_kwargs.get(
+        constants.POPULATE_DATA_NAMES, False
+    )
 
   def _normalize_apply_fn_map(
       self,
