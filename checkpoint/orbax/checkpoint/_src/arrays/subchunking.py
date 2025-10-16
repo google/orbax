@@ -133,6 +133,9 @@ def choose_chunk_shape(
     # We do our best to shard at least once of each of the `shard_axes`.
     if first_sharding_iteration:
       must_shard_dims = list(i for i in shard_axes if not sharded_dimensions[i])
+      if not must_shard_dims:
+        # In case all priority axes are already sharded, use all of them.
+        must_shard_dims = shard_axes
       first_sharding_iteration = False
     else:
       must_shard_dims = shard_axes
