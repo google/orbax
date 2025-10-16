@@ -16,15 +16,15 @@
 
 from collections.abc import Callable, Mapping, Sequence
 import copy
-import functools
 import itertools
 import os
-from typing import Any, Dict, Tuple, cast
+from typing import Any, cast
 
 from absl import logging
 import jax
 from jax import export as jax_export
 import jaxtyping
+from orbax.export import config
 from orbax.export import constants
 from orbax.export import export_base
 from orbax.export import jax_module
@@ -35,6 +35,8 @@ from orbax.export import typing
 from orbax.export import utils
 from orbax.export.modules import obm_module
 import tensorflow as tf
+
+_obm_export_config = config.config
 
 
 class ObmExport(export_base.ExportBase):
