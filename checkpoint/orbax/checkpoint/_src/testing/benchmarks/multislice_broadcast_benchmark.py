@@ -25,6 +25,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import mesh_utils
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 
 
@@ -53,7 +54,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
       self, context: benchmarks_core.TestContext
   ) -> benchmarks_core.TestResult:
     """The core test logic multislice operations."""
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     options = context.options
     mesh = context.mesh
     assert isinstance(options, MultisliceBroadcastBenchmarkOptions)

@@ -26,6 +26,7 @@ from orbax.checkpoint._src.testing.benchmarks import emergency_checkpoint_manage
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import mesh_utils
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
 
@@ -363,7 +364,7 @@ class RestoreAndValidateTest(parameterized.TestCase):
       mock_assert_pytree_equal,
       mock_sync_global_processes,
   ):
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = {'a': np.array([1, 2, 3])}
     step = 0
     restore_args = {'a': mock.MagicMock()}
@@ -397,7 +398,7 @@ class RestoreAndValidateTest(parameterized.TestCase):
       mock_assert_pytree_equal,
       mock_sync_global_processes,
   ):
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = {'a': np.array([1, 2, 3])}
     step = 0
     restore_args = {'a': mock.MagicMock()}
@@ -434,7 +435,7 @@ class RestoreAndValidateTest(parameterized.TestCase):
       mock_assert_pytree_equal,
       mock_sync_global_processes,
   ):
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = {'a': np.array([1, 2, 3])}
     step = 0
     restore_args = {'a': mock.MagicMock()}

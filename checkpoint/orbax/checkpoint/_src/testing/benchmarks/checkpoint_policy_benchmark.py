@@ -23,6 +23,7 @@ import orbax.checkpoint as ocp
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
 
 # ==============================================================================
@@ -216,7 +217,7 @@ class CheckpointPolicyBenchmark(benchmarks_core.BenchmarksGenerator):
       self, context: benchmarks_core.TestContext
   ) -> benchmarks_core.TestResult:
     """The core test logic for a single benchmark run."""
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = context.pytree
     save_path = context.path / 'checkpoints'
     options = context.options

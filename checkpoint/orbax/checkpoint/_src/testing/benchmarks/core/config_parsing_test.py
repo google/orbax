@@ -20,6 +20,7 @@ from absl.testing import parameterized
 from orbax.checkpoint._src.testing.benchmarks.core import config_parsing
 from orbax.checkpoint._src.testing.benchmarks.core import configs as config_lib
 from orbax.checkpoint._src.testing.benchmarks.core import core
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 import yaml
 
 
@@ -34,13 +35,13 @@ class MockOptions(core.BenchmarkOptions):
 class MockGenerator(core.BenchmarksGenerator):
 
   def test_fn(self, test_context: core.TestContext) -> core.TestResult:
-    return core.TestResult(metrics=core.Metrics())
+    return core.TestResult(metrics=metric_lib.Metrics())
 
 
 class UndecoratedMockGenerator(core.BenchmarksGenerator):
 
   def test_fn(self, test_context: core.TestContext) -> core.TestResult:
-    return core.TestResult(metrics=core.Metrics())
+    return core.TestResult(metrics=metric_lib.Metrics())
 
 
 class TestLoadYamlConfig(parameterized.TestCase):

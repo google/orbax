@@ -29,6 +29,7 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers as serialization_type_handlers
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.testing.benchmarks.core import core
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 
 
@@ -106,7 +107,7 @@ class ArrayHandlerBenchmark(core.BenchmarksGenerator):
     Raises:
       ValueError: If the input pytree does not contain the expected 'array' key.
     """
-    metrics = core.Metrics()
+    metrics = metric_lib.Metrics()
     options = test_context.options
     assert isinstance(options, ArrayHandlerBenchmarkOptions)
     if 'array' not in test_context.pytree:

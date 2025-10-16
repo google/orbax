@@ -25,6 +25,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import mesh_utils
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 from orbax.checkpoint._src.tree import utils
 
@@ -86,7 +87,7 @@ class SingleReplicaBenchmark(benchmarks_core.BenchmarksGenerator):
       self, context: benchmarks_core.TestContext
   ) -> benchmarks_core.TestResult:
     """The core test logic for a single save/restore cycle."""
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = context.pytree
     save_path = context.path / "single_replica_ckpt"
     options = context.options

@@ -30,6 +30,7 @@ from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.testing.benchmarks.core import core
 from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 from orbax.checkpoint._src.testing.benchmarks.core import directory_setup
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
 
 @dataclasses.dataclass(frozen=True)
@@ -45,13 +46,13 @@ class MyBenchmarkOptions(core.BenchmarkOptions):
 class MyGenerator(core.BenchmarksGenerator):
 
   def test_fn(self, test_context: core.TestContext) -> core.TestResult:
-    return core.TestResult(metrics=core.Metrics())
+    return core.TestResult(metrics=metric_lib.Metrics())
 
 
 class MetricsTest(parameterized.TestCase):
 
   def test_time(self):
-    metrics = core.Metrics()
+    metrics = metric_lib.Metrics()
 
     with mock.patch.object(time, 'perf_counter', side_effect=[1.0, 3.0]):
       with metrics.time('test_metric'):
@@ -60,19 +61,21 @@ class MetricsTest(parameterized.TestCase):
     self.assertEqual(metrics.results, {'test_metric_time': (2.0, 's')})
 
   @mock.patch(
-      'orbax.checkpoint._src.testing.benchmarks.core.core.psutil.Process'
+      'orbax.checkpoint._src.testing.benchmarks.core.metric.psutil.Process'
   )
   def test_process_rss(self, mock_process):
     mock_process.return_value.memory_info.side_effect = [
         mock.Mock(rss=1 * 1024 * 1024),
         mock.Mock(rss=3 * 1024 * 1024),
     ]
-    metrics = core.Metrics()
+    metrics = metric_lib.Metrics()
     with metrics.process_rss('test_metric'):
       pass
     self.assertEqual(metrics.results, {'test_metric_rss': (2.0, 'MB')})
 
-  @mock.patch('orbax.checkpoint._src.testing.benchmarks.core.core.tracemalloc')
+  @mock.patch(
+      'orbax.checkpoint._src.testing.benchmarks.core.metric.tracemalloc'
+  )
   def test_tracemalloc(self, mock_tracemalloc):
     mock_tracemalloc.Snapshot = tracemalloc.Snapshot
     mock_tracemalloc.get_traced_memory.side_effect = [
@@ -83,18 +86,18 @@ class MetricsTest(parameterized.TestCase):
     mock_snapshot.__class__ = tracemalloc.Snapshot
     mock_snapshot.compare_to.return_value = []
     mock_tracemalloc.take_snapshot.return_value = mock_snapshot
-    core.TracemallocMetric._active_count = 0
+    metric_lib.TracemallocMetric._active_count = 0
 
-    metrics = core.Metrics()
+    metrics = metric_lib.Metrics()
     with metrics.tracemalloc('test_metric'):
-      self.assertEqual(core.TracemallocMetric._active_count, 1)
+      self.assertEqual(metric_lib.TracemallocMetric._active_count, 1)
     self.assertEqual(metrics.results, {'test_metric_tracemalloc': (2.0, 'MB')})
-    self.assertEqual(core.TracemallocMetric._active_count, 0)
+    self.assertEqual(metric_lib.TracemallocMetric._active_count, 0)
     mock_tracemalloc.start.assert_called_once()
     mock_tracemalloc.stop.assert_called_once()
 
   def test_report(self):
-    metrics = core.Metrics(name='TestMetrics')
+    metrics = metric_lib.Metrics(name='TestMetrics')
     metrics.results = {'metric1': (1.23, 's'), 'metric2': (4.56, 's')}
     expected_report = """---[process_id=0] TestMetrics Metrics Report ---
 metric1: 1.2300 s
@@ -110,11 +113,11 @@ metric2: 4.5600 s
 class TestResultTest(parameterized.TestCase):
 
   def test_is_successful_with_error(self):
-    result = core.TestResult(metrics=core.Metrics(), error=ValueError())
+    result = core.TestResult(metrics=metric_lib.Metrics(), error=ValueError())
     self.assertFalse(result.is_successful())
 
   def test_is_successful_without_error(self):
-    result = core.TestResult(metrics=core.Metrics(), error=None)
+    result = core.TestResult(metrics=metric_lib.Metrics(), error=None)
     self.assertTrue(result.is_successful())
 
 
@@ -126,7 +129,7 @@ class BenchmarkTest(parameterized.TestCase):
   @mock.patch.object(directory_setup, 'setup_test_directory')
   @mock.patch.object(checkpoint_generation, 'generate_checkpoint')
   @mock.patch.object(device_mesh, 'create_mesh')
-  @mock.patch.object(core.Metrics, 'report')
+  @mock.patch.object(metric_lib.Metrics, 'report')
   def test_run_with_generate_checkpoint(
       self,
       mock_metrics_report,
@@ -146,7 +149,7 @@ class BenchmarkTest(parameterized.TestCase):
       self.assertEqual(context.path, path)
       self.assertEqual(context.options, options)
       self.assertEqual(context.mesh, mock_mesh)
-      metrics = core.Metrics()
+      metrics = metric_lib.Metrics()
       metrics.results['save'] = (1.0, 's')
       return core.TestResult(metrics=metrics)
 
@@ -178,7 +181,7 @@ class BenchmarkTest(parameterized.TestCase):
   @mock.patch.object(directory_setup, 'setup_test_directory')
   @mock.patch.object(checkpoint_generation, 'load_checkpoint')
   @mock.patch.object(device_mesh, 'create_mesh')
-  @mock.patch.object(core.Metrics, 'report')
+  @mock.patch.object(metric_lib.Metrics, 'report')
   def test_run_with_load_checkpoint(
       self,
       mock_metrics_report,
@@ -198,7 +201,7 @@ class BenchmarkTest(parameterized.TestCase):
       self.assertEqual(context.path, path)
       self.assertEqual(context.options, options)
       self.assertEqual(context.mesh, mock_mesh)
-      metrics = core.Metrics()
+      metrics = metric_lib.Metrics()
       metrics.results['restore'] = (2.0, 's')
       return core.TestResult(metrics=metrics)
 
@@ -335,7 +338,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
     class UndecoratedGenerator(core.BenchmarksGenerator):
 
       def test_fn(self, test_context: core.TestContext) -> core.TestResult:
-        return core.TestResult(metrics=core.Metrics())
+        return core.TestResult(metrics=metric_lib.Metrics())
 
     with self.assertRaisesRegex(
         TypeError, 'must be decorated with @benchmark_options'
@@ -427,7 +430,7 @@ class TestSuiteTest(parameterized.TestCase):
       def test_fn(self, test_context: core.TestContext) -> core.TestResult:
         if test_context.options.opt1 == 2 and test_context.options.opt2 == 'b':  # pytype: disable=attribute-error
           raise ValueError('opt1=2, opt2=b failed')
-        metrics = core.Metrics()
+        metrics = metric_lib.Metrics()
         metrics.results['fake_metric'] = (0.1, 's')
         return core.TestResult(metrics=metrics)
 

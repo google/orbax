@@ -28,6 +28,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import mesh_utils
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 from orbax.checkpoint._src.tree import utils
 from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
@@ -110,7 +111,7 @@ def _is_in_replica(
 
 def _restore_and_validate(
     manager: emergency_checkpoint_manager.CheckpointManager,
-    metrics: benchmarks_core.Metrics,
+    metrics: metric_lib.Metrics,
     pytree: Any,
     step: int,
     local_directory: epath.Path,
@@ -162,7 +163,7 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
       self, context: benchmarks_core.TestContext
   ) -> benchmarks_core.TestResult:
     """The core test logic for a single save/restore cycle."""
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = context.pytree
     persistent_directory = context.path / "persistent_replica_ckpt"
     local_directory = (

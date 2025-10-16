@@ -24,6 +24,7 @@ from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 
 
@@ -49,7 +50,7 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
   def test_fn(
       self, context: benchmarks_core.TestContext
   ) -> benchmarks_core.TestResult:
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = context.pytree
     options = context.options
     assert isinstance(options, CheckpointManagerBenchmarkOptions)

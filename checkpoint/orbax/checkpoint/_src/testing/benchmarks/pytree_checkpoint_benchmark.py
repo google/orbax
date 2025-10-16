@@ -29,6 +29,7 @@ from orbax.checkpoint._src.checkpointers import checkpointer as sync_checkpointe
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
 
 @contextlib.contextmanager
@@ -94,7 +95,7 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
     Returns:
       The test result containing the metrics.
     """
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = context.pytree
     save_path = context.path / "pytree"
     options = context.options
