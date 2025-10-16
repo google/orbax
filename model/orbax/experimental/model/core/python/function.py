@@ -19,8 +19,9 @@ import enum
 from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
-from orbax.experimental.model.core.protos import xla_data_pb2
 from orbax.experimental.model.core.python.tree_util import Tree
+
+from tensorflow.compiler.xla import xla_data_pb2
 
 
 ShloDimSize = Optional[int]
@@ -28,7 +29,7 @@ ShloShape = Optional[Sequence[ShloDimSize]]
 
 
 # pylint: disable=invalid-name
-# Copied from jax/experimental/export/serialization.fbs
+# Copied from /third_party/py/jax/_src/export/serialization.fbs
 class ShloDType(enum.Enum):  # pylint: disable=missing-class-docstring
   bool = 0
   i8 = 1

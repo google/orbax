@@ -33,12 +33,11 @@ from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import compatibility
-from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 from orbax.checkpoint.experimental.v1._src.serialization import registry
 from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
+from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -46,6 +45,10 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 Path = path_types.Path
 CheckpointableHandler = handler_types.CheckpointableHandler
 PyTree = tree_types.PyTree
+PartialSaveError = base_pytree_checkpoint_handler.PartialSaveError
+PartialSaveReplacementError = (
+    base_pytree_checkpoint_handler.PartialSaveReplacementError
+)
 
 PYTREE_CHECKPOINTABLE_KEY = 'pytree'
 
@@ -88,6 +91,7 @@ def _create_v0_handler(
       restore_concurrent_bytes=context.array_options.loading.concurrent_bytes,
       use_ocdbt=context.array_options.saving.use_ocdbt,
       use_zarr3=context.array_options.saving.use_zarr3,
+      use_compression=context.array_options.saving.use_compression,
       multiprocessing_options=v0_options_lib.MultiprocessingOptions(
           primary_host=context.multiprocessing_options.primary_host,
           active_processes=context.multiprocessing_options.active_processes,
@@ -141,22 +145,22 @@ def _restore_type_by_abstract_type(
 
   if abstract_checkpointable is None:
     ret = None
-  elif type_handlers.is_placeholder(abstract_checkpointable):
-    ret = type_handlers.PLACEHOLDER
+  elif serialization_types.is_placeholder(abstract_checkpointable):
+    ret = serialization_types.PLACEHOLDER
   else:
     if isinstance(abstract_checkpointable, type):
       abstract_type = abstract_checkpointable
     else:
       abstract_type = type(abstract_checkpointable)
 
-    # Make sure test with AbstractArray before AbstractNumpy otherwise Numpy
-    # will be matched first.
+    # Make sure test with AbstractShardedArray before AbstractArray otherwise
+    # Numpy will be matched first.
     if protocol_utils.is_subclass_protocol(
-        abstract_type, array_leaf_handler.AbstractArray
+        abstract_type, serialization_types.AbstractShardedArray
     ):
       ret = jax.Array
     elif protocol_utils.is_subclass_protocol(
-        abstract_type, numpy_leaf_handler.AbstractNumpy
+        abstract_type, serialization_types.AbstractArray
     ):
       ret = np.ndarray
     elif issubclass(abstract_type, get_args(scalar_leaf_handler.Scalar)):
@@ -304,6 +308,24 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       directory: path_types.Path,
       abstract_checkpointable: PyTree | None = None,
   ) -> Awaitable[PyTree]:
+    """Loads a PyTree from a checkpoint directory.
+
+    Args:
+      directory: The directory to load from.
+      abstract_checkpointable: The abstract checkpointable to load into. If
+        None, the handler will attempt to load the entire checkpoint using the
+        recorded metadata. Otherwise, the `abstract_checkpointable` is expected
+        to be a PyTree of abstract leaves. See :py:class:`.LeafHandler` for more
+        details. The abstract leaf may be a value of type `AbstractLeaf`,
+        `Type[AbstractLeaf]`, or `None`. E.g. if the `AbstractLeaf` is
+        `AbstractFoo`, it is always valid to pass `AbstractFoo()` or
+        `AbstractFoo` or `None`. Passing the latter two indicates that metadata
+        should be used to restore the leaf.
+
+    Returns:
+      A awaitable which can be awaited to complete the load operation and
+      obtain a PyTree.
+    """
     self._validate_abstract_leaves_handleable(abstract_checkpointable)
     return self._background_load(directory, abstract_checkpointable)
 
@@ -323,7 +345,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     missing_leaf_types = set()
 
     def _validate_handleable_leaf(leaf: Any):
-      if type_handlers.is_placeholder(leaf):
+      if serialization_types.is_placeholder(leaf):
         return
 
       leaf_type = type(leaf)
@@ -349,7 +371,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     missing_abstract_leaf_types = set()
 
     def _validate_handleable_leaf(leaf: Any):
-      if type_handlers.is_placeholder(leaf):
+      if serialization_types.is_placeholder(leaf):
         return
 
       leaf_type = leaf if isinstance(leaf, type) else type(leaf)

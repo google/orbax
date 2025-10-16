@@ -18,6 +18,8 @@ from types import NoneType  # pylint: disable=g-importing-member
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Sequence, Tuple
 from typing import TypeVar
 
+from jax import tree_util
+
 
 # TODO(wangpeng): Use the `type Tree[T] = T | List[Tree[T]] | ...` syntax once
 #   Python 3.12 is fully available in .
@@ -48,7 +50,7 @@ def tree_map(f: Callable[[T1], T2], tree: Tree[T1]) -> Tree[T2]:
     return f(tree)
 
 
-def assert_tree(assert_leaf: Callable[[Any], None], obj: Any) -> None:
+def assert_tree(assert_leaf: Callable[[Any], None], tree: Any) -> None:
   """Checks that an `Any` object is a valid `Tree`.
 
   If `assert_leaf` checks the type of the leaf, the caller can safely infer
@@ -58,21 +60,13 @@ def assert_tree(assert_leaf: Callable[[Any], None], obj: Any) -> None:
 
   Args:
     assert_leaf: a function that checks that a leaf is valid. When traversing
-      `obj` as a tree, any non-list/tuple/dict/None node will be passed to
+      `tree` as a tree, any non-list/tuple/dict/None node will be passed to
       `assert_leaf`.
-    obj: the object to check.
+    tree: the object to check.
   """
-  if isinstance(obj, (tuple, list)):
-    for x in obj:
-      assert_tree(assert_leaf, x)
-  elif isinstance(obj, dict):
-    obj: Dict[Any, Any]
-    for v in obj.values():
-      assert_tree(assert_leaf, v)
-  elif obj is None:
-    pass
-  else:
-    assert_leaf(obj)
+  leaves = tree_util.tree_leaves(tree)
+  for x in leaves:
+    assert_leaf(x)
 
 
 T7 = TypeVar("T7")
@@ -142,3 +136,19 @@ def unflatten(tree: Tree[Any], leaves: Iterable[T6]) -> Tree[T6]:
   except StopIteration:
     return result
   raise ValueError("After unflattening, there are still leaves left.")
+
+
+def prune_tree(tree: Tree[Any], wanted_node_type: Any) -> Tree[Any]:
+  """Prunes the tree by removing unwanted leaves."""
+  if isinstance(tree, (tuple, list)):
+    return tuple_or_list_constructor(tree)(
+        prune_tree(x, wanted_node_type) for x in tree
+    )
+  elif isinstance(tree, dict):
+    tree: Dict[str, Tree[Any]]
+    return {k: prune_tree(v, wanted_node_type) for k, v in tree.items()}
+  elif isinstance(tree, wanted_node_type):
+    return tree
+  else:
+    # If the node type is None or not wanted, we return None.
+    return None

@@ -231,8 +231,8 @@ class EvalUtilsTest(parameterized.TestCase):
     self.assertSameElements(
         [2],
         [
-            utils.step_from_checkpoint_name(x)
-            for x in utils.tmp_checkpoints(self.directory)
+            utils.step_from_checkpoint_name(x.get().name)
+            for x in step_lib.all_temporary_paths(self.directory)
         ],
     )
     # Only returns latest and does not return incomplete checkpoints.

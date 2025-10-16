@@ -62,6 +62,9 @@ WEIGHTS_NAME = 'weights_name'
 # Jax2obm_kwargs key for input polymorphic constraints.
 POLYMORPHIC_CONSTRAINTS = 'polymorphic_constraints'
 
+# Jax2obm_kwargs key for pruning custom pytree nodes.
+PRUNE_CUSTOM_PYTREE_NODES = 'prune_custom_pytree_nodes'
+
 # Default weights name to use if a checkpoint path is provided but a weights_
 # name kwarg was not provided in the jax2obm_kwargs.
 DEFAULT_WEIGHTS_NAME = 'weights'
@@ -73,17 +76,23 @@ DEFAULT_POST_PROCESSOR_NAME = 'post_processor'
 DEFAULT_SUPPLEMENTAL_FILENAME = 'orchestration.pb'
 
 # Orbax MIME types
-ORBAX_CHECKPOINT_MIME_TYPE = 'orbax_checkpoint'
+ORBAX_CHECKPOINT_MIME_TYPE = 'application/x.orbax-checkpoint'
+
 
 # obm_kwargs keys in `ServingConfig`:
 # - The batching config for the model.
 BATCH_OPTIONS = 'batch_options'
 
-# XLA compile options for the model.
-XLA_COMPILE_OPTIONS = 'xla_compile_options'
+# obm_kwargs keys in `ServingConfig`:
+# - The converter options for the model.
+CONVERTER_OPTIONS = 'converter_options'
 
-# XLA compile options per platform for the model.
-XLA_COMPILE_OPTIONS_PER_PLATFORM = 'xla_compile_options_per_platform'
+
+# XLA flags per platform for the model. This is a mapping from platform name to
+# a list of xla flags. This is used to set the XLA compilation options for the
+# model. If not provided, the default XLA flags for default platform (TPU) will
+# be used.
+XLA_FLAGS_PER_PLATFORM = 'xla_flags_per_platform'
 
 # Mesh for the model.
 JAX_MESH = 'jax_mesh'

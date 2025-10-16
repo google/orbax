@@ -25,9 +25,10 @@ Should be implemented as::
 """
 
 import asyncio
+import os
 from typing import Any, Iterator
-
 from etils import epath
+
 
 
 async def mkdir(
@@ -44,8 +45,6 @@ async def mkdir(
 
   thread_kwargs = {}
   return await asyncio.to_thread(_mkdir_sync, **thread_kwargs)
-
-
 
 
 async def write_bytes(path: epath.Path, data: Any) -> int:
@@ -88,5 +87,25 @@ async def rename(src: epath.Path, dst: epath.Path):
   return await asyncio.to_thread(src.rename, dst)
 
 
+async def is_dir(path: epath.Path):
+  return await asyncio.to_thread(path.is_dir)
+
+
+async def is_file(path: epath.Path):
+  return await asyncio.to_thread(path.is_file)
+
+
+async def is_link(path: epath.Path):
+  return await asyncio.to_thread(os.path.islink, path)
+
+
+async def iterdir(path: epath.Path):
+  return await asyncio.to_thread(path.iterdir)
+
+
 async def glob(path: epath.Path, pattern: str) -> Iterator[epath.Path]:
   return await asyncio.to_thread(path.glob, pattern)
+
+
+async def unlink(path: epath.Path, missing_ok: bool = False):
+  return await asyncio.to_thread(path.unlink, missing_ok=missing_ok)

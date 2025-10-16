@@ -15,25 +15,21 @@
 from collections.abc import Mapping, Sequence
 import contextlib
 import os
+from typing import Any, Callable
 
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
-from jax import sharding
-from jax.experimental import mesh_utils
 import jax.numpy as jnp
-import numpy as np
 from orbax.export import constants
+from orbax.export import export_testing_utils
 from orbax.export import jax_module
 from orbax.export import obm_configs
 from orbax.export import obm_export
 from orbax.export import oex_orchestration
 from orbax.export import serving_config as osc
 from orbax.export import utils
-from orbax.export.protos import oex_orchestration_pb2
 import tensorflow as tf
-
-os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
 
 
 # TODO(b/363033166): Remove this function once TF isolation is done.
@@ -47,13 +43,7 @@ def _assert(b):
   assert b
 
 
-class ObmExportTest(parameterized.TestCase, tf.test.TestCase):
-
-  def setUp(self):
-    super().setUp()
-    base_path = os.path.dirname(os.path.abspath(__file__))
-    self._testdata_dir = os.path.join(base_path, 'testdata')
-    self._output_dir = self.create_tempdir().full_path
+class ObmExportUnitTest(parameterized.TestCase, tf.test.TestCase):
 
   def test_incorrect_export_version(self):
     pass

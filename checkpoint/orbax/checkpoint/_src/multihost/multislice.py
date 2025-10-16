@@ -15,7 +15,7 @@
 """Multislice utilities."""
 
 import functools
-from typing import Any, Optional, Set, Tuple, Union
+from typing import Any, Optional, Set, Union
 
 from absl import logging
 import jax
@@ -136,9 +136,9 @@ def in_replica(
   )
 
 
-@functools.partial(jax.jit, static_argnums=0)
-def fake_zero_data(sharding, x):
-  x = jnp.zeros_like(x)
+@functools.partial(jax.jit, static_argnums=(0, 1, 2))
+def fake_zero_data(sharding, shape, dtype=jnp.float32) -> jax.Array:
+  x = jnp.zeros(shape, dtype=dtype)
   return jax.lax.with_sharding_constraint(x, sharding)
 
 
@@ -171,7 +171,7 @@ def get_leaf_memory_per_device(arr: jax.Array) -> int:
   return shard.data.size * shard.data.itemsize
 
 
-def tree_memory_per_device(tree: Tuple[PyTree, ...]) -> int:
+def tree_memory_per_device(tree: tuple[jax.Array, ...] | jax.Array) -> int:
   """Returns the memory usage of a PyTree on each device (in bytes)."""
   leaf_memory_per_device = jax.tree_util.tree_map(
       get_leaf_memory_per_device, tree
@@ -180,7 +180,7 @@ def tree_memory_per_device(tree: Tuple[PyTree, ...]) -> int:
 
 
 def get_available_memory(
-    in_tree: Tuple[PyTree, ...], scaling_factor: float
+    in_tree: tuple[jax.Array, ...], scaling_factor: float
 ) -> int:
   """Returns estimated available memory for broadcasting (in bytes).
 
@@ -211,15 +211,113 @@ def slice_count() -> int:
   )
 
 
+def _get_slice_shape(
+    index: tuple[slice, ...], global_shape: tuple[int, ...]
+) -> tuple[int, ...]:
+  """Calculates the shape of a slice from a global shape, assuming step is always 1."""
+  return tuple(
+      s.indices(global_shape[i])[1] - s.indices(global_shape[i])[0]
+      for i, s in enumerate(index)
+  )
+
+
+def _globalize_single_replica_arrays(
+    inp: jax.Array,
+    replica_axis_index: int,
+    global_mesh: jax.sharding.Mesh,
+    is_source: bool,
+) -> jax.Array:
+  """Globalizes a single replica array."""
+
+  num_replicas = global_mesh.devices.shape[replica_axis_index]
+  replica_axis_name = global_mesh.axis_names[replica_axis_index]
+  sharding = inp.sharding
+  if not isinstance(sharding, jax.sharding.NamedSharding):
+    raise ValueError(
+        'Must provide input arrays with NamedSharding. '
+        f'Got {type(sharding)} instead.'
+    )
+  local_replica_shape = inp.shape
+
+  assert replica_axis_name not in sharding.spec, (
+      f'Replica axis name {replica_axis_name} already exists in'
+      f' sharding.spec {sharding.spec}'
+  )
+  global_shape = (num_replicas,) + local_replica_shape
+  logging.vlog(
+      1,
+      'Globalizing array with local shape %s to Global shape: %s',
+      local_replica_shape,
+      global_shape,
+  )
+  global_spec = jax.sharding.PartitionSpec(
+      replica_axis_name,
+      *sharding.spec,
+  )
+  global_sharding = jax.sharding.NamedSharding(global_mesh, global_spec)
+
+  source_device_map = {}
+
+  @jax.jit
+  def _expand_dims(x: jax.Array):
+    return jnp.expand_dims(x, axis=0)
+
+  inp = _expand_dims(inp)
+  if is_source:
+    for s in inp.addressable_shards:
+      source_device_map[s.device] = s.data
+
+  device_buffers = []
+  for d, index in global_sharding.addressable_devices_indices_map(
+      global_shape
+  ).items():
+    if d in source_device_map:
+      device_buffers.append(source_device_map[d])
+    else:
+      zero_data = np.zeros(
+          _get_slice_shape(index, global_shape), dtype=inp.dtype
+      )
+      device_buffers.append(jax.device_put(zero_data, d))
+
+  logging.vlog(
+      1,
+      'Device buffers: %r',
+      {d.device: d for d in device_buffers},
+  )
+  return jax.make_array_from_single_device_arrays(
+      global_shape,
+      global_sharding,
+      device_buffers,
+      dtype=inp.dtype,
+  )
+
+
+def _merge_globalized_replicas(
+    globalized_tree: tuple[jax.Array, ...],
+    global_mesh: jax.sharding.Mesh,
+):
+  """Merges globalized sharded replicas into a single replica."""
+  out_sharding = jax.tree.map(
+      lambda x: jax.sharding.NamedSharding(
+          global_mesh, jax.sharding.PartitionSpec(*x.sharding.spec[1:])
+      ),
+      globalized_tree,
+  )
+  out_subtree = jax.jit(
+      lambda tree: jax.tree.map(functools.partial(jnp.sum, axis=0), tree),
+      out_shardings=out_sharding,
+  )(globalized_tree)
+  return out_subtree
+
+
 def broadcast_one_replica_to_all(
-    in_tree: Tuple[PyTree, ...],
+    in_tree: tuple[jax.Array, ...],
     global_mesh: jax.sharding.Mesh,
     replica_axis_index: int,
     is_source: bool,
     memory_limit_bytes: Optional[Union[int, None]] = None,
     memory_scaling_factor: Optional[float] = 0.75,
-    use_shard_map: bool = False,
-) -> Tuple[Tuple[PyTree, ...], int]:
+) -> tuple[tuple[jax.Array, ...], int]:
   """One replica reads the data and broadcasts to others.
 
   Args:
@@ -231,66 +329,15 @@ def broadcast_one_replica_to_all(
     memory_limit_bytes: memory limit for broadcasting in bytes.
     memory_scaling_factor: indicates the fraction of the estimated available
       memory to be used when broadcasting data.
-    use_shard_map: if True, use jax.shard_map to broadcast the data. This is
-      more reliable than using jax.jit with out_shardings when number of slices
-      is not equal to number of replicas.
 
   Returns:
      Tuple containing:
       - pytree with broadcasted data
       - number of broadcasts performed.
   """
-  num_replicas = global_mesh.devices.shape[replica_axis_index]
-  replica_axis_name = global_mesh.axis_names[replica_axis_index]
-
   if memory_limit_bytes is None:
     memory_limit_bytes = get_available_memory(in_tree, memory_scaling_factor)
     logging.info('Using available memory of %d bytes.', memory_limit_bytes)
-
-  # Set replica_axis to be 0, regardless of its actual value.
-  def globalize_single_replica_arrays(inp):
-    sharding = inp.sharding
-    if not isinstance(sharding, jax.sharding.NamedSharding):
-      raise ValueError(
-          'Must provide input arrays with NamedSharding. '
-          f'Got {type(sharding)} instead.'
-      )
-    if not is_source:
-      inp = fake_zero_data(sharding, inp)
-    inp = jnp.expand_dims(inp, axis=0)
-
-    num_slices = slice_count()
-    if not use_shard_map and num_slices != num_replicas:
-      in_spec = jax.sharding.PartitionSpec(
-          'replication',
-          *sharding.spec,
-      )
-      global_shape = (num_slices,) + inp.shape[1:]
-      slice_global_mesh = jax.sharding.Mesh(
-          global_mesh.devices.reshape((
-              num_slices,
-              *(
-                  -1 if i == replica_axis_index else n
-                  for i, n in enumerate(global_mesh.devices.shape)
-              ),
-          )),
-          ('replication', *global_mesh.axis_names),
-      )
-      global_sharding = jax.sharding.NamedSharding(slice_global_mesh, in_spec)
-    else:
-      assert replica_axis_name not in sharding.spec, (
-          f'Replica axis name {replica_axis_name} already exists in'
-          f' sharding.spec {sharding.spec}'
-      )
-      in_spec = jax.sharding.PartitionSpec(
-          replica_axis_name,
-          *sharding.spec,
-      )
-      global_shape = (num_replicas,) + inp.shape[1:]
-      global_sharding = jax.sharding.NamedSharding(global_mesh, in_spec)
-    return jax.make_array_from_single_device_arrays(
-        global_shape, global_sharding, [s.data for s in inp.addressable_shards]
-    )
 
   tree_len = len(in_tree)
   start = 0
@@ -319,53 +366,20 @@ def broadcast_one_replica_to_all(
         end += 1
     subtree = tuple(subtree)
     num_broadcasts += 1
-    out_sharding = jax.tree.map(
-        lambda x: jax.sharding.NamedSharding(
-            global_mesh, jax.sharding.PartitionSpec(*x.sharding.spec)
+    globalized_sharded_subtree = jax.tree.map(
+        functools.partial(
+            _globalize_single_replica_arrays,
+            global_mesh=global_mesh,
+            replica_axis_index=replica_axis_index,
+            is_source=is_source,
         ),
         subtree,
     )
-    subtree_spec = jax.tree.map(lambda x: x.sharding.spec, subtree)
-    in_tree_sharded = jax.tree.map(globalize_single_replica_arrays, subtree)
     # Delete immediately to conserve memory.
     jax.tree.map(lambda x: x.delete(), subtree)
-    if use_shard_map:
-
-      def _broadcast_tree(in_tree):
-        return jax.tree.map(
-            lambda leaf: jax.lax.psum(leaf, axis_name=replica_axis_name),
-            in_tree,
-        )
-
-      in_spec = jax.tree.map(
-          lambda x: jax.sharding.PartitionSpec(
-              replica_axis_name,
-              *x,
-          ),
-          subtree_spec,
-      )
-      out_spec = jax.tree.map(
-          lambda x: jax.sharding.PartitionSpec(
-              None,
-              *x,
-          ),
-          subtree_spec,
-      )
-      out_subtree = jax.jit(
-          jax.shard_map(
-              _broadcast_tree,
-              in_specs=(in_spec,),
-              out_specs=out_spec,
-              mesh=global_mesh,
-              check_vma=True,
-          )
-      )(in_tree_sharded)
-      out_subtree = jax.tree.map(lambda x: x.squeeze(axis=0), out_subtree)
-    else:
-      out_subtree = jax.jit(
-          lambda tree: jax.tree.map(functools.partial(jnp.sum, axis=0), tree),
-          out_shardings=out_sharding,
-      )(in_tree_sharded)
+    out_subtree = _merge_globalized_replicas(
+        globalized_sharded_subtree, global_mesh
+    )
     out_tree.extend(out_subtree)
     jax.block_until_ready(out_subtree)
     start = end
@@ -379,7 +393,7 @@ def get_primary_replica_ids_and_pids(
     replica_axis_idx: int,
     mesh: jax.sharding.Mesh,
     primary_replica_id: int,
-) -> Tuple[Set[int], Set[int]]:
+) -> tuple[Set[int], Set[int]]:
   """Returns the primary replica ids and process ids."""
   devices = replica_devices(
       mesh,
@@ -387,5 +401,51 @@ def get_primary_replica_ids_and_pids(
       replica_axis_index=replica_axis_idx,
   ).flatten()
   ids = set([d.id for d in devices])
-  pids = set([d.process_index for d in devices])
+  pids = multihost.unique_processes_from_devices(devices)
   return ids, pids
+
+
+def process_spans_multiple_replicas(
+    global_mesh: jax.sharding.Mesh,
+    *,
+    replica_axis_index: int = 0,
+) -> bool:
+  """Checks if any JAX process controls devices across different replicas.
+
+  Replicas are defined by slicing the `global_mesh` along the
+  `replica_axis_index`. This function iterates through all unique JAX processes
+  and, for each process, checks if the devices it manages belong to more than
+  one replica group.
+
+  Args:
+    global_mesh: The global JAX mesh.
+    replica_axis_index: The index of the axis in the mesh shape that
+      differentiates the replicas.
+
+  Returns:
+    True if at least one process has devices in multiple replicas,
+    False otherwise.
+  """
+  num_replicas = replica_count(
+      global_mesh, replica_axis_index=replica_axis_index
+  )
+  all_processes = multihost.unique_processes_from_devices(
+      global_mesh.devices.flatten()
+  )
+
+  for process_idx in all_processes:
+    found_replica_ids = []
+    for replica_id in range(num_replicas):
+      devices_in_replica = replica_devices(
+          global_mesh,
+          replica_id=replica_id,
+          replica_axis_index=replica_axis_index,
+      )
+      if process_idx in multihost.unique_processes_from_devices(
+          devices_in_replica
+      ):
+        found_replica_ids.append(replica_id)
+
+    if len(found_replica_ids) > 1:
+      return True
+  return False

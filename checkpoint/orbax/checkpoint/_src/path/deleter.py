@@ -21,12 +21,16 @@ import queue
 import threading
 import time
 from typing import Optional, Protocol, Sequence
+
 from absl import logging
 from etils import epath
 import jax
-from orbax.checkpoint import utils
+from orbax.checkpoint._src.logging import event_tracking
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
+
+
 PurePosixPath = pathlib.PurePosixPath
 
 _THREADED_DELETE_DURATION = (
@@ -153,7 +157,7 @@ class StandardCheckpointDeleter:
     """
     start = time.time()
     try:
-      if not utils.is_primary_host(self._primary_host):
+      if not multihost.is_primary_host(self._primary_host):
         logging.info(
             'Not primary host(%s), skipping deletion of step %d.',
             self._primary_host,
@@ -178,22 +182,21 @@ class StandardCheckpointDeleter:
 
       # Attempt to rename using GCS HNS API if configured.
       if self._todelete_full_path is not None:
-        if step_lib.is_gcs_path(self._directory):
+        if gcs_utils.is_gcs_path(self._directory):
           self._rename_gcs_step_with_hns(step, delete_target)
-          return
         else:
           raise NotImplementedError()
-
       # Attempt to rename to local subdirectory using `todelete_subdir`
       # if configured.
-      if self._todelete_subdir is not None and not step_lib.is_gcs_path(
+      elif self._todelete_subdir is not None and not gcs_utils.is_gcs_path(
           self._directory
       ):
         self._rename_step_to_subdir(step, delete_target)
-        return
-
       # The final case: fall back to permanent deletion.
-      self._delete_step_permanently(step, delete_target)
+      else:
+        self._delete_step_permanently(step, delete_target)
+
+      event_tracking.record_delete_event(delete_target)
 
     finally:
       jax.monitoring.record_event_duration_secs(

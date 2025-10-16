@@ -23,6 +23,7 @@ from typing import Any, List, Optional
 from absl import logging
 from etils import epath
 import jax
+import numpy as np
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import options as options_lib
@@ -79,6 +80,7 @@ class StandardCheckpointHandler(
       pytree_metadata_options: PyTreeMetadataOptions = (
           pytree_metadata_options_lib.PYTREE_METADATA_OPTIONS
       ),
+      use_ocdbt: bool = True,
   ):
     """Creates StandardCheckpointHandler.
 
@@ -92,6 +94,7 @@ class StandardCheckpointHandler(
       multiprocessing_options: See orbax.checkpoint.options.
       pytree_metadata_options: Options to control types like tuple and
         namedtuple in pytree metadata.
+      use_ocdbt: Whether to enable Tensorstore OCDBT driver.
     """
     self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
     self._impl = pytree_checkpoint_handler.PyTreeCheckpointHandler(
@@ -99,11 +102,12 @@ class StandardCheckpointHandler(
         restore_concurrent_gb=restore_concurrent_gb,
         multiprocessing_options=multiprocessing_options,
         pytree_metadata_options=pytree_metadata_options,
+        use_ocdbt=use_ocdbt,
     )
 
   def _validate_save_state(
       self, item: PyTree, save_args: Optional[PyTree] = None
-  ):
+  ) -> PyTree:
     if item is None:
       raise ValueError('Must provide item to save.')
     if isinstance(item, jax.Array | numbers.Number):
@@ -118,11 +122,14 @@ class StandardCheckpointHandler(
       if arg is not None:
         if arg.aggregate:
           raise ValueError(f'Unsupported option `aggregate` for key: {k}.')
+      if not isinstance(x, (np.ndarray, jax.Array)) and hasattr(x, '__array__'):
+        x = np.asarray(x)
       if not isinstance(x, self._supported_types):
         k = tree_utils.tuple_path_from_keypath(k)
         raise ValueError(f'Unsupported type: {type(x)} for key: {k}.')
+      return x
 
-    jax.tree_util.tree_map_with_path(_check_input, item, save_args)
+    return jax.tree_util.tree_map_with_path(_check_input, item, save_args)
 
   def _validate_restore_state(self, item: PyTree):
     def _check_input(k, x):
@@ -165,7 +172,7 @@ class StandardCheckpointHandler(
       save_args = args.save_args
       custom_metadata = args.custom_metadata
 
-    self._validate_save_state(item, save_args=save_args)
+    item = self._validate_save_state(item, save_args=save_args)
     return await self._impl.async_save(
         directory,
         args=pytree_checkpoint_handler.PyTreeSaveArgs(

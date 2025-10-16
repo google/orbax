@@ -240,7 +240,7 @@ def build_zarr_shard_and_chunk_metadata(
     *,
     global_shape: Shape,
     shard_shape: Shape,
-    use_zarr2_compression: bool = True,
+    use_compression: bool = True,
     use_zarr3: bool,
     chunk_shape: Shape,
 ) -> JsonSpec:
@@ -250,7 +250,7 @@ def build_zarr_shard_and_chunk_metadata(
   if not use_zarr3:
     # Zarr v2.
     metadata['chunks'] = chunk_shape
-    if use_zarr2_compression:
+    if use_compression:
       metadata['compressor'] = {'id': 'zstd'}
     else:
       metadata['compressor'] = None
@@ -272,7 +272,6 @@ def build_zarr_shard_and_chunk_metadata(
                 'chunk_shape': chunk_shape,
                 'codecs': [
                     {'name': 'bytes', 'configuration': {'endian': 'little'}},
-                    {'name': 'zstd'},
                 ],
                 'index_codecs': [
                     {'name': 'bytes', 'configuration': {'endian': 'little'}},
@@ -282,6 +281,9 @@ def build_zarr_shard_and_chunk_metadata(
             },
         },
     ]
+    if use_compression:
+      # Remove zstd codec if not using compression.
+      metadata['codecs'][0]['configuration']['codecs'].append({'name': 'zstd'})
 
   return metadata
 
@@ -355,7 +357,7 @@ class ArrayWriteSpec:
       target_dtype: DType | None = None,
       chunk_byte_size: int | None = None,
       shard_axes: tuple[int, ...] = (),
-      use_zarr2_compression: bool = True,
+      use_compression: bool = True,
       use_zarr3: bool = False,
       use_ocdbt: bool,
       ocdbt_target_data_file_size: int | None = None,
@@ -417,7 +419,7 @@ class ArrayWriteSpec:
     tspec['metadata'] = build_zarr_shard_and_chunk_metadata(
         global_shape=global_shape,
         shard_shape=write_shape,
-        use_zarr2_compression=use_zarr2_compression,
+        use_compression=use_compression,
         use_zarr3=use_zarr3,
         chunk_shape=chunk_shape,
     )

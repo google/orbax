@@ -22,3 +22,7 @@ from orbax.checkpoint._src.arrays.types import (
     Index,
     Shape,
 )
+
+from orbax.checkpoint._src.arrays.sharding import (
+    construct_maximal_shardings,
+)

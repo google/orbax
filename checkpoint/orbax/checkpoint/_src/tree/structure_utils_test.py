@@ -661,5 +661,194 @@ class TreeTrimTest(parameterized.TestCase):
       structure_utils.tree_trim(template, structure)
 
 
+class MergeTreesTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      (
+          'simple',
+          [{'a': 1, 'b': 2}, {'c': 3, 'd': 4}],
+          {'a': 1, 'b': 2, 'c': 3, 'd': 4},
+      ),
+      (
+          'nested',
+          [{'a': {'x': 1}, 'b': [10, 20]}, {'a': {'y': 2}, 'c': 3}],
+          {'a': {'x': 1, 'y': 2}, 'b': [10, 20], 'c': 3},
+      ),
+      (
+          'list_of_dict',
+          [{'a': [{'x': 1}]}, {'a': [{'y': 2}]}],
+          {'a': [{'x': 1, 'y': 2}]},
+      ),
+      (
+          'three_trees',
+          [{'a': 1}, {'b': 2}, {'c': 3}],
+          {'a': 1, 'b': 2, 'c': 3},
+      ),
+  )
+  def test_valid(self, trees, expected):
+    merged = structure_utils.merge_trees(*trees)
+    test_utils.assert_tree_equal(self, expected, merged)
+
+  def test_empty_list(self):
+    self.assertEqual({}, structure_utils.merge_trees())
+
+  def test_single_tree(self):
+    tree = {'a': 1, 'b': {'c': 2}}
+    test_utils.assert_tree_equal(self, tree, structure_utils.merge_trees(tree))
+
+  @parameterized.named_parameters(
+      (
+          'simple',
+          [{'a': 1, 'b': 2}, {'b': 3, 'c': 4}],
+          {'a': 1, 'b': 3, 'c': 4},
+      ),
+      (
+          'nested',
+          [{'a': {'x': 1, 'z': 10}}, {'a': {'x': 2, 'y': 3}}],
+          {'a': {'x': 2, 'z': 10, 'y': 3}},
+      ),
+      (
+          'tuple',
+          [{'a': (1, 2)}, {'a': (3, 4)}],
+          {'a': (3, 4)},
+      ),
+      (
+          'namedtuple',
+          [{'a': Record(first=1, second=2)}, {'a': Record(first=3, second=4)}],
+          {'a': Record(first=3, second=4)},
+      ),
+      (
+          'flax_dataclass',
+          [
+              {'a': FlaxRecord(alpha=1, beta=2)},
+              {'a': FlaxRecord(alpha=3, beta=4)},
+          ],
+          {'a': FlaxRecord(alpha=3, beta=4)},
+      ),
+      (
+          'mixed_containers',
+          [{'a': [1, (2, 3)]}, {'a': [4, (5, 6)]}],
+          {'a': [4, (5, 6)]},
+      ),
+      (
+          'dict_and_scalar',
+          [{'a': {'c': 2}}, {'a': 1}],
+          {'a': 1},
+      ),
+      (
+          'scalar_and_dict',
+          [{'a': 1}, {'a': {'c': 2}}],
+          {'a': {'c': 2}},
+      ),
+      (
+          'list_of_dict_of_list',
+          [{'a': [{'x': [1]}]}, {'a': [{'x': [2]}]}],
+          {'a': [{'x': [2]}]},
+      ),
+      (
+          'three_trees_overwrite',
+          [{'a': 1, 'b': 10}, {'b': 2, 'c': 20}, {'c': 3}],
+          {'a': 1, 'b': 2, 'c': 3},
+      ),
+      (
+          'dataclasses_with_none_values',
+          [
+              {'a': FlaxWiderRecord(alpha=1, beta=2, gamma=None)},
+              {'a': FlaxWiderRecord(alpha=None, beta=20, gamma=30)},
+          ],
+          {'a': FlaxWiderRecord(alpha=1, beta=20, gamma=30)},
+      ),
+  )
+  def test_overwrite(self, trees, expected):
+    merged = structure_utils.merge_trees(*trees, overwrite=True)
+    test_utils.assert_tree_equal(self, expected, merged)
+
+  @parameterized.named_parameters(
+      ('simple', [{'a': 1, 'b': 2}, {'b': 3, 'c': 4}]),
+      ('nested', [{'a': {'x': 1}}, {'a': {'x': 2, 'y': 3}}]),
+      ('tuple', [{'a': (1, 2)}, {'a': (3, 4)}]),
+      (
+          'namedtuple',
+          [{'a': Record(first=1, second=2)}, {'a': Record(first=3, second=4)}],
+      ),
+      (
+          'flax_dataclass',
+          [
+              {'a': FlaxRecord(alpha=1, beta=2)},
+              {'a': FlaxRecord(alpha=3, beta=4)},
+          ],
+      ),
+      ('mixed_containers', [{'a': [1, (2, 3)]}, {'a': [4, (5, 6)]}]),
+      ('three_trees_error', [{'a': 1}, {'b': 2}, {'a': 3}]),
+      ('none_conflict', [{'a': None}, {'a': 1}]),
+  )
+  def test_no_overwrite_raises_error(self, trees):
+    with self.assertRaisesRegex(ValueError, 'Found common key paths'):
+      structure_utils.merge_trees(*trees, overwrite=False)
+
+  @parameterized.named_parameters(
+      ('leaf_and_list', [1, [2]]),
+      ('leaf_and_tuple', [1, (2,)]),
+      ('leaf_and_dict', [1, {'x': 2}]),
+      ('list_and_dict', [[1], {'x': 2}]),
+      ('tuple_and_list', [(), []]),
+      (
+          'namedtuple_and_tuple',
+          [Record(first=1, second=2), (3, 4)],
+      ),
+      (
+          'namedtuple_and_dict',
+          [Record(first=1, second=2), {3: 4}],
+      ),
+      (
+          'flax_dataclass_and_leaf',
+          [FlaxRecord(alpha=1, beta=2), 1],
+      ),
+      (
+          'flax_dataclass_and_dict',
+          [FlaxRecord(alpha=1, beta=2), {'x': 2}],
+      ),
+      (
+          'flax_dataclass_and_namedtuple',
+          [FlaxRecord(alpha=1, beta=2), Record(first=1, second=2)],
+      ),
+  )
+  def test_type_mismatch_raises_error(self, trees):
+    with self.assertRaisesRegex(ValueError, 'Types do not match'):
+      structure_utils.merge_trees(*trees)
+
+  @parameterized.named_parameters(
+      ('simple', [[1, 2], 3], 3),
+      ('nested', [{'x': [1, 2]}, {'x': 3}], {'x': 3}),
+  )
+  def test_custom_is_leaf(self, trees, expected):
+    is_leaf = lambda t: isinstance(t, list)
+    merged = structure_utils.merge_trees(
+        *trees, is_leaf=is_leaf, overwrite=True
+    )
+    test_utils.assert_tree_equal(self, expected, merged)
+
+  @parameterized.named_parameters(
+      ('simple', [[1, 2], 3]),
+      ('nested', [{'x': [1, 2]}, {'x': 3}]),
+  )
+  def test_custom_is_leaf_no_overwrite_raises_error(self, trees):
+    is_leaf = lambda t: isinstance(t, list)
+    with self.assertRaisesRegex(ValueError, 'Found common key paths'):
+      structure_utils.merge_trees(*trees, is_leaf=is_leaf, overwrite=False)
+
+  @parameterized.named_parameters(
+      ('simple', [[1, 2], [3]]),
+      ('nested', [{'x': [1, 2]}, {'x': [3]}]),
+      (
+          'list_of_dict_of_list',
+          [{'a': [{'x': [1]}]}, {'a': [{'x': [2, 3]}]}],
+      ),
+  )
+  def test_sequence_length_mismatch_raises_error(self, trees):
+    with self.assertRaisesRegex(ValueError, 'Sequence lengths do not match'):
+      structure_utils.merge_trees(*trees, overwrite=True)
+
+
 if __name__ == '__main__':
   absltest.main()

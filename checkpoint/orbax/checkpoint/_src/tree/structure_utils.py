@@ -15,8 +15,10 @@
 """Higher-level utilities for working with tree structures."""
 
 from collections import abc
+from collections.abc import Iterable
 import functools
-from typing import Any, Callable, Generic, Literal, Mapping, NamedTuple, Protocol, TypeVar, overload
+import operator
+from typing import Any, Callable, Generic, Literal, NamedTuple, Protocol, Type, TypeVar, overload
 
 import jax
 from orbax.checkpoint._src.tree import parts_of
@@ -108,7 +110,7 @@ def tree_difference(
         for aa, bb in zip(a, b)
     )
     return None if all(d is None for d in diffs) else diffs
-  elif isinstance(a, Mapping):
+  elif isinstance(a, abc.Mapping):
     diffs = {
         k: diff
         for k, diff in (
@@ -409,3 +411,223 @@ def _tree_trim_impl(
       strict=strict,
   )
   return parts_of.PartsOf(template, tree_trim_fn((), template, structure))
+
+
+def _check_for_common_keys(
+    trees: Iterable[PyTree],
+    is_leaf: Callable[[Any], bool],
+) -> None:
+  """Checks `trees` for common keys and raises a `ValueError` if found."""
+  seen_keys = set()
+  for tree in trees:
+    flat_tree = utils.to_flat_dict(tree, is_leaf=is_leaf)
+    common_keys = seen_keys.intersection(flat_tree.keys())
+    if common_keys:
+      raise ValueError(
+          'Found common key paths when overwrite is False: '
+          f'{sorted(list(common_keys))}'
+      )
+    seen_keys.update(flat_tree.keys())
+
+
+def _recursive_merge(
+    t1: Any,
+    t2: Any,
+    overwrite: bool,
+    is_leaf: Callable[[Any], bool],
+) -> Any:
+  """Recursively merges t1 into t2 with structure-aware logic."""
+  if type(t1) is not type(t2) and not overwrite:
+    raise ValueError(f'Types do not match: {type(t1)} and {type(t2)}')
+
+  if is_leaf(t1) or is_leaf(t2):
+    return t1 if t1 is not None else t2
+
+  node_type = type(t1)
+
+  if isinstance(t1, abc.Mapping) or utils.isinstance_of_namedtuple(t1):
+    t1_dict = t1._asdict() if utils.isinstance_of_namedtuple(t1) else t1
+    t2_dict = t2._asdict() if utils.isinstance_of_namedtuple(t2) else t2
+    merged = dict(t2_dict)
+    for k, v1 in t1_dict.items():
+      if k in t2_dict:
+        merged[k] = _recursive_merge(v1, t2_dict[k], overwrite, is_leaf)
+      else:
+        merged[k] = v1
+    try:
+      if utils.isinstance_of_namedtuple(t1):
+        return node_type(**merged)
+      return node_type(merged)
+    except (TypeError, ValueError):
+      return merged
+
+  if isinstance(t1, abc.Sequence) and not isinstance(t1, str):
+    if len(t1) != len(t2):
+      raise ValueError(
+          f'Sequence lengths do not match: {len(t1)} and {len(t2)}'
+      )
+    merged = [
+        _recursive_merge(e1, e2, overwrite, is_leaf) for e1, e2 in zip(t1, t2)
+    ]
+    try:
+      return node_type(merged)
+    except (TypeError, ValueError):
+      return merged
+
+  if utils.is_jax_internal_node(t1):
+    t1_keys_and_children, t1_treedef = utils.tree_flatten_with_path_one_level(
+        t1
+    )
+    t1_children_dict = {
+        jax.tree_util.keystr(k): v for k, v in t1_keys_and_children
+    }
+    t2_children_dict = utils._internal_node_as_dict(t2)  # pylint: disable=protected-access
+
+    merged_children_dict = _recursive_merge(
+        t1_children_dict, t2_children_dict, overwrite, is_leaf
+    )
+
+    children = [
+        merged_children_dict[jax.tree_util.keystr(k)]
+        for k, _ in t1_keys_and_children
+    ]
+    return jax.tree_util.tree_unflatten(t1_treedef, children)
+
+  return t1
+
+
+def merge_trees(
+    *trees: PyTree,
+    overwrite: bool = False,
+    is_leaf: Callable[[Any], bool] | None = None,
+) -> PyTree:
+  """Merges trees into a single tree using a comprehensive recursive strategy.
+
+  This implementation handles standard Python containers (dicts, lists, tuples),
+  named tuples, and custom JAX PyTree nodes, mirroring the robustness of
+  utilities like `tree_trim`.
+
+  - Mappings (dict, etc.) are merged by key.
+  - Sequences (list, tuple) are merged element-wise if they have the same
+    length; otherwise, a ValueError is raised.
+  - Dataclasses (dataclass, etc.) are merged by field name, where non-None
+    values overwrite None values.
+  - If `overwrite` is False, a ValueError is raised for mismatched types.
+
+  Args:
+    *trees: The trees to merge.
+    overwrite: If True, later values from `trees` will overwrite earlier values
+      where leaf paths conflict. If False, a ValueError is raised for
+      conflicting leaves.
+    is_leaf: Optional function to determine if a node is a leaf. Defaults to
+      `jax.tree_util.all_leaves`.
+
+  Returns:
+    A new PyTree representing the merged content of `trees`.
+
+  Raises:
+    ValueError: If `overwrite` is False and there are common leaf key paths
+      between `trees`. Or if `overwrite` is False and the types of nodes do not
+      match.
+  """
+  is_leaf_fn = is_leaf or utils.is_leaf_node_or_none
+  trees = list(trees)
+  if not trees:
+    return {}
+
+  if not overwrite:
+    _check_for_common_keys(trees, is_leaf_fn)
+
+  return functools.reduce(
+      lambda acc, t: _recursive_merge(t, acc, overwrite, is_leaf_fn),
+      trees,
+  )
+
+
+def format_tree_diff(
+    diff: PyTree,
+    path_prefix: str = '',
+    source_label: str = 'Source',
+    target_label: str = 'Target',
+) -> str | None:
+  """Format a tree difference structure into a readable multi-line string.
+
+  Args:
+    diff: object representing the difference between two PyTrees
+    path_prefix: Current path prefix for nested structures
+    source_label: Label for the source value
+    target_label: Label for the target value
+
+  Returns:
+    A formatted string showing the differences in a multi-line structure.
+  """
+  source_label = f'    - {source_label}:'
+  target_label = f'    - {target_label}:'
+  missing_symbol = 'MISSING'
+
+  lines = []
+
+  # Leaf nodes
+  if isinstance(diff, Diff):
+    if path_prefix:
+      lines.append(f'{path_prefix}:')
+    else:
+      lines.append('Mismatch:')
+
+    def _format_value(value):
+      return missing_symbol if value in (None, parts_of.PLACEHOLDER) else value
+
+    lines.append(f'{source_label} {_format_value(diff.lhs)}')
+    lines.append(f'{target_label} {_format_value(diff.rhs)}')
+    return '\n'.join(lines)
+
+  # Nested nodes
+  children, _ = utils.tree_flatten_with_path_one_level(diff)
+  for path, value in children:
+    key = path[0]
+    if value is not None:
+      if isinstance(key, jax.tree_util.SequenceKey):
+        new_path = f'{path_prefix}[{key.idx}]'
+      elif isinstance(key, jax.tree_util.DictKey):
+        new_path = f'{path_prefix}.{key.key}' if path_prefix else str(key.key)
+      elif isinstance(key, jax.tree_util.GetAttrKey):
+        new_path = f'{path_prefix}.{key.name}' if path_prefix else str(key.name)
+      else:
+        raise ValueError(f'Unsupported key type: {type(key)}')
+
+      formatted = format_tree_diff(value, new_path)
+      if formatted:
+        lines.append(formatted)
+  return '\n\n'.join(lines)
+
+
+class TreeStructureError(ValueError):
+  pass
+
+
+_ErrorType = TypeVar('_ErrorType', bound=Exception)
+
+
+def build_mismatched_tree_structure_error(
+    source_tree: PyTreeOf[Any],
+    target_tree: PyTreeOf[Any],
+    log_message: str,
+    exception_cls: Type[_ErrorType] = TreeStructureError,
+) -> Type[_ErrorType]:
+  """Builds a TreeStructureError pointing to where exactly two trees differ."""
+  if isinstance(source_tree, parts_of.PartsOf):
+    source_tree = source_tree.unsafe_structure
+  if isinstance(target_tree, parts_of.PartsOf):
+    target_tree = target_tree.unsafe_structure
+
+  diff = tree_difference(
+      source_tree,
+      target_tree,
+      leaves_equal=operator.eq,
+  )
+
+  if diff is None:
+    return exception_cls(f'{log_message}. But no diff was found.')
+
+  formatted_diff = format_tree_diff(diff)
+  return exception_cls(f'{log_message}.\n\n{formatted_diff}')

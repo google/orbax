@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Configuration classes for Orbax Model Export."""
+
 from collections.abc import Sequence
 import dataclasses
 import enum
@@ -29,6 +30,26 @@ class BatchComponent(enum.Enum):
   WHOLE_PIPELINE = "whole_pipeline"
   PRE_PROCESSOR_AND_MODEL_FUNCTION = "pre_processor_and_model_function"
   MODEL_FUNCTION_AND_POST_PROCESSOR = "model_function_and_post_processor"
+
+
+@enum.unique
+class BatchPaddingPolicy(enum.Enum):
+  """The batch padding policy for the batch scheduler.
+
+  Options:
+    PAD_UP: Pad up to the next allowed batch size.
+    BATCH_DOWN: Batch down to a smaller allowed batch size.
+    MINIMIZE_TPU_COST_PER_REQUEST: Chooses to either PAD_UP or BATCH_DOWN so as
+    to minimize the TPU costs per real request.
+
+  See the documentation of BatchOptions.BatchPaddingPolicy for details.
+  """
+
+  PAD_UP = "pad_up"
+  BATCH_DOWN = "batch_down"
+  MINIMIZE_TPU_COST_PER_REQUEST = "minimize_tpu_cost_per_request"
+
+
 # LINT.ThenChange(//depot//orbax/export/obm_export.py)
 
 
@@ -52,7 +73,10 @@ class BatchOptions:
       all batch sizes no larger than `max_batch_size` are allowed. Otherwise,
       supplies a list of batch sizes. The entries must increase monotonically.
     disable_large_batch_splitting: Whether to disable large batch splitting.
+    batch_padding_policy: The batch padding policy for the batch scheduler.
+      Default is PAD_UP.
   """
+
   batch_component: BatchComponent
   max_batch_size: int | None = None
   batch_timeout_micros: int = 0
@@ -60,6 +84,7 @@ class BatchOptions:
   num_batch_threads: int = 1
   max_enqueued_batches: int = 250
   disable_large_batch_splitting: bool = False
+  batch_padding_policy: BatchPaddingPolicy = BatchPaddingPolicy.PAD_UP
 
   def __post_init__(self):
     """Validates the batch options."""

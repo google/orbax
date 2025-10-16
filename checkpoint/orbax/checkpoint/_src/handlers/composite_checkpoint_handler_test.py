@@ -31,6 +31,8 @@ from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step
 
 CompositeArgs = composite_checkpoint_handler.CompositeArgs
@@ -1019,10 +1021,10 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
       state_handler.finalize.assert_called_once()
       metadata_handler.finalize.assert_not_called()
       self.assertFalse(
-          (self.directory / 'state' / step._COMMIT_SUCCESS_FILE).exists()
+          (self.directory / 'state' / atomicity.COMMIT_SUCCESS_FILE).exists()
       )
 
-  @mock.patch.object(step, 'is_gcs_path', autospec=True, return_value=True)
+  @mock.patch.object(gcs_utils, 'is_gcs_path', autospec=True, return_value=True)
   def test_finalize_gcs(self, is_gcs_path):
     del is_gcs_path
     state_handler = mock.create_autospec(StandardCheckpointHandler)
@@ -1042,7 +1044,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
       )
       state_handler.finalize.assert_called_once()
       self.assertTrue(
-          (self.directory / 'state' / step._COMMIT_SUCCESS_FILE).exists()
+          (self.directory / 'state' / atomicity.COMMIT_SUCCESS_FILE).exists()
       )
 
   def test_close(self):
@@ -1144,6 +1146,31 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
         ValueError, 'StepMetadata.item_handlers must be a dict'
     ):
       handler.metadata(self.directory)
+
+  def test_metadata_with_missing_metadata_file(self):
+    # Simulate a case where an item is not a PyTree, but the handler
+    # a PyTreeHandler.
+    handler = CompositeCheckpointHandler(
+        state=StandardCheckpointHandler(), datasets=StandardCheckpointHandler()
+    )
+    state = {'a': 1, 'b': 2}
+    self.save(
+        handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+        ),
+    )
+
+    # Create dummy files in datasets to simulate a non-pytree item
+    (self.directory / 'datasets').mkdir()
+    (self.directory / 'datasets' / 'data.txt').write_text('some data')
+
+    step_metadata = handler.metadata(self.directory)
+    self.assertIn('state', step_metadata.item_metadata)
+    self.assertIsNotNone(step_metadata.item_metadata['state'])
+    self.assertIn('datasets', step_metadata.item_metadata)
+    self.assertIsNone(step_metadata.item_metadata['datasets'])
 
 
 if __name__ == '__main__':

@@ -28,20 +28,26 @@ from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
-from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.serialization import type_handlers
 
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
+BasePyTreeCheckpointHandler = (
+    base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler
+)
+BasePyTreeSaveArgs = base_pytree_checkpoint_handler.BasePyTreeSaveArgs
+BasePyTreeRestoreArgs = base_pytree_checkpoint_handler.BasePyTreeRestoreArgs
 
 ArrayType = Union[int, float, np.number, np.ndarray, jax.Array]
 
 _ELEMENT_KEY = 'ELEMENT'
+# OCDBT has no real benefit for a single array.
 _USE_OCDBT_FOR_SAVE = False
+PYTREE_METADATA_FILE = base_pytree_checkpoint_handler.PYTREE_METADATA_FILE
 
 
-# TODO: b/362285520 - Refactor to delegate to PytreeCheckpointHandler.
 class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Handles saving and restoring individual arrays and scalars."""
 
@@ -56,6 +62,9 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       checkpoint_name = 'checkpoint'
     self._checkpoint_name = checkpoint_name
     self._aggregate_handler = aggregate_handlers.MsgpackHandler()
+    self._base_pytree_checkpoint_handler = BasePyTreeCheckpointHandler(
+        use_ocdbt=_USE_OCDBT_FOR_SAVE
+    )
 
   def _is_supported_type(self, item: ArrayType) -> bool:
     return isinstance(item, (np.ndarray, jax.Array)) or utils.is_scalar(item)
@@ -85,19 +94,16 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if not self._is_supported_type(item):
       raise TypeError(f'Unsupported type: {type(item)}.')
 
-    if not save_args:
+    if save_args is None:
       save_args = type_handlers.SaveArgs()
 
-    type_handler = type_handlers.get_type_handler(type(item))
-    info = type_handlers.ParamInfo(
-        name=self._checkpoint_name,
-        path=directory / self._checkpoint_name,
-        parent_dir=directory,
-        is_ocdbt_checkpoint=_USE_OCDBT_FOR_SAVE,
-        value_typestr=type_handler.typestr(),
+    pytree_args = BasePyTreeSaveArgs(
+        item={self._checkpoint_name: item},
+        save_args={self._checkpoint_name: save_args},
     )
-    futures = await type_handler.serialize([item], [info], args=[save_args])
-    return list(futures)
+    return await self._base_pytree_checkpoint_handler.async_save(
+        directory, args=pytree_args
+    )
 
   def save(self, directory: epath.Path, *args, **kwargs):
     """Saves an array synchronously."""
@@ -133,49 +139,39 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if args is None:
       args = ArrayRestoreArgs(item=item, restore_args=restore_args)
 
+    if (directory / PYTREE_METADATA_FILE).exists():
+      pytree_args = BasePyTreeRestoreArgs(
+          {self._checkpoint_name: args.item} if args.item is not None else None,
+          restore_args={self._checkpoint_name: args.restore_args},
+      )
+      return self._base_pytree_checkpoint_handler.restore(
+          directory, args=pytree_args
+      )[self._checkpoint_name]
+
+    # TODO(nikhilbansall): Remove this logic once support for legacy
+    # checkpoints lacking PYTREE_METADATA_FILE is no longer needed.
     restore_args = args.restore_args or type_handlers.RestoreArgs()
 
     checkpoint_path = directory / self._checkpoint_name
-    if checkpoint_path.exists() and checkpoint_path.is_file():
-      result = self._aggregate_handler.deserialize(checkpoint_path)
-      result = result[_ELEMENT_KEY]
-      if not self._is_supported_type(result):
-        raise TypeError(f'Unsupported type: {type(result)}.')
-      if isinstance(restore_args, type_handlers.ArrayRestoreArgs):
-        result = result.reshape(restore_args.global_shape)
-        sharding = restore_args.sharding or jax.sharding.NamedSharding(
-            restore_args.mesh, restore_args.mesh_axes
-        )
-        result = jax.make_array_from_callback(
-            result.shape, sharding, lambda idx: result[idx]
-        )
-    else:
-      info = type_handlers.ParamInfo(
-          name=self._checkpoint_name,
-          path=checkpoint_path,
-          parent_dir=directory,
-          skip_deserialize=False,
-          is_ocdbt_checkpoint=type_handlers.is_ocdbt_checkpoint(directory),
-      )
-      restore_type = restore_args.restore_type
-      if restore_type is None:
-        restore_type = type_handlers.default_restore_type(restore_args)
-      type_handler = type_handlers.get_type_handler(restore_type)
-      result = asyncio_utils.run_sync(
-          type_handler.deserialize([info], args=[restore_args])
-      )[0]
+    info = type_handlers.ParamInfo(
+        name=self._checkpoint_name,
+        path=checkpoint_path,
+        parent_dir=directory,
+        skip_deserialize=False,
+        is_ocdbt_checkpoint=type_handlers.is_ocdbt_checkpoint(directory),
+    )
+    restore_type = restore_args.restore_type
+    if restore_type is None:
+      restore_type = type_handlers.default_restore_type(restore_args)
+    type_handler = type_handlers.get_type_handler(restore_type)
+    result = asyncio_utils.run_sync(
+        type_handler.deserialize([info], args=[restore_args])
+    )[0]
 
     return result
 
   def finalize(self, directory: epath.Path):
-    ts_context = ts_utils.get_ts_context(use_ocdbt=_USE_OCDBT_FOR_SAVE)
-    asyncio_utils.run_sync(
-        type_handlers.merge_ocdbt_per_process_files(
-            directory,
-            ts_context=ts_context,
-            use_zarr3=False,
-        )
-    )
+    self._base_pytree_checkpoint_handler.finalize(directory)
 
   def close(self):
     """See superclass documentation."""

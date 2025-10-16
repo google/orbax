@@ -147,7 +147,9 @@ def _to_shape_dtype_refinements_proto(
         )
     )
 
-CURRENT_JAX_SUPPLEMENTAL_MIME_TYPE: str = "orbax_model_jax_supplemental"
+CURRENT_JAX_SUPPLEMENTAL_MIME_TYPE: str = (
+    "application/protobuf; type=orbax_model_jax_supplemental.Function"
+)
 CURRENT_JAX_SUPPLEMENTAL_VERSION: str = "0.0.1"
 
 
@@ -247,6 +249,10 @@ _shlo_dtype_for_float0 = obm.ShloDType.bool
 def _to_shlo_dtype_and_refinement(
     jax_dtype: np.dtype[Any],
 ) -> Tuple[obm.ShloDType, DTypeRefinement | None]:
+  if jax_dtype == jax.numpy.int4:
+    return obm.ShloDType.i4, None
+  if jax_dtype == jax.numpy.uint4:
+    return obm.ShloDType.ui4, None
   if jax_dtype == jax.float0:
     return _shlo_dtype_for_float0, DTypeRefinement.f0
   if jax_dtype == jax.numpy.bfloat16:
@@ -305,6 +311,7 @@ def _to_shlo_spec_tree_and_refinement_tuple(
     avals: Sequence[jax.core.AbstractValue],
     shardings: Sequence[Any],
     tree_def: Optional[jax.tree_util.PyTreeDef],
+    prune_custom_pytree_nodes: bool = False,
 ) -> Tuple[
     obm.Tree[obm.ShloTensorSpec], Tuple[ShapeDTypeRefinementPair, ...] | None
 ]:
@@ -321,7 +328,8 @@ def _to_shlo_spec_tree_and_refinement_tuple(
         raise ValueError(
             f"Leaf needs to be a ShloTensorSpec, but its type is: {type(x)}"
         )
-
+    if prune_custom_pytree_nodes:
+      jax_tree = obm.tree_util.prune_tree(jax_tree, obm.ShloTensorSpec)
     obm.tree_util.assert_tree(assert_leaf, jax_tree)
     jax_tree: obm.Tree[obm.ShloTensorSpec]
   return jax_tree, refinements

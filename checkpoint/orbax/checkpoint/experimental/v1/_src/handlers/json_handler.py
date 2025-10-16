@@ -34,12 +34,17 @@ JsonType = tree_types.JsonType
 _DATA_FILENAME = 'data.json'
 
 
+def _get_supported_filenames(filename: str | None = None) -> list[str]:
+  filename = filename or _DATA_FILENAME
+  return [filename, _DATA_FILENAME, 'metadata']
+
+
 class JsonHandler(CheckpointableHandler[JsonType, None]):
   """An implementation of `CheckpointableHandler` for Json."""
 
   def __init__(self, filename: str | None = None):
-    self._filename = filename or _DATA_FILENAME
-    self._supported_filenames = [self._filename, _DATA_FILENAME, 'metadata']
+    self._supported_filenames = _get_supported_filenames(filename)
+    self._filename = self._supported_filenames[0]
 
   async def _background_save(
       self,

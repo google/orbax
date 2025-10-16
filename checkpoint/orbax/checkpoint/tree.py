@@ -24,6 +24,7 @@ from orbax.checkpoint._src.tree.types import (
     JsonType,
 )
 from orbax.checkpoint._src.tree.utils import (
+    str_keypath,
     get_param_names,
     serialize_tree,
     deserialize_tree,

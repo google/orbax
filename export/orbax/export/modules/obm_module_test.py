@@ -15,11 +15,10 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
-from jax.experimental import mesh_utils
 import jax.numpy as jnp
+import numpy as np
 from orbax.export import constants
 from orbax.export.modules import obm_module
-
 
 @jax.jit
 def simple_add(params, inputs):

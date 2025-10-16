@@ -161,9 +161,8 @@ class CheckpointInfoThreadSafetyTest(absltest.TestCase):
 
     def _append(steps):
       for _ in range(num_repeat):
-        infos.set([])
-        for i in steps:
-          infos.append(build_info(i))
+        new_infos = [build_info(i) for i in steps]
+        infos.set(new_infos)
 
     def _delete():
       for _ in range(num_repeat):

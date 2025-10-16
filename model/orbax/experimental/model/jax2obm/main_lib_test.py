@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-from typing import cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -126,7 +125,7 @@ class MainLibTest(parameterized.TestCase):
     weights_name = 'my_weights'
     obm_module[weights_name] = main_lib.convert_path_to_value(
         ckpt_subdir,
-        mime_type='orbax_checkpoint',
+        mime_type='application/x.orbax-checkpoint',
     )
 
     supplemental_filename = 'my_orchestration.pb'
@@ -136,7 +135,7 @@ class MainLibTest(parameterized.TestCase):
         save_dir_path,
         obm.SaveOptions(
             version=2,
-            supplemental_info={
+            supplementals={
                 simple_orchestration.TEST_ORCHESTRATION_SUPPLEMENTAL_NAME: (
                     obm.GlobalSupplemental(
                         simple_orchestration.create(
@@ -156,9 +155,7 @@ class MainLibTest(parameterized.TestCase):
         f'Checkpoint directory {ckpt_subdir} is empty.',
     )
 
-    manifest_proto = obm.manifest_pb2.Manifest()
-    with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), 'rb') as f:
-      manifest_proto.ParseFromString(f.read())
+    manifest_proto = obm.load(save_dir_path)
 
     if polymorphic_shape:
       batch_size = ''
@@ -301,7 +298,9 @@ class MainLibTest(parameterized.TestCase):
     """
     )
 
-    jax_supplemental_filename = f'{model_function_name}_supplemental.pb'
+    jax_supplemental_filename = (
+        f'{model_function_name}_jax_specific_info_supplemental.pb'
+    )
 
     expected_manifest_proto_text = (
         """
@@ -317,7 +316,7 @@ class MainLibTest(parameterized.TestCase):
               stable_hlo_body {
                 stable_hlo {
                   inlined_bytes: "ML StableHLO v0.9.0 ..."
-                  mime_type: "mlir_stablehlo"
+                  mime_type: "application/x.mlir-stablehlo"
                   version: "1.0"
                 }
                 calling_convention_version: 10
@@ -360,7 +359,7 @@ class MainLibTest(parameterized.TestCase):
         + ckpt_subdir
         + """\"
                 }
-                mime_type: "orbax_checkpoint"
+                mime_type: "application/x.orbax-checkpoint"
               }
             }
           }
@@ -543,7 +542,7 @@ class MainLibTest(parameterized.TestCase):
     checkpointer.save(checkpoint_abs_path, params)
     obm_module['my_weights'] = main_lib.convert_path_to_value(
         checkpoint_path,
-        mime_type='orbax_checkpoint',
+        mime_type='application/x.orbax-checkpoint',
     )
 
     obm.save(
@@ -554,11 +553,10 @@ class MainLibTest(parameterized.TestCase):
         ),
     )
 
-    manifest_proto = obm.manifest_pb2.Manifest()
-    with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), 'rb') as f:
-      manifest_proto.ParseFromString(f.read())
-
-    jax_supplemental_filename = f'{model_function_name}_supplemental.pb'
+    manifest_proto = obm.load(save_dir_path)
+    jax_supplemental_filename = (
+        f'{model_function_name}_jax_specific_info_supplemental.pb'
+    )
 
     expected_manifest_proto_text = (
         """
@@ -937,7 +935,7 @@ class MainLibTest(parameterized.TestCase):
                 stable_hlo_body {
                   stable_hlo {
                     inlined_bytes:"ML\357R\rStableHLO_v...."
-                    mime_type: "mlir_stablehlo"
+                    mime_type: "application/x.mlir-stablehlo"
                     version: "1.0"
                   }
                   calling_convention_version: 10
@@ -982,7 +980,7 @@ class MainLibTest(parameterized.TestCase):
                   file_system_location {
                     string_path: "my_checkpoint/"
                   }
-                  mime_type: "orbax_checkpoint"
+                  mime_type: "application/x.orbax-checkpoint"
                 }
               }
             }

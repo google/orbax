@@ -21,6 +21,17 @@ from orbax.checkpoint.experimental.v1._src.path import types
 Path = types.Path
 
 
+### Constants shared by all layouts. ###
+
+PYTREE_CHECKPOINTABLE_KEY = "pytree"
+
+METRICS_CHECKPOINTABLE_KEY = "metrics"
+
+RESERVED_CHECKPOINTABLE_KEYS = frozenset({
+    METRICS_CHECKPOINTABLE_KEY,
+})
+
+
 class InvalidLayoutError(ValueError):
   """Raised when the checkpoint layout is invalid."""
 
@@ -51,7 +62,7 @@ class CheckpointLayout(Protocol):
     """
     ...
 
-  def validate(self) -> None:
+  async def validate(self) -> None:
     """Validates the path, determining if it conforms to this instance.
 
     Returns:
@@ -62,7 +73,7 @@ class CheckpointLayout(Protocol):
     """
     ...
 
-  def validate_pytree(self, checkpointable_name: str | None) -> None:
+  async def validate_pytree(self, checkpointable_name: str | None) -> None:
     """Validates the path as a PyTree checkpoint.
 
     Args:

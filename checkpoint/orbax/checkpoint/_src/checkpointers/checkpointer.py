@@ -23,7 +23,6 @@ from etils import epy
 import jax
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import options as options_lib
-from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.futures import synchronization
@@ -36,6 +35,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path import utils as path_utils
 from typing_extensions import Self  # for Python version < 3.11
 
@@ -230,7 +230,7 @@ class Checkpointer(
     )
     directory = epath.Path(directory)
 
-    if utils.is_primary_host(self._primary_host):
+    if multihost.is_primary_host(self._primary_host):
       jax.monitoring.record_event(
           '/jax/orbax/write/storage_type',
           storage_type=path_utils.get_storage_type(directory),
@@ -247,7 +247,7 @@ class Checkpointer(
 
     if directory.exists():
       if force:
-        if utils.is_primary_host(self._primary_host):
+        if multihost.is_primary_host(self._primary_host):
           logging.info('Specified `force`: removing existing directory.')
           directory.rmtree()  # Post-sync handled by create_tmp_directory.
       else:
@@ -257,7 +257,7 @@ class Checkpointer(
     # tmpdir creation also does an initial StepMetadata save.
     asyncio_utils.run_sync(self.create_temporary_path(tmpdir))
     self._handler.save(tmpdir.get(), args=ckpt_args)
-    if utils.is_primary_host(self._primary_host):
+    if multihost.is_primary_host(self._primary_host):
       # Update StepMetadata after the handler save is complete. (blocking write)
       self._save_step_metadata(tmpdir.get(), custom_metadata=custom_metadata)
     multihost.sync_global_processes(
@@ -269,7 +269,7 @@ class Checkpointer(
     )
 
     # Ensure save operation atomicity and record time saved by checkpoint.
-    if utils.is_primary_host(self._primary_host):
+    if multihost.is_primary_host(self._primary_host):
       # finalize does a final StepMetadata update.
       self._handler.finalize(tmpdir.get())
       asyncio_utils.run_sync(
@@ -299,7 +299,7 @@ class Checkpointer(
     directory = epath.Path(directory)
     if not directory.exists():
       raise FileNotFoundError(f'Checkpoint at {directory} not found.')
-    if not utils.is_checkpoint_finalized(directory):
+    if not step_lib.is_path_finalized(directory):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
     logging.info('Restoring checkpoint from %s.', directory)
     ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
@@ -327,10 +327,35 @@ class Checkpointer(
   ) -> Any:
     return self._handler.restore(directory, args=args)
 
-  def metadata(self, directory: epath.PathLike) -> StepMetadata | Any | None:
+  def metadata(self, directory: epath.PathLike) -> StepMetadata:
     """See superclass documentation."""
     directory = epath.Path(directory)
-    return self._handler.metadata(directory)
+
+    if isinstance(
+        self._handler, composite_checkpoint_handler.CompositeCheckpointHandler
+    ):
+      # CompositeHandler contains metadata for all items in this step.
+      return self._handler.metadata(directory)
+
+    serialized_metadata = self._metadata_store.read(
+        checkpoint.step_metadata_file_path(directory)
+    )
+    if serialized_metadata is None:
+      step_metadata = StepMetadata()
+    else:
+      step_metadata = step_metadata_serialization.deserialize(
+          serialized_metadata
+      )
+
+    try:
+      step_metadata.item_metadata = self._handler.metadata(directory)
+    except (FileNotFoundError, NotImplementedError, ValueError, TypeError):
+      logging.warning(
+          'Failed to get item metadata from directory %s. Either it was not'
+          ' present in the checkpoint, or the handler does not support it.',
+          directory,
+      )
+    return step_metadata
 
   def _save_step_metadata(
       self, directory: epath.Path, custom_metadata: dict[str, Any] | None

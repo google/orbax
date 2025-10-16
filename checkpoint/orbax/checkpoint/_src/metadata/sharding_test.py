@@ -30,6 +30,7 @@ class TestShardingMetadata(absltest.TestCase):
         shape=np.array([1]),
         axis_names=(["x"]),
         partition_spec=(None,),
+        axis_types=(jax.sharding.AxisType.Auto,),
         device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
             jax_sharding.mesh
         ),
@@ -49,6 +50,39 @@ class TestShardingMetadata(absltest.TestCase):
     # Convert from `NamedShardingMetadata` to `jax.sharding.NamedSharding`
     converted_jax_sharding = converted_named_sharding_metadata.to_jax_sharding()
     self.assertIsInstance(converted_jax_sharding, jax.sharding.NamedSharding)
+    self.assertEqual(converted_jax_sharding, jax_sharding)
+
+  def test_named_sharding_with_explicit_axis_type_roundtrip(self):
+    # Create jax.sharding.NamedSharding with Explicit AxisType
+    axis_types = (jax.sharding.AxisType.Explicit,)
+    mesh = jax.sharding.Mesh(jax.devices(), ("x",), axis_types=axis_types)
+    jax_sharding = jax.sharding.NamedSharding(
+        mesh,
+        jax.sharding.PartitionSpec(None),
+    )
+
+    # Convert to NamedShardingMetadata
+    named_sharding_metadata = sharding_metadata.from_jax_sharding(jax_sharding)
+    self.assertEqual(named_sharding_metadata.axis_types, axis_types)
+
+    # Serialize to string
+    serialized_string = named_sharding_metadata.to_serialized_string()
+    self.assertIn('"axis_types": ["AxisType.Explicit"]', serialized_string)
+
+    # Deserialize from string
+    deserialized_metadata = sharding_metadata.from_serialized_string(
+        serialized_string
+    )
+    self.assertIsInstance(
+        deserialized_metadata, sharding_metadata.NamedShardingMetadata
+    )
+    self.assertEqual(deserialized_metadata, named_sharding_metadata)
+
+    # Convert back to jax.sharding.NamedSharding
+    converted_jax_sharding = deserialized_metadata.to_jax_sharding()
+    self.assertIsInstance(
+        converted_jax_sharding, jax.sharding.NamedSharding
+    )
     self.assertEqual(converted_jax_sharding, jax_sharding)
 
   def test_convert_between_jax_single_device_sharding_and_sharding_metadata(

@@ -7,9 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added an option `use_compression` to `PyTreeCheckpointHandler` to
+  control whether compression will be used. Default is kept `True`.
+- v1 Added `ArrayOptions.Saving.use_compression` to control whether compression
+  will be used. Default is kept `True`.
+- Add `LocalPath` for testing process-local storage.
+- Added new memory metrics into benchmark library
+
+### Changed
+
+- #v1 Modify LeafHandler definitions so that `AbstractLeaf` or
+`Type[AbstractLeaf]` are always accepted as valid abstract values.
+
+## [0.11.25] - 2025-09-10
+
+### Changed
+
+- Move temporary path detection into `TemporaryPath` class. This class serves
+as a natural place for encapsulating core temporary path detection logic.
+- Simplify `find_step_path` logic by removing special casing for different
+filesystems - instead depending on `TemporaryPath` to identify uncommitted
+paths.
+- Remove the `jax_pmap_no_rank_reduction=False` code path for
+`utils.fully_replicated_host_local_array_to_global_array`.
+`jax_pmap_no_rank_reduction=True` by default in JAX.
+- Changed to minimum jax version requirement to v0.6.0
+
+## [0.11.24] - 2025-08-28
+
+### Added
+
+- Add support to enable orbax internal metadata inside root metadata.
+
+### Changed
+
+- Broadcast max steps as well when using single_host_load_and_broadcast.
+- Allow changing tensorstore backend through environment variable
+  `TENSORSTORE_GCS_BACKEND`. The default is `gcs`. Utilizing `gcs_grpc` instead
+  provides roughly double the GCS performance.
+
+## [0.11.23] - 2025-08-18
+
+### Added
+
+- Add support for sharded loading from Safetensors checkpoints onto a JAX mesh.
+- Ability to have unique per process signalling for directory creation.
+
+## [0.11.22] - 2025-08-14
+
 ### Changed
 
 - Allow ArrayMetadataStore to update existing metadatas.
+
+### Added
+
+- Orbax Emergency Checkpointer will now do single slice restore from persistent storage.
 
 ## [0.11.21] - 2025-08-07
 

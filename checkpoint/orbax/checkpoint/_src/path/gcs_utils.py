@@ -19,6 +19,13 @@ from urllib import parse
 from etils import epath
 
 
+_GCS_PATH_PREFIX = ('gs://',)
+
+
+def is_gcs_path(path: epath.Path) -> bool:
+  return path.as_posix().startswith(_GCS_PATH_PREFIX)
+
+
 def parse_gcs_path(path: epath.PathLike) -> tuple[str, str]:
   parsed = parse.urlparse(str(path))
   assert parsed.scheme == 'gs', f'Unsupported scheme for GCS: {parsed.scheme}'

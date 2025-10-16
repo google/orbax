@@ -34,6 +34,7 @@ from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src import threading as threading_lib
 from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
@@ -41,6 +42,7 @@ from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as sa
 from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
@@ -58,6 +60,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import deleter
 from orbax.checkpoint._src.path import step as step_lib
+from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint._src.path import utils as path_utils
 from typing_extensions import Self  # for Python version < 3.11
 
@@ -100,6 +103,7 @@ METADATA_ITEM_NAME = 'metadata'
 RESERVED_ITEM_NAMES = []
 
 _INIT_TIME = datetime.datetime.now(tz=datetime.timezone.utc)
+_WAIT_FOR_PREV_SAVE_WARNING_THRESHOLD_SECS = 1.0
 
 
 def _metrics_file_exists(metrics_item_path: epath.Path) -> bool:
@@ -359,6 +363,10 @@ class CheckpointManagerOptions:
     `ContinuousCheckpointingPolicy` - otherwise the value is ignored.
     This is an interim workaround for b/428061876. Do not use
     without explicit approval.
+  enable_per_process_directory_creation: Signifies wether directories are
+    supposed to be created per process. This is used to support async
+    directory creation. If True, `multiprocessing_options.primary_host` must be
+    None.
   """
 
   save_interval_steps: int = 1
@@ -399,6 +407,7 @@ class CheckpointManagerOptions:
   prevent_write_metrics: bool = False
   # TODO(b/428061876) Remove this option.
   enable_should_save_is_saving_in_progress_check: bool = True
+  enable_per_process_directory_creation: bool = False
 
   def __post_init__(self):
     step_name_format_single_host_load_and_broadcast = (
@@ -482,12 +491,18 @@ class CheckpointManagerOptions:
       )
     if self.read_only and self.todelete_full_path is not None:
       self.todelete_full_path = None
-      logging.warning(
-          ' todelete_full_path=None.'
-      )
+      logging.warning(' todelete_full_path=None.')
     if self.todelete_subdir is not None and self.todelete_full_path is not None:
       raise ValueError(
           'todelete_subdir and todelete_full_path both cannot be set togther'
+      )
+    if (
+        self.enable_per_process_directory_creation
+        and self.multiprocessing_options.primary_host is not None
+    ):
+      raise ValueError(
+          'enable_per_process_directory_creation can only be used when'
+          ' primary_host is None.'
       )
     if self.read_only and self.should_save_fn is not None:
       self.should_save_fn = None
@@ -690,6 +705,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._options = options or CheckpointManagerOptions()
     self._multiprocessing_options = self._options.multiprocessing_options
+
+    if self._options.enable_per_process_directory_creation:
+      future.AwaitableSignalsContract.awaitable_signals_contract_prefix += (
+          f'_{multihost.process_index()}'
+      )
+
     self._save_decision_policy = (
         self._options.save_decision_policy
         or _get_default_save_decision_policy(self._options)
@@ -699,7 +720,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self._options.keep_time_interval
         or self._options.max_to_keep
         or self._options.keep_period
-        or self._options.should_keep_fn
     ):
       raise ValueError(
           '`preservation_policy` and `delete options` are mutually exclusive'
@@ -831,7 +851,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     # Cleanup directories from previous runs that may not have been finalized.
     if self._options.cleanup_tmp_directories:
-      self._cleanup_tmp_directories()
+      asyncio_utils.run_sync(
+          temporary_paths.cleanup_temporary_paths(
+              self._directory,
+              multiprocessing_options=self._options.multiprocessing_options,
+              temporary_path_cls=self._options.temporary_path_class,
+          )
+      )
 
     self._step_name_format = (
         self._options.step_name_format
@@ -882,6 +908,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         multiprocessing_options=self._multiprocessing_options,
         async_options=self._options.async_options,
     )
+
+    self._last_save_time = None
 
     logging.info(
         '[process=%s][thread=%s] CheckpointManager created,  primary_host=%s,'
@@ -1378,6 +1406,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # checkpointers are AsyncCheckpointers.
     # Must happen after `should_save` to avoid blocking callers.
     step_stats.wait_for_prev_start_time = time.time()
+    if self._last_save_time is not None:
+      # This may be negative if we arrive at
+      # wait_until_finished() before the save completed.
+      # TODO: b/448361885 - Investigate if we can make this more robust to
+      # manual wait_until_finished() calls.
+      step_stats.time_between_consecutive_saves_sec = (
+          step_stats.wait_for_prev_start_time - self._last_save_time
+      )
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/checkpoint_manager/time_between_consecutive_saves_secs',
+          step_stats.time_between_consecutive_saves_sec,
+      )
     self.wait_until_finished()
     step_stats.wait_for_prev_duration_secs = (
         time.time() - step_stats.wait_for_prev_start_time
@@ -1387,6 +1427,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         '/jax/checkpoint/write/wait_for_prev_duration_secs',
         step_stats.wait_for_prev_duration_secs,
     )
+    if (
+        step_stats.wait_for_prev_duration_secs
+        > _WAIT_FOR_PREV_SAVE_WARNING_THRESHOLD_SECS
+    ):
+      logging.warning(
+          'Waiting for previous save to complete took %f seconds. If this'
+          ' number is high, consider checkpointing less frequently.',
+          step_stats.wait_for_prev_duration_secs,
+      )
     # We consider the save in progress only when we have finished waiting for
     # previous save to complete.
     self._save_progress_tracker.set(True)
@@ -1677,6 +1726,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       Either metadata for the item itself, if in default-item mode, or a
       Composite of metadata for each item.
     """
+    if step is None:
+      raise ValueError(
+          '`step` must be provided. `item_metadata` only exists at the'
+          ' checkpoint step level, not the root level.'
+      )
     return self.metadata(step).item_metadata
 
   # TODO(b/370812224): Deprecate in favor of StepMetadata.metrics
@@ -1804,16 +1858,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     step_metadata.item_metadata = self._maybe_get_default_item(
         step_metadata.item_metadata
     )
-
-    metrics = self._get_metrics(step)
-    if metrics is not None:
-      validated_metrics = step_metadata_serialization.deserialize(
-          {}, metrics=dict(metrics)
-      ).metrics
-      step_metadata = dataclasses.replace(
-          step_metadata,
-          metrics=validated_metrics,
-      )
+    if METRIC_ITEM_NAME in step_metadata.item_handlers:
+      metrics = self._get_metrics(step)
+      if metrics is not None:
+        validated_metrics = step_metadata_serialization.deserialize(
+            {}, metrics=dict(metrics)
+        ).metrics
+        step_metadata = dataclasses.replace(
+            step_metadata,
+            metrics=validated_metrics,
+        )
 
     return step_metadata
 
@@ -1873,14 +1927,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         with_metrics,
         key=lambda info: self._options.best_fn(info.metrics),
         reverse=(self._options.best_mode == 'min'),
-    )
-
-  def _cleanup_tmp_directories(self):
-    utils.cleanup_tmp_directories(
-        self.directory,
-        primary_host=self._multiprocessing_options.primary_host,
-        active_processes=self._multiprocessing_options.active_processes,
-        barrier_sync_key_prefix=self._multiprocessing_options.barrier_sync_key_prefix,
     )
 
   def _get_old_steps_to_remove(self) -> List[int]:
@@ -2063,6 +2109,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           current_thread.name,
           step,
       )
+      # This time is tracked for metric purposes only.
+      self._last_save_time = time.time()
 
   def close(self):
     """Waits for outstanding operations to finish and closes internal objects."""

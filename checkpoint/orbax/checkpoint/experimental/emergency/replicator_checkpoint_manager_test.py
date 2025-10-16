@@ -29,13 +29,13 @@ from orbax.checkpoint._src.checkpoint_managers import preservation_policy as pre
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
+from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.experimental.emergency import replicator_checkpoint_manager
 from orbax.checkpoint.experimental.emergency.test_utils import dataset_iterator_checkpoint_handler
 from orbax.checkpoint.experimental.emergency.test_utils import test_base as emergency_test_utils
 from orbax.checkpoint.path import atomicity
-from orbax.checkpoint.path import step as step_lib
 from .learning.brain.research.jax.tests.multiprocess import multiprocess_test
 
 
@@ -136,7 +136,7 @@ class ReplicatorCheckpointManagerTest(
     )
     self.enter_context(
         mock.patch.object(
-            step_lib, 'is_gcs_path', autospec=True, return_value=True
+            gcs_utils, 'is_gcs_path', autospec=True, return_value=True
         )
     )
     if not multihost.is_runtime_to_distributed_ids_initialized():

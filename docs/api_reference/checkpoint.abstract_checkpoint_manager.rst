@@ -1,9 +1,9 @@
 AbstractCheckpointManager
 ============================================================================
 
-.. currentmodule:: orbax.checkpoint.abstract_checkpoint_manager
-
 .. automodule:: orbax.checkpoint.abstract_checkpoint_manager
+
+.. currentmodule:: orbax.checkpoint
 
 AbstractCheckpointManager
 ------------------------------------------------------------

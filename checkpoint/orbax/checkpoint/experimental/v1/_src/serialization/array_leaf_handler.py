@@ -20,11 +20,11 @@ deserialization for jax.Arrays.
 
 import asyncio
 import dataclasses
-from typing import Awaitable, Protocol, Sequence, cast
+import typing
+from typing import Awaitable, Sequence, cast
 
 from absl import logging
 import jax
-import jax.experimental.layout as jax_layout
 import jax.numpy as jnp
 from orbax.checkpoint._src.arrays import types as arrays_types_v0
 from orbax.checkpoint._src.futures import future
@@ -32,47 +32,20 @@ from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
 
-ArraySerializationParam = types.SerializationParam[jax.Array]
-ArrayDeserializationParam = types.DeserializationParam["AbstractArray"]
 Shape = arrays_types_v0.Shape
-
-if jax.__version_info__ >= (0, 6, 2):
-  Format = jax_layout.Format
-else:
-  Format = jax_layout.Layout
-
-
-class AbstractArray(Protocol):
-  """Abstract representation of an array.
-
-  This is a protocol for an abstract array that can be used to represent various
-  metadata types such as jax.ShapeDtypeStruct and ArrayMetadata.
-
-  #TODO(dnlng): All attributes are made optional to support the case where
-  # the ArrayMetadata is passed into the metadata() call to pass only the
-  # `write_shape`.  Optional attributes are not needed once write_shape is
-  # refactored.
-
-
-  shape:
-    Tuple of integers describing the array shape.
-  dtype:
-    Dtype of array elements.
-  Sharding:
-    Sharding to indicate how the array is sharded. This can be jax's Sharding or
-    Layout or None.
-  """
-
-  shape: Shape | None
-  dtype: jax.numpy.dtype | None
-  sharding: jax.sharding.Sharding | Format | None  # pytype: disable=unsupported-operands
+AbstractShardedArray = types.AbstractShardedArray
+ArraySerializationParam = types.SerializationParam[jax.Array]
+ArrayDeserializationParam = types.DeserializationParam[
+    AbstractShardedArray
+]
 
 
 @dataclasses.dataclass
-class ArrayMetadata:
+class ArrayMetadata(AbstractShardedArray):
   """Array Metadata for the ArrayLeafHandler.
 
   shape:
@@ -139,6 +112,7 @@ def _create_v0_saving_paraminfo(
       byte_limiter=serialization_context.byte_limiter,
       is_ocdbt_checkpoint=saving_options.use_ocdbt,
       use_zarr3=saving_options.use_zarr3,
+      use_compression=saving_options.use_compression,
       ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
       ts_context=serialization_context.ts_context,
       value_typestr=None,  # TODO(dnlng): Add value typestr.
@@ -172,19 +146,22 @@ def _create_v0_savearg(
 def _create_v0_restore_paraminfo(
     param: (
         types.DeserializationParam[None]
-        | types.DeserializationParam[AbstractArray]
+        | types.DeserializationParam[AbstractShardedArray]
     ),
     context: context_lib.Context,
     deserialization_context: types.DeserializationContext,
 ) -> type_handlers_v0.ParamInfo:
   """Creates a V0 ParamInfo from V1 params and contexts for loading."""
 
-  loading_options = context.array_options.Loading
+  loading_options = context.array_options.loading
 
   if isinstance(param.value, ArrayMetadata):
     # the write_shape is populated for metadata() calls.
     v = cast(ArrayMetadata, param.value)
-    write_shape = v.storage_metadata.write_shape
+    if v.storage_metadata is not None:
+      write_shape = v.storage_metadata.write_shape
+    else:
+      write_shape = None
   else:
     write_shape = None
 
@@ -207,30 +184,27 @@ def _create_v0_restorearg(
     context: context_lib.Context,
 ) -> type_handlers_v0.ArrayRestoreArgs:
   """Creates a V0 ArrayRestoreArgs from V1 params."""
-
-  if param.value is None:
+  value = param.value
+  if value is None or isinstance(value, type):
     return type_handlers_v0.ArrayRestoreArgs(restore_type=jax.Array)
-  else:
-    v = param.value
-    if not isinstance(v, (jax.Array, jax.ShapeDtypeStruct, ArrayMetadata)):
-      raise ValueError(
-          "ArrayDeserializationParam.value is an unsupported type:"
-          f" {type(v)} for param.name: {param.name}"
-      )
+  elif protocol_utils.is_subclass_protocol(value, AbstractShardedArray):
+    value = typing.cast(AbstractShardedArray, value)
     return type_handlers_v0.ArrayRestoreArgs(
         restore_type=jax.Array,
-        dtype=v.dtype,
-        sharding=v.sharding,
-        shape=v.shape,
+        dtype=value.dtype,
+        sharding=value.sharding,
+        shape=value.shape,
         strict=not context.array_options.loading.enable_padding_and_truncation,
     )
+  else:
+    raise TypeError(f'Unrecognized abstract value type: {type(value)}')
 
 
 async def _async_futures(commit_futures: Sequence[future.Future]):
   await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
 
 
-class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractArray]):
+class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
   """ArrayLeafHandler that implements the types.LeafHandler Protocol."""
 
   def __init__(
@@ -243,7 +217,7 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractArray]):
         self._context,
     )
 
-    logging.vlog(1, "ArrayLeafHandler created.")
+    logging.vlog(1, 'ArrayLeafHandler created.')
 
   async def serialize(
       self,
@@ -302,9 +276,9 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractArray]):
 
   async def metadata(
       self,
-      params: Sequence[types.DeserializationParam[None | AbstractArray]],
+      params: Sequence[types.DeserializationParam[None | AbstractShardedArray]],
       deserialization_context: types.DeserializationContext,
-  ) -> Sequence[AbstractArray]:
+  ) -> Sequence[AbstractShardedArray]:
     """Returns a squence of ArrayMetadata from a stored checkpointable location.
 
     Args:
@@ -333,7 +307,7 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractArray]):
         )
         ret.append(array_metadata)
 
-        logging.vlog(1, "array_metadata: %r", array_metadata)
+        logging.vlog(1, 'array_metadata: %r', array_metadata)
 
       return ret
 

@@ -56,7 +56,7 @@ import asyncio
 import pickle
 import threading
 import time
-from typing import Awaitable, Protocol, Sequence
+from typing import Awaitable, Protocol, Sequence, TypeVar
 
 from absl import logging
 from etils import epath
@@ -64,24 +64,24 @@ import jax
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
+from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity_types
-from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path import utils
 from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 
 
-TMP_DIR_SUFFIX = step_lib.TMP_DIR_SUFFIX
-COMMIT_SUCCESS_FILE = step_lib._COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
+ValidationError = atomicity_types.ValidationError
+
+TMP_DIR_SUFFIX = atomicity_types.TMP_DIR_SUFFIX
+COMMIT_SUCCESS_FILE = atomicity_types.COMMIT_SUCCESS_FILE  # pylint: disable=protected-access
 
 _LAST_CHECKPOINT_WRITE_TIME = time.time()
 
-
-async def _is_tmp_checkpoint(path: epath.Path):
-  return await asyncio.to_thread(step_lib.is_tmp_checkpoint, path)
+_T = TypeVar('_T', bound='TemporaryPathBase')
 
 
 class AsyncMakeDirFunc(Protocol):
@@ -126,23 +126,14 @@ async def _create_tmp_directory(
 
   Returns:
     The tmp directory.
-
-  Raises:
-    FileExistsError: if tmp directory already exists.
   """
   if await async_path.exists(tmp_dir):
-    if await _is_tmp_checkpoint(tmp_dir):
-      logging.warning(
-          'Attempted to create temporary directory %s which already exists.'
-          ' Removing existing directory since it is not finalized.',
-          tmp_dir,
-      )
-      await async_path.rmtree(tmp_dir)
-    else:
-      raise FileExistsError(
-          f'Attempted to create temporary directory {tmp_dir} which already'
-          ' exists but appears a non-temporary checkpoint.'
-      )
+    logging.warning(
+        'Attempted to create temporary directory %s which already exists.'
+        ' Removing existing directory since it is not finalized.',
+        tmp_dir,
+    )
+    await async_path.rmtree(tmp_dir)
   logging.info('Creating tmp directory %s', tmp_dir)
   if snapshot is not None:
     await snapshot.create_snapshot()
@@ -173,12 +164,10 @@ def _get_tmp_directory(final_path: epath.Path) -> epath.Path:
   return epath.Path(final_path.parent) / (final_path.name + TMP_DIR_SUFFIX)
 
 
-def _get_tmp_directory_pattern(final_path_name: str | None = None) -> str:
-  suffix = r'\.orbax-checkpoint-tmp'
-  if final_path_name is None:
-    return '(.+)' + suffix
-  else:
-    return final_path_name + suffix
+def _get_final_directory(tmp_path: epath.Path) -> epath.Path:
+  if (suffix_idx := tmp_path.name.find(TMP_DIR_SUFFIX)) == -1:
+    raise ValueError(f'Expected {tmp_path} to end with "{TMP_DIR_SUFFIX}".')
+  return epath.Path(tmp_path.parent) / tmp_path.name[:suffix_idx]
 
 
 class TemporaryPathBase(atomicity_types.TemporaryPath):
@@ -213,8 +202,7 @@ class TemporaryPathBase(atomicity_types.TemporaryPath):
     """Returns the temporary path."""
     if not self._tmp_path:
       raise ValueError(
-          'Temporary path has not been created yet. Please call `create`'
-          ' first.'
+          'Temporary path has not been created yet. Please call `create` first.'
       )
     return self._tmp_path
 
@@ -296,6 +284,19 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
     )
 
   @classmethod
+  def from_temporary(
+      cls,
+      temporary_path: epath.Path,
+      *,
+      file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
+  ) -> ReadOnlyTemporaryPath:
+    """Not implemented for ReadOnlyTemporaryPath."""
+    raise NotImplementedError(
+        'ReadOnlyTemporaryPath is not constructible from a temporary path.'
+    )
+
+  @classmethod
   def from_final(
       cls,
       final_path: epath.Path,
@@ -304,6 +305,7 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
           checkpoint_metadata.MetadataStore | None
       ) = None,
       file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
   ) -> ReadOnlyTemporaryPath:
     """Not implemented for ReadOnlyTemporaryPath."""
     raise NotImplementedError(
@@ -324,9 +326,103 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
     """Not supported for ReadOnlyTemporaryPath."""
     raise NotImplementedError('`finalize` is not supported.')
 
+  @classmethod
+  async def validate(
+      cls,
+      temporary_path: epath.Path,
+  ):
+    """Validates the temporary path or raises an error."""
+    raise NotImplementedError('`validate` is not supported.')
+
+  @classmethod
+  async def validate_final(
+      cls,
+      final_path: epath.Path,
+  ):
+    """Validates the final path or raises an error."""
+    raise NotImplementedError('`validate_final` is not supported.')
+
+
+async def _shared_validate(class_name: str, path: epath.Path):
+  if not await async_path.is_dir(path):
+    raise ValidationError(
+        f'Expected {class_name} ({path}) to be a directory.'
+    )
+  if not await async_path.exists(path):
+    raise ValidationError(f'Expected {class_name} ({path}) to exist.')
+
+
+async def validate_atomic_rename_temporary_path(
+    class_name: str,
+    temporary_path: epath.Path,
+):
+  """Validates the temporary path or raises an error."""
+  if await async_path.is_link(temporary_path):
+    raise ValidationError(
+        f'Path {temporary_path} is a symbolic link and cannot be treated as a'
+        ' temporary checkpoint.',
+    )
+  # Does not perform I/O.
+  if TMP_DIR_SUFFIX not in temporary_path.name:
+    raise ValidationError(
+        f'Expected {class_name} ({temporary_path}) to end with'
+        f' "{TMP_DIR_SUFFIX}".'
+    )
+  if await async_path.exists(temporary_path / COMMIT_SUCCESS_FILE):
+    raise ValidationError(
+        f'Expected {class_name} ({temporary_path}) not to'
+        f' contain the "{COMMIT_SUCCESS_FILE}" file.'
+    )
+  await _shared_validate(class_name, temporary_path)
+
+
+async def validate_atomic_rename_final_path(
+    class_name: str,
+    final_path: epath.Path,
+):
+  """Validates the final path or raises an error."""
+  # Does not perform I/O.
+  if TMP_DIR_SUFFIX in final_path.name:
+    raise ValidationError(
+        f'Expected final {class_name} ({final_path}) not to end'
+        f' with "{TMP_DIR_SUFFIX}".'
+    )
+  await _shared_validate(class_name, final_path)
+
 
 class AtomicRenameTemporaryPath(TemporaryPathBase):
   """TemporaryPath implementation that uses atomic rename."""
+
+  @classmethod
+  async def validate(
+      cls,
+      temporary_path: epath.Path,
+  ):
+    await validate_atomic_rename_temporary_path(
+        cls.__name__, temporary_path
+    )
+
+  @classmethod
+  async def validate_final(
+      cls,
+      final_path: epath.Path,
+  ):
+    await validate_atomic_rename_final_path(cls.__name__, final_path)
+
+  @classmethod
+  def from_temporary(
+      cls,
+      temporary_path: epath.Path,
+      *,
+      file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
+  ) -> AtomicRenameTemporaryPath:
+    return cls(
+        temporary_path,
+        _get_final_directory(temporary_path),
+        file_options=file_options,
+        use_snapshot=use_snapshot,
+    )
 
   @classmethod
   def from_final(
@@ -410,6 +506,50 @@ class AtomicRenameTemporaryPath(TemporaryPathBase):
 
 class CommitFileTemporaryPath(TemporaryPathBase):
   """TemporaryPath implementation that uses a commit file."""
+
+  @classmethod
+  async def validate(
+      cls,
+      temporary_path: epath.Path,
+  ):
+    if await async_path.is_link(temporary_path):
+      raise ValidationError(
+          f'Path {temporary_path} is a symbolic link and cannot be treated as a'
+          ' temporary checkpoint.',
+      )
+    if await async_path.exists(temporary_path / COMMIT_SUCCESS_FILE):
+      raise ValidationError(
+          f'Expected {cls.__name__} ({temporary_path}) not to contain the'
+          f' "{COMMIT_SUCCESS_FILE}" file.'
+      )
+    await _shared_validate(cls.__name__, temporary_path)
+
+  @classmethod
+  async def validate_final(
+      cls,
+      final_path: epath.Path,
+  ):
+    if not await async_path.exists(final_path / COMMIT_SUCCESS_FILE):
+      raise ValidationError(
+          f'Expected {cls.__name__} ({final_path}) to contain the'
+          f' "{COMMIT_SUCCESS_FILE}" file.'
+      )
+    await _shared_validate(cls.__name__, final_path)
+
+  @classmethod
+  def from_temporary(
+      cls,
+      temporary_path: epath.Path,
+      *,
+      file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
+  ) -> CommitFileTemporaryPath:
+    return cls(
+        temporary_path,
+        temporary_path,
+        file_options=file_options,
+        use_snapshot=use_snapshot,
+    )
 
   @classmethod
   def from_final(
@@ -582,7 +722,9 @@ def create_all_async(
         timeout_secs=multihost.coordination_timeout(),
         operation_id=operation_id,
     )
-    future.add_to_awaitable_signals_contract(completion_signals)
+    future.AwaitableSignalsContract.add_to_awaitable_signals_contract(
+        completion_signals
+    )
 
   # Sync to enusre that all hosts have the same awaitable signals contract.
   multihost.sync_global_processes(

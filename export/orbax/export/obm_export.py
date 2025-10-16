@@ -15,6 +15,7 @@
 """Export class that implements the save and load abstract class defined in Export Base for use with the Orbax Model export format."""
 
 from collections.abc import Callable, Mapping, Sequence
+import copy
 import functools
 import itertools
 import os
@@ -23,16 +24,16 @@ from typing import Any, Dict, Tuple, cast
 from absl import logging
 import jax
 from jax import export as jax_export
+import jaxtyping
 from orbax.export import constants
 from orbax.export import export_base
 from orbax.export import jax_module
 from orbax.export import obm_configs
 from orbax.export import oex_orchestration
 from orbax.export import serving_config as osc
+from orbax.export import typing
 from orbax.export import utils
 from orbax.export.modules import obm_module
-from orbax.export.protos import oex_orchestration_pb2
-from orbax.export.typing import PyTree
 import tensorflow as tf
 
 
@@ -45,14 +46,6 @@ class ObmExport(export_base.ExportBase):
       serving_configs: Sequence[osc.ServingConfig],
   ):
     """Initializes the ObmExport class."""
-    if module.export_version != constants.ExportModelType.ORBAX_MODEL:
-      raise ValueError(
-          "JaxModule export version is not of type ORBAX_MODEL. Please use the"
-          " correct export_version. Expected ORBAX_MODEL, got"
-          f" {module.export_version}"
-      )
-
-    obm_model_module = module.export_module()
 
   def save(
       self,

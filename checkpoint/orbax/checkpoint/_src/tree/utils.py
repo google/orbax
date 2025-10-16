@@ -326,9 +326,14 @@ def from_flat_dict(
     return jax.tree.unflatten(jax.tree.structure(target), flat_dict.values())
 
 
+def str_keypath(keypath: Tuple[Any, ...]) -> Tuple[str, ...]:
+  """Returns the parameter name for a keypath."""
+  return tuple([str(get_key_name(k)) for k in keypath])
+
+
 def param_name_from_keypath(keypath: Tuple[Any, ...]) -> str:
   """Returns the parameter name for a keypath."""
-  return '.'.join([str(get_key_name(k)) for k in keypath])
+  return '.'.join(str_keypath(keypath))
 
 
 def get_param_names(

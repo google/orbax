@@ -96,6 +96,7 @@ def _get_checkpoint_manager_options(
     multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
 ) -> checkpoint_manager.CheckpointManagerOptions:
   """Get options for persistent checkpoint manager."""
+  per_process_directory_creation = multiprocessing_options.primary_host is None
   return checkpoint_manager.CheckpointManagerOptions(
       save_interval_steps=options.save_interval_steps,
       step_name_format=options.step_name_format,
@@ -106,6 +107,7 @@ def _get_checkpoint_manager_options(
       enable_background_delete=True,
       enable_async_checkpointing=True,
       preservation_policy=options.preservation_policy,
+      enable_per_process_directory_creation=per_process_directory_creation,
   )
 
 
@@ -167,8 +169,6 @@ class ReplicatorCheckpointManager(
     multiprocessing_options = checkpoint_manager.MultiprocessingOptions(
         primary_host=None
     )
-    async_options = checkpoint_manager.AsyncOptions()
-    async_options.create_directories_asynchronously = False
     self._options = options
     self._step_name_format = (
         options.step_name_format or step_lib.standard_name_format()
@@ -227,15 +227,15 @@ class ReplicatorCheckpointManager(
     """Remove steps that might be left over from previous runs."""
     logging.info('Running initial garbage collection at %s.', self.directory)
     logging.info('Cleaning up existing temporary directories.')
-    tmp_files = step_lib.tmp_checkpoints(self.directory)
-    logging.info('Found tmp files: %s', tmp_files)
-    for tmp_file in tmp_files:
+    tmp_paths = step_lib.all_temporary_paths(self.directory)
+    logging.info('Found tmp files: %s', tmp_paths)
+    for tmp_path in tmp_paths:
       if (
-          tmp_file
+          tmp_path.get().name
           == mesh_consistency.process_metadata_folder(self.directory).name
       ):
         continue
-      (self.directory / tmp_file).rmtree()
+      tmp_path.get().rmtree()
 
   @property
   def directory(self) -> epath.Path:

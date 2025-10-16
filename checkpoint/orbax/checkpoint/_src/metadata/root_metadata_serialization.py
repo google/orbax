@@ -32,6 +32,10 @@ class InternalRootMetadata:
   See documentation on `InternalCheckpointMetadata` for more design context.
   """
 
+  internal_metadata: dict[str, Any] | None = dataclasses.field(
+      default_factory=dict,
+      metadata={'processor': utils.validate_and_process_internal_metadata},
+  )
   custom_metadata: dict[str, Any] | None = dataclasses.field(
       default_factory=dict,
       metadata={'processor': utils.validate_and_process_custom_metadata},
@@ -73,13 +77,19 @@ class InternalRootMetadata:
     return InternalRootMetadata(**validated_metadata_dict)
 
   def to_root_metadata(self) -> RootMetadata:
-    return RootMetadata(custom_metadata=self.custom_metadata)
+    return RootMetadata(
+        internal_metadata=self.internal_metadata,
+        custom_metadata=self.custom_metadata,
+    )
 
   @classmethod
   def from_root_metadata(
       cls, root_metadata: RootMetadata
   ) -> InternalRootMetadata:
-    return InternalRootMetadata(custom_metadata=root_metadata.custom_metadata)
+    return InternalRootMetadata(
+        internal_metadata=root_metadata.internal_metadata,
+        custom_metadata=root_metadata.custom_metadata,
+    )
 
 
 def serialize(metadata: RootMetadata) -> SerializedMetadata:

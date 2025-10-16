@@ -18,19 +18,12 @@ import os
 
 from absl.testing import absltest
 from absl.testing import parameterized
-import jax
-from jax import sharding
-from jax.experimental import mesh_utils
-import jax.numpy as jnp
 from orbax.export import constants
 from orbax.export import export_manager
-from orbax.export import jax_module
+from orbax.export import export_testing_utils
 from orbax.export import oex_orchestration
-from orbax.export import serving_config as osc
-from orbax.export.protos import oex_orchestration_pb2
 import tensorflow as tf
 
-os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
 
 _VERSIONS = (
     constants.ExportModelType.TF_SAVEDMODEL,
@@ -40,6 +33,11 @@ _VERSIONS = (
 
 # TODO: b/380323586 - Add a e2e test for default xla compile options.
 class ExportManagerObmTest(parameterized.TestCase, tf.test.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    self._testdata_dir = os.path.join(base_path, 'testdata')
 
   # Dummy test to make copybara happy, will be removed once all the obm
   # dependencies are OSSed.

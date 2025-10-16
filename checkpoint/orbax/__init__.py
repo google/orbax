@@ -14,7 +14,7 @@
 
 """Defines exported symbols for the namespace package `orbax.checkpoint`."""
 
-# pylint: disable=g-importing-member, g-bad-import-order
+# pylint: disable=g-importing-member, g-bad-import-order, g-import-not-at-top
 
 import contextlib
 import functools
@@ -88,3 +88,4 @@ from orbax.checkpoint._src.serialization.type_handlers import PLACEHOLDER
 # A new PyPI release will be pushed everytime `__version__` is increased.
 __version__ = version.__version__
 del version
+

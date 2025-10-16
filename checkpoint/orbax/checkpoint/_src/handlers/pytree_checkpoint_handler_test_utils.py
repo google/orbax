@@ -27,7 +27,7 @@ import datetime
 import functools
 import json
 import re
-from typing import Any, Iterator, List, Optional, Sequence
+from typing import Any, Iterator, List, NamedTuple, Optional, Sequence
 import unittest
 from unittest import mock
 
@@ -164,6 +164,7 @@ class PyTreeCheckpointHandlerTestBase:
         array_metadata_store: array_metadata_store_lib.Store | None = (
             ARRAY_METADATA_STORE
         ),
+        use_compression: bool = True,
     ):
       """Registers handlers with OCDBT support and resets when done."""
       type_handler_registry = copy.deepcopy(
@@ -179,6 +180,7 @@ class PyTreeCheckpointHandlerTestBase:
           type_handler_registry=type_handler_registry,
           pytree_metadata_options=pytree_metadata_options,
           enable_pinned_host_transfer=enable_pinned_host_transfer,
+          use_compression=use_compression,
       )
       try:
         yield handler
@@ -485,6 +487,7 @@ class PyTreeCheckpointHandlerTestBase:
           shape=np.array([2]),
           axis_names=['x'],
           partition_spec=('x',),
+          axis_types=(jax.sharding.AxisType.Auto,),
           device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
               jax.sharding.Mesh(devices_subset, ('x',))
           ),
@@ -493,6 +496,7 @@ class PyTreeCheckpointHandlerTestBase:
           shape=np.array([8]),
           axis_names=['x'],
           partition_spec=('x',),
+          axis_types=(jax.sharding.AxisType.Auto,),
           device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
               jax.sharding.Mesh(jax.devices(), ('x',))
           ),
@@ -755,6 +759,52 @@ class PyTreeCheckpointHandlerTestBase:
               pytree_metadata_options=self.pytree_metadata_options,
               array_metadata_store=array_metadata_store,
           )
+
+    @parameterized.product(
+        use_ocdbt=(True, False),
+        use_zarr3=(False, True),
+        array_metadata_store=(None, ARRAY_METADATA_STORE),
+        use_compression=(True, False),
+    )
+    def test_compression(
+        self,
+        use_ocdbt: bool,
+        use_zarr3: bool,
+        array_metadata_store: array_metadata_store_lib.Store | None,
+        use_compression: bool,
+    ):
+      """Test case for zarr2 compression."""
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt,
+          use_zarr3=use_zarr3,
+          array_metadata_store=array_metadata_store,
+          use_compression=use_compression,
+      ) as checkpoint_handler:
+        checkpoint_handler.save(
+            self.directory, args=PyTreeSaveArgs(self.pytree)
+        )
+        restored = checkpoint_handler.restore(
+            self.directory,
+            args=PyTreeRestoreArgs(restore_args=self.restore_args),
+        )
+        self.validate_restore(self.pytree, restored)
+        if self.should_validate_metadata():
+          self.validate_metadata(
+              expected_reference_metadata_tree=self.pytree,
+              actual_metadata=checkpoint_handler.metadata(self.directory),
+              pytree_metadata_options=self.pytree_metadata_options,
+              array_metadata_store=array_metadata_store,
+          )
+
+        self.assertEqual(
+            test_utils.is_compression_used(
+                self.directory,
+                'a',
+                use_zarr3,
+                use_ocdbt,
+            ),
+            use_compression,
+        )
 
     @parameterized.product(use_ocdbt=(True, False))
     def test_restore_reverse_mesh(self, use_ocdbt: bool):
@@ -2314,9 +2364,7 @@ class PyTreeCheckpointHandlerTestBase:
       if multihost.process_index() != 0:  # only test on primary host
         self.skipTest('Test only for primary host to avoid barrier timeout.')
 
-      class MissingArrayMetadataSerializer(
-          array_metadata_store_lib.Serializer
-      ):
+      class MissingArrayMetadataSerializer(array_metadata_store_lib.Serializer):
 
         def deserialize(
             self, serialized: str
@@ -2662,7 +2710,7 @@ class PyTreeCheckpointHandlerTestBase:
           }
           with self.assertRaisesRegex(
               ValueError,
-              r"Missing 1 keys in structure path \(\), including: \['z'\]",
+              'Missing keys were found in the user-provided restore item.',
           ):
             restore_handler.restore(
                 directory,
@@ -2672,3 +2720,92 @@ class PyTreeCheckpointHandlerTestBase:
                     partial_restore=True,
                 ),
             )
+
+    @parameterized.product(use_ocdbt=(True, False))
+    def test_partial_restore_with_omission_no_restore_args(
+        self, use_ocdbt: bool
+    ):
+      """Basic save and restore test."""
+      directory = self.directory / 'partial_restore'
+      directory.mkdir(parents=True, exist_ok=True)
+
+      pytree = {'a': 0, 'b': 1, 'c': {'a': 2, 'b': 3}}
+
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=use_ocdbt,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        save_handler.save(directory, pytree)
+
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=use_ocdbt,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as restore_handler:
+        reference_item = {
+            'a': 0,
+            'c': {
+                'a': 0,
+            },
+        }
+        expected = {
+            'a': pytree['a'],
+            'c': {
+                'a': pytree['c']['a'],
+            },
+        }
+        restored = restore_handler.restore(
+            directory,
+            args=PyTreeRestoreArgs(
+                item=reference_item,
+                partial_restore=True,
+            ),
+        )
+        test_utils.assert_tree_equal(self, expected, restored)
+
+    @parameterized.product(use_ocdbt=(True, False))
+    def test_partial_restore_with_omission_empty_container(
+        self, use_ocdbt: bool
+    ):
+      """Basic save and restore test."""
+      directory = self.directory / 'partial_restore'
+      directory.mkdir(parents=True, exist_ok=True)
+
+      class EmptyContainer(NamedTuple):
+        pass
+
+      pytree = {
+          'a': 0,
+          'b': EmptyContainer(),
+          'c': {'a': EmptyContainer(), 'b': 3},
+      }
+
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=use_ocdbt,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as save_handler:
+        save_handler.save(directory, pytree)
+
+      with self.ocdbt_checkpoint_handler(
+          use_ocdbt=use_ocdbt,
+          array_metadata_store=array_metadata_store_lib.Store(),
+      ) as restore_handler:
+        reference_item = {
+            'a': 0,
+            'c': {
+                'a': EmptyContainer(),
+            },
+        }
+        expected = {
+            'a': pytree['a'],
+            'c': {
+                'a': pytree['c']['a'],
+            },
+        }
+        restored = restore_handler.restore(
+            directory,
+            args=PyTreeRestoreArgs(
+                item=reference_item,
+                partial_restore=True,
+            ),
+        )
+        test_utils.assert_tree_equal(self, expected, restored)

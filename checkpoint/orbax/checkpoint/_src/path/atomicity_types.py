@@ -20,19 +20,22 @@ paths, which allow other implementations.
 
 from __future__ import annotations
 
-import typing
-from typing import Protocol
-
+import abc
 from etils import epath
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 
 
 
-# TODO(b/326119183) Support configuration of temporary path detection
-# (currently handled by `tmp_checkpoints` util methods).
-@typing.runtime_checkable
-class TemporaryPath(Protocol):
+TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp'
+COMMIT_SUCCESS_FILE = 'commit_success.txt'
+
+
+class ValidationError(ValueError):
+  """Raised when a TemporaryPath or its final path is invalid."""
+
+
+class TemporaryPath(abc.ABC):
   """Class that represents a temporary path.
 
   Importantly, the temporary path always has a corresponding finalized path, and
@@ -45,6 +48,37 @@ class TemporaryPath(Protocol):
   """
 
   @classmethod
+  @abc.abstractmethod
+  async def validate(
+      cls,
+      temporary_path: epath.Path,
+  ):
+    """Validates the temporary path or raises a ValidationError."""
+    ...
+
+  @classmethod
+  @abc.abstractmethod
+  async def validate_final(
+      cls,
+      final_path: epath.Path,
+  ):
+    """Validates the final path or raises a ValidationError."""
+    ...
+
+  @classmethod
+  @abc.abstractmethod
+  def from_temporary(
+      cls,
+      temporary_path: epath.Path,
+      *,
+      file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
+  ) -> TemporaryPath:
+    """Creates a TemporaryPath from a temporary path."""
+    ...
+
+  @classmethod
+  @abc.abstractmethod
   def from_final(
       cls,
       final_path: epath.Path,
@@ -53,18 +87,22 @@ class TemporaryPath(Protocol):
           checkpoint_metadata.MetadataStore | None
       ) = None,
       file_options: options_lib.FileOptions | None = None,
+      use_snapshot: bool | None = None,
   ) -> TemporaryPath:
     """Creates a TemporaryPath from a final path."""
     ...
 
+  @abc.abstractmethod
   def get(self) -> epath.Path:
     """Constructs the temporary path without actually creating it."""
     ...
 
+  @abc.abstractmethod
   def get_final(self) -> epath.Path:
     """Returns the final path without creating it."""
     ...
 
+  @abc.abstractmethod
   async def create(self) -> epath.Path:
     """Creates the temporary path on disk.
 
@@ -75,6 +113,7 @@ class TemporaryPath(Protocol):
     """
     ...
 
+  @abc.abstractmethod
   async def finalize(
       self,
   ) -> None:

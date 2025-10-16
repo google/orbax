@@ -29,15 +29,12 @@ from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
-
-Scalar = int | float | np.number
+Scalar = types.Scalar
+AbstractScalar = types.AbstractScalar
 ScalarSerializationParam = types.SerializationParam[Scalar]
-ScalarDeserializationParam = types.DeserializationParam["AbstractScalar"]
-
-
-# Optional type hint for a scalar leaf handler. If provided, the restored scalar
-# will be cast to this type.  Only casting to int or float is supported.
-AbstractScalar = Type[Scalar] | Scalar
+ScalarDeserializationParam = types.DeserializationParam[
+    AbstractScalar
+]
 
 
 def _create_v0_scalar_handler() -> type_handlers_v0.ScalarHandler:
@@ -62,6 +59,7 @@ def _create_v0_saving_paraminfo(
       byte_limiter=serialization_context.byte_limiter,
       is_ocdbt_checkpoint=saving_options.use_ocdbt,
       use_zarr3=saving_options.use_zarr3,
+      use_compression=saving_options.use_compression,
       ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
       ts_context=serialization_context.ts_context,
       value_typestr="scalar",
@@ -90,13 +88,15 @@ def _create_v0_savearg(
 
 
 def _create_v0_restore_paraminfo(
-    param: types.DeserializationParam[None | AbstractScalar],
+    param: types.DeserializationParam[
+        AbstractScalar | Type[AbstractScalar] | None
+    ],
     context: context_lib.Context,
     deserialization_context: types.DeserializationContext,
 ) -> type_handlers_v0.ParamInfo:
   """Creates a V0 ParamInfo from V1 params and contexts for loading."""
 
-  loading_options = context.array_options.Loading
+  loading_options = context.array_options.loading
 
   return type_handlers_v0.ParamInfo(
       name=param.name,
@@ -125,6 +125,16 @@ def _create_v0_restorearg(
   return type_handlers_v0.RestoreArgs(
       restore_type=restore_type,
   )
+
+
+def _np_dtype_to_python_type(dtype):
+  """Converts dtype by checking its fundamental type."""
+  if np.issubdtype(dtype, np.integer):
+    return int
+  elif np.issubdtype(dtype, np.floating):
+    return float
+  else:
+    raise TypeError(f"Unsupported dtype: {dtype}.")
 
 
 async def _async_futures(commit_futures: Sequence[future.Future]):
@@ -175,7 +185,7 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
 
   async def deserialize(
       self,
-      params: Sequence[types.DeserializationParam[AbstractScalar]],
+      params: Sequence[ScalarDeserializationParam],
       deserialization_context: types.DeserializationContext,
   ) -> Awaitable[Sequence[Scalar]]:
     """Returns sequence of Scalar values from a stored checkpointable location.
@@ -230,9 +240,11 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
           raise ValueError("dtype is None")
 
         if isinstance(meta.dtype, (np.dtype | jnp.dtype)):
-          return meta.dtype.type
+          t = _np_dtype_to_python_type(meta.dtype)
         else:
-          return meta.dtype
+          t = meta.dtype
+
+        return t(0)
 
       ret = [_get_type(meta) for meta in v0_metadatas]
 

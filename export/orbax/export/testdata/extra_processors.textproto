@@ -1,0 +1,100 @@
+# proto-file: //orbax/experimental/model/core/protos/manifest.proto
+# proto-message: Manifest
+objects {
+  key: "__PRE_PROCESSOR_NAME_1__"
+  value {
+    function {
+      signature {
+        input {
+          tuple {
+            elements {
+              tuple {
+                elements {
+                  leaf {
+                    tensor_type {
+                      shape {
+                        shape_with_known_rank {
+                          dimension_sizes { size: 4 }
+                          dimension_sizes { size: 28 }
+                          dimension_sizes { size: 28 }
+                          dimension_sizes { size: 1 }
+                        }
+                      }
+                      dtype: f32
+                    }
+                  }
+                }
+              }
+            }
+            elements { dict {} }
+          }
+        }
+        output {
+          leaf {
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes { size: 4 }
+                  dimension_sizes { size: 28 }
+                  dimension_sizes { size: 28 }
+                  dimension_sizes { size: 1 }
+                }
+              }
+              dtype: f32
+            }
+          }
+        }
+      }
+      body {
+        other {
+          file_system_location { string_path: "__PRE_PROCESSOR_FILENAME_1__" }
+          mime_type: "__TF_FUNCTION_MIME_TYPE__"
+          version: "__TF_FUNCTION_VERSION__"
+        }
+      }
+      visibility: PUBLIC
+    }
+  }
+}
+objects {
+  key: "__POST_PROCESSOR_NAME_1__"
+  value {
+    function {
+      signature {
+        input {
+          tuple {
+            elements {
+              tuple {
+                elements {
+                  leaf {
+                    tensor_type {
+                      shape { shape_with_known_rank { dimension_sizes {} } }
+                      dtype: f32
+                    }
+                  }
+                }
+              }
+            }
+            elements { dict {} }
+          }
+        }
+        output {
+          leaf {
+            tensor_type {
+              shape { shape_with_known_rank { dimension_sizes {} } }
+              dtype: f32
+            }
+          }
+        }
+      }
+      body {
+        other {
+          file_system_location { string_path: "__POST_PROCESSOR_FILENAME_1__" }
+          mime_type: "__TF_FUNCTION_MIME_TYPE__"
+          version: "__TF_FUNCTION_VERSION__"
+        }
+      }
+      visibility: PUBLIC
+    }
+  }
+}

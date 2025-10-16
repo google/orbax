@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import copy
 import dataclasses
 import enum
 import functools
@@ -38,6 +39,7 @@ from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.metadata import value_metadata_entry
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types
+from orbax.checkpoint._src.tree import structure_utils
 from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 
@@ -528,6 +530,99 @@ class InternalTreeMetadata:
         flat_metadatas[keypath] = value
     return tree_utils.from_flat_dict(
         flat_metadatas, target=reference_metadata_tree
+    )
+
+  def merge(
+      self,
+      other: InternalTreeMetadata,
+      *,
+      overwrite: bool = False,
+  ) -> InternalTreeMetadata:
+    """Create a new InternalTreeMetadata by merging two existing ones.
+
+    Args:
+      other: The InternalTreeMetadata to merge.
+      overwrite: Whether to overwrite existing entries in `self` with entries
+        from `other`. If False, an error is raised if there are duplicate
+        entries in the two trees.
+
+    Returns:
+      A new InternalTreeMetadata containing the merged entries.
+    """
+    if self.use_zarr3 != other.use_zarr3:
+      raise ValueError('Trees must use the same zarr format.')
+    use_zarr3 = self.use_zarr3
+
+    if self.pytree_metadata_options != other.pytree_metadata_options:
+      raise ValueError(
+          'The pytree_metadata_options of the two metadata trees must be the'
+          ' same.'
+      )
+    pytree_metadata_options = copy.deepcopy(self.pytree_metadata_options)
+
+    if self.store_array_data_equal_to_fill_value != (
+        other.store_array_data_equal_to_fill_value
+    ):
+      raise ValueError(
+          'The store_array_data_equal_to_fill_value of the two metadata trees'
+          ' must be the same.'
+      )
+    store_array_data_equal_to_fill_value = (
+        self.store_array_data_equal_to_fill_value
+    )
+
+    self_entries = functools.reduce(
+        operator.ior,
+        [entry.to_json() for entry in self.tree_metadata_entries],
+        {},
+    )
+    other_entries = functools.reduce(
+        operator.ior,
+        [entry.to_json() for entry in other.tree_metadata_entries],
+        {},
+    )
+    merged = self_entries.copy()
+    for k, v in other_entries.items():
+      if k in merged and not overwrite:
+        raise ValueError(
+            f'Key {k} exists in both metadata trees and overwrite is False.'
+        )
+      merged[k] = v
+    tree_metadata_entries = [
+        InternalTreeMetadataEntry.from_json(keypath, entry)
+        for keypath, entry in merged.items()
+    ]
+
+    if self.custom_metadata is not None and other.custom_metadata is not None:
+      custom_metadata = structure_utils.merge_trees(
+          self.custom_metadata, other.custom_metadata, overwrite=overwrite
+      )
+    else:
+      custom_metadata = copy.deepcopy(
+          self.custom_metadata or other.custom_metadata
+      )
+
+    if (
+        self.value_metadata_tree is not None
+        and other.value_metadata_tree is not None
+    ):
+      value_metadata_tree = structure_utils.merge_trees(
+          self.value_metadata_tree,
+          other.value_metadata_tree,
+          overwrite=overwrite,
+      )
+    else:
+      value_metadata_tree = copy.deepcopy(
+          self.value_metadata_tree or other.value_metadata_tree
+      )
+
+    return InternalTreeMetadata(
+        tree_metadata_entries=tree_metadata_entries,
+        use_zarr3=use_zarr3,
+        custom_metadata=custom_metadata,
+        pytree_metadata_options=pytree_metadata_options,
+        value_metadata_tree=value_metadata_tree,
+        store_array_data_equal_to_fill_value=store_array_data_equal_to_fill_value,
     )
 
 

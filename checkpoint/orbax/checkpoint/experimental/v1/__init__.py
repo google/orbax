@@ -21,14 +21,24 @@ Prefer to use the style::
 
 # pylint: disable=g-importing-member, g-multiple-import, g-bad-import-order, unused-import
 
-from orbax.checkpoint.experimental.v1 import handlers
-from orbax.checkpoint.experimental.v1 import training
-from orbax.checkpoint.experimental.v1 import path
+from orbax.checkpoint.experimental.v1 import arrays
 from orbax.checkpoint.experimental.v1 import errors
+from orbax.checkpoint.experimental.v1 import handlers
+from orbax.checkpoint.experimental.v1 import partial
+from orbax.checkpoint.experimental.v1 import path
 from orbax.checkpoint.experimental.v1 import serialization
+from orbax.checkpoint.experimental.v1 import training
+from orbax.checkpoint.experimental.v1 import tree
+from orbax.checkpoint.experimental.v1.handlers import (
+    CheckpointableHandler,
+    StatefulCheckpointable,
+)
 from orbax.checkpoint.experimental.v1._src.context import options
 from orbax.checkpoint.experimental.v1._src.context.context import (
     Context,
+)
+from orbax.checkpoint.experimental.v1._src.layout.orbax_layout import (
+    is_orbax_checkpoint,
 )
 from orbax.checkpoint.experimental.v1._src.loading.loading import (
     load_checkpointables,
@@ -41,20 +51,13 @@ from orbax.checkpoint.experimental.v1._src.metadata.loading import (
     checkpointables_metadata,
     pytree_metadata,
 )
+from orbax.checkpoint.experimental.v1._src.metadata.types import (
+    CheckpointMetadata,
+    PyTreeMetadata,
+)
 from orbax.checkpoint.experimental.v1._src.saving.saving import (
     save_checkpointables,
     save_checkpointables_async,
     save_pytree,
     save_pytree_async,
-)
-from orbax.checkpoint.experimental.v1.handlers import (
-    CheckpointableHandler,
-    StatefulCheckpointable,
-)
-from orbax.checkpoint.experimental.v1._src.metadata.types import (
-    CheckpointMetadata,
-    PyTreeMetadata,
-)
-from orbax.checkpoint.experimental.v1._src.layout.format_utils import (
-    is_orbax_checkpoint,
 )

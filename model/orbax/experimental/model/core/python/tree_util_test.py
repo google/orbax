@@ -12,15 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
-
-from orbax.experimental.model.core.python import tree_util
-from orbax.experimental.model.core.python.tree_util import Tree
+"""Tests for tree_util."""
 
 from absl.testing import absltest
+from absl.testing import parameterized
+from orbax.experimental.model.core.python import tree_util
+
+Tree = tree_util.Tree
 
 
-class TreeUtilTest(absltest.TestCase):
+class TreeUtilTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -62,19 +63,48 @@ class TreeUtilTest(absltest.TestCase):
     tree = tree_util.tree_map(self._map_fn, self._tree1)
     self.assertEqual(tree, self._tree2)
 
-  def test_assert_tree(self):
-    err_msg = "Expected int, got type: "
+  @parameterized.named_parameters(
+      ("leaf", 1),
+      ("list", [1, 2, 3]),
+      ("tuple", (1, 2, 3)),
+      ("dict", {"a": 1, "b": 2}),
+      ("nested", [1, (2, {"c": 3}), None]),
+      ("none", None),
+  )
+  def test_assert_tree_success(self, tree):
+    tree_util.assert_tree(lambda x: self.assertIsInstance(x, int), tree)
 
-    def assert_int(x: Any) -> None:
-      if not isinstance(x, int):
-        raise ValueError(f"{err_msg}{type(x)}")
+  @parameterized.named_parameters(
+      ("leaf", "a"),
+      ("list", [1, "a", 3]),
+      ("tuple", (1, 2, "a")),
+      ("dict", {"a": 1, "b": "a"}),
+      ("nested", [1, (2, {"c": "a"}), None]),
+  )
+  def test_assert_tree_failure(self, tree):
+    with self.assertRaises(AssertionError):
+      tree_util.assert_tree(lambda x: self.assertIsInstance(x, int), tree)
 
-    tree_util.assert_tree(assert_int, self._tree1)
-    wrong_tree = (1, {"k": (3, [2, "a"])})
-    self.assertRaisesRegex(
-        ValueError,
-        err_msg,
-        lambda: tree_util.assert_tree(assert_int, wrong_tree),
+  def test_prune_tree(self):
+    tree = (1, "a", [2, "b", {"c": 3, "d": "e"}], None)
+    pruned_int = tree_util.prune_tree(tree, int)
+    self.assertEqual(
+        pruned_int, (1, None, [2, None, {"c": 3, "d": None}], None)
+    )
+    pruned_str = tree_util.prune_tree(tree, str)
+    self.assertEqual(
+        pruned_str, (None, "a", [None, "b", {"c": None, "d": "e"}], None)
+    )
+    pruned_int_str = tree_util.prune_tree(tree, (int, str))
+    self.assertEqual(pruned_int_str, tree)
+    pruned_empty = tree_util.prune_tree(tree, ())
+    self.assertEqual(
+        pruned_empty, (None, None, [None, None, {"c": None, "d": None}], None)
+    )
+    pruned_not_present = tree_util.prune_tree(tree, float)
+    self.assertEqual(
+        pruned_not_present,
+        (None, None, [None, None, {"c": None, "d": None}], None),
     )
 
 

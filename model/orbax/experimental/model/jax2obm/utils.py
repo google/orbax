@@ -41,6 +41,10 @@ JaxArrayPyTree = TypeVar(
 
 def _get_physical_dtype(dtype) -> Optional[obm.ShloDType]:
   try:
+    if dtype == jax.numpy.int4:
+      return obm.ShloDType.i4
+    if dtype == jax.numpy.uint4:
+      return obm.ShloDType.ui4
     if dtype == jax.numpy.bfloat16:
       return obm.ShloDType.bf16
     if dtype == jax.float0:

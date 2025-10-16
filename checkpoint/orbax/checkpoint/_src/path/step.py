@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Orbax step storage entities."""
+"""Orbax step storage entities.
+
+Please reserve this file for entities related to `NameFormat`. Other existing
+functions should be moved out over time.
+"""
 
 import abc
 from collections.abc import Iterable
@@ -23,25 +27,44 @@ import functools
 import os
 import re
 import time
-from typing import Callable, Generic, Iterator, List, Optional, Protocol, Sequence, Set, TypeVar
+from typing import Callable, Generic, Iterator, List, Optional, Protocol, Sequence, TypeVar
 from absl import logging
 from etils import epath
 import numpy as np
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import gcs_utils
+from orbax.checkpoint._src.path import temporary_paths
 
 
-_GCS_PATH_PREFIX = ('gs://',)
-_COMMIT_SUCCESS_FILE = 'commit_success.txt'
-TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp'
+TMP_DIR_SUFFIX = temporary_paths.TMP_DIR_SUFFIX
 # prefix_1000.orbax-checkpoint-tmp-1010101
 # OR
 # 1000.orbax-checkpoint-tmp-1010101
 TMP_DIR_STEP_PATTERN = r'.*?_*?(\d+)\.orbax-checkpoint-tmp'
 
 MetadataT = TypeVar('MetadataT', bound='Metadata')
+
+
+is_path_finalized = lambda *a, **k: asyncio_utils.run_sync(
+    temporary_paths.is_path_finalized(*a, **k)
+)
+is_path_temporary = lambda *a, **k: asyncio_utils.run_sync(
+    temporary_paths.is_path_temporary(*a, **k)
+)
+all_temporary_paths = lambda *a, **k: asyncio_utils.run_sync(
+    temporary_paths.all_temporary_paths(*a, **k)
+)
+
+# Deprecated aliases, use the above functions, or use the temporary_paths module
+# directly instead.
+is_checkpoint_finalized = is_path_finalized
+is_tmp_checkpoint = is_path_temporary
+tmp_checkpoints = lambda *a, **k: [
+    p.get().name for p in all_temporary_paths(*a, **k)
+]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -252,15 +275,11 @@ def find_step_path(
     return name_format.find_step(base_path, step).path
 
   # First try finding uncommitted step.
-  if is_gcs_path(base_path):
-    uncommitted_step_path = build_step_path(base_path, name_format, step)
-  else:
-    step_name = name_format.build_name(step)
-    uncommitted_step_path = None
-    for uncommitted_name in tmp_checkpoints(base_path):
-      if uncommitted_name.startswith(f'{step_name}{TMP_DIR_SUFFIX}'):
-        uncommitted_step_path = base_path / uncommitted_name
-        break
+  uncommitted_step_path = None
+  for tmp_path in all_temporary_paths(base_path):
+    if tmp_path.get_final() == build_step_path(base_path, name_format, step):
+      uncommitted_step_path = tmp_path.get()
+      break
   if uncommitted_step_path and uncommitted_step_path.exists():
     return uncommitted_step_path
   # Uncommitted step not found, return committed one or raise error.
@@ -325,7 +344,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
       self, step_path: epath.Path, step: Optional[int] = None
   ) -> Optional[Metadata]:
     """Returns metadata for given `step_path` if it is valid or None."""
-    if not _is_checkpoint_finalized_ignore_error(step_path):
+    if not is_path_finalized(step_path):
       return None
 
     if step is not None:
@@ -385,6 +404,59 @@ class _StandardNameFormat(NameFormat[Metadata]):
           )
       )
 
+  def _get_step_paths_and_total_steps(
+      self, base_path: epath.PathLike, is_primary_host: bool
+  ) -> tuple[list[epath.Path], int]:
+    """Broadcasts total steps and get step paths from the primary host."""
+    step_paths = []
+    total_steps = -1
+    if is_primary_host:
+      # <step_prefix>_?<0 padding>?*
+      step_paths = self._glob_step_paths(base_path)
+      logging.info(
+          '[process=%s][single_host_load_and_broadcast] step_paths=%s,'
+          ' root_dir=%s',
+          multihost.process_index(),
+          step_paths,
+          base_path,
+      )
+      total_steps = len(step_paths)
+
+    total_steps = int(
+        multihost.broadcast_one_to_all(total_steps, is_source=is_primary_host)
+    )
+    return step_paths, total_steps
+
+  def _get_broadcasted_step_list(
+      self,
+      step_paths: list[epath.Path],
+      total_steps: int,
+      is_primary_host: bool,
+  ) -> np.ndarray:
+    """Builds the step list on the primary host and broadcasts it."""
+    padded_step_list = np.array([-1] * total_steps)
+    if is_primary_host:
+      steps = []
+      with futures.ThreadPoolExecutor() as executor:
+        metadata_futures = [
+            executor.submit(self._build_metadata, step_path)  # File IO
+            for step_path in step_paths
+        ]
+        for future in futures.as_completed(metadata_futures):
+          metadata = future.result()
+          if metadata is not None:
+            steps.append(metadata.step)
+      steps.sort()
+      steps = np.array(steps)
+      assert (
+          len(steps) <= total_steps
+      ), f'len(steps)={len(steps)} > total_steps={total_steps}'
+      padded_step_list[0 : len(steps)] = steps
+
+    return multihost.broadcast_one_to_all(
+        padded_step_list, is_source=is_primary_host
+    )
+
   def _find_all_with_single_host_load_and_broadcast(
       self, base_path: epath.PathLike
   ) -> Iterator[Metadata]:
@@ -401,10 +473,21 @@ class _StandardNameFormat(NameFormat[Metadata]):
       base_path: Root path under which step folders are placed.
     """
     process_index = multihost.process_index()
+    is_primary_host = process_index == 0
     time_start = time.time()
-    # <step_prefix>_?<0 padding>?*
-    step_paths = self._glob_step_paths(base_path)
-    if not step_paths:
+
+    step_paths, total_steps = self._get_step_paths_and_total_steps(
+        base_path, is_primary_host
+    )
+    logging.info(
+        '[process=%s][single_host_load_and_broadcast] total_steps=%s,'
+        ' step_paths=%s, root_dir=%s',
+        process_index,
+        total_steps,
+        step_paths,
+        base_path,
+    )
+    if total_steps <= 0:
       logging.info(
           '[process=%s][single_host_load_and_broadcast] No steps found,'
           ' root_dir=%s',
@@ -413,31 +496,11 @@ class _StandardNameFormat(NameFormat[Metadata]):
       )
       return iter([])
     time_glob_list = time.time()
-    base_path = epath.Path(base_path)
-    max_steps = len(step_paths)
-    padded_step_list = np.array([-1] * max_steps)
-    # Read the step list only on the primary host, and then broadcast the list.
-    # This minimizes queries to underlying storages like GCS when number of
-    # steps is large.
-    is_primary_host = process_index == 0
-    if is_primary_host:
-      steps = []
-      with futures.ThreadPoolExecutor() as executor:
-        metadata_futures = [
-            executor.submit(self._build_metadata, step_path)  # File IO
-            for step_path in step_paths
-        ]
-        for future in futures.as_completed(metadata_futures):
-          metadata = future.result()
-          if metadata is not None:
-            steps.append(metadata.step)
-      steps.sort()
-      steps = np.array(steps)
-      assert len(steps) <= max_steps
-      padded_step_list[0 : len(steps)] = steps
-    padded_step_list = multihost.broadcast_one_to_all(
-        padded_step_list, is_source=is_primary_host
+
+    padded_step_list = self._get_broadcasted_step_list(
+        step_paths, total_steps, is_primary_host
     )
+    base_path = epath.Path(base_path)
     paths_to_step_dict: dict[epath.Path, int] = {
         base_path / self.build_name(step): step
         for step in padded_step_list
@@ -604,12 +667,6 @@ def composite_name_format(
 
 # TODO(b/337137764) Can't move it to path/utils due to cyclic dependency.
 # Explore other options.
-def is_gcs_path(path: epath.Path) -> bool:
-  return path.as_posix().startswith(_GCS_PATH_PREFIX)
-
-
-# TODO(b/337137764) Can't move it to path/utils due to cyclic dependency.
-# Explore other options.
 def get_save_directory(
     step: int,
     directory: epath.PathLike,
@@ -653,115 +710,6 @@ def get_save_directory(
   return result
 
 
-def is_tmp_checkpoint(path: epath.PathLike) -> bool:
-  """Determines whether a directory is a tmp checkpoint path."""
-  path = epath.Path(path)
-  if os.path.islink(path):
-    logging.warning(
-        'Path %s is a symbolic link, not treating it as a tmp checkpoint.', path
-    )
-    return False
-  if not path.exists():
-    raise ValueError(f'Path {path} does not exist.')
-  if not path.is_dir():
-    return False
-  if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
-    return True
-  if TMP_DIR_SUFFIX in path.name:
-    return True
-  return False
-
-
-def is_checkpoint_finalized(path: epath.PathLike) -> bool:
-  """Determines if the given path represents a finalized checkpoint.
-
-  Path takes the form::
-
-    path/to/my/dir/<name>.orbax-checkpoint-tmp-<timestamp>/  # not finalized
-    path/to/my/dir/<name>/  # finalized
-
-  Alternatively::
-
-    gs://path/to/my/dir/<name>/  # finalized
-      commit_success.txt
-      ...
-    gs://<path/to/my/dir/<name>/  # not finalized
-      ...
-
-  Args:
-    path: Directory.
-
-  Returns:
-    True if the checkpoint is finalized.
-
-  Raises:
-    ValueError if the provided path is not a directory. Valid checkpoint paths
-    must be a directory.
-  """
-  path = epath.Path(path)
-
-  # Keep the following line as the first condition.
-  # is_gcs_path is inmemory and fast to bypass when dealing with non-gcs fs
-  if is_gcs_path(path) and not (path / _COMMIT_SUCCESS_FILE).exists():
-    logging.warning(
-        'This GCS path %s does not contain the %s file used to indicate a'
-        ' successfully written GCS checkpoint. If the checkpoint was'
-        ' originally saved with GCS, the checkpoint was not successfully'
-        ' written. If the checkpoint was saved differently and copied, you'
-        ' need to add %s to the checkpoint directory.',
-        path,
-        _COMMIT_SUCCESS_FILE,
-        _COMMIT_SUCCESS_FILE,
-    )
-
-    return False
-  if not path.exists():
-    raise ValueError(f'Path {path} does not exist.')
-  if not path.is_dir():
-    raise ValueError(f'Path {path} is not a directory. Not a valid checkpoint')
-  if TMP_DIR_SUFFIX in path.name:
-    return False
-  return True
-
-
-def _is_checkpoint_finalized_ignore_error(path: epath.PathLike) -> bool:
-  try:
-    return is_checkpoint_finalized(path)
-  except ValueError:
-    return False
-
-
-def tmp_checkpoints(checkpoint_dir: epath.PathLike) -> List[str]:
-  """Returns a list of tmp checkpoint dir names in `checkpoint_dir`."""
-  checkpoint_dir = epath.Path(checkpoint_dir)
-  if not checkpoint_dir.exists():
-    return []
-  return [s.name for s in checkpoint_dir.iterdir() if is_tmp_checkpoint(s)]
-
-
-def cleanup_tmp_directories(
-    directory: epath.PathLike,
-    primary_host: Optional[int] = 0,
-    active_processes: Optional[Set[int]] = None,
-    barrier_sync_key_prefix: Optional[str] = None,
-):
-  """Cleanup steps in `directory` with tmp files, as these are not finalized."""
-  directory = epath.Path(directory)
-  if multihost.is_primary_host(primary_host):
-    logging.info('Cleaning up existing temporary directories at %s.', directory)
-    tmp_files = tmp_checkpoints(directory)
-    for tmp_file in tmp_files:
-      (directory / tmp_file).rmtree()
-  multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'cleanup_tmp_dirs',
-          prefix=barrier_sync_key_prefix,
-      ),
-      timeout=multihost.coordination_timeout(),
-      processes=active_processes,
-  )
-
-
 def _is_legacy_step_checkpoint(path: epath.Path) -> bool:
   """Determines if the path resembles an Orbax step directory.
 
@@ -780,9 +728,7 @@ def _is_legacy_step_checkpoint(path: epath.Path) -> bool:
 
 
 def _is_legacy_finalized_step_checkpoint(path: epath.Path) -> bool:
-  return _is_legacy_step_checkpoint(
-      path
-  ) and _is_checkpoint_finalized_ignore_error(path)
+  return _is_legacy_step_checkpoint(path) and is_path_finalized(path)
 
 
 def step_from_checkpoint_name(name: str) -> int:
@@ -816,29 +762,30 @@ def checkpoint_steps_paths(
     return [step_dir for step_dir, future in fs.items() if future.result()]
 
 
-def checkpoint_steps(
-    checkpoint_dir: epath.PathLike, single_host_load_and_broadcast: bool = False
-) -> List[int]:
+def is_standard_name_format(name_format: NameFormat[Metadata]) -> bool:
+  """Returns True if the name format is a standard name format."""
+  return isinstance(name_format, _StandardNameFormat)
+
+
+def single_host_load_and_broadcast_name_format(
+    name_format: NameFormat[Metadata],
+) -> NameFormat[Metadata]:
+  """Returns a name format with single_host_load_and_broadcast enabled."""
+  if is_standard_name_format(name_format):
+    return dataclasses.replace(name_format, single_host_load_and_broadcast=True)  # pytype: disable=wrong-arg-types
+  else:
+    raise ValueError(
+        'single_host_load_and_broadcast is only supported for standard name'
+        f' formats. Got {name_format}.'
+    )
+
+
+def checkpoint_steps(checkpoint_dir: epath.PathLike) -> List[int]:
   """Returns a list of finalized checkpoint steps in the directory."""
-
-  def _checkpoint_steps(path: epath.Path) -> List[int]:
-    return [
-        step_from_checkpoint_name(s.name) for s in checkpoint_steps_paths(path)
-    ]
-
-  checkpoint_dir = epath.Path(checkpoint_dir)
-  if single_host_load_and_broadcast:
-    max_steps = len(list(checkpoint_dir.iterdir()))
-    # Read the step list only from host 0, and then broadcast the list.
-    # This minimizes queries on non-leader processes.
-    padded_step_list = np.array([-1] * max_steps)
-    if multihost.process_index() == 0:
-      steps = np.array(_checkpoint_steps(checkpoint_dir))
-      assert len(steps) <= max_steps
-      padded_step_list[0 : len(steps)] = steps
-    padded_step_list = multihost.broadcast_one_to_all(padded_step_list)
-    return [step for step in padded_step_list if step >= 0]
-  return _checkpoint_steps(checkpoint_dir)
+  return [
+      step_from_checkpoint_name(s.name)
+      for s in checkpoint_steps_paths(checkpoint_dir)
+  ]
 
 
 def any_checkpoint_step(checkpoint_dir: epath.PathLike) -> Optional[int]:

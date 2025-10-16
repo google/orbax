@@ -31,12 +31,12 @@ import numpy as np
 import optax
 from orbax.checkpoint import args
 from orbax.checkpoint import test_utils
-from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
+from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.metadata import array_metadata
@@ -46,6 +46,7 @@ from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import type_handlers
@@ -235,12 +236,14 @@ class CheckpointerTestBase:
         paths = list(self.directory.parent.iterdir())
         self.assertLen(paths, 1)
         tmp_dir = paths[0]
-        self.assertFalse(utils.is_checkpoint_finalized(tmp_dir))
-        self.assertTrue(utils.is_tmp_checkpoint(tmp_dir))
+        self.assertFalse(step.is_path_finalized(tmp_dir))
+        self.assertTrue(step.is_path_temporary(tmp_dir))
         with self.assertRaisesRegex(ValueError, 'Found incomplete checkpoint'):
           checkpointer.restore(tmp_dir)
 
-    @mock.patch.object(step, 'is_gcs_path', autospec=True, return_value=True)
+    @mock.patch.object(
+        gcs_utils, 'is_gcs_path', autospec=True, return_value=True
+    )
     def test_gcs(self, is_gcs_path):
       """Test normal operation in simulated GCS environment."""
       del is_gcs_path
@@ -252,9 +255,11 @@ class CheckpointerTestBase:
             path, restore_args=self.pytree_restore_args
         )
         test_utils.assert_tree_equal(self, self.pytree, restored)
-        self.assertTrue((path / step._COMMIT_SUCCESS_FILE).exists())
+        self.assertTrue((path / atomicity.COMMIT_SUCCESS_FILE).exists())
 
-    @mock.patch.object(step, 'is_gcs_path', autospec=True, return_value=True)
+    @mock.patch.object(
+        gcs_utils, 'is_gcs_path', autospec=True, return_value=True
+    )
     @mock.patch.object(atomicity.CommitFileTemporaryPath, 'finalize')
     def test_save_preempted_gcs(self, *mock_args):
       """Simulate effects of preemption."""
@@ -265,11 +270,11 @@ class CheckpointerTestBase:
         paths = list(self.directory.parent.iterdir())
         self.assertLen(paths, 1)
         tmp_dir = paths[0]
-        self.assertFalse(utils.is_checkpoint_finalized(tmp_dir))
-        self.assertTrue(utils.is_tmp_checkpoint(tmp_dir))
+        self.assertFalse(step.is_path_finalized(tmp_dir))
+        self.assertTrue(step.is_path_temporary(tmp_dir))
         with self.assertRaisesRegex(ValueError, 'Found incomplete checkpoint'):
           checkpointer.restore(tmp_dir)
-        self.assertFalse((tmp_dir / step._COMMIT_SUCCESS_FILE).exists())
+        self.assertFalse((tmp_dir / atomicity.COMMIT_SUCCESS_FILE).exists())
 
     def test_configure_atomicity(self):
       """Test case."""
@@ -284,7 +289,7 @@ class CheckpointerTestBase:
             path, restore_args=self.pytree_restore_args
         )
         test_utils.assert_tree_equal(self, self.pytree, restored)
-        self.assertTrue((path / step._COMMIT_SUCCESS_FILE).exists())  # pylint: disable=protected-access
+        self.assertTrue((path / atomicity.COMMIT_SUCCESS_FILE).exists())  # pylint: disable=protected-access
 
     def test_legacy_api(self):
       """Test case."""
@@ -525,6 +530,74 @@ class CheckpointerTestBase:
         self.assertGreater(step_metadata.commit_timestamp_nsecs, 0)
         self.assertEqual(step_metadata.custom_metadata, {'a': 1, 'b': 2})
 
+    def test_save_and_get_metadata(self):
+      """Basic save and restore test."""
+      with self.checkpointer(PyTreeCheckpointHandler()) as checkpointer:
+        directory = self.directory / 'step_metadata'
+        metadata = {'a': 1, 'b': 2}
+        checkpointer.save(
+            directory, args.PyTreeSave(self.pytree), custom_metadata=metadata
+        )
+        self.wait_if_async(checkpointer)
+        retrieved_metadata = checkpointer.metadata(directory)
+        self.assertEqual(retrieved_metadata.custom_metadata, metadata)
+
+    def test_composite_handler_metadata(self):
+      """Tests Checkpointer.metadata with CompositeCheckpointHandler."""
+      handler = composite_checkpoint_handler.CompositeCheckpointHandler()
+      with self.checkpointer(handler) as ckptr:
+        # Some test classes use a mock handler.
+        if not isinstance(
+            ckptr.handler,
+            composite_checkpoint_handler.CompositeCheckpointHandler,
+        ):
+          self.skipTest('Test only applies to CompositeCheckpointHandler.')
+
+        directory = self.directory / 'composite_metadata'
+        custom_metadata = {'user': 'test', 'version': 1}
+        item_args = args.Composite(
+            state=args.PyTreeSave(self.pytree),
+            other=args.JsonSave({'foo': 'bar'}),
+        )
+        ckptr.save(
+            directory,
+            item_args,
+            custom_metadata=custom_metadata,
+        )
+        self.wait_if_async(ckptr)
+
+        metadata = ckptr.metadata(directory)
+        self.assertIsInstance(metadata, checkpoint.StepMetadata)
+        self.assertEqual(metadata.custom_metadata, custom_metadata)
+
+        self.assertIsNotNone(metadata.item_handlers)
+        self.assertIn('state', metadata.item_handlers)
+        self.assertEqual(
+            metadata.item_handlers['state'],
+            PyTreeCheckpointHandler().typestr(),
+        )
+        self.assertIn('other', metadata.item_handlers)
+        self.assertEqual(
+            metadata.item_handlers['other'],
+            json_checkpoint_handler.JsonCheckpointHandler().typestr(),
+        )
+
+        self.assertIsNotNone(metadata.item_metadata)
+        self.assertIn('state', metadata.item_metadata)
+        self.assertIn('other', metadata.item_metadata)
+        self.assertIsInstance(
+            metadata.item_metadata['state'], tree_metadata.TreeMetadata
+        )
+        expected_pytree_metadata = PyTreeCheckpointHandler().metadata(
+            directory / 'state'
+        )
+        test_utils.assert_tree_equal(
+            self,
+            metadata.item_metadata['state'],
+            expected_pytree_metadata,
+        )
+        self.assertIsNone(metadata.item_metadata['other'])
+
     async def test_save_with_failing_array_metadata_store_in_finalize(self):
       """ArrayMetadata validation in CheckpointHandler.finalize()."""
 
@@ -706,7 +779,7 @@ class CheckpointerTestBase:
           }
           with self.assertRaisesRegex(
               ValueError,
-              r"Missing 1 keys in structure path \(\), including: \['z'\]",
+              'Missing keys were found in the user-provided restore item.',
           ):
             restore_checkpointer.restore(
                 directory,
@@ -734,7 +807,7 @@ class CheckpointerTestBase:
           )
 
           mock_instance.read_event.assert_called_with(
-              cns_path=str(self.directory),
+              checkpoint_path=str(self.directory),
               log_provenance='orbax',
           )
 

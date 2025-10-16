@@ -426,7 +426,9 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       # Clean up all awaitable signals for the current operation id as they are
       # no longer needed.
       if self._create_directories_asynchronously:
-        future.remove_all_awaitable_signals(current_operation_id)
+        future.AwaitableSignalsContract.remove_all_awaitable_signals(
+            current_operation_id
+        )
 
     return _callback
 

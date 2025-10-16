@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package orbax_model_type;
 
-import "orbax/experimental/model/core/protos/xla_data.proto";
+import "tensorflow/compiler/xla/xla_data.proto";
 
 message FunctionSignature {
   Type input = 1;
@@ -59,9 +59,9 @@ message TensorType {
   Shape shape = 1;
   DType dtype = 2;
 
-  // TODO(b/349877692): Replace proto message `orbax_model_xla.OpSharding`
-  // with a stable version.
-  optional orbax_model_xla.OpSharding sharding = 3;
+  // TODO(b/349877692): Replace `xla.OpSharding`
+  // with a sharding annotation language that has stability guarantees.
+  optional xla.OpSharding sharding = 3;
 }
 
 message Shape {
@@ -84,7 +84,7 @@ enum DType {
   // Copied from `TensorElementType` of
   // https://github.com/openxla/stablehlo/blob/main/docs/spec.md#types .
   // The right-hand-side values are copied from
-  // /third_party/py/jax/experimental/export/serialization.fbs .
+  // /third_party/py/jax/_src/export/serialization.fbs .
   i1 = 1;  // bool
   si8 = 2;
   si16 = 3;

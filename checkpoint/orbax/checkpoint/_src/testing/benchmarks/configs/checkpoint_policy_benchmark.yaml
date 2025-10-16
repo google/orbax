@@ -1,0 +1,43 @@
+# The name for the entire test suite run.
+suite_name: "CheckpointPolicy Benchmark"
+
+
+mesh_config:
+  mesh_axes: ["data", "model"]
+  ici_parallelism: {"data": 4, "model": 8}
+  dcn_parallelism: {"data": 1, "model": 1}
+
+checkpoint_config:
+  spec:
+    array: {dtype: "float32", shape: [1024, 2048], sharding: ["data", "model"]}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.checkpoint_policy_benchmark.CheckpointPolicyBenchmark"
+    options:
+      num_checkpoints: 100
+      checkpoint_policies_options:
+        - preservation_policies:
+            - policy_type: "LatestN"
+              n: 5
+            - policy_type: "CustomSteps"
+              custom_steps: [11, 22, 33]
+          save_decision_policies:
+            - policy_type: "FixedIntervalPolicy"
+              interval_steps: 10
+          expected_preserve_checkpoints: [50, 60, 70, 80, 90]
+        - preservation_policies:
+            - policy_type: "LatestN"
+              n: 10
+            - policy_type: "EveryNSteps"
+              interval_steps: 13
+          save_decision_policies:
+            - policy_type: "SpecificStepsPolicy"
+              custom_steps: [3, 12, 43]
+          expected_preserve_checkpoints: [3, 12, 43]
+        - preservation_policies:
+            - policy_type: "EveryNSteps"
+              interval_steps: 13
+          save_decision_policies:
+            - policy_type: "ContinuousCheckpointingPolicy"
+              minimum_interval_secs: 4
+          expected_preserve_checkpoints: [0]

@@ -114,6 +114,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
       )
     elif metadata_type == RootMetadata:
       return RootMetadata(
+          internal_metadata={'version': 1.0},
           custom_metadata=custom_metadata,
       )
 
@@ -147,6 +148,7 @@ class CheckpointMetadataTest(parameterized.TestCase):
       self.assertEqual(a.commit_timestamp_nsecs, b.commit_timestamp_nsecs)
       self.assertEqual(a.custom_metadata, b.custom_metadata)
     elif isinstance(a, RootMetadata):
+      self.assertEqual(a.internal_metadata, b.internal_metadata)
       self.assertEqual(a.custom_metadata, b.custom_metadata)
 
   @parameterized.parameters(True, False)
@@ -468,6 +470,8 @@ class CheckpointMetadataTest(parameterized.TestCase):
     _ = pickle.dumps(self.read_metadata_store(blocking_write))
 
   @parameterized.parameters(
+      ({'internal_metadata': list()},),
+      ({'internal_metadata': {int(): None}},),
       ({'custom_metadata': list()},),
       ({'custom_metadata': {int(): None}},),
   )

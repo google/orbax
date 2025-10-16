@@ -1,9 +1,9 @@
 PyTree Transformations
 ============================================================================
 
-.. currentmodule:: orbax.checkpoint.transform_utils
-
 .. automodule:: orbax.checkpoint.transform_utils
+
+.. currentmodule:: orbax.checkpoint
 
 .. autoclass:: Transform
   :members:

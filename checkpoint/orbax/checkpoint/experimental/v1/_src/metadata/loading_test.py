@@ -57,11 +57,10 @@ class PyTreeMetadataTest(absltest.TestCase):
           dtype=value.dtype,
           storage_metadata=storage_metadata,
       )
-    elif isinstance(value, (int, float)):
-      dtype = np.float64
-      if isinstance(value, int):
-        dtype = np.int64
-      return dtype
+    elif isinstance(value, (int, np.integer)):
+      return 0
+    elif isinstance(value, (float, np.floating)):
+      return 0.0
     else:
       raise TypeError(f'Unsupported type: {type(value)}')
 
@@ -71,12 +70,39 @@ class PyTreeMetadataTest(absltest.TestCase):
     with self.assertRaises(InvalidLayoutError):
       ocp.pytree_metadata(self.directory.parent / 'foo')
 
-  def test_pytree_metadata(self):
-    metadata = ocp.pytree_metadata(self.directory)
-    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
+  def test_pytree_metadata_default_checkpointable_name(self):
     expected_pytree_metadata = jax.tree.map(
         self._create_value_metadata, self.pytree
     )
+
+    metadata = ocp.pytree_metadata(self.directory)
+    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
+    self.assertEqual(expected_pytree_metadata, metadata.metadata)
+
+  def test_pytree_metadata_custom_checkpointable_name(self):
+    self.directory.rmtree()
+
+    custom_name = 'custom_pytree'
+    ocp.save_checkpointables(self.directory, {custom_name: self.pytree})
+
+    expected_pytree_metadata = jax.tree.map(
+        self._create_value_metadata, self.pytree
+    )
+
+    metadata = ocp.pytree_metadata(
+        self.directory, checkpointable_name=custom_name
+    )
+    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
+    self.assertEqual(expected_pytree_metadata, metadata.metadata)
+
+  def test_pytree_metadata_checkpointable_name_none(self):
+    expected_pytree_metadata = jax.tree.map(
+        self._create_value_metadata, self.pytree
+    )
+
+    pytree_dir = self.directory / PYTREE_CHECKPOINTABLE_KEY
+    metadata = ocp.pytree_metadata(pytree_dir, checkpointable_name=None)
+    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
     self.assertEqual(expected_pytree_metadata, metadata.metadata)
 
   def test_load_with_metadata(self):
@@ -147,6 +173,22 @@ class PyTreeMetadataTest(absltest.TestCase):
       ):
         ocp.pytree_metadata(self.directory)
 
+
+  def test_pytree_metadata_with_incompatible_item(self):
+    self.directory.rmtree()
+    # Save a valid PyTree to 'state'
+    ocp.save_checkpointables(self.directory, {'state': self.pytree})
+
+    # Create dummy files in datasets to simulate a non-pytree item
+    (self.directory / 'datasets').mkdir()
+    (self.directory / 'datasets' / 'data.txt').write_text('some data')
+
+    metadata = ocp.pytree_metadata(self.directory, checkpointable_name='state')
+    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
+    self.assertIsInstance(metadata.metadata, dict)
+    self.assertSetEqual(
+        {'a', 'b', 'c', 'x', 'y'}, set(metadata.metadata.keys())
+    )
 
 
 class CheckpointablesMetadataTest(absltest.TestCase):
@@ -234,6 +276,24 @@ class CheckpointablesMetadataTest(absltest.TestCase):
       ):
         ocp.checkpointables_metadata(self.directory)
 
+
+  def test_checkpointables_metadata_with_incompatible_item(self):
+    self.directory.rmtree()
+    # Save a valid PyTree to 'state'
+    ocp.save_checkpointables(
+        self.directory, {'state': {'a': 1, 'b': 2, 'c': {'d': 3}}}
+    )
+
+    # Create dummy files in datasets to simulate a non-pytree item
+    (self.directory / 'datasets').mkdir()
+    (self.directory / 'datasets' / 'data.txt').write_text('some data')
+
+    metadata = ocp.checkpointables_metadata(self.directory)
+    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
+    self.assertIsInstance(metadata.metadata, dict)
+    self.assertSetEqual({'state', 'datasets'}, set(metadata.metadata.keys()))
+    self.assertSetEqual({'a', 'b', 'c'}, set(metadata.metadata['state'].keys()))
+    self.assertIsNone(metadata.metadata['datasets'])
 
 
 if __name__ == '__main__':

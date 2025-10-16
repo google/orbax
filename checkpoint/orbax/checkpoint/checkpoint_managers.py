@@ -21,6 +21,7 @@ from orbax.checkpoint._src.checkpoint_managers.save_decision_policy import (
     DecisionContext,
     SaveDecisionPolicy,
     FixedIntervalPolicy,
+    PreemptionCheckpointingPolicy,
     InitialSavePolicy,
     SpecificStepsPolicy,
     ContinuousCheckpointingPolicy,

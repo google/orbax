@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 from typing import Any, Awaitable
 
 from absl.testing import absltest
@@ -20,7 +19,7 @@ from absl.testing import parameterized
 from etils import epath
 from orbax.checkpoint.experimental.v1._src.handlers import json_handler
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.testing import path_utils as path_test_utils
+from orbax.checkpoint.experimental.v1._src.testing import handler_utils as handler_test_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
@@ -34,29 +33,6 @@ async def _run_awaitable(awaitable: Awaitable[Any]) -> Any:
   return await awaitable
 
 
-class JsonHandler:
-  """Wrapper around JsonHandler that can block on save and load."""
-
-  def __init__(self, **kwargs):
-    self._handler = json_handler.JsonHandler(**kwargs)
-
-  def save(self, directory: Path, checkpointable: Json):
-    path = path_test_utils.PathAwaitingCreationWrapper(directory)
-    awaitable = asyncio.run(self._handler.save(path, checkpointable))
-    return asyncio.run(_run_awaitable(awaitable))
-
-  def save_async(self, directory: Path, checkpointable: Json):
-    path = path_test_utils.PathAwaitingCreationWrapper(directory)
-    return asyncio.run(self._handler.save(path, checkpointable))
-
-  def load(self, path: Path, abstract_checkpointable: Json | None = None):
-    awaitable = self.load_async(path, abstract_checkpointable)
-    return asyncio.run(_run_awaitable(awaitable))
-
-  def load_async(self, path: Path, abstract_checkpointable: Json | None = None):
-    return asyncio.run(self._handler.load(path, abstract_checkpointable))
-
-
 class JsonHandlerTest(parameterized.TestCase):
 
   def setUp(self):
@@ -64,15 +40,17 @@ class JsonHandlerTest(parameterized.TestCase):
     self.directory = epath.Path(
         self.create_tempdir(name='checkpointing_test').full_path
     )
+    self._handler = handler_test_utils.create_test_handler(
+        json_handler.JsonHandler
+    )
 
   def test_save_restore(self):
     item = {'a': 1, 'b': {'c': 'test1', 'b': 'test2'}, 'd': 5.5}
-    handler = JsonHandler()
-    handler.save(
+    self._handler.save(
         directory=self.directory,
         checkpointable=item,
     )
-    restored = handler.load(self.directory)
+    restored = self._handler.load(self.directory)
     self.assertEqual(item, restored)
 
   @parameterized.parameters(
@@ -82,8 +60,7 @@ class JsonHandlerTest(parameterized.TestCase):
   )
   def test_supported_filenames(self, filename):
     item = {'a': 1, 'b': 'test'}
-    handler = JsonHandler()
-    handler.save(
+    self._handler.save(
         directory=self.directory,
         checkpointable=item,
     )
@@ -94,11 +71,11 @@ class JsonHandlerTest(parameterized.TestCase):
       (self.directory / 'data.json').rename(self.directory / filename)
     self.assertTrue((self.directory / filename).exists())
 
-    if filename not in handler._handler._supported_filenames:
+    if filename not in json_handler._get_supported_filenames():
       with self.assertRaises(FileNotFoundError):
-        handler.load(self.directory)
+        self._handler.load(self.directory)
     else:
-      restored = handler.load(self.directory)
+      restored = self._handler.load(self.directory)
       self.assertEqual(item, restored)
 
   @parameterized.parameters(
@@ -114,8 +91,7 @@ class JsonHandlerTest(parameterized.TestCase):
       (True, True),
   )
   def test_is_handleable(self, case, expected):
-    handler = json_handler.JsonHandler()
-    self.assertEqual(handler.is_handleable(case), expected)
+    self.assertEqual(self._handler.is_handleable(case), expected)
 
 
 if __name__ == '__main__':

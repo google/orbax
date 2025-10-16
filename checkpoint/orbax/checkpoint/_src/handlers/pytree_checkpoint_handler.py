@@ -47,6 +47,7 @@ from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.serialization import types as serialization_types
 from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
@@ -491,6 +492,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       save_device_host_concurrent_gb: Optional[int] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
+      use_compression: bool = True,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
       handler_impl: Optional[BasePyTreeCheckpointHandler] = None,
@@ -501,6 +503,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
           array_metadata_store_lib.Validator()
       ),
       enable_pinned_host_transfer: Optional[bool] = None,
+      is_prioritized_key_fn: Optional[
+          serialization_types.IsPrioritizedKeyFn
+      ] = None,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -526,6 +531,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         different checkpoint format which is faster to read and write, as well
         as more space efficient.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
+      use_compression: If True and zarr2 is used, use zstd compression.
       multiprocessing_options: See orbax.checkpoint.options
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
         specified, the global type handler registry will be used.
@@ -536,6 +542,18 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         transfer from device to host memory. Passing None will enable
         pinned_host memory depending on the platform used (currently only
         enables it for the GPU backend).
+      is_prioritized_key_fn: A function that accepts a PyTree keypath (obtained
+        using jax.tree.map_with_path) that should be scheduled for D2H transfer
+        before other keys. The transfer is scheduled before returning to the
+        caller, so the values will never be corrupted by a concurrent update.
+        Keys that are not prioritized will not be scheduled for transfer until
+        all prioritized keys have been fully written to the checkpoint. This
+        means that these values may be altered if the values are updated
+        concurrently. Callers should take care to call `wait_until_finished`
+        before updating array values (e.g. `apply_gradients`) if some keys are
+        not prioritized. Note that any "prioritized" keys are assumed to be
+        lightweight, and `save_device_host_concurrent_gb` will be ignored for
+        them.
     """
     self._aggregate_handler = MsgpackHandler(
         primary_host=multiprocessing_options.primary_host,
@@ -553,17 +571,23 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._save_device_host_concurrent_bytes = _concurrent_bytes(
         save_device_host_concurrent_gb, use_default_if_none=False
     )
+    logging.info(
+        'save_device_host_concurrent_bytes=%s',
+        self._save_device_host_concurrent_bytes,
+    )
     self._handler_impl = handler_impl or BasePyTreeCheckpointHandler(
         save_concurrent_bytes=self._save_concurrent_bytes,
         restore_concurrent_bytes=self._restore_concurrent_bytes,
         save_device_host_concurrent_bytes=self._save_device_host_concurrent_bytes,
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
+        use_compression=use_compression,
         multiprocessing_options=multiprocessing_options,
         type_handler_registry=type_handler_registry,
         pytree_metadata_options=pytree_metadata_options,
         array_metadata_validator=array_metadata_validator,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
+        is_prioritized_key_fn=is_prioritized_key_fn,
     )
     self._pytree_metadata_options = pytree_metadata_options
 
@@ -948,7 +972,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """
     # Try reading metadata file.
     try:
-      internal_tree_metadata = self._handler_impl._read_metadata_file(directory)  # pylint: disable=protected-access
+      internal_tree_metadata = asyncio_utils.run_sync(
+          self._handler_impl._read_metadata_file(directory)  # pylint: disable=protected-access
+      )
       use_zarr3 = internal_tree_metadata.use_zarr3
       value_metadata_tree = internal_tree_metadata.as_nested_tree()
       flat_value_metadatas = tree_utils.to_flat_dict(

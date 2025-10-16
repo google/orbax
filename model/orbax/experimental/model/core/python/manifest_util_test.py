@@ -12,13 +12,47 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from absl.testing import absltest
 from orbax.experimental.model.core.protos import manifest_pb2
+from orbax.experimental.model.core.python import device_assignment
 from orbax.experimental.model.core.python import manifest_util
-from orbax.experimental.model.core.python.device_assignment import DeviceAssignment
+from orbax.experimental.model.core.python import serializable_function
+from orbax.experimental.model.core.python import unstructured_data
 
 
 class ManifestUtilTest(absltest.TestCase):
+
+  def test_build_manifest_proto_with_subfolder(self):
+    tmp_dir = self.create_tempdir().full_path
+    subfolder = 'test_subfolder'
+
+    fn = serializable_function.SerializableFunction(
+        body=unstructured_data.UnstructuredDataWithExtName(
+            proto=manifest_pb2.UnstructuredData(inlined_bytes=b'test'),
+            subfolder=subfolder,
+            ext_name='txt',
+        ),
+        input_signature={},
+        output_signature={},
+    )
+    obm_module = {'test_fn': fn}
+
+    manifest_proto = manifest_util.build_manifest_proto(obm_module, tmp_dir)
+
+    self.assertIn('test_fn', manifest_proto.objects)
+    self.assertTrue(
+        manifest_proto.objects['test_fn'].function.body.other.HasField(
+            'file_system_location'
+        )
+    )
+    file_path = manifest_proto.objects[
+        'test_fn'
+    ].function.body.other.file_system_location.string_path
+    self.assertEqual(file_path, os.path.join(subfolder, 'test_fn.txt'))
+    full_path = os.path.join(tmp_dir, file_path)
+    with open(full_path, 'rb') as f:
+      self.assertEqual(f.read(), b'test')
 
   def test_build_device_assignment_by_coords_proto(self):
     # Test with an empty list of device assignments.
@@ -30,8 +64,8 @@ class ManifestUtilTest(absltest.TestCase):
 
     # Test with a list of fully populated device assignments.
     device_assignments = [
-        DeviceAssignment(id=0, coords=[0, 1], core_on_chip=0),
-        DeviceAssignment(id=1, coords=[1, 0], core_on_chip=1),
+        device_assignment.DeviceAssignment(id=0, coords=[0, 1], core_on_chip=0),
+        device_assignment.DeviceAssignment(id=1, coords=[1, 0], core_on_chip=1),
     ]
     proto = manifest_util.build_device_assignment_by_coords_proto(
         device_assignments
@@ -49,9 +83,9 @@ class ManifestUtilTest(absltest.TestCase):
 
     # Test with a list of device assignments with optional fields None.
     device_assignments = [
-        DeviceAssignment(id=0),
-        DeviceAssignment(id=1),
-        DeviceAssignment(id=2),
+        device_assignment.DeviceAssignment(id=0),
+        device_assignment.DeviceAssignment(id=1),
+        device_assignment.DeviceAssignment(id=2),
     ]
     proto = manifest_util.build_device_assignment_by_coords_proto(
         device_assignments
