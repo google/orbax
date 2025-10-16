@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   will be used. Default is kept `True`.
 - Add `LocalPath` for testing process-local storage.
 - Added new memory metrics into benchmark library
+- Added `Dispatcher` interface with `ColocatedPythonDispatcher` implementations,
+  enabling function execution on colocated CPU devices.
 
 ### Changed
 
