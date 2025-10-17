@@ -75,12 +75,21 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
     for benchmark in benchmarks:
       self.assertIsInstance(benchmark.options, PyTreeCheckpointOptions)
 
-  @parameterized.parameters(
-      dict(use_ocdbt=False, use_zarr3=True),
-      dict(use_ocdbt=True, use_zarr3=False),
-      dict(use_ocdbt=True, use_zarr3=True),
+  @parameterized.product(
+      use_ocdbt=(False, True),
+      use_zarr3=(False, True),
+      use_compression=(False, True),
+      save_concurrent_gb=(None, 1),
+      restore_concurrent_gb=(None, 2),
   )
-  def test_benchmark_test_fn(self, use_ocdbt, use_zarr3):
+  def test_benchmark_test_fn(
+      self,
+      use_ocdbt,
+      use_zarr3,
+      use_compression,
+      save_concurrent_gb,
+      restore_concurrent_gb,
+  ):
     generator = PyTreeCheckpointBenchmark(
         checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=PyTreeCheckpointOptions(),
@@ -96,6 +105,9 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
     test_options = PyTreeCheckpointOptions(
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
+        use_compression=use_compression,
+        save_concurrent_gb=save_concurrent_gb,
+        restore_concurrent_gb=restore_concurrent_gb,
     )
     context = benchmarks_core.TestContext(
         pytree=pytree, path=test_path, options=test_options
@@ -104,7 +116,11 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
     result = generator.test_fn(context)
 
     self.mock_handler.assert_called_once_with(
-        use_zarr3=use_zarr3, use_ocdbt=use_ocdbt
+        use_zarr3=use_zarr3,
+        use_ocdbt=use_ocdbt,
+        use_compression=use_compression,
+        save_concurrent_gb=save_concurrent_gb,
+        restore_concurrent_gb=restore_concurrent_gb,
     )
     self.mock_checkpointer.assert_called_once_with(
         self.mock_handler.return_value

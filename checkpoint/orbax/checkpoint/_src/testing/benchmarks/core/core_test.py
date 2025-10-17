@@ -13,8 +13,6 @@
 # limitations under the License.
 
 import dataclasses
-import time
-import tracemalloc
 from typing import List
 from unittest import mock
 
@@ -47,67 +45,6 @@ class MyGenerator(core.BenchmarksGenerator):
 
   def test_fn(self, test_context: core.TestContext) -> core.TestResult:
     return core.TestResult(metrics=metric_lib.Metrics())
-
-
-class MetricsTest(parameterized.TestCase):
-
-  def test_time(self):
-    metrics = metric_lib.Metrics()
-
-    with mock.patch.object(time, 'perf_counter', side_effect=[1.0, 3.0]):
-      with metrics.time('test_metric'):
-        pass
-
-    self.assertEqual(metrics.results, {'test_metric_time': (2.0, 's')})
-
-  @mock.patch(
-      'orbax.checkpoint._src.testing.benchmarks.core.metric.psutil.Process'
-  )
-  def test_process_rss(self, mock_process):
-    mock_process.return_value.memory_info.side_effect = [
-        mock.Mock(rss=1 * 1024 * 1024),
-        mock.Mock(rss=3 * 1024 * 1024),
-    ]
-    metrics = metric_lib.Metrics()
-    with metrics.process_rss('test_metric'):
-      pass
-    self.assertEqual(metrics.results, {'test_metric_rss': (2.0, 'MB')})
-
-  @mock.patch(
-      'orbax.checkpoint._src.testing.benchmarks.core.metric.tracemalloc'
-  )
-  def test_tracemalloc(self, mock_tracemalloc):
-    mock_tracemalloc.Snapshot = tracemalloc.Snapshot
-    mock_tracemalloc.get_traced_memory.side_effect = [
-        (0, 1 * 1024 * 1024),
-        (0, 3 * 1024 * 1024),
-    ]
-    mock_snapshot = mock.Mock()
-    mock_snapshot.__class__ = tracemalloc.Snapshot
-    mock_snapshot.compare_to.return_value = []
-    mock_tracemalloc.take_snapshot.return_value = mock_snapshot
-    metric_lib.TracemallocMetric._active_count = 0
-
-    metrics = metric_lib.Metrics()
-    with metrics.tracemalloc('test_metric'):
-      self.assertEqual(metric_lib.TracemallocMetric._active_count, 1)
-    self.assertEqual(metrics.results, {'test_metric_tracemalloc': (2.0, 'MB')})
-    self.assertEqual(metric_lib.TracemallocMetric._active_count, 0)
-    mock_tracemalloc.start.assert_called_once()
-    mock_tracemalloc.stop.assert_called_once()
-
-  def test_report(self):
-    metrics = metric_lib.Metrics(name='TestMetrics')
-    metrics.results = {'metric1': (1.23, 's'), 'metric2': (4.56, 's')}
-    expected_report = """---[process_id=0] TestMetrics Metrics Report ---
-metric1: 1.2300 s
-metric2: 4.5600 s
-----------------------"""
-
-    with mock.patch.object(logging, 'info') as mock_log:
-      metrics.report()
-
-      mock_log.assert_any_call(expected_report)
 
 
 class TestResultTest(parameterized.TestCase):
