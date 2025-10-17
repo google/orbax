@@ -24,6 +24,7 @@ from absl import logging
 import jax
 from jax import export as jax_export
 import jaxtyping
+import numpy as np
 from orbax.export import config
 from orbax.export import constants
 from orbax.export import export_base
