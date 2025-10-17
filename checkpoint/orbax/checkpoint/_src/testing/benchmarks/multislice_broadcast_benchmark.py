@@ -103,11 +103,14 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
     single_replica_arr_list = []
 
     def _fn(expected_arr):
-      expected_arr_list.append(expected_arr)
+      arange_arr = np.arange(
+          np.prod(expected_arr.shape), dtype=expected_arr.dtype
+      ).reshape(expected_arr.shape)
+      expected_arr_list.append(
+          jax.device_put(arange_arr, expected_arr.sharding)
+      )
       if is_source_replica:
-        arr = jnp.arange(
-            np.prod(expected_arr.shape), dtype=expected_arr.dtype
-        ).reshape(expected_arr.shape)
+        arr = arange_arr
       else:
         arr = jnp.zeros(expected_arr.shape, dtype=expected_arr.dtype)
       arr_single_replica_sharding = jax.sharding.NamedSharding(
