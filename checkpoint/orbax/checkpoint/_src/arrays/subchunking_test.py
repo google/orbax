@@ -353,6 +353,14 @@ class ChooseChunkShapeWithShardAxesTest(parameterized.TestCase):
           target_elements=1 * 1 * 40 * 4,
           expected_shape=(1, 1, 40, 4),
       ),
+      dict(
+          testcase_name='requested_axes_are_already_sharded',
+          global_shape=(24, 512, 5120, 5120),
+          write_shape=(3, 32, 1280, 160),
+          shard_axes=(0,),
+          target_elements=1 * 32 * 1280 * 160,
+          expected_shape=(1, 32, 1280, 160),
+      ),
   )
   def test_shard_axes_with_an_already_sharded_array(
       self,
