@@ -20,9 +20,9 @@ import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.saving import saving
 from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 import safetensors.numpy
@@ -117,7 +117,7 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     self.assertIsInstance(result_metadata, metadata_types.CheckpointMetadata)
 
     expected_structs = {
-        format_utils.PYTREE_CHECKPOINTABLE_KEY: {
+        checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: {
             'a': numpy_leaf_handler.NumpyMetadata(
                 shape=(9,),
                 dtype=np.dtype(np.int32),

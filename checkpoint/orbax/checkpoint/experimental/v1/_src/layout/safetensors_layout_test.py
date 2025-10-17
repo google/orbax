@@ -22,7 +22,6 @@ import numpy as np
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.saving import saving
 import safetensors.numpy
 
@@ -142,7 +141,7 @@ class SafetensorsLayoutTest(
     self.assertEqual(
         metadata.metadata,
         {
-            format_utils.PYTREE_CHECKPOINTABLE_KEY: {
+            checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: {
                 'b': jax.ShapeDtypeStruct(shape=(3,), dtype=np.float32),
                 'a': jax.ShapeDtypeStruct(shape=(9,), dtype=np.int32),
             }
