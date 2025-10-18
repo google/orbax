@@ -203,12 +203,12 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       dict(
           testcase_name='regular_path',
           directory='gs://gcs_bucket/object_path',
-          expected_directory=None,
+          expected_directory='object_path',
       ),
       dict(
           testcase_name='path_with_single_slash',
           directory='gs:/gcs_bucket/object_path',
-          expected_directory='gs://gcs_bucket/object_path',
+          expected_directory='object_path',
       ),
   )
   def test_ocdbt_kvstore_with_gcs_path(
@@ -228,9 +228,59 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     self.assertEqual(kvstore_tspec['driver'], 'ocdbt')
     self.assertEqual(
         kvstore_tspec['base'],
-        os.path.join(expected_directory or directory, 'ocdbt.process_0'),
+        {
+            'driver': 'gcs',
+            'bucket': 'gcs_bucket',
+            'path': os.path.join(
+                expected_directory or directory, 'ocdbt.process_0'
+            ),
+        },
     )
     self.assertEqual(kvstore_tspec['path'], self.param_name)
+
+  @parameterized.named_parameters(
+      dict(testcase_name='none', backend=None, target_driver='gcs'),
+      dict(testcase_name='gcs', backend='gcs', target_driver='gcs'),
+      dict(
+          testcase_name='gcs_grpc', backend='gcs_grpc', target_driver='gcs_grpc'
+      ),
+  )
+  def test_get_tensorstore_spec_ocdbt_grpc(self, backend, target_driver):
+    if backend:
+      os.environ['TENSORSTORE_GCS_BACKEND'] = backend
+      self.addCleanup(lambda: os.environ.pop('TENSORSTORE_GCS_BACKEND'))
+    spec = ts_utils.build_kvstore_tspec('gs://my/ckpt/dir/path', use_ocdbt=True)
+    self.assertEqual(
+        spec['base'],
+        {
+            'driver': target_driver,
+            'bucket': 'my',
+            'path': 'ckpt/dir/path',
+        },
+    )
+
+  @parameterized.named_parameters(
+      dict(testcase_name='none', backend=None, target_driver='gcs'),
+      dict(testcase_name='gcs', backend='gcs', target_driver='gcs'),
+      dict(
+          testcase_name='gcs_grpc', backend='gcs_grpc', target_driver='gcs_grpc'
+      ),
+  )
+  def test_get_tensorstore_spec_grpc(self, backend, target_driver):
+    if backend:
+      os.environ['TENSORSTORE_GCS_BACKEND'] = backend
+      self.addCleanup(lambda: os.environ.pop('TENSORSTORE_GCS_BACKEND'))
+    spec = ts_utils.build_kvstore_tspec(
+        'gs://my/ckpt/dir/path', use_ocdbt=False
+    )
+    self.assertEqual(
+        spec,
+        {
+            'driver': target_driver,
+            'bucket': 'my',
+            'path': 'ckpt/dir/path',
+        },
+    )
 
   @parameterized.product(use_zarr3=(True, False))
   def test_ocdbt_kvstore_default_target_data_file_size(self, use_zarr3: bool):
