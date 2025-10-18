@@ -58,6 +58,15 @@ def coordination_timeout() -> int:
 
 
 
+def is_pathways_backend() -> bool:
+  # Pathways is single-host.
+  return (
+      hasattr(jax.devices()[0].client, 'pathways')
+      or jax.devices()[0].client.runtime_type == 'pathways'
+      or jax.devices()[0].client.runtime_type == 'proxy/pathways'
+  )
+
+
 def is_runtime_to_distributed_ids_initialized() -> bool:
   return _RUNTIME_TO_DISTRIBUTED_ID is not None
 
