@@ -23,13 +23,13 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import registration as handler_registration
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
-from orbax.checkpoint.experimental.v1._src.path import format_utils
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import execution
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
-PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
+PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 
 
 def save_pytree(
@@ -226,7 +226,7 @@ def get_v0_checkpointer_and_args(
   """Construct V0 Checkpointer and Args for saving."""
   if (
       provided_reserved_keys := checkpointables.keys()
-      & format_utils.RESERVED_CHECKPOINTABLE_KEYS
+      & checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
   ):
     raise ValueError(
         f'Provided reserved checkpointable keys: {provided_reserved_keys}.'

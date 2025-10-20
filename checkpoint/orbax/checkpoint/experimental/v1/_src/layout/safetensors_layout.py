@@ -25,7 +25,6 @@ from orbax.checkpoint._src.arrays import numpy_utils
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types
 
 CheckpointLayout = checkpoint_layout.CheckpointLayout
@@ -239,7 +238,7 @@ async def _load_safetensors(
     # Return on-device JAX arrays.
     restored_pytree = await _load_safetensors_on_device(path, abstract_pytree)
 
-  return {format_utils.PYTREE_CHECKPOINTABLE_KEY: restored_pytree}
+  return {checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: restored_pytree}
 
 
 class SafetensorsLayout(CheckpointLayout):
@@ -276,7 +275,7 @@ class SafetensorsLayout(CheckpointLayout):
     commit_timestamp_nsecs = int(os.stat(self._path).st_mtime)
 
     return metadata_types.CheckpointMetadata[dict[str, Any]](
-        metadata={format_utils.PYTREE_CHECKPOINTABLE_KEY: metadata},
+        metadata={checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: metadata},
         commit_timestamp_nsecs=commit_timestamp_nsecs,
         custom_metadata=custom_metadata,
     )
@@ -304,6 +303,6 @@ class SafetensorsLayout(CheckpointLayout):
     abstract_pytree = None
     if abstract_checkpointables:
       abstract_pytree = abstract_checkpointables.get(
-          format_utils.PYTREE_CHECKPOINTABLE_KEY
+          checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
       )
     return _load_safetensors(self._path, abstract_pytree)

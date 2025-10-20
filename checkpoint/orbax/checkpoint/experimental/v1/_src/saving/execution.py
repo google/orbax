@@ -30,9 +30,9 @@ from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
-from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import path_utils as saving_path_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import asyncio_utils
@@ -56,7 +56,7 @@ def add_internal_checkpointables(
   """Adds descriptor to checkpointables if enabled."""
   # Global registration ties metrics key to JsonHandler.
   if metrics:
-    checkpointables[format_utils.METRICS_CHECKPOINTABLE_KEY] = metrics
+    checkpointables[checkpoint_layout.METRICS_CHECKPOINTABLE_KEY] = metrics
   return checkpointables
 
 

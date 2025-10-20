@@ -30,15 +30,6 @@ from orbax.checkpoint._src.path import step as v0_step_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 
-PYTREE_CHECKPOINTABLE_KEY = 'pytree'
-
-METRICS_CHECKPOINTABLE_KEY = 'metrics'
-
-RESERVED_CHECKPOINTABLE_KEYS = frozenset({
-    METRICS_CHECKPOINTABLE_KEY,
-})
-
-
 def subdirs(directory: path_types.Path, *, limit: int = 3) -> list[str]:
   return list(
       itertools.islice(
@@ -91,7 +82,7 @@ def validate_checkpoint_metadata(path: path_types.PathLike):
 def validate_pytree_checkpoint(
     path: path_types.PathLike,
     *,
-    checkpointable_name: str | None = PYTREE_CHECKPOINTABLE_KEY,
+    checkpointable_name: str | None = 'pytree',
 ):
   """Validates a checkpoint path written by `ocp.save_pytree`.
 

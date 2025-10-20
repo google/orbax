@@ -23,19 +23,20 @@ from orbax.checkpoint._src.metadata import value as value_metadata
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
 import safetensors.numpy
+
 
 Foo = handler_utils.Foo
 Bar = handler_utils.Bar
 AbstractFoo = handler_utils.AbstractFoo
 AbstractBar = handler_utils.AbstractBar
 InvalidLayoutError = ocp.errors.InvalidLayoutError
-PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
+PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 
 
 class PyTreeMetadataTest(absltest.TestCase):
