@@ -71,7 +71,9 @@ async def get_chunk_ids_from_tensorstore(
 ) -> list[ChunkId]:
   """List chunks available in the TensorStore KVStore."""
   separator = '/' if use_zarr3 else '.'
-  kvstore = await t.kvstore.list()
+  kvs = t.kvstore
+  assert kvs is not None
+  kvstore = await kvs.list()
   kvstore = [v.decode('utf-8') for v in kvstore]
   result = [
       tuple([int(x) for x in v.split(separator) if x != 'c'])
