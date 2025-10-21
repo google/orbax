@@ -41,6 +41,9 @@ def _build_function(
   fn_proto = manifest_pb2.Function()
   fn_proto.visibility = visibility
 
+  if fn.data_names is not None:
+    fn_proto.data_names.extend(fn.data_names)
+
   fn_proto.signature.CopyFrom(
       type_proto_util.to_function_signature_proto(
           fn.input_signature, fn.output_signature
