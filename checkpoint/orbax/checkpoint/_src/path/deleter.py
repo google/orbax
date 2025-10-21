@@ -29,6 +29,7 @@ from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
+from urllib.parse import urlparse 
 
 
 PurePosixPath = pathlib.PurePosixPath
@@ -183,7 +184,8 @@ class StandardCheckpointDeleter:
       # Attempt to rename using GCS HNS API if configured.
       if self._todelete_full_path is not None:
         if gcs_utils.is_gcs_path(self._directory):
-          self._rename_gcs_step_with_hns(step, delete_target)
+          # this is recommeneded for GCS buckets with HNS enabled.
+          self._gcs_rename_step(step, delete_target)
         else:
           raise NotImplementedError()
       # Attempt to rename to local subdirectory using `todelete_subdir`
@@ -204,88 +206,53 @@ class StandardCheckpointDeleter:
           time.time() - start,
       )
 
-  def _rename_gcs_step_with_hns(
+  def _gcs_rename_step(
       self, step: int, delete_target: epath.Path
   ):
-    """Renames a GCS directory using the Storage Control API.
+    """Renames a GCS directory to a temporary location for deletion.
+
+    This method renames the directory using the
+    underlying `tf.io.gfile.rename` method. This underlying
+    implementation will automatically detect if the bucket is HNS-enabled
+    and use a fast atomic rename, or fall back to a legacy
+    copy/delete rename if it is not.
 
     Args:
       step: The checkpoint step number.
       delete_target: The path to the directory to be renamed.
-
-    Raises:
-      ValueError: If the GCS bucket is not HNS-enabled, as this is a
-        hard requirement for this operation.
     """
-    logging.info(
-        'Condition: GCS path with `todelete_full_path` set. Checking for HNS.'
-    )
-    bucket_name, _ = gcs_utils.parse_gcs_path(self._directory)
-    if not gcs_utils.is_hierarchical_namespace_enabled(self._directory):
-      raise ValueError(
-          f'Bucket "{bucket_name}" does not have Hierarchical Namespace'
-          ' enabled, which is required when _todelete_full_path is set.'
-      )
-
-    logging.info('HNS bucket detected. Attempting to rename step %d.', step)
-    # pylint: disable=g-import-not-at-top
-    from google.api_core import exceptions as google_exceptions  # pytype: disable=import-error
     try:
-      from google.cloud import storage_control_v2  # pytype: disable=import-error
-      import google.auth  # pytype: disable=import-error
+      # Get the bucket name from the source path
+      bucket_name = urlparse(str(delete_target)).netloc
+      if not bucket_name:
+        raise ValueError(f'Could not parse bucket name from path: {delete_target}')
 
-      # Use default credentials, but without a quota project to avoid
-      # quota issues with this API.
-      credentials, _ = google.auth.default()
-      creds_without_quota_project = credentials.with_quota_project(None)
-      client = storage_control_v2.StorageControlClient(
-          credentials=creds_without_quota_project
-      )
-      # Destination parent is the absolute path to the bucket.
-      destination_parent_dir_str = (
+      # Construct the destination path inside the `_todelete_full_path` dir.
+      destination_parent_path = epath.Path(
           f'gs://{bucket_name}/{self._todelete_full_path}'
       )
-      destination_parent_path = PurePosixPath(destination_parent_dir_str)
-      logging.info(
-          'Ensuring destination parent folder exists via HNS API: %s',
-          destination_parent_dir_str,
-      )
-      try:
-        parent_folder_id = str(
-            destination_parent_path.relative_to(f'gs://{bucket_name}')
-        )
-        bucket_resource_name = f'projects/_/buckets/{bucket_name}'
-        client.create_folder(
-            request=storage_control_v2.CreateFolderRequest(
-                parent=bucket_resource_name,
-                folder_id=parent_folder_id,
-                recursive=True,
-            )
-        )
-        logging.info('HNS parent folder creation request sent.')
-      except google_exceptions.AlreadyExists:
-        logging.info('HNS parent folder already exists, proceeding.')
+      destination_parent_path.mkdir(parents=True, exist_ok=True)
 
+      # Create a unique name for the destination to avoid collisions.
       now = datetime.datetime.now()
       timestamp_str = now.strftime('%Y%m%d-%H%M%S-%f')
       new_name_with_timestamp = f'{delete_target.name}-{timestamp_str}'
       dest_path = destination_parent_path / new_name_with_timestamp
-      source_folder_id = str(delete_target.relative_to(f'gs://{bucket_name}'))
-      destination_folder_id = str(dest_path.relative_to(f'gs://{bucket_name}'))
-      source_resource_name = (
-          f'projects/_/buckets/{bucket_name}/folders/{source_folder_id}'
+
+      logging.info(
+          'Executing filesystem-aware rename: Source=`%s`, Destination=`%s`',
+          delete_target,
+          dest_path,
       )
-      logging.info('Rename API call: Source: %s', source_resource_name)
-      logging.info('Rename API call: Destination ID: %s', destination_folder_id)
-      request = storage_control_v2.RenameFolderRequest(
-          name=source_resource_name,
-          destination_folder_id=destination_folder_id,
-      )
-      op = client.rename_folder(request=request)
-      op.result()
+
+      # Call the high-level rename method.
+      # This will be fast on HNS and slow (but functional) on non-HNS.
+      delete_target.rename(dest_path)
       logging.info('Successfully renamed step %d to %s', step, dest_path)
-    except google_exceptions.GoogleAPIError as e:
-      logging.error('HNS rename failed for step %d. Error: %s', step, e)
+
+    except Exception as e:
+      logging.error('Rename failed for step %d. Error: %s', step, e)
+      raise
 
   def _rename_step_to_subdir(self, step: int, delete_target: epath.Path):
     """Renames a step directory to its corresponding todelete_subdir."""
