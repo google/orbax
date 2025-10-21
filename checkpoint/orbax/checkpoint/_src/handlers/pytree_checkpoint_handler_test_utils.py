@@ -2809,3 +2809,83 @@ class PyTreeCheckpointHandlerTestBase:
             ),
         )
         test_utils.assert_tree_equal(self, expected, restored)
+
+    @parameterized.product(
+        enable_replica_parallel_separate_folder=(True, False),
+        use_ocdbt=(True, False),
+    )
+    def test_array_handler_replica_separate_folder(
+        self, enable_replica_parallel_separate_folder, use_ocdbt
+    ):
+      if multihost.is_pathways_backend():
+        self.skipTest('Replica parallel is not supported on Pathways.')
+
+      handler = type_handlers.ArrayHandler(
+          use_replica_parallel=True,
+          enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,
+      )
+
+      fn = lambda ty: issubclass(ty, jax.Array)
+      with test_utils.register_type_handler(jax.Array, handler, fn):
+
+        with self.ocdbt_checkpoint_handler(
+            use_ocdbt=use_ocdbt,
+            array_metadata_store=array_metadata_store_lib.Store(),
+        ) as handler:
+          # build shardings
+          mesh = jax.sharding.Mesh(
+              devices=np.asarray(jax.devices()).reshape(2, 4),
+              axis_names=('x', 'y'),
+          )
+          full_replicated_sharding = jax.sharding.NamedSharding(
+              mesh=mesh,
+              spec=jax.sharding.PartitionSpec(),  # Fully replicated
+          )
+          partial_replicated_sharding = jax.sharding.NamedSharding(
+              mesh=mesh,
+              spec=jax.sharding.PartitionSpec('x'),  # Replicated on y
+          )
+
+          # build tree
+          full_replicated_arr = jax.device_put(
+              np.arange(32).reshape(4, 8), full_replicated_sharding
+          )
+          partial_replicated_arr = jax.device_put(
+              np.arange(32).reshape(4, 8), partial_replicated_sharding
+          )
+
+          pytree = {
+              'full_replicated': full_replicated_arr,
+              'partial_replicated': partial_replicated_arr,
+              'sharded': self.pytree,
+          }
+
+          handler.save(self.directory, args=PyTreeSaveArgs(pytree))
+
+          test_utils.print_directory(self.directory)
+
+          # Verify if replica folders are created according to the options.
+          replicated_dirs = list(
+              self.directory.glob('*' + ts_utils.REPLICA_SUBDIR_SUFFIX + '*')
+          )
+          if enable_replica_parallel_separate_folder and use_ocdbt:
+            self.assertNotEmpty(replicated_dirs)
+          else:
+            self.assertEmpty(replicated_dirs)
+
+          pytree_restore_args = {
+              'full_replicated': ArrayRestoreArgs(
+                  sharding=full_replicated_sharding
+              ),
+              'partial_replicated': ArrayRestoreArgs(
+                  sharding=partial_replicated_sharding
+              ),
+              'sharded': self.restore_args,
+          }
+
+          restored = handler.restore(
+              self.directory,
+              args=PyTreeRestoreArgs(restore_args=pytree_restore_args),
+          )
+
+          test_utils.assert_tree_equal(self, pytree, restored)
