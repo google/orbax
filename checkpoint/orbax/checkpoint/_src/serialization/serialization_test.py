@@ -19,6 +19,7 @@ import pathlib
 import tracemalloc as tm
 from typing import Any
 import unittest
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -689,6 +690,71 @@ class CheckpointTest(parameterized.TestCase):
     # Array size (2048 * 4096 * 4 = 32M)
     delta = 2_000_000  # Empirically chosen wiggle room.
     self.assertLess(peak_memory_usage - start_memory_usage, 32_000_000 + delta)
+
+
+class ShardingSerializationTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.ckpt_dir = pathlib.Path(self.create_tempdir('ckpt').full_path)
+
+  def test_get_sharding_tensorstore_spec_returns_correct_spec(self):
+    spec = serialization.get_sharding_tensorstore_spec(
+        self.ckpt_dir.as_posix(), 'param'
+    )
+    self.assertEqual(spec['driver'], 'json')
+    self.assertEqual(spec['json_pointer'], '/cGFyYW0=')
+
+  def test_build_array_write_spec_returns_correct_spec(self):
+    info = serialization.serialization_types.ParamInfo(
+        name='a',
+        path=self.ckpt_dir / 'a',
+        parent_dir=self.ckpt_dir,
+    )
+    spec = serialization.build_array_write_spec(
+        info,
+        global_shape=(8, 2),
+        local_shape=(4, 2),
+        dtype=np.int32,
+        use_ocdbt=False,
+    )
+    self.assertEqual(spec.json['dtype'], 'int32')
+    self.assertEqual(spec.json['metadata']['shape'], (8, 2))
+    self.assertEqual(spec.json['metadata']['chunks'], (4, 2))
+
+  def test_serialize_sharding_metadata_writes_sharding(self):
+    async def _run():
+      with mock.patch.object(
+          serialization.sharding_metadata, 'from_jax_sharding', autospec=True
+      ) as mock_from_jax_sharding:
+
+        class MockShardingMetadata:
+
+          def to_serialized_string(self):
+            return 'sharding_metadata'
+
+        mock_from_jax_sharding.return_value = MockShardingMetadata()
+
+        sharding = mock.Mock()
+        info = serialization.serialization_types.ParamInfo(
+            name='a',
+            path=self.ckpt_dir / 'a',
+            parent_dir=self.ckpt_dir,
+            ts_context=serialization.ts_utils.get_ts_context(use_ocdbt=False),
+        )
+        txn = ts.Transaction()
+        await serialization.serialize_sharding_metadata(
+            sharding, info, txn, primary_host=0
+        )
+        await txn.commit_async()
+
+        sharding_spec = serialization.get_sharding_tensorstore_spec(
+            self.ckpt_dir.as_posix(), 'a'
+        )
+        t = await ts.open(sharding_spec)
+        self.assertEqual((await t.read()).item(), 'sharding_metadata')
+
+    asyncio_utils.run_sync(_run())
 
 
 if __name__ == '__main__':

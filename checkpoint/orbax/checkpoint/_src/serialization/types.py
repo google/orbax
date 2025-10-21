@@ -30,7 +30,6 @@ from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import value as value_metadata
-from orbax.checkpoint._src.serialization import serialization
 import tensorstore as ts
 
 PyTreeMetadataOptions = pytree_metadata_options_lib.PyTreeMetadataOptions
@@ -70,6 +69,16 @@ def get_param_typestr(
       # will be surfaced elsewhere.
       typestr = empty_values.RESTORE_TYPE_NONE
   return typestr
+
+
+class ByteLimiter(Protocol):
+  """Limits in-flight bytes when reading/writing checkpoints per process."""
+
+  async def wait_for_bytes(self, requested_bytes: int):
+    ...
+
+  async def release_bytes(self, requested_bytes: int):
+    ...
 
 
 @dataclasses.dataclass
@@ -132,8 +141,8 @@ class ParamInfo:
   path: Optional[epath.Path] = None
   parent_dir: Optional[epath.Path] = None
   skip_deserialize: Optional[bool] = None
-  byte_limiter: Optional[serialization.ByteLimiter] = None
-  device_host_byte_limiter: Optional[serialization.ByteLimiter] = None
+  byte_limiter: Optional[ByteLimiter] = None
+  device_host_byte_limiter: Optional[ByteLimiter] = None
   is_ocdbt_checkpoint: Optional[bool] = None
   use_compression: bool | None = True
   use_zarr3: Optional[bool] = False

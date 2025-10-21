@@ -15,12 +15,13 @@
 """Array serialization and deserialization."""
 
 import asyncio
+import base64
 import collections
 from collections.abc import Mapping
 import contextlib
 import os
 import re
-from typing import Any, AsyncIterator, Dict, Optional, Protocol, Sequence, Union
+from typing import Any, AsyncIterator, Dict, Optional, Sequence, Union
 
 from absl import logging
 import humanize
@@ -31,15 +32,18 @@ import numpy as np
 from orbax.checkpoint._src.arrays import fragments
 from orbax.checkpoint._src.arrays import numpy_utils as np_utils
 from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization import types as serialization_types
 import tensorstore as ts
 
 
 TS_CONTEXT = ts.Context({'file_io_concurrency': {'limit': 128}})
 _REMOVED_VALUE = 'Value removed'
 _CHECKPOINT_SUCCESS = 'checkpoint_write_success'
+SHARDING_DIR_NAME = '_sharding'
 
 Index = types.Index
 if jax.__version_info__ >= (0, 6, 2):
@@ -125,17 +129,123 @@ def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
   return spec
 
 
-class ByteLimiter(Protocol):
+def get_sharding_tensorstore_spec(
+    directory: str, param_name: str
+) -> Dict[str, Any]:
+  """Returns TensorStore spec for sharding metadata."""
+  kvstore_tspec = ts_utils.build_kvstore_tspec(
+      directory, name=SHARDING_DIR_NAME, use_ocdbt=False
+  )
+  param_name = base64.urlsafe_b64encode(param_name.encode()).decode('utf-8')
+  return {
+      'driver': 'json',
+      'kvstore': kvstore_tspec,
+      'json_pointer': f'/{param_name}',
+  }
 
-  async def wait_for_bytes(self, requested_bytes: int):
-    ...
 
-  async def release_bytes(self, requested_bytes: int):
-    ...
+def build_array_write_spec(
+    info: serialization_types.ParamInfo,
+    arg: Optional[serialization_types.SaveArgs] = None,
+    *,
+    global_shape: types.Shape,
+    local_shape: types.Shape,
+    dtype: Union[jnp.dtype, np.dtype],
+    use_ocdbt: bool,
+    process_index: Optional[Union[int, str]] = None,
+    metadata_key: Optional[str] = None,
+    ext_metadata: Optional[Dict[str, Any]] = None,
+) -> ts_utils.ArrayWriteSpec:
+  """Gets ArrayWriteSpec for writing."""
+  if info.path is None:
+    raise ValueError('Must construct serialization path.')
+  parent_dir = info.parent_dir
+  assert parent_dir is not None
+  directory = parent_dir.as_posix()
+
+  return ts_utils.ArrayWriteSpec(
+      directory,
+      relative_array_filename=info.name,
+      global_shape=global_shape,
+      write_shape=local_shape,
+      dtype=dtype,
+      target_dtype=(arg.dtype if arg is not None else None),
+      chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
+      shard_axes=(arg.shard_axes if arg is not None else tuple()),
+      use_compression=info.use_compression,
+      use_zarr3=info.use_zarr3,
+      use_ocdbt=use_ocdbt,
+      process_id=process_index,
+      ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
+      metadata_key=metadata_key,
+      ext_metadata=ext_metadata,
+  )
+
+
+def _get_json_tspec(
+    info: serialization_types.ParamInfo,
+    use_ocdbt: bool,
+    *,
+    process_index: Optional[Union[int, str]] = None,
+    metadata_key: Optional[str] = None,
+    raise_array_data_missing_error: bool = True,
+) -> Dict[str, Any]:
+  """Gets Tensorstore spec in JSON format."""
+  if info.path is None:
+    raise ValueError('Must construct serialization path.')
+  parent_dir = info.parent_dir
+  assert parent_dir is not None
+  directory = parent_dir.as_posix()
+  kvstore_tspec = ts_utils.build_kvstore_tspec(
+      directory,
+      name=info.name,
+      use_ocdbt=use_ocdbt,
+      process_id=process_index,
+  )
+
+  tspec = {
+      'driver': ts_utils.ZARR_VER3 if info.use_zarr3 else ts_utils.ZARR_VER2,
+      'kvstore': kvstore_tspec,
+      'recheck_cached_data': False,
+      'recheck_cached_metadata': False,
+      # Raise error if data is missing.
+      'fill_missing_data_reads': not raise_array_data_missing_error,
+  }
+  if metadata_key is not None:
+    tspec['metadata_key'] = metadata_key
+  return tspec
+
+
+def get_json_tspec_read(
+    info: serialization_types.ParamInfo,
+    use_ocdbt: bool,
+    metadata_key: Optional[str] = None,
+    raise_array_data_missing_error: bool = True,
+):
+  """Gets Tensorstore spec for reading."""
+  return _get_json_tspec(
+      info,
+      use_ocdbt=use_ocdbt,
+      metadata_key=metadata_key,
+      raise_array_data_missing_error=raise_array_data_missing_error,
+  )
+
+
+def get_cast_tspec_deserialize(
+    tspec: Dict[str, Any], args: serialization_types.RestoreArgs
+) -> Dict[str, Any]:
+  """Creates a Tensorstore spec for casting a param during deserialize."""
+  if args.dtype is not None:
+    tspec = {
+        'base': tspec,
+        'driver': 'cast',
+        'dtype': jnp.dtype(args.dtype).name,
+    }
+  return tspec
 
 
 # Lifted from T5X.
-class LimitInFlightBytes(ByteLimiter):
+class LimitInFlightBytes(serialization_types.ByteLimiter):
   """Limits in-flight bytes when reading/writing checkpoints per process."""
 
   def __init__(self, num_bytes: int):
@@ -180,7 +290,7 @@ class LimitInFlightBytes(ByteLimiter):
       self._cv.notify_all()
 
 
-class UnlimitedInFlightBytes(ByteLimiter):
+class UnlimitedInFlightBytes(serialization_types.ByteLimiter):
 
   async def wait_for_bytes(self, requested_bytes: int):
     del requested_bytes
@@ -191,7 +301,9 @@ class UnlimitedInFlightBytes(ByteLimiter):
     return
 
 
-def get_byte_limiter(concurrent_bytes: Optional[int] = None) -> ByteLimiter:
+def get_byte_limiter(
+    concurrent_bytes: Optional[int] = None,
+) -> serialization_types.ByteLimiter:
   if concurrent_bytes is None:
     return UnlimitedInFlightBytes()
   if concurrent_bytes <= 0:
@@ -203,7 +315,7 @@ def get_byte_limiter(concurrent_bytes: Optional[int] = None) -> ByteLimiter:
 
 @contextlib.asynccontextmanager
 async def reserved_bytes(
-    byte_limiter: ByteLimiter,
+    byte_limiter: serialization_types.ByteLimiter,
     nbytes: int,
 ) -> AsyncIterator[None]:
   """Reserves some bytes for the duration of the context."""
@@ -222,7 +334,7 @@ async def async_serialize(
     replica_id: int = 0,
     use_replica_parallel: bool = True,
     transaction: Optional[ts.Transaction] = None,
-    byte_limiter: Optional[ByteLimiter] = None,
+    byte_limiter: Optional[serialization_types.ByteLimiter] = None,
 ):
   """Serialize an array using TensorStore.
 
@@ -281,7 +393,7 @@ async def async_serialize_from_host(
     context: Optional[ts.Context] = None,
     primary_host: Optional[int] = 0,
     transaction: Optional[ts.Transaction] = None,
-    byte_limiter: Optional[ByteLimiter] = None,
+    byte_limiter: Optional[serialization_types.ByteLimiter] = None,
 ):
   """Serialize replica slices using TensorStore.
 
@@ -356,7 +468,36 @@ async def async_serialize_from_host(
   await asyncio.gather(*write_coros)
 
 
+async def serialize_sharding_metadata(
+    sharding: jax.sharding.Sharding,
+    info: serialization_types.ParamInfo,
+    sharding_metadata_txn: ts.Transaction,
+    primary_host: Optional[int],
+):
+  """Serializes sharding metadata."""
+  if info.parent_dir is None:
+    raise ValueError('parent_dir cannot be None')
+  tspec_sharding = get_sharding_tensorstore_spec(
+      info.parent_dir.as_posix(), info.name
+  )
+  if multihost.is_primary_host(primary_host):
+    # OCDBT is not used for sharding metadata.
+    sharding_ts_context = info.ts_context
+    t = await ts.open(
+        tspec_sharding,
+        open=True,
+        context=sharding_ts_context,
+    )
+    serialized_sharding = None
+    sharding_metadata_value = sharding_metadata.from_jax_sharding(sharding)
+    if sharding_metadata_value is not None:
+      serialized_sharding = sharding_metadata_value.to_serialized_string()
+    if serialized_sharding is not None:
+      await t.with_transaction(sharding_metadata_txn).write(serialized_sharding)
+
+
 def estimate_write_memory_footprint(arr: np.ndarray) -> int:
+  """Estimates memory required to write a given array."""
   return arr.size * arr.dtype.itemsize
 
 
@@ -426,7 +567,7 @@ async def _read_array_index_and_device_put(
     global_shape: Shape,
     new_shard_shape: Shape,
     dtype: jnp.dtype,
-    byte_limiter: ByteLimiter,
+    byte_limiter: serialization_types.ByteLimiter,
     strict: bool,
     dll,
     memory_kind: Optional[str],
@@ -489,6 +630,7 @@ async def _read_array_index_and_device_put(
 def _get_device_to_index_map(
     global_shape: Shape, sharding: jax.sharding.Sharding
 ) -> Mapping[jax.Device, Index]:
+  """Returns mapping of device to index from sharding."""
   return sharding.devices_indices_map(global_shape)
 
 
@@ -499,7 +641,7 @@ async def read_and_create_array(
     new_shard_shape: Shape,
     sharding: jax.sharding.Sharding,
     dtype: jnp.dtype,
-    byte_limiter: ByteLimiter,
+    byte_limiter: serialization_types.ByteLimiter,
     strict: bool,
     dll,
 ) -> jax.Array:
@@ -538,7 +680,7 @@ async def async_deserialize(
     global_shape: Optional[Shape] = None,
     dtype: Optional[jnp.dtype] = None,
     *,
-    byte_limiter: Optional[ByteLimiter] = None,
+    byte_limiter: Optional[serialization_types.ByteLimiter] = None,
     context: Optional[ts.Context] = None,
     assume_metadata: bool = False,
     strict: bool = True,

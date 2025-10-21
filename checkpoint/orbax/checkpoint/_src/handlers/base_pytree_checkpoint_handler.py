@@ -433,8 +433,8 @@ class BasePyTreeCheckpointHandler(
       use_compression: bool | None = True,
       use_zarr3: Optional[bool] = None,
       ocdbt_target_data_file_size: Optional[int] = None,
-      byte_limiter: Optional[serialization.ByteLimiter] = None,
-      device_host_byte_limiter: Optional[serialization.ByteLimiter] = None,
+      byte_limiter: Optional[types.ByteLimiter] = None,
+      device_host_byte_limiter: Optional[types.ByteLimiter] = None,
       raise_array_data_missing_error: bool = True,
   ) -> PyTree:
     """Returns parameter information for elements in `item`.

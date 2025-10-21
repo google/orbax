@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import copy
 import dataclasses
 import functools
@@ -79,7 +78,6 @@ is_supported_empty_value = empty_values.is_supported_empty_value
 is_supported_type = types.is_supported_type
 
 
-_SHARDING = '_sharding'
 _SHARDING_SUFFIX_RE = r'/\d+(\.\d+)*$'  # /0, /0.0, /1.0.1, etc.
 _ZARRAY_SUFFIX_RE = r'/\.zarray$'
 _ZARRAY_SUFFIX = '/.zarray'
@@ -105,59 +103,6 @@ async def _assert_parameter_files_exist(
     )
 
 
-# TS functions
-# TODO(b/336658919) refractor TS functions to a separate file
-def _get_json_tspec(
-    info: types.ParamInfo,
-    use_ocdbt: bool,
-    *,
-    process_index: Optional[Union[int, str]] = None,
-    metadata_key: Optional[str] = None,
-    raise_array_data_missing_error: bool = True,
-) -> Dict[str, Any]:
-  """Gets Tensorstore spec in JSON format."""
-  if info.path is None:
-    raise ValueError('Must construct serialization path.')
-  parent_dir = info.parent_dir
-  assert parent_dir is not None
-  directory = parent_dir.as_posix()
-  kvstore_tspec = ts_utils.build_kvstore_tspec(
-      directory,
-      name=info.name,
-      use_ocdbt=use_ocdbt,
-      process_id=process_index,
-  )
-
-  tspec = {
-      'driver': ts_utils.ZARR_VER3 if info.use_zarr3 else ts_utils.ZARR_VER2,
-      'kvstore': kvstore_tspec,
-      'recheck_cached_data': False,
-      'recheck_cached_metadata': False,
-      # Raise error if data is missing.
-      'fill_missing_data_reads': not raise_array_data_missing_error,
-  }
-  if metadata_key is not None:
-    tspec['metadata_key'] = metadata_key
-  return tspec
-
-
-# TODO: b/354139177 - Rename this to `build_array_tspec_read`.
-# Keep the existing name for backward compatibility but mark as deprecated.
-def get_json_tspec_read(
-    info: types.ParamInfo,
-    use_ocdbt: bool,
-    metadata_key: Optional[str] = None,
-    raise_array_data_missing_error: bool = True,
-):
-  """Gets Tensorstore spec for reading."""
-  return _get_json_tspec(
-      info,
-      use_ocdbt=use_ocdbt,
-      metadata_key=metadata_key,
-      raise_array_data_missing_error=raise_array_data_missing_error,
-  )
-
-
 # TODO: b/354139177 - Replace usages of this with `build_array_tspec_write`
 # and remove it.
 def get_json_tspec_write(
@@ -170,8 +115,8 @@ def get_json_tspec_write(
     metadata_key: Optional[str] = None,
     arg: Optional[types.SaveArgs] = None,
 ):
-  """Gets Tensorstore spec for writing."""
-  tspec = _get_json_tspec(
+  """DEPRECATED. Use `serialization.build_array_write_spec` instead."""
+  tspec = serialization._get_json_tspec(  # pylint: disable=protected-access
       info,
       use_ocdbt=use_ocdbt,
       process_index=process_index,
@@ -208,44 +153,6 @@ def get_json_tspec_write(
   )
 
   return tspec
-
-
-def _build_array_write_spec(
-    info: types.ParamInfo,
-    arg: Optional[types.SaveArgs] = None,
-    *,
-    global_shape: arrays_types.Shape,
-    local_shape: arrays_types.Shape,
-    dtype: Union[jnp.dtype, np.dtype],
-    use_ocdbt: bool,
-    process_index: Optional[Union[int, str]] = None,
-    metadata_key: Optional[str] = None,
-    ext_metadata: Optional[Dict[str, Any]] = None,
-) -> ts_utils.ArrayWriteSpec:
-  """Gets ArrayWriteSpec for writing."""
-  if info.path is None:
-    raise ValueError('Must construct serialization path.')
-  parent_dir = info.parent_dir
-  assert parent_dir is not None
-  directory = parent_dir.as_posix()
-
-  return ts_utils.ArrayWriteSpec(
-      directory,
-      relative_array_filename=info.name,
-      global_shape=global_shape,
-      write_shape=local_shape,
-      dtype=dtype,
-      target_dtype=(arg.dtype if arg is not None else None),
-      chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
-      shard_axes=(arg.shard_axes if arg is not None else tuple()),
-      use_compression=info.use_compression,
-      use_zarr3=info.use_zarr3,
-      use_ocdbt=use_ocdbt,
-      process_id=process_index,
-      ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
-      metadata_key=metadata_key,
-      ext_metadata=ext_metadata,
-  )
 
 
 def check_input_arguments(*args):
@@ -491,17 +398,6 @@ def get_cast_tspec_serialize(tspec, value, args):
   return tspec
 
 
-def get_cast_tspec_deserialize(tspec, args):
-  """Creates a Tensorstore spec for casting a param during deserialize."""
-  if args.dtype is not None:
-    tspec = {
-        'base': tspec,
-        'driver': 'cast',
-        'dtype': jnp.dtype(args.dtype).name,
-    }
-  return tspec
-
-
 def _array_metadata_from_tensorstore(
     t: Any,
     info: ParamInfo,
@@ -561,7 +457,7 @@ class NumpyHandler(types.TypeHandler):
       arg: Optional[types.SaveArgs] = None,
   ) -> ts_utils.ArrayWriteSpec:
     """Gets ArrayWriteSpec for writing."""
-    return _build_array_write_spec(
+    return serialization.build_array_write_spec(
         info=info,
         arg=arg,
         global_shape=value.shape,
@@ -570,19 +466,6 @@ class NumpyHandler(types.TypeHandler):
         use_ocdbt=use_ocdbt,
         process_index=process_index,
         metadata_key=self._metadata_key,
-    )
-
-  def _get_json_tspec_read(
-      self,
-      info: types.ParamInfo,
-      use_ocdbt: bool,
-  ) -> Dict[str, Any]:
-    """Gets Tensorstore spec for reading."""
-    return get_json_tspec_read(
-        info,
-        use_ocdbt=use_ocdbt,
-        metadata_key=self._metadata_key,
-        raise_array_data_missing_error=info.raise_array_data_missing_error,
     )
 
   def typestr(self) -> str:
@@ -595,7 +478,12 @@ class NumpyHandler(types.TypeHandler):
     for info in infos:
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
-      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+      tspec = serialization.get_json_tspec_read(
+          info,
+          use_ocdbt=use_ocdbt,
+          metadata_key=self._metadata_key,
+          raise_array_data_missing_error=info.raise_array_data_missing_error,
+      )
       open_ops.append(
           ts.open(ts.Spec(tspec), open=True, context=info.ts_context)
       )
@@ -680,8 +568,13 @@ class NumpyHandler(types.TypeHandler):
         )
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
-      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-      tspec = get_cast_tspec_deserialize(tspec, arg)
+      tspec = serialization.get_json_tspec_read(
+          info,
+          use_ocdbt=use_ocdbt,
+          metadata_key=self._metadata_key,
+          raise_array_data_missing_error=info.raise_array_data_missing_error,
+      )
+      tspec = serialization.get_cast_tspec_deserialize(tspec, arg)
 
       if logging.vlog_is_on(1):
         logging.vlog(1, 'tspec = %s', tspec)
@@ -767,20 +660,6 @@ class ScalarHandler(NumpyHandler):
       write_sizes = [0 for _ in values]
     read_sizes = actual_sizes
     return list(zip(write_sizes, read_sizes))
-
-
-def get_sharding_tensorstore_spec(
-    directory: str, param_name: str
-) -> Dict[str, Any]:
-  kvstore_tspec = ts_utils.build_kvstore_tspec(
-      directory, name=_SHARDING, use_ocdbt=False
-  )
-  param_name = base64.urlsafe_b64encode(param_name.encode()).decode('utf-8')
-  return {
-      'driver': 'json',
-      'kvstore': kvstore_tspec,
-      'json_pointer': f'/{param_name}',
-  }
 
 
 @dataclasses.dataclass
@@ -942,41 +821,6 @@ class ArrayHandler(types.TypeHandler):
           'Setting `primary_host` to None requires JAX version > 0.4.25.'
       )
 
-  def _get_array_write_spec(
-      self,
-      info: types.ParamInfo,
-      value: replica_slices.ReplicaSlices,
-      *,
-      use_ocdbt: bool,
-      process_index: Optional[Union[int, str]] = None,
-      arg: Optional[types.SaveArgs] = None,
-  ) -> ts_utils.ArrayWriteSpec:
-    """Gets ArrayWriteSpec for writing."""
-    return _build_array_write_spec(
-        info=info,
-        arg=arg,
-        global_shape=value.global_shape,
-        local_shape=value.local_shape,
-        dtype=value.dtype,
-        use_ocdbt=use_ocdbt,
-        process_index=process_index,
-        metadata_key=self._metadata_key,
-        ext_metadata=self._ext_metadata.get(info.name),
-    )
-
-  def _get_json_tspec_read(
-      self,
-      info: types.ParamInfo,
-      use_ocdbt: bool,
-  ) -> Dict[str, Any]:
-    """Gets Tensorstore spec for reading."""
-    return get_json_tspec_read(
-        info,
-        use_ocdbt=use_ocdbt,
-        metadata_key=self._metadata_key,
-        raise_array_data_missing_error=info.raise_array_data_missing_error,
-    )
-
   def typestr(self) -> str:
     return JAX_ARRAY_TYPE_STR
 
@@ -988,12 +832,17 @@ class ArrayHandler(types.TypeHandler):
     shardings = []
     if infos[0].parent_dir is None:
       raise ValueError('parent_dir cannot be None')
-    sharding_file_path = infos[0].parent_dir / _SHARDING
+    sharding_file_path = infos[0].parent_dir / serialization.SHARDING_DIR_NAME
     sharding_file_exists = await async_path.exists(sharding_file_path)
     for info in infos:
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
-      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+      tspec = serialization.get_json_tspec_read(
+          info,
+          use_ocdbt=use_ocdbt,
+          metadata_key=self._metadata_key,
+          raise_array_data_missing_error=info.raise_array_data_missing_error,
+      )
       open_ops.append(
           ts.open(ts.Spec(tspec), open=True, context=info.ts_context)
       )
@@ -1001,7 +850,7 @@ class ArrayHandler(types.TypeHandler):
       assert info.parent_dir is not None
       sharding_op = None
       if info.name:
-        tspec_sharding = get_sharding_tensorstore_spec(
+        tspec_sharding = serialization.get_sharding_tensorstore_spec(
             info.parent_dir.as_posix(), info.name
         )
         if sharding_file_exists:
@@ -1037,35 +886,6 @@ class ArrayHandler(types.TypeHandler):
         for (t, info, sharding) in zip(tensorstores, infos, shardings)
     ]
 
-  async def _serialize_sharding(
-      self,
-      sharding: jax.sharding.Sharding,
-      info: types.ParamInfo,
-      sharding_metadata_txn: ts.Transaction,
-  ):
-    """Serializes sharding metadata."""
-    if info.parent_dir is None:
-      raise ValueError('parent_dir cannot be None')
-    tspec_sharding = get_sharding_tensorstore_spec(
-        info.parent_dir.as_posix(), info.name
-    )
-    if multihost.is_primary_host(self._primary_host):
-      # OCDBT is not used for sharding metadata.
-      sharding_ts_context = info.ts_context
-      t = await ts.open(
-          tspec_sharding,
-          open=True,
-          context=sharding_ts_context,
-      )
-      serialized_sharding = None
-      sharding_metadata_value = sharding_metadata.from_jax_sharding(sharding)
-      if sharding_metadata_value is not None:
-        serialized_sharding = sharding_metadata_value.to_serialized_string()
-      if serialized_sharding is not None:
-        await t.with_transaction(sharding_metadata_txn).write(
-            serialized_sharding
-        )
-
   async def _background_serialize(
       self,
       values: Sequence[replica_slices.ReplicaSlices],
@@ -1085,12 +905,16 @@ class ArrayHandler(types.TypeHandler):
       if info.is_ocdbt_checkpoint and info.byte_limiter is None:
         if ocdbt_transaction is None:
           ocdbt_transaction = ts.Transaction(atomic=True)
-      array_write_spec = self._get_array_write_spec(
-          info,
-          value,
+      array_write_spec = serialization.build_array_write_spec(
+          info=info,
+          arg=arg,
+          global_shape=value.global_shape,
+          local_shape=value.local_shape,
+          dtype=value.dtype,
           use_ocdbt=info.is_ocdbt_checkpoint,
           process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
-          arg=arg,
+          metadata_key=self._metadata_key,
+          ext_metadata=self._ext_metadata.get(info.name),
       )
       tspec = array_write_spec.json
       ts_context = info.ts_context
@@ -1118,8 +942,8 @@ class ArrayHandler(types.TypeHandler):
       )
       if self._enable_write_sharding_file and value.sharding is not None:
         write_coros.append(
-            self._serialize_sharding(
-                value.sharding, info, sharding_metadata_txn
+            serialization.serialize_sharding_metadata(
+                value.sharding, info, sharding_metadata_txn, self._primary_host
             )
         )
       array_metadatas.append(array_write_spec.metadata)
@@ -1263,7 +1087,7 @@ class ArrayHandler(types.TypeHandler):
     deserialize_ops = []
     if infos[0].parent_dir is None:
       raise ValueError('parent_dir cannot be None')
-    sharding_file_path = infos[0].parent_dir / _SHARDING
+    sharding_file_path = infos[0].parent_dir / serialization.SHARDING_DIR_NAME
     sharding_file_exists = await async_path.exists(sharding_file_path)
     for info, arg in zip(infos, args):
       sharding = None
@@ -1289,7 +1113,7 @@ class ArrayHandler(types.TypeHandler):
         )
         assert info.parent_dir is not None
         if info.name:
-          tspec_sharding = get_sharding_tensorstore_spec(
+          tspec_sharding = serialization.get_sharding_tensorstore_spec(
               info.parent_dir.as_posix(), info.name
           )
           t = await ts.open(
@@ -1317,8 +1141,13 @@ class ArrayHandler(types.TypeHandler):
         )
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
-      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-      tspec = get_cast_tspec_deserialize(tspec, arg)
+      tspec = serialization.get_json_tspec_read(
+          info,
+          use_ocdbt=use_ocdbt,
+          metadata_key=self._metadata_key,
+          raise_array_data_missing_error=info.raise_array_data_missing_error,
+      )
+      tspec = serialization.get_cast_tspec_deserialize(tspec, arg)
       if logging.vlog_is_on(1):
         logging.vlog(1, 'tspec = %s', tspec)
         logging.vlog(1, 'info = %s', info)
@@ -1542,9 +1371,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
     for info, arg in zip(infos, args):
       arg = cast(SingleReplicaArrayRestoreArgs, arg)
       if not info.is_ocdbt_checkpoint:
-        await _assert_parameter_files_exist(  # pylint: disable=protected-access
-            info.path, self._metadata_key
-        )
+        await _assert_parameter_files_exist(info.path, self._metadata_key)
       if not isinstance(arg, SingleReplicaArrayRestoreArgs):
         raise ValueError(
             'Must provide `SingleReplicaArrayRestoreArgs`, but got'
@@ -1563,8 +1390,13 @@ class SingleReplicaArrayHandler(ArrayHandler):
       single_replica_shardings.append(single_replica_sharding)
 
       use_ocdbt = info.is_ocdbt_checkpoint
-      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-      tspec = get_cast_tspec_deserialize(tspec, arg)  # pylint: disable=protected-access
+      tspec = serialization.get_json_tspec_read(
+          info,
+          use_ocdbt=use_ocdbt,
+          metadata_key=self._metadata_key,
+          raise_array_data_missing_error=info.raise_array_data_missing_error,
+      )
+      tspec = serialization.get_cast_tspec_deserialize(tspec, arg)
 
       if _is_host_for_primary_replica(primary_replica_pids):
         deserialize_ops += [
