@@ -62,12 +62,16 @@ WEIGHTS_NAME = 'weights_name'
 # Jax2obm_kwargs key for input polymorphic constraints.
 POLYMORPHIC_CONSTRAINTS = 'polymorphic_constraints'
 
-# Jax2obm_kwargs key for pruning custom pytree nodes.
-PRUNE_CUSTOM_PYTREE_NODES = 'prune_custom_pytree_nodes'
-
 # Default weights name to use if a checkpoint path is provided but a weights_
 # name kwarg was not provided in the jax2obm_kwargs.
 DEFAULT_WEIGHTS_NAME = 'weights'
+
+# Jax2obm_kwargs key that triggers loading all checkpoint weights
+# for the exported functions. By default, only weights used by the function
+# are loaded. If this key is set to True, all weights in the checkpoint
+# will be loaded. This may result in argument mismatches if the checkpoint
+# contains more weights than required by the function.
+LOAD_ALL_CHECKPOINT_WEIGHTS = 'load_all_checkpoint_weights'
 
 DEFAULT_PRE_PROCESSOR_NAME = 'pre_processor'
 
