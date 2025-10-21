@@ -20,6 +20,7 @@ import jax
 import jax.experimental.colocated_python as cp
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint._src.futures import future as future_lib
 from orbax.checkpoint._src.multihost import dispatchers
 
 
@@ -105,6 +106,33 @@ class ColocatedPythonDispatcherTest(parameterized.TestCase):
 
     fn.assert_called_once_with([self.arr], metadata={'key': 1})
     self.mock_block_until_ready.assert_called_once_with(self.mock_cp_result)
+
+
+class DirectDispatcherTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.arr = _get_mock_dispatcher_array()
+
+  def test_dispatch_devices_executes_function(self):
+    fn = mock.MagicMock()
+    dispatcher = dispatchers.DirectDispatcher()
+
+    future = dispatcher.dispatch_devices(fn)
+    future.result()
+
+    fn.assert_called_once()
+    self.assertIsInstance(future, future_lib.NoopFuture)
+
+  def test_dispatch_arrays_executes_function_with_arrays(self):
+    fn = mock.MagicMock()
+    dispatcher = dispatchers.DirectDispatcher()
+
+    future = dispatcher.dispatch_arrays(fn, [self.arr], metadata={'key': 1})
+    future.result()
+
+    fn.assert_called_once_with([self.arr], metadata={'key': 1})
+    self.assertIsInstance(future, future_lib.NoopFuture)
 
 
 

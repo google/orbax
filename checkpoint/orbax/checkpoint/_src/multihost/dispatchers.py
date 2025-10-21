@@ -253,3 +253,68 @@ class ColocatedPythonDispatcher(Dispatcher):
     return future_lib.JaxBlockUntilReadyFuture(result)
 
 
+class DirectDispatcher(Dispatcher):
+  """Dispatches functions directly by calling them."""
+
+  def dispatch_devices(
+      self,
+      fn: Callable[..., Any],
+      devices: Sequence[jax.Device] | None = None,
+      *args,
+      **kwargs,
+  ) -> future_lib.NoopFuture:
+    """Dispatches fn on the current process.
+
+    Device argument is ignored and the function is executed on the current
+    process.
+
+    Args:
+      fn: Function to dispatch.
+      devices: Not used currently for DirectDispatcher.
+      *args: Positional arguments for fn.
+      **kwargs: Keyword arguments for fn.
+
+    Returns:
+      A no-op future.
+    """
+    del devices
+    logging.vlog(
+        1,
+        'Executing function %r via DirectDispatcher on process=%s/%s',
+        fn,
+        multihost.process_index(),
+        multihost.process_count(),
+    )
+    fn(*args, **kwargs)
+    return future_lib.NoopFuture()
+
+  def dispatch_arrays(
+      self,
+      fn: Callable[..., Any],
+      arrays: Sequence[jax.Array],
+      *args,
+      **kwargs,
+  ) -> future_lib.NoopFuture:
+    """Dispatches fn with given arrays directly on the current process.
+
+    Args:
+      fn: Function to dispatch. It will be called with `fn(arrays, *args,
+        **kwargs)`.
+      arrays: A sequence of jax.Arrays to be passed to fn.
+      *args: Additional positional arguments for fn.
+      **kwargs: Keyword arguments for fn.
+
+    Returns:
+      A no-op future.
+    """
+    logging.vlog(
+        1,
+        'Executing function %r via DirectDispatcher on process=%s/%s',
+        fn,
+        multihost.process_index(),
+        multihost.process_count(),
+    )
+    fn(arrays, *args, **kwargs)
+    return future_lib.NoopFuture()
+
+
