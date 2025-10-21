@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added new memory metrics into benchmark library
 - Added `Dispatcher` interface with `ColocatedPythonDispatcher` implementations,
   enabling function execution on colocated CPU devices.
+- Add `enable_replica_parallel_separate_folder` into type_handlers.ArrayHandler
+  which will store replica data in separate folders.
 
 ### Changed
 

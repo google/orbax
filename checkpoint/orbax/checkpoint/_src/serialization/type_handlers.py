@@ -69,6 +69,7 @@ else:
 Shape = arrays_types.Shape
 Scalar = Union[int, float, np.number]
 NamedSharding = jax.sharding.NamedSharding
+SingleDeviceSharding = jax.sharding.SingleDeviceSharding
 ScalarMetadata = value_metadata.ScalarMetadata
 ArrayMetadata = value_metadata.ArrayMetadata
 StringMetadata = value_metadata.StringMetadata
@@ -219,6 +220,7 @@ def _build_array_write_spec(
     dtype: Union[jnp.dtype, np.dtype],
     use_ocdbt: bool,
     process_index: Optional[Union[int, str]] = None,
+    replica_separate_folder: bool = False,
     metadata_key: Optional[str] = None,
     ext_metadata: Optional[Dict[str, Any]] = None,
 ) -> ts_utils.ArrayWriteSpec:
@@ -242,6 +244,7 @@ def _build_array_write_spec(
       use_zarr3=info.use_zarr3,
       use_ocdbt=use_ocdbt,
       process_id=process_index,
+      replica_separate_folder=replica_separate_folder,
       ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
       metadata_key=metadata_key,
       ext_metadata=ext_metadata,
@@ -406,12 +409,11 @@ async def merge_ocdbt_per_process_files(
   """
   open_ops = []
   for process_dir in directory.glob(f'{ts_utils.PROCESS_SUBDIR_PREFIX}*'):
-    process_id = process_dir.name.split('_')[-1]
-    child_kvstore_tspec = ts_utils.build_kvstore_tspec(
+    child_kvstore_tspec = ts_utils.build_kvstore_tspec_for_merge(
         directory.as_posix(),
-        use_ocdbt=True,
-        process_id=process_id,
+        process_dir.name,
     )
+    logging.vlog(1, 'child_kvstore_tspec: %s', child_kvstore_tspec)
     open_ops.append(_open_kv_store(child_kvstore_tspec, ts_context))
   if not open_ops:  # No per-process OCDBT checkpoint found!
     logging.warning(
@@ -879,6 +881,43 @@ def any_jax_array_param_info(param_infos: Pytree) -> types.ParamInfo | None:
   )
 
 
+@functools.lru_cache(maxsize=4096)
+def _is_replicated_sharding(sharding: jax.sharding.Sharding) -> bool:
+  """Returns True if the sharding is replicated.
+
+  This is to provide a quick check to decide whether to the sharding would
+  produce replicated data. For namedsharding, if any axis is not specified in
+  the PartitionSpec, it is considered as replicated.  This function doesn't take
+  in the array shape into account as the shape isn't know at the point of
+  deserialization.
+
+  We can cache results because we typically expect `save` to be called
+  repeatedly on the same model (with changing array values).
+
+  Args:
+    sharding: The sharding to check.
+
+  Returns:
+    True if the sharding is replicated.
+  """
+  if isinstance(sharding, NamedSharding):
+    pspec = sharding.spec
+    pspec_len = len(pspec)
+    mesh_len = len(sharding.mesh.axis_names)
+    if mesh_len > pspec_len or not pspec or any((i is None for i in pspec)):
+      # replica
+      return True
+    else:
+      return False
+  elif isinstance(sharding, SingleDeviceSharding):
+    return True
+  else:
+    logging.warning(
+        'Unsupported sharding type, assuming not replicated: %s', sharding
+    )
+    return False
+
+
 class ArrayHandler(types.TypeHandler):
   """An implementation of TypeHandler for jax.Array."""
 
@@ -892,6 +931,7 @@ class ArrayHandler(types.TypeHandler):
       max_replicas_for_replica_parallel: Optional[int] = None,
       enable_write_sharding_file: bool = True,
       array_metadata_store: array_metadata_store_lib.Store | None = None,
+      enable_replica_parallel_separate_folder: bool = False,
   ):
     """Constructor.
 
@@ -913,6 +953,8 @@ class ArrayHandler(types.TypeHandler):
         True.
       array_metadata_store: Store to manage per host ArrayMetadata. To disable
         ArrayMetadata persistence, set it to None.
+      enable_replica_parallel_separate_folder: If True, save replica and sharded
+        arrays in separate folders when use_replica_parallel is active.
     """
     self._metadata_key = metadata_key
     self._primary_host = primary_host
@@ -924,6 +966,9 @@ class ArrayHandler(types.TypeHandler):
     )
     self._max_replicas_for_replica_parallel = max_replicas_for_replica_parallel
     self._array_metadata_store = array_metadata_store
+    self._enable_replica_parallel_separate_folder = (
+        enable_replica_parallel_separate_folder
+    )
     self._ext_metadata = dict()
 
     logging.vlog(
@@ -949,6 +994,7 @@ class ArrayHandler(types.TypeHandler):
       *,
       use_ocdbt: bool,
       process_index: Optional[Union[int, str]] = None,
+      replica_separate_folder: bool = False,
       arg: Optional[types.SaveArgs] = None,
   ) -> ts_utils.ArrayWriteSpec:
     """Gets ArrayWriteSpec for writing."""
@@ -960,6 +1006,7 @@ class ArrayHandler(types.TypeHandler):
         dtype=value.dtype,
         use_ocdbt=use_ocdbt,
         process_index=process_index,
+        replica_separate_folder=replica_separate_folder,
         metadata_key=self._metadata_key,
         ext_metadata=self._ext_metadata.get(info.name),
     )
@@ -1085,11 +1132,26 @@ class ArrayHandler(types.TypeHandler):
       if info.is_ocdbt_checkpoint and info.byte_limiter is None:
         if ocdbt_transaction is None:
           ocdbt_transaction = ts.Transaction(atomic=True)
+
+      replica_separate_folder = False
+      if (
+          self._use_replica_parallel
+          and self._enable_replica_parallel_separate_folder
+      ):
+        if info.is_ocdbt_checkpoint:
+          replica_separate_folder = _is_replicated_sharding(value.sharding)
+        else:
+          logging.log_first_n(
+              logging.WARNING,
+              'Replica_separate_folder is disabled as OCDBT is not enabled.',
+              1,
+          )
       array_write_spec = self._get_array_write_spec(
           info,
           value,
           use_ocdbt=info.is_ocdbt_checkpoint,
           process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
+          replica_separate_folder=replica_separate_folder,
           arg=arg,
       )
       tspec = array_write_spec.json
