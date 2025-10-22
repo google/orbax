@@ -618,22 +618,29 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # Multiple items.
       with CheckpointManager(
         'path/to/dir/',
+        # Global metadata.
         metadata={'version': 1.1, 'lang': 'en'},
       ) as mngr:
-        mngr.save(0, args=args.Composite(
-            train_state=args.StandardSave(train_state),
-            custom_metadata=args.JsonSave(custom_metadata),
-          )
+        mngr.save(
+            0,
+            args=args.Composite(
+              train_state=args.StandardSave(train_state),
+              json_states=args.JsonSave(json_states),
+            ),
+            # Metadata varying by step.
+            custom_metadata={'learning_rate': 0.001}
         )
         restored = mngr.restore(0)
         print(restored.train_state)
-        print(restored.custom_metadata)
+        print(restored.json_states)
         restored = mngr.restore(0, args=args.Composite(
             train_state=args.StandardRestore(abstract_train_state),
           )
         )
         print(restored.train_state)
-        print(restored.custom_metadata)  # Error, not restored
+        print(restored.json_states)  # Error, not restored
+        global_metadata = mngr.metadata()
+        step_metadata = mngr.metadata(0)  # custom_metadata in here
 
       # Single, unnamed (default) item.
       with CheckpointManager(
@@ -1712,7 +1719,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """Retrieves metadata for all known items.
 
     Important note: This method will soon be deprecated in favor of
-    `metadata().item_metadata`. Please use that method instead.
+    `metadata(step).item_metadata`. Please use that method instead.
 
     Note that metadata will only be returned for items that can actually be
     interpreted. If an item is present in the checkpoint but not registered
