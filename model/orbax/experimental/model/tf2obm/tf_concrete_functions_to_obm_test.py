@@ -12,12 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dataclasses
 import os
 from typing import Any, Sequence
 
+from absl.testing import absltest
 from absl.testing import parameterized
+import chex
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
+from orbax.experimental.model.tf2obm import tree_util
 from orbax.experimental.model.tf2obm import utils
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import _generate_names
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import _is_dict_only
@@ -34,7 +38,6 @@ import tensorflow as tf
 
 from tensorflow.python.util.protobuf import compare
 from google.protobuf import text_format
-from absl.testing import absltest
 
 
 _TUPLE = (
@@ -50,6 +53,38 @@ _DICT = {
 }
 
 
+@dataclasses.dataclass
+class _Dataclass:
+  a: tf.TensorSpec
+  b: tf.TensorSpec
+
+
+_DATACLASS = _Dataclass(
+    a=tf.TensorSpec((2, 3), tf.float32),
+    b=tf.TensorSpec((4, 5), tf.float64),
+)
+
+
+@chex.dataclass
+class _ChexDataclass:
+  a: tf.TensorSpec
+  b: tf.TensorSpec
+
+  def tree_flatten(self):
+    return (self.a, self.b), None
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, children):
+    del aux_data
+    return cls(*children)
+
+
+_CHEX_DATACLASS = _ChexDataclass(
+    a=tf.TensorSpec((2, 3), tf.float32),
+    b=tf.TensorSpec((4, 5), tf.float64),
+)
+
+
 def _dict_from_seq(prefix: str, seq: Sequence[Any]):
   return {f"{prefix}{i}": elem for i, elem in enumerate(seq)}
 
@@ -57,7 +92,7 @@ def _dict_from_seq(prefix: str, seq: Sequence[Any]):
 def _as_output_signature(tree):
   @tf.function(autograph=False)
   def f():
-    return obm.tree_util.tree_map(
+    return tree_util.tree_map(
         lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), tree
     )
 
@@ -160,20 +195,29 @@ class TfConcreteFunctionsToObmTest(
           ),
           (
               ((), _DICT),
-              ((), _dict_from_seq("input_", obm.tree_util.flatten(_DICT))),
+              ((), _dict_from_seq("input_", tree_util.flatten(_DICT))),
           ),
           (
               (_TUPLE, _DICT),
               (
                   (),
-                  _dict_from_seq(
-                      "input_", obm.tree_util.flatten((_TUPLE, _DICT))
-                  ),
+                  _dict_from_seq("input_", tree_util.flatten((_TUPLE, _DICT))),
               ),
           ),
           (
               ((_DICT,), {}),
-              ((), _dict_from_seq("input_", obm.tree_util.flatten(_DICT))),
+              ((), _dict_from_seq("input_", tree_util.flatten(_DICT))),
+          ),
+          (
+              ((_CHEX_DATACLASS,), {}),
+              # Registered dataclasses are flattened.
+              (
+                  (),
+                  _dict_from_seq(
+                      "input_",
+                      (_CHEX_DATACLASS.a, _CHEX_DATACLASS.b),
+                  ),
+              ),
           ),
       ))
       for output_case_id, (output_sig, expected_output_sig) in enumerate((
@@ -187,15 +231,22 @@ class TfConcreteFunctionsToObmTest(
           ),
           (
               _DICT,
-              (_dict_from_seq("output_", obm.tree_util.flatten(_DICT))),
+              (_dict_from_seq("output_", tree_util.flatten(_DICT))),
           ),
           (
               (_DICT,),
-              _dict_from_seq("output_", obm.tree_util.flatten(_DICT)),
+              _dict_from_seq("output_", tree_util.flatten(_DICT)),
           ),
           (
               (_TUPLE, _DICT),
-              _dict_from_seq("output_", obm.tree_util.flatten((_TUPLE, _DICT))),
+              _dict_from_seq("output_", tree_util.flatten((_TUPLE, _DICT))),
+          ),
+          (
+              _CHEX_DATACLASS,
+              # Registered dataclasses are flattened.
+              _dict_from_seq(
+                  "output_", (_CHEX_DATACLASS.a, _CHEX_DATACLASS.b)
+              ),
           ),
       ))
   )
@@ -206,7 +257,7 @@ class TfConcreteFunctionsToObmTest(
     @tf.function(autograph=False)
     def f(*args, **kwargs):
       del args, kwargs
-      return obm.tree_util.tree_map(
+      return tree_util.tree_map(
           lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), output_sig
       )
 
@@ -229,6 +280,29 @@ class TfConcreteFunctionsToObmTest(
         expected_output_sig,
         is_spec_equiv,
     )
+
+  def test_to_keyword_only_fn_fails_with_unregistered_dataclass_input(self):
+    @tf.function(autograph=False)
+    def f(*args, **kwargs):
+      del args, kwargs
+      return ()
+
+    args, kwargs = ((_DATACLASS,), {})
+    with self.assertRaises(TypeError):
+      f.get_concrete_function(*args, **kwargs)
+
+  def test_to_keyword_only_fn_fails_with_unregistered_dataclass_output(self):
+    output_sig = _DATACLASS
+
+    @tf.function(autograph=False)
+    def f():
+      return tree_util.tree_map(
+          lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype),
+          output_sig,
+      )
+
+    with self.assertRaises(AttributeError):
+      f.get_concrete_function()
 
   def test_e2e(self):
     var = tf.Variable(100.0)

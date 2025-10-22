@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Sequence, Tuple, Type
 
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
+from orbax.experimental.model.tf2obm import tree_util
 from orbax.experimental.model.tf2obm.utils import get_input_signature
 from orbax.experimental.model.tf2obm.utils import get_output_signature
 from orbax.experimental.model.tf2obm.utils import tf_signature_to_obm_spec
@@ -87,7 +88,7 @@ _NamesAndSequence = Tuple[Sequence[str], Sequence[Any]]
 # Servomatic. If we find that there are too many users relying on this
 # SavedModel behavior, we can revisit the decision here.
 def _generate_names(tree: TfSignature, prefix: str = '') -> _NamesAndSequence:
-  flat = obm.tree_util.flatten(tree)
+  flat = tree_util.flatten(tree)
   return tuple(f'{prefix}_{i}' for i in range(len(flat))), flat
 
 
@@ -225,7 +226,7 @@ def _tree_to_dict(
 ) -> _StrDict:
   if names is None:
     return tree
-  flat = obm.tree_util.flatten(tree)
+  flat = tree_util.flatten(tree)
   return dict(zip(names, flat))
 
 
@@ -237,7 +238,7 @@ def _dict_to_tree(
   if names is None:
     return d
   flat = tuple(d[name] for name in names)
-  return obm.tree_util.unflatten(tree_pattern, flat)
+  return tree_util.unflatten(tree_pattern, flat)
 
 
 def _to_args_kwargs_pattern(

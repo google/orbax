@@ -18,6 +18,7 @@ from typing import Any
 
 import numpy as np
 from orbax.experimental.model import core as obm
+from orbax.experimental.model.tf2obm import tree_util
 import tensorflow as tf
 
 
@@ -68,7 +69,7 @@ TfSignature = obm.Tree[Any]
 
 def tf_signature_to_obm_spec(tree: TfSignature) -> obm.Tree[obm.ShloTensorSpec]:
   try:
-    return obm.tree_util.tree_map(tf_tensor_spec_to_obm, tree)
+    return tree_util.tree_map(tf_tensor_spec_to_obm, tree)
   except Exception as err:
     raise ValueError(
         f'Failed to convert TF signature {tree} of type {type(tree)} to OBM.'
