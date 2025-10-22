@@ -20,7 +20,6 @@ from absl import flags
 from absl import logging
 import jax
 import jax.numpy as jnp
-import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
@@ -105,9 +104,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
     def _fn(expected_arr):
       expected_arr_list.append(expected_arr)
       if is_source_replica:
-        arr = jnp.arange(
-            np.prod(expected_arr.shape), dtype=expected_arr.dtype
-        ).reshape(expected_arr.shape)
+        arr = jax.device_get(expected_arr)
       else:
         arr = jnp.zeros(expected_arr.shape, dtype=expected_arr.dtype)
       arr_single_replica_sharding = jax.sharding.NamedSharding(
