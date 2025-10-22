@@ -105,26 +105,11 @@ def load_pytree(
   asyncio_utils.maybe_apply_nest_asyncio()
   logging.info('Loading checkpoint from %s.', path)
   path = epath.Path(path)
-
-  if checkpointable_name is None:  # `path` is direct path to pytree ckpt.
-    # TODO(niketkb): Refactor to load the pytree directly from the path.
-
-    # Workaround to load the PyTree by reusing the load_checkpointables
-    # function:
-    # Treat the path as a checkpointable and its parent as the step dir.
-    path = epath.Path(path)
-    checkpointable_name = path.name
-    path = path.parent
-
-  async def _get_layout():
-    layout = await layout_registry.get_checkpoint_layout(
-        path, context_lib.get_context().checkpoint_layout
-    )
-    await layout.validate_pytree(checkpointable_name)
-    return layout
-
-  layout = asyncio.run(_get_layout())
-
+  layout, checkpointable_name = asyncio.run(
+      layout_registry.get_checkpoint_layout_pytree(
+          path, context_lib.get_context().checkpoint_layout, checkpointable_name
+      )
+  )
   return _load_checkpointables_impl(
       layout,
       abstract_checkpointables={
@@ -189,9 +174,10 @@ def load_checkpointables(
   asyncio_utils.maybe_apply_nest_asyncio()
   logging.info('Loading checkpoint from %s.', path)
   path = epath.Path(path)
-  context = context_lib.get_context()
   layout = asyncio.run(
-      layout_registry.get_checkpoint_layout(path, context.checkpoint_layout)
+      layout_registry.get_checkpoint_layout(
+          path, context_lib.get_context().checkpoint_layout
+      )
   )
 
   return _load_checkpointables_impl(

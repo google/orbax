@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- #v1 Allow PyTree checkpointables to be automatically identified in
+both `pytree_metadata` and `load_pytree`.
+
 ## [0.11.26] - 2025-10-22
 
 ### Added

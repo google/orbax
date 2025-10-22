@@ -102,11 +102,12 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
     )
     self.assertTrue(
         '__main__.TestHandler' in registry._registry
-        or 'handler_type_registry_test.TestHandler' in registry._registry
+        or 'orbax.checkpoint._src.handlers.handler_type_registry_test.TestHandler'
+        in registry._registry
     )
     self.assertTrue(
         '__main__.ParentHandler.TestHandler' in registry._registry
-        or 'handler_type_registry_test.ParentHandler.TestHandler'
+        or 'orbax.checkpoint._src.handlers.handler_type_registry_test.ParentHandler.TestHandler'
         in registry._registry
     )
 
@@ -126,7 +127,7 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
     )
     self.assertTrue(
         '__main__.StandardCheckpointHandler' in registry._registry
-        or 'handler_type_registry_test.StandardCheckpointHandler'
+        or 'orbax.checkpoint._src.handlers.handler_type_registry_test.StandardCheckpointHandler'
         in registry._registry
     )
     self.assertIn(
@@ -146,11 +147,12 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
     with self.assertRaisesRegex(
         ValueError,
         'Handler type string '
-        r'"(?:__main__|handler_type_registry_test)\.TestHandler"'
+        r'"(?:__main__|orbax.checkpoint._src.handlers.handler_type_registry_test)\.TestHandler"'
         ' already exists in the registry with type '
-        r'<class \'(?:__main__|handler_type_registry_test)\.TestHandler\'>. '
-        'Cannot add type '
-        r'<class \'(?:__main__|handler_type_registry_test)\.'
+        r'<class'
+        r' \'(?:__main__|orbax.checkpoint._src.handlers.handler_type_registry_test)\.TestHandler\'>. '
+        r'Cannot add type <class'
+        r' \'(?:__main__|orbax.checkpoint._src.handlers.handler_type_registry_test)\.'
         "MalformedParentHandler.TestHandler'>.",
     ):
       registry.add(MalformedParentHandler.TestHandler)
@@ -160,7 +162,7 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
     with self.assertRaisesRegex(
         KeyError,
         'Handler type string '
-        r'"(?:__main__|handler_type_registry_test)\.TestHandler"'
+        r'"(?:__main__|orbax.checkpoint._src.handlers.handler_type_registry_test)\.TestHandler"'
         ' not found in the registry.',
     ):
       registry.get(TestHandler.typestr())
@@ -196,7 +198,7 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
     typestr = list(type_registry._registry.keys())[0]
 
     possible_typestrs = {
-        'handler_type_registry_test.NoTypestrHandler',
+        'orbax.checkpoint._src.handlers.handler_type_registry_test.NoTypestrHandler',
         '__main__.NoTypestrHandler',
     }
     self.assertIn(typestr, possible_typestrs)

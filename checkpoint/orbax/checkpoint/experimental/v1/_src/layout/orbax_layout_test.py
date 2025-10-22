@@ -18,18 +18,43 @@ from absl.testing import parameterized
 from etils import epath
 import numpy as np
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.checkpointers import checkpointer
+from orbax.checkpoint._src.handlers import composite_checkpoint_handler
+from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint._src.metadata import value as value_metadata
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.saving import saving
 from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
+from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 import safetensors.numpy
+
 
 np_save_file = safetensors.numpy.save_file
 OrbaxLayout = orbax_layout.OrbaxLayout
 InvalidLayoutError = orbax_layout.InvalidLayoutError
+
+
+async def _unlink_indicator(path: epath.Path):
+  await async_path.unlink(
+      path / orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE,
+      missing_ok=True,
+  )
+
+
+async def _unlink_pytree_metadata(path: epath.Path):
+  await async_path.unlink(path / '_METADATA', missing_ok=True)
+  for subdir in await async_path.iterdir(path):
+    if not await async_path.is_dir(subdir):
+      continue
+    await async_path.unlink(subdir / '_METADATA', missing_ok=True)
+
+
+async def _unlink_checkpoint_metadata(path: epath.Path):
+  await async_path.unlink(path / '_CHECKPOINT_METADATA', missing_ok=True)
 
 
 class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
@@ -66,11 +91,27 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
 
   async def test_validate_fails_not_directory(self):
     layout = OrbaxLayout(self.orbax_path / '1')
-    # This tests `format_utils.validate_checkpoint_directory`
     with self.assertRaises(InvalidLayoutError):
       await layout.validate()
 
-  async def test_skips_metadata_validation_if_no_indicator_file(self):
+  async def test_validate_no_indicator_file(self):
+    layout = OrbaxLayout(self.orbax_path / '0')
+    indicator_path = (
+        self.orbax_path
+        / '0'
+        / composite_handler.ORBAX_CHECKPOINT_INDICATOR_FILE
+    )
+    indicator_path.rmtree()  # Remove the indicator file
+    await layout.validate()
+
+  async def test_validate_no_metadata_file(self):
+    layout = OrbaxLayout(self.orbax_path / '0')
+    metadata_path = self.orbax_path / '0' / '_CHECKPOINT_METADATA'
+    self.assertTrue(metadata_path.exists())
+    metadata_path.rmtree()  # Remove the metadata file
+    await layout.validate()
+
+  async def test_validate_no_indicator_or_metadata_files(self):
     layout = OrbaxLayout(self.orbax_path / '0')
     indicator_path = (
         self.orbax_path
@@ -79,16 +120,9 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     )
     indicator_path.rmtree()  # Remove the indicator file
     metadata_path = self.orbax_path / '0' / '_CHECKPOINT_METADATA'
-    self.assertTrue(metadata_path.exists())
-    metadata_path.rmtree()  # Remove the metadata file
-    await layout.validate()
-
-  async def test_validate_fails_no_metadata_file(self):
-    layout = OrbaxLayout(self.orbax_path / '0')
-    # This tests `format_utils.validate_checkpoint_metadata`
-    metadata_path = self.orbax_path / '0' / '_CHECKPOINT_METADATA'
-    self.assertTrue(metadata_path.exists())
-    metadata_path.rmtree()  # Remove the metadata file
+    metadata_path.rmtree()
+    pytree_metadata_path = self.orbax_path / '0' / 'pytree' / '_METADATA'
+    pytree_metadata_path.rmtree()
     with self.assertRaises(InvalidLayoutError):
       await layout.validate()
 
@@ -140,6 +174,154 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     self.assertGreater(result_metadata.init_timestamp_nsecs, 0)
     self.assertIsInstance(result_metadata.commit_timestamp_nsecs, int)
     self.assertGreater(result_metadata.commit_timestamp_nsecs, 0)
+
+
+class V0ValidationTest(
+    unittest.IsolatedAsyncioTestCase, parameterized.TestCase
+):
+
+  def setUp(self):
+    super().setUp()
+    self.directory = epath.Path(self.create_tempdir().full_path) / 'ckpt'
+    self.pytree, _ = array_test_utils.create_numpy_pytree()
+    # Save a checkpoint with a checkpointable name, `state`.
+    ckptr = checkpointer.Checkpointer(
+        composite_checkpoint_handler.CompositeCheckpointHandler()
+    )
+    ckptr.save(
+        self.directory,
+        composite_checkpoint_handler.CompositeArgs(
+            state=standard_checkpoint_handler.StandardSaveArgs(self.pytree)
+        ),
+    )
+
+  async def test_nonexistent_path(self):
+    with self.assertRaises(FileNotFoundError):
+      await OrbaxLayout(self.directory / 'foo')._validate()
+
+  async def test_not_a_directory(self):
+    await async_path.write_text(self.directory / 'foo', 'foo')
+    with self.assertRaises(NotADirectoryError):
+      await OrbaxLayout(self.directory / 'foo')._validate()
+
+  @parameterized.product(checkpointable_name=['state', None])
+  async def test_no_checkpoint_metadata(self, checkpointable_name: str | None):
+    directory = (
+        self.directory / checkpointable_name
+        if checkpointable_name is not None
+        else self.directory
+    )
+    await _unlink_checkpoint_metadata(directory)
+
+    await OrbaxLayout(directory)._validate()
+    if checkpointable_name is None:
+      await OrbaxLayout(directory)._validate_pytree('state')
+    else:
+      await OrbaxLayout(directory)._validate_pytree(None)
+
+  async def test_deleted_pytree(self):
+    directory = self.directory
+    (directory / 'state').rmtree()
+
+    await OrbaxLayout(directory)._validate()
+    with self.assertRaises(FileNotFoundError):
+      await OrbaxLayout(directory)._validate_pytree('state')
+
+  async def test_missing_checkpointable_matching_name(self):
+    with self.assertRaises(FileNotFoundError):
+      await OrbaxLayout(self.directory)._validate_pytree('foo')
+
+  @parameterized.product(checkpointable_name=['state', None])
+  async def test_no_pytree_metadata(self, checkpointable_name: str | None):
+    directory = (
+        self.directory / checkpointable_name
+        if checkpointable_name is not None
+        else self.directory
+    )
+    await _unlink_pytree_metadata(directory)
+
+    if checkpointable_name is None:
+      # Passes because we still have the checkpoint metadata.
+      await OrbaxLayout(directory)._validate()
+      with self.assertRaises(FileNotFoundError):
+        await OrbaxLayout(directory)._validate_pytree('state')
+    else:
+      with self.assertRaises(FileNotFoundError):
+        await OrbaxLayout(directory)._validate()
+        await OrbaxLayout(directory)._validate_pytree(None)
+
+  @parameterized.product(checkpointable_name=['state', None])
+  async def test_valid_pytree(self, checkpointable_name: str | None):
+    directory = (
+        self.directory / checkpointable_name
+        if checkpointable_name is not None
+        else self.directory
+    )
+    if checkpointable_name is None:
+      await OrbaxLayout(directory)._validate_pytree('state')
+    else:
+      await OrbaxLayout(directory)._validate_pytree(None)
+
+
+class V1ValidationTest(
+    unittest.IsolatedAsyncioTestCase, parameterized.TestCase
+):
+
+  def setUp(self):
+    super().setUp()
+    self.directory = epath.Path(self.create_tempdir().full_path) / 'ckpt'
+    self.pytree, _ = array_test_utils.create_numpy_pytree()
+    saving.save_pytree(self.directory, self.pytree)
+
+  async def test_nonexistent_path(self):
+    with self.assertRaises(FileNotFoundError):
+      await OrbaxLayout(self.directory / 'foo')._validate()
+
+  async def test_not_a_directory(self):
+    await async_path.write_text(self.directory / 'foo', 'foo')
+    with self.assertRaises(NotADirectoryError):
+      await OrbaxLayout(self.directory / 'foo')._validate()
+
+  @parameterized.product(checkpointable_name=['pytree', None])
+  async def test_missing_indicator_file(self, checkpointable_name: str | None):
+    directory = (
+        self.directory / checkpointable_name
+        if checkpointable_name is not None
+        else self.directory
+    )
+    await _unlink_indicator(directory)
+    await OrbaxLayout(directory)._validate()
+
+  async def test_deleted_pytree(self):
+    directory = self.directory
+    (directory / 'pytree').rmtree()
+
+    await OrbaxLayout(directory)._validate()
+    with self.assertRaises(FileNotFoundError):
+      await OrbaxLayout(directory)._validate_pytree('pytree')
+
+  async def test_missing_checkpointable_matching_name(self):
+    with self.assertRaises(FileNotFoundError):
+      await OrbaxLayout(self.directory)._validate_pytree('foo')
+
+  @parameterized.product(checkpointable_name=['pytree', None])
+  async def test_no_pytree_metadata(self, checkpointable_name: str | None):
+    directory = (
+        self.directory / checkpointable_name
+        if checkpointable_name is not None
+        else self.directory
+    )
+    await _unlink_indicator(directory)
+    await _unlink_checkpoint_metadata(directory)
+    await _unlink_pytree_metadata(directory)
+
+    with self.assertRaises(FileNotFoundError):
+      await OrbaxLayout(directory)._validate()
+    with self.assertRaises(FileNotFoundError):
+      if checkpointable_name is None:
+        await OrbaxLayout(directory)._validate_pytree('pytree')
+      else:
+        await OrbaxLayout(directory)._validate_pytree(None)
 
 
 if __name__ == '__main__':

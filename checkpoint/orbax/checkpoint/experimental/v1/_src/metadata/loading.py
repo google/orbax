@@ -88,21 +88,12 @@ def pytree_metadata(
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
   asyncio_utils.maybe_apply_nest_asyncio()
-  context = context_lib.get_context()
-
   path = epath.Path(path)
-  if checkpointable_name is None:
-    checkpointable_name = path.name
-    path = path.parent
-
-  async def _get_layout():
-    layout = await layout_registry.get_checkpoint_layout(
-        path, context.checkpoint_layout
-    )
-    await layout.validate_pytree(checkpointable_name)
-    return layout
-
-  layout = asyncio.run(_get_layout())
+  layout, checkpointable_name = asyncio.run(
+      layout_registry.get_checkpoint_layout_pytree(
+          path, context_lib.get_context().checkpoint_layout, checkpointable_name
+      )
+  )
   metadata = _checkpointables_metadata_impl(layout)
   return CheckpointMetadata[PyTreeMetadata](
       metadata=metadata.metadata[checkpointable_name],
@@ -143,7 +134,9 @@ def checkpointables_metadata(
   path = epath.Path(path)
   context = context_lib.get_context()
   layout = asyncio.run(
-      layout_registry.get_checkpoint_layout(path, context.checkpoint_layout)
+      layout_registry.get_checkpoint_layout(
+          path, context.checkpoint_layout
+      )
   )
   return _checkpointables_metadata_impl(layout)
 
