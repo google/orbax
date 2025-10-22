@@ -49,6 +49,17 @@ def is_supported_type(
   ) or empty_values.is_supported_empty_value(value, pytree_metadata_options)
 
 
+def check_input_arguments(*args):
+  l = None
+  for arg in args:
+    if l == 0:
+      raise ValueError('Cannot pass TypeHandler input of length 0.')
+    if l is None:
+      l = len(arg)
+    elif len(arg) != l:
+      raise ValueError('Found input args with mismatched lengths.')
+
+
 @dataclasses.dataclass
 class ParamInfo:
   """Information describing a parameter in a PyTree.

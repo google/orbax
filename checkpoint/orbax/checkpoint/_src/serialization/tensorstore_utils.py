@@ -15,7 +15,9 @@
 """TensorStore serialization helper functions."""
 
 import base64
+from collections.abc import Sequence
 import copy
+import json
 import math
 import os
 import re
@@ -28,9 +30,12 @@ import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.metadata import array_metadata
+from orbax.checkpoint._src.metadata import sharding as sharding_metadata
+from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.serialization import types
 import tensorstore as ts
+
 
 JsonSpec: TypeAlias = dict[str, Any]
 Shape: TypeAlias = arrays_types.Shape
@@ -740,3 +745,37 @@ def get_cast_tspec_deserialize(
         'dtype': jnp.dtype(args.dtype).name,
     }
   return tspec
+
+
+def array_metadata_from_tensorstore(
+    t: Any,
+    info: types.ParamInfo,
+    sharding: sharding_metadata.ShardingMetadata | None = None,
+) -> value_metadata.ArrayMetadata:
+  return value_metadata.ArrayMetadata(
+      name=info.name,
+      directory=info.parent_dir,
+      shape=t.shape,
+      dtype=jnp.dtype(t.dtype.name),
+      sharding=sharding,
+      storage=value_metadata.StorageMetadata(
+          chunk_shape=t.chunk_layout.read_chunk_template.shape,
+          write_shape=info.write_shape,
+      ),
+  )
+
+
+def print_ts_debug_data(key: str | None, infos: Sequence[types.ParamInfo]):
+  """Log Tensorstore related metrics."""
+  ts_metrics = ts.experimental_collect_matching_metrics('/tensorstore')
+  ts_metrics += ts.experimental_collect_matching_metrics('/mallocz')
+  ts_metrics += ts.experimental_collect_matching_metrics('/tcmalloc/')
+  ts_metrics += [
+      {'key': key},
+      {'infos': [f'{info.name}' for info in infos]},
+  ]
+
+  for metrics in ts_metrics:
+    logging.vlog(1, 'ts_metric: %s', metrics)
+
+  return json.dumps(ts_metrics)

@@ -41,9 +41,9 @@ from orbax.checkpoint._src.serialization.type_handlers import is_ocdbt_checkpoin
 
 # BEGIN OF DEPRECATED FUNCTIONS
 # DON'T USE UNLESS YOU KNOW WHAT YOU'RE DOING
-from orbax.checkpoint._src.serialization.type_handlers import check_input_arguments
-from orbax.checkpoint._src.serialization.type_handlers import is_supported_empty_value
-from orbax.checkpoint._src.serialization.type_handlers import is_supported_type
+from orbax.checkpoint._src.serialization.types import check_input_arguments
+from orbax.checkpoint._src.metadata.empty_values import is_supported_empty_value
+from orbax.checkpoint._src.serialization.types import is_supported_type
 from orbax.checkpoint._src.serialization.ocdbt_utils import merge_ocdbt_per_process_files
 from orbax.checkpoint._src.serialization.tensorstore_utils import _get_json_tspec
 from orbax.checkpoint._src.serialization.tensorstore_utils import assert_parameter_files_exist as _assert_parameter_files_exist
