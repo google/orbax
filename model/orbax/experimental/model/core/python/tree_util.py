@@ -136,19 +136,3 @@ def unflatten(tree: Tree[Any], leaves: Iterable[T6]) -> Tree[T6]:
   except StopIteration:
     return result
   raise ValueError("After unflattening, there are still leaves left.")
-
-
-def prune_tree(tree: Tree[Any], wanted_node_type: Any) -> Tree[Any]:
-  """Prunes the tree by removing unwanted leaves."""
-  if isinstance(tree, (tuple, list)):
-    return tuple_or_list_constructor(tree)(
-        prune_tree(x, wanted_node_type) for x in tree
-    )
-  elif isinstance(tree, dict):
-    tree: Dict[str, Tree[Any]]
-    return {k: prune_tree(v, wanted_node_type) for k, v in tree.items()}
-  elif isinstance(tree, wanted_node_type):
-    return tree
-  else:
-    # If the node type is None or not wanted, we return None.
-    return None

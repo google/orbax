@@ -311,7 +311,6 @@ def _to_shlo_spec_tree_and_refinement_tuple(
     avals: Sequence[jax.core.AbstractValue],
     shardings: Sequence[Any],
     tree_def: Optional[jax.tree_util.PyTreeDef],
-    prune_custom_pytree_nodes: bool = False,
 ) -> Tuple[
     obm.Tree[obm.ShloTensorSpec], Tuple[ShapeDTypeRefinementPair, ...] | None
 ]:
@@ -328,8 +327,6 @@ def _to_shlo_spec_tree_and_refinement_tuple(
         raise ValueError(
             f"Leaf needs to be a ShloTensorSpec, but its type is: {type(x)}"
         )
-    if prune_custom_pytree_nodes:
-      jax_tree = obm.tree_util.prune_tree(jax_tree, obm.ShloTensorSpec)
     obm.tree_util.assert_tree(assert_leaf, jax_tree)
     jax_tree: obm.Tree[obm.ShloTensorSpec]
   return jax_tree, refinements

@@ -62,9 +62,6 @@ WEIGHTS_NAME = 'weights_name'
 # Jax2obm_kwargs key for input polymorphic constraints.
 POLYMORPHIC_CONSTRAINTS = 'polymorphic_constraints'
 
-# Jax2obm_kwargs key for pruning custom pytree nodes.
-PRUNE_CUSTOM_PYTREE_NODES = 'prune_custom_pytree_nodes'
-
 # Default weights name to use if a checkpoint path is provided but a weights_
 # name kwarg was not provided in the jax2obm_kwargs.
 DEFAULT_WEIGHTS_NAME = 'weights'
