@@ -25,6 +25,7 @@ from jax import numpy as jnp
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.metadata import array_metadata
+from orbax.checkpoint._src.path import gcs_utils
 import tensorstore as ts
 
 JsonSpec: TypeAlias = dict[str, Any]
@@ -43,8 +44,6 @@ _DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE = 2**31  # 2 GiB
 
 ZARR_VER2 = 'zarr'
 ZARR_VER3 = 'zarr3'
-
-_GCS_PATH_RE = r'^gs://([^/]*)/(.*)$'
 
 # Even if the data is equal to the fill value, we still want to write it
 # to the checkpoint. This results in unnecessary writes in some edge
@@ -112,18 +111,6 @@ def get_ts_context(
 ### Building KvStore specs.
 
 
-def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
-  m = re.fullmatch(_GCS_PATH_RE, ckpt_path, re.DOTALL)
-  if m is None:
-    raise ValueError(
-        'The ckpt_path should contain the bucket name and the '
-        f'file path inside the bucket. Got: {ckpt_path}'
-    )
-  gcs_bucket = m.group(1)
-  path_without_bucket = m.group(2)
-  return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
-
-
 def build_kvstore_tspec(
     directory: str,
     name: str | None = None,
@@ -174,7 +161,7 @@ def build_kvstore_tspec(
         ]
       directory = os.path.join(*join_paths)
     base_driver_spec = (
-        directory
+        gcs_utils.get_kvstore_for_gcs(str(directory))
         if is_gcs_path
         else {'driver': default_driver, 'path': str(directory)}
     )
@@ -205,7 +192,7 @@ def build_kvstore_tspec(
     else:
       path = os.path.join(directory, name)
     if is_gcs_path:
-      kv_spec = _get_kvstore_for_gcs(path)
+      kv_spec = gcs_utils.get_kvstore_for_gcs(path)
     else:
       kv_spec = {'driver': default_driver, 'path': path}
 

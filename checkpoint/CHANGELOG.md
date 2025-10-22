@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - #v1 Modify LeafHandler definitions so that `AbstractLeaf` or
 `Type[AbstractLeaf]` are always accepted as valid abstract values.
+- Configuring the `TENSORSTORE_GCS_BACKEND` environment variable is now
+supported for additional locations in the code, notably when using ocdbt.
 
 ## [0.11.25] - 2025-09-10
 

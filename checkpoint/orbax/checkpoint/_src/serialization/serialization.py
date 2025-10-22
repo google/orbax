@@ -19,7 +19,6 @@ import collections
 from collections.abc import Mapping
 import contextlib
 import os
-import re
 from typing import Any, AsyncIterator, Dict, Optional, Protocol, Sequence, Union
 
 from absl import logging
@@ -32,6 +31,7 @@ from orbax.checkpoint._src.arrays import fragments
 from orbax.checkpoint._src.arrays import numpy_utils as np_utils
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
@@ -65,36 +65,6 @@ def _spec_has_metadata(tree):
   )
 
 
-def _get_kvstore_for_gcs(ckpt_path: str):
-  """Constructs a TensorStore kvstore spec for a GCS path.
-
-  Args:
-    ckpt_path: A GCS path of the form gs://<bucket>/<path>.
-
-  Returns:
-    A dictionary containing the TensorStore kvstore spec.
-
-  Raises:
-    ValueError: if ckpt_path is not a valid GCS path.
-  """
-  m = re.fullmatch('^gs://([^/]*)/(.*)$', ckpt_path, re.DOTALL)
-  if m is None:
-    raise ValueError(
-        'The ckpt_path should contain the bucket name and the '
-        f'file path inside the bucket. Got: {ckpt_path}'
-    )
-  gcs_bucket = m.group(1)
-  path_without_bucket = m.group(2)
-  # TODO(stoelinga): Switch to gcs_grpc by default.
-  # gcs_grpc performs roughly twice as fast as gcs backend.
-  gcs_backend = os.environ.get('TENSORSTORE_GCS_BACKEND', 'gcs')
-  return {
-      'driver': f'{gcs_backend}',
-      'bucket': gcs_bucket,
-      'path': path_without_bucket,
-  }
-
-
 def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
   """Constructs a TensorStore spec for the given checkpoint path."""
   # Normalize path to exclude trailing '/'. In GCS path case, we will need to
@@ -107,7 +77,7 @@ def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
       raise ValueError(f'Checkpoint path should be absolute. Got {ckpt_path}')
     base_path = os.path.dirname(ckpt_path)
     base_driver_spec = (
-        base_path
+        gcs_utils.get_kvstore_for_gcs(base_path)
         if is_gcs_path
         else {'driver': ts_utils.DEFAULT_DRIVER, 'path': base_path}
     )
@@ -118,7 +88,7 @@ def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
     }
   else:
     if is_gcs_path:
-      spec['kvstore'] = _get_kvstore_for_gcs(ckpt_path)
+      spec['kvstore'] = gcs_utils.get_kvstore_for_gcs(ckpt_path)
     else:
       spec['kvstore'] = {'driver': ts_utils.DEFAULT_DRIVER, 'path': ckpt_path}
 
