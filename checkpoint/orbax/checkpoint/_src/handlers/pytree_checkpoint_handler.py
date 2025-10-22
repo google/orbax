@@ -44,7 +44,7 @@ from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
-from orbax.checkpoint._src.serialization import serialization
+from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types as serialization_types
@@ -663,9 +663,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       restore_args: PyTree,
   ) -> PyTree:
     """Deserializes values or gets them from the aggregate file."""
-    byte_limiter = serialization.get_byte_limiter(
-        self._restore_concurrent_bytes
-    )
+    byte_limiter = limits.get_byte_limiter(self._restore_concurrent_bytes)
     param_infos = jax.tree.map(
         lambda info: dataclasses.replace(info, byte_limiter=byte_limiter),
         param_infos,

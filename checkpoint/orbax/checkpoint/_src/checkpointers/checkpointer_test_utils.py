@@ -48,7 +48,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step
-from orbax.checkpoint._src.serialization import serialization
+from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import test_tree_utils
 
@@ -349,7 +349,7 @@ class CheckpointerTestBase:
 
       byte_limiter = test_utils.get_byte_limiter(limit_bytes, sleep_time)
       with mock.patch.object(
-          serialization,
+          limits,
           'get_byte_limiter',
           new=lambda _: byte_limiter,
       ):
@@ -370,7 +370,7 @@ class CheckpointerTestBase:
 
       byte_limiter = test_utils.get_byte_limiter(limit_bytes, sleep_time)
       with mock.patch.object(
-          serialization,
+          limits,
           'get_byte_limiter',
           new=lambda _: byte_limiter,
       ):

@@ -17,14 +17,11 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import copy
 import dataclasses
 import functools
 import json
-import re
 import sys
-import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, TypeAlias, Union, cast
 import warnings
@@ -35,7 +32,6 @@ import jax
 from jax.experimental import layout
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import array_metadata as array_metadata_lib
@@ -47,6 +43,8 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import format_utils
+from orbax.checkpoint._src.serialization import limits
+from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
@@ -74,181 +72,13 @@ ScalarMetadata = value_metadata.ScalarMetadata
 ArrayMetadata = value_metadata.ArrayMetadata
 StringMetadata = value_metadata.StringMetadata
 ShardingMetadata = sharding_metadata.ShardingMetadata
-LimitInFlightBytes = serialization.LimitInFlightBytes
+LimitInFlightBytes = limits.LimitInFlightBytes
 is_ocdbt_checkpoint = format_utils.is_ocdbt_checkpoint
 is_supported_empty_value = empty_values.is_supported_empty_value
 is_supported_type = types.is_supported_type
 
 
 _SHARDING = '_sharding'
-_SHARDING_SUFFIX_RE = r'/\d+(\.\d+)*$'  # /0, /0.0, /1.0.1, etc.
-_ZARRAY_SUFFIX_RE = r'/\.zarray$'
-_ZARRAY_SUFFIX = '/.zarray'
-
-
-async def _assert_parameter_files_exist(
-    param_dir: epath.Path, metadata_key: Optional[str], use_zarr3: bool = False
-):
-  """Checks for existence of parameter subdir and .zarray file."""
-  exists = await async_path.exists(param_dir)
-  if not exists:
-    raise FileNotFoundError(
-        f'Individual parameter subdirectory not found at path: {param_dir}.'
-    )
-  if metadata_key is None:
-    metadata_key = 'zarr.json' if use_zarr3 else '.zarray'
-  metadata_path = param_dir / metadata_key
-  exists = await async_path.exists(metadata_path)
-  if not exists:
-    raise FileNotFoundError(
-        f'File not found: {metadata_path}. In many cases, this results from'
-        ' copying a checkpoint without using the `-a` flag.'
-    )
-
-
-# TS functions
-# TODO(b/336658919) refractor TS functions to a separate file
-def _get_json_tspec(
-    info: types.ParamInfo,
-    use_ocdbt: bool,
-    *,
-    process_index: Optional[Union[int, str]] = None,
-    metadata_key: Optional[str] = None,
-    raise_array_data_missing_error: bool = True,
-) -> Dict[str, Any]:
-  """Gets Tensorstore spec in JSON format."""
-  if info.path is None:
-    raise ValueError('Must construct serialization path.')
-  parent_dir = info.parent_dir
-  assert parent_dir is not None
-  directory = parent_dir.as_posix()
-  kvstore_tspec = ts_utils.build_kvstore_tspec(
-      directory,
-      name=info.name,
-      use_ocdbt=use_ocdbt,
-      process_id=process_index,
-  )
-
-  tspec = {
-      'driver': ts_utils.ZARR_VER3 if info.use_zarr3 else ts_utils.ZARR_VER2,
-      'kvstore': kvstore_tspec,
-      'recheck_cached_data': False,
-      'recheck_cached_metadata': False,
-      # Raise error if data is missing.
-      'fill_missing_data_reads': not raise_array_data_missing_error,
-  }
-  if metadata_key is not None:
-    tspec['metadata_key'] = metadata_key
-  return tspec
-
-
-# TODO: b/354139177 - Rename this to `build_array_tspec_read`.
-# Keep the existing name for backward compatibility but mark as deprecated.
-def get_json_tspec_read(
-    info: types.ParamInfo,
-    use_ocdbt: bool,
-    metadata_key: Optional[str] = None,
-    raise_array_data_missing_error: bool = True,
-):
-  """Gets Tensorstore spec for reading."""
-  return _get_json_tspec(
-      info,
-      use_ocdbt=use_ocdbt,
-      metadata_key=metadata_key,
-      raise_array_data_missing_error=raise_array_data_missing_error,
-  )
-
-
-# TODO: b/354139177 - Replace usages of this with `build_array_tspec_write`
-# and remove it.
-def get_json_tspec_write(
-    info: types.ParamInfo,
-    use_ocdbt: bool,
-    global_shape: tuple[int, ...],
-    local_shape: tuple[int, ...],
-    dtype: Union[jnp.dtype, np.dtype],
-    process_index: Optional[Union[int, str]] = None,
-    metadata_key: Optional[str] = None,
-    arg: Optional[types.SaveArgs] = None,
-):
-  """Gets Tensorstore spec for writing."""
-  tspec = _get_json_tspec(
-      info,
-      use_ocdbt=use_ocdbt,
-      process_index=process_index,
-      metadata_key=metadata_key,
-  )
-
-  chunk_byte_size = arg.chunk_byte_size if arg else None
-  if use_ocdbt:
-    ocdbt_target_data_file_size = info.ocdbt_target_data_file_size
-    ts_utils.add_ocdbt_write_options(
-        tspec['kvstore'],
-        ocdbt_target_data_file_size,
-    )
-    chunk_byte_size = ts_utils.calculate_chunk_byte_size(
-        local_shape,
-        dtype,
-        chunk_byte_size=chunk_byte_size,
-        ocdbt_target_data_file_size=ocdbt_target_data_file_size,
-    )
-
-  chunk_shape = subchunking.choose_chunk_shape(
-      global_shape,
-      local_shape,
-      dtype,
-      chunk_byte_size,
-  )
-
-  tspec['metadata'] = ts_utils.build_zarr_shard_and_chunk_metadata(
-      global_shape=global_shape,
-      shard_shape=local_shape,
-      use_compression=info.use_compression,
-      use_zarr3=info.use_zarr3,
-      chunk_shape=chunk_shape,
-  )
-
-  return tspec
-
-
-def _build_array_write_spec(
-    info: types.ParamInfo,
-    arg: Optional[types.SaveArgs] = None,
-    *,
-    global_shape: arrays_types.Shape,
-    local_shape: arrays_types.Shape,
-    dtype: Union[jnp.dtype, np.dtype],
-    use_ocdbt: bool,
-    process_index: Optional[Union[int, str]] = None,
-    replica_separate_folder: bool = False,
-    metadata_key: Optional[str] = None,
-    ext_metadata: Optional[Dict[str, Any]] = None,
-) -> ts_utils.ArrayWriteSpec:
-  """Gets ArrayWriteSpec for writing."""
-  if info.path is None:
-    raise ValueError('Must construct serialization path.')
-  parent_dir = info.parent_dir
-  assert parent_dir is not None
-  directory = parent_dir.as_posix()
-
-  return ts_utils.ArrayWriteSpec(
-      directory,
-      relative_array_filename=info.name,
-      global_shape=global_shape,
-      write_shape=local_shape,
-      dtype=dtype,
-      target_dtype=(arg.dtype if arg is not None else None),
-      chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
-      shard_axes=(arg.shard_axes if arg is not None else tuple()),
-      use_compression=info.use_compression,
-      use_zarr3=info.use_zarr3,
-      use_ocdbt=use_ocdbt,
-      process_id=process_index,
-      replica_separate_folder=replica_separate_folder,
-      ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
-      metadata_key=metadata_key,
-      ext_metadata=ext_metadata,
-  )
 
 
 def check_input_arguments(*args):
@@ -272,236 +102,6 @@ def check_array_values(
           f'Cannot save arrays with zero size: ParamInfo: [name={info.name},'
           f'value_typestr={info.value_typestr}]'
       )
-
-
-async def _validate_params(
-    directory: epath.Path,
-    ts_context: ts.Context,
-    use_zarr3: bool,
-) -> None:
-  """Validates the params present in tensorstore KvStore.
-
-  Supports zarr2.
-
-  NOTE: Support for zarr3 will be added later.
-
-  Args:
-    directory: checkpoint location.
-    ts_context: Tensorstore context.
-    use_zarr3: If True, use zarr3 driver, otherwise, use zarr driver.
-  """
-  merged_kvstore_tspec = ts_utils.build_kvstore_tspec(
-      directory.as_posix(), use_ocdbt=True
-  )
-  ts_kv_store = await _open_kv_store(merged_kvstore_tspec, ts_context)
-
-  # TODO: b/362328389 - Add support for zarr3.
-  if use_zarr3:
-    logging.info(
-        'Param validation support for Zarr3 will be added later (b/362328389).'
-    )
-    return
-
-  raw_ts_params = await ts_kv_store.list()
-  if not raw_ts_params:
-    # TODO: b/361090820 - Raise error once we confirm that Bennu writing empty
-    # states is a bug.
-    # e.g. //learning/deepmind/jax/roc/formats/roc_orbax:roc_orbax_test
-    logging.info(
-        'Skipping param validation: No params found in TensorStore'
-        ' KvStore: %s.',
-        ts_kv_store,
-    )
-    return
-
-  process_index = multihost.process_index()
-  current_thread_name = threading.current_thread().name
-  # [a/.zarray, a/0, b.zarray, b/0.0, b/0.1, c/0, d/.zarray] -> {a, b, d}
-  with_zarray = set()
-  # [a/.zarray, a/0, b.zarray, b/0.0, b/0.1, c/0, d/.zarray] -> {a, b, c}
-  without_zarray = set()
-  for ts_param in raw_ts_params:
-    ts_param = ts_param.decode('utf-8')
-    if logging.vlog_is_on(1):
-      logging.vlog(
-          1,
-          '[process=%s][thread=%s] Validating raw param: %s',
-          process_index,
-          current_thread_name,
-          ts_param,
-      )
-    # b/0.0 -> b, a/0 -> a, a/.zarray -> a/.zarray
-    ts_param = re.sub(_SHARDING_SUFFIX_RE, '', ts_param)
-    if ts_param.endswith(_ZARRAY_SUFFIX):
-      # a/.zarray -> a
-      ts_param = re.sub(_ZARRAY_SUFFIX_RE, '', ts_param)
-      with_zarray.add(ts_param)
-      if logging.vlog_is_on(1):
-        logging.vlog(
-            1,
-            '[process=%s][thread=%s] Collecting param with .zarray: %s',
-            process_index,
-            current_thread_name,
-            ts_param,
-        )
-    else:
-      # b -> b
-      without_zarray.add(ts_param)
-      if logging.vlog_is_on(1):
-        logging.vlog(
-            1,
-            '[process=%s][thread=%s] Collecting param without .zarray: %s',
-            process_index,
-            current_thread_name,
-            ts_param,
-        )
-
-  unique = with_zarray | without_zarray
-  logging.vlog(
-      1,
-      '[process=%s][thread=%s] Validating params in TensorStore KvStore.',
-      process_index,
-      current_thread_name,
-  )
-  missing_params = unique - without_zarray
-  if missing_params:
-    formatted_missing_params = ' \n'.join(sorted(missing_params))
-    raise ValueError(
-        f'Save failed: {len(missing_params)}/{len(unique)} params are missing'
-        f' in checkpoint:\n{formatted_missing_params}.\nTensorstore KvStore:'
-        f' {ts_kv_store}.'
-    )
-  missing_zarrays = unique - with_zarray
-  if missing_zarrays:
-    formatted_missing_zarrays = ' \n'.join(sorted(missing_zarrays))
-    raise ValueError(
-        f'Save failed: {len(missing_zarrays)}/{len(unique)} params are missing'
-        f' .zarray in checkpoint:\n{formatted_missing_zarrays}.\nTensorstore'
-        f' KvStore: {ts_kv_store}.'
-    )
-
-
-async def merge_ocdbt_per_process_files(
-    directory: epath.Path,
-    ts_context: ts.Context,
-    use_zarr3: bool,
-    enable_validation: bool = True,
-):
-  """Merges OCDBT files written to per-process subdirectories.
-
-  With Tensorstore's OCDBT format, arrays are initially written to per-process
-  subdirectories, depending on which host is doing the writing. This function
-  can be called to merge the per-process files into a global key-value store.
-
-  The original per-process subdirectories are not and should not be deleted -
-  the global kvstore continues to reference them.
-
-  NOTE: If no suitable subdirs with OCDBT checkpoints are found, this function
-  does not raise any error and no merged checkpoint is created.
-
-  Args:
-    directory: checkpoint location.
-    ts_context: Tensorstore context.
-    use_zarr3: If True, use zarr3 driver, otherwise, use zarr driver for params
-      validation.
-    enable_validation: If True, validate params after merging. May have a
-      performance impact.
-  """
-  open_ops = []
-  for process_dir in directory.glob(f'{ts_utils.PROCESS_SUBDIR_PREFIX}*'):
-    child_kvstore_tspec = ts_utils.build_kvstore_tspec_for_merge(
-        directory.as_posix(),
-        process_dir.name,
-    )
-    logging.vlog(1, 'child_kvstore_tspec: %s', child_kvstore_tspec)
-    open_ops.append(_open_kv_store(child_kvstore_tspec, ts_context))
-  if not open_ops:  # No per-process OCDBT checkpoint found!
-    logging.warning(
-        '[process=%s][thread=%s] Skipping merge of OCDBT checkpoints: No'
-        ' per-process OCDBT checkpoint subdirs found in %s, ',
-        multihost.process_index(),
-        threading.current_thread().name,
-        directory,
-    )
-    return
-
-  parent_kvstore_tspec = ts_utils.build_kvstore_tspec(
-      directory.as_posix(), use_ocdbt=True
-  )
-  ts_utils.add_ocdbt_write_options(parent_kvstore_tspec)
-  open_ops.append(_open_kv_store(parent_kvstore_tspec, ts_context))
-
-  opened = await asyncio.gather(*open_ops)
-  parent, children = opened[-1], opened[:-1]
-  copy_ops = []
-  txn = ts.Transaction(atomic=True)
-  for child in children:
-    copy_ops.append(
-        child.experimental_copy_range_to(parent.with_transaction(txn))
-    )
-  await asyncio.gather(*copy_ops)
-  await txn.commit_async()
-
-  # Validate merged params.
-  if enable_validation:
-    await _validate_params(directory, ts_context, use_zarr3=use_zarr3)
-
-
-async def _open_kv_store(
-    kvstore_tspec: ts_utils.JsonSpec,
-    ts_context: ts.Context,
-) -> ts.KvStore:
-  return await ts.KvStore.open(
-      ts.KvStore.Spec(kvstore_tspec),
-      context=ts_context,
-  )
-
-
-def get_process_index_for_subdir(
-    use_ocdbt: bool,
-    override_ocdbt_process_id: Optional[str] = None,
-) -> Optional[Union[int, str]]:
-  """If OCDBT + merge feature is in use, returns a process index."""
-  if use_ocdbt:
-    return override_ocdbt_process_id or multihost.process_index()
-  else:
-    return None
-
-
-def get_ts_context(use_ocdbt: bool = True) -> ts.Context:
-  logging.error(
-      'type_handlers.get_ts_context is deprecated. Use ts_utils.get_ts_context'
-      ' instead.'
-  )
-  del use_ocdbt
-  return ts_utils.get_ts_context(use_ocdbt=True)
-
-
-def get_cast_tspec_serialize(tspec, value, args):
-  """Creates a Tensorstore spec for casting a param during serialize."""
-  tspec = {
-      'base': tspec,
-      'driver': 'cast',
-  }
-  # Origin dtype.
-  tspec['dtype'] = jnp.dtype(value.dtype).name
-  # Destination dtype.
-  if args.dtype is None:
-    tspec['base']['dtype'] = jnp.dtype(value.dtype).name
-  else:
-    tspec['base']['dtype'] = jnp.dtype(args.dtype).name
-  return tspec
-
-
-def get_cast_tspec_deserialize(tspec, args):
-  """Creates a Tensorstore spec for casting a param during deserialize."""
-  if args.dtype is not None:
-    tspec = {
-        'base': tspec,
-        'driver': 'cast',
-        'dtype': jnp.dtype(args.dtype).name,
-    }
-  return tspec
 
 
 def _array_metadata_from_tensorstore(
@@ -563,7 +163,7 @@ class NumpyHandler(types.TypeHandler):
       arg: Optional[types.SaveArgs] = None,
   ) -> ts_utils.ArrayWriteSpec:
     """Gets ArrayWriteSpec for writing."""
-    return _build_array_write_spec(
+    return ts_utils.build_array_write_spec(
         info=info,
         arg=arg,
         global_shape=value.shape,
@@ -580,7 +180,7 @@ class NumpyHandler(types.TypeHandler):
       use_ocdbt: bool,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
-    return get_json_tspec_read(
+    return ts_utils.get_json_tspec_read(
         info,
         use_ocdbt=use_ocdbt,
         metadata_key=self._metadata_key,
@@ -630,7 +230,7 @@ class NumpyHandler(types.TypeHandler):
           info,
           value,
           use_ocdbt=info.is_ocdbt_checkpoint,
-          process_index=get_process_index_for_subdir(
+          process_index=ocdbt_utils.get_process_index_for_subdir(
               use_ocdbt=info.is_ocdbt_checkpoint,
               override_ocdbt_process_id=self._override_ocdbt_process_id,
           ),
@@ -677,13 +277,13 @@ class NumpyHandler(types.TypeHandler):
     open_futures = []
     for info, arg in zip(infos, args):
       if not info.is_ocdbt_checkpoint:
-        await _assert_parameter_files_exist(
+        await ts_utils.assert_parameter_files_exist(
             info.path, self._metadata_key, info.use_zarr3
         )
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-      tspec = get_cast_tspec_deserialize(tspec, arg)
+      tspec = ts_utils.get_cast_tspec_deserialize(tspec, arg)
 
       if logging.vlog_is_on(1):
         logging.vlog(1, 'tspec = %s', tspec)
@@ -769,20 +369,6 @@ class ScalarHandler(NumpyHandler):
       write_sizes = [0 for _ in values]
     read_sizes = actual_sizes
     return list(zip(write_sizes, read_sizes))
-
-
-def get_sharding_tensorstore_spec(
-    directory: str, param_name: str
-) -> Dict[str, Any]:
-  kvstore_tspec = ts_utils.build_kvstore_tspec(
-      directory, name=_SHARDING, use_ocdbt=False
-  )
-  param_name = base64.urlsafe_b64encode(param_name.encode()).decode('utf-8')
-  return {
-      'driver': 'json',
-      'kvstore': kvstore_tspec,
-      'json_pointer': f'/{param_name}',
-  }
 
 
 @dataclasses.dataclass
@@ -998,7 +584,7 @@ class ArrayHandler(types.TypeHandler):
       arg: Optional[types.SaveArgs] = None,
   ) -> ts_utils.ArrayWriteSpec:
     """Gets ArrayWriteSpec for writing."""
-    return _build_array_write_spec(
+    return ts_utils.build_array_write_spec(
         info=info,
         arg=arg,
         global_shape=value.global_shape,
@@ -1017,7 +603,7 @@ class ArrayHandler(types.TypeHandler):
       use_ocdbt: bool,
   ) -> Dict[str, Any]:
     """Gets Tensorstore spec for reading."""
-    return get_json_tspec_read(
+    return ts_utils.get_json_tspec_read(
         info,
         use_ocdbt=use_ocdbt,
         metadata_key=self._metadata_key,
@@ -1048,7 +634,7 @@ class ArrayHandler(types.TypeHandler):
       assert info.parent_dir is not None
       sharding_op = None
       if info.name:
-        tspec_sharding = get_sharding_tensorstore_spec(
+        tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
             info.parent_dir.as_posix(), info.name
         )
         if sharding_file_exists:
@@ -1093,7 +679,7 @@ class ArrayHandler(types.TypeHandler):
     """Serializes sharding metadata."""
     if info.parent_dir is None:
       raise ValueError('parent_dir cannot be None')
-    tspec_sharding = get_sharding_tensorstore_spec(
+    tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
         info.parent_dir.as_posix(), info.name
     )
     if multihost.is_primary_host(self._primary_host):
@@ -1150,7 +736,9 @@ class ArrayHandler(types.TypeHandler):
           info,
           value,
           use_ocdbt=info.is_ocdbt_checkpoint,
-          process_index=get_process_index_for_subdir(info.is_ocdbt_checkpoint),
+          process_index=ocdbt_utils.get_process_index_for_subdir(
+              info.is_ocdbt_checkpoint
+          ),
           replica_separate_folder=replica_separate_folder,
           arg=arg,
       )
@@ -1351,7 +939,7 @@ class ArrayHandler(types.TypeHandler):
         )
         assert info.parent_dir is not None
         if info.name:
-          tspec_sharding = get_sharding_tensorstore_spec(
+          tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
               info.parent_dir.as_posix(), info.name
           )
           t = await ts.open(
@@ -1372,7 +960,7 @@ class ArrayHandler(types.TypeHandler):
             ' and `mesh_axes` OR `sharding`'
         )
       if not info.is_ocdbt_checkpoint:
-        await _assert_parameter_files_exist(
+        await ts_utils.assert_parameter_files_exist(
             info.path,
             self._metadata_key,
             info.use_zarr3,
@@ -1380,7 +968,7 @@ class ArrayHandler(types.TypeHandler):
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-      tspec = get_cast_tspec_deserialize(tspec, arg)
+      tspec = ts_utils.get_cast_tspec_deserialize(tspec, arg)
       if logging.vlog_is_on(1):
         logging.vlog(1, 'tspec = %s', tspec)
         logging.vlog(1, 'info = %s', info)
@@ -1604,7 +1192,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
     for info, arg in zip(infos, args):
       arg = cast(SingleReplicaArrayRestoreArgs, arg)
       if not info.is_ocdbt_checkpoint:
-        await _assert_parameter_files_exist(  # pylint: disable=protected-access
+        await ts_utils.assert_parameter_files_exist(  # pylint: disable=protected-access
             info.path, self._metadata_key
         )
       if not isinstance(arg, SingleReplicaArrayRestoreArgs):
@@ -1626,7 +1214,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
 
       use_ocdbt = info.is_ocdbt_checkpoint
       tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
-      tspec = get_cast_tspec_deserialize(tspec, arg)  # pylint: disable=protected-access
+      tspec = ts_utils.get_cast_tspec_deserialize(tspec, arg)  # pylint: disable=protected-access
 
       if _is_host_for_primary_replica(primary_replica_pids):
         deserialize_ops += [

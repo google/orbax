@@ -30,6 +30,7 @@ import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
+from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
@@ -194,7 +195,7 @@ class CheckpointTest(parameterized.TestCase):
           sharding,
           tspec,
           inp_shape,
-          byte_limiter=serialization.LimitInFlightBytes(4_200_000),
+          byte_limiter=limits.LimitInFlightBytes(4_200_000),
       )
       r.block_until_ready()
 

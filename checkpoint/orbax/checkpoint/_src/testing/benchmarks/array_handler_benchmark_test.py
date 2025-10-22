@@ -26,6 +26,7 @@ import numpy as np
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value
+from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.testing.benchmarks import array_handler_benchmark
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
@@ -51,7 +52,7 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
     )
     self.mock_merge_ocdbt = self.enter_context(
         mock.patch.object(
-            type_handlers, 'merge_ocdbt_per_process_files', autospec=True
+            ocdbt_utils, 'merge_ocdbt_per_process_files', autospec=True
         )
     )
     self.mock_assert_pytree_equal = self.enter_context(

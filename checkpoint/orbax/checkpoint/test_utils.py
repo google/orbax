@@ -46,8 +46,8 @@ from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
+from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import replica_slices
-from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
@@ -701,7 +701,7 @@ def _replica_devices(device_array: np.ndarray, replica_axis_idx: int):
   return np.expand_dims(replica_result, axis=replica_axis_idx)
 
 
-class TestLimitInFlightBytes(serialization.LimitInFlightBytes):
+class TestLimitInFlightBytes(limits.LimitInFlightBytes):
   """Limits in-flight bytes when reading/writing checkpoints per process."""
 
   def __init__(self, limit_bytes: int, sleep_time: float):

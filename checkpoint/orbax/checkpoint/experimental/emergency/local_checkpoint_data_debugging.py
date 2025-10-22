@@ -21,7 +21,7 @@ from etils import epath
 import jax
 from orbax.checkpoint._src.arrays import abstract_arrays
 from orbax.checkpoint._src.arrays import types
-from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types as serialization_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
@@ -100,9 +100,9 @@ async def open_tensorstore(
       parent_dir=directory,
       is_ocdbt_checkpoint=use_ocdbt,
       use_zarr3=use_zarr3,
-      ts_context=type_handlers.get_ts_context(use_ocdbt=use_ocdbt),
+      ts_context=ts_utils.get_ts_context(use_ocdbt=use_ocdbt),
   )
-  tspec = type_handlers.get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+  tspec = ts_utils.get_json_tspec_read(info, use_ocdbt=use_ocdbt)
   return await ts.open(
       ts.Spec(tspec),
       read=True,

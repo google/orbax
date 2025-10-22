@@ -21,7 +21,7 @@ import jax
 import jax.experimental.layout as jax_layout
 import numpy as np
 from orbax.checkpoint._src.arrays import types as arrays_types
-from orbax.checkpoint._src.serialization import serialization as serialization_v0
+from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.tree import utils as tree_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -103,7 +103,7 @@ class SerializationParam(Generic[Leaf]):
 class SerializationContext:
   parent_dir: path_types.PathAwaitingCreation
   ts_context: ts.Context | None = None
-  byte_limiter: serialization_v0.LimitInFlightBytes | None = None
+  byte_limiter: limits.LimitInFlightBytes | None = None
 
 
 @dataclasses.dataclass
@@ -122,7 +122,7 @@ class DeserializationContext:
   ocdbt_checkpoint: bool
   zarr3_checkpoint: bool
   ts_context: ts.Context | None = None
-  byte_limiter: serialization_v0.LimitInFlightBytes | None = None
+  byte_limiter: limits.LimitInFlightBytes | None = None
 
 
 class LeafHandler(Protocol[Leaf, AbstractLeaf]):

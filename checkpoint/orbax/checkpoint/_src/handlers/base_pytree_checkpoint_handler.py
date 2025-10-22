@@ -48,7 +48,8 @@ from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import format_utils
-from orbax.checkpoint._src.serialization import serialization
+from orbax.checkpoint._src.serialization import limits
+from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
@@ -69,7 +70,7 @@ TypeHandler = type_handlers.TypeHandler
 TypeHandlerRegistry = type_handlers.TypeHandlerRegistry
 
 # TODO(b/298487158) Clean up protected access.
-LimitInFlightBytes = type_handlers.LimitInFlightBytes
+LimitInFlightBytes = limits.LimitInFlightBytes
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
 get_param_names = tree_utils.get_param_names
@@ -433,8 +434,8 @@ class BasePyTreeCheckpointHandler(
       use_compression: bool | None = True,
       use_zarr3: Optional[bool] = None,
       ocdbt_target_data_file_size: Optional[int] = None,
-      byte_limiter: Optional[serialization.ByteLimiter] = None,
-      device_host_byte_limiter: Optional[serialization.ByteLimiter] = None,
+      byte_limiter: Optional[limits.ByteLimiter] = None,
+      device_host_byte_limiter: Optional[limits.ByteLimiter] = None,
       raise_array_data_missing_error: bool = True,
   ) -> PyTree:
     """Returns parameter information for elements in `item`.
@@ -624,8 +625,8 @@ class BasePyTreeCheckpointHandler(
     custom_metadata = args.custom_metadata
 
     save_args = _fill_missing_save_or_restore_args(item, save_args, mode='save')
-    byte_limiter = serialization.get_byte_limiter(self._save_concurrent_bytes)
-    device_host_byte_limiter = serialization.get_byte_limiter(
+    byte_limiter = limits.get_byte_limiter(self._save_concurrent_bytes)
+    device_host_byte_limiter = limits.get_byte_limiter(
         self._save_device_host_concurrent_bytes
     )
     param_infos = self._get_param_infos(
@@ -772,9 +773,7 @@ class BasePyTreeCheckpointHandler(
   ) -> Tuple[int, PyTree]:
     """Deserializes values or skips."""
     flat_metadata = tree_utils.to_flat_dict(metadata)
-    byte_limiter = serialization.get_byte_limiter(
-        self._restore_concurrent_bytes
-    )
+    byte_limiter = limits.get_byte_limiter(self._restore_concurrent_bytes)
     param_infos = jax.tree.map(
         lambda info: dataclasses.replace(info, byte_limiter=byte_limiter),
         param_infos,
@@ -1266,7 +1265,7 @@ class BasePyTreeCheckpointHandler(
     async def merge_ocdbt_per_process_files():
       merge_start_time = time.time()
       ts_context = ts_utils.get_ts_context(use_ocdbt=True)
-      await type_handlers.merge_ocdbt_per_process_files(
+      await ocdbt_utils.merge_ocdbt_per_process_files(
           directory,
           ts_context=ts_context,
           use_zarr3=self._use_zarr3,

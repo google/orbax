@@ -14,22 +14,27 @@
 
 """TensorStore serialization helper functions."""
 
+import base64
 import copy
 import math
 import os
 import re
-from typing import Any, Dict, TypeAlias, Union
+from typing import Any, TypeAlias
 
 from absl import logging
+from etils import epath
 from jax import numpy as jnp
+import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
-from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.metadata import array_metadata
+from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.serialization import types
 import tensorstore as ts
 
 JsonSpec: TypeAlias = dict[str, Any]
-Shape: TypeAlias = types.Shape
-DType: TypeAlias = types.DType
+Shape: TypeAlias = arrays_types.Shape
+DType: TypeAlias = arrays_types.DType
 ArrayMetadata: TypeAlias = array_metadata.ArrayMetadata
 ExtMetadata: TypeAlias = array_metadata.ExtMetadata
 
@@ -259,6 +264,17 @@ def add_ocdbt_write_options(
   kvstore_tspec.update(assume_config=True)
 
 
+async def open_kv_store(
+    kvstore_tspec: JsonSpec,
+    ts_context: ts.Context,
+) -> ts.KvStore:
+  """Opens a TensorStore KvStore from a spec."""
+  return await ts.KvStore.open(
+      ts.KvStore.Spec(kvstore_tspec),
+      context=ts_context,
+  )
+
+
 ### Building Zarr array metadata.
 
 
@@ -481,7 +497,7 @@ class ArrayWriteSpec:
     return self._metadata
 
 
-def is_remote_storage(tspec: Union[Dict[str, Any], str]) -> bool:
+def is_remote_storage(tspec: dict[str, Any] | str) -> bool:
   """Detect if user is using remote storages.
 
   This can detect common defines and unable to detect some corner cases such as
@@ -515,3 +531,212 @@ def is_remote_storage(tspec: Union[Dict[str, Any], str]) -> bool:
           return True
 
   return False
+
+
+def get_sharding_tensorstore_spec(
+    directory: str, param_name: str
+) -> dict[str, Any]:
+  kvstore_tspec = build_kvstore_tspec(
+      directory, name='_sharding', use_ocdbt=False
+  )
+  param_name = base64.urlsafe_b64encode(param_name.encode()).decode('utf-8')
+  return {
+      'driver': 'json',
+      'kvstore': kvstore_tspec,
+      'json_pointer': f'/{param_name}',
+  }
+
+
+async def assert_parameter_files_exist(
+    param_dir: epath.Path, metadata_key: str | None, use_zarr3: bool = False
+):
+  """Checks for existence of parameter subdir and .zarray file."""
+  exists = await async_path.exists(param_dir)
+  if not exists:
+    raise FileNotFoundError(
+        f'Individual parameter subdirectory not found at path: {param_dir}.'
+    )
+  if metadata_key is None:
+    metadata_key = 'zarr.json' if use_zarr3 else '.zarray'
+  metadata_path = param_dir / metadata_key
+  exists = await async_path.exists(metadata_path)
+  if not exists:
+    raise FileNotFoundError(
+        f'File not found: {metadata_path}. In many cases, this results from'
+        ' copying a checkpoint without using the `-a` flag.'
+    )
+
+
+# TS functions
+def _get_json_tspec(
+    info: types.ParamInfo,
+    use_ocdbt: bool,
+    *,
+    process_index: int | str | None = None,
+    metadata_key: str | None = None,
+    raise_array_data_missing_error: bool = True,
+) -> dict[str, Any]:
+  """Gets Tensorstore spec in JSON format."""
+  if info.path is None:
+    raise ValueError('Must construct serialization path.')
+  parent_dir = info.parent_dir
+  assert parent_dir is not None
+  directory = parent_dir.as_posix()
+  kvstore_tspec = build_kvstore_tspec(
+      directory,
+      name=info.name,
+      use_ocdbt=use_ocdbt,
+      process_id=process_index,
+  )
+
+  tspec = {
+      'driver': ZARR_VER3 if info.use_zarr3 else ZARR_VER2,
+      'kvstore': kvstore_tspec,
+      'recheck_cached_data': False,
+      'recheck_cached_metadata': False,
+      # Raise error if data is missing.
+      'fill_missing_data_reads': not raise_array_data_missing_error,
+  }
+  if metadata_key is not None:
+    tspec['metadata_key'] = metadata_key
+  return tspec
+
+
+# TODO: b/354139177 - Rename this to `build_array_tspec_read`.
+# Keep the existing name for backward compatibility but mark as deprecated.
+def get_json_tspec_read(
+    info: types.ParamInfo,
+    use_ocdbt: bool,
+    metadata_key: str | None = None,
+    raise_array_data_missing_error: bool = True,
+) -> dict[str, Any]:
+  """Gets Tensorstore spec for reading."""
+  return _get_json_tspec(
+      info,
+      use_ocdbt=use_ocdbt,
+      metadata_key=metadata_key,
+      raise_array_data_missing_error=raise_array_data_missing_error,
+  )
+
+
+# TODO: b/354139177 - Replace usages of this with `build_array_tspec_write`
+# and remove it.
+def get_json_tspec_write(
+    info: types.ParamInfo,
+    use_ocdbt: bool,
+    global_shape: tuple[int, ...],
+    local_shape: tuple[int, ...],
+    dtype: jnp.dtype | np.dtype,
+    process_index: int | str | None = None,
+    metadata_key: str | None = None,
+    arg: types.SaveArgs | None = None,
+) -> dict[str, Any]:
+  """Gets Tensorstore spec for writing."""
+  tspec = _get_json_tspec(
+      info,
+      use_ocdbt=use_ocdbt,
+      process_index=process_index,
+      metadata_key=metadata_key,
+  )
+
+  chunk_byte_size = arg.chunk_byte_size if arg else None
+  if use_ocdbt:
+    ocdbt_target_data_file_size = info.ocdbt_target_data_file_size
+    add_ocdbt_write_options(
+        tspec['kvstore'],
+        ocdbt_target_data_file_size,
+    )
+    chunk_byte_size = calculate_chunk_byte_size(
+        local_shape,
+        dtype,
+        chunk_byte_size=chunk_byte_size,
+        ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+    )
+
+  chunk_shape = subchunking.choose_chunk_shape(
+      global_shape,
+      local_shape,
+      dtype,
+      chunk_byte_size,
+  )
+
+  tspec['metadata'] = build_zarr_shard_and_chunk_metadata(
+      global_shape=global_shape,
+      shard_shape=local_shape,
+      use_compression=info.use_compression,
+      use_zarr3=info.use_zarr3,
+      chunk_shape=chunk_shape,
+  )
+
+  return tspec
+
+
+def build_array_write_spec(
+    info: types.ParamInfo,
+    arg: types.SaveArgs | None = None,
+    *,
+    global_shape: arrays_types.Shape,
+    local_shape: arrays_types.Shape,
+    dtype: jnp.dtype | np.dtype,
+    use_ocdbt: bool,
+    process_index: int | str | None = None,
+    replica_separate_folder: bool = False,
+    metadata_key: str | None = None,
+    ext_metadata: dict[str, Any] | None = None,
+) -> ArrayWriteSpec:
+  """Gets ArrayWriteSpec for writing."""
+  if info.path is None:
+    raise ValueError('Must construct serialization path.')
+  parent_dir = info.parent_dir
+  assert parent_dir is not None
+  directory = parent_dir.as_posix()
+
+  return ArrayWriteSpec(
+      directory,
+      relative_array_filename=info.name,
+      global_shape=global_shape,
+      write_shape=local_shape,
+      dtype=dtype,
+      target_dtype=(arg.dtype if arg is not None else None),
+      chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
+      shard_axes=(arg.shard_axes if arg is not None else tuple()),
+      use_compression=info.use_compression,
+      use_zarr3=info.use_zarr3,
+      use_ocdbt=use_ocdbt,
+      process_id=process_index,
+      replica_separate_folder=replica_separate_folder,
+      ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
+      metadata_key=metadata_key,
+      ext_metadata=ext_metadata,
+  )
+
+
+def get_cast_tspec_serialize(
+    tspec: dict[str, Any], value: Any, args: types.SaveArgs
+) -> dict[str, Any]:
+  """Creates a Tensorstore spec for casting a param during serialize."""
+  tspec = {
+      'base': tspec,
+      'driver': 'cast',
+  }
+  # Origin dtype.
+  tspec['dtype'] = jnp.dtype(value.dtype).name
+  # Destination dtype.
+  if args.dtype is None:
+    tspec['base']['dtype'] = jnp.dtype(value.dtype).name
+  else:
+    tspec['base']['dtype'] = jnp.dtype(args.dtype).name
+  return tspec
+
+
+def get_cast_tspec_deserialize(
+    tspec: dict[str, Any], args: types.RestoreArgs
+) -> dict[str, Any]:
+  """Creates a Tensorstore spec for casting a param during deserialize."""
+  if args.dtype is not None:
+    tspec = {
+        'base': tspec,
+        'driver': 'cast',
+        'dtype': jnp.dtype(args.dtype).name,
+    }
+  return tspec

@@ -25,6 +25,7 @@ from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.metadata import value
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers as serialization_type_handlers
 from orbax.checkpoint._src.serialization import types
@@ -158,7 +159,7 @@ class ArrayHandlerBenchmark(core.BenchmarksGenerator):
     if options.use_ocdbt:
       with metrics.time('merge_ocdbt'):
         asyncio.run(
-            type_handlers.merge_ocdbt_per_process_files(
+            ocdbt_utils.merge_ocdbt_per_process_files(
                 test_context.path,
                 ts_context=ts_context,
                 use_zarr3=options.use_zarr3,
