@@ -24,6 +24,7 @@ from absl import logging
 import jax
 from jax import export as jax_export
 import jaxtyping
+import numpy as np
 from orbax.export import config
 from orbax.export import constants
 from orbax.export import export_base
@@ -31,7 +32,6 @@ from orbax.export import jax_module
 from orbax.export import obm_configs
 from orbax.export import oex_orchestration
 from orbax.export import serving_config as osc
-from orbax.export import typing
 from orbax.export import utils
 from orbax.export.modules import obm_module
 import tensorflow as tf

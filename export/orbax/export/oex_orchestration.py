@@ -17,4 +17,4 @@
 from typing import Any, Dict, List, Sequence, Tuple, TypeVar
 
 from absl import logging
-import tensorflow as tf
+import jax
