@@ -26,6 +26,7 @@ import numpy as np
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint._src.serialization import types as types_v0
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -454,4 +455,4 @@ def get_v0_type_handler_registry(
             typestr=_get_typestr(leaf_type),
         ),
     ))
-  return type_handlers_v0.create_type_handler_registry(*handlers)
+  return type_handler_registry.create_type_handler_registry(*handlers)

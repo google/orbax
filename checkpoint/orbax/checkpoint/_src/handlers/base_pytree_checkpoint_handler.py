@@ -51,6 +51,7 @@ from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization import type_handler_registry as handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.tree import structure_utils as tree_structure_utils
@@ -65,9 +66,9 @@ TupleKey = Tuple[str, ...]
 RestoreArgs = type_handlers.RestoreArgs
 ArrayRestoreArgs = type_handlers.ArrayRestoreArgs
 SaveArgs = type_handlers.SaveArgs
-ParamInfo = type_handlers.ParamInfo
-TypeHandler = type_handlers.TypeHandler
-TypeHandlerRegistry = type_handlers.TypeHandlerRegistry
+ParamInfo = types.ParamInfo
+TypeHandler = types.TypeHandler
+TypeHandlerRegistry = types.TypeHandlerRegistry
 
 # TODO(b/298487158) Clean up protected access.
 LimitInFlightBytes = limits.LimitInFlightBytes
@@ -325,7 +326,7 @@ class BasePyTreeCheckpointHandler(
       use_zarr3: bool = False,
       use_compression: bool = True,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
-      type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
+      type_handler_registry: TypeHandlerRegistry = handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY,
       enable_post_merge_validation: bool = True,
       pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
           tree_metadata.PYTREE_METADATA_OPTIONS
@@ -484,7 +485,7 @@ class BasePyTreeCheckpointHandler(
           byte_limiter=byte_limiter,
           device_host_byte_limiter=device_host_byte_limiter,
           ts_context=ts_context,
-          value_typestr=types.get_param_typestr(
+          value_typestr=handler_registry.get_param_typestr(
               value, self._type_handler_registry, self._pytree_metadata_options
           ),
           raise_array_data_missing_error=raise_array_data_missing_error,

@@ -32,6 +32,7 @@ from orbax.checkpoint._src.checkpoint_managers import preservation_policy as pre
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.experimental.emergency import process_metadata_checkpoint_handler
@@ -65,7 +66,7 @@ def _local_checkpoint_handler(
         'multiprocessing_options.primary_host must be set to None for local'
         ' checkpoints.'
     )
-  local_registry = type_handlers.create_type_handler_registry(
+  local_registry = type_handler_registry.create_type_handler_registry(
       (
           jax.Array,
           type_handlers.ArrayHandler(

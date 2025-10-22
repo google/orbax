@@ -24,6 +24,7 @@ import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.metadata import array_metadata as array_metadata_lib
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 
 
@@ -202,17 +203,17 @@ class ResolveArrayMetadataStoreTest(parameterized.TestCase):
     fn = lambda ty: issubclass(ty, jax.Array)
     with test_utils.register_type_handler(ty, array_handler, fn):
       store = array_metadata_store_lib.resolve_array_metadata_store(
-          type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY
+          type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY
       )
       self.assertIs(store, array_metadata_store)
 
   def test_no_jax_array_type_handler(self):
-    type_handler_registry = type_handlers.create_type_handler_registry(
+    type_handler_reg = type_handler_registry.create_type_handler_registry(
         (int, type_handlers.ScalarHandler())
     )
 
     store = array_metadata_store_lib.resolve_array_metadata_store(
-        type_handler_registry
+        type_handler_reg
     )
 
     self.assertIsNone(store)
@@ -227,12 +228,12 @@ class ResolveArrayMetadataStoreTest(parameterized.TestCase):
     self.assertFalse(
         hasattr(WithoutArrayMetadataStore(), '_array_metadata_store')
     )
-    type_handler_registry = type_handlers.create_type_handler_registry(
+    type_handler_reg = type_handler_registry.create_type_handler_registry(
         (jax.Array, WithoutArrayMetadataStore())
     )
 
     store = array_metadata_store_lib.resolve_array_metadata_store(
-        type_handler_registry
+        type_handler_reg
     )
 
     self.assertIsNone(store)

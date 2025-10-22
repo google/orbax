@@ -50,6 +50,7 @@ from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import step as step_lib
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency import local_checkpoint_data_debugging
 from orbax.checkpoint.experimental.emergency import mesh_consistency
@@ -90,7 +91,7 @@ def _local_checkpoint_handler(
         'multiprocessing_options.primary_host must be set to None for local'
         ' checkpoints.'
     )
-  local_registry = type_handlers.create_type_handler_registry(
+  local_registry = type_handler_registry.create_type_handler_registry(
       (
           jax.Array,
           type_handlers.ArrayHandler(
@@ -115,7 +116,7 @@ def _persistent_checkpoint_handler(
   # TODO(b/372291557) Selection of replica_id=0 could be problematic if we can't
   # guarantee that the primary slice (in which the primary process is present)
   # always has the shard with shard.replica_id=0 for all available arrays.
-  registry = type_handlers.create_type_handler_registry(
+  registry = type_handler_registry.create_type_handler_registry(
       (
           jax.Array,
           type_handlers.ArrayHandler(

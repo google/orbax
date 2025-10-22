@@ -27,8 +27,7 @@ from orbax.checkpoint._src.metadata import value
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
-from orbax.checkpoint._src.serialization import type_handlers as serialization_type_handlers
-from orbax.checkpoint._src.serialization import types
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.testing.benchmarks.core import core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
@@ -120,9 +119,9 @@ class ArrayHandlerBenchmark(core.BenchmarksGenerator):
     array_path = test_context.path / array_name
 
     ts_context = ts_utils.get_ts_context(use_ocdbt=options.use_ocdbt)
-    value_typestr = types.get_param_typestr(
+    value_typestr = type_handler_registry.get_param_typestr(
         sharded_array,
-        serialization_type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
+        type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY,
         tree_metadata.PYTREE_METADATA_OPTIONS,
     )
 

@@ -23,6 +23,7 @@ import numpy as np
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing.benchmarks import single_replica_benchmark
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
@@ -92,7 +93,9 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
     self.assertLen(devices.flatten(), jax.device_count())
 
   @mock.patch.object(async_checkpointer, 'AsyncCheckpointer', autospec=True)
-  @mock.patch.object(type_handlers, 'register_type_handler', autospec=True)
+  @mock.patch.object(
+      type_handler_registry, 'register_type_handler', autospec=True
+  )
   @mock.patch.object(
       multihost, 'is_runtime_to_distributed_ids_initialized', autospec=True
   )
@@ -181,7 +184,9 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
       dict(options=SingleReplicaBenchmarkOptions()),
   )
   @mock.patch.object(async_checkpointer, 'AsyncCheckpointer', autospec=True)
-  @mock.patch.object(type_handlers, 'register_type_handler', autospec=True)
+  @mock.patch.object(
+      type_handler_registry, 'register_type_handler', autospec=True
+  )
   @mock.patch.object(type_handlers, 'SingleReplicaArrayHandler', autospec=True)
   @mock.patch.object(
       multihost, 'is_runtime_to_distributed_ids_initialized', autospec=True

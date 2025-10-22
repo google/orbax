@@ -49,6 +49,7 @@ from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
@@ -542,12 +543,14 @@ class ErrorRestoreArgs(pytree_checkpoint_handler.PyTreeSaveArgs):
 @contextlib.contextmanager
 def register_type_handler(ty, handler, func):
   """Registers new func for type, and restores original handler when done."""
-  original_handler = type_handlers.get_type_handler(ty)
-  type_handlers.register_type_handler(ty, handler, func=func, override=True)
+  original_handler = type_handler_registry.get_type_handler(ty)
+  type_handler_registry.register_type_handler(
+      ty, handler, func=func, override=True
+  )
   try:
     yield
   finally:
-    type_handlers.register_type_handler(
+    type_handler_registry.register_type_handler(
         ty, original_handler, func=func, override=True
     )
 
@@ -555,12 +558,14 @@ def register_type_handler(ty, handler, func):
 @contextlib.contextmanager
 def global_type_handler_registry_context():
   """Context manager for changing the GLOBAL_TYPE_HANDLER_REGISTRY."""
-  original_type_handlers = copy.deepcopy(type_handlers._DEFAULT_TYPE_HANDLERS)
+  original_type_handlers = copy.deepcopy(
+      type_handler_registry._DEFAULT_TYPE_HANDLERS
+  )
   try:
     yield
   finally:
     for original_type, original_handler in original_type_handlers:
-      type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY.add(
+      type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY.add(
           original_type, original_handler, override=True
       )
 
@@ -568,16 +573,18 @@ def global_type_handler_registry_context():
 @contextlib.contextmanager
 def ocdbt_checkpoint_context(use_ocdbt: bool, ts_context: Any):
   """Use OCDBT driver within context."""
-  original_type_handlers = copy.deepcopy(type_handlers._DEFAULT_TYPE_HANDLERS)
+  original_type_handlers = copy.deepcopy(
+      type_handler_registry._DEFAULT_TYPE_HANDLERS
+  )
   if use_ocdbt:
-    type_handlers.register_standard_handlers_with_options(
+    type_handler_registry.register_standard_handlers_with_options(
         use_ocdbt=use_ocdbt, ts_context=ts_context
     )
   try:
     yield
   finally:
     for original_type, original_handler in original_type_handlers:
-      type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY.add(
+      type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY.add(
           original_type, original_handler, override=True
       )
 

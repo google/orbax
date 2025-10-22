@@ -49,29 +49,6 @@ def is_supported_type(
   ) or empty_values.is_supported_empty_value(value, pytree_metadata_options)
 
 
-def get_param_typestr(
-    value: Any,
-    registry: TypeHandlerRegistry,
-    pytree_metadata_options: PyTreeMetadataOptions,
-) -> str:
-  """Retrieves the typestr for a given value."""
-  if empty_values.is_supported_empty_value(value, pytree_metadata_options):
-    typestr = empty_values.get_empty_value_typestr(
-        value, pytree_metadata_options
-    )
-  else:
-    try:
-      handler = registry.get(type(value))
-      typestr = handler.typestr()
-    except ValueError:
-      # Not an error because users' training states often have a bunch of
-      # random unserializable objects in them (empty states, optimizer
-      # objects, etc.). An error occurring due to a missing TypeHandler
-      # will be surfaced elsewhere.
-      typestr = empty_values.RESTORE_TYPE_NONE
-  return typestr
-
-
 @dataclasses.dataclass
 class ParamInfo:
   """Information describing a parameter in a PyTree.

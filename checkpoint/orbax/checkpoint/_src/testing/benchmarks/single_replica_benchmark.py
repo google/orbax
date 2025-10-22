@@ -22,6 +22,7 @@ import jax
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import mesh_utils
@@ -101,7 +102,7 @@ class SingleReplicaBenchmark(benchmarks_core.BenchmarksGenerator):
     if not multihost.is_runtime_to_distributed_ids_initialized():
       multihost.initialize_runtime_to_distributed_ids()
 
-    type_handlers.register_type_handler(
+    type_handler_registry.register_type_handler(
         jax.Array,
         type_handlers.SingleReplicaArrayHandler(
             replica_axis_index=options.replica_axis_index,

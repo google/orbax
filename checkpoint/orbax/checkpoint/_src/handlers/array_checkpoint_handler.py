@@ -29,6 +29,7 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 
 
@@ -163,7 +164,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     restore_type = restore_args.restore_type
     if restore_type is None:
       restore_type = type_handlers.default_restore_type(restore_args)
-    type_handler = type_handlers.get_type_handler(restore_type)
+    type_handler = type_handler_registry.get_type_handler(restore_type)
     result = asyncio_utils.run_sync(
         type_handler.deserialize([info], args=[restore_args])
     )[0]

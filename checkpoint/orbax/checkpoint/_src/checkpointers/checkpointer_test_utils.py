@@ -49,6 +49,7 @@ from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step
 from orbax.checkpoint._src.serialization import limits
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import test_tree_utils
 
@@ -622,13 +623,13 @@ class CheckpointerTestBase:
       array_metadata_store = array_metadata_store_lib.Store(
           serializer=IncompleteArrayMetadataSerializer()
       )
-      type_handler_registry = copy.deepcopy(
-          type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY
+      registry = copy.deepcopy(
+          type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY
       )
       array_handler = type_handlers.ArrayHandler(
           array_metadata_store=array_metadata_store
       )
-      type_handler_registry.add(jax.Array, array_handler, override=True)
+      registry.add(jax.Array, array_handler, override=True)
 
       class InterceptingValidator(array_metadata_store_lib.Validator):
         """Intercepts ArrayMetadata validation in CheckpointHandler.finalize()."""
@@ -649,7 +650,7 @@ class CheckpointerTestBase:
       array_metadata_validator = InterceptingValidator()
       with self.checkpointer(
           PyTreeCheckpointHandler(
-              type_handler_registry=type_handler_registry,
+              type_handler_registry=registry,
               array_metadata_validator=array_metadata_validator,
           )
       ) as checkpointer:
