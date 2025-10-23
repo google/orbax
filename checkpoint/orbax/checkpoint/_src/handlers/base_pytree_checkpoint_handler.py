@@ -835,8 +835,9 @@ class BasePyTreeCheckpointHandler(
 
     try:
       value_metadata_tree = tree_structure_utils.tree_trim(
-          serialized_item, value_metadata_tree, strict=True
+          serialized_item, value_metadata_tree, strict=False
       )
+      value_metadata_tree = value_metadata_tree.unsafe_structure
     except ValueError as e:
       raise ValueError(
           'Missing keys were found in the user-provided restore item.'
@@ -856,20 +857,31 @@ class BasePyTreeCheckpointHandler(
   ):
     """Restores leaves from `item`, except for those marked as placeholders."""
     serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
-    diff = tree_structure_utils.tree_difference(
-        serialized_item,
-        value_metadata_tree,
-        is_leaf=tree_utils.is_empty_or_leaf,
-        leaves_equal=lambda a, b: True,
+    diff = (
+        tree_structure_utils.tree_difference(
+            serialized_item,
+            value_metadata_tree,
+            is_leaf=tree_utils.is_empty_or_leaf,
+            leaves_equal=lambda a, b: True,
+        )
+        or {}
     )
-    if diff is not None:
-      formatted_diff = tree_structure_utils.format_tree_diff(
-          diff, source_label='Item', target_label='Metadata'
-      )
-      raise ValueError(
-          'User-provided restore item and on-disk value metadata tree'
-          f' structures do not match:\n{formatted_diff}'
-      )
+    for keypath, value_diff in tree_utils.to_flat_dict(
+        diff, is_leaf=lambda x: isinstance(x, tree_structure_utils.Diff)
+    ).items():
+      if value_diff.lhs is PLACEHOLDER and value_diff.rhs is None:
+        parent = value_metadata_tree
+        for key in keypath[:-1]:
+          parent = parent[key]
+        parent[keypath[-1]] = PLACEHOLDER
+      else:
+        formatted_diff = tree_structure_utils.format_tree_diff(
+            diff, source_label='Item', target_label='Metadata'
+        )
+        raise ValueError(
+            'User-provided restore item and on-disk value metadata tree'
+            f' structures do not match:\n{formatted_diff}'
+        )
     return jax.tree.map(
         lambda v, i: PLACEHOLDER if type_handlers.is_placeholder(i) else v,
         value_metadata_tree,
