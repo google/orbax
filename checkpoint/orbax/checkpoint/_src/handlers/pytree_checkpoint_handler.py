@@ -1165,7 +1165,8 @@ class PyTreeRestoreArgs(CheckpointArgs):
       regexes and implicit keys means that it does not need to match
       completely. See `transform_utils` for further information.
       `TreeMetadata` is also allowed as the `transforms` tree.
-    transforms_default_to_original: See transform_utils.apply_transformations.
+    transforms_default_to_original:
+      See transform_utils.apply_transformations.
     legacy_transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which
       accepts the `item` argument, a PyTree checkpoint structure and a PyTree
       of ParamInfos based on the checkpoint. Returns a transformed PyTree
