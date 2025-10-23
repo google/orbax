@@ -216,7 +216,6 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
     self._handler_impl = _create_v0_array_handler(
         self._context,
     )
-
     logging.vlog(1, 'ArrayLeafHandler created.')
 
   async def serialize(
