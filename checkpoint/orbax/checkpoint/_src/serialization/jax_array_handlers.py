@@ -656,7 +656,7 @@ class ArrayHandler(types.TypeHandler):
         )
       if not info.is_ocdbt_checkpoint:
         await ts_utils.assert_parameter_files_exist(
-            info.path,
+            info.parent_dir / info.name,
             self._metadata_key,
             info.use_zarr3,
         )
@@ -887,8 +887,8 @@ class SingleReplicaArrayHandler(ArrayHandler):
     for info, arg in zip(infos, args):
       arg = cast(SingleReplicaArrayRestoreArgs, arg)
       if not info.is_ocdbt_checkpoint:
-        await ts_utils.assert_parameter_files_exist(  # pylint: disable=protected-access
-            info.path, self._metadata_key
+        await ts_utils.assert_parameter_files_exist(
+            info.parent_dir / info.name, self._metadata_key
         )
       if not isinstance(arg, SingleReplicaArrayRestoreArgs):
         raise ValueError(
