@@ -816,6 +816,39 @@ class BasePyTreeCheckpointHandler(
         flat_restored, target=item
     )
 
+  def _partial_restore_with_omission(
+      self, item: PyTree, value_metadata_tree: PyTree, restore_args: PyTree
+  ) -> Tuple[PyTree, PyTree]:
+    """Restores leaves specified in `item`. Skips omitted leaves."""
+    serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
+
+    if not self._pytree_metadata_options.support_rich_types:
+      # Replace empty containers with scalar values (zeros). During saving,
+      # some empty containers (like named tuples) were given
+      # ValueMetadataEntries as if they were scalars. We normalize these
+      # containers to scalars so that tree_trim is none the wiser.
+      serialized_item = jax.tree.map(
+          lambda v: 0 if empty_values.is_empty_container(v) else v,
+          serialized_item,
+          is_leaf=tree_utils.is_empty_or_leaf,
+      )
+
+    try:
+      value_metadata_tree = tree_structure_utils.tree_trim(
+          serialized_item, value_metadata_tree, strict=True
+      )
+    except ValueError as e:
+      raise ValueError(
+          'Missing keys were found in the user-provided restore item.'
+      ) from e
+
+    if restore_args is not None:
+      restore_args = tree_structure_utils.tree_trim(
+          item, restore_args, strict=True
+      )
+
+    return value_metadata_tree, restore_args
+
   def restore(
       self,
       directory: epath.Path,
@@ -935,29 +968,9 @@ class BasePyTreeCheckpointHandler(
     if item is None:
       item = value_metadata_tree
     elif args.partial_restore:
-      serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
-      if not self._pytree_metadata_options.support_rich_types:
-        # Replace empty containers with scalar values (zeros). During saving,
-        # some empty containers (like named tuples) were given
-        # ValueMetadataEntries as if they were scalars. We normalize these
-        # containers to scalars so that tree_trim is none the wiser.
-        serialized_item = jax.tree.map(
-            lambda v: 0 if empty_values.is_empty_container(v) else v,
-            serialized_item,
-            is_leaf=tree_utils.is_empty_or_leaf,
-        )
-      try:
-        value_metadata_tree = tree_structure_utils.tree_trim(
-            serialized_item, value_metadata_tree, strict=True
-        )
-      except ValueError as e:
-        raise ValueError(
-            'Missing keys were found in the user-provided restore item.'
-        ) from e
-      if restore_args is not None:
-        restore_args = tree_structure_utils.tree_trim(
-            item, restore_args, strict=True
-        )
+      value_metadata_tree, restore_args = self._partial_restore_with_omission(
+          item, value_metadata_tree, restore_args
+      )
     else:
       # is_empty_or_leaf is necessary here to treat empty nodes (e.g. empty
       # dicts, lists, custom nodes) as leaves, as they do not contain any
