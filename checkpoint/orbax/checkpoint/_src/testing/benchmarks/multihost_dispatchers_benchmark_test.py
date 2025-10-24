@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for MultihostDispatchersBenchmark."""
-
 from unittest import mock
 
 from absl.testing import absltest
@@ -22,7 +20,6 @@ from etils import epath
 import jax
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint._src.futures import future as future_lib
 from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.testing.benchmarks import multihost_dispatchers_benchmark
 from orbax.checkpoint._src.testing.benchmarks.core import configs
@@ -35,6 +32,18 @@ MultihostDispatchersBenchmarkOptions = (
 MultihostDispatchersBenchmark = (
     multihost_dispatchers_benchmark.MultihostDispatchersBenchmark
 )
+
+
+def _dispatch_side_effect(
+    func, *, input_arrays, result_specs=None, func_args=(), func_kwargs=None
+):
+  del func, func_kwargs
+  if result_specs is None:
+    return dispatchers._make_dummy_result_array(input_arrays)
+  else:
+    return multihost_dispatchers_benchmark.build_jax_array(
+        input_arrays, *func_args
+    )
 
 
 class MultihostDispatchersBenchmarkTest(parameterized.TestCase):
@@ -57,28 +66,26 @@ class MultihostDispatchersBenchmarkTest(parameterized.TestCase):
             autospec=True,
         )
     )
+    self.mock_assert_pytree_equal = self.enter_context(
+        mock.patch.object(
+            multihost_dispatchers_benchmark.pytree_utils,
+            'assert_pytree_equal',
+            autospec=True,
+        )
+    )
 
     self.mock_colocated_dispatcher = mock.create_autospec(
         dispatchers.ColocatedPythonDispatcher,
         instance=True,
         spec_set=True,
     )
+    self.mock_colocated_dispatcher.dispatch.side_effect = _dispatch_side_effect
     self.enter_context(
         mock.patch.object(
             dispatchers,
             'ColocatedPythonDispatcher',
             return_value=self.mock_colocated_dispatcher,
         )
-    )
-
-    self.mock_future = mock.create_autospec(
-        future_lib.Future, instance=True, spec_set=True
-    )
-    self.mock_colocated_dispatcher.dispatch_arrays.return_value = (
-        self.mock_future
-    )
-    self.mock_colocated_dispatcher.dispatch_devices.return_value = (
-        self.mock_future
     )
 
     self.checkpoint_config = configs.CheckpointConfig(
@@ -96,13 +103,22 @@ class MultihostDispatchersBenchmarkTest(parameterized.TestCase):
     self.arr = jax.device_put(np.arange(16, dtype=jnp.float32), sharding)
 
 
-  def _expected_devices(
-      self, device_count: int | None
-  ) -> list[jax.Device] | None:
-    return None if device_count is None else jax.devices()[:device_count]
+  def test_build_jax_array_returns_correct_array(self):
+    shape = (16,)
+    sharding = self.arr.sharding
+    specs = jax.ShapeDtypeStruct(shape, self.arr.dtype, sharding=sharding)
+
+    arr = multihost_dispatchers_benchmark.build_jax_array(
+        self.arr, shape, specs
+    )
+
+    self.assertEqual(arr.shape, shape)
+    self.assertEqual(arr.dtype, jnp.float32)
+    self.assertEqual(arr.sharding, sharding)
+    np.testing.assert_array_equal(arr, np.zeros(shape, dtype=jnp.float32))
 
   def test_log_pytree_fn_calls_logging(self):
-    metadata = {'data': 1}
+    metadata = {'array_sharding': self.arr.sharding}
     multihost_dispatchers_benchmark.log_pytree_fn(self.arr, metadata)
     self.mock_log_pytree.assert_called_once_with('array_in_worker', self.arr)
     self.mock_pretty_log_mesh.assert_called_once_with(
@@ -133,10 +149,11 @@ class MultihostDispatchersBenchmarkTest(parameterized.TestCase):
     self.assertIsInstance(result, core.TestResult)
     self.assertContainsSubset(
         {
-            'dispatch_arrays_time',
-            'dispatch_devices_time',
-            'dispatch_arrays_future_result_time',
-            'dispatch_devices_future_result_time',
+            'dispatch_without_result_specs_time',
+            'dispatch_without_result_specs_block_until_ready_time',
+            'dispatch_with_dummy_result_array_time',
+            'dispatch_with_dummy_result_array_block_until_ready_time',
+            'dispatch_with_result_specs_time',
         },
         result.metrics.results.keys(),
     )
@@ -163,16 +180,12 @@ class MultihostDispatchersBenchmarkTest(parameterized.TestCase):
         mesh=self.mesh,
     )
     benchmarks = benchmark_generator.generate()
-    expected_devices = self._expected_devices(device_count)
     self.assertLen(benchmarks, 1)
     benchmark = benchmarks[0]
 
     benchmark.test_fn(context)
 
-    self.mock_colocated_dispatcher.dispatch_arrays.assert_called_once()
-    self.mock_colocated_dispatcher.dispatch_devices.assert_called_once_with(
-        mock.ANY, devices=expected_devices
-    )
+    self.assertEqual(self.mock_colocated_dispatcher.dispatch.call_count, 3)
 
 
   def test_generate_benchmarks_creates_multiple_benchmark_configs(self):

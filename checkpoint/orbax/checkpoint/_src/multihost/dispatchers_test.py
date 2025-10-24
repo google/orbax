@@ -20,7 +20,6 @@ import jax
 import jax.experimental.colocated_python as cp
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint._src.futures import future as future_lib
 from orbax.checkpoint._src.multihost import dispatchers
 
 
@@ -29,6 +28,17 @@ def _get_mock_dispatcher_array():
   mesh = jax.sharding.Mesh(np.array(jax.devices()), ('d',))
   sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('d'))
   return jax.device_put(np.arange(jax.device_count()), sharding)
+
+
+class DispatchersTest(parameterized.TestCase):
+
+  def test_get_dummy_input_array(self):
+    devices = jax.devices()
+    arr = dispatchers.get_dummy_input_array(devices)
+    self.assertEqual(arr.shape, ())
+    self.assertEqual(arr.dtype, jnp.bool)
+    self.assertTrue(arr.sharding.is_fully_replicated)
+    self.assertCountEqual(list(arr.devices()), devices)
 
 
 class ColocatedPythonDispatcherTest(parameterized.TestCase):
@@ -44,8 +54,6 @@ class ColocatedPythonDispatcherTest(parameterized.TestCase):
         mock.patch('jax.device_put', side_effect=lambda arr, _: arr)
     )
 
-    self.mock_cp_result = mock.MagicMock()
-
     self.mock_cp_colocated_python = self.enter_context(
         mock.patch.object(cp, 'colocated_python', autospec=True)
     )
@@ -55,8 +63,7 @@ class ColocatedPythonDispatcherTest(parameterized.TestCase):
 
     def cp_decorator(f):
       def wrapper(*args, **kwargs):
-        f(*args, **kwargs)
-        return self.mock_cp_result
+        return f(*args, **kwargs)
 
       wrapper.specialize = mock.MagicMock(return_value=wrapper)
       return wrapper
@@ -72,67 +79,45 @@ class ColocatedPythonDispatcherTest(parameterized.TestCase):
     self.mock_cp_devices.side_effect = colocated_cpu_devices_side_effect
 
   def test_to_colocated_python_copies_array(self):
-    cpu_arr = dispatchers.to_colocated_python(self.arr)
+    dispatcher = dispatchers.ColocatedPythonDispatcher()
+    cpu_arr = dispatcher.to_colocated_python(self.arr)
 
     self.assertIs(cpu_arr, self.arr)
     self.mock_cp_devices.assert_called_once()
     self.mock_device_put.assert_called_once()
 
-  def test_get_abstract_dummy_result_returns_abstract_result(self):
-    dummy = dispatchers.get_abstract_dummy_result([self.arr])
-
-    self.assertLen(dummy, 1)
-    self.assertEqual(dummy[0].shape, ())
-    self.assertEqual(dummy[0].dtype, jnp.bool)
-    self.assertTrue(dummy[0].sharding.is_fully_replicated)
-
-  def test_dispatch_devices_executes_function(self):
-    fn = mock.MagicMock()
+  def test_dispatch_without_result_specs_discards_result(self):
+    fn = mock.MagicMock(return_value=self.arr + 1)
     dispatcher = dispatchers.ColocatedPythonDispatcher()
 
-    future = dispatcher.dispatch_devices(fn)
-    future.result()
+    result = dispatcher.dispatch(
+        fn, input_arrays=self.arr, func_kwargs={'a': 1}
+    )
 
-    fn.assert_called_once()
-    self.mock_cp_devices.assert_called_once()
-    self.mock_block_until_ready.assert_called_once_with(self.mock_cp_result)
+    fn.assert_called_once_with(self.arr, a=1)
+    self.mock_cp_colocated_python.assert_called_once()
+    self.assertEqual(self.mock_device_put.call_count, 2)
+    self.assertEqual(result.shape, ())
+    self.assertEqual(result.dtype, jnp.bool)
+    self.assertTrue(result.sharding.is_fully_replicated)
+    self.assertCountEqual(list(result.devices()), self.arr.devices())
 
-  def test_dispatch_arrays_executes_function_with_arrays(self):
-    fn = mock.MagicMock()
+  def test_dispatch_with_result_specs_returns_result(self):
+    fn = mock.MagicMock(return_value=self.arr)
     dispatcher = dispatchers.ColocatedPythonDispatcher()
+    specs = jax.ShapeDtypeStruct(
+        self.arr.shape, self.arr.dtype, sharding=self.arr.sharding
+    )
 
-    future = dispatcher.dispatch_arrays(fn, [self.arr], metadata={'key': 1})
-    future.result()
+    result = dispatcher.dispatch(
+        fn, input_arrays=self.arr, result_specs=specs, func_args=(1,)
+    )
 
-    fn.assert_called_once_with([self.arr], metadata={'key': 1})
-    self.mock_block_until_ready.assert_called_once_with(self.mock_cp_result)
-
-
-class DirectDispatcherTest(parameterized.TestCase):
-
-  def setUp(self):
-    super().setUp()
-    self.arr = _get_mock_dispatcher_array()
-
-  def test_dispatch_devices_executes_function(self):
-    fn = mock.MagicMock()
-    dispatcher = dispatchers.DirectDispatcher()
-
-    future = dispatcher.dispatch_devices(fn)
-    future.result()
-
-    fn.assert_called_once()
-    self.assertIsInstance(future, future_lib.NoopFuture)
-
-  def test_dispatch_arrays_executes_function_with_arrays(self):
-    fn = mock.MagicMock()
-    dispatcher = dispatchers.DirectDispatcher()
-
-    future = dispatcher.dispatch_arrays(fn, [self.arr], metadata={'key': 1})
-    future.result()
-
-    fn.assert_called_once_with([self.arr], metadata={'key': 1})
-    self.assertIsInstance(future, future_lib.NoopFuture)
+    fn.assert_called_once_with(self.arr, 1)
+    self.mock_cp_colocated_python.assert_called_once()
+    # device_put called in to_colocated_python and _to_final_specs
+    self.assertEqual(self.mock_device_put.call_count, 2)
+    self.assertIs(result, self.arr)
 
 
 

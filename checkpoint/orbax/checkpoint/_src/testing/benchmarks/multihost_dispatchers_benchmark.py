@@ -20,6 +20,8 @@ from typing import Any
 
 from absl import logging
 import jax
+from jax.experimental import colocated_python as cp
+import jax.numpy as jnp
 from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import core
@@ -52,7 +54,24 @@ def log_pytree_fn(inp: Any, metadata: dict[str, Any]):
     )
 
   logging.info('metadata: %s', metadata)
+  logging.info(
+      'metadata sharding mesh devices in worker: %s',
+      metadata['array_sharding'].mesh.devices,
+  )
   jax.tree.map(_log_fn, inp)
+
+
+def build_jax_array(
+    array: jax.Array,
+    shape: tuple[int, ...],
+    result_specs: jax.ShapeDtypeStruct,
+) -> jax.Array:
+  """Builds a jax.Array."""
+  del array
+  zeros = jnp.zeros(shape, dtype=jnp.float32)
+  return jax.make_array_from_callback(
+      shape, result_specs.sharding, lambda idx: zeros[idx], dtype=jnp.float32
+  )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -71,41 +90,82 @@ class MultihostDispatchersBenchmark(core.BenchmarksGenerator):
     assert isinstance(options, MultihostDispatchersBenchmarkOptions)
     if 'array' not in test_context.pytree:
       raise ValueError("Expected 'array' key in test_context.pytree")
-
+    array = test_context.pytree['array']
     dispatcher = None
     if options.use_colocated:
       dispatcher = dispatchers.ColocatedPythonDispatcher()
+      logging.info(
+          'jax devices: %s, colocated_cpu_devices: %s',
+          jax.devices(),
+          cp.colocated_cpu_devices(jax.devices()),
+      )
 
     if dispatcher is None:
       raise ValueError(f'No dispatcher found for {options}')
 
-    array = test_context.pytree['array']
     pytree_utils.log_pytree('array before d2h', array)
     mesh_utils.pretty_log_mesh('array mesh before d2h: ', array.sharding.mesh)
     logging.info(
         'array mesh devices before d2h: %s', array.sharding.mesh.devices
     )
-    metadata = {'string': 'metadata', 'version': 1, 'array_shape': array.shape}
-    with metrics.time('dispatch_arrays'):
-      dispatch_arrays_future = dispatcher.dispatch_arrays(
-          log_pytree_fn, [array], metadata=metadata
+    metadata = {
+        'string': 'metadata',
+        'version': 1,
+        'array_shape': array.shape,
+        'array_sharding': array.sharding,
+    }
+    with metrics.time('dispatch_without_result_specs'):
+      dispatch_without_result_specs_result = dispatcher.dispatch(
+          log_pytree_fn, input_arrays=array, func_kwargs={'metadata': metadata}
+      )
+    with metrics.time('dispatch_without_result_specs_block_until_ready'):
+      jax.block_until_ready(dispatch_without_result_specs_result)
+      pytree_utils.assert_pytree_equal(
+          dispatchers._make_dummy_result_array(array),  # pylint: disable=protected-access
+          dispatch_without_result_specs_result,
       )
 
-    devices = None
     if options.device_count is not None:
       devices = jax.devices()[: options.device_count]
+    else:
+      devices = jax.devices()
 
     logging.info('Dispatching to devices: %s', devices)
-    with metrics.time('dispatch_devices'):
-      dispatch_devices_future = dispatcher.dispatch_devices(
-          lambda: logging.info(
+    with metrics.time('dispatch_with_dummy_result_array'):
+      dummy_array = dispatchers.get_dummy_input_array(devices)
+      dispatch_with_dummy_result_array_result = dispatcher.dispatch(
+          lambda _: logging.info(
               'Remote Worker Dispatching: %s', multihost.process_index()
           ),
-          devices=devices,
+          input_arrays=dummy_array,
       )
-    with metrics.time('dispatch_arrays_future_result'):
-      dispatch_arrays_future.result()
-    with metrics.time('dispatch_devices_future_result'):
-      dispatch_devices_future.result()
+    with metrics.time('dispatch_with_dummy_result_array_block_until_ready'):
+      jax.block_until_ready(dispatch_with_dummy_result_array_result)
+      pytree_utils.assert_pytree_equal(
+          dispatchers._make_dummy_result_array(dummy_array),  # pylint: disable=protected-access
+          dispatch_with_dummy_result_array_result,
+      )
+
+    with metrics.time('dispatch_with_result_specs'):
+      sharding = array.sharding
+      result_specs = jax.ShapeDtypeStruct(
+          array.shape, dtype=array.dtype, sharding=sharding
+      )
+      result_array = dispatcher.dispatch(
+          build_jax_array,
+          input_arrays=array,
+          result_specs=result_specs,
+          func_args=(array.shape, result_specs),
+      )
+      pytree_utils.log_pytree('result_array', result_array)
+      mesh_utils.pretty_log_mesh(
+          'result array mesh: ', result_array.sharding.mesh
+      )
+      logging.info(
+          'result array mesh devices: %s', result_array.sharding.mesh.devices
+      )
+
+      expected_result = build_jax_array(array, array.shape, result_specs)
+      pytree_utils.assert_pytree_equal(expected_result, result_array)
 
     return core.TestResult(metrics=metrics)

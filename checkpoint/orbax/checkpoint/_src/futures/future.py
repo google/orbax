@@ -19,7 +19,6 @@ import time
 from typing import Any, Callable, Coroutine, Optional, Sequence
 
 from absl import logging
-import jax
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import signaling_client
 from orbax.checkpoint._src.futures import synchronization
@@ -212,36 +211,6 @@ class ChainedFuture:
         time_elapsed,
     )
     self._cb()
-
-
-class JaxBlockUntilReadyFuture(Future):
-  """A future that blocks until JAX array results are ready."""
-
-  def __init__(self, result_pytree: PyTree):
-    """Initializes the JaxBlockUntilReadyFuture.
-
-    Args:
-      result_pytree: A JAX pytree (e.g., array, or nested structure of arrays)
-        that will be made concrete by jax.block_until_ready().
-    """
-    super().__init__()
-    self._result_pytree = result_pytree
-
-  def result(self, timeout: Optional[int] = None) -> PyTree:
-    """Blocks until the JAX pytree is ready and returns it.
-
-    This method will wait indefinitely for the JAX computation to complete.
-    The timeout parameter is not supported and will be ignored.
-
-    Args:
-      timeout: Not supported.
-
-    Returns:
-      The fully computed JAX pytree.
-    """
-    del timeout  # Not supported, as explained in the docstring.
-    jax.block_until_ready(self._result_pytree)
-    return self._result_pytree
 
 
 class _SignalingThread(threading.Thread):
