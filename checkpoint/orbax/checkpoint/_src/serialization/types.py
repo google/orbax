@@ -60,7 +60,7 @@ def check_input_arguments(*args):
       raise ValueError('Found input args with mismatched lengths.')
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class ParamInfo:
   """Information describing a parameter in a PyTree.
 
@@ -70,9 +70,6 @@ class ParamInfo:
 
   name:
     Name of the parameter.
-  path:
-    A path providing a location where file(s) should be saved. The path is
-    assumed to be a directory.
   parent_dir:
     A path providing location where all files under the same checkpoint should
     be saved under. All `ParamInfo` provided to a given TypeHandler should have
@@ -115,10 +112,9 @@ class ParamInfo:
   is_prioritized_key_fn: See `IsPrioritizedKeyFn` definition.
   """
 
-  name: Optional[str] = None
+  name: str
+  parent_dir: epath.Path
   keypath: Optional[Tuple[Any, ...]] = None
-  path: Optional[epath.Path] = None
-  parent_dir: Optional[epath.Path] = None
   skip_deserialize: Optional[bool] = None
   byte_limiter: Optional[limits.ByteLimiter] = None
   device_host_byte_limiter: Optional[limits.ByteLimiter] = None
