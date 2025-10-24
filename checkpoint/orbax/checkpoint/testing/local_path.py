@@ -18,10 +18,14 @@ from __future__ import annotations
 
 import os
 import typing
-from typing import Iterator
+from typing import Iterator, Sequence
 
 from etils import epath
 from orbax.checkpoint._src.multihost import multihost
+
+
+_LOCAL_PATH_BASE_NAME = '_local_path_base'
+_LOCAL_PART_PREFIX = 'local'
 
 
 # The following is a hack to pass the type checker.
@@ -31,8 +35,26 @@ else:
   _BasePath = object
 
 
+def create_local_path_base(testclass) -> epath.Path:
+  return epath.Path(
+      testclass.create_tempdir(name=_LOCAL_PATH_BASE_NAME).full_path
+  )
+
+
+def _get_local_part_index(parts: Sequence[str]) -> int:
+  for i, part in enumerate(parts):
+    if part.startswith(_LOCAL_PART_PREFIX):
+      return i
+  raise ValueError(
+      f'Did not find a local part ({_LOCAL_PART_PREFIX}) in parts: {parts}'
+  )
+
+
 class LocalPath(_BasePath):
   """A Path implementation for testing process-local paths.
+
+  IMPORTANT: Use `create_local_path_base` to create the base path for test
+  cases.
 
   In the future, this class may more completely provide all functions and
   properties of a pathlib Path, but for now, it only provides the minimum
@@ -54,9 +76,12 @@ class LocalPath(_BasePath):
 
   def __init__(self, *parts: epath.PathLike):
     self._path = epath.Path('/'.join(os.fspath(p) for p in parts))
+    # Assumes this class will always be constructed on the controller first
+    # (otherwise this check will return the wrong value).
+    self._is_pathways_backend = multihost.is_pathways_backend()
 
   def __repr__(self) -> str:
-    return f'{self.__class__.__name__}({self.path})'
+    return f'LocalPath({self.path})'
 
   def __str__(self) -> str:
     return str(self.path)
@@ -67,7 +92,40 @@ class LocalPath(_BasePath):
 
   @property
   def path(self) -> epath.Path:
-    return self.base_path / str(f'local_{multihost.process_index()}')
+    parts = list(self.base_path.parts)
+
+    # Fail if the path is not properly configured. The local part should be
+    # immediately following the base name.
+    try:
+      base_idx = parts.index(_LOCAL_PATH_BASE_NAME)
+    except ValueError as e:
+      raise ValueError(
+          f'Base path for LocalPath must contain {_LOCAL_PATH_BASE_NAME}. Got:'
+          f' {self.base_path}'
+      ) from e
+
+    if multihost.is_pathways_controller():
+      local_part = f'{_LOCAL_PART_PREFIX}_controller'
+    else:
+      local_part = f'{_LOCAL_PART_PREFIX}_{multihost.process_index()}'
+
+    try:
+      # If the local part is already present, potentially replace it with the
+      # correct local part (e.g. controller vs worker).
+      local_part_idx = _get_local_part_index(parts)
+      assert local_part_idx == base_idx + 1
+      parts[local_part_idx] = local_part
+      return epath.Path(*parts)
+    except ValueError:
+      pass
+
+    # Otherwise, insert following the base part.
+    parts.insert(base_idx + 1, local_part)
+    return epath.Path(*parts)
+
+  @property
+  def parts(self) -> tuple[str, ...]:
+    return self.path.parts
 
   def exists(self) -> bool:
     """Returns True if self exists."""
@@ -119,6 +177,14 @@ class LocalPath(_BasePath):
     """Remove this file or symbolic link."""
     self.path.unlink(missing_ok=missing_ok)
 
+  def touch(self, mode: int = 0o666, exist_ok: bool = False) -> None:
+    """Creates the file at this path."""
+    self.path.touch(exist_ok=exist_ok)
+
+  def rename(self, new_path: epath.PathLike) -> None:
+    """Renames this file or directory to the given path."""
+    self.path.rename(new_path)
+
   def write_bytes(self, data: bytes) -> int:
     """Writes content as bytes."""
     return self.path.write_bytes(data)
@@ -135,16 +201,16 @@ class LocalPath(_BasePath):
   def as_posix(self) -> str:
     return self.path.as_posix()
 
-  def __truediv__(self, key: epath.PathLike) -> epath.Path:
-    return self.path / key
+  def __truediv__(self, key: epath.PathLike) -> LocalPath:
+    return LocalPath(self.path / key)
 
   @property
   def name(self) -> str:
     return self.path.name
 
   @property
-  def parent(self) -> epath.Path:
-    return self.path.parent
+  def parent(self) -> LocalPath:
+    return LocalPath(self.path.parent)
 
   def __fspath__(self) -> str:
     return os.fspath(self.path)

@@ -21,8 +21,9 @@ from typing import Protocol
 
 from etils import epath
 
+
 Path = epath.Path
-PathLike = epath.PathLike
+PathLike = Path | str
 
 
 @typing.runtime_checkable

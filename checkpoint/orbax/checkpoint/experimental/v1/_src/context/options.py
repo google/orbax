@@ -20,6 +20,7 @@ import dataclasses
 import enum
 from typing import Any, Callable, Protocol, Type
 
+from etils import epath
 import numpy as np
 from orbax.checkpoint import options as v0_options_lib
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
@@ -27,6 +28,7 @@ from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -102,10 +104,15 @@ class FileOptions:
     temporary_path_class:
       A class that is used to create and finallize temporary paths, and to
       ensure atomicity.
+    path_class:
+      The implementation of `path_types.Path` to use. Defaults to
+      `etils.epath.Path`, but may be overridden to some other subclass of
+      `path_types.Path`.
   """
 
   path_permission_mode: int | None = None
-  temporary_path_class: atomicity_types.TemporaryPath | None = None
+  temporary_path_class: type[atomicity_types.TemporaryPath] | None = None
+  path_class: type[path_types.Path] = epath.Path
 
   def v0(self) -> v0_options_lib.FileOptions:
     """Converts this FileOptions to a v0 FileOptions."""

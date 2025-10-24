@@ -83,7 +83,6 @@ def _create_v0_saving_paraminfo(
 
   return type_handlers_v0.ParamInfo(
       name=param.name,
-      path=serialization_context.parent_dir.path / param.name,
       parent_dir=serialization_context.parent_dir.path,
       byte_limiter=serialization_context.byte_limiter,
       is_ocdbt_checkpoint=saving_options.use_ocdbt,
@@ -129,7 +128,6 @@ def _create_v0_restore_paraminfo(
 
   return type_handlers_v0.ParamInfo(
       name=param.name,
-      path=deserialization_context.parent_dir / param.name,
       parent_dir=deserialization_context.parent_dir,
       skip_deserialize=False,
       byte_limiter=deserialization_context.byte_limiter,

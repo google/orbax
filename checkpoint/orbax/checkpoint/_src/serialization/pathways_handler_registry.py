@@ -14,6 +14,9 @@
 
 """Registers the Pathways handlers with the given options."""
 
+from __future__ import annotations
+
+import enum
 import types
 
 from absl import logging
@@ -73,19 +76,57 @@ def _register_numpy_and_scalar_handlers():
   )
 
 
+class CheckpointingImpl(enum.Enum):
+  """The implementation to use for Pathways checkpointing."""
+
+  NO_DISPATCHER = enum.auto()
+  COLOCATED_PYTHON = enum.auto()
+
+  @classmethod
+  def from_options(
+      cls,
+      *,
+      use_colocated_python: bool = False,
+  ) -> CheckpointingImpl:
+    """Obtains a CheckpointingImpl from the given options.
+
+    More than one option can be set to True. Resolves in order of priority:
+      1. Colocated Python
+      4. No Dispatcher
+
+    Args:
+      use_colocated_python: Whether to use colocated Python. # BEGIN
+      use_remote_python: Whether to use remote Python.
+      use_persistence_array_handler: Whether to use the persistence array
+
+    Returns:
+      The CheckpointingImpl to use.
+    """
+    if use_colocated_python:
+      return cls.COLOCATED_PYTHON
+    else:
+      return cls.NO_DISPATCHER
+
+
 def get_pathways_array_handler(
     use_single_replica_array_handler: bool = False,
-    use_colocated_python: bool = True,
+    checkpointing_impl: CheckpointingImpl | None = None,
     **kwargs,
 ) -> type_handlers.ArrayHandler:
   """Returns the Pathways ArrayHandler with the given options."""
-
-  if use_colocated_python:
-    logging.info('Using ColocatedPythonDispatcher')
-    dispatcher = dispatchers.ColocatedPythonDispatcher()
-  else:
-    logging.info('Not using dispatcher')
-    dispatcher = None
+  # If not set, use whichever dispatcher implementation is available.
+  checkpointing_impl = checkpointing_impl or CheckpointingImpl.from_options(
+      use_colocated_python=True,
+  )
+  match checkpointing_impl:
+    case CheckpointingImpl.COLOCATED_PYTHON:
+      logging.info('Using ColocatedPythonDispatcher')
+      dispatcher = dispatchers.ColocatedPythonDispatcher()
+    case CheckpointingImpl.NO_DISPATCHER:
+      logging.info('Not using dispatcher')
+      dispatcher = None
+    case _:
+      raise ValueError(f'Unsupported CheckpointingImpl: {checkpointing_impl}')
 
   return _get_array_hander_with_dispatcher(
       dispatcher,
@@ -96,7 +137,7 @@ def get_pathways_array_handler(
 
 def register_pathways_handlers(
     use_single_replica_array_handler: bool = False,
-    use_colocated_python: bool = True,
+    checkpointing_impl: CheckpointingImpl | None = None,
     **kwargs,
 ):
   """Registers the Pathways handlers with the given options.
@@ -104,7 +145,7 @@ def register_pathways_handlers(
   Args:
     use_single_replica_array_handler: Whether to use the
       SingleReplicaArrayHandler.
-    use_colocated_python: Use ColocatedPythonDispatcher with jax array handler.
+    checkpointing_impl: The implementation to use for Pathways checkpointing.
     **kwargs: Keyword arguments to pass to the ArrayHandler.
   """
   _register_numpy_and_scalar_handlers()
@@ -113,7 +154,7 @@ def register_pathways_handlers(
       jax.Array,
       get_pathways_array_handler(
           use_single_replica_array_handler,
-          use_colocated_python,
+          checkpointing_impl=checkpointing_impl,
           **kwargs,
       ),
       override=True,
