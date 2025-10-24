@@ -528,7 +528,11 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps matching with name_format attributes."""
-    if multihost.process_count() > 1 and self.single_host_load_and_broadcast:
+    # Note: the order of conjuncts is important here; we should not call
+    # `multihost.process_count()` when `single_host_load_and_broadcast` is False
+    # as this has the possible side effect of initializing the jax backend. See
+    # b/454565916 for details.
+    if self.single_host_load_and_broadcast and multihost.process_count() > 1:
       return self._find_all_with_single_host_load_and_broadcast(base_path)
 
     # <step_prefix>_?<0 padding>?*
