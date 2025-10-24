@@ -849,6 +849,33 @@ class BasePyTreeCheckpointHandler(
 
     return value_metadata_tree, restore_args
 
+  def _partial_restore_with_placeholders(
+      self,
+      item: PyTree,
+      value_metadata_tree: PyTree,
+  ):
+    """Restores leaves from `item`, except for those marked as placeholders."""
+    serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
+    diff = tree_structure_utils.tree_difference(
+        serialized_item,
+        value_metadata_tree,
+        is_leaf=tree_utils.is_empty_or_leaf,
+        leaves_equal=lambda a, b: True,
+    )
+    if diff is not None:
+      formatted_diff = tree_structure_utils.format_tree_diff(
+          diff, source_label='Item', target_label='Metadata'
+      )
+      raise ValueError(
+          'User-provided restore item and on-disk value metadata tree'
+          f' structures do not match:\n{formatted_diff}'
+      )
+    return jax.tree.map(
+        lambda v, i: PLACEHOLDER if type_handlers.is_placeholder(i) else v,
+        value_metadata_tree,
+        serialized_item,
+    )
+
   def restore(
       self,
       directory: epath.Path,
@@ -971,6 +998,12 @@ class BasePyTreeCheckpointHandler(
       value_metadata_tree, restore_args = self._partial_restore_with_omission(
           item, value_metadata_tree, restore_args
       )
+    elif any(
+        type_handlers.is_placeholder(leaf) for leaf in jax.tree.leaves(item)
+    ):
+      value_metadata_tree = self._partial_restore_with_placeholders(
+          item, value_metadata_tree
+      )
     else:
       # is_empty_or_leaf is necessary here to treat empty nodes (e.g. empty
       # dicts, lists, custom nodes) as leaves, as they do not contain any
@@ -990,11 +1023,6 @@ class BasePyTreeCheckpointHandler(
             'User-provided restore item and on-disk value metadata tree'
             f' structures do not match:\n{formatted_diff}'
         )
-      value_metadata_tree = jax.tree.map(
-          lambda v, i: PLACEHOLDER if type_handlers.is_placeholder(i) else v,
-          value_metadata_tree,
-          serialized_item,
-      )
     restore_args = _fill_missing_save_or_restore_args(
         item, restore_args, mode='restore'
     )
