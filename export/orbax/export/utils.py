@@ -88,6 +88,16 @@ NestedTfTensorSpec = jaxtyping.PyTree[
 ]
 
 
+def assert_tensor_spec_with_default(
+    input_signature: PyTree,
+) -> PyTree:
+  """Asserts that the input signature is a TensorSpecWithDefault."""
+  def check_fn(x):
+    assert isinstance(x, TensorSpecWithDefault), f'x: {x}'
+    return x
+  return jax.tree_util.tree_map(check_fn, input_signature)
+
+
 def remove_signature_defaults(input_signature: PyTree) -> PyTree:
   """Removes TensorSpecWithDefault from an input_signature."""
 
