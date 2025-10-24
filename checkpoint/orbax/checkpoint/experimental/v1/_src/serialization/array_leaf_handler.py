@@ -39,9 +39,7 @@ from orbax.checkpoint.experimental.v1._src.serialization import types
 Shape = arrays_types_v0.Shape
 AbstractShardedArray = types.AbstractShardedArray
 ArraySerializationParam = types.SerializationParam[jax.Array]
-ArrayDeserializationParam = types.DeserializationParam[
-    AbstractShardedArray
-]
+ArrayDeserializationParam = types.DeserializationParam[AbstractShardedArray]
 
 
 @dataclasses.dataclass
@@ -88,6 +86,7 @@ def _create_v0_array_handler(
       primary_host=primary_host,
       replica_id=None if primary_host is None else 0,
       use_replica_parallel=saving_options.use_replica_parallel,
+      enable_replica_parallel_separate_folder=saving_options.enable_replica_parallel_separate_folder,
       enable_write_sharding_file=saving_options.enable_write_sharding_file,
       array_metadata_store=saving_options.array_metadata_store,
   )

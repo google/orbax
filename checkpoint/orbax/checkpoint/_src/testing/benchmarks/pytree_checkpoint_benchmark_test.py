@@ -18,8 +18,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 import jax.numpy as jnp
-from orbax.checkpoint._src.checkpointers import async_checkpointer
-from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+import orbax.checkpoint as ocp
 from orbax.checkpoint._src.testing.benchmarks import pytree_checkpoint_benchmark
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
@@ -37,14 +36,10 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.mock_checkpointer = self.enter_context(
-        mock.patch.object(
-            async_checkpointer, 'AsyncCheckpointer', autospec=True
-        )
+        mock.patch.object(ocp, 'AsyncCheckpointer', autospec=True)
     )
     self.mock_handler = self.enter_context(
-        mock.patch.object(
-            pytree_checkpoint_handler, 'PyTreeCheckpointHandler', autospec=True
-        )
+        mock.patch.object(ocp, 'PyTreeCheckpointHandler', autospec=True)
     )
 
   @parameterized.parameters(
@@ -132,14 +127,12 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
     )
     mock_save.assert_called_once()
     save_args = mock_save.call_args[1]['args']
-    self.assertIsInstance(save_args, pytree_checkpoint_handler.PyTreeSaveArgs)
+    self.assertIsInstance(save_args, ocp.args.PyTreeSave)
     self.assertEqual(save_args.item, pytree)
     mock_wait.assert_called_once()
     mock_restore.assert_called_once()
     restore_args = mock_restore.call_args[1]['args']
-    self.assertIsInstance(
-        restore_args, pytree_checkpoint_handler.PyTreeRestoreArgs
-    )
+    self.assertIsInstance(restore_args, ocp.args.PyTreeRestore)
     self.assertIsNotNone(restore_args.restore_args)
     mock_close.assert_called_once()
 
