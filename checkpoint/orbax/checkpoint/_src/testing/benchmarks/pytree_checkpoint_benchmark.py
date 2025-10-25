@@ -82,6 +82,7 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
   restore_concurrent_gb: int | None | Sequence[int | None] = None
   metric_tracemalloc_enabled: bool = False
   metric_tensorstore_enabled: bool = False
+  use_colocated_python: bool | Sequence[bool] = False
 
 
 # ==============================================================================
