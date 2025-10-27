@@ -15,6 +15,7 @@
 """Functions for checkpoint generation and loading in Orbax benchmark tests."""
 
 from typing import Any
+
 from absl import logging
 from etils import epath
 import jax
@@ -28,6 +29,7 @@ from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.tree import utils
+
 
 
 def _create_array(
@@ -118,10 +120,14 @@ def _partition_axis_name(offset: int) -> str:
   return str(chr(ord('a') + offset))
 
 
+
+
 def load_checkpoint(path: str) -> Any:
   """Loads a PyTree of test checkpoint from a provided path."""
   logging.info('Loading checkpoint from path: %s', path)
   path = epath.Path(path)
+
+
   use_ocdbt = type_handlers.is_ocdbt_checkpoint(path)
   with checkpointer.Checkpointer(
       pytree_checkpoint_handler.PyTreeCheckpointHandler(use_ocdbt=use_ocdbt)
