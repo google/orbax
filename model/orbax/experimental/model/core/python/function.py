@@ -98,7 +98,8 @@ class ShloTensorSpec:
   shape: ShloShape
   dtype: ShloDType
   # None means unspecified sharding
-  sharding: Optional[Sharding] = None
+  sharding: Sharding | None = None
+  name: str| None = None
 
 
 @dataclasses.dataclass(kw_only=True)
