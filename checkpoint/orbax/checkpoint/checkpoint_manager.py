@@ -22,6 +22,7 @@ import datetime
 import threading
 import time
 import typing
+import numpy as np
 from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Tuple, Type, Union, overload
 
 from absl import logging
@@ -64,6 +65,12 @@ from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint._src.path import utils as path_utils
 from typing_extensions import Self  # for Python version < 3.11
 
+from orbax.checkpoint import type_handlers
+from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
+from orbax.checkpoint._src.serialization.type_handlers import PLACEHOLDER
+from orbax.checkpoint._src.serialization.type_handlers import PlaceholderHandler
+
 
 
 PyTree = Any
@@ -96,6 +103,7 @@ deserialize_root_metadata = root_metadata_serialization.deserialize
 AsyncOptions = options_lib.AsyncOptions
 MultiprocessingOptions = options_lib.MultiprocessingOptions
 FileOptions = options_lib.FileOptions
+PyTreeOptions = options_lib.PyTreeOptions
 
 DEFAULT_ITEM_NAME = 'default'
 METRIC_ITEM_NAME = 'metrics'
@@ -367,6 +375,10 @@ class CheckpointManagerOptions:
     supposed to be created per process. This is used to support async
     directory creation. If True, `multiprocessing_options.primary_host` must be
     None.
+  pytree_options: PyTreeOptions instance to configure PyTree checkpointing
+    behavior, including array handler options like use_replica_parallel and
+    enable_pinned_host_transfer. If not provided, default values will be used.
+    See PyTreeOptions for more details.
   """
 
   save_interval_steps: int = 1
@@ -391,6 +403,7 @@ class CheckpointManagerOptions:
   read_only: bool = False
   enable_async_checkpointing: bool = True
   async_options: Optional[AsyncOptions] = None
+  pytree_options: Optional[PyTreeOptions] = None
   multiprocessing_options: MultiprocessingOptions = dataclasses.field(
       default_factory=MultiprocessingOptions
   )
@@ -712,6 +725,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._options = options or CheckpointManagerOptions()
     self._multiprocessing_options = self._options.multiprocessing_options
+    self._pytree_options = self._options.pytree_options or PyTreeOptions()
 
     if self._options.enable_per_process_directory_creation:
       future.AwaitableSignalsContract.awaitable_signals_contract_prefix += (
@@ -1065,12 +1079,23 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         for item_name, handler in item_handlers.items():
           all_item_handlers[item_name] = handler
 
-    for item_name in all_item_handlers:
+    pytree_options = self._pytree_options
+    set_handlers = {}
+    for item_name, handler in all_item_handlers.items():
       if item_name in RESERVED_ITEM_NAMES:
         raise ValueError(
             f'Found {item_name} in `checkpointers`; this is a reserved key.'
         )
-    all_item_handlers[METRIC_ITEM_NAME] = self._metrics_handler
+      if handler is None:
+        set_handlers[item_name] = self._create_default_pytree_handler(
+          options, pytree_options
+      )
+      else:
+        set_handlers[item_name] = handler
+    
+    set_handlers[METRIC_ITEM_NAME] = self._metrics_handler
+    all_item_handlers = set_handlers
+
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
     async_options = options.async_options or AsyncOptions()
@@ -1088,6 +1113,44 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         ),
         options,
         options.enable_async_checkpointing,
+    )
+
+  def _create_default_pytree_handler(
+      self, 
+      options: CheckpointManagerOptions, 
+      pytree_options: PyTreeOptions
+  ) -> pytree_checkpoint_handler.PyTreeCheckpointHandler:
+    """Creates a default pytree handler."""
+    custom_array_handler = type_handlers.ArrayHandler(
+      primary_host=options.multiprocessing_options.primary_host,
+      use_replica_parallel=pytree_options.use_replica_parallel,
+      min_slice_bytes_for_replica_parallel=pytree_options.min_slice_bytes_for_replica_parallel,
+      max_replicas_for_replica_parallel=pytree_options.max_replicas_for_replica_parallel,
+      enable_replica_parallel_separate_folder=pytree_options.enable_replica_parallel_separate_folder,
+      array_metadata_store=array_metadata_store_lib.Store(),
+    )
+
+    custom_registry = type_handlers.create_type_handler_registry(
+      (int, type_handlers.ScalarHandler()),
+      (float, type_handlers.ScalarHandler()),
+      (bytes, type_handlers.ScalarHandler()),
+      (np.number, type_handlers.ScalarHandler()),
+      (np.ndarray, type_handlers.NumpyHandler()),
+      (jax.Array, custom_array_handler),
+      (str, type_handlers.StringHandler()),
+      (type(PLACEHOLDER), PlaceholderHandler()),
+    )
+
+    return pytree_checkpoint_handler.PyTreeCheckpointHandler(
+      save_concurrent_gb=pytree_options.save_concurrent_gb,
+      restore_concurrent_gb=pytree_options.restore_concurrent_gb,
+      save_device_host_concurrent_gb=pytree_options.save_device_host_concurrent_gb,
+      use_ocdbt=pytree_options.use_ocdbt,
+      use_zarr3=pytree_options.use_zarr3,
+      use_compression=pytree_options.use_compression,
+      multiprocessing_options=options.multiprocessing_options,
+      type_handler_registry=custom_registry,
+      enable_pinned_host_transfer=pytree_options.enable_pinned_host_transfer,
     )
 
   def _configure_checkpointer_from_handler_registry(
