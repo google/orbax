@@ -80,6 +80,7 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
   metric_tensorstore_enabled: bool = False
   use_replica_parallel: bool | Sequence[bool] = False
   enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
+  use_colocated_python: bool | Sequence[bool] = False
 
   def is_valid(self):
     if self.enable_replica_parallel_separate_folder and (
