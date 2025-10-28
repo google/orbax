@@ -86,67 +86,78 @@ class BatchOptions:
   disable_large_batch_splitting: bool = False
   batch_padding_policy: BatchPaddingPolicy = BatchPaddingPolicy.PAD_UP
 
-  def __post_init__(self):
-    """Validates the batch options."""
+  def _validate_allowed_batch_sizes(
+      self,
+      allowed_batch_sizes: Sequence[int] | None,
+      max_batch_size: int | None,
+  ) -> None:
+    """Validates the allowed batch sizes.
 
-    if self.allowed_batch_sizes:
-      if self.allowed_batch_sizes[0] < 1:
-        raise ValueError(
-            "`allowed_batch_sizes` must be positive. Got:"
-            f" {self.allowed_batch_sizes}"
-        )
+    Args:
+      allowed_batch_sizes: The allowed batch sizes.
+      max_batch_size: The max batch size.
 
-      # `allowed_batch_sizes` should be sorted in ascending order.
-      for a, b in itertools.pairwise(self.allowed_batch_sizes):
+    Raises:
+      ValueError: If the allowed batch sizes are not valid.
+    """
+    if allowed_batch_sizes:
+      # The allowed batch sizes must be positive and sorted in ascending order.
+      for a, b in itertools.pairwise(allowed_batch_sizes):
         if a >= b:
           raise ValueError(
               "`allowed_batch_sizes` must be sorted in ascending order. Got:"
-              f" {self.allowed_batch_sizes}"
+              f" {allowed_batch_sizes}"
           )
+      if allowed_batch_sizes[0] < 1:
+        raise ValueError(
+            "`allowed_batch_sizes` must be positive. Got:"
+            f" {allowed_batch_sizes}"
+        )
+      if max_batch_size is None:
+        return
+      # When `allowed_batch_sizes` and `max_batch_size` are provided,
+      # `max_batch_size` must be larger than or equal to the largest allowed
+      # batch size.
+      if (
+          self.disable_large_batch_splitting
+          and max_batch_size != allowed_batch_sizes[-1]
+      ):
+        raise ValueError(
+            "`max_batch_size` must be equal to the largest one in"
+            " `allowed_batch_sizes` when large batch splitting is disabled."
+            f" Got: {max_batch_size} vs {allowed_batch_sizes[-1]}. Set"
+            " `max_batch_size` to None to automatically infer it from"
+            " `allowed_batch_sizes`."
+        )
+      if (
+          not self.disable_large_batch_splitting
+          and max_batch_size < allowed_batch_sizes[-1]
+      ):
+        raise ValueError(
+            "`max_batch_size` must be larger than or equal to the largest one"
+            " in `allowed_batch_sizes`. Got: max_batch_size:"
+            f" {max_batch_size} vs largest in allowed_batch_sizes:"
+            f" {allowed_batch_sizes[-1]}."
+        )
 
-      if self.max_batch_size is None:
+  def __post_init__(self):
+    """Validates the batch options."""
+    if self.batch_component == BatchComponent.NO_BATCHING:
+      return
+
+    if self.max_batch_size is None:
+      if self.allowed_batch_sizes:
         self.max_batch_size = self.allowed_batch_sizes[-1]
       else:
-        # When `allowed_batch_sizes` is provided, `max_batch_size` must be
-        # larger than or equal to the largest one in the list.
-        if (
-            self.disable_large_batch_splitting
-            and self.max_batch_size != self.allowed_batch_sizes[-1]
-        ):
-          raise ValueError(
-              "`max_batch_size` must be equal to the largest one in"
-              " `allowed_batch_sizes` when large batch splitting is disabled."
-              " Got: {self.max_batch_size} vs"
-              f" {self.allowed_batch_sizes[-1]}. Set `max_batch_size` to None"
-              " to automatically infer it from `allowed_batch_sizes`."
-          )
-        if (
-            not self.disable_large_batch_splitting
-            and self.max_batch_size < self.allowed_batch_sizes[-1]
-        ):
-          raise ValueError(
-              "`max_batch_size` must be larger than or equal to the largest"
-              f" one in `allowed_batch_sizes`. Got: {self.max_batch_size} vs"
-              f" {self.allowed_batch_sizes[-1]}."
-          )
-        if (
-            self.max_batch_size > self.allowed_batch_sizes[-1]
-            and self.disable_large_batch_splitting
-        ):
-          raise ValueError(
-              "`max_batch_size` must be equal to the largest one in"
-              " `allowed_batch_sizes` when large batch splitting is disabled."
-              " Got: {self.max_batch_size} vs"
-              f" {self.allowed_batch_sizes[-1]}."
-          )
+        raise ValueError(
+            "max_batch_size must be provided when allowed_batch_sizes is empty."
+            f" Got: max_batch_size: {self.max_batch_size}; allowed_batch_sizes:"
+            f" {self.allowed_batch_sizes}."
+        )
 
-    # When `allowed_batch_sizes` is not provided, `max_batch_size` must be
-    # provided.
-    if self.max_batch_size is None:
-      raise ValueError(
-          "`max_batch_size` must be provided when `allowed_batch_sizes` is"
-          " empty."
-      )
+    self._validate_allowed_batch_sizes(
+        self.allowed_batch_sizes, self.max_batch_size
+    )
 
     if self.batch_timeout_micros < 0:
       raise ValueError(
