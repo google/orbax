@@ -21,21 +21,17 @@ from absl.testing import absltest
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.voxel2obm import main_lib
 from orbax.experimental.model.voxel2obm import voxel_asset_map_pb2
+from orbax.experimental.model.voxel2obm import voxel_mock
 
 
 class MainLibTest(absltest.TestCase):
 
   def test_voxel_plan_to_obm_with_plan(self):
     # TODO(b/447200841): Replace with a real Voxel module.
-    class FakeVoxelModule:
-
-      def export_plan(self):
-        plan_proto = mock.Mock()
-        plan_proto.SerializeToString.return_value = b"test plan"
-        return plan_proto
+    voxel_module = voxel_mock.VoxelModule()
 
     obm_fn = main_lib.voxel_plan_to_obm(
-        FakeVoxelModule(), input_signature={}, output_signature={}
+        voxel_module, input_signature={}, output_signature={}
     )
     self.assertEqual(obm_fn.body.proto.inlined_bytes, b"test plan")
     self.assertEqual(
