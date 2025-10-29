@@ -22,6 +22,7 @@ import jax
 import numpy as np
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint import multihost
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
@@ -54,6 +55,7 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
     pytree = context.pytree
     options = context.options
     assert isinstance(options, CheckpointManagerBenchmarkOptions)
+
 
     cm_options = checkpoint_manager.CheckpointManagerOptions(
         save_interval_steps=options.save_interval_steps,
