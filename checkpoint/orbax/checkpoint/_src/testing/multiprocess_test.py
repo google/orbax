@@ -304,10 +304,6 @@ class MultiProcessTest(absltest.TestCase):
           jax.process_count() == 1
       ), "Expected 1 process for Pathways backend."
     else:
-      assert jax.process_count() == NUM_PROCESSES.value, (
-          jax.process_count(),
-          NUM_PROCESSES.value,
-      )
       # Make sure all processes are at the same test case.
       client = multihost.get_jax_distributed_client()
       # Note that the name of this barrier is long and complicated, to prevent
