@@ -96,7 +96,6 @@ async def open_tensorstore(
   """Opens TensorStore for the given parameter for reading."""
   info = serialization_types.ParamInfo(
       name=param_name,
-      path=directory / param_name,
       parent_dir=directory,
       is_ocdbt_checkpoint=use_ocdbt,
       use_zarr3=use_zarr3,

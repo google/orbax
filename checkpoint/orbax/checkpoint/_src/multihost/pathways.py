@@ -16,38 +16,27 @@
 
 import functools
 import jax
-import numpy as np
-from .learning.deepmind.jax.ocean.remote_python import rp
 
 
 @functools.lru_cache(maxsize=1)
-def worker_count() -> int:
-  """Gets the number of Pathways workers."""
-  fully_replicated_sharding = jax.sharding.NamedSharding(
-      jax.sharding.Mesh(jax.devices(), 'x'),
-      jax.sharding.PartitionSpec(),
-  )
+def worker_count(global_mesh: jax.sharding.Mesh | None) -> int:
+  """Gets the number of Pathways workers.
 
-  @rp.stateless_fn
-  def _get_worker_count(_) -> jax.Array:
-    wc = np.asarray(jax.process_count(), dtype=np.int32)
-    return jax.make_array_from_callback(
-        (),
-        fully_replicated_sharding,
-        lambda _: wc,
-        dtype=np.int32,
-    )
+  Args:
+    global_mesh: The global mesh of active devices. If None is provided,
+      `jax.devices()` will be used.
 
-  dummy_input = jax.device_put(
-      np.asarray(0, dtype=np.int32),
-      device=fully_replicated_sharding,
-  )
-  _get_worker_count.register_shape_fn(
-      lambda _: jax.ShapeDtypeStruct(
-          (), dtype=np.int32, sharding=fully_replicated_sharding
-      )
-  )
-  result = _get_worker_count(rp.to_remote_python(dummy_input))
-  jax.block_until_ready(result)
-  result = rp.from_remote_python(result)
-  return result.item()
+  Returns:
+    The number of Pathways workers in the mesh.
+  """
+  global_mesh = global_mesh or jax.sharding.Mesh(jax.devices(), 'x')
+  devices = global_mesh.devices.flatten()
+  workers = set()
+  for d in devices:
+    attrs = []
+    if hasattr(d, 'virtual_task_index'):
+      attrs.append(d.virtual_task_index)
+    if hasattr(d, 'slice_index'):
+      attrs.append(d.slice_index)
+    workers.add(tuple(attrs))
+  return len(workers)

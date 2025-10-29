@@ -103,7 +103,7 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
       return [
           value.ArrayMetadata(
               name=info.name,
-              directory=info.path.parent,
+              directory=info.parent_dir,
               shape=(4, 4),
               dtype=sharded_array.dtype,
               sharding=mock_sharding_meta,
