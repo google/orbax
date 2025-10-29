@@ -68,8 +68,7 @@ from typing_extensions import Self  # for Python version < 3.11
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
-from orbax.checkpoint._src.serialization.type_handlers import PLACEHOLDER
-from orbax.checkpoint._src.serialization.type_handlers import PlaceholderHandler
+from orbax.checkpoint._src.serialization import type_handler_registry
 
 
 
@@ -1120,26 +1119,26 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       options: CheckpointManagerOptions, 
       pytree_options: PyTreeOptions
   ) -> pytree_checkpoint_handler.PyTreeCheckpointHandler:
-    """Creates a default pytree handler."""
-    custom_array_handler = type_handlers.ArrayHandler(
-      primary_host=options.multiprocessing_options.primary_host,
-      use_replica_parallel=pytree_options.use_replica_parallel,
-      min_slice_bytes_for_replica_parallel=pytree_options.min_slice_bytes_for_replica_parallel,
-      max_replicas_for_replica_parallel=pytree_options.max_replicas_for_replica_parallel,
-      enable_replica_parallel_separate_folder=pytree_options.enable_replica_parallel_separate_folder,
-      array_metadata_store=array_metadata_store_lib.Store(),
-    )
+    """Creates a default pytree handler with custom ArrayHandler options.
+    
+       Uses the global type handler registry as a base and only overrides
+       the jax.Array handler with custom options from pytree_options.
+    """
 
     custom_registry = type_handlers.create_type_handler_registry(
-      (int, type_handlers.ScalarHandler()),
-      (float, type_handlers.ScalarHandler()),
-      (bytes, type_handlers.ScalarHandler()),
-      (np.number, type_handlers.ScalarHandler()),
-      (np.ndarray, type_handlers.NumpyHandler()),
-      (jax.Array, custom_array_handler),
-      (str, type_handlers.StringHandler()),
-      (type(PLACEHOLDER), PlaceholderHandler()),
+        *type_handler_registry._DEFAULT_TYPE_HANDLERS
     )
+    
+    custom_array_handler = type_handlers.ArrayHandler(
+        primary_host=options.multiprocessing_options.primary_host,
+        use_replica_parallel=pytree_options.use_replica_parallel,
+        min_slice_bytes_for_replica_parallel=pytree_options.min_slice_bytes_for_replica_parallel,
+        max_replicas_for_replica_parallel=pytree_options.max_replicas_for_replica_parallel,
+        enable_replica_parallel_separate_folder=pytree_options.enable_replica_parallel_separate_folder,
+        array_metadata_store=array_metadata_store_lib.Store(),
+    )
+
+    custom_registry.add(jax.Array, custom_array_handler, override=True)
 
     return pytree_checkpoint_handler.PyTreeCheckpointHandler(
       save_concurrent_gb=pytree_options.save_concurrent_gb,
