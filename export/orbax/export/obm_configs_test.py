@@ -52,6 +52,15 @@ class ObmConfigsTest(absltest.TestCase):
     )
     self.assertEqual(batch_options.max_batch_size, 8)
 
+  def test_batch_options_raise_error_with_non_positive_max_batch_size(self):
+    with self.assertRaisesRegex(
+        ValueError, r"`max_batch_size` must be positive. Got: 0"
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=0,
+      )
+
   def test_batch_options_raise_error_with_non_positive_allowed_batch_sizes(
       self,
   ):

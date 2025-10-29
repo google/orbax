@@ -155,6 +155,11 @@ class BatchOptions:
             f" {self.allowed_batch_sizes}."
         )
 
+    if self.max_batch_size < 1:
+      raise ValueError(
+          f"`max_batch_size` must be positive. Got: {self.max_batch_size}"
+      )
+
     self._validate_allowed_batch_sizes(
         self.allowed_batch_sizes, self.max_batch_size
     )
