@@ -34,6 +34,7 @@ from orbax.checkpoint._src.serialization.type_handler_registry import create_typ
 from orbax.checkpoint._src.serialization.type_handler_registry import get_type_handler
 from orbax.checkpoint._src.serialization.type_handler_registry import has_type_handler
 from orbax.checkpoint._src.serialization.type_handler_registry import register_standard_handlers_with_options
+from orbax.checkpoint._src.serialization.type_handler_registry import register_colocated_python_array_handler_with_options
 from orbax.checkpoint._src.serialization.type_handler_registry import register_type_handler
 from orbax.checkpoint._src.serialization.type_handler_registry import supported_types
 
@@ -53,3 +54,4 @@ from orbax.checkpoint._src.serialization.tensorstore_utils import get_json_tspec
 from orbax.checkpoint._src.serialization.tensorstore_utils import get_json_tspec_write
 from orbax.checkpoint._src.serialization.tensorstore_utils import get_ts_context
 # END OF DEPRECATED FUNCTIONS
+

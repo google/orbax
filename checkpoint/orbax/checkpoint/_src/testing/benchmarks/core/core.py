@@ -189,6 +189,7 @@ class Benchmark(abc.ABC):
           multihost.process_index(),
           self.name,
           e,
+          exc_info=True,
       )
       result = TestResult(metrics=metric_lib.Metrics(), error=e)
     result.metrics.name = self.name
