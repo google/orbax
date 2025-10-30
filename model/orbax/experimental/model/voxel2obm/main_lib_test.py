@@ -15,7 +15,6 @@
 """Tests for main_lib."""
 
 import os
-from unittest import mock
 
 from absl.testing import absltest
 from orbax.experimental.model import core as obm
@@ -26,12 +25,14 @@ from orbax.experimental.model.voxel2obm import voxel_mock
 
 class MainLibTest(absltest.TestCase):
 
+  def setUp(self):
+    super().setUp()
+    self.voxel_module = voxel_mock.VoxelModule()
+
   def test_voxel_plan_to_obm_with_plan(self):
     # TODO(b/447200841): Replace with a real Voxel module.
-    voxel_module = voxel_mock.VoxelModule()
-
     obm_fn = main_lib.voxel_plan_to_obm(
-        voxel_module, input_signature={}, output_signature={}
+        self.voxel_module, input_signature={}, output_signature={}
     )
     self.assertEqual(obm_fn.body.proto.inlined_bytes, b"test plan")
     self.assertEqual(
@@ -67,12 +68,15 @@ class MainLibTest(absltest.TestCase):
       f.write("corge")
     with open(path7, "w") as f:
       f.write("grault")
-    asset_source_paths = {path1, path2, path3, path4, path5, path6, path7}
 
-    closure = main_lib.voxel_global_supplemental_closure(asset_source_paths)
+    asset_paths = {path1, path2, path3, path4, path5, path6, path7}
+    self.voxel_module.set_assets(asset_paths)
+    closure = main_lib.voxel_global_supplemental_closure(self.voxel_module)
 
     save_dir = self.create_tempdir("save")
-    supplemental = closure(save_dir)
+    supplemental_map = closure(save_dir)
+    self.assertIn(main_lib.VOXEL_ASSET_MAP_SUPPLEMENTAL_NAME, supplemental_map)
+    supplemental = supplemental_map[main_lib.VOXEL_ASSET_MAP_SUPPLEMENTAL_NAME]
 
     expected_asset_map = voxel_asset_map_pb2.VoxelAssetsMap()
     expected_asset_map.assets[path1] = "voxel_module/assets/foo.txt"
@@ -106,6 +110,11 @@ class MainLibTest(absltest.TestCase):
       with open(dest_path, "r") as f:
         dest_content = f.read()
       self.assertEqual(source_content, dest_content)
+
+  def test_voxel_global_supplemental_closure_with_no_assets(self):
+    self.voxel_module.set_assets(set())
+    closure = main_lib.voxel_global_supplemental_closure(self.voxel_module)
+    self.assertIsNone(closure)
 
 
 if __name__ == "__main__":

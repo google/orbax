@@ -14,7 +14,7 @@
 
 """Fake VoxelSpec definition for testing purposes."""
 
-from collections.abc import Sequence
+from collections.abc import Sequence, Set
 import dataclasses
 from unittest import mock
 
@@ -57,6 +57,15 @@ class VoxelSpec:
 
 class VoxelModule:
   """A mock VoxelModule for testing."""
+
+  def __init__(self):
+    self._assets: Set[str] = set()
+
+  def set_assets(self, assets: Set[str]) -> None:
+    self._assets = assets
+
+  def export_assets(self) -> Set[str]:
+    return self._assets
 
   def get_output_signature(
       self, input_signature: jaxtyping.PyTree
