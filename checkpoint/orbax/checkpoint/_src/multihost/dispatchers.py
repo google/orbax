@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.serialization import jax_array_restore_args
 
 
 PyTree = Any
@@ -155,8 +155,8 @@ class ColocatedPythonDispatcher(Dispatcher):
 
   def _convert_single_replica_restore_args(
       self,
-      restore_args: type_handlers.SingleReplicaArrayRestoreArgs,
-  ) -> type_handlers.SingleReplicaArrayRestoreArgs:
+      restore_args: jax_array_restore_args.SingleReplicaArrayRestoreArgs,
+  ) -> jax_array_restore_args.SingleReplicaArrayRestoreArgs:
     """Converts SingleReplicaArrayRestoreArgs to use CPU devices."""
     if restore_args.single_replica_sharding is not None:
       cpu_single_replica_sharding = self._colocated_cpu_sharding(
@@ -167,14 +167,14 @@ class ColocatedPythonDispatcher(Dispatcher):
           restore_args, single_replica_sharding=cpu_single_replica_sharding
       )
     return cast(
-        type_handlers.SingleReplicaArrayRestoreArgs,
+        jax_array_restore_args.SingleReplicaArrayRestoreArgs,
         self._convert_array_restore_args(restore_args),
     )
 
   def _convert_array_restore_args(
       self,
-      restore_args: type_handlers.ArrayRestoreArgs,
-  ) -> type_handlers.ArrayRestoreArgs:
+      restore_args: jax_array_restore_args.ArrayRestoreArgs,
+  ) -> jax_array_restore_args.ArrayRestoreArgs:
     """Converts ArrayRestoreArgs to use CPU devices."""
     if restore_args.mesh is not None:
       cpu_mesh = cp.colocated_cpu_devices(restore_args.mesh)
@@ -217,9 +217,9 @@ class ColocatedPythonDispatcher(Dispatcher):
         return jax.ShapeDtypeStruct(
             leaf.shape, leaf.dtype, sharding=cpu_sharding
         )
-      if isinstance(leaf, type_handlers.ArrayRestoreArgs):
+      if isinstance(leaf, jax_array_restore_args.ArrayRestoreArgs):
         return self._convert_array_restore_args(leaf)
-      if isinstance(leaf, type_handlers.SingleReplicaArrayRestoreArgs):
+      if isinstance(leaf, jax_array_restore_args.SingleReplicaArrayRestoreArgs):
         return self._convert_single_replica_restore_args(leaf)
       if isinstance(leaf, jax.Array):
         return self.to_colocated_python(leaf)
