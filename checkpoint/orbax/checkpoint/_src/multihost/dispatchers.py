@@ -217,10 +217,10 @@ class ColocatedPythonDispatcher(Dispatcher):
         return jax.ShapeDtypeStruct(
             leaf.shape, leaf.dtype, sharding=cpu_sharding
         )
-      if isinstance(leaf, jax_array_restore_args.ArrayRestoreArgs):
-        return self._convert_array_restore_args(leaf)
       if isinstance(leaf, jax_array_restore_args.SingleReplicaArrayRestoreArgs):
         return self._convert_single_replica_restore_args(leaf)
+      if isinstance(leaf, jax_array_restore_args.ArrayRestoreArgs):
+        return self._convert_array_restore_args(leaf)
       if isinstance(leaf, jax.Array):
         return self.to_colocated_python(leaf)
       return leaf
