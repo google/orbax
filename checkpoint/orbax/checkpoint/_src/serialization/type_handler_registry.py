@@ -24,6 +24,7 @@ import numpy as np
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
+from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
 
@@ -242,3 +243,31 @@ def register_standard_handlers_with_options(**kwargs):
   GLOBAL_TYPE_HANDLER_REGISTRY.add(
       jax.Array, type_handlers.ArrayHandler(**kwargs), override=True
   )
+
+
+def _register_array_handler_with_dispatcher_and_options(
+    dispatcher: dispatchers.Dispatcher,
+    use_single_replica_handler: bool = False,
+    **kwargs,
+):
+  """Registers the ArrayHandler with the given dispatcher and options."""
+  if use_single_replica_handler:
+    handler = type_handlers.SingleReplicaArrayHandler(
+        dispatcher=dispatcher, **kwargs
+    )
+  else:
+    handler = type_handlers.ArrayHandler(dispatcher=dispatcher, **kwargs)
+  GLOBAL_TYPE_HANDLER_REGISTRY.add(jax.Array, handler, override=True)
+
+
+def register_colocated_python_array_handler_with_options(
+    use_single_replica_handler: bool = False, **kwargs
+):
+  """Registers the Colocated Python ArrayHandler with the given options."""
+  _register_array_handler_with_dispatcher_and_options(
+      dispatchers.ColocatedPythonDispatcher(),
+      use_single_replica_handler,
+      **kwargs,
+  )
+
+
