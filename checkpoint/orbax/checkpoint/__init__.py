@@ -54,6 +54,7 @@ from orbax.checkpoint.checkpointers import *
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
 from orbax.checkpoint.checkpoint_manager import AsyncOptions
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
+from orbax.checkpoint.checkpoint_manager import PyTreeOptions
 
 from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import RestoreArgs
 from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import ArrayRestoreArgs
