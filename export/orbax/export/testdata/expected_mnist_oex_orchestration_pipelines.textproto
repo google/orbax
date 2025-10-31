@@ -84,6 +84,14 @@ name_to_pipeline {
       num_batch_threads: 4
       max_enqueued_batches: 300
       batch_padding_policy: PAD_UP
+      low_priority_batch_options {
+        max_batch_size: 16
+        batch_timeout_micros: 200
+        allowed_batch_sizes: 2
+        allowed_batch_sizes: 4
+        allowed_batch_sizes: 16
+        max_enqueued_batches: 300
+      }
     }
   }
 }

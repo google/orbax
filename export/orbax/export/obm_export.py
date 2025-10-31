@@ -16,6 +16,7 @@
 
 from collections.abc import Callable, Mapping, Sequence
 import copy
+import dataclasses
 import itertools
 import os
 from typing import Any, cast

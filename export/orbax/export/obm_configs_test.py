@@ -52,6 +52,18 @@ class ObmConfigsTest(absltest.TestCase):
     )
     self.assertEqual(batch_options.max_batch_size, 8)
 
+  def test_batch_options_raise_error_with_non_positive_max_batch_size(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`max_batch_size` must be positive. Got: 0",
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=0,
+      )
+
   def test_batch_options_raise_error_with_non_positive_allowed_batch_sizes(
       self,
   ):
@@ -154,6 +166,178 @@ class ObmConfigsTest(absltest.TestCase):
           batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
           max_batch_size=8,
           max_enqueued_batches=0,
+      )
+
+  def test_low_priority_batch_options_with_allowed_batch_sizes_only(self):
+    batch_options = obm_configs.BatchOptions(
+        batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+        max_batch_size=16,
+        low_priority_batch_options=obm_configs.LowPriorityBatchOptions(
+            allowed_batch_sizes=[2, 4, 8]
+        ),
+    )
+    assert batch_options.low_priority_batch_options is not None
+    self.assertEqual(batch_options.low_priority_batch_options.max_batch_size, 8)
+
+  def test_low_priority_batch_options_with_max_batch_size_only(self):
+    batch_options = obm_configs.BatchOptions(
+        batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+        max_batch_size=16,
+        low_priority_batch_options=obm_configs.LowPriorityBatchOptions(
+            max_batch_size=32
+        ),
+    )
+    assert batch_options.low_priority_batch_options is not None
+    self.assertEqual(
+        batch_options.low_priority_batch_options.max_batch_size, 32
+    )
+
+  def test_low_priority_batch_options_raise_error_without_max_batch_size_and_allowed_batch_sizes(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        "Low priority max_batch_size must be provided when allowed_batch_sizes"
+        " is empty. Got: low_priority_batch_options.max_batch_size: None;"
+        " low_priority_batch_options.allowed_batch_sizes: None.",
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=8,
+          low_priority_batch_options=obm_configs.LowPriorityBatchOptions(),
+      )
+
+  def test_low_priority_batch_options_raise_error_with_non_positive_max_batch_size(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`low_priority_batch_options.max_batch_size` must be positive. Got: 0",
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=16,
+          low_priority_batch_options=obm_configs.LowPriorityBatchOptions(
+              max_batch_size=0,
+          ),
+      )
+
+  def test_low_priority_batch_options_raise_error_with_non_positive_allowed_batch_sizes(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`low_priority_batch_options.allowed_batch_sizes` must be positive."
+        r" Got: \[0, 4, 16\]",
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=16,
+          low_priority_batch_options=obm_configs.LowPriorityBatchOptions(
+              max_batch_size=16,
+              allowed_batch_sizes=[0, 4, 16],
+          ),
+      )
+
+  def test_low_priority_batch_options_raise_error_with_unsorted_allowed_batch_sizes(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`low_priority_batch_options.allowed_batch_sizes` must be sorted in"
+        r" ascending order. Got:"
+        r" \[4, 2, 16\]",
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=16,
+          low_priority_batch_options=obm_configs.LowPriorityBatchOptions(
+              max_batch_size=16,
+              allowed_batch_sizes=[4, 2, 16],
+          ),
+      )
+
+  def test_low_priority_batch_options_raise_error_with_inconsistent_max_batch_size_and_allowed_batch_sizes(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`low_priority_batch_options.max_batch_size` must be equal to the"
+        r" largest one in `low_priority_batch_options.allowed_batch_sizes` when"
+        r" large batch splitting is disabled.",
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=16,
+          disable_large_batch_splitting=True,
+          low_priority_batch_options=obm_configs.LowPriorityBatchOptions(
+              max_batch_size=16,
+              allowed_batch_sizes=[2, 4, 8],
+          ),
+      )
+
+  def test_low_priority_batch_options_raise_error_with_smaller_max_batch_size(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`low_priority_batch_options.max_batch_size` must be larger than or"
+        r" equal to the largest one in"
+        r" `low_priority_batch_options.allowed_batch_sizes`.",
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=16,
+          low_priority_batch_options=obm_configs.LowPriorityBatchOptions(
+              max_batch_size=8,
+              allowed_batch_sizes=[2, 4, 16],
+          ),
+      )
+
+  def test_low_priority_batch_options_success_with_larger_max_batch_size(
+      self,
+  ):
+    obm_configs.BatchOptions(
+        batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+        max_batch_size=16,
+        low_priority_batch_options=obm_configs.LowPriorityBatchOptions(
+            max_batch_size=32,
+            allowed_batch_sizes=[2, 4, 16],
+        ),
+    )
+
+  def test_low_priority_batch_options_raise_error_with_negative_batch_timeout_micros(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`low_priority_batch_options.batch_timeout_micros` must be"
+        r" non-negative. Got: -1",
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=16,
+          low_priority_batch_options=obm_configs.LowPriorityBatchOptions(
+              max_batch_size=16,
+              batch_timeout_micros=-1,
+          ),
+      )
+
+  def test_low_priority_batch_options_raise_error_with_non_positive_max_enqueued_batches(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`low_priority_batch_options.max_enqueued_batches` must be at least 1."
+        r" Got: 0",
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=16,
+          low_priority_batch_options=obm_configs.LowPriorityBatchOptions(
+              max_batch_size=16,
+              max_enqueued_batches=0,
+          ),
       )
 
 
