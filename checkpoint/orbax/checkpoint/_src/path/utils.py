@@ -24,9 +24,16 @@ from absl import logging
 from etils import epath
 
 
+from orbax.checkpoint._src.path import gcs_utils
+
 
 def get_storage_type(path: epath.Path | str) -> str:
-    return 'other'
+  """Returns the storage type of the given path."""
+  if isinstance(path, str):
+    path = epath.Path(path)
+  if gcs_utils.is_gcs_path(path):
+    return 'gcs'
+  return 'other'
 
 
 class Timer(object):
