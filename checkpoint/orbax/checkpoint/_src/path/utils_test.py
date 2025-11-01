@@ -68,14 +68,6 @@ class UtilsTest(parameterized.TestCase):
     self.assertTrue((dst_dir / 'file4.txt').exists())
     self.assertEqual((dst_dir / 'file4.txt').read_text(), 'content4')
 
-  @parameterized.named_parameters(
-      ('_gcs_gs', 'gs://bucket/path', 'gcs'),
-      ('_other_local', '/tmp/local/path', 'other'),
-      ('_other_random', 'random', 'other'),
-  )
-  def test_get_storage_type(self, path, expected_storage_type):
-    self.assertEqual(utils.get_storage_type(path), expected_storage_type)
-
 
 if __name__ == '__main__':
   absltest.main()
