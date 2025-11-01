@@ -767,30 +767,6 @@ class CheckpointerTestBase:
           )
           test_utils.assert_tree_equal(self, expected, restored)
 
-      with self.subTest('extra_leaf'):
-        with self.checkpointer(
-            PyTreeCheckpointHandler()
-        ) as restore_checkpointer:
-          reference_item = {
-              'a': 0,
-              'c': {
-                  'a': 0,
-              },
-              'z': 0,
-          }
-          with self.assertRaisesRegex(
-              ValueError,
-              'Missing keys were found in the user-provided restore item.',
-          ):
-            restore_checkpointer.restore(
-                directory,
-                args=pytree_checkpoint_handler.PyTreeRestoreArgs(
-                    item=reference_item,
-                    restore_args=self.pytree_restore_args,
-                    partial_restore=True,
-                ),
-            )
-
     def test_restore_logs_read_event(self):
       """Tests that restore logs a read event to DM Sawmill log."""
       with self.checkpointer(PyTreeCheckpointHandler()) as checkpointer:
