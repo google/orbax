@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Mapping
 from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
@@ -143,6 +144,130 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
 
     with self.assertRaises(NotImplementedError):
       em.serving_signatures  # pylint: disable=pointless-statement
+
+  def test_save_model_with_preprocess_output_passthrough_succeeds(self):
+    """Tests that the model can be saved with preprocess output passthrough."""
+    rng = jax.random.PRNGKey(0)
+    params = {
+        'w': jax.random.normal(rng, shape=(8, 8)),
+        'b': jax.random.normal(rng, shape=(8, 1)),
+    }
+
+    @tf.function
+    def tf_preprocessor(x: tf.Tensor):
+      return ({'pre_out_0': x}, {'pre_out_1': x})
+
+    def jax_func(
+        params: Mapping[str, jax.Array], inputs: Mapping[str, jax.Array]
+    ):
+      outputs = params['w'] @ inputs['pre_out_0'] + params['b']
+      return {
+          'jax_out_0': outputs,
+      }
+
+    @tf.function
+    def tf_postprocessor(
+        inputs: Mapping[str, tf.Tensor], inputs_extra: Mapping[str, tf.Tensor]
+    ):
+      return {
+          'post_out_0': inputs['jax_out_0'],
+          'post_out_1': inputs_extra['pre_out_1'],
+      }
+
+    m = jax_module.JaxModule(
+        params,
+        jax_func,
+        input_polymorphic_shape='b, ...',
+    )
+
+    serving_configs = [
+        sc.ServingConfig(
+            'serving_default',
+            [tf.TensorSpec((None, 8, 1), tf.float32, name='x')],
+            tf_preprocessor=tf_preprocessor,
+            tf_postprocessor=tf_postprocessor,
+            preprocess_output_passthrough_enabled=True,
+        )
+    ]
+
+    em = export_manager.ExportManager(m, serving_configs)
+    em.save(
+        self._output_dir,
+    )
+
+    x = jax.random.normal(rng, shape=(8, 8, 1))
+    loaded = em.load(self._output_dir)
+    self.assertAllClose(
+        loaded.signatures['serving_default'](x=tf.convert_to_tensor(x))[
+            'post_out_0'
+        ],
+        params['w'] @ x + params['b'],
+        atol=0.05,
+        rtol=0.2,
+    )
+    self.assertAllEqual(
+        loaded.signatures['serving_default'](x=tf.convert_to_tensor(x))[
+            'post_out_1'
+        ],
+        x,
+    )
+
+  def test_save_jax2tf_model_with_preprocess_output_passthrough_raises_error(
+      self,
+  ):
+    """Tests that the model saving with preprocess output passthrough raises error.
+
+    The error is raised because the preprocessor output doesn't comply with
+    the requirements of a tuple of two dicts.
+    """
+    rng = jax.random.PRNGKey(0)
+    params = {
+        'w': jax.random.normal(rng, shape=(8, 8)),
+        'b': jax.random.normal(rng, shape=(8, 1)),
+    }
+
+    @tf.function
+    def tf_preprocessor(x: tf.Tensor):
+      return ({'pre_out_0': x}, {'pre_out_1': x}, {'error': x})
+
+    def jax_func(
+        params: Mapping[str, jax.Array], inputs: Mapping[str, jax.Array]
+    ):
+      outputs = params['w'] @ inputs['pre_out_0'] + params['b']
+      return {
+          'jax_out_0': outputs,
+      }
+
+    @tf.function
+    def tf_postprocessor(
+        inputs: Mapping[str, tf.Tensor], inputs_extra: Mapping[str, tf.Tensor]
+    ):
+      return {
+          'post_out_0': inputs['jax_out_0'],
+          'post_out_1': inputs_extra['pre_out_1'],
+      }
+
+    m = jax_module.JaxModule(
+        params,
+        jax_func,
+        input_polymorphic_shape='b, ...',
+    )
+
+    serving_configs = [
+        sc.ServingConfig(
+            'serving_default',
+            [tf.TensorSpec((None, 8, 1), tf.float32, name='x')],
+            tf_preprocessor=tf_preprocessor,
+            tf_postprocessor=tf_postprocessor,
+            preprocess_output_passthrough_enabled=True,
+        )
+    ]
+
+    em = export_manager.ExportManager(m, serving_configs)
+    with self.assertRaises(ValueError):
+      em.save(
+          self._output_dir,
+      )
 
 
 if __name__ == '__main__':
