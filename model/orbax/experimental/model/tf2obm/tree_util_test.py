@@ -146,7 +146,7 @@ class TreeUtilTest(parameterized.TestCase):
     leaves = tree_util.flatten(self._tree1)
     leaves.append(42)  # Add an extra leaf.
     with self.assertRaisesRegex(
-        ValueError, "After unflattening, there are still leaves left."
+        ValueError, "After unflattening, there are still leaves left"
     ):
       tree_util.unflatten(self._tree1, leaves)
 

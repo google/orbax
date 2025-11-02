@@ -30,6 +30,7 @@ from orbax.checkpoint._src.tree.utils import (
     deserialize_tree,
     to_flat_dict,
     from_flat_dict,
+    is_flat_dict,
     to_shape_dtype_struct,
 )
 from orbax.checkpoint._src.tree.structure_utils import (

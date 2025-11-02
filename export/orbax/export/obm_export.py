@@ -16,6 +16,7 @@
 
 from collections.abc import Callable, Mapping, Sequence
 import copy
+import dataclasses
 import itertools
 import os
 from typing import Any, cast
@@ -31,7 +32,6 @@ from orbax.export import jax_module
 from orbax.export import obm_configs
 from orbax.export import oex_orchestration
 from orbax.export import serving_config as osc
-from orbax.export import typing
 from orbax.export import utils
 from orbax.export.modules import obm_module
 import tensorflow as tf

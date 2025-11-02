@@ -312,6 +312,14 @@ class _SignalingThread(threading.Thread):
       super().run()
       self._set_signals()
     except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.exception(
+          '[process=%d][thread=%s][operation_id=%s] _SignalingThread.run()'
+          ' raised an exception: %s',
+          multihost.process_index(),
+          threading.current_thread().name,
+          self._operation_id,
+          e,
+      )
       self._exception = e
 
   def join(self, timeout: Optional[float] = None):

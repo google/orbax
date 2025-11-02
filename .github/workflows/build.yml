@@ -61,7 +61,7 @@ jobs:
     - name: Test with pytest
     # TODO(yaning): Move these to an exclude target within pytest.ini.
       run: |
-        python -m pytest --import-mode=importlib --ignore=orbax/checkpoint/experimental/emergency/broadcast_multislice_test.py --ignore=orbax/checkpoint/experimental/emergency/checkpoint_manager_test.py --ignore=orbax/checkpoint/experimental/emergency/single_slice_checkpoint_manager_test.py --ignore=orbax/checkpoint/experimental/emergency/local_checkpoint_data_debugging_test.py --ignore=orbax/checkpoint/experimental/emergency/local_checkpoint_manager_test.py --ignore=orbax/checkpoint/experimental/emergency/multihost_test.py --ignore=orbax/checkpoint/experimental/emergency/replicator_checkpoint_manager_test.py --ignore=orbax/checkpoint/_src/testing/multiprocess_test.py
+        python -m pytest --import-mode=importlib --ignore=orbax/checkpoint/experimental/emergency/broadcast_multislice_test.py --ignore=orbax/checkpoint/experimental/emergency/checkpoint_manager_test.py --ignore=orbax/checkpoint/experimental/emergency/single_slice_checkpoint_manager_test.py --ignore=orbax/checkpoint/experimental/emergency/local_checkpoint_data_debugging_test.py --ignore=orbax/checkpoint/experimental/emergency/local_checkpoint_manager_test.py --ignore=orbax/checkpoint/experimental/emergency/multihost_test.py --ignore=orbax/checkpoint/experimental/emergency/replicator_checkpoint_manager_test.py --ignore=orbax/checkpoint/_src/testing/multiprocess_test.py --ignore=orbax/checkpoint/_src/handlers/array_checkpoint_handler_test.py --ignore=orbax/checkpoint/checkpoint_manager_test.py
     # The below step just reports the success or failure of tests as a "commit status".
     # This is needed for copybara integration.
     - name: Report success or failure as github status
@@ -215,6 +215,72 @@ jobs:
         --ignore=orbax/experimental/model/jax2obm/main_lib_test.py \
         --ignore=orbax/experimental/model/jax2obm/sharding_test.py \
         --ignore=orbax/experimental/model/jax2obm/jax_to_polymorphic_function_test.py
+    - name: Report success or failure as github status
+      if: always()
+      shell: bash
+      run: |
+        status="${{ job.status }}"
+        lowercase_status=$(echo $status | tr '[:upper:]' '[:lower:]')
+        curl -sS --request POST \
+        --url https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }} \
+        --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
+        --header 'content-type: application/json' \
+        --data '{
+            "state": "'$lowercase_status'",
+            "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "description": "'$status'",
+            "context": "github-actions/build"
+            }'
+  multiprocess-checkpoint-benchmarks:
+    name: "multiprocess-checkpoint-benchmarks (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
+    runs-on: linux-g2-16-l4-1gpu-x4
+    # runs-on: linux-x86-ct5lp-4tpu-x4
+    container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
+    defaults:
+      run:
+        working-directory: checkpoint
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+        jax-version: ["0.6.0"]
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        pip install -e .
+        pip install -e .[testing,gcs] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip uninstall -y orbax
+        if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
+          pip install -U jax[k8s,cuda12] jaxlib
+        elif [[ "${{ matrix.jax-version }}" == "nightly" ]]; then
+          pip install -U --pre jax[k8s,cuda12] jaxlib --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/
+        else
+          pip install "jax[k8s,cuda12]>=${{ matrix.jax-version }}" "jaxlib>=${{ matrix.jax-version }}"
+        fi
+        pip install gcsfs
+        pip install portpicker
+    - name: Run benchmarks
+      env:
+        GCS_BUCKET_PATH: gs://orbax-benchmarks/benchmark-results/${{ github.run_id }}
+      run: |
+        cd orbax/checkpoint/_src/testing/benchmarks && python run_benchmarks.py --config_file=configs/pytree_checkpoint_benchmark.yaml --output_directory=$GCS_BUCKET_PATH
+        cd ../../../../..
+    # python -m pytest orbax/checkpoint/_src/handlers/array_checkpoint_handler_test.py
+    # cd orbax/checkpoint/_src/testing/benchmarks && python run_benchmarks.py --config_file=configs/pytree_checkpoint_benchmark.yaml --output_directory=$GCS_BUCKET_PATH
+    # The below step just reports the success or failure of tests as a "commit status".
+    # This is needed for copybara integration.
+    - name: Run multiprocess tests
+      env:
+        TEST_TMPDIR: gs://orbax-benchmarks/unit-tests/${{ github.run_id }}
+      run: |
+        python -c "import jax; jax.distributed.initialize(); print(jax.devices()); import pytest; pytest.main(['orbax/checkpoint/_src/handlers/array_checkpoint_handler_test.py'])"
+    # python -m pytest orbax/checkpoint/_src/handlers/array_checkpoint_handler_test.py;"
+    # cd orbax/checkpoint/_src/testing/benchmarks && python run_benchmarks.py --config_file=configs/pytree_checkpoint_benchmark.yaml --output_directory=$GCS_BUCKET_PATH
+    # python -m pytest orbax/checkpoint/checkpoint_manager_test.py
     - name: Report success or failure as github status
       if: always()
       shell: bash

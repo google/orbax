@@ -21,9 +21,11 @@ import dataclasses
 from absl import logging
 import jax
 from orbax.checkpoint import type_handlers
+from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.metadata import value
+from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
@@ -33,6 +35,7 @@ from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 
 
+
 @dataclasses.dataclass(frozen=True)
 class ArrayHandlerBenchmarkOptions(core.BenchmarkOptions):
   """Options for ArrayHandlerBenchmark.
@@ -40,10 +43,31 @@ class ArrayHandlerBenchmarkOptions(core.BenchmarkOptions):
   Attributes:
     use_ocdbt: Whether to use OCDBT.
     use_zarr3: Whether to use Zarr3 format.
+    use_colocated_python: Whether to use colocated Python.
+    use_replica_parallel: Whether to use replica parallel.
+    enable_replica_parallel_separate_folder: Whether to enable replica parallel
+      separate folder.
+    use_metadata_store: Whether to use metadata store.
   """
 
   use_ocdbt: bool | Sequence[bool] = True
   use_zarr3: bool | Sequence[bool] = False
+  use_colocated_python: bool | Sequence[bool] = False
+  use_replica_parallel: bool | Sequence[bool] = False
+  enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
+  use_metadata_store: bool | Sequence[bool] = False
+
+  def is_valid(self):
+    assert isinstance(self.use_ocdbt, bool)
+    assert isinstance(self.use_colocated_python, bool)
+    assert isinstance(self.use_replica_parallel, bool)
+    assert isinstance(self.enable_replica_parallel_separate_folder, bool)
+    if self.enable_replica_parallel_separate_folder and (
+        not self.use_replica_parallel or not self.use_ocdbt
+    ):
+      return False
+
+    return True
 
 
 @core.benchmark_options(ArrayHandlerBenchmarkOptions)
@@ -112,8 +136,19 @@ class ArrayHandlerBenchmark(core.BenchmarksGenerator):
     assert isinstance(options, ArrayHandlerBenchmarkOptions)
     if 'array' not in test_context.pytree:
       raise ValueError("Expected 'array' key in test_context.pytree")
+    array_metadata_store = (
+        array_metadata_store_lib.Store() if options.use_metadata_store else None
+    )
+    dispatcher = None
+    if options.use_colocated_python:
+      dispatcher = dispatchers.ColocatedPythonDispatcher()
 
-    handler = type_handlers.ArrayHandler()
+    handler = type_handlers.ArrayHandler(
+        use_replica_parallel=options.use_replica_parallel,
+        enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,
+        array_metadata_store=array_metadata_store,
+        dispatcher=dispatcher,
+    )
     sharded_array = test_context.pytree['array']
     array_name = 'array'
     array_path = test_context.path / array_name

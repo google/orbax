@@ -51,5 +51,7 @@ benchmarks:
       replica_axis_index: [0]  # Index of "data" in mesh_axes, which has DCN parallelism
       primary_replica_id: [0]
       use_replica_parallel: [True]
-      broadcast_memory_limit_bytes: null
+      broadcast_memory_limit_bytes: [null]
       broadcast_memory_scaling_factor: [0.75]
+      use_distributed_process_id: [False]
+      use_colocated_python: [True, False]

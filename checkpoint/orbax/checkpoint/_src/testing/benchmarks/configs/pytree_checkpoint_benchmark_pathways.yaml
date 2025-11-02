@@ -46,14 +46,15 @@ benchmarks:
       # These keys must match the attributes of the `PyTreeCheckpointOptions` class
       # associated with the `PyTreeCheckpointBenchmark` generator.
       # The options are:
+      async_enabled: [True]
       use_ocdbt: [True]
       use_zarr3: [False]
-      async_checkpointer: [False]
       use_compression: [True]
       save_concurrent_gb:
         - null # None
-        - 1073741824 # 1GB, 
+        # - 1073741824 # 1GB, 
         # - 2147483648 # 2GB, 
-        - 4294967296 # 4GB, 
+        # - 4294967296 # 4GB, 
       metric_tracemalloc_enabled: True
       metric_tensorstore_enabled: True
+      use_colocated_python: [True, False]

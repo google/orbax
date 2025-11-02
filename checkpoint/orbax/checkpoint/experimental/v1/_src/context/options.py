@@ -140,7 +140,6 @@ class PyTreeOptions:
       If provided, it overrides any default settings in
       `ArrayOptions.Saving.StorageOptions`.
     pytree_metadata_options: Options for managing PyTree metadata.
-    partial_update: NOT IMPLEMENTED.
     """
 
     class CreateArrayStorageOptionsFn(Protocol):
@@ -154,7 +153,6 @@ class PyTreeOptions:
     pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
         dataclasses.field(default_factory=tree_metadata.PyTreeMetadataOptions)
     )
-    partial_update: bool = False
 
   @dataclasses.dataclass(frozen=True, kw_only=True)
   class Loading:
@@ -206,6 +204,8 @@ class ArrayOptions:
       enable_post_merge_validation: If True, enables validation of the
         parameters after the finalize step.
       use_replica_parallel: Whether to parallelize saving across replicas.
+      enable_replica_parallel_separate_folder: Whether to save replica data in
+        separate folders.
       enable_write_sharding_file: whether to write sharding file, defaults to
         True.
       array_metadata_store: Store to manage per host ArrayMetadata. To disable
@@ -248,6 +248,7 @@ class ArrayOptions:
     enable_pinned_host_transfer: bool | None = None
     enable_post_merge_validation: bool = True
     use_replica_parallel: bool = True
+    enable_replica_parallel_separate_folder: bool = False
     enable_write_sharding_file: bool = True
     array_metadata_store: array_metadata_store_lib.Store | None = (
         array_metadata_store_lib.Store()

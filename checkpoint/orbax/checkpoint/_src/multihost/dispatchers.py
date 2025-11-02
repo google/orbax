@@ -16,14 +16,17 @@
 
 import abc
 from collections.abc import Sequence
-from typing import Any, Callable
+import dataclasses
+from typing import Any, Callable, cast
 
 from absl import logging
 import jax
 import jax.experimental.colocated_python as cp
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.serialization import jax_array_restore_args
 
 
 PyTree = Any
@@ -53,9 +56,9 @@ def _make_dummy_result_array(
   """
   devices = set()
   jax.tree.map(lambda x: devices.update(x.sharding.device_set), pytree)
-
+  device_list: list[jax.Device] = sorted(list(devices), key=lambda d: d.id)
   replicated_sharding = jax.sharding.NamedSharding(
-      jax.sharding.Mesh(np.array(list(devices)), ('d',)),
+      jax.sharding.Mesh(device_list, ('d',)),
       jax.sharding.PartitionSpec(),
   )
   if abstract:
@@ -86,7 +89,7 @@ class Dispatcher(abc.ABC):
       self,
       func: Callable[..., PyTree | None],
       *,
-      input_arrays: PyTree,
+      input_arrays: PyTree | None = None,
       result_specs: PyTree | None = None,
       func_args: tuple[Any, ...] = (),
       func_kwargs: dict[str, Any] | None = None,
@@ -96,7 +99,8 @@ class Dispatcher(abc.ABC):
     Args:
       func: Function to dispatch. Must be synchronous and return a PyTree of
         jax.Arrays matching result_specs.
-      input_arrays: Input arrays to pass to func.
+      input_arrays: Input arrays to determine which devices to run on, if
+        provided is also passed to func as the first argument.
       result_specs: A PyTree of jax.ShapeDtypeStructs describing fn's output and
         the desired final shardings of the result from func on TPU. If None,
         func output is discarded and a dummy array is returned.
@@ -118,9 +122,20 @@ class ColocatedPythonDispatcher(Dispatcher):
       sharding: jax.sharding.Sharding,
   ) -> jax.sharding.Sharding:
     """Returns a CPU sharding colocated with the given device sharding."""
-    if isinstance(sharding, jax.sharding.NamedSharding):
+    if isinstance(sharding, jax.sharding.SingleDeviceSharding):
+      cpu_devices = cp.colocated_cpu_devices(list(sharding.device_set))
+      return jax.sharding.SingleDeviceSharding(
+          cpu_devices[0], memory_kind=sharding.memory_kind
+      )
+    elif isinstance(sharding, jax.sharding.NamedSharding):
       cpu_mesh = cp.colocated_cpu_devices(sharding.mesh)
-      return jax.sharding.NamedSharding(cpu_mesh, sharding.spec)
+      return jax.sharding.NamedSharding(
+          cpu_mesh, sharding.spec, memory_kind=sharding.memory_kind
+      )
+    elif isinstance(sharding, jax.sharding.PmapSharding):
+      cpu_devices = cp.colocated_cpu_devices(sharding.devices.flat)
+      cpu_devices = np.array(cpu_devices).reshape(sharding.devices.shape)
+      return jax.sharding.PmapSharding(cpu_devices, sharding.sharding_spec)
     else:
       raise TypeError(
           f'Sharding type {type(sharding)} not supported in'
@@ -136,7 +151,53 @@ class ColocatedPythonDispatcher(Dispatcher):
       return None
 
     cpu_sharding_tree = jax.tree.map(_get_sharding, input_tree)
-    return jax.device_put(input_tree, cpu_sharding_tree)
+    return jax.device_put(input_tree, cpu_sharding_tree, may_alias=True)
+
+  def _convert_single_replica_restore_args(
+      self,
+      restore_args: jax_array_restore_args.SingleReplicaArrayRestoreArgs,
+  ) -> jax_array_restore_args.SingleReplicaArrayRestoreArgs:
+    """Converts SingleReplicaArrayRestoreArgs to use CPU devices."""
+    if restore_args.single_replica_sharding is not None:
+      cpu_single_replica_sharding = self._colocated_cpu_sharding(
+          restore_args.single_replica_sharding
+      )
+      assert isinstance(cpu_single_replica_sharding, jax.sharding.NamedSharding)
+      restore_args = dataclasses.replace(
+          restore_args, single_replica_sharding=cpu_single_replica_sharding
+      )
+    return cast(
+        jax_array_restore_args.SingleReplicaArrayRestoreArgs,
+        self._convert_array_restore_args(restore_args),
+    )
+
+  def _convert_array_restore_args(
+      self,
+      restore_args: jax_array_restore_args.ArrayRestoreArgs,
+  ) -> jax_array_restore_args.ArrayRestoreArgs:
+    """Converts ArrayRestoreArgs to use CPU devices."""
+    if restore_args.mesh is not None:
+      cpu_mesh = cp.colocated_cpu_devices(restore_args.mesh)
+      restore_args = dataclasses.replace(restore_args, mesh=cpu_mesh)
+    if restore_args.sharding is not None:
+      if isinstance(restore_args.sharding, jax.sharding.Sharding):
+        cpu_sharding = self._colocated_cpu_sharding(restore_args.sharding)
+        restore_args = dataclasses.replace(restore_args, sharding=cpu_sharding)
+      elif isinstance(
+          restore_args.sharding, sharding_metadata.ShardingMetadata
+      ):
+        sharding = restore_args.sharding.to_jax_sharding()
+        cpu_sharding = self._colocated_cpu_sharding(sharding)
+        restore_args = dataclasses.replace(
+            restore_args,
+            sharding=restore_args.sharding.from_jax_sharding(cpu_sharding),
+        )
+      else:
+        raise TypeError(
+            f'Sharding type {type(restore_args.sharding)} not supported in'
+            ' to_colocated_python.'
+        )
+    return restore_args
 
   def _transform_pytree_shardings(self, input_tree: PyTree) -> Any:
     """Converts Sharding or ShapeDtypeStruct args to use CPU devices.
@@ -156,7 +217,12 @@ class ColocatedPythonDispatcher(Dispatcher):
         return jax.ShapeDtypeStruct(
             leaf.shape, leaf.dtype, sharding=cpu_sharding
         )
-      # Typically, only sharding specs within args/kwargs need conversion.
+      if isinstance(leaf, jax_array_restore_args.SingleReplicaArrayRestoreArgs):
+        return self._convert_single_replica_restore_args(leaf)
+      if isinstance(leaf, jax_array_restore_args.ArrayRestoreArgs):
+        return self._convert_array_restore_args(leaf)
+      if isinstance(leaf, jax.Array):
+        return self.to_colocated_python(leaf)
       return leaf
 
     return jax.tree.map(_transform_leaf_sharding, input_tree)
@@ -184,7 +250,7 @@ class ColocatedPythonDispatcher(Dispatcher):
             leaf.sharding,
             tpu_or_cpu_spec.sharding,
         )
-      return jax.device_put(leaf, tpu_or_cpu_spec.sharding)
+      return jax.device_put(leaf, tpu_or_cpu_spec.sharding, may_alias=True)
 
     return jax.tree.map(_to_final_spec, input_tree, tpu_or_cpu_specs)
 
@@ -192,7 +258,7 @@ class ColocatedPythonDispatcher(Dispatcher):
       self,
       func: Callable[..., PyTree | None],
       *,
-      input_arrays: PyTree,
+      input_arrays: PyTree | None = None,
       result_specs: PyTree | None = None,
       func_args: tuple[Any, ...] = (),
       func_kwargs: dict[str, Any] | None = None,
@@ -202,7 +268,8 @@ class ColocatedPythonDispatcher(Dispatcher):
     Args:
       func: Function to dispatch. Must be synchronous and return a PyTree of
         jax.Arrays matching result_specs.
-      input_arrays: Input arrays to pass to func.
+      input_arrays: Input arrays to determine which devices to run on, if
+        provided is also passed to func as the first argument.
       result_specs: A PyTree of jax.ShapeDtypeStructs describing fn's output and
         the desired final shardings of the result from func on TPU. If None,
         func output is discarded and a dummy array is returned.
@@ -213,9 +280,13 @@ class ColocatedPythonDispatcher(Dispatcher):
       A PyTree of jax.Arrays matching result_specs or a dummy array signaling
       completion of func if result_specs is None.
     """
+    is_input_arrays_provided = input_arrays is not None
     is_func_output_discarded = result_specs is None
     if func_kwargs is None:
       func_kwargs = {}
+
+    if input_arrays is None:
+      input_arrays = get_dummy_input_array(jax.devices())
 
     cpu_args = self._transform_pytree_shardings(func_args)
     cpu_kwargs = self._transform_pytree_shardings(func_kwargs)
@@ -223,11 +294,12 @@ class ColocatedPythonDispatcher(Dispatcher):
     @cp.colocated_python
     def _cp_wrapper(inp: PyTree) -> PyTree:
       _vlog_dispatch(func, 'ColocatedPythonDispatcher')
+      args = (inp,) + cpu_args if is_input_arrays_provided else cpu_args
       if is_func_output_discarded:
-        func(inp, *cpu_args, **cpu_kwargs)
+        func(*args, **cpu_kwargs)
         return _make_dummy_result_array(inp)
       else:
-        return func(inp, *cpu_args, **cpu_kwargs)
+        return func(*args, **cpu_kwargs)
 
     result_specs = result_specs or _make_dummy_result_array(
         input_arrays, abstract=True

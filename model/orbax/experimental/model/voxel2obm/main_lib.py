@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import collections
+from collections.abc import Mapping
 import os
 import re
 from typing import Any, Callable
@@ -30,6 +31,7 @@ VOXEL_ASSET_MAP_MIME_TYPE = (
     'application/protobuf; type=orbax_model_voxel_assets_map.VoxelAssetsMap'
 )
 VOXEL_ASSET_MAP_VERSION = '0.0.1'
+VOXEL_ASSET_MAP_SUPPLEMENTAL_NAME = 'voxel_asset_map'
 
 
 def voxel_plan_to_obm(
@@ -211,25 +213,36 @@ def _asset_map_to_obm_supplemental(
 
 
 def voxel_global_supplemental_closure(
-    asset_source_paths: set[str],
-) -> Callable[..., Any]:
+    voxel_module: Any,
+) -> Callable[[str], Mapping[str, obm.GlobalSupplemental]] | None:
   """Returns a closure for saving Voxel assets and creating supplemental data.
 
   This function first generates a VoxelAssetsMap based on asset_source_paths.
   It then returns a closure function. When called, the closure saves the
-  assets to a specified path and returns an obm.GlobalSupplemental object
+  assets to a specified destination and returns an obm.GlobalSupplemental object
   containing the asset map.
 
   Args:
-    asset_source_paths: A set of source paths of the assets to save.
+    voxel_module: A Voxel module instance.
 
   Returns:
-    A function that takes a path string and returns an obm.GlobalSupplemental.
+   A function that takes the asset destination path string, stores assets in it,
+   and returns a dictionary of one entry, from the Voxel supplemental name to
+   the obm.GlobalSupplemental object encoding the Voxel asset map.
   """
+  asset_source_paths = voxel_module.export_assets()
+  if not asset_source_paths:
+    return None
   voxel_asset_map = _get_voxel_asset_map(asset_source_paths)
 
-  def save_and_create_global_supplemental(path: str) -> obm.GlobalSupplemental:
+  def save_and_create_global_supplemental(
+      path: str,
+  ) -> Mapping[str, obm.GlobalSupplemental]:
     _save_assets(voxel_asset_map, path)
-    return _asset_map_to_obm_supplemental(voxel_asset_map)
+    return {
+        VOXEL_ASSET_MAP_SUPPLEMENTAL_NAME: _asset_map_to_obm_supplemental(
+            voxel_asset_map
+        )
+    }
 
   return save_and_create_global_supplemental

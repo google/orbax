@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- #v1 Add Save option `enable_replica_parallel_separate_folder`
+- Add support for dispatchers in Jax Array Handlers.
+
 ### Changed
 
 - #v1 Allow PyTree checkpointables to be automatically identified in
