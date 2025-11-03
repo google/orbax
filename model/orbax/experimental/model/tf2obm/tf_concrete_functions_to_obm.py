@@ -57,21 +57,6 @@ def _is_str_tensor_spec_dict(tree: TfSignature) -> bool:
       return False
   return True
 
-
-# LINT.IfChange
-def _is_dict_only(tree: TfSignature) -> bool:
-  if _is_str_tensor_spec_dict(tree):
-    return True
-  elif is_args_kwargs_pattern(tree):
-    args, kwargs = tree
-    if not args and _is_str_tensor_spec_dict(kwargs):
-      return True
-    if not kwargs and len(args) == 1 and _is_str_tensor_spec_dict(args[0]):
-      # Treating [[{...}], {}] as dict-only
-      return True
-  return False
-# LINT.ThenChange(//depot//learning/infra/mira/experimental/orbax_model/tensorflow/tf_compatible_optional_function_handler.cc)
-
 _NamesAndSequence = Tuple[Sequence[str], Sequence[Any]]
 
 
@@ -300,26 +285,8 @@ def to_keyword_only_fn(
   input_signature = get_input_signature(f)
   output_signature = get_output_signature(f)
 
-  def input_names_fn(tree: TfSignature) -> _NamesAndSequence:
-    names, flat = _get_input_names(tree)
-    if names is None and is_args_kwargs_pattern(tree):
-      args, kwargs = tree
-      if not kwargs and len(args) == 1 and _is_str_tensor_spec_dict(args[0]):
-        # Although _is_dict_only treats this [[{...}], {}] pattern as
-        # dict-only (hence _get_input_names won't generate any new
-        # names), tf.function will put names like "dictname1_key1" in
-        # the `TensorSpec`s which will be picked up by TFRT. So we
-        # still need to wrap the function in this case, to remove
-        # those unwanted (because they are not generated hence not
-        # controlled by us) names. (Previous TF users seem to avoid
-        # those "dictname1_key1" names by explicitly setting names in
-        # tf.function's input_signature.)
-        dict_ = args[0]
-        names, flat = unzip2(sorted(dict_.items()))
-    return names, flat
-
   new_input_signature, input_names = _make_dict_only_signature(
-      input_signature, input_names_fn
+      input_signature, _get_input_names
   )
   output_names, _ = _get_output_names(output_signature)
 

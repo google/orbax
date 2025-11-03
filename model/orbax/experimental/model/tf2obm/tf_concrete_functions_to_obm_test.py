@@ -24,7 +24,6 @@ from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
 from orbax.experimental.model.tf2obm import tree_util
 from orbax.experimental.model.tf2obm import utils
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import _generate_names
-from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import _is_dict_only
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import save_tf_concrete_functions
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import SAVED_MODEL_MIME_TYPE
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import SAVED_MODEL_VERSION
@@ -112,41 +111,6 @@ class TfConcreteFunctionsToObmTest(
   def _get_testdata_path(self, filename: str) -> str:
     """Returns the full path to a file in the testdata directory."""
     return os.path.join(self._testdata_dir, filename)
-
-  @parameterized.named_parameters(
-      (  # pylint: disable=g-complex-comprehension
-          f"_{idx}_{as_output_signature}",
-          signature,
-          expected,
-          as_output_signature,
-      )
-      for as_output_signature in (False, True)
-      for idx, (signature, expected) in enumerate((
-          (
-              _TUPLE,
-              False,
-          ),
-          (
-              _DICT,
-              True,
-          ),
-          (
-              ((), _DICT),
-              True,
-          ),
-          (
-              ((_DICT,), {}),
-              True,
-          ),
-      ))
-  )
-  def test_is_dict_only(self, signature, expected, as_output_signature):
-    if as_output_signature:
-      signature = _as_output_signature(signature)
-    self.assertEqual(
-        _is_dict_only(signature),
-        expected,
-    )
 
   @parameterized.named_parameters(
       (  # pylint: disable=g-complex-comprehension
