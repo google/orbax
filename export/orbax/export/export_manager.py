@@ -35,7 +35,7 @@ class ExportManager:
 
   def __init__(
       self,
-      module: jax_module.JaxModule,
+      module: jax_module.JaxModule | None,
       serving_configs: Sequence[osc.ServingConfig],
   ):
     """ExportManager constructor.
@@ -45,9 +45,12 @@ class ExportManager:
       serving_configs: a sequence of which each element is a `ServingConfig`
         cooresponding to a serving signature of the exported SavedModel.
     """
-    self._version = module.export_version
     self._jax_module = module
-    if self._version == constants.ExportModelType.ORBAX_MODEL:
+    if (
+        not self._jax_module
+        or self._jax_module.export_version
+        == constants.ExportModelType.ORBAX_MODEL
+    ):
       self._serialization_functions = obm_export.ObmExport(
           self._jax_module, serving_configs
       )
@@ -59,7 +62,11 @@ class ExportManager:
   @property
   def tf_module(self) -> tf.Module:
     """Returns the tf.module maintained by the export manager."""
-    if self._version == constants.ExportModelType.ORBAX_MODEL:
+    if (
+        not self._jax_module
+        or self._jax_module.export_version
+        == constants.ExportModelType.ORBAX_MODEL
+    ):
       raise TypeError(
           'tf_module is not implemented for export version'
           ' ExportModelType.ORBAX_MODEL.'
