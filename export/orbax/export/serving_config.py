@@ -65,6 +65,43 @@ class ServingConfig:
   # Options passed to the Orbax Model export.
   obm_kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
+  # When set to true, it allows a portion of the preprocessor's outputs to be
+  # directly passed to the tf_postprocessor, bypassing the JAX function.
+  #
+  # The primary use case of this option is to handle preprocessing outputs
+  # containing string tensor that cannot be passed to JAX function, but required
+  # by the postprocessor.
+  #
+  # Pre-requisites:
+  # This option requires the preprocessor outputs and postprocess inputs
+  # to be structured in specific ways:
+  # - The preprocessor must return two outputs, where the first will be passed
+  #   as the input to the jax function and the second will be passed as the
+  #   second input to the postprocessor.
+  # - The JAX function must take one input and return one output. The output
+  #   will be passed as the first input to the postprocessor.
+  # - The postprocessor must take two inputs. The first is the output of the
+  #   JAX function and the second is the second element of the preprocessor
+  #   outputs.
+  #
+  # For example:
+  #
+  # def tf_preprocessor(x):
+  #   return {'pre_out_to_jax': x}, {'pre_out_to_post': x}
+  #
+  # def jax_func(inputs: Mapping[str, tf.Tensor]) -> Mapping[str, tf.Tensor]:
+  #   return {'jax_out_to_post': inputs['pre_out_to_jax']}
+  #
+  # def tf_postprocessor(
+  #     inputs: Mapping[str, tf.Tensor],
+  #     inputs_extra: Mapping[str, tf.Tensor],
+  # ) -> Mapping[str, tf.Tensor]:
+  #   return {
+  #       'post_out_from_jax': inputs['jax_out_to_post'],
+  #       'post_out_from_pre': inputs_extra['pre_out_to_post'],
+  #   }
+  preprocess_output_passthrough_enabled: bool = False
+
   def get_signature_keys(self) -> Sequence[str]:
     if isinstance(self.signature_key, str):
       return [self.signature_key]
@@ -158,15 +195,29 @@ class ServingConfig:
 
       def inference_fn(*inputs):
         if self.tf_preprocessor:
-          preprocessed_inputs = preprocessor(*inputs)
+          preprocessor_outputs = preprocessor(*inputs)
           if require_numpy:
-            preprocessed_inputs = jax.tree_util.tree_map(
-                lambda x: x.numpy(), preprocessed_inputs
+            preprocessor_outputs = jax.tree_util.tree_map(
+                lambda x: x.numpy(), preprocessor_outputs
             )
+          if self.preprocess_output_passthrough_enabled:
+            if (
+                not isinstance(preprocessor_outputs, tuple)
+                or len(preprocessor_outputs) != 2
+            ):
+              raise ValueError(
+                  '`preprocess_output_passthrough_enabled` is enabled,'
+                  ' requiring the preprocessor output to be a tuple of two'
+                  f' elements, but got {preprocessor_outputs} with'
+                  f' type={type(preprocessor_outputs)} and'
+                  f' length={len(preprocessor_outputs)}.'
+              )
+            jax_inputs, postprocessor_inputs_extra = preprocessor_outputs
+          else:
+            jax_inputs = preprocessor_outputs
         else:
-          preprocessed_inputs = inputs
-
-          if len(preprocessed_inputs) != 1:
+          jax_inputs = inputs
+          if len(jax_inputs) != 1:
             raise ValueError(
                 'JaxModule only takes single arg as the input, but got'
                 f' len(inputs)={len(inputs)} from the preprocessor or input'
@@ -174,29 +225,36 @@ class ServingConfig:
                 ' modifying the `input_signature` (if no `tf_preprocessor`) or'
                 ' the ServingConfig.tf_preprocessor.'
             )
-
-          preprocessed_inputs = preprocessed_inputs[0]
+          jax_inputs = jax_inputs[0]
 
         # Currently Jax Module only takes 1 input
-        outputs = infer_step(preprocessed_inputs)
+        jax_outputs = infer_step(jax_inputs)
         if logging.vlog_is_on(3) and require_numpy:
           if hasattr(infer_step, 'lower'):
             lower = infer_step.lower
           else:
             lower = jax.jit(infer_step).lower
-
           mlir_module_text = lower(
-              preprocessed_inputs,
+              jax_inputs,
           ).as_text()
           logging.info(
               'Jax function infer_step mlir module: = %s', mlir_module_text
           )
 
         if self.tf_postprocessor:
-          outputs = postprocessor(outputs)
+          if self.preprocess_output_passthrough_enabled:
+            postprocessor_outputs = postprocessor(
+                jax_outputs, postprocessor_inputs_extra
+            )
+          else:
+            postprocessor_outputs = postprocessor(jax_outputs)
           if require_numpy:
-            outputs = jax.tree_util.tree_map(lambda x: x.numpy(), outputs)
-        return outputs
+            postprocessor_outputs = jax.tree_util.tree_map(
+                lambda x: x.numpy(), postprocessor_outputs
+            )
+        else:
+          postprocessor_outputs = jax_outputs
+        return postprocessor_outputs
 
       return inference_fn
 
