@@ -46,6 +46,7 @@ from orbax.checkpoint._src.serialization import types
 import tensorstore as ts
 
 
+
 Pytree: TypeAlias = Any
 ArrayRestoreArgs = jax_array_restore_args.ArrayRestoreArgs
 SingleReplicaArrayRestoreArgs = (
@@ -281,7 +282,6 @@ def _serialize_arrays(
         name='array_type_handler',
     )
   else:
-
     async def _serialize():
       ret = dispatcher.dispatch(
           _worker_serialize_arrays,
@@ -599,6 +599,8 @@ def _sync_deserialize_arrays(
     array_metadata_store: array_metadata_store_lib.Store | None,
 ) -> Sequence[jax.Array]:
   """Deserializes arrays and applies array_metadata if available."""
+
+
   return asyncio_utils.run_sync(
       _deserialize_arrays(
           infos,
@@ -652,7 +654,7 @@ class ArrayHandler(types.TypeHandler):
         to None, then all hosts will be considered as primary.  It's useful in
         the case that all hosts are only working with local storage.
       replica_id: the replica id to be used for saving.  Default to 0.  If it's
-        set to None, each shards will pick first replica_id to be used.  It's
+        set to None, each shards will pick first replica_id to be used. It's
         useful in the case that all hosts are only working with local storage.
       use_replica_parallel: Whether to parallelize saving across replicas.
       min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica
@@ -666,8 +668,7 @@ class ArrayHandler(types.TypeHandler):
         ArrayMetadata persistence, set it to None.
       enable_replica_parallel_separate_folder: If True, save replica and sharded
         arrays in separate folders when use_replica_parallel is active.
-      dispatcher: The dispatcher to use for executing operations on workers if
-        provided.
+      dispatcher: The dispatcher to use for executing operations on the workers.
     """
     self._metadata_key = metadata_key
     self._primary_host = primary_host
@@ -1140,8 +1141,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
         True.
       array_metadata_store: Store to manage per host ArrayMetadata. To disable
         ArrayMetadata persistence, set it to None.
-      dispatcher: The dispatcher to use for executing operations on workers if
-        provided.
+      dispatcher: The dispatcher to use for executing operations on the workers.
     """
 
     super(SingleReplicaArrayHandler, self).__init__(
