@@ -231,6 +231,7 @@ jobs:
             "description": "'$status'",
             "context": "github-actions/build"
             }'
+
   multiprocess-checkpoint-benchmarks:
     name: "multiprocess-checkpoint-benchmarks (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
     runs-on: linux-g2-16-l4-1gpu-x4
@@ -277,7 +278,7 @@ jobs:
       env:
         TEST_TMPDIR: gs://orbax-benchmarks/unit-tests/${{ github.run_id }}
       run: |
-        python -c "import jax; jax.distributed.initialize(); print(jax.devices()); import pytest; pytest.main(['orbax/checkpoint/_src/handlers/array_checkpoint_handler_test.py'])"
+        python -c "import jax; jax.distributed.initialize(); print(jax.devices()); import pytest; test_files = [line.strip() for line in open('orbax/checkpoint/_src/testing/multiprocess_tests.txt') if line.strip()]; pytest.main(['-c', '/dev/null'] + test_files)"
     # python -m pytest orbax/checkpoint/_src/handlers/array_checkpoint_handler_test.py;"
     # cd orbax/checkpoint/_src/testing/benchmarks && python run_benchmarks.py --config_file=configs/pytree_checkpoint_benchmark.yaml --output_directory=$GCS_BUCKET_PATH
     # python -m pytest orbax/checkpoint/checkpoint_manager_test.py
