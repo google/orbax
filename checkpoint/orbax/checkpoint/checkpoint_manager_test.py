@@ -3907,30 +3907,6 @@ class CheckpointManagerTest(
         )
         test_utils.assert_tree_equal(self, expected, restored)
 
-    with self.subTest('extra_leaf'):
-      with CheckpointManager(directory) as restore_manager:
-        reference_item = {
-            'a': 0,
-            # Omit 'b'
-            'c': {
-                'a': 0,
-                # Omit 'e'
-            },
-            'z': 0,
-        }
-        with self.assertRaisesRegex(
-            ValueError,
-            'Missing keys were found in the user-provided restore item.',
-        ):
-          restore_manager.restore(
-              0,
-              args=args.PyTreeRestore(
-                  reference_item,
-                  restore_args=self.pytree_restore_args,
-                  partial_restore=True,
-              ),
-          )
-
 
 if __name__ == '__main__':
   multiprocess_test.main()

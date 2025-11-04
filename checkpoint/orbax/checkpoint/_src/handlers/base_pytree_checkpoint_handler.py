@@ -833,14 +833,10 @@ class BasePyTreeCheckpointHandler(
           is_leaf=tree_utils.is_empty_or_leaf,
       )
 
-    try:
-      value_metadata_tree = tree_structure_utils.tree_trim(
-          serialized_item, value_metadata_tree, strict=True
-      )
-    except ValueError as e:
-      raise ValueError(
-          'Missing keys were found in the user-provided restore item.'
-      ) from e
+    value_metadata_tree = tree_structure_utils.tree_trim(
+        serialized_item, value_metadata_tree, strict=False
+    )
+    value_metadata_tree = value_metadata_tree.unsafe_structure
 
     if restore_args is not None:
       restore_args = tree_structure_utils.tree_trim(
@@ -850,26 +846,37 @@ class BasePyTreeCheckpointHandler(
     return value_metadata_tree, restore_args
 
   def _partial_restore_with_placeholders(
-      self,
-      item: PyTree,
-      value_metadata_tree: PyTree,
-  ):
+      self, item: PyTree, value_metadata_tree: PyTree
+  ) -> PyTree:
     """Restores leaves from `item`, except for those marked as placeholders."""
     serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
-    diff = tree_structure_utils.tree_difference(
-        serialized_item,
-        value_metadata_tree,
-        is_leaf=tree_utils.is_empty_or_leaf,
-        leaves_equal=lambda a, b: True,
+    diff = (
+        tree_structure_utils.tree_difference(
+            serialized_item,
+            value_metadata_tree,
+            is_leaf=tree_utils.is_empty_or_leaf,
+            leaves_equal=lambda a, b: True,
+        )
+        or {}
     )
-    if diff is not None:
-      formatted_diff = tree_structure_utils.format_tree_diff(
-          diff, source_label='Item', target_label='Metadata'
-      )
-      raise ValueError(
-          'User-provided restore item and on-disk value metadata tree'
-          f' structures do not match:\n{formatted_diff}'
-      )
+    for keypath, value_diff in tree_utils.to_flat_dict(
+        diff, is_leaf=lambda x: isinstance(x, tree_structure_utils.Diff)
+    ).items():
+      if value_diff.lhs is PLACEHOLDER and value_diff.rhs is None:
+        parent = value_metadata_tree
+        for key in keypath[:-1]:
+          parent = parent[key]
+        parent[keypath[-1]] = PLACEHOLDER
+      else:
+        formatted_diff = tree_structure_utils.format_tree_diff(
+            diff, source_label='Item', target_label='Metadata'
+        )
+        raise ValueError(
+            'User-provided restore item and on-disk value metadata tree'
+            f' structures do not match:\n{formatted_diff}\nIf this mismatch is'
+            ' intentional, pass `partial_restore=True` to only restore'
+            ' parameters found in `item`.'
+        )
     return jax.tree.map(
         lambda v, i: PLACEHOLDER if type_handlers.is_placeholder(i) else v,
         value_metadata_tree,
@@ -1021,7 +1028,9 @@ class BasePyTreeCheckpointHandler(
         )
         raise ValueError(
             'User-provided restore item and on-disk value metadata tree'
-            f' structures do not match:\n{formatted_diff}'
+            f' structures do not match:\n{formatted_diff}\nIf this mismatch is'
+            ' intentional, pass `partial_restore=True` to only restore'
+            ' parameters found in `item`.'
         )
     restore_args = _fill_missing_save_or_restore_args(
         item, restore_args, mode='restore'
@@ -1042,6 +1051,14 @@ class BasePyTreeCheckpointHandler(
             item, value_metadata_tree, param_infos, restore_args
         )
     )
+
+    if args.partial_restore:
+      restored_item = jax.tree.map(
+          lambda r, i: i if r is type_handlers.PLACEHOLDER else r,
+          restored_item,
+          item,
+          is_leaf=tree_utils.is_empty_or_leaf,
+      )
 
     if logging.vlog_is_on(1):
       logging.vlog(1, 'param_infos: %s', param_infos)
