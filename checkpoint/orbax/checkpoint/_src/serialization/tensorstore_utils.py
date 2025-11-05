@@ -25,7 +25,8 @@ from typing import Any, TypeAlias
 
 from absl import logging
 from etils import epath
-from jax import numpy as jnp
+import jax
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types as arrays_types
@@ -738,7 +739,11 @@ def get_cast_tspec_deserialize(
     tspec: dict[str, Any], args: types.RestoreArgs
 ) -> dict[str, Any]:
   """Creates a Tensorstore spec for casting a param during deserialize."""
-  if args.dtype is not None:
+
+  # Cast is not needed dtype is None or JAX random key type
+  if args.dtype is not None and not jax.dtypes.issubdtype(
+      args.dtype, jax.dtypes.prng_key
+  ):
     tspec = {
         'base': tspec,
         'driver': 'cast',

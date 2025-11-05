@@ -22,6 +22,7 @@ from typing import Any
 from absl.testing import parameterized
 from etils import epath
 import flax
+from flax import nnx
 import flax.training.train_state
 import jax
 from jax import numpy as jnp
@@ -484,38 +485,14 @@ class StandardCheckpointHandlerTestBase:
 
       # setup pythree with random keys
       self.numpy_pytree = test_utils.setup_pytree()
-      pytree, _, _ = test_utils.setup_sharded_pytree(self.numpy_pytree)
-
-      duplicated_sharding = jax.sharding.NamedSharding(
-          jax.sharding.Mesh(
-              devices=jax.devices(),
-              axis_names=('x',),
-          ),
-          jax.sharding.PartitionSpec(),
-      )
-      random_keys = {
-          'rand_orig': jax.random.key(jnp.array(1, device=duplicated_sharding)),
-          'rand_rbg': jax.random.key(
-              jnp.array(2, device=duplicated_sharding), impl='rbg'
-          ),
-      }
-      pytree.update(random_keys)
-      self.pytree = pytree
+      self.pytree, _, _ = test_utils.setup_sharded_pytree(self.numpy_pytree)
 
       zeros_pytree = jax.tree.map(
           np.zeros_like,
           self.numpy_pytree,
           is_leaf=test_utils.is_leaf,
       )
-      zeros_pytree, _, _ = test_utils.setup_sharded_pytree(zeros_pytree)
-      self.zeros_pytree = zeros_pytree
-      zeros_random_keys = {
-          'rand_orig': jax.random.key(jnp.array(0, device=duplicated_sharding)),
-          'rand_rbg': jax.random.key(
-              jnp.array(0, device=duplicated_sharding), impl='rbg'
-          ),
-      }
-      self.zeros_pytree.update(zeros_random_keys)
+      self.zeros_pytree, _, _ = test_utils.setup_sharded_pytree(zeros_pytree)
 
       self.directory = epath.Path(
           self.create_tempdir(name='checkpointing_random_keys_test').full_path
@@ -541,10 +518,54 @@ class StandardCheckpointHandlerTestBase:
       if utils.is_pathways_backend():
         self.skipTest('Pathways does not support random keys checkpoint.')
 
+      def create_random_keys(seed):
+        duplicated_sharding = jax.sharding.NamedSharding(
+            mesh=jax.sharding.Mesh(jax.devices(), ('x',)),
+            spec=jax.sharding.PartitionSpec(),
+        )
+        return {
+            'rand_orig': jax.random.key(
+                jnp.array(seed, device=duplicated_sharding)
+            ),
+            'rand_rbg': jax.random.key(
+                jnp.array(seed, device=duplicated_sharding), impl='rbg'
+            ),
+        }
+
+      self.pytree.update(create_random_keys(1))
+
       self.handler.save(self.directory, args=self.save_args_cls(self.pytree))
       self.assertTrue(type_handlers.is_ocdbt_checkpoint(self.directory))
 
-      restored = self.handler.restore(
-          self.directory, args=self.restore_args_cls(self.zeros_pytree)
-      )
-      test_utils.assert_tree_equal(self, self.pytree, restored)
+      self.zeros_pytree.update(create_random_keys(0))
+      with self.subTest(name='restore_with_full_pytree'):
+        restored = self.handler.restore(
+            self.directory, args=self.restore_args_cls(self.zeros_pytree)
+        )
+        test_utils.assert_tree_equal(self, self.pytree, restored)
+
+      with self.subTest(name='restore_with_to_shape_dtype_struct'):
+        abstract_tree = jax.tree.map(
+            utils.to_shape_dtype_struct, self.zeros_pytree
+        )
+        restored = self.handler.restore(
+            self.directory,
+            args=self.restore_args_cls(abstract_tree),
+        )
+        test_utils.assert_tree_equal(self, self.pytree, restored)
+
+      with self.subTest(name='restore_with_jax_eval_shape'):
+        abstract_tree = jax.eval_shape(lambda: self.zeros_pytree)
+        restored = self.handler.restore(
+            self.directory,
+            args=self.restore_args_cls(abstract_tree),
+        )
+        test_utils.assert_tree_equal(self, self.pytree, restored)
+
+      with self.subTest(name='restore_with_flax_nnx_eval_shape'):
+        abstract_tree = nnx.eval_shape(lambda: self.zeros_pytree)
+        restored = self.handler.restore(
+            self.directory,
+            args=self.restore_args_cls(abstract_tree),
+        )
+        test_utils.assert_tree_equal(self, self.pytree, restored)

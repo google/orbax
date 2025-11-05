@@ -547,10 +547,18 @@ async def _deserialize_arrays(
           raise_array_data_missing_error=info.raise_array_data_missing_error,
       )
       tspec = ts_utils.get_cast_tspec_deserialize(tspec, arg)
+
+      # set dtype=None to deserialize for random keys
+      dtype = (
+          None
+          if jax.dtypes.issubdtype(arg.dtype, jax.dtypes.prng_key)
+          else arg.dtype
+      )
       if logging.vlog_is_on(1):
         logging.vlog(1, 'tspec = %s', tspec)
         logging.vlog(1, 'info = %s', info)
         logging.vlog(1, 'arg = %s', arg)
+        logging.vlog(1, 'dtype = %s', dtype)
         logging.vlog(1, 'sharding = %s', sharding)
       deserialize_ops.append(
           serialization.async_deserialize(
@@ -559,7 +567,7 @@ async def _deserialize_arrays(
               global_shape=arg.global_shape
               if hasattr(arg, 'global_shape')
               else None,
-              dtype=arg.dtype,
+              dtype=dtype,
               byte_limiter=info.byte_limiter,
               context=info.ts_context,
               strict=arg.strict if hasattr(arg, 'strict') else True,

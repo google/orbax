@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - #v1 Add Save option `enable_replica_parallel_separate_folder`
 - Add support for dispatchers in Jax Array Handlers.
+- Add support to restore JAX random key with abstract representation such as
+  `ShapeDtypeStruct`
 
 ### Changed
 
