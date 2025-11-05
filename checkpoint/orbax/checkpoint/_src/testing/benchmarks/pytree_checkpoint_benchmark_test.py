@@ -76,6 +76,7 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
       use_compression=(False, True),
       save_concurrent_gb=(None, 1),
       restore_concurrent_gb=(None, 2),
+      save_device_host_concurrent_gb=(None, 1),
   )
   def test_benchmark_test_fn(
       self,
@@ -84,6 +85,7 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
       use_compression,
       save_concurrent_gb,
       restore_concurrent_gb,
+      save_device_host_concurrent_gb,
   ):
     generator = PyTreeCheckpointBenchmark(
         checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
@@ -103,6 +105,7 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
         use_compression=use_compression,
         save_concurrent_gb=save_concurrent_gb,
         restore_concurrent_gb=restore_concurrent_gb,
+        save_device_host_concurrent_gb=save_device_host_concurrent_gb,
     )
     context = benchmarks_core.TestContext(
         pytree=pytree, path=test_path, options=test_options
@@ -116,6 +119,8 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
         use_compression=use_compression,
         save_concurrent_gb=save_concurrent_gb,
         restore_concurrent_gb=restore_concurrent_gb,
+        save_device_host_concurrent_gb=save_device_host_concurrent_gb,
+        is_prioritized_key_fn=mock.ANY,
     )
     self.mock_checkpointer.assert_called_once_with(
         self.mock_handler.return_value

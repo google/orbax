@@ -85,6 +85,11 @@ class Dispatcher(abc.ABC):
   """Dispatches a function to run on workers and returns a future."""
 
   @abc.abstractmethod
+  def device_to_host(self, arrays: PyTree) -> PyTree:
+    """Performs device to host transfer on the given arrays."""
+    ...
+
+  @abc.abstractmethod
   def dispatch(
       self,
       func: Callable[..., PyTree | None],
@@ -253,6 +258,10 @@ class ColocatedPythonDispatcher(Dispatcher):
       return jax.device_put(leaf, tpu_or_cpu_spec.sharding, may_alias=True)
 
     return jax.tree.map(_to_final_spec, input_tree, tpu_or_cpu_specs)
+
+  def device_to_host(self, arrays: PyTree) -> PyTree:
+    """Performs device to host transfer on the given arrays."""
+    return self.to_colocated_python(arrays)
 
   def dispatch(
       self,

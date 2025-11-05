@@ -100,6 +100,16 @@ class ColocatedPythonDispatcherTest(parameterized.TestCase):
 
     self.mock_cp_devices.side_effect = colocated_cpu_devices_side_effect
 
+  def test_device_to_host(self):
+    dispatcher = dispatchers.ColocatedPythonDispatcher()
+    cpu_arr = dispatcher.device_to_host(self.arr)
+
+    self.assertIs(cpu_arr, self.arr)
+    self.mock_cp_devices.assert_called_once_with(self.arr.sharding.mesh)
+    self.mock_device_put.assert_called_once_with(
+        self.arr, mock.ANY, may_alias=True
+    )
+
   def test_to_colocated_python_copies_array(self):
     dispatcher = dispatchers.ColocatedPythonDispatcher()
     cpu_arr = dispatcher.to_colocated_python(self.arr)
