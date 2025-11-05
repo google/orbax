@@ -1,1 +1,2 @@
 orbax/checkpoint/_src/handlers/array_checkpoint_handler_test.py
+orbax/checkpoint/_src/handlers/pytree_checkpoint_handler_test.py
