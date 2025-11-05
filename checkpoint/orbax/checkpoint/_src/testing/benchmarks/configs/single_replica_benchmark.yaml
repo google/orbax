@@ -29,6 +29,9 @@ mesh_configs:
     ici_parallelism: {"fsdp": 32, "tensor": 2, "data": 1}
     dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
     allow_split_physical_axes: True
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 1, "model": 1}
+    dcn_parallelism: {"data": 4, "model": 1}
 
 checkpoint_config:
   spec:

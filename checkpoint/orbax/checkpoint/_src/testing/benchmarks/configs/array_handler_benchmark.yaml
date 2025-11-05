@@ -1,9 +1,12 @@
 suite_name: "ArrayHandler Benchmark"
 
-mesh_config:
-  mesh_axes: ["data", "model"]
-  ici_parallelism: {"data": 2, "model": 2}
-  dcn_parallelism: {"data": 2, "model": 1}
+mesh_configs:
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 2, "model": 2}
+    dcn_parallelism: {"data": 2, "model": 1}
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 1, "model": 1}
+    dcn_parallelism: {"data": 4, "model": 1}
 
 checkpoint_config:
   spec:
@@ -17,5 +20,4 @@ benchmarks:
       use_replica_parallel: [True, False]
       enable_replica_parallel_separate_folder: [True, False]
       use_metadata_store: [True, False]
-      use_colocated_python: [True, False]
 
