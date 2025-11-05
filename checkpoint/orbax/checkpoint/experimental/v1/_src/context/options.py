@@ -204,6 +204,11 @@ class ArrayOptions:
       enable_post_merge_validation: If True, enables validation of the
         parameters after the finalize step.
       use_replica_parallel: Whether to parallelize saving across replicas.
+      min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica
+        slice. Only uses replica-parallel when the amount of data written per
+        replica is greater than or equal to this number.
+      max_replicas_for_replica_parallel: Maximum number of replicas over which
+        saving will be parallelized if use_replica_parallel is True.
       enable_replica_parallel_separate_folder: Whether to save replica data in
         separate folders.
       enable_write_sharding_file: whether to write sharding file, defaults to
@@ -248,6 +253,8 @@ class ArrayOptions:
     enable_pinned_host_transfer: bool | None = None
     enable_post_merge_validation: bool = True
     use_replica_parallel: bool = True
+    min_slice_bytes_for_replica_parallel: int | None = None
+    max_replicas_for_replica_parallel: int | None = None
     enable_replica_parallel_separate_folder: bool = False
     enable_write_sharding_file: bool = True
     array_metadata_store: array_metadata_store_lib.Store | None = (

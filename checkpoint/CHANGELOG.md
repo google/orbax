@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - #v1 Add Save option `enable_replica_parallel_separate_folder`
+- #v1 Add Save option `min_slice_bytes_for_replica_parallel` and `max_replicas_for_replica_parallel`
 - Add support for dispatchers in Jax Array Handlers.
 - Add support to restore JAX random key with abstract representation such as
   `ShapeDtypeStruct`
