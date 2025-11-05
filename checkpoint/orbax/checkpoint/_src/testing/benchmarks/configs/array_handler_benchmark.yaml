@@ -3,7 +3,7 @@ suite_name: "ArrayHandler Benchmark"
 mesh_config:
   mesh_axes: ["data", "model"]
   ici_parallelism: {"data": 2, "model": 2}
-  dcn_parallelism: {"data": 2, "model": 1}
+  dcn_parallelism: {"data": 4, "model": 1}
 
 checkpoint_config:
   spec:
