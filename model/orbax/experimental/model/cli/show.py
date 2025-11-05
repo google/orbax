@@ -17,6 +17,7 @@
 import os
 
 from google.protobuf import message
+import jax.extend as jex
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.cli import constants
 from orbax.experimental.model.cli import printer
@@ -24,6 +25,28 @@ from orbax.experimental.model.core.python import file_utils
 import rich
 import typer
 from typing_extensions import Annotated
+
+
+def _save_stablehlo(
+    manifest: obm.manifest_pb2.Manifest, fn_name: str, output_file: str
+) -> None:
+  """Saves the StableHLO function body to the given file."""
+  if fn_name not in manifest.objects:
+    raise ValueError(f'Function `{fn_name}` not found in the manifest')
+  if not manifest.objects[fn_name].HasField('function'):
+    raise ValueError(f'Object `{fn_name}` is not a function')
+  fn = manifest.objects[fn_name].function
+  if not fn.body.HasField('stable_hlo_body'):
+    raise ValueError(f'Function `{fn_name}` does not have a StableHLO body')
+
+  stablehlo_module = jex.mlir.deserialize_portable_artifact(
+      fn.body.stable_hlo_body.stable_hlo.inlined_bytes
+  )
+
+  with file_utils.open_file(output_file, 'w') as f:
+    f.write(str(stablehlo_module))
+
+  rich.print(f'Saved StableHLO function to `{output_file}`')
 
 
 def show(
@@ -47,6 +70,13 @@ def show(
             help='Show more verbose information',
         ),
     ] = False,
+    savehlo: Annotated[
+        str,
+        typer.Option(
+            '--savehlo',
+            help='Save the StableHLO function body to the given file',
+        ),
+    ] = '',
 ) -> None:
   """Shows the summary of an Orbax model."""
   rich.print('Loading Orbax model... ')
@@ -62,6 +92,10 @@ def show(
       f' {len(manifest.objects)} objects,'
       f' {len(manifest.supplemental_info)} supplementals'
   )
+
+  if details and savehlo:
+    _save_stablehlo(manifest, details, savehlo)
+    return
 
   if details:
     rich.print(f'Showing details for {details}...')
@@ -159,6 +193,12 @@ def _show_function_details(
     table.add_row('Type', 'Unknown function')
 
   rich.print(table)
+
+  if fn.body.HasField('stable_hlo_body'):
+    rich.print(
+        'Re-run with `--savehlo <file>` to deserialize this function into a'
+        ' file.'
+    )
 
 
 def _show_value_details(name: str, value: obm.manifest_pb2.Value) -> None:
