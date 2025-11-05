@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.27] - 2025-11-04
+
 ### Added
 
 - #v1 Add Save option `enable_replica_parallel_separate_folder`
