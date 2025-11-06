@@ -518,6 +518,10 @@ class Checkpointer(epy.ContextManager):
     """Whether a checkpoint is currently being saved in the background."""
     return self._manager.is_saving_in_progress()
 
+  def wait(self):
+    """Waits for any outstanding async operations to complete."""
+    self._manager.wait_until_finished()
+
   def close(self):
     """Ensures any outstanding async operations are completed before closing."""
     self._manager.close()
