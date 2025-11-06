@@ -20,7 +20,7 @@ import asyncio
 import dataclasses
 import functools
 import time
-from typing import Any, Dict, Optional, Sequence, Set, Tuple, TypeAlias, Union, cast
+from typing import Any, Dict, Sequence, Set, Tuple, TypeAlias, Union, cast
 import warnings
 
 from absl import logging
@@ -270,8 +270,8 @@ def _get_deprioritized_batches_to_serialize(
     ],
     *,
     device_host_max_bytes: int,
-    replica_id: int,
-    dispatcher: dispatchers.Dispatcher,
+    replica_id: int | None,
+    dispatcher: dispatchers.Dispatcher | None,
 ):
   """Yields batches of info, args, and arrays that fit within the memory budget."""
   logging.info(
@@ -306,12 +306,99 @@ def _get_deprioritized_batches_to_serialize(
     assert arrays_saved_count == len(deprioritized_params)
 
 
+def _serialize_arrays_batches_without_dispatcher(
+    prioritized: Sequence[tuple[jax.Array, types.ParamInfo, types.SaveArgs]],
+    deprioritized: Sequence[tuple[jax.Array, types.ParamInfo, types.SaveArgs]],
+    device_host_max_bytes: int | None,
+    replica_id: int | None,
+    use_replica_parallel: bool,
+    min_slice_bytes_for_replica_parallel: int | None,
+    max_replicas_for_replica_parallel: int | None,
+    primary_host: int | None,
+    metadata_key: str | None,
+    array_metadata_store: array_metadata_store_lib.Store | None,
+    enable_replica_parallel_separate_folder: bool,
+    ext_metadata: Dict[str, Any],
+    enable_pinned_host_transfer: bool,
+) -> future.Future:
+  """Serializes arrays batches without dispatcher."""
+  # Complete D2H transfer in parallel for each array for prioritized values.
+  replica_slices_transfer_arrays_to_host = functools.partial(
+      replica_slices.transfer_arrays_to_host,
+      replica_id=replica_id,
+      use_replica_parallel=use_replica_parallel,
+      enable_pinned_host_transfer=enable_pinned_host_transfer,
+      min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
+      max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
+  )
+  async_serialize_replica_slices_batch = functools.partial(
+      _async_serialize_replica_slices,
+      primary_host=primary_host,
+      metadata_key=metadata_key,
+      array_metadata_store=array_metadata_store,
+      enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,
+      use_replica_parallel=use_replica_parallel,
+      ext_metadata=ext_metadata,
+  )
+  prioritized_values_on_host = []
+  prioritized_infos = []
+  prioritized_args = []
+  if prioritized:
+    logging.info(
+        'Scheduling D2H of %d prioritized jax.Array.',
+        len(prioritized),
+    )
+    prioritized_arrays, prioritized_infos, prioritized_args = zip(*prioritized)
+    prioritized_values_on_host = replica_slices_transfer_arrays_to_host(
+        prioritized_arrays
+    )
+  else:
+    logging.warning(
+        'No prioritized params found for saving. D2H for all values will be'
+        ' scheduled asynchronously.'
+    )
+
+  async def _serialize_without_dispatcher():
+    if prioritized_values_on_host:
+      await async_serialize_replica_slices_batch(
+          prioritized_values_on_host,
+          prioritized_infos,
+          prioritized_args,
+      )
+    if deprioritized:
+      assert device_host_max_bytes is not None
+      for (
+          b_arrays,
+          b_infos,
+          b_args,
+      ) in _get_deprioritized_batches_to_serialize(
+          deprioritized,
+          device_host_max_bytes=device_host_max_bytes,
+          # TODO(b/436858989): We overestimate memory usage for now if replica
+          # parallel is enabled, as each host has a non-trivial calculation for
+          # bytes transferred to host.
+          replica_id=None if use_replica_parallel else replica_id,
+          dispatcher=None,
+      ):
+        b_arrays_on_host = replica_slices_transfer_arrays_to_host(b_arrays)
+        await async_serialize_replica_slices_batch(
+            b_arrays_on_host,
+            b_infos,
+            b_args,
+        )
+
+  return future.CommitFutureAwaitingContractedSignals(
+      _serialize_without_dispatcher(),
+      name='array_type_handler',
+  )
+
+
 def _serialize_arrays(
     arrays: Sequence[jax.Array],
     infos: Sequence[types.ParamInfo],
     args: Sequence[types.SaveArgs],
     dispatcher: dispatchers.Dispatcher | None,
-    replica_id: int,
+    replica_id: int | None,
     use_replica_parallel: bool,
     min_slice_bytes_for_replica_parallel: int | None,
     max_replicas_for_replica_parallel: int | None,
@@ -322,54 +409,47 @@ def _serialize_arrays(
     ext_metadata: Dict[str, Any],
 ) -> future.Future:
   """D2H transfer and serialize arrays using dispatcher if provided."""
+
+  device_host_max_bytes = None
+  if byte_limiter := infos[0].device_host_byte_limiter:
+    if isinstance(byte_limiter, limits.LimitInFlightBytes):
+      device_host_max_bytes = byte_limiter.max_bytes
+
+  prioritized: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = []
+  deprioritized: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = []
+  for info, arg, value in zip(infos, args, arrays):
+    if device_host_max_bytes is None:
+      prioritized.append((value, info, arg))
+    elif _is_prioritized_for_saving(info):
+      logging.info(
+          'Key prioritized for saving: %s',
+          tree_utils.str_keypath(info.keypath),
+      )
+      prioritized.append((value, info, arg))
+    else:
+      logging.info(
+          'Key not prioritized for saving: %s',
+          tree_utils.str_keypath(info.keypath),
+      )
+      deprioritized.append((value, info, arg))
+
   if dispatcher is None:
-    # Complete D2H transfer in parallel for each array.
-    values_on_host = replica_slices.transfer_arrays_to_host(
-        arrays,
+    return _serialize_arrays_batches_without_dispatcher(
+        prioritized,
+        deprioritized,
+        device_host_max_bytes,
         replica_id,
         use_replica_parallel,
-        enable_pinned_host_transfer=infos[0].enable_pinned_host_transfer,
-        min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
-        max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
-    )
-    return future.CommitFutureAwaitingContractedSignals(
-        _async_serialize_replica_slices(
-            values_on_host,
-            infos,
-            args,
-            primary_host=primary_host,
-            metadata_key=metadata_key,
-            array_metadata_store=array_metadata_store,
-            enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,
-            use_replica_parallel=use_replica_parallel,
-            ext_metadata=ext_metadata,
-        ),
-        name='array_type_handler',
+        min_slice_bytes_for_replica_parallel,
+        max_replicas_for_replica_parallel,
+        primary_host,
+        metadata_key,
+        array_metadata_store,
+        enable_replica_parallel_separate_folder,
+        ext_metadata,
+        infos[0].enable_pinned_host_transfer,
     )
   else:
-
-    device_host_max_bytes = None
-    if byte_limiter := infos[0].device_host_byte_limiter:
-      if isinstance(byte_limiter, limits.LimitInFlightBytes):
-        device_host_max_bytes = byte_limiter.max_bytes
-
-    prioritized: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = []
-    deprioritized: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = []
-    for info, arg, value in zip(infos, args, arrays):
-      if device_host_max_bytes is None:
-        prioritized.append((value, info, arg))
-      elif _is_prioritized_for_saving(info):
-        logging.info(
-            'Key prioritized for saving: %s',
-            tree_utils.str_keypath(info.keypath),
-        )
-        prioritized.append((value, info, arg))
-      else:
-        logging.info(
-            'Key not prioritized for saving: %s',
-            tree_utils.str_keypath(info.keypath),
-        )
-        deprioritized.append((value, info, arg))
 
     def _serialize_batch(
         batch_infos: Sequence[types.ParamInfo],
@@ -424,7 +504,7 @@ def _serialize_arrays(
       )
 
     async def _serialize():
-      if prioritized is not None:
+      if prioritized:
         arrays, infos, args = zip(*prioritized)
         _serialize_batch(infos, args, arrays)
       if deprioritized:
@@ -461,7 +541,7 @@ async def _async_serialize_replica_slices(
 ) -> None:
   """This function contains the logic from ArrayHandler._background_serialize."""
   write_coros = []
-  ocdbt_transaction: Optional[ts.Transaction] = None
+  ocdbt_transaction: ts.Transaction | None = None
   array_metadatas = []
   for value, info, arg in zip(values, infos, args):
     if info.is_ocdbt_checkpoint and info.byte_limiter is None:
@@ -921,7 +1001,7 @@ class ArrayHandler(types.TypeHandler):
       self,
       values: Sequence[jax.Array],
       infos: Sequence[types.ParamInfo],
-      args: Optional[Sequence[types.SaveArgs]] = None,
+      args: Sequence[types.SaveArgs] | None = None,
   ) -> Sequence[future.Future]:
     """See superclass documentation."""
     args = args or [types.SaveArgs()] * len(values)
@@ -1299,9 +1379,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
   async def deserialize(
       self,
       infos: Sequence[types.ParamInfo],
-      args: Optional[
-          Sequence[SingleReplicaArrayRestoreArgs]
-      ] = None,  # pytype: disable=signature-mismatch
+      args: Sequence[SingleReplicaArrayRestoreArgs] | None = None,  # pytype: disable=signature-mismatch
   ) -> Sequence[jax.Array]:
     """Deserializing in case of single replica broadcasting.
 

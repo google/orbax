@@ -279,9 +279,15 @@ class BenchmarksGenerator(abc.ABC):
       option_instance = self._options.__class__(**kwargs)
       if option_instance.is_valid():
         option_instances.append(option_instance)
+        logging.info(
+            "[process_id=%s] Generating valid option combination: %s",
+            multihost.process_index(),
+            option_instance,
+        )
       else:
         logging.info(
-            "Skipping invalid option combination: %s",
+            "[process_id=%s] Skipping invalid option combination: %s",
+            multihost.process_index(),
             option_instance,
         )
     return option_instances
@@ -428,4 +434,5 @@ class TestSuite:
       logging.warning("No benchmarks were run for this suite.")
 
     logging.info(self._generate_report(results))
+    multihost.sync_global_processes("test_suite:run_end")
     return results

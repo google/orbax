@@ -81,7 +81,7 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
   metric_tensorstore_enabled: bool = False
   use_replica_parallel: bool | Sequence[bool] = False
   enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
-  use_jax_array_handler: bool | Sequence[bool] = False
+  use_jax_array_handler: bool | Sequence[bool] = True
   use_colocated_python: bool | Sequence[bool] = False
   save_device_host_concurrent_gb: int | None | Sequence[int | None] = None
 
@@ -90,7 +90,11 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
         not self.use_replica_parallel or not self.use_ocdbt
     ):
       return False
-
+    if (
+        not ocp.multihost.is_pathways_backend()
+        and not self.use_jax_array_handler
+    ):
+      return False
     return True
 
 

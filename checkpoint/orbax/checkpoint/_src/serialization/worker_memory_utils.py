@@ -85,21 +85,27 @@ def _device_to_worker_ids(dispatcher: dispatchers.Dispatcher) -> dict[int, int]:
 def _estimate_worker_memory_usage(
     arr: jax.Array,
     *,
-    replica_id: int,
+    replica_id: int | None,
     device_to_worker_ids_map: dict[int, int],
 ) -> dict[int, int]:
-  """Estimates memory used by the array on each worker after transfer."""
-  del replica_id
+  """Estimates memory used by the array on each worker after transfer.
+
+  Args:
+    arr: The array to estimate memory usage for.
+    replica_id: The replica id to use for estimation. If None, all replicas are
+      used.
+    device_to_worker_ids_map: A mapping from device ID to worker ID.
+
+  Returns:
+    A mapping from worker ID to estimated memory usage.
+  """
   worker_memory_usage = collections.defaultdict(int)
   shard_memory_size = (
       np.prod(arr.sharding.shard_shape(arr.shape)) * arr.dtype.itemsize
   )
-  # On Pathways, all shards are addressable.
-  for shard in arr.addressable_shards:
-    # NOTE: We only transfer save shards with replica_id == replica_id, but we
-    # are actually redundantly transferring all shards, thanks to remote Python.
-    # if shard.replica_id != replica_id:
-    #   continue
+  for shard in arr.global_shards:
+    if replica_id is not None and shard.replica_id != replica_id:
+      continue
     worker_id = device_to_worker_ids_map[shard.device.id]
     worker_memory_usage[worker_id] += shard_memory_size
   return worker_memory_usage
@@ -109,7 +115,7 @@ def _increment_worker_memory_usage(
     arr: jax.Array,
     current_worker_memory_usage: dict[int, int],
     *,
-    replica_id: int,
+    replica_id: int | None,
     device_to_worker_ids_map: dict[int, int],
 ) -> dict[int, int]:
   """Increments memory used by the array on each worker after transfer."""
@@ -147,12 +153,32 @@ def next_memory_budgeted_batch(
     params: Sequence[tuple[jax.Array, types.ParamInfo, types.SaveArgs]],
     worker_memory_budget: int,
     *,
-    replica_id: int,
-    dispatcher: dispatchers.Dispatcher,
+    replica_id: int | None,
+    dispatcher: dispatchers.Dispatcher | None,
 ):
-  """Yields batches of info, args, and arrays that fit within the memory budget."""
+  """Yields batches of info, args, and arrays that fit within the memory budget.
+
+  Args:
+    params: A sequence of (array, info, args) tuples.
+    worker_memory_budget: The maximum amount of memory that can be used on any
+      worker.
+    replica_id: The replica id to use for estimation. If None, all replicas are
+      used.
+    dispatcher: The dispatcher instance to use. If None, the default dispatcher
+      is used.
+  """
   arrays, infos, args = zip(*params, strict=True)
-  device_to_worker_ids_map = _device_to_worker_ids(dispatcher)
+  if dispatcher is None:
+    device_to_worker_ids_map = {
+        d.id: multihost.process_index_from_device(d) for d in jax.devices()
+    }
+  else:
+    device_to_worker_ids_map = _device_to_worker_ids(dispatcher)
+    # NOTE: We only transfer save shards with replica_id == replica_id, but we
+    # are actually redundantly transferring all shards, thanks to remote python
+    # / colcoated python. So we set replica_id to None, to estimate memory usage
+    # for all replicas.
+    replica_id = None
 
   def _no_worker_memory_usage() -> dict[int, int]:
     return {id: 0 for id in set(device_to_worker_ids_map.values())}
@@ -179,8 +205,10 @@ def next_memory_budgeted_batch(
     else:
       assert current_batch
       logging.info(
-          'Obtained a memory-limited batch with %d arrays. Per-worker,'
-          ' projected to cost: %s',
+          '[process=%d] Obtained a memory-limited batch (replica_id=%s) with'
+          ' %d arrays. Per-worker, projected to cost: %s',
+          multihost.process_index(),
+          replica_id,
           len(current_batch),
           _humanize_worker_memory_usage(current_worker_memory_usage),
       )
@@ -198,8 +226,10 @@ def next_memory_budgeted_batch(
 
   if current_batch:
     logging.info(
-        'Obtained a memory-limited batch with %d arrays. Per-worker,'
-        ' projected to cost: %s',
+        '[process=%d] Obtained a memory-limited batch (replica_id=%s) with %d'
+        ' arrays. Per-worker, projected to cost: %s',
+        multihost.process_index(),
+        replica_id,
         len(current_batch),
         _humanize_worker_memory_usage(current_worker_memory_usage),
     )

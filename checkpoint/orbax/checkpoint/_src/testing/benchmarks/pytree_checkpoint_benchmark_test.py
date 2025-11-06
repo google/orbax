@@ -41,6 +41,11 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
     self.mock_handler = self.enter_context(
         mock.patch.object(ocp, 'PyTreeCheckpointHandler', autospec=True)
     )
+    self.mock_is_pathways_backend = self.enter_context(
+        mock.patch.object(
+            ocp.multihost, 'is_pathways_backend', return_value=False
+        )
+    )
 
   @parameterized.parameters(
       dict(
@@ -77,6 +82,10 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
       save_concurrent_gb=(None, 1),
       restore_concurrent_gb=(None, 2),
       save_device_host_concurrent_gb=(None, 1),
+      use_replica_parallel=(True,),
+      enable_replica_parallel_separate_folder=(False,),
+      use_jax_array_handler=(True,),
+      use_colocated_python=(False,),
   )
   def test_benchmark_test_fn(
       self,
@@ -86,6 +95,10 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
       save_concurrent_gb,
       restore_concurrent_gb,
       save_device_host_concurrent_gb,
+      use_replica_parallel,
+      enable_replica_parallel_separate_folder,
+      use_jax_array_handler,
+      use_colocated_python,
   ):
     generator = PyTreeCheckpointBenchmark(
         checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
@@ -106,6 +119,10 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
         save_concurrent_gb=save_concurrent_gb,
         restore_concurrent_gb=restore_concurrent_gb,
         save_device_host_concurrent_gb=save_device_host_concurrent_gb,
+        use_replica_parallel=use_replica_parallel,
+        enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,
+        use_jax_array_handler=use_jax_array_handler,
+        use_colocated_python=use_colocated_python,
     )
     context = benchmarks_core.TestContext(
         pytree=pytree, path=test_path, options=test_options
