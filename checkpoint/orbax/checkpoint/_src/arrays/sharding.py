@@ -50,7 +50,7 @@ def _construct_maximal_sharding(
   mesh_shape = []
   mesh_axes = []
 
-  current_parition_axis = 0
+  current_partition_axis = 0
   # Max to min.
   for i in np.argsort(shape)[::-1]:
     assert available_device_dim > 0
@@ -64,15 +64,15 @@ def _construct_maximal_sharding(
     available_device_dim //= gcd
     mesh_shape.append(gcd)
 
-    current_parition_axis_name = _partition_axis_name(current_parition_axis)
-    partition_axes[i] = current_parition_axis_name
-    mesh_axes.append(current_parition_axis_name)
-    current_parition_axis += 1
+    current_partition_axis_name = _partition_axis_name(current_partition_axis)
+    partition_axes[i] = current_partition_axis_name
+    mesh_axes.append(current_partition_axis_name)
+    current_partition_axis += 1
 
   # Still have some partition dimension left over.
   if available_device_dim > 1:
     mesh_shape.append(available_device_dim)
-    mesh_axes.append(_partition_axis_name(current_parition_axis))
+    mesh_axes.append(_partition_axis_name(current_partition_axis))
 
   logging.info(
       'Constructed sharding for array with shape: %s, mesh_shape: %s,'
