@@ -45,14 +45,14 @@ namespace orbax {
 
 // Read variables and name - variable mappings.
 absl::Status ReadVariablesAsTensors(
-    const string& input_prefix,
-    ::gtl::linked_hash_map<string, Tensor>* var_tensors) {
+    const std::string& input_prefix,
+    ::gtl::linked_hash_map<std::string, Tensor>* var_tensors) {
   VLOG(1) << "Reading Variables from " << input_prefix;
   BundleReader reader(Env::Default(), input_prefix);
   reader.Seek(tensorflow::kHeaderEntryKey);
   reader.Next();
   while (reader.Valid()) {
-    string tensor_name(reader.key());
+    std::string tensor_name(reader.key());
     Tensor tensor_value;
     TF_RETURN_IF_ERROR(reader.ReadCurrent(&tensor_value));
     (*var_tensors)[tensor_name] = tensor_value;
@@ -64,8 +64,8 @@ absl::Status ReadVariablesAsTensors(
 
 // Persist variables and name - variable mappings.
 absl::Status WriteTensorsToVariables(
-    const string& output_prefix,
-    const ::gtl::linked_hash_map<string, Tensor>& var_tensors) {
+    const std::string& output_prefix,
+    const ::gtl::linked_hash_map<std::string, Tensor>& var_tensors) {
   VLOG(1) << "Writing Variables to " << output_prefix;
   BundleWriter writer(Env::Default(), output_prefix);
   for (const auto& it : var_tensors) {
@@ -124,7 +124,7 @@ absl::Status RewriteTPUPartitionedCall(FunctionInfo* tpu_func) {
   VLOG(3) << "Rewriting TPUPartitionedCall for " << tpu_func->name();
   Graph* graph = tpu_func->parent()->get_graph();
   Node* call_node = tpu_func->node_in_parent_graph();
-  string orig_name = call_node->name();
+  std::string orig_name = call_node->name();
   ::gtl::linked_hash_map<int, const Edge*> input_edges, output_edges;
 
   // Collect input and output edges.
@@ -203,13 +203,13 @@ bool IsNodeBFloat16(Node* node) {
 // models that have been converted to bfloat16 should not pass through the
 // converter again. Otherwise, it may lead to unintended behaviors.
 absl::Status ValidateGraphHasNoBFloat16Ops(Graph* graph) {
-  ::gtl::linked_hash_map<string, int> func_overhead;
+  ::gtl::linked_hash_map<std::string, int> func_overhead;
   auto func = std::make_unique<FunctionInfo>("root");
   func->set_graph(graph);
   TF_RETURN_IF_ERROR(func->Build(graph->flib_def(), &func_overhead));
 
   std::vector<FunctionInfo*> funcs;
-  std::vector<string> found_bfloat16_ops;
+  std::vector<std::string> found_bfloat16_ops;
   TF_RETURN_IF_ERROR(func->Find(
       [&](FunctionInfo* func) {
         for (Node* node : func->get_graph()->nodes()) {
