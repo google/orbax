@@ -16,9 +16,9 @@
 
 from typing import Any
 
+from jax import tree_util as jax_tree_util
 import numpy as np
 from orbax.experimental.model import core as obm
-from orbax.experimental.model.tf2obm import tree_util
 import tensorflow as tf
 
 
@@ -71,7 +71,7 @@ TfSignature = obm.Tree[Any]
 
 def tf_signature_to_obm_spec(tree: TfSignature) -> obm.Tree[obm.ShloTensorSpec]:
   try:
-    return tree_util.tree_map(tf_tensor_spec_to_obm, tree)
+    return jax_tree_util.tree_map(tf_tensor_spec_to_obm, tree)
   except Exception as err:
     raise ValueError(
         f'Failed to convert TF signature {tree} of type {type(tree)} to OBM.'
@@ -103,7 +103,7 @@ def get_output_signature(
     # The structured_outputs are `SymbolicTensor`s with "name" that we don't
     # need. To make a unified path to obm.ShloTensorSpec, we convert them to
     # `TensorSpec`s (without name) first.
-    output_signature = tree_util.tree_map(
+    output_signature = jax_tree_util.tree_map(
         lambda x: tf.TensorSpec(shape=x.shape, dtype=x.dtype),
         concrete_function.structured_outputs,
     )

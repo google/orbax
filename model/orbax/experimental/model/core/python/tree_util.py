@@ -34,6 +34,8 @@ def _tuple_or_list_constructor(a: Tuple[Any, ...] | List[Any]):
     return list
 
 
+# TODO(b/456768655): This function may not be needed. It is being kept for now,
+# and can be deleted if it is confirmed to be unnecessary.
 def tree_map(f: Callable[[T], U], tree: Tree[T]) -> Tree[U]:
   """Recursively applies `f` to all leaves of `Tree`."""
   if isinstance(tree, (tuple, list)):
@@ -71,6 +73,8 @@ def flatten_lists(lists: Sequence[List[T]]) -> List[T]:
   return sum(lists, [])
 
 
+# TODO(b/456768655): This function may not be needed. It is being kept for now,
+# and can be deleted if it is confirmed to be unnecessary.
 def flatten(tree: Tree[T]) -> List[T]:
   """Recursively flattens leaves of `Tree` into a list."""
   if isinstance(tree, (tuple, list)):
@@ -105,6 +109,8 @@ def _unflatten_iter(tree: Tree[Any], it: Iterator[T]) -> Tree[T]:
     return next(it)
 
 
+# TODO(b/456768655): This function may not be needed. It is being kept for now,
+# and can be deleted if it is confirmed to be unnecessary.
 def unflatten(tree: Tree[Any], leaves: Iterable[T]) -> Tree[T]:
   """Unflattens a `Tree` from a sequence of leaves.
 

@@ -19,11 +19,10 @@ from typing import Any, Sequence
 from absl.testing import absltest
 from absl.testing import parameterized
 import chex
+from jax import tree_util as jax_tree_util
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
-from orbax.experimental.model.tf2obm import tree_util
 from orbax.experimental.model.tf2obm import utils
-from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import _generate_names
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import save_tf_concrete_functions
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import SAVED_MODEL_MIME_TYPE
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import SAVED_MODEL_VERSION
@@ -91,7 +90,7 @@ def _dict_from_seq(prefix: str, seq: Sequence[Any]):
 def _as_output_signature(tree):
   @tf.function(autograph=False)
   def f():
-    return tree_util.tree_map(
+    return jax_tree_util.tree_map(
         lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), tree
     )
 
@@ -114,38 +113,6 @@ class TfConcreteFunctionsToObmTest(
 
   @parameterized.named_parameters(
       (  # pylint: disable=g-complex-comprehension
-          f"_{name}_{as_output_signature}",
-          signature,
-          expected_names,
-          as_output_signature,
-      )
-      for as_output_signature in (False, True)
-      for name, signature, expected_names in (
-          (
-              "tuple",
-              _TUPLE,
-              ("my_prefix_0", "my_prefix_1", "my_prefix_2"),
-          ),
-          (
-              "dict",
-              _DICT,
-              ("my_prefix_0", "my_prefix_1"),
-          ),
-      )
-  )
-  def test_generate_names(self, signature, expected_names, as_output_signature):
-    if as_output_signature:
-      signature = _as_output_signature(signature)
-    prefix = "my_prefix"
-
-    names, _ = _generate_names(signature, prefix=prefix)
-    self.assertEqual(
-        names,
-        expected_names,
-    )
-
-  @parameterized.named_parameters(
-      (  # pylint: disable=g-complex-comprehension
           f"_{input_case_id}_{output_case_id}",
           input_sig,
           expected_input_sig,
@@ -159,18 +126,20 @@ class TfConcreteFunctionsToObmTest(
           ),
           (
               ((), _DICT),
-              ((), _dict_from_seq("input_", tree_util.flatten(_DICT))),
+              ((), _dict_from_seq("input_", jax_tree_util.tree_leaves(_DICT))),
           ),
           (
               (_TUPLE, _DICT),
               (
                   (),
-                  _dict_from_seq("input_", tree_util.flatten((_TUPLE, _DICT))),
+                  _dict_from_seq(
+                      "input_", jax_tree_util.tree_leaves((_TUPLE, _DICT))
+                  ),
               ),
           ),
           (
               ((_DICT,), {}),
-              ((), _dict_from_seq("input_", tree_util.flatten(_DICT))),
+              ((), _dict_from_seq("input_", jax_tree_util.tree_leaves(_DICT))),
           ),
           (
               ((_CHEX_DATACLASS,), {}),
@@ -195,22 +164,22 @@ class TfConcreteFunctionsToObmTest(
           ),
           (
               _DICT,
-              (_dict_from_seq("output_", tree_util.flatten(_DICT))),
+              (_dict_from_seq("output_", jax_tree_util.tree_leaves(_DICT))),
           ),
           (
               (_DICT,),
-              _dict_from_seq("output_", tree_util.flatten(_DICT)),
+              _dict_from_seq("output_", jax_tree_util.tree_leaves(_DICT)),
           ),
           (
               (_TUPLE, _DICT),
-              _dict_from_seq("output_", tree_util.flatten((_TUPLE, _DICT))),
+              _dict_from_seq(
+                  "output_", jax_tree_util.tree_leaves((_TUPLE, _DICT))
+              ),
           ),
           (
               _CHEX_DATACLASS,
               # Registered dataclasses are flattened.
-              _dict_from_seq(
-                  "output_", (_CHEX_DATACLASS.a, _CHEX_DATACLASS.b)
-              ),
+              _dict_from_seq("output_", (_CHEX_DATACLASS.a, _CHEX_DATACLASS.b)),
           ),
       ))
   )
@@ -221,8 +190,9 @@ class TfConcreteFunctionsToObmTest(
     @tf.function(autograph=False)
     def f(*args, **kwargs):
       del args, kwargs
-      return tree_util.tree_map(
-          lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), output_sig
+      return jax_tree_util.tree_map(
+          lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype),
+          output_sig,
       )
 
     args, kwargs = input_sig
@@ -260,7 +230,7 @@ class TfConcreteFunctionsToObmTest(
 
     @tf.function(autograph=False)
     def f():
-      return tree_util.tree_map(
+      return jax_tree_util.tree_map(
           lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype),
           output_sig,
       )
