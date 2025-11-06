@@ -25,7 +25,6 @@ from unittest import mock
 from absl import logging
 import jax
 import orbax.checkpoint as ocp
-from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
@@ -86,14 +85,20 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
   save_device_host_concurrent_gb: int | None | Sequence[int | None] = None
 
   def is_valid(self):
+    assert isinstance(self.use_replica_parallel, bool)
+    assert isinstance(self.enable_replica_parallel_separate_folder, bool)
+    assert isinstance(self.use_jax_array_handler, bool)
+    assert isinstance(self.use_colocated_python, bool)
+
     if self.enable_replica_parallel_separate_folder and (
         not self.use_replica_parallel or not self.use_ocdbt
     ):
       return False
-    if (
-        not ocp.multihost.is_pathways_backend()
-        and not self.use_jax_array_handler
+    if not ocp.multihost.is_pathways_backend() and (
+        self.use_colocated_python or not self.use_jax_array_handler
     ):
+      return False
+    if not self.use_jax_array_handler and self.use_replica_parallel:
       return False
     return True
 
@@ -129,20 +134,16 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
       )
     else:
       if options.use_jax_array_handler:
-        dispatcher = dispatchers.ColocatedPythonDispatcher()
-        array_handler = ocp.type_handlers.ArrayHandler(
-            use_replica_parallel=options.use_replica_parallel,
-            enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,
-            dispatcher=dispatcher,
-        )
-        logging.info(
-            "Registering JAX array type handler with dispatcher: %s", dispatcher
-        )
-        ocp.type_handlers.register_type_handler(
-            jax.Array,
-            array_handler,
-            override=True,
-        )
+        if options.use_persistence_array_handler:
+          ocp.type_handlers.register_pathways_handlers(
+              use_persistence_array_handler=options.use_persistence_array_handler,
+          )
+        else:
+          ocp.type_handlers.register_pathways_handlers(
+              use_colocated_python=options.use_colocated_python,
+              use_replica_parallel=options.use_replica_parallel,
+              enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,
+          )
 
   def test_fn(
       self, context: benchmarks_core.TestContext

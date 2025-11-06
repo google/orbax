@@ -23,9 +23,8 @@ from absl import logging
 import jax
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
-from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint._src.serialization import type_handler_registry
+from orbax.checkpoint._src.serialization import pathways_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import mesh_utils
@@ -118,21 +117,14 @@ class SingleReplicaBenchmark(benchmarks_core.BenchmarksGenerator):
     ):
       multihost.initialize_runtime_to_distributed_ids()
 
-    dispatcher = None
-    if options.use_colocated_python:
-      dispatcher = dispatchers.ColocatedPythonDispatcher()
-
-    type_handler_registry.register_type_handler(
-        jax.Array,
-        type_handlers.SingleReplicaArrayHandler(
-            replica_axis_index=options.replica_axis_index,
-            primary_replica_id=options.primary_replica_id,
-            use_replica_parallel=options.use_replica_parallel,
-            broadcast_memory_limit_bytes=options.broadcast_memory_limit_bytes,
-            broadcast_memory_scaling_factor=options.broadcast_memory_scaling_factor,
-            dispatcher=dispatcher,
-        ),
-        override=True,
+    pathways_handler_registry.register_pathways_handlers(
+        use_single_replica_array_handler=True,
+        use_colocated_python=options.use_colocated_python,
+        replica_axis_index=options.replica_axis_index,
+        primary_replica_id=options.primary_replica_id,
+        use_replica_parallel=options.use_replica_parallel,
+        broadcast_memory_limit_bytes=options.broadcast_memory_limit_bytes,
+        broadcast_memory_scaling_factor=options.broadcast_memory_scaling_factor,
     )
 
     handler = pytree_checkpoint_handler.PyTreeCheckpointHandler()

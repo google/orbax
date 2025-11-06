@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `register_pathways_handlers` to `ocp.type_handlers`
+
 ## [0.11.27] - 2025-11-04
 
 ### Added
