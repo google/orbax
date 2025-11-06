@@ -61,22 +61,18 @@ InvalidShardingError = jax_array_handlers.InvalidShardingError
 class NumpyHandler(types.TypeHandler):
   """Provides an implementation of TypeHandler for replicated numpy arrays."""
 
-  def __init__(
-      self,
-      metadata_key: Optional[str] = None,
-      ocdbt_process_id: str | None = None,
-  ):
+  def __init__(self, metadata_key: Optional[str] = None):
     """Constructor.
 
     Args:
       metadata_key: name to give to Tensorstore metadata files.
-      ocdbt_process_id: name of the process id to be used by single controller
-        systems to write in OCDBT format. The checkpoints are written in a
-        subdir with this name to avoid collisions with the subdir names used by
-        other host processes managed by this controller.
     """
     self._metadata_key = metadata_key
-    self._override_ocdbt_process_id = ocdbt_process_id
+    # Name of the process id to be used by single controller systems to write
+    # in OCDBT format. The checkpoints are written in a subdir with this name
+    # to avoid collisions with the subdir names used by other host processes
+    # managed by this controller.
+    self._override_ocdbt_process_id: Optional[str] = None
 
   def _get_array_write_spec(
       self,
