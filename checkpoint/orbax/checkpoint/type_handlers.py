@@ -34,6 +34,7 @@ from orbax.checkpoint._src.serialization.type_handler_registry import create_typ
 from orbax.checkpoint._src.serialization.type_handler_registry import get_type_handler
 from orbax.checkpoint._src.serialization.type_handler_registry import has_type_handler
 from orbax.checkpoint._src.serialization.type_handler_registry import register_standard_handlers_with_options
+from orbax.checkpoint._src.serialization.pathways_handler_registry import register_pathways_handlers
 from orbax.checkpoint._src.serialization.type_handler_registry import register_type_handler
 from orbax.checkpoint._src.serialization.type_handler_registry import supported_types
 
