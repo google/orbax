@@ -22,6 +22,7 @@ import jax
 import numpy as np
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint import multihost
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
@@ -55,6 +56,7 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
     options = context.options
     assert isinstance(options, CheckpointManagerBenchmarkOptions)
 
+
     cm_options = checkpoint_manager.CheckpointManagerOptions(
         save_interval_steps=options.save_interval_steps,
         max_to_keep=options.max_to_keep,
@@ -66,13 +68,23 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
     json_data = {'a': 1, 'b': 'test'}
     random_key = jax.random.key(0)
     np_random_key = np.random.get_state()
+    pytree_for_restore = self._get_pytree_for_restore(pytree)
 
-    composite_args = args_lib.Composite(
-        pytree=args_lib.StandardSave(pytree),
-        json_item=args_lib.JsonSave(json_data),
-        jax_random_key=args_lib.JaxRandomKeySave(random_key),
-        np_random_key=args_lib.NumpyRandomKeySave(np_random_key),
-    )
+    save_kwargs = {
+        'pytree': args_lib.StandardSave(pytree),
+        'json_item': args_lib.JsonSave(json_data),
+        'np_random_key': args_lib.NumpyRandomKeySave(np_random_key),
+    }
+    restore_kwargs = {
+        'pytree': args_lib.StandardRestore(pytree_for_restore),
+        'json_item': args_lib.JsonRestore(),
+        'np_random_key': args_lib.NumpyRandomKeyRestore(),
+    }
+    if not multihost.is_pathways_backend():
+      save_kwargs['jax_random_key'] = args_lib.JaxRandomKeySave(random_key)
+      restore_kwargs['jax_random_key'] = args_lib.JaxRandomKeyRestore()
+    composite_args = args_lib.Composite(**save_kwargs)
+    restore_args = args_lib.Composite(**restore_kwargs)
 
     step_saved = -1
     for step in range(options.train_steps):
@@ -87,14 +99,6 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
     if step_saved == -1:
       raise AssertionError('No checkpoint was saved.')
 
-    pytree_for_restore = self._get_pytree_for_restore(pytree)
-
-    restore_args = args_lib.Composite(
-        pytree=args_lib.StandardRestore(pytree_for_restore),
-        json_item=args_lib.JsonRestore(),
-        jax_random_key=args_lib.JaxRandomKeyRestore(),
-        np_random_key=args_lib.NumpyRandomKeyRestore(),
-    )
     latest_step = mngr.latest_step()
     assert latest_step == step_saved, (
         f'Expected latest step to be {step_saved}, got {latest_step}'
@@ -110,9 +114,10 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
       assert (
           json_data == restored['json_item']
       ), f"Expected {json_data}, got {restored['json_item']}"
-      assert jax.numpy.array_equal(
-          random_key, restored['jax_random_key']
-      ), f"Expected {random_key}, got {restored['jax_random_key']}"
+      if not multihost.is_pathways_backend():
+        assert jax.numpy.array_equal(
+            random_key, restored['jax_random_key']
+        ), f"Expected {random_key}, got {restored['jax_random_key']}"
       jax.tree.map(
           np.testing.assert_equal, np_random_key, restored['np_random_key']
       )
