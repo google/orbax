@@ -17,6 +17,7 @@
 import os
 
 from google.protobuf import message
+from google.protobuf import text_format
 import jax.extend as jex
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.cli import constants
@@ -155,6 +156,16 @@ def show(
     table = rich.table.Table('Supplemental', 'Type', padding=(0, 1, 1, 1))
     for name, supp in sorted(manifest.supplemental_info.items()):
       table.add_row(name, printer.unstructured_data(supp))
+    rich.print(table)
+
+  if manifest.device_assignment_by_coords.devices:
+    table = rich.table.Table('Device assignment')
+    table.add_row(
+        text_format.MessageToString(
+            manifest.device_assignment_by_coords,
+            use_short_repeated_primitives=True,
+        )
+    )
     rich.print(table)
 
 
