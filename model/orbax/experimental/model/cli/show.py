@@ -206,7 +206,10 @@ def _show_object_details(
   elif obj.HasField('value'):
     _show_value_details(name, obj.value)
   elif obj.HasField('poly_fn'):
-    pass
+    for i, fn in enumerate(obj.poly_fn.concrete_functions):
+      _show_function_details(
+          model_base_dir, f'{name} #{i+1}', fn, verbose
+      )
   else:
     rich.print('Unknown object type')
 
@@ -292,6 +295,15 @@ def _show_value_details(name: str, value: obm.manifest_pb2.Value) -> None:
         obm.manifest_pb2.LoaderType.Name(value.external.loader_type),
     )
     table.add_row('Data', printer.unstructured_data(value.external.data))
+    rich.print(table)
+  elif value.HasField('tuple'):
+    table = rich.table.Table('Tuple', name, padding=(0, 1, 1, 1))
+    table.add_row('Elements', '\n'.join(value.tuple.elements))
+    rich.print(table)
+  elif value.HasField('named_tuple'):
+    table = rich.table.Table('Named tuple', name, padding=(0, 1, 1, 1))
+    for pair in value.named_tuple.elements:
+      table.add_row(pair.name, pair.value)
     rich.print(table)
   else:
     rich.print('Unknown value type')
