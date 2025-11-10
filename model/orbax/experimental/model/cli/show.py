@@ -24,6 +24,7 @@ from orbax.experimental.model.cli import constants
 from orbax.experimental.model.cli import printer
 from orbax.experimental.model.core.python import file_utils
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
+from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
 import rich
 import typer
 from typing_extensions import Annotated
@@ -177,7 +178,9 @@ def _show_details(
 ) -> None:
   """Shows details for an object or a supplemental."""
   if details in manifest.objects:
-    _show_object_details(details, manifest.objects[details], verbose)
+    _show_object_details(
+        model_base_dir, details, manifest.objects[details], verbose
+    )
 
   if details in manifest.supplemental_info:
     _show_supplemental_details(
@@ -189,15 +192,17 @@ def _show_details(
       and details not in manifest.supplemental_info
   ):
     rich.print(f'Unknown object or supplemental: {details}')
-  elif not verbose:
-    rich.print('Re-run with `--verbose` to show more details')
 
 
 def _show_object_details(
-    name: str, obj: obm.manifest_pb2.TopLevelObject, verbose: bool
+    model_base_dir: str,
+    name: str,
+    obj: obm.manifest_pb2.TopLevelObject,
+    verbose: bool,
 ) -> None:
+  """Shows details for an object."""
   if obj.HasField('function'):
-    _show_function_details(name, obj.function, verbose)
+    _show_function_details(model_base_dir, name, obj.function, verbose)
   elif obj.HasField('value'):
     _show_value_details(name, obj.value)
   elif obj.HasField('poly_fn'):
@@ -207,9 +212,9 @@ def _show_object_details(
 
 
 def _show_function_details(
-    name: str, fn: obm.manifest_pb2.Function, verbose: bool
+    model_base_dir: str, name: str, fn: obm.manifest_pb2.Function, verbose: bool
 ) -> None:
-  """Shows details for a StableHLO function body."""
+  """Shows the function details (StableHLO or TF ConcreteFunction handle)."""
 
   table = rich.table.Table('Function', name, padding=(0, 1, 1, 1))
 
@@ -235,16 +240,29 @@ def _show_function_details(
             f'{printer.pad("\n".join(fn.data_names), " - ")}',
         )
       else:
-        table.add_row('Data names', f'{len(fn.data_names)} total')
+        table.add_row(
+            'Data names',
+            f'{len(fn.data_names)} total (`[green]--verbose[/green]` to'
+            ' expand)',
+        )
     if fn.gradient_function_name:
       table.add_row('Gradient function name', f'{fn.gradient_function_name}')
     if body.supplemental_info:
       for name, supp in sorted(body.supplemental_info.items()):
         table.add_row(name, printer.unstructured_data(supp))
   elif fn.body.HasField('other'):
-    table.add_row('Type', printer.unstructured_data(fn.body.other))
+    match fn.body.other.mime_type:
+      case constants.MIME_TYPE_TF_CONCRETE_FUNCTION:
+        table.add_row('Type', 'TF ConcreteFunction handle')
+        handle = tf_concrete_function_handle_pb2.TfConcreteFunctionHandle()
+        _read_proto_from_data(model_base_dir, fn.body.other, handle)
+        table.add_row('Name', handle.fn_name)
+        table.add_row('Inputs', '\n'.join(handle.input_names))
+        table.add_row('Outputs', '\n'.join(handle.output_names))
+      case _:
+        table.add_row('Type', printer.unstructured_data(fn.body.other))
   else:
-    table.add_row('Type', 'Unknown function')
+    table.add_row('Type', 'Unknown function type')
 
   rich.print(table)
 
