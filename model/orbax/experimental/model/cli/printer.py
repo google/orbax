@@ -183,6 +183,39 @@ def jax_specific_info(info: jax_supplemental_pb2.Function) -> str:
   return text_format.MessageToString(info_copy)
 
 
+def collapse(
+    text: str,
+    threshold: int = 15,
+    num_lines: int = 10,
+    verbose_mode: bool = False,
+) -> str:
+  """Collapses a string to a given number of lines.
+
+  If the number of lines in `text` exceeds `threshold` (and `verbose_mode` is
+  False), the text is truncated to `num_lines` lines and an expansion hint
+  message is appended.
+
+  Args:
+    text: The text to collapse.
+    threshold: The maximum number of lines to show without collapsing.
+    num_lines: The number of lines to show when collapsed.
+    verbose_mode: Whether to show all lines.
+
+  Returns:
+    The collapsed text with an expansion hint (if applicable).
+  """
+  lines = text.splitlines()
+  if len(lines) <= threshold or verbose_mode:
+    return text
+
+  collapsed_lines = '\n'.join(lines[0:num_lines])
+  collapsed_lines += (
+      f'\n  ...{len(lines) - num_lines} more lines... '
+      '(`[green]--verbose[/green]` to expand)'
+  )
+  return collapsed_lines
+
+
 def redact_byte_fields(msg: message.Message):
   """Recursively redacts all byte fields in a proto message."""
   if not hasattr(msg, 'ListFields'):

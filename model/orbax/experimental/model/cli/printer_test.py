@@ -316,5 +316,34 @@ class PrinterTest(parameterized.TestCase):
     self.assertEqual(msg.map_string_field['a'], 'b')
 
 
+class CollapseTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      (
+          'less_than_threshold',
+          'line1\nline2',
+          'line1\nline2',
+      ),
+      (
+          'more_than_threshold',
+          'l1\nl2\nl3\nl4\nl5\nl6',
+          (
+              'l1\nl2\nl3\n  ...3 more lines... (`[green]--verbose[/green]` to'
+              ' expand)'
+          ),
+          dict(threshold=5, num_lines=3),
+      ),
+      (
+          'more_than_threshold_in_verbose_mode',
+          'l1\nl2\nl3\nl4\nl5\nl6',
+          'l1\nl2\nl3\nl4\nl5\nl6',
+          dict(threshold=5, num_lines=3, verbose_mode=True),
+      ),
+  )
+  def test_collapse(self, text, expected_str, kwargs=None):
+    kwargs = kwargs or {}
+    self.assertEqual(printer.collapse(text, **kwargs), expected_str)
+
+
 if __name__ == '__main__':
   absltest.main()

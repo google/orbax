@@ -225,9 +225,25 @@ def _show_function_details(
         'Visibility',
         obm.manifest_pb2.Visibility.Name(fn.visibility).lower(),
     )
-    table.add_row('Size', f'{len(body.stable_hlo.inlined_bytes)} bytes')
-    table.add_row('Input signature', printer.obm_type(fn.signature.input))
-    table.add_row('Output signature', printer.obm_type(fn.signature.output))
+    hint = (
+        ' (`[green]--savehlo <file>[/green]` to save locally)'
+        if fn.body.HasField('stable_hlo_body')
+        else ''
+    )
+    table.add_row('Size', f'{len(body.stable_hlo.inlined_bytes)} bytes' + hint)
+
+    table.add_row(
+        'Input signature',
+        printer.collapse(
+            printer.obm_type(fn.signature.input), verbose_mode=verbose
+        ),
+    )
+    table.add_row(
+        'Output signature',
+        printer.collapse(
+            printer.obm_type(fn.signature.output), verbose_mode=verbose
+        ),
+    )
     table.add_row('Lowering platforms', ','.join(body.lowering_platforms))
     table.add_row(
         'Calling convention version', f'{body.calling_convention_version}'
@@ -265,12 +281,6 @@ def _show_function_details(
     table.add_row('Type', 'Unknown function type')
 
   rich.print(table)
-
-  if fn.body.HasField('stable_hlo_body'):
-    rich.print(
-        'Re-run with `--savehlo <file>` to deserialize this function into a'
-        ' file.'
-    )
 
 
 def _show_value_details(name: str, value: obm.manifest_pb2.Value) -> None:
