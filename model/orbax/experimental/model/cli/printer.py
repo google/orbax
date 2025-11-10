@@ -16,9 +16,12 @@
 
 from collections.abc import MutableSequence
 
+from google.protobuf import descriptor
+from google.protobuf import message
 from google.protobuf import text_format
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.cli import constants
+from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 
 _BatchComponent = oex_orchestration_pb2.BatchOptions.BatchComponent
 
@@ -76,6 +79,11 @@ def unstructured_data(
     details.append(f'inlined: {len(data.inlined_string)} characters')
   elif data.HasField('inlined_bytes'):
     details.append(f'inlined: {len(data.inlined_bytes)} bytes')
+
+  if data.mime_type in constants.MIME_TYPE_FLAGS:
+    details.append(
+        f'`[green]--{constants.MIME_TYPE_FLAGS[data.mime_type]}[/green]` to see'
+    )
 
   return '\n'.join(details)
 
@@ -165,3 +173,55 @@ def tensor_type(tt: obm.type_pb2.TensorType) -> str:
 
 def pad(text: str, padding: str = '  ') -> str:
   return '\n'.join([padding + line for line in text.splitlines()])
+
+
+def jax_specific_info(info: jax_supplemental_pb2.Function) -> str:
+  """Generates a human-readable string for JAX specific information."""
+  info_copy = jax_supplemental_pb2.Function()
+  info_copy.CopyFrom(info)
+  redact_byte_fields(info_copy)
+  return text_format.MessageToString(info_copy)
+
+
+def redact_byte_fields(msg: message.Message):
+  """Recursively redacts all byte fields in a proto message."""
+  if not hasattr(msg, 'ListFields'):
+    # Break out for primitive types.
+    return
+
+  redacted = lambda n: f'[bold]<{n} bytes...>[/bold]'.encode('utf-8')
+
+  for fd, value in msg.ListFields():
+    if fd.type == descriptor.FieldDescriptor.TYPE_BYTES:
+      if fd.label == descriptor.FieldDescriptor.LABEL_REPEATED:
+        # E.g. `repeated bytes foo`
+        fields = getattr(msg, fd.name)
+        field_lengths = [len(field) for field in fields]
+        del fields[:]
+        for field_len in field_lengths:
+          fields.append(redacted(field_len))
+      else:
+        # E.g. `bytes foo`
+        field_len = len(value)
+        if field_len > 0:
+          setattr(
+              msg,
+              fd.name,
+              redacted(field_len),
+          )
+    elif fd.type == descriptor.FieldDescriptor.TYPE_MESSAGE:
+      if fd.message_type.GetOptions().map_entry:
+        value_fd = fd.message_type.fields_by_name['value']
+        if value_fd.type == descriptor.FieldDescriptor.TYPE_MESSAGE:
+          for k in value:
+            redact_byte_fields(value[k])
+        elif value_fd.type == descriptor.FieldDescriptor.TYPE_BYTES:
+          for k in value:
+            field_len = len(value[k])
+            if field_len > 0:
+              value[k] = redacted(field_len)
+      elif fd.label == descriptor.FieldDescriptor.LABEL_REPEATED:
+        for entry in value:
+          redact_byte_fields(entry)
+      else:
+        redact_byte_fields(value)

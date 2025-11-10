@@ -17,6 +17,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.experimental.model.cli import printer
+from orbax.experimental.model.cli import redaction_test_pb2
 from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.protos import type_pb2
 
@@ -278,6 +279,41 @@ class PrinterTest(parameterized.TestCase):
   )
   def test_object(self, obj, expected_str):
     self.assertEqual(printer.top_level_object(obj), expected_str)
+
+  def test_redact_byte_fields(self):
+    msg = redaction_test_pb2.RedactionTestMessage(
+        string_field='foo',
+        bytes_field=b'123',
+        int_field=10,
+        repeated_bytes_field=[b'45', b'678'],
+        nested_message=redaction_test_pb2.NestedMessageWithBytes(
+            nested_bytes=b'bar', nested_string='baz'
+        ),
+        map_string_field={'a': 'b'},
+    )
+    msg.map_bytes_field['b1'] = b'90'
+    msg.map_message_field['m1'].nested_bytes = b'quux'
+    msg.map_message_field['m1'].nested_string = 'quux2'
+    msg.map_message_field['m2'].nested_bytes = b''
+
+    printer.redact_byte_fields(msg)
+
+    self.assertEqual(msg.string_field, 'foo')
+    self.assertEqual(msg.int_field, 10)
+    self.assertEqual(msg.bytes_field, b'[bold]<3 bytes...>[/bold]')
+    self.assertEqual(msg.repeated_bytes_field[0], b'[bold]<2 bytes...>[/bold]')
+    self.assertEqual(msg.repeated_bytes_field[1], b'[bold]<3 bytes...>[/bold]')
+    self.assertEqual(
+        msg.nested_message.nested_bytes, b'[bold]<3 bytes...>[/bold]'
+    )
+    self.assertEqual(msg.nested_message.nested_string, 'baz')
+    self.assertEqual(msg.map_bytes_field['b1'], b'[bold]<2 bytes...>[/bold]')
+    self.assertEqual(
+        msg.map_message_field['m1'].nested_bytes, b'[bold]<4 bytes...>[/bold]'
+    )
+    self.assertEqual(msg.map_message_field['m1'].nested_string, 'quux2')
+    self.assertEqual(msg.map_message_field['m2'].nested_bytes, b'')
+    self.assertEqual(msg.map_string_field['a'], 'b')
 
 
 if __name__ == '__main__':

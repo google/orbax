@@ -16,17 +16,28 @@
 
 CLI_VERSION = '0.0.1'
 
+MIME_TYPE_JAX_SPECIFIC_INFO = (
+    'application/protobuf; type=orbax_model_jax_supplemental.Function'
+)
 MIME_TYPE_MLIR_STABLEHLO = 'application/x.mlir-stablehlo'
+MIME_TYPE_ORBAX_CHECKPOINT = 'application/x.orbax-checkpoint'
 MIME_TYPE_TF_CONCRETE_FUNCTION = (
     'application/protobuf;'
     ' type=orbax_model_tf_concrete_function_handle.TfConcreteFunctionHandle'
 )
-MIME_TYPE_ORBAX_CHECKPOINT = 'application/x.orbax-checkpoint'
 MIME_TYPE_TF_SAVED_MODEL = 'application/x.tensorflow-saved-model'
 
+
 WELL_KNOWN_MIME_TYPE_DESCRIPTIONS = {
+    MIME_TYPE_JAX_SPECIFIC_INFO: 'JAX Supplemental Function',
     MIME_TYPE_MLIR_STABLEHLO: 'MLIR StableHLO',
-    MIME_TYPE_TF_CONCRETE_FUNCTION: 'TensorFlow ConcreteFunction',
     MIME_TYPE_ORBAX_CHECKPOINT: 'Orbax Checkpoint',
+    MIME_TYPE_TF_CONCRETE_FUNCTION: 'TensorFlow ConcreteFunction',
     MIME_TYPE_TF_SAVED_MODEL: 'TensorFlow SavedModel',
+}
+
+# Register flags for printing details for some types, typically
+# ones that don't fit into the default details output.
+MIME_TYPE_FLAGS = {
+    MIME_TYPE_JAX_SPECIFIC_INFO: 'jax_specific_info',
 }

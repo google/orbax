@@ -22,15 +22,15 @@ from orbax.experimental.model import core as obm
 from orbax.experimental.model.cli import constants
 from orbax.experimental.model.cli import printer
 from orbax.experimental.model.core.python import file_utils
+from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 import rich
 import typer
 from typing_extensions import Annotated
 
 
-def _save_stablehlo(
-    manifest: obm.manifest_pb2.Manifest, fn_name: str, output_file: str
-) -> None:
-  """Saves the StableHLO function body to the given file."""
+def _get_stable_hlo_body(
+    manifest: obm.manifest_pb2.Manifest, fn_name: str
+) -> obm.manifest_pb2.StableHloFunctionBody:
   if fn_name not in manifest.objects:
     raise ValueError(f'Function `{fn_name}` not found in the manifest')
   if not manifest.objects[fn_name].HasField('function'):
@@ -38,14 +38,46 @@ def _save_stablehlo(
   fn = manifest.objects[fn_name].function
   if not fn.body.HasField('stable_hlo_body'):
     raise ValueError(f'Function `{fn_name}` does not have a StableHLO body')
+  return fn.body.stable_hlo_body
 
+
+def _show_jax_specific_info(
+    model_base_dir: str,
+    manifest: obm.manifest_pb2.Manifest,
+    fn_name: str,
+) -> None:
+  """Shows JAX specific information for a function."""
+  body = _get_stable_hlo_body(manifest, fn_name)
+
+  found_data = False
+  for name, data in sorted(body.supplemental_info.items()):
+    if data.mime_type == constants.MIME_TYPE_JAX_SPECIFIC_INFO:
+      found_data = True
+      info = jax_supplemental_pb2.Function()
+      _read_proto_from_data(model_base_dir, data, info)
+
+      table = rich.table.Table(
+          fn_name, name, padding=(0, 1, 1, 1), min_width=80
+      )
+      table.add_row('', printer.jax_specific_info(info))
+      rich.print(table)
+
+  if not found_data:
+    raise ValueError(
+        'Function `%s` does not have JAX specific information' % fn_name
+    )
+
+
+def _save_stablehlo(
+    manifest: obm.manifest_pb2.Manifest, fn_name: str, output_file: str
+) -> None:
+  """Saves the StableHLO function body to the given file."""
+  body = _get_stable_hlo_body(manifest, fn_name)
   stablehlo_module = jex.mlir.deserialize_portable_artifact(
-      fn.body.stable_hlo_body.stable_hlo.inlined_bytes
+      body.stable_hlo.inlined_bytes
   )
-
   with file_utils.open_file(output_file, 'w') as f:
     f.write(str(stablehlo_module))
-
   rich.print(f'Saved StableHLO function to `{output_file}`')
 
 
@@ -77,6 +109,13 @@ def show(
             help='Save the StableHLO function body to the given file',
         ),
     ] = '',
+    jax_specific_info: Annotated[
+        bool,
+        typer.Option(
+            f'--{constants.MIME_TYPE_FLAGS[constants.MIME_TYPE_JAX_SPECIFIC_INFO]}',
+            help='Show JAX specific info for a function',
+        ),
+    ] = False,
 ) -> None:
   """Shows the summary of an Orbax model."""
   rich.print('Loading Orbax model... ')
@@ -95,6 +134,10 @@ def show(
 
   if details and savehlo:
     _save_stablehlo(manifest, details, savehlo)
+    return
+
+  if details and jax_specific_info:
+    _show_jax_specific_info(model_base_dir, manifest, details)
     return
 
   if details:
