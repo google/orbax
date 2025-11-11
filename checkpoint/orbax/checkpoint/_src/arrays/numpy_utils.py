@@ -51,7 +51,7 @@ def resolve_slice(xs: NdSlice, shape: Shape) -> NdSlice:
     constituent slices.
   """
   return tuple(
-      slice(x.start or 0, x.stop if x.stop is not None else n, x.step or 1)
+      slice(*x.indices(n))
       if isinstance(x, slice) else slice(x, x+1, 1)
       for x, n in zip(() if xs is Ellipsis else xs, shape))
 
