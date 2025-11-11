@@ -843,6 +843,8 @@ def _get_abstract_arrays(
     assert isinstance(arg, ArrayRestoreArgs)
     assert arg.global_shape is not None
     assert arg.dtype is not None
+    if sharding is None:
+      raise ValueError('Sharding of jax.Array cannot be None.')
     abstract_arrays.append(
         jax.ShapeDtypeStruct(
             shape=arg.global_shape, dtype=arg.dtype, sharding=sharding
@@ -923,6 +925,9 @@ class ArrayHandler(types.TypeHandler):
       raise ValueError(
           'Setting `primary_host` to None requires JAX version > 0.4.25.'
       )
+
+  def has_dispatcher(self) -> bool:
+    return self._dispatcher is not None
 
   def _get_json_tspec_read(
       self,
@@ -1078,6 +1083,38 @@ class ArrayHandler(types.TypeHandler):
 
     return future_list
 
+  async def _maybe_read_metadata_and_update_restore_args(
+      self,
+      infos: Sequence[types.ParamInfo],
+      args: Sequence[types.RestoreArgs],
+  ) -> Sequence[ArrayRestoreArgs]:
+    """Reads metadata and updates restore args."""
+    if any(
+        not isinstance(arg, ArrayRestoreArgs)
+        or arg.global_shape is None
+        or arg.dtype is None
+        for arg in args
+    ):
+      result: list[ArrayRestoreArgs] = []
+      logging.warning(
+          '`global_shape` and `dtype` are required for efficient restoration on'
+          ' Pathways. Automatically restoring metadata from disk to obtain'
+          ' these properties, which involves lightweight reading of metadata'
+          ' files, but please provide these properties for optimal restoration.'
+      )
+      metadatas = await self.metadata(infos)
+      for arg, meta in zip(args, metadatas):
+        if not isinstance(arg, ArrayRestoreArgs):
+          arg = ArrayRestoreArgs()
+        if arg.global_shape is None:
+          arg = dataclasses.replace(arg, global_shape=meta.shape)
+        if arg.dtype is None:
+          arg = dataclasses.replace(arg, dtype=meta.dtype)
+        result.append(arg)
+      return result
+    else:
+      return [cast(ArrayRestoreArgs, arg) for arg in args]
+
   async def deserialize(
       self,
       infos: Sequence[types.ParamInfo],
@@ -1111,6 +1148,9 @@ class ArrayHandler(types.TypeHandler):
           infos, args, shardings, self._metadata_key, self._array_metadata_store
       )
     else:
+      args = await self._maybe_read_metadata_and_update_restore_args(
+          infos, args
+      )
       ret = self._dispatcher.dispatch(
           _sync_deserialize_arrays,
           result_specs=_get_abstract_arrays(args, shardings),

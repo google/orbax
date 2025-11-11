@@ -42,6 +42,17 @@ class DispatchersTest(parameterized.TestCase):
     self.assertTrue(arr.sharding.is_fully_replicated)
     self.assertCountEqual(list(arr.devices()), devices)
 
+  def test_get_dummy_input_array_from_result_specs(self):
+    arr = _get_mock_dispatcher_array()
+    result_specs = jax.ShapeDtypeStruct(
+        arr.shape, arr.dtype, sharding=arr.sharding
+    )
+    dummy = dispatchers._get_dummy_input_array_from_result_specs(result_specs)
+    self.assertEqual(dummy.shape, ())
+    self.assertEqual(dummy.dtype, jnp.bool)
+    self.assertTrue(dummy.sharding.is_fully_replicated)
+    self.assertCountEqual(list(dummy.devices()), arr.devices())
+
   def test_make_dummy_result_array(self):
     arr = _get_mock_dispatcher_array()
     dummy = dispatchers._make_dummy_result_array(arr)

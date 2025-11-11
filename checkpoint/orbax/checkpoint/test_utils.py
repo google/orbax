@@ -784,6 +784,7 @@ def get_expected_chunk_shape(
     *,
     use_replica_parallel: bool = True,
     max_replicas_for_replica_parallel: Optional[bool] = None,
+    pathways_support_replica_parallel: bool = False,
 ) -> tuple[int, ...]:
   """Expected chunk shape for an array, accounting for replica-parallel."""
   if not use_replica_parallel:

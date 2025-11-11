@@ -41,6 +41,21 @@ def get_dummy_input_array(
   return jax.device_put(jnp.array(True, dtype=jnp.bool), sharding)
 
 
+def _get_dummy_input_array_from_result_specs(
+    result_specs: PyTree,
+) -> jax.Array:
+  """Returns a dummy array with replicated sharding on the given devices."""
+  devices = set()
+
+  def _update_devices(x):
+    if hasattr(x, 'sharding') and x.sharding is not None:
+      devices.update(x.sharding.device_set)
+
+  jax.tree.map(_update_devices, result_specs)
+  device_list: list[jax.Device] = sorted(list(devices), key=lambda d: d.id)
+  return get_dummy_input_array(device_list)
+
+
 def _make_dummy_result_array(
     pytree: PyTree, abstract: bool = False
 ) -> jax.Array | jax.ShapeDtypeStruct:
@@ -295,7 +310,10 @@ class ColocatedPythonDispatcher(Dispatcher):
       func_kwargs = {}
 
     if input_arrays is None:
-      input_arrays = get_dummy_input_array(jax.devices())
+      if result_specs is None:
+        input_arrays = get_dummy_input_array(jax.devices())
+      else:
+        input_arrays = _get_dummy_input_array_from_result_specs(result_specs)
 
     cpu_args = self._transform_pytree_shardings(func_args)
     cpu_kwargs = self._transform_pytree_shardings(func_kwargs)
