@@ -31,8 +31,7 @@ _ZARRAY_SUFFIX = '/.zarray'
 
 
 async def _validate_params(
-    directory: epath.Path,
-    ts_context: ts.Context,
+    ts_kv_store: ts.KvStore,
     use_zarr3: bool,
 ) -> None:
   """Validates the params present in tensorstore KvStore.
@@ -42,15 +41,9 @@ async def _validate_params(
   NOTE: Support for zarr3 will be added later.
 
   Args:
-    directory: checkpoint location.
-    ts_context: Tensorstore context.
+    ts_kv_store: Open kvstore to validate, with transaction if applicable.
     use_zarr3: If True, use zarr3 driver, otherwise, use zarr driver.
   """
-  merged_kvstore_tspec = ts_utils.build_kvstore_tspec(
-      directory.as_posix(), use_ocdbt=True
-  )
-  ts_kv_store = await ts_utils.open_kv_store(merged_kvstore_tspec, ts_context)
-
   # TODO: b/362328389 - Add support for zarr3.
   if use_zarr3:
     logging.info(
@@ -196,11 +189,11 @@ async def merge_ocdbt_per_process_files(
         child.experimental_copy_range_to(parent.with_transaction(txn))
     )
   await asyncio.gather(*copy_ops)
-  await txn.commit_async()
 
   # Validate merged params.
   if enable_validation:
-    await _validate_params(directory, ts_context, use_zarr3=use_zarr3)
+    _validate_params(parent.with_transaction(txn), use_zarr3=use_zarr3)
+  await txn.commit_async()
 
 
 def get_process_index_for_subdir(

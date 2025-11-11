@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Validate checkpoints before writing merged OCDBT database using in-memory
+  state, avoiding additional I/O to re-read metadata.
+
 ## [0.11.28] - 2025-11-06
 
 ### Added
