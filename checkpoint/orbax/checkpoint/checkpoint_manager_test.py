@@ -3907,6 +3907,28 @@ class CheckpointManagerTest(
         )
         test_utils.assert_tree_equal(self, expected, restored)
 
+  @parameterized.parameters(True, False)
+  def test_save_with_global_mesh(self, use_same_mesh: bool):
+    if use_same_mesh:
+      devices = np.asarray(jax.devices())
+      axis_names = ('x',)
+    else:
+      if multihost.is_pathways_backend():
+        self.skipTest('Not applicable to Pathways.')
+      devices = np.asarray(jax.devices()[:4])
+      axis_names = ('x',)
+    mesh = jax.sharding.Mesh(devices, axis_names)
+    jax.sharding.set_mesh(mesh)
+
+    with CheckpointManager(
+        self.directory,
+        item_names=('params',),
+    ) as manager:
+      self.assertTrue(self.save_params(0, manager, self.pytree))
+      self.wait_if_async(manager)
+      restored = self.restore_params(0, manager)
+      test_utils.assert_tree_equal(self, self.pytree, restored)
+
 
 if __name__ == '__main__':
   multiprocess_test.main()
