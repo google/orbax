@@ -242,7 +242,7 @@ jobs:
         working-directory: checkpoint
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10"]
         jax-version: ["0.6.0"]
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -267,6 +267,8 @@ jobs:
     - name: Run benchmarks
       env:
         GCS_BUCKET_PATH: gs://orbax-benchmarks/benchmark-results/${{ github.run_id }}
+        TF_FORCE_GPU_ALLOW_GROWTH: true
+        XLA_PYTHON_CLIENT_PREALLOCATE: false
       run: |
         cd orbax/checkpoint/_src/testing/benchmarks && python run_benchmarks.py --config_file=configs/pytree_checkpoint_benchmark.yaml --output_directory=$GCS_BUCKET_PATH
         cd ../../../../..
