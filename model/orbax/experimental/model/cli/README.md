@@ -7,7 +7,7 @@ A command-line tool for inspecting Orbax models.
 To inspect the model:
 
   ```bash
-  % obm_cli show /path/to/model
+  % obm-cli show /path/to/model
 
   Loading Orbax model...
   Manifest: 1832 KiB, 7 objects, 2 supplementals
@@ -44,10 +44,10 @@ To inspect the model:
 To show more details about an object or a supplemental in the model:
 
   ```bash
-  % obm_cli show /path/to/model --details <object_or_supplemental_name>
+  % obm-cli show /path/to/model --details <object_or_supplemental_name>
 
   # E.g.
-  % obm_cli show /path/to/model --details serving_default
+  % obm-cli show /path/to/model --details serving_default
 
   Loading Orbax model...
   Manifest: 1832 KiB, 7 objects, 2 supplementals

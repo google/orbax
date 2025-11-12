@@ -14,7 +14,7 @@
 
 """Command line interface for Orbax Model.
 
-obm_cli is a command line interface for Orbax Model. It allows users to inspect
+obm-cli is a command line interface for Orbax Model. It allows users to inspect
 an exported Orbax Model.
 """
 
