@@ -17,7 +17,6 @@
 # TODO(b/356174487):  Add unit tests.
 
 from collections.abc import Mapping, Sequence
-import os
 from absl import logging
 from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.python import device_assignment
@@ -115,14 +114,11 @@ def build_device_assignment_by_coords_proto(
   proto = manifest_pb2.DeviceAssignmentByCoords()
 
   for assignment in device_assignments:
-    device_proto = manifest_pb2.DeviceAssignmentByCoords.Device()
-    device_proto.id = assignment.id
+    device_proto = proto.devices.add(id=assignment.id)
     if assignment.coords is not None:
       device_proto.coords.extend(assignment.coords)
     if assignment.core_on_chip is not None:
       device_proto.core_on_chip = assignment.core_on_chip
-
-    proto.devices.append(device_proto)
 
   return proto
 
