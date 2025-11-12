@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 import math
-from typing import Any
+from typing import Any, Sequence
 from absl import logging
 import jax
 import numpy as np
@@ -30,22 +30,25 @@ def _partition_axis_name(offset: int) -> str:
 
 def _construct_maximal_sharding(
     sds: jax.ShapeDtypeStruct,
+    devices: Sequence[jax.Device] | None = None,
 ) -> jax.sharding.Sharding:
   """Constructs a sharding that partitions the array as much as possible."""
+  devices = devices or jax.devices()
+  device_count = len(devices)
   shape = sds.shape
   if not shape:
     return jax.sharding.NamedSharding(
-        mesh=jax.sharding.Mesh(jax.devices(), ('a',)),
+        mesh=jax.sharding.Mesh(devices, ('a',)),
         spec=jax.sharding.PartitionSpec(),
     )
   if np.max(shape) < jax.device_count():
     # Array is small - no sharding needed.
     return jax.sharding.NamedSharding(
-        mesh=jax.sharding.Mesh(jax.devices(), ('a',)),
+        mesh=jax.sharding.Mesh(devices, ('a',)),
         spec=jax.sharding.PartitionSpec(),
     )
 
-  available_device_dim = jax.device_count()
+  available_device_dim = device_count
   partition_axes = [None] * len(shape)
   mesh_shape = []
   mesh_axes = []
@@ -86,25 +89,30 @@ def _construct_maximal_sharding(
   assert len(mesh_shape) == len(mesh_axes)
   assert len(partition_axes) == len(shape)
   mesh = jax.sharding.Mesh(
-      np.asarray(jax.devices()).reshape(mesh_shape),
+      np.asarray(devices).reshape(mesh_shape),
       tuple(mesh_axes),
   )
   pspec = jax.sharding.PartitionSpec(*partition_axes)
   return jax.sharding.NamedSharding(mesh=mesh, spec=pspec)
 
 
-def construct_maximal_shardings(abstract_state: PyTree) -> PyTree:
+def construct_maximal_shardings(
+    abstract_state: PyTree, devices: Sequence[jax.Device] | None = None
+) -> PyTree:
   """Construct a sharding that partitions each array as much as possible.
 
   This method is subject to change and should not be considered stable.
 
   Args:
     abstract_state: PyTree of jax.ShapeDtypeStruct.
+    devices: Devices to shard across. If None, uses all available devices.
 
   Returns:
     PyTree of jax.sharding.Sharding.
   """
-  shardings = jax.tree.map(_construct_maximal_sharding, abstract_state)
+  shardings = jax.tree.map(
+      lambda x: _construct_maximal_sharding(x, devices=devices), abstract_state
+  )
 
   total_size = 0
 
