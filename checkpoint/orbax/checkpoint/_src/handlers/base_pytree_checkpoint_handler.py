@@ -133,13 +133,11 @@ def _log_io_metrics(
       humanize.naturalsize(size, binary=True),
       humanize.naturaldelta(time_elapsed, minimum_unit='microseconds'),
   )
-  jax.monitoring.record_event(
-      gbytes_per_sec_metric, gbytes_per_sec=f'{bytes_per_sec / (1024 ** 3):.3f}'
+  jax.monitoring.record_scalar(
+      gbytes_per_sec_metric, value=bytes_per_sec / (1024**3)
   )
   if gbytes_metric is not None:
-    jax.monitoring.record_event(
-        gbytes_metric, gbytes=f'{size / (1024 ** 3):.3f}'
-    )
+    jax.monitoring.record_scalar(gbytes_metric, value=size / (1024**3))
 
 
 async def _logging_serialize(
