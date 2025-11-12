@@ -507,16 +507,9 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
         math.prod(chunk_shape) * storage_dtype.itemsize,
         chunk_byte_size,
     )
-    # Write shape subchunked on both of requested axes.
+    # Write shape fully chunked on both of explicitly requested axes.
     for shard_axis in shard_axes:
-      self.assertLess(chunk_shape[shard_axis], self.write_shape[shard_axis])
-    # If storage dtype is different from the dtype, it should be accounted for.
-    if storage_dtype != self.dtype:
-      assert storage_dtype.itemsize < self.dtype.itemsize
-      self.assertGreater(
-          math.prod(chunk_shape) * self.dtype.itemsize,
-          chunk_byte_size,
-      )
+      self.assertEqual(chunk_shape[shard_axis], 1)
 
   @parameterized.product(
       (

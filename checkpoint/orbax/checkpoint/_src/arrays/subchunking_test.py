@@ -125,22 +125,26 @@ class ChooseChunkShapeTest(parameterized.TestCase):
       )
       np.testing.assert_array_equal(chosen_shape, (10, 1, 100))
 
-  @parameterized.product(shard_axes=((), (0, 1)))
-  def test_returns_write_shape_if_target_byte_size_is_none(
-      self,
-      shard_axes: tuple[int, ...],
-  ):
+  def test_target_byte_size_is_none(self):
     dtype = np.dtype('float32')
     global_shape = (10, 100, 200)
     write_shape = (5, 50, 200)
-    chosen_shape = subchunking.choose_chunk_shape(
+
+    choose_chunk_shape = functools.partial(
+        subchunking.choose_chunk_shape,
         global_shape=global_shape,
         write_shape=write_shape,
         dtype=dtype,
         target_byte_size=None,
-        shard_axes=shard_axes,
     )
-    np.testing.assert_array_equal(chosen_shape, write_shape)
+
+    with self.subTest('no_shard_axes'):
+      chosen_shape = choose_chunk_shape()
+      np.testing.assert_array_equal(chosen_shape, write_shape)
+
+    with self.subTest('with_shard_axes'):
+      chosen_shape = choose_chunk_shape(shard_axes=(1, 2))
+      np.testing.assert_array_equal(chosen_shape, (5, 1, 1))
 
   def test_handles_zeros_in_shape(self):
     dtype = np.dtype('float32')
@@ -170,7 +174,7 @@ class ChooseChunkShapeTest(parameterized.TestCase):
           target_byte_size=(100 * dtype.itemsize),
           shard_axes=(1, 2),
       )
-      np.testing.assert_array_equal(chosen_shape, (5, 1, 20))
+      np.testing.assert_array_equal(chosen_shape, (5, 1, 1))
 
   @parameterized.product(
       dtype=(np.dtype(np.float32), np.dtype(np.int16)),
@@ -192,21 +196,33 @@ class ChooseChunkShapeTest(parameterized.TestCase):
           shard_axes=shard_axes,
       )
 
+  def test_raises_if_shard_axes_are_invalid(self):
+    with self.subTest('negative_axis'):
+      with self.assertRaisesRegex(
+          ValueError, 'must be non-negative and less than rank'
+      ):
+        _ = subchunking.choose_chunk_shape(
+            global_shape=(10, 100, 200),
+            write_shape=(5, 50, 200),
+            dtype=np.dtype(np.float32),
+            target_byte_size=100 * 5 * 50 * 200,
+            shard_axes=(-1,),
+        )
+
+    with self.subTest('axis_too_large'):
+      with self.assertRaisesRegex(
+          ValueError, 'must be non-negative and less than rank'
+      ):
+        _ = subchunking.choose_chunk_shape(
+            global_shape=(10, 100, 200),
+            write_shape=(5, 50, 200),
+            dtype=np.dtype(np.float32),
+            target_byte_size=100 * 5 * 50 * 200,
+            shard_axes=(2, 3),
+        )
+
 
 class ChooseChunkShapeWithShardAxesTest(parameterized.TestCase):
-
-  def test_maximizes_number_of_axes_to_shard(self):
-    dtype = np.dtype('float32')
-    global_shape = (8, 10, 9)
-    target_elements = 180
-    chosen_shape = subchunking.choose_chunk_shape(
-        global_shape=global_shape,
-        write_shape=global_shape,
-        dtype=dtype,
-        target_byte_size=target_elements * dtype.itemsize,
-        shard_axes=(0, 1, 2),
-    )
-    np.testing.assert_array_equal(chosen_shape, (4, 5, 9))
 
   def test_result_is_deterministic(self):
     dtype = np.dtype(np.float32)
@@ -236,77 +252,50 @@ class ChooseChunkShapeWithShardAxesTest(parameterized.TestCase):
           testcase_name='shards_on_one_axis',
           global_shape=(4, 90, 6),
           shard_axes=(0,),
-          target_elements=2 * 90 * 6,
-          expected_shape=(2, 90, 6),
+          target_elements=None,
+          expected_shape=(1, 90, 6),
       ),
       dict(
-          testcase_name='shards_multiple_times_on_one_axis',
-          global_shape=(4, 90, 6),
-          shard_axes=(1,),
-          target_elements=4 * 9 * 6,
-          expected_shape=(4, 9, 6),
-      ),
-      dict(
-          testcase_name='shards_on_all_requested_axes_if_possible',
-          global_shape=(4, 90, 6, 128),
-          shard_axes=(0, 2, 3),
-          target_elements=2 * 90 * 3 * 64,
-          expected_shape=(2, 90, 3, 64),
-      ),
-      dict(
-          testcase_name='skips_indivisible_axes',
-          global_shape=(1, 90, 1, 128),
-          shard_axes=(0, 2, 3),
-          target_elements=1 * 90 * 1 * 32,
-          expected_shape=(1, 90, 1, 32),
-      ),
-      dict(
-          testcase_name='shards_multiple_times_on_several_axes',
-          global_shape=(4, 90, 6, 128),
-          shard_axes=(0, 3),
-          target_elements=1 * 90 * 6 * 32,
-          expected_shape=(1, 90, 6, 32),
-      ),
-      dict(
-          testcase_name=(
-              'shards_multiple_times_on_several_axes_exhausting_one_axis'
-          ),
-          global_shape=(4, 90, 6, 128),
-          shard_axes=(0, 3),
-          target_elements=1 * 90 * 6 * 8,
-          expected_shape=(1, 90, 6, 8),
-      ),
-      dict(
-          testcase_name=(
-              'shards_multiple_times_exhausting_several_axes'
-          ),
-          global_shape=(4, 90, 6, 128),
-          shard_axes=(0, 2, 3),
-          target_elements=1 * 90 * 1 * 32,
-          expected_shape=(1, 90, 1, 32),
-      ),
-      dict(
-          testcase_name='exhausts_one_axis_and_falls_back_to_greedy_sharding',
+          testcase_name='shards_on_one_axis_regardless_of_target_elements',
           global_shape=(4, 90, 6),
           shard_axes=(0,),
-          target_elements=1 * 45 * 6,
-          expected_shape=(1, 45, 6),
+          target_elements=4 * 90 * 6,
+          expected_shape=(1, 90, 6),
       ),
       dict(
-          testcase_name=(
-              'exhausts_several_axes_and_falls_back_to_greedy_sharding'
-          ),
+          testcase_name='shards_on_multiple_axes',
+          global_shape=(4, 90, 6),
+          shard_axes=(0, 2),
+          target_elements=None,
+          expected_shape=(1, 90, 1),
+      ),
+      dict(
+          testcase_name='shards_on_multiple_axes_regardless_of_target_elements',
+          global_shape=(4, 90, 6),
+          shard_axes=(0, 2),
+          target_elements=4 * 90 * 6,
+          expected_shape=(1, 90, 1),
+      ),
+      dict(
+          testcase_name='shards_to_satisfy_both_shard_axes_and_target_elements',
           global_shape=(4, 90, 6, 128),
           shard_axes=(0, 2),
-          target_elements=1 * 45 * 1 * 32,
-          expected_shape=(1, 45, 1, 32),
+          target_elements=1 * 90 * 1 * 64,
+          expected_shape=(1, 90, 1, 64),
+      ),
+      dict(
+          testcase_name='shard_axes_and_greedy_sharding_on_more_than_one_axis',
+          global_shape=(4, 90, 6, 128),
+          shard_axes=(0, 2),
+          target_elements=1 * 90 * 1 * 32,
+          expected_shape=(1, 45, 1, 64),  # Reduces the maximum remaining dim.
       ),
   )
   def test_sharding_when_write_shape_equals_global_shape(
       self,
       global_shape: Shape,
       shard_axes: tuple[int, ...],
-      target_elements: int,
+      target_elements: int | None,
       expected_shape: Shape,
   ):
     dtype = np.dtype('float32')
@@ -314,44 +303,49 @@ class ChooseChunkShapeWithShardAxesTest(parameterized.TestCase):
         global_shape=global_shape,
         write_shape=global_shape,
         dtype=dtype,
-        target_byte_size=target_elements * dtype.itemsize,
+        target_byte_size=(
+            target_elements * dtype.itemsize
+            if target_elements is not None
+            else None
+        ),
         shard_axes=shard_axes,
     )
     np.testing.assert_array_equal(chosen_shape, expected_shape)
 
   @parameterized.named_parameters(
       dict(
-          testcase_name='prefers_unsharded_axis_if_requested',
+          testcase_name='shards_on_all_requested_axes_without_target_byte_size',
           global_shape=(4, 80, 12),
           write_shape=(4, 40, 6),
+          shard_axes=(0, 2),
+          target_elements=None,
+          expected_shape=(1, 40, 1),
+      ),
+      dict(
+          testcase_name=(
+              'shards_on_all_requested_axes_regardless_of_target_byte_size'
+          ),
+          global_shape=(4, 80, 12),
+          write_shape=(4, 40, 6),
+          shard_axes=(0, 2),
+          target_elements=4 * 80 * 6,
+          expected_shape=(1, 40, 1),
+      ),
+      dict(
+          testcase_name='greedy_sharding_if_there_are_no_already_sharded_axes',
+          global_shape=(16, 80, 12),
+          write_shape=(4, 80, 12),
           shard_axes=(0,),
-          target_elements=1 * 40 * 6,
-          expected_shape=(1, 40, 6),
+          target_elements=1 * 20 * 6,
+          expected_shape=(1, 10, 12),
       ),
       dict(
-          testcase_name='ensures_all_requested_axes_are_sharded',
-          global_shape=(4, 80, 12, 16),
-          write_shape=(4, 40, 6, 16),
-          shard_axes=(0, 2, 3),
-          target_elements=2 * 40 * 6 * 8,
-          expected_shape=(2, 40, 6, 8),
-      ),
-      dict(
-          # Splits both axes which have minimal available divisors (2).
-          testcase_name='ensures_max_number_of_requested_axes_are_sharded',
-          global_shape=(4, 80, 12, 16, 9),
-          write_shape=(4, 40, 6, 16, 9),
-          shard_axes=(0, 3, 4),
-          target_elements=2 * 40 * 6 * 8 * 9,
-          expected_shape=(2, 40, 6, 8, 9),
-      ),
-      dict(
-          testcase_name='skips_indivisible_axes',
-          global_shape=(4, 12, 80, 16),
-          write_shape=(1, 1, 40, 16),
-          shard_axes=(0, 1, 3),
-          target_elements=1 * 1 * 40 * 4,
-          expected_shape=(1, 1, 40, 4),
+          testcase_name='prefers_already_sharded_axes_over_greedy_sharding',
+          global_shape=(4, 80, 12, 12),
+          write_shape=(4, 80, 6, 6),
+          shard_axes=(0,),
+          target_elements=1 * 20 * 6 * 6,
+          expected_shape=(1, 80, 3, 3),
       ),
       dict(
           testcase_name='requested_axes_are_already_sharded',
@@ -367,7 +361,7 @@ class ChooseChunkShapeWithShardAxesTest(parameterized.TestCase):
       global_shape: Shape,
       write_shape: Shape,
       shard_axes: tuple[int, ...],
-      target_elements: int,
+      target_elements: int | None,
       expected_shape: Shape,
   ):
     dtype = np.dtype('float32')
@@ -375,7 +369,11 @@ class ChooseChunkShapeWithShardAxesTest(parameterized.TestCase):
         global_shape=global_shape,
         write_shape=write_shape,
         dtype=dtype,
-        target_byte_size=target_elements * dtype.itemsize,
+        target_byte_size=(
+            target_elements * dtype.itemsize
+            if target_elements is not None
+            else None
+        ),
         shard_axes=shard_axes,
     )
     np.testing.assert_array_equal(chosen_shape, expected_shape)
