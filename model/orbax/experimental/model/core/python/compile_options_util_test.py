@@ -12,10 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from typing import Any
+from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from google.protobuf import text_format
+import jax
+from jax.experimental import mesh_utils
 from orbax.experimental.model.core.python import compile_options_util
 from .platforms.xla.service.jellyfish import tpu_compilation_environment_pb2 as tpu_comp_env_pb2
 from .platforms.xla.service.jellyfish.python import tpu_compilation_environment as tpu_comp_env
@@ -303,8 +307,54 @@ class CompileOptionsUtilTest(parameterized.TestCase):
           },
       )
 
-  # TODO(b/439870345): add tests with different jax meshes and make sure the
-  # generated compile options are correct.
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='1d_mesh',
+          mesh_shape=(8,),
+          mesh_axis_names=('x',),
+      ),
+      dict(
+          testcase_name='2d_mesh',
+          mesh_shape=(4, 2),
+          mesh_axis_names=('x', 'y'),
+      ),
+      dict(
+          testcase_name='3d_mesh',
+          mesh_shape=(2, 2, 2),
+          mesh_axis_names=('x', 'y', 'z'),
+      ),
+  )
+  def test_generate_xla_compile_options_with_jax_mesh(
+      self, mesh_shape, mesh_axis_names
+  ):
+    self.enter_context(
+        mock.patch.dict(
+            os.environ,
+            {'XLA_FLAGS': '--xla_force_host_platform_device_count=8'},
+        )
+    )
+    mesh = jax.sharding.Mesh(
+        mesh_utils.create_device_mesh(mesh_shape), mesh_axis_names
+    )
+    compile_options_map = compile_options_util.generate_xla_compile_options(
+        native_serialization_platforms=['tpu'],
+        xla_flags_per_platform={},
+        jax_mesh=mesh,
+    )
+    self.assertIn('tpu', compile_options_map.map)
+    compile_options = compile_options_map.map['tpu']
+    self.assertEqual(
+        compile_options.executable_build_options.num_partitions, mesh.size
+    )
+    device_assignment = (
+        compile_options.executable_build_options.device_assignment
+    )
+    self.assertEqual(device_assignment.replica_count, 1)
+    self.assertEqual(device_assignment.computation_count, mesh.size)
+    self.assertLen(device_assignment.computation_devices, mesh.size)
+    for i, device in enumerate(device_assignment.computation_devices):
+      self.assertEqual(device.replica_device_ids, [i])
+
 
 if __name__ == '__main__':
   absltest.main()
