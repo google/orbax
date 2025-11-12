@@ -115,7 +115,7 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
         mngr.save(
             i,
             args=ocp.args.Composite(
-                pytree_item=ocp.args.StandardSave(item=pytree)
+                pytree_item=ocp.args.PyTreeSave(item=pytree)
             ),
         )
         save_times.append(time.time() - save_start)
@@ -154,7 +154,7 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
       mngr.restore(
           mngr.latest_step(),
           args=ocp.args.Composite(
-              pytree_item=ocp.args.StandardRestore(
+              pytree_item=ocp.args.PyTreeRestore(
                   item=abstract_pytree,
               ),
           ),

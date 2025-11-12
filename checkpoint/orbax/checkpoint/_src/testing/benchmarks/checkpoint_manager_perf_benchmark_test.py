@@ -111,12 +111,12 @@ class CheckpointManagerPerfBenchmarkTest(parameterized.TestCase):
     save_args = mock_save.call_args[1]['args']
     self.assertIsInstance(save_args, ocp.args.Composite)
     self.assertIn('pytree_item', save_args)
-    self.assertIsInstance(save_args['pytree_item'], ocp.args.StandardSave)
+    self.assertIsInstance(save_args['pytree_item'], ocp.args.PyTreeSave)
     mock_restore.assert_called_once()
     restore_args = mock_restore.call_args[1]['args']
     self.assertIsInstance(restore_args, ocp.args.Composite)
     self.assertIn('pytree_item', restore_args)
-    self.assertIsInstance(restore_args['pytree_item'], ocp.args.StandardRestore)
+    self.assertIsInstance(restore_args['pytree_item'], ocp.args.PyTreeRestore)
     mock_close.assert_called_once()
 
   def test_options_class(self):
