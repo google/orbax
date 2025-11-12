@@ -142,18 +142,28 @@ class ObmConfigsTest(absltest.TestCase):
           batch_timeout_micros=-1,
       )
 
-  def test_batch_options_raise_error_with_non_positive_num_batch_threads(
+  def test_batch_options_raise_error_with_negative_num_batch_threads(
       self,
   ):
     with self.assertRaisesRegex(
         ValueError,
-        r"`num_batch_threads` must be at least 1. Got: 0",
+        r"`num_batch_threads` must be at least 1. Got: -1",
     ):
       obm_configs.BatchOptions(
           batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
           max_batch_size=8,
-          num_batch_threads=0,
+          num_batch_threads=-1,
       )
+
+  def test_batch_options_with_num_batch_threads_zero(
+      self,
+  ):
+    batch_options = obm_configs.BatchOptions(
+        batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+        max_batch_size=8,
+        num_batch_threads=0,
+    )
+    self.assertEqual(batch_options.num_batch_threads, 1)
 
   def test_batch_options_raise_error_with_non_positive_max_enqueued_batches(
       self,

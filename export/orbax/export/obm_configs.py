@@ -18,6 +18,7 @@ from collections.abc import Sequence
 import dataclasses
 import enum
 import itertools
+import logging
 
 
 # LINT.IfChange
@@ -219,11 +220,18 @@ class BatchOptions:
         self.max_enqueued_batches,
     )
 
-    if self.num_batch_threads <= 0:
+    if self.num_batch_threads < 0:
       raise ValueError(
           "`num_batch_threads` must be at least 1. Got:"
           f" {self.num_batch_threads}"
       )
+    elif self.num_batch_threads == 0:
+      # Set num_batch_threads to 1 if it is 0.
+      logging.warning(
+          "num_batch_threads is %d. Setting it to 1.",
+          self.num_batch_threads,
+      )
+      self.num_batch_threads = 1
 
     if self.low_priority_batch_options is not None:
       if self.low_priority_batch_options.max_batch_size is None:
