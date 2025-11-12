@@ -973,3 +973,16 @@ class SaveLoadTestBase:
           with self.assertRaises(BaseException):
             r.result()
           self.assertLessEqual(time.time() - start, timeout + 1)
+
+    def test_save_checkpointables_directory_consistency_failure(self):
+      if jax.process_count() <= 1:
+        self.skipTest('Skip test for single-process.')
+
+      # Generates a random directory path for each process.
+      # This will cause a directory mismatch error when running multi-process.
+      directory = epath.Path(self.create_tempdir().full_path)
+
+      with self.assertRaisesRegex(
+          ValueError, 'Directory path mismatch in multi-process save'
+      ):
+        ocp.save_pytree(directory, self.pytree)
