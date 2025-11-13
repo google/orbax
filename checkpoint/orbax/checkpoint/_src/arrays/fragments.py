@@ -19,7 +19,7 @@ relationship to a mesh of devices, or to other fragments.
 """
 
 import dataclasses
-from typing import Optional, Sequence, TypeAlias
+from typing import Callable, Optional, Sequence, TypeAlias
 
 import jax
 import numpy as np
@@ -164,6 +164,14 @@ class Fragment:
     out_idx[:, :2] += np.expand_dims(delta, axis=1)
     return Fragment(np_index=out_idx, value=self.value)
 
+  def apply(self, fn: Callable[[np.ndarray], np.ndarray]) -> 'Fragment':
+    """Applies a function to the value of this fragment (if not None)."""
+    value = fn(self.value) if self.value is not None else None
+    return Fragment(
+        np_index=self.np_index,
+        value=value,
+    )
+
   def slice(
       self,
       np_index: NpIndex,  # shape=[{rank}, 3], dtype=int
@@ -261,6 +269,14 @@ class Fragments:
     for f in non_degenerate_fragments:
       result[f.index] = f.value
     return result
+
+  def apply(self, fn: Callable[[np.ndarray], np.ndarray]) -> 'Fragments':
+    """Applies a function to all fragments, if not None."""
+    return Fragments(
+        self.shape,
+        self.dtype,
+        [f.apply(fn) for f in self.fragments],
+    )
 
   def slice(
       self,
