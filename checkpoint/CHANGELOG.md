@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Validate checkpoints before writing merged OCDBT database using in-memory
   state, avoiding additional I/O to re-read metadata.
+- Replace usage of `get_json_tpec_read` and delegate functionality to new
+  function `build_array_read_spec` which which constructs and returns an
+  `ArrayReadSpec`.
 
 ## [0.11.28] - 2025-11-06
 

@@ -98,13 +98,13 @@ class NumpyHandler(types.TypeHandler):
         metadata_key=self._metadata_key,
     )
 
-  def _get_json_tspec_read(
+  def _get_array_read_spec(
       self,
       info: types.ParamInfo,
       use_ocdbt: bool,
-  ) -> Dict[str, Any]:
-    """Gets Tensorstore spec for reading."""
-    return ts_utils.get_json_tspec_read(
+  ) -> ts_utils.ArrayReadSpec:
+    """Gets ArrayReadSpec for reading."""
+    return ts_utils.build_array_read_spec(
         info,
         use_ocdbt=use_ocdbt,
         metadata_key=self._metadata_key,
@@ -121,7 +121,8 @@ class NumpyHandler(types.TypeHandler):
     for info in infos:
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
-      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+      array_read_spec = self._get_array_read_spec(info, use_ocdbt=use_ocdbt)
+      tspec = array_read_spec.json
       open_ops.append(
           ts.open(ts.Spec(tspec), open=True, context=info.ts_context)
       )
@@ -206,7 +207,8 @@ class NumpyHandler(types.TypeHandler):
         )
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
-      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+      array_read_spec = self._get_array_read_spec(info, use_ocdbt=use_ocdbt)
+      tspec = array_read_spec.json
       tspec = ts_utils.get_cast_tspec_deserialize(tspec, arg)
 
       if logging.vlog_is_on(1):
