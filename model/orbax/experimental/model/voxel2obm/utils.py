@@ -16,6 +16,7 @@
 
 import pprint
 import numpy as np
+import jax
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.voxel2obm.voxel_mock import VoxelSpec
 
@@ -33,7 +34,7 @@ def obm_spec_to_voxel_signature(
     spec: obm.Tree[obm.ShloTensorSpec],
 ) -> VoxelSignature:
   try:
-    return obm.tree_util.tree_map(
+    return jax.tree_util.tree_map(
         lambda x: VoxelSpec(shape=x.shape, dtype=_obm_to_voxel_dtype(x.dtype)),
         spec,
     )
@@ -54,7 +55,7 @@ def voxel_signature_to_obm_spec(
     signature: VoxelSignature,
 ) -> obm.Tree[obm.ShloTensorSpec]:
   try:
-    return obm.tree_util.tree_map(
+    return jax.tree_util.tree_map(
         lambda x: obm.ShloTensorSpec(
             shape=x.shape, dtype=_voxel_to_obm_dtype(x.dtype)
         ),

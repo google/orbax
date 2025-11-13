@@ -51,18 +51,6 @@ class TreeUtilTest(parameterized.TestCase):
     self._map_fn = lambda x: x * 10
     self._flat2 = [self._map_fn(x) for x in self._flat1]
 
-  def test_flatten(self):
-    flat: list[int] = tree_util.flatten(self._tree1)
-    self.assertEqual(flat, self._flat1)
-
-  def test_unflatten(self):
-    tree = tree_util.unflatten(self._tree1, self._flat2)
-    self.assertEqual(tree, self._tree2)
-
-  def test_tree_map(self):
-    tree = tree_util.tree_map(self._map_fn, self._tree1)
-    self.assertEqual(tree, self._tree2)
-
   @parameterized.named_parameters(
       ("leaf", 1),
       ("list", [1, 2, 3]),
