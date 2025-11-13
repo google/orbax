@@ -100,6 +100,9 @@ JAX_MESH = 'jax_mesh'
 # Whether to strip XLA flags from the model.
 STRIP_XLA_FLAGS = 'strip_xla_flags'
 
+# Whether to enable bf16 optimization for the model.
+ENABLE_BF16_OPTIMIZATION = 'enable_bf16_optimization'
+
 ################################################################################
 # Proto field names
 ################################################################################
