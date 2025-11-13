@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Validate checkpoints before writing merged OCDBT database using in-memory
   state, avoiding additional I/O to re-read metadata.
+- add `support_format` to utils.to_shape_dtype_struct()
 
 ## [0.11.28] - 2025-11-06
 

@@ -25,6 +25,7 @@ import jax
 from jax.experimental import layout
 import numpy as np
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.arrays import sharding as arrays_sharding_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
@@ -554,22 +555,13 @@ def construct_restore_args(
       raise ValueError(f'Unsupported type: {type(value)}')
 
   def _get_sharding_or_layout(value):
-    if hasattr(value, 'sharding'):
-      if (
-          support_layout
-          and hasattr(value, 'format')
-          and (
-              value.format.layout
-              if jax.__version_info__ >= (0, 6, 3)
-              else value.format.device_local_layout  # type: ignore
-          )
-      ):
-        # value is a jax.Array or a jax.ShapeDtypeStruct.
-        return value.format
-      else:
-        return value.sharding
+    if support_layout:
+      return arrays_sharding_lib.get_sharding_or_format(value)
     else:
-      return None
+      if hasattr(value, 'sharding'):
+        return value.sharding
+      else:
+        return None
 
   def _return_key_data(value):
     # replace jax.random.key with underneath jax.Array

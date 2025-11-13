@@ -26,11 +26,11 @@ from flax import nnx
 import flax.training.train_state
 import jax
 from jax import numpy as jnp
-from jax.experimental import layout
 import numpy as np
 import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
+from orbax.checkpoint._src.arrays import sharding as arrays_sharding_lib
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
@@ -39,14 +39,8 @@ from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handlers
 
-if jax.__version_info__ >= (0, 6, 3):
-  DLL = layout.Layout
-else:
-  DLL = layout.DeviceLocalLayout  # type: ignore
-if jax.__version_info__ >= (0, 6, 2):
-  Format = layout.Format
-else:
-  Format = layout.Layout
+DLL = arrays_sharding_lib.DLL
+Format = arrays_sharding_lib.Format
 PyTree = Any
 SaveArgs = type_handlers.SaveArgs
 StandardRestoreArgs = standard_checkpoint_handler.StandardRestoreArgs
@@ -174,11 +168,7 @@ class StandardCheckpointHandlerTestBase:
       test_utils.assert_tree_equal(self, pytree, restored_regular)
 
       # create a custom layout
-      arr_layout = (
-          arr.format.layout  # type: ignore
-          if jax.__version_info__ >= (0, 6, 3)
-          else arr.format.device_local_layout  # type: ignore
-      )
+      arr_layout = arrays_sharding_lib.get_device_local_layout(arr)
       custom_layout = Format(  # pytype: disable=wrong-keyword-args
           DLL(
               major_to_minor=arr_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
