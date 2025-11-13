@@ -42,6 +42,11 @@ Scalar = int | float | np.number
 AbstractScalar = Scalar
 AbstractString = str
 
+if jax.__version_info__ >= (0, 6, 2):
+  Format = jax_layout.Format
+else:
+  Format = jax_layout.Layout
+
 
 class AbstractArray(Protocol):
   """Abstract representation of an array.
@@ -82,7 +87,7 @@ class AbstractShardedArray(Protocol):
 
   shape: Shape | None
   dtype: DType | None
-  sharding: jax.sharding.Sharding | jax_layout.Format | None = None  # pytype: disable=unsupported-operands
+  sharding: jax.sharding.Sharding | Format | None = None  # pytype: disable=invalid-annotation
 
 
 def is_placeholder(value: Any) -> bool:
