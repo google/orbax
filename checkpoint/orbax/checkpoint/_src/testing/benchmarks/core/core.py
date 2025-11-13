@@ -143,12 +143,12 @@ class Benchmark(abc.ABC):
     )
 
     benchmark_metrics = metric_lib.Metrics(name=f"{self.name} Internal")
-    with benchmark_metrics.time("sync_global_processes:benchmark:run"):
+    with benchmark_metrics.measure("sync_global_processes:benchmark:run"):
       multihost.sync_global_processes("benchmark:run")
 
     path = directory_setup.setup_test_directory(self.name, self.output_dir)
 
-    with benchmark_metrics.time(
+    with benchmark_metrics.measure(
         "sync_global_processes:benchmark:setup_test_directory"
     ):
       multihost.sync_global_processes("benchmark:setup_test_directory")
@@ -160,7 +160,9 @@ class Benchmark(abc.ABC):
     else:
       data = checkpoint_generation.load_checkpoint(self.checkpoint_config.path)
 
-    with benchmark_metrics.time("sync_global_processes:benchmark:setup_pytree"):
+    with benchmark_metrics.measure(
+        "sync_global_processes:benchmark:setup_pytree"
+    ):
       multihost.sync_global_processes("benchmark:setup_pytree")
 
     context = TestContext(

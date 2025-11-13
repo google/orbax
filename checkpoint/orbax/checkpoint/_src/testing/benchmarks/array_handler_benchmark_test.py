@@ -138,10 +138,10 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
     result = self._run_benchmark_workflow_test(options)
 
     self.assertIsInstance(result, benchmarks_core.TestResult)
-    self.assertIn('serialize_time', result.metrics.results)
-    self.assertIn('metadata_validation_time', result.metrics.results)
-    self.assertIn('deserialize_time', result.metrics.results)
-    self.assertIn('correctness_check_time', result.metrics.results)
+    self.assertIn('serialize_time_duration', result.metrics.results)
+    self.assertIn('metadata_validation_time_duration', result.metrics.results)
+    self.assertIn('deserialize_time_duration', result.metrics.results)
+    self.assertIn('correctness_check_time_duration', result.metrics.results)
 
   @parameterized.named_parameters(
       dict(
@@ -156,14 +156,14 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
   def test_benchmark_ocdbt_enabled_calls_merge(self, options):
     result = self._run_benchmark_workflow_test(options)
 
-    self.assertIn('merge_ocdbt_time', result.metrics.results)
+    self.assertIn('merge_ocdbt_time_duration', result.metrics.results)
     self.mock_merge_ocdbt.assert_called_once()
 
   def test_benchmark_ocdbt_disabled_does_not_merge(self):
     options = ArrayHandlerBenchmarkOptions(use_ocdbt=False, use_zarr3=True)
     result = self._run_benchmark_workflow_test(options)
 
-    self.assertNotIn('merge_ocdbt_time', result.metrics.results)
+    self.assertNotIn('merge_ocdbt_time_duration', result.metrics.results)
     self.mock_merge_ocdbt.assert_not_called()
 
   @parameterized.named_parameters(

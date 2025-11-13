@@ -29,11 +29,11 @@ class MetricsTest(parameterized.TestCase):
   def test_time(self):
     metrics = metric_lib.Metrics()
 
-    with mock.patch.object(time, 'perf_counter', side_effect=[1.0, 3.0]):
-      with metrics.time('test_metric'):
+    with mock.patch.object(time, 'perf_counter', side_effect=[1.0, 3.0, 3.0]):
+      with metrics.measure('test_metric', ['time']):
         pass
 
-    self.assertEqual(metrics.results, {'test_metric_time': (2.0, 's')})
+    self.assertEqual(metrics.results, {'test_metric_time_duration': (2.0, 's')})
 
   @mock.patch(
       'orbax.checkpoint._src.testing.benchmarks.core.metric.psutil.Process'
@@ -44,9 +44,9 @@ class MetricsTest(parameterized.TestCase):
         mock.Mock(rss=3 * 1024 * 1024),
     ]
     metrics = metric_lib.Metrics()
-    with metrics.process_rss('test_metric'):
+    with metrics.measure('test_metric', ['rss']):
       pass
-    self.assertEqual(metrics.results, {'test_metric_rss': (2.0, 'MB')})
+    self.assertEqual(metrics.results, {'test_metric_rss_diff': (2.0, 'MB')})
 
   @mock.patch(
       'orbax.checkpoint._src.testing.benchmarks.core.metric.tracemalloc'
@@ -64,12 +64,23 @@ class MetricsTest(parameterized.TestCase):
     metric_lib.TracemallocMetric._active_count = 0
 
     metrics = metric_lib.Metrics()
-    with metrics.tracemalloc('test_metric'):
+    with metrics.measure('test_metric', ['tracemalloc']):
       self.assertEqual(metric_lib.TracemallocMetric._active_count, 1)
-    self.assertEqual(metrics.results, {'test_metric_tracemalloc': (2.0, 'MB')})
+    self.assertEqual(
+        metrics.results, {'test_metric_tracemalloc_peak_diff': (2.0, 'MB')}
+    )
     self.assertEqual(metric_lib.TracemallocMetric._active_count, 0)
     mock_tracemalloc.start.assert_called_once()
     mock_tracemalloc.stop.assert_called_once()
+
+  def test_io_metrics(self):
+    metrics = metric_lib.Metrics()
+    with metrics.measure('test_metric', ['io']):
+      pass
+    self.assertIn('test_metric_io_read_bytes', metrics.results)
+    self.assertIn('test_metric_io_write_bytes', metrics.results)
+    self.assertIn('test_metric_io_read_throughput', metrics.results)
+    self.assertIn('test_metric_io_write_throughput', metrics.results)
 
   def test_report(self):
     metrics = metric_lib.Metrics(name='TestMetrics')
@@ -86,7 +97,7 @@ metric2: 4.5600 s
 
   def test_tensorstore_metrics(self):
     metrics = metric_lib.Metrics()
-    with metrics.tensorstore('test_metric'):
+    with metrics.measure('test_metric', ['tensorstore']):
       ts_spec = ts.Spec(
           {
               'driver': 'zarr',
@@ -105,7 +116,39 @@ metric2: 4.5600 s
       ).result()
       ts_store.write(np.asarray(range(10)).astype(np.int32)).result()
 
-    self.assertIn('test_metric_ts', metrics.results)
+    self.assertIn('test_metric_tensorstore_diff_count', metrics.results)
+
+  def test_all_metrics(self):
+    metric_lib.TracemallocMetric._active_count = 0
+    metrics = metric_lib.Metrics()
+    all_metrics = list(metric_lib.METRIC_REGISTRY.keys())
+    with metrics.measure('test_metric', all_metrics):
+      ts_spec = ts.Spec(
+          {
+              'driver': 'zarr',
+              'kvstore': {
+                  'driver': 'file',
+                  'path': self.create_tempdir().full_path,
+              },
+          },
+      )
+      ts_store = ts.open(
+          ts_spec,
+          create=True,
+          delete_existing=True,
+          dtype=np.int32,
+          shape=(10,),
+      ).result()
+      ts_store.write(np.asarray(range(10)).astype(np.int32)).result()
+
+    self.assertIn('test_metric_time_duration', metrics.results)
+    self.assertIn('test_metric_rss_diff', metrics.results)
+    self.assertIn('test_metric_tracemalloc_peak_diff', metrics.results)
+    self.assertIn('test_metric_io_read_bytes', metrics.results)
+    self.assertIn('test_metric_io_write_bytes', metrics.results)
+    self.assertIn('test_metric_io_read_throughput', metrics.results)
+    self.assertIn('test_metric_io_write_throughput', metrics.results)
+    self.assertIn('test_metric_tensorstore_diff_count', metrics.results)
 
 
 if __name__ == '__main__':

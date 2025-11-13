@@ -114,11 +114,11 @@ class MultihostDispatchersBenchmark(core.BenchmarksGenerator):
         'array_shape': array.shape,
         'array_sharding': array.sharding,
     }
-    with metrics.time('dispatch_without_result_specs'):
+    with metrics.measure('dispatch_without_result_specs'):
       dispatch_without_result_specs_result = dispatcher.dispatch(
           log_pytree_fn, input_arrays=array, func_kwargs={'metadata': metadata}
       )
-    with metrics.time('dispatch_without_result_specs_block_until_ready'):
+    with metrics.measure('dispatch_without_result_specs_block_until_ready'):
       jax.block_until_ready(dispatch_without_result_specs_result)
       pytree_utils.assert_pytree_equal(
           dispatchers._make_dummy_result_array(array),  # pylint: disable=protected-access
@@ -131,7 +131,7 @@ class MultihostDispatchersBenchmark(core.BenchmarksGenerator):
       devices = jax.devices()
 
     logging.info('Dispatching to devices: %s', devices)
-    with metrics.time('dispatch_with_dummy_result_array'):
+    with metrics.measure('dispatch_with_dummy_result_array'):
       dummy_array = dispatchers.get_dummy_input_array(devices)
       dispatch_with_dummy_result_array_result = dispatcher.dispatch(
           lambda _: logging.info(
@@ -139,14 +139,14 @@ class MultihostDispatchersBenchmark(core.BenchmarksGenerator):
           ),
           input_arrays=dummy_array,
       )
-    with metrics.time('dispatch_with_dummy_result_array_block_until_ready'):
+    with metrics.measure('dispatch_with_dummy_result_array_block_until_ready'):
       jax.block_until_ready(dispatch_with_dummy_result_array_result)
       pytree_utils.assert_pytree_equal(
           dispatchers._make_dummy_result_array(dummy_array),  # pylint: disable=protected-access
           dispatch_with_dummy_result_array_result,
       )
 
-    with metrics.time('dispatch_with_result_specs'):
+    with metrics.measure('dispatch_with_result_specs'):
       sharding = array.sharding
       result_specs = jax.ShapeDtypeStruct(
           array.shape, dtype=array.dtype, sharding=sharding

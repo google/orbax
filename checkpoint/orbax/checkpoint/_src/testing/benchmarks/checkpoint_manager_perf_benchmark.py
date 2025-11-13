@@ -110,7 +110,7 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
     save_times = []
     total_save_times = []
     for i in range(options.train_steps):
-      with metrics.time(f'save_{i}'):
+      with metrics.measure(f'save_{i}'):
         save_start = time.time()
         mngr.save(
             i,
@@ -121,7 +121,7 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
         save_times.append(time.time() - save_start)
         mngr.wait_until_finished()
         total_save_times.append(time.time() - save_start)
-      with metrics.time(f'train_step_{i}'):
+      with metrics.measure(f'train_step_{i}'):
         pytree = self._train_step(pytree)
 
     save_times = np.array(save_times)
@@ -150,7 +150,7 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
     )
     context.pytree = self._clear_pytree(context.pytree)
 
-    with metrics.time('restore'):
+    with metrics.measure('restore'):
       mngr.restore(
           mngr.latest_step(),
           args=ocp.args.Composite(

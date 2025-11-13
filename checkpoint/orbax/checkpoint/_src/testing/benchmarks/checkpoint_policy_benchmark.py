@@ -237,7 +237,7 @@ class CheckpointPolicyBenchmark(benchmarks_core.BenchmarksGenerator):
         ),
     )
     for step in range(options.num_checkpoints):
-      with metrics.time(f'saving step {step}'):
+      with metrics.measure(f'saving step {step}'):
         checkpointer_manager.save(step, args=ocp.args.PyTreeSave(pytree))
     checkpointer_manager.wait_until_finished()
     all_steps = checkpointer_manager.all_steps()

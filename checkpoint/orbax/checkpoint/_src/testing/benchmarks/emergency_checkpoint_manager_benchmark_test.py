@@ -118,14 +118,22 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
     with self.subTest('benchmark result type'):
       self.assertIsInstance(result, benchmarks_core.TestResult)
     with self.subTest('metrics timings'):
-      self.assertIn('create_directories_time', result.metrics.results)
-      self.assertIn('create_abstract_pytree_time', result.metrics.results)
-      self.assertIn('create_restore_args_time', result.metrics.results)
-      self.assertIn('create_checkpoint_manager_time', result.metrics.results)
-      self.assertIn('train_loop_time', result.metrics.results)
-      self.assertIn('save_0_time', result.metrics.results)
-      self.assertIn('wait_until_finished_0_time', result.metrics.results)
-      self.assertIn('sync_global_processes_0_time', result.metrics.results)
+      self.assertIn('create_directories_time_duration', result.metrics.results)
+      self.assertIn(
+          'create_abstract_pytree_time_duration', result.metrics.results
+      )
+      self.assertIn('create_restore_args_time_duration', result.metrics.results)
+      self.assertIn(
+          'create_checkpoint_manager_time_duration', result.metrics.results
+      )
+      self.assertIn('train_loop_time_duration', result.metrics.results)
+      self.assertIn('save_0_time_duration', result.metrics.results)
+      self.assertIn(
+          'wait_until_finished_0_time_duration', result.metrics.results
+      )
+      self.assertIn(
+          'sync_global_processes_0_time_duration', result.metrics.results
+      )
     with self.subTest('checkpoint manager calls'):
       mock_checkpoint_manager_cls.assert_called_once()
       mock_checkpoint_manager.save.assert_called_once()

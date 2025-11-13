@@ -77,7 +77,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
         local_replica_mesh,
     )
 
-    with metrics.time("process_spans_multiple_replicas"):
+    with metrics.measure("process_spans_multiple_replicas"):
       if multislice.process_spans_multiple_replicas(
           mesh, replica_axis_index=options.replica_axis_index
       ):
@@ -115,7 +115,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
       single_replica_arr_list.append(arr_single_replica)
 
     jax.tree.map(_fn, context.pytree)
-    with metrics.time("broadcast_array"):
+    with metrics.measure("broadcast_array"):
       broadcasted_tuple, num_broadcasts = (
           multislice.broadcast_one_replica_to_all(
               tuple(single_replica_arr_list),

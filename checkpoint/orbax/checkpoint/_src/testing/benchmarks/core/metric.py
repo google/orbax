@@ -30,117 +30,146 @@ import psutil
 import tensorstore as ts
 
 
-class Metric:
-  """Base class for metric context managers."""
+class BaseMetric:
+  """Base class for a metric type."""
 
   def __init__(self, name: str):
     self.name = name
-    self.result = None
-    self.unit = None
+    self._start_time = 0
 
-  def _start_log(self):
+  def start(self):
+    """Start the metric collection."""
+    self._start_time = time.perf_counter()
     logging.info(
         "[process_id=%s] Starting metric: '%s'...",
         multihost.process_index(),
         self.name,
     )
 
-  def _record(self, value: Any, unit: str):
-    """Records metric value and logs completion."""
-    self.result = value
-    self.unit = unit
+  def stop(self) -> dict[str, tuple[Any, str]]:
+    """Stop the metric collection and return results."""
+    duration = time.perf_counter() - self._start_time
     logging.info(
-        "[process_id=%s] Finished metric: '%s': %.4f %s",
+        "[process_id=%s] Finished metric: '%s' (took %.4fs)",
         multihost.process_index(),
         self.name,
-        value,
-        unit,
+        duration,
     )
-
-  def __enter__(self):
-    pass
-
-  def __exit__(self, *exc):
-    pass
+    return {}
 
 
-class TimeMetric(Metric):
+class TimeMetric(BaseMetric):
   """Measures execution time."""
 
-  def __init__(self, name: str):
-    super().__init__(name + "_time")
-
-  def __enter__(self):
-    self._start_log()
-    self._start_time = time.perf_counter()
-    return self
-
-  def __exit__(self, *exc):
+  def stop(self) -> dict[str, tuple[Any, str]]:
     duration = time.perf_counter() - self._start_time
-    self._record(duration, "s")
+    results = super().stop()
+    results["duration"] = (duration, "s")
+    return results
 
 
-class RssMetric(Metric):
+class RssMetric(BaseMetric):
   """Measures RSS memory difference."""
 
-  def __init__(self, name: str):
-    super().__init__(name + "_rss")
+  _start_rss: float = 0
 
-  def __enter__(self):
-    self._start_log()
+  def start(self):
+    super().start()
     self._start_rss = self._get_process_memory()
-    return self
 
-  def __exit__(self, *exc):
+  def stop(self) -> dict[str, tuple[Any, str]]:
     rss_diff = self._get_process_memory() - self._start_rss
-    self._record(rss_diff, "MB")
+    results = super().stop()
+    results["diff"] = (rss_diff, "MB")
+    return results
 
   def _get_process_memory(self):
     process = psutil.Process(os.getpid())
-    return process.memory_info().rss / (1024 * 1024)  # RSS
+    return process.memory_info().rss / (1024 * 1024)
 
 
-class TracemallocMetric(Metric):
+class IOBytesMetric(BaseMetric):
+  """Measures process I/O read/write bytes and throughput."""
+
+  _process: psutil.Process
+  _start_io: Any = None
+
+  def start(self):
+    super().start()
+    self._process = psutil.Process(os.getpid())
+    try:
+      self._start_io = self._process.io_counters()  # pytype: disable=attribute-error
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.warning("Failed to get initial IO counters: %s", e)
+      self._start_io = None
+
+  def stop(self) -> dict[str, tuple[Any, str]]:
+    results = super().stop()
+    if not self._start_io:
+      return results
+
+    try:
+      end_io = self._process.io_counters()  # pytype: disable=attribute-error
+      duration = time.perf_counter() - self._start_time
+
+      read_bytes = end_io.read_bytes - self._start_io.read_bytes
+      write_bytes = end_io.write_bytes - self._start_io.write_bytes
+
+      results["read_bytes"] = (read_bytes, "bytes")
+      results["write_bytes"] = (write_bytes, "bytes")
+
+      if duration > 0:
+        read_mb_s = (read_bytes / (1024 * 1024)) / duration
+        write_mb_s = (write_bytes / (1024 * 1024)) / duration
+        results["read_throughput"] = (read_mb_s, "MB/s")
+        results["write_throughput"] = (write_mb_s, "MB/s")
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.warning("Failed to get final IO counters: %s", e)
+    return results
+
+
+class TracemallocMetric(BaseMetric):
   """Measures memory allocation differences using tracemalloc."""
 
   _lock = threading.Lock()
   _active_count = 0
+  _start_snapshot: Any = None
+  _start_peak: int = 0
 
-  def __init__(self, name: str):
-    super().__init__(name + "_tracemalloc")
-
-  def __enter__(self):
-    self._start_log()
+  def start(self):
+    super().start()
     with TracemallocMetric._lock:
       if TracemallocMetric._active_count == 0:
         tracemalloc.start()
       TracemallocMetric._active_count += 1
     self._start_snapshot = tracemalloc.take_snapshot()
     _, self._start_peak = tracemalloc.get_traced_memory()
-    return self
 
-  def __exit__(self, *exc):
-    end_snapshot = tracemalloc.take_snapshot()
+  def stop(self) -> dict[str, tuple[Any, str]]:
+    results = super().stop()
+    if self._start_snapshot is None:
+      return results
+
     _, end_peak = tracemalloc.get_traced_memory()
+    end_snapshot = tracemalloc.take_snapshot()
+
     with TracemallocMetric._lock:
       TracemallocMetric._active_count -= 1
       if TracemallocMetric._active_count == 0:
         tracemalloc.stop()
+
+    peak_diff = end_peak - self._start_peak
+    results["peak_diff"] = (peak_diff / (1024**2), "MB")
+
     self._log_tracemalloc_snapshot_diff(
         self.name,
         multihost.process_index(),
         self._start_snapshot,
         end_snapshot,
         top_n=15,
-        peak=end_peak - self._start_peak,
+        peak=peak_diff,
     )
-    logging.info(
-        "[process_id=%s] Finished metric: '%s'",
-        multihost.process_index(),
-        self.name,
-    )
-
-    self._record((end_peak - self._start_peak) / (1024**2), "MB")
+    return results
 
   def _log_tracemalloc_snapshot_diff(
       self,
@@ -169,9 +198,7 @@ class TracemallocMetric(Metric):
       )
       return
 
-    logging.info("--- Comparing tracemalloc snapshots ---")
-
-    # Compare snapshots, grouping by file and line number
+    logging.info("--- Comparing tracemalloc snapshots for %s ---", name)
     stats = snapshot2.compare_to(snapshot1, "lineno")
 
     if not stats:
@@ -238,39 +265,17 @@ class TracemallocMetric(Metric):
     )
 
 
-class TensorstoreMetric(Metric):
+class TensorstoreMetric(BaseMetric):
   """Measures tensorstore metrics."""
 
-  def __init__(self, name: str):
-    super().__init__(name + "_ts")
+  _start_metrics: dict[str, dict[str, Any]]
 
-  def _collect_metrics(self) -> dict[str, dict[str, Any]]:
-    """Collects tensorstore metrics for interested metrics."""
-
-    interested_metric_paths = ["/tensorstore", "/mallocz", "/tcmalloc/"]
-    metrics_list = []
-    for path in interested_metric_paths:
-      try:
-        metrics_list += ts.experimental_collect_matching_metrics(path)
-      except Exception as e:  # pylint: disable=broad-except
-        logging.warning(
-            "Failed to collect tensorstore metrics for path %s: %s", path, e
-        )
-    metrics_dict = {}
-    for m in metrics_list:
-      if m and "name" in m and m.get("values"):
-        # For now, only consider metrics with a single value entry that
-        # contains 'value' or 'count'.
-        if len(m["values"]) == 1:
-          metrics_dict[m["name"]] = m["values"][0]
-    return metrics_dict
-
-  def __enter__(self):
-    self._start_log()
+  def start(self):
+    super().start()
     self._start_metrics = self._collect_metrics()
-    return self
 
-  def __exit__(self, *exc):
+  def stop(self) -> dict[str, tuple[Any, str]]:
+    results = super().stop()
     end_metrics = self._collect_metrics()
     diff = self._diff_metrics(self._start_metrics, end_metrics)
     logging.info(
@@ -299,7 +304,29 @@ class TensorstoreMetric(Metric):
       )
 
     # Log the number of metrics that have a non-zero diff.
-    self._record(len(diff), f"{self.name}_diff_cnt")
+    results["diff_count"] = (len(diff), f"{self.name}_diff_cnt")
+    return results
+
+  def _collect_metrics(self) -> dict[str, dict[str, Any]]:
+    """Collects tensorstore metrics for interested metrics."""
+
+    interested_metric_paths = ["/tensorstore", "/mallocz", "/tcmalloc/"]
+    metrics_list = []
+    for path in interested_metric_paths:
+      try:
+        metrics_list += ts.experimental_collect_matching_metrics(path)
+      except Exception as e:  # pylint: disable=broad-except
+        logging.warning(
+            "Failed to collect tensorstore metrics for path %s: %s", path, e
+        )
+    metrics_dict = {}
+    for m in metrics_list:
+      if m and "name" in m and m.get("values"):
+        # For now, only consider metrics with a single value entry that
+        # contains 'value' or 'count'.
+        if len(m["values"]) == 1:
+          metrics_dict[m["name"]] = m["values"][0]
+    return metrics_dict
 
   def _diff_metrics(
       self,
@@ -340,39 +367,52 @@ class TensorstoreMetric(Metric):
     return diff_metrics
 
 
+# Registry of available metric types
+METRIC_REGISTRY: dict[str, type[BaseMetric]] = {
+    "time": TimeMetric,
+    "rss": RssMetric,
+    "io": IOBytesMetric,
+    "tracemalloc": TracemallocMetric,
+    "tensorstore": TensorstoreMetric,
+}
+
+DEFAULT_METRICS = ["time"]
+
+
 @dataclasses.dataclass
 class Metrics:
-  """A simple dataclass to store and report test metrics."""
+  """Container and manager for all metric results from a profiling block."""
 
   results: MutableMapping[str, tuple[Any, str]] = dataclasses.field(
       default_factory=dict
   )
   name: str = ""
 
+  def _add_results(
+      self,
+      metric_name: str,
+      metric_key: str,
+      metric_results: dict[str, tuple[Any, str]],
+  ):
+    for key, (value, unit) in metric_results.items():
+      full_key = f"{metric_name}_{metric_key}_{key}"
+      self.results[full_key] = (value, unit)
+
   @contextlib.contextmanager
-  def _measure(self, metric_cls: type[Metric], name: str):
-    """Helper context manager to run a metric and record results."""
-    metric = metric_cls(name)
-    with metric:
+  def measure(self, operation_name: str, metric_keys: list[str] | None = None):
+    """Context manager to measure a block of code with the specified metrics.
+
+    Args:
+      operation_name: The name of the operation to measure.
+      metric_keys: The keys of the metrics to measure. If None, the default
+        metrics (time) will be measured.
+    """
+    if metric_keys is None:
+      metric_keys = DEFAULT_METRICS
+
+    collector = _MetricsCollector(self, operation_name, metric_keys)
+    with collector:
       yield
-    if metric.result is not None:
-      self.results[metric.name] = (metric.result, metric.unit)
-
-  def time(self, name: str):
-    """A context manager to time a block of code and record it."""
-    return self._measure(TimeMetric, name)
-
-  def process_rss(self, name: str):
-    """A context manager to calculate the RSS difference of a block of code and record it."""
-    return self._measure(RssMetric, name)
-
-  def tracemalloc(self, name: str):
-    """A context manager to calculate the difference of tracemalloc snapshots."""
-    return self._measure(TracemallocMetric, name)
-
-  def tensorstore(self, name: str):
-    """A context manager to collect tensorstore metrics."""
-    return self._measure(TensorstoreMetric, name)
 
   def report(self):
     """Logs a formatted report of all collected metrics."""
@@ -386,7 +426,41 @@ class Metrics:
           f"[process_id={multihost.process_index()}] No metrics recorded."
       )
     else:
-      for name, (value, unit) in self.results.items():
-        report_lines.append(f"{name}: {value:.4f} {unit}")
+      for name, (value, unit) in sorted(self.results.items()):
+        if isinstance(value, float):
+          report_lines.append(f"{name}: {value:.4f} {unit}")
+        else:
+          report_lines.append(f"{name}: {value} {unit}")
     report_lines.append("----------------------")
     logging.info("\n".join(report_lines))
+
+
+class _MetricsCollector:
+  """Internal context manager to collect specified metrics."""
+
+  def __init__(
+      self, metrics_obj: Metrics, operation_name: str, metric_keys: list[str]
+  ):
+    self.metrics_obj = metrics_obj
+    self.operation_name = operation_name
+    self._metrics: dict[str, BaseMetric] = {}
+
+    for key in metric_keys:
+      if key in METRIC_REGISTRY:
+        metric_class = METRIC_REGISTRY[key]
+        self._metrics[key] = metric_class(operation_name)
+      else:
+        logging.warning("Unknown metric key: %s", key)
+
+  def __enter__(self):
+    for metric in self._metrics.values():
+      metric.start()
+    return self
+
+  def __exit__(self, *exc):
+    for key, metric in self._metrics.items():
+      try:
+        metric_results = metric.stop()
+        self.metrics_obj._add_results(metric.name, key, metric_results)
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.exception("Error stopping metric %s: %s", metric.name, e)

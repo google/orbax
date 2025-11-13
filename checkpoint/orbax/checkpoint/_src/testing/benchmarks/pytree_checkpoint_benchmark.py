@@ -15,7 +15,6 @@
 """Benchmarks for orbax.checkpoint.PyTreeCheckpointHandler."""
 
 from collections.abc import Sequence
-import contextlib
 import dataclasses
 import functools
 import pprint
@@ -29,24 +28,14 @@ from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_cor
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
 
-@contextlib.contextmanager
-def _profile(
-    metrics,
-    operation_name,
-    options: "PyTreeCheckpointOptions",
-):
-  """A context manager to profile the given operation."""
-
-  with contextlib.ExitStack() as stack:
-    stack.enter_context(metrics.process_rss(operation_name))
-    if options.metric_tracemalloc_enabled:
-      stack.enter_context(metrics.tracemalloc(operation_name))
-    if options.metric_tensorstore_enabled:
-      stack.enter_context(metrics.tensorstore(operation_name))
-    # keep this the last so that it measures the elapsed time
-    # the cloest to the function.
-    stack.enter_context(metrics.time(operation_name))
-    yield
+def _metrics_to_measure(options: "PyTreeCheckpointOptions") -> list[str]:
+  """Returns the list of metrics to measure."""
+  metrics = ["time", "rss", "io"]
+  if options.metric_tracemalloc_enabled:
+    metrics.append("tracemalloc")
+  if options.metric_tensorstore_enabled:
+    metrics.append("tensorstore")
+  return metrics
 
 
 # ==============================================================================
@@ -184,18 +173,19 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
       checkpointer = ocp.AsyncCheckpointer(handler)
     else:
       checkpointer = ocp.Checkpointer(handler)
+    metrics_to_measure = _metrics_to_measure(options)
 
-    with _profile(metrics, "save", options):
+    with metrics.measure("save", metrics_to_measure):
       checkpointer.save(save_path, args=ocp.args.PyTreeSave(pytree))
 
     if options.async_enabled:
-      with _profile(metrics, "wait_until_finished", options):
+      with metrics.measure("wait_until_finished", metrics_to_measure):
         assert hasattr(checkpointer, "wait_until_finished")
         checkpointer.wait_until_finished()
 
     context.pytree = self._clear_pytree(context.pytree)
 
-    with _profile(metrics, "restore", options):
+    with metrics.measure("restore", metrics_to_measure):
       checkpointer.restore(
           save_path,
           args=ocp.args.PyTreeRestore(

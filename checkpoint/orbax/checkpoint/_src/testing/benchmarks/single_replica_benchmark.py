@@ -130,19 +130,19 @@ class SingleReplicaBenchmark(benchmarks_core.BenchmarksGenerator):
     handler = pytree_checkpoint_handler.PyTreeCheckpointHandler()
     checkpointer = async_checkpointer.AsyncCheckpointer(handler)
 
-    with metrics.time("save"):
+    with metrics.measure("save"):
       checkpointer.save(
           save_path, args=pytree_checkpoint_handler.PyTreeSaveArgs(pytree)
       )
 
-    with metrics.time("wait_until_finished"):
+    with metrics.measure("wait_until_finished"):
       checkpointer.wait_until_finished()
 
     abstract_pytree = jax.tree.map(utils.to_shape_dtype_struct, pytree)
     logging.info("abstract_pytree: %s", abstract_pytree)
 
-    with metrics.time("restore"):
-      with metrics.time("construct_restore_args"):
+    with metrics.measure("restore"):
+      with metrics.measure("construct_restore_args"):
         restore_args = self._construct_restore_args(
             abstract_pytree,
             options.replica_axis_index,

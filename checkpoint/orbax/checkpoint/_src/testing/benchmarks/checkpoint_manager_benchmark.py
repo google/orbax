@@ -90,10 +90,10 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
     step_saved = -1
     for step in range(options.train_steps):
       logging.info('Saving checkpoint at step %d', step)
-      with metrics.time(f'save_{step}'):
+      with metrics.measure(f'save_{step}'):
         if mngr.save(step, args=composite_args):
           step_saved = step
-      with metrics.time(f'wait_until_finished_{step}'):
+      with metrics.measure(f'wait_until_finished_{step}'):
         mngr.wait_until_finished()
       logging.info('Finished saving checkpoint at step %d', step)
 
@@ -105,12 +105,12 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
         f'Expected latest step to be {step_saved}, got {latest_step}'
     )
 
-    with metrics.time(f'restore_{latest_step}'):
+    with metrics.measure(f'restore_{latest_step}'):
       logging.info('Restoring checkpoint at step %d', latest_step)
       restored = mngr.restore(latest_step, args=restore_args)
       logging.info('Finished restoring checkpoint at step %d', latest_step)
 
-    with metrics.time('correctness_check'):
+    with metrics.measure('correctness_check'):
       pytree_utils.assert_pytree_equal(pytree, restored['pytree'])
       assert (
           json_data == restored['json_item']
