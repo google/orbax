@@ -66,6 +66,7 @@ testing = [
     'chex',
     'aiofiles',
     'safetensors',
+    'torch',
 ]
 
 [tool.flit.sdist]
