@@ -115,6 +115,7 @@ def generate_xla_compile_options(
     native_serialization_platforms: Sequence[str] | None,
     xla_flags_per_platform: Mapping[str, Sequence[str] | None],
     jax_mesh: jax.sharding.Mesh | None = None,
+    strip_xla_flags: bool = False,
 ) -> manifest_pb2.CompileOptionsProtoMap:
   """Sets the XLA compilation options.
 
@@ -126,6 +127,7 @@ def generate_xla_compile_options(
       which will be used to override the default XLA compilation flags.
     jax_mesh: The JAX mesh used for sharding. If None, the compile options will
       be set for a default single-replica.
+    strip_xla_flags: Whether to strip XLA flags from the compile options.
 
   Returns:
     A `CompileOptionsProtoMap` containing the XLA compilation options per
@@ -185,6 +187,9 @@ def generate_xla_compile_options(
     compile_options_map.map[platform.lower()].CopyFrom(
         generate_compilation_options(compile_environment, jax_mesh)
     )
+  if strip_xla_flags:
+    for compile_options in compile_options_map.map.values():
+      compile_options.executable_build_options.comp_envs.Clear()
   return compile_options_map
 
 

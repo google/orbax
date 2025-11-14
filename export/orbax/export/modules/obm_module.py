@@ -87,6 +87,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     )
 
     self._jax_mesh = jax2obm_kwargs.get(constants.JAX_MESH, None)
+    self._strip_xla_flags = jax2obm_kwargs.get(constants.STRIP_XLA_FLAGS, False)
 
     self.polymorphic_constraints = self._maybe_set_polymorphic_constraints(
         jax2obm_kwargs

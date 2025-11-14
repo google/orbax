@@ -97,6 +97,9 @@ XLA_FLAGS_PER_PLATFORM = 'xla_flags_per_platform'
 # Mesh for the model.
 JAX_MESH = 'jax_mesh'
 
+# Whether to strip XLA flags from the model.
+STRIP_XLA_FLAGS = 'strip_xla_flags'
+
 ################################################################################
 # Proto field names
 ################################################################################
