@@ -192,7 +192,7 @@ async def merge_ocdbt_per_process_files(
 
   # Validate merged params.
   if enable_validation:
-    _validate_params(parent.with_transaction(txn), use_zarr3=use_zarr3)
+    await _validate_params(parent.with_transaction(txn), use_zarr3=use_zarr3)
   await txn.commit_async()
 
 
