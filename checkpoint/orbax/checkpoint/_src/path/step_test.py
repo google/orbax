@@ -471,11 +471,13 @@ class UtilsTest(parameterized.TestCase):
       ('checkpoint_0000', 0),
       ('checkpoint_003400', 3400),
       ('foobar_1000', 1000),
+      ('foo_bar_1000', 1000),
       ('0.orbax-checkpoint-tmp-1010101', 0),
       ('0000.orbax-checkpoint-tmp-12323232', 0),
       ('foobar_1.orbax-checkpoint-tmp-12424424', 1),
       ('foobar_000505.orbax-checkpoint-tmp-13124', 505),
       ('checkpoint_16.orbax-checkpoint-tmp-123214324', 16),
+      ('foo_bar_1000.orbax-checkpoint-tmp-123123', 1000),
   )
   def test_step_from_checkpoint_name(self, name, step):
     self.assertEqual(step_lib.step_from_checkpoint_name(name), step)

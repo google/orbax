@@ -38,6 +38,8 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import temporary_paths
 
+# Allowed checkpoint step naming using any non empty `step_prefix`.
+ALLOWED_STEP_NAME_PATTERN = r'(.+)_(\d+)'
 
 TMP_DIR_SUFFIX = temporary_paths.TMP_DIR_SUFFIX
 # prefix_1000.orbax-checkpoint-tmp-1010101
@@ -739,10 +741,8 @@ def step_from_checkpoint_name(name: str) -> int:
   """Returns the step from a checkpoint name. Also works for tmp checkpoints."""
   if name.isdigit():
     return int(name)
-  elif name.split('_')[-1].isdigit():
-    split = name.split('_')
-    if len(split) == 2 and split[0]:
-      return int(split[-1])
+  elif m := re.fullmatch(ALLOWED_STEP_NAME_PATTERN, name):
+    return int(m.group(2))
   elif tmp_match := re.match(TMP_DIR_STEP_PATTERN, name):
     return int(tmp_match.group(1))
   raise ValueError(f'Unrecognized name format: {name}.')

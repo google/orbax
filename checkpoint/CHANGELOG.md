@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix `step_from_checkpoint_name` to allow the passed in checkpoint name to
+  include an arbitrary `step_prefix` with any character(s) such as underscores.
+
 ### Changed
 
 - Validate checkpoints before writing merged OCDBT database using in-memory
