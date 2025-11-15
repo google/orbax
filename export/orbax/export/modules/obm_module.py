@@ -20,6 +20,7 @@ import logging
 from typing import Any, Optional, Tuple, Union
 
 import jax
+import jax.numpy as jnp
 from orbax.export import constants
 from orbax.export import typing as orbax_export_typing
 from orbax.export import utils
@@ -28,6 +29,33 @@ from orbax.export.typing import PyTree
 import tensorflow as tf
 
 ApplyFn = orbax_export_typing.ApplyFn
+
+
+def _to_bfloat16(x: Any) -> Any:
+  """Helper to convert leaves of a pytree to bfloat16.
+
+  It handles `float`, `jax.ShapeDtypeStruct`, and other array-like objects with
+  a floating point `dtype`.
+
+  Args:
+    x: The input pytree to convert.
+
+  Returns:
+    The input `x` with floating point values converted to `jnp.bfloat16`.
+  """
+  if isinstance(x, jax.ShapeDtypeStruct):
+    if jnp.issubdtype(x.dtype, jnp.floating):
+      return jax.ShapeDtypeStruct(
+          x.shape,
+          jnp.bfloat16,
+          sharding=x.sharding,
+      )
+    return x
+  if hasattr(x, 'dtype') and jnp.issubdtype(x.dtype, jnp.floating):
+    return x.astype(jnp.bfloat16)
+  if isinstance(x, float):
+    return jnp.bfloat16(x)
+  return x
 
 
 class ObmModule(orbax_module_base.OrbaxModuleBase):
@@ -76,13 +104,25 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     if not jax2obm_kwargs:
       jax2obm_kwargs = {}
 
+    enable_bf16_optimization = jax2obm_kwargs.get(
+        constants.ENABLE_BF16_OPTIMIZATION, False
+    )
+
+    if enable_bf16_optimization:
+      mapped_input_polymorphic_shape = jax.tree.map(
+          _to_bfloat16,
+          input_polymorphic_shape,
+      )
+    else:
+      mapped_input_polymorphic_shape = input_polymorphic_shape
+
     (
         self._apply_fn_map,
         self.input_polymorphic_shape_map,
         self.input_polymorphic_shape_symbol_values_map,
     ) = self._normalize_apply_fn_map(
         apply_fn,
-        input_polymorphic_shape,
+        mapped_input_polymorphic_shape,
         input_polymorphic_shape_symbol_values,
     )
 
@@ -95,7 +135,11 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     self._native_serialization_platforms = utils.get_lowering_platforms(
         jax2obm_kwargs
     )
-    self._params_args_spec = params
+    self._params_args_spec = (
+        jax.tree.map(_to_bfloat16, params)
+        if enable_bf16_optimization
+        else params
+    )
 
     self._checkpoint_path: str = None
     # Set the Orbax checkpoint path if provided in the jax2obm_kwargs.
