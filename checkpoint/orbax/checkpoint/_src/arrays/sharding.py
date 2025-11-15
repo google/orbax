@@ -19,9 +19,20 @@ import math
 from typing import Any, Sequence
 from absl import logging
 import jax
+import jax.experimental.layout as jax_layout
 import numpy as np
 
 PyTree = Any
+
+if jax.__version_info__ >= (0, 6, 3):
+  DLL = jax_layout.Layout
+else:
+  DLL = jax_layout.DeviceLocalLayout  # type: ignore
+
+if jax.__version_info__ >= (0, 6, 2):
+  Format = jax_layout.Format
+else:
+  Format = jax_layout.Layout
 
 
 def _partition_axis_name(offset: int) -> str:
@@ -126,3 +137,27 @@ def construct_maximal_shardings(
   jax.tree.map(_calculate_sharding_hbm_consumption, abstract_state, shardings)
   logging.info('Expected per-device HBM consumption: %s', total_size)
   return shardings
+
+
+def get_device_local_layout(arr: jax.Array) -> Any:
+  """Returns device_local_layout of a jax.Array."""
+  return (
+      arr.format.layout  # pytype: disable=attribute-error
+      if jax.__version_info__ >= (0, 6, 3)
+      else arr.format.device_local_layout  # pytype: disable=attribute-error
+  )
+
+
+def get_sharding_or_format(
+    value: Any,
+) -> jax.sharding.Sharding | Format | None:  # pytype: disable=unsupported-operands
+  """Returns the Format if it exists, then the Sharding if it exists, otherwise None."""
+
+  if hasattr(value, 'sharding'):
+    if hasattr(value, 'format') and get_device_local_layout(value):
+      # value is a jax.Array or a jax.ShapeDtypeStruct.
+      return value.format
+    else:
+      return value.sharding
+  else:
+    return None
