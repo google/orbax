@@ -28,6 +28,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import mesh_utils
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 from orbax.checkpoint._src.tree import utils
 from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
@@ -110,7 +111,7 @@ def _is_in_replica(
 
 def _restore_and_validate(
     manager: emergency_checkpoint_manager.CheckpointManager,
-    metrics: benchmarks_core.Metrics,
+    metrics: metric_lib.Metrics,
     pytree: Any,
     step: int,
     local_directory: epath.Path,
@@ -120,7 +121,7 @@ def _restore_and_validate(
 ):
   """Restores a checkpoint and validates it."""
   # Wait for save to complete on all hosts.
-  with metrics.time(f"sync_global_processes_{step}"):
+  with metrics.measure(f"sync_global_processes_{step}"):
     multihost.sync_global_processes(f"save_completed_{step}")
 
   # Remove local checkpoint on secondary slice.
@@ -129,9 +130,9 @@ def _restore_and_validate(
   if is_in_secondary_slice:
     (local_directory / str(step)).rename(local_directory / "backup")
     logging.info("Removing secondary slice checkpoint at step %d", step)
-  with metrics.time(f"reload_first_time_{step}"):
+  with metrics.measure(f"reload_first_time_{step}"):
     manager.reload()
-  with metrics.time(f"restore_{step}"):
+  with metrics.measure(f"restore_{step}"):
     restored = manager.restore(
         step,
         args=composite_checkpoint_handler.CompositeArgs(
@@ -148,7 +149,7 @@ def _restore_and_validate(
   if is_in_secondary_slice:
     (local_directory / "backup").rename(local_directory / str(step))
     logging.info("Putting back secondary slice checkpoint at step %d", step)
-  with metrics.time(f"reload_second_time_{step}"):
+  with metrics.measure(f"reload_second_time_{step}"):
     manager.reload()
 
 
@@ -162,7 +163,7 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
       self, context: benchmarks_core.TestContext
   ) -> benchmarks_core.TestResult:
     """The core test logic for a single save/restore cycle."""
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = context.pytree
     persistent_directory = context.path / "persistent_replica_ckpt"
     local_directory = (
@@ -196,21 +197,21 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
         mesh_utils.get_local_replica_mesh(mesh, options.replica_axis_index),
     )
 
-    with metrics.time("create_directories"):
+    with metrics.measure("create_directories"):
       if jax.process_index() == 0:
         persistent_directory.mkdir(parents=True)
       local_directory.mkdir(parents=True)
       multihost.sync_global_processes("create directories")
 
-    with metrics.time("create_abstract_pytree"):
+    with metrics.measure("create_abstract_pytree"):
       abstract_pytree = jax.tree.map(utils.to_shape_dtype_struct, pytree)
       logging.info("abstract_pytree: %r", abstract_pytree)
 
-    with metrics.time("create_restore_args"):
+    with metrics.measure("create_restore_args"):
       restore_args = checkpoint_utils.construct_restore_args(abstract_pytree)
       logging.info("restore_args: %r", restore_args)
 
-    with metrics.time("create_checkpoint_manager"):
+    with metrics.measure("create_checkpoint_manager"):
       manager = _create_checkpoint_manager(
           local_directory=local_directory,
           persistent_directory=persistent_directory,
@@ -241,21 +242,21 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
         is_in_secondary_slice,
     )
 
-    with metrics.time("train_loop"):
+    with metrics.measure("train_loop"):
       for step in range(options.train_steps):
         logging.info("Training step %d", step)
-        with metrics.time(f"save_{step}"):
+        with metrics.measure(f"save_{step}"):
           manager.save(
               step,
               args=composite_checkpoint_handler.CompositeArgs(
                   state=pytree_checkpoint_handler.PyTreeSaveArgs(pytree)
               ),
           )
-        with metrics.time(f"wait_until_finished_{step}"):
+        with metrics.measure(f"wait_until_finished_{step}"):
           manager.wait_until_finished()
 
         if step % options.local_save_interval_steps == 0:
-          with metrics.time(f"restore_and_validate_{step}"):
+          with metrics.measure(f"restore_and_validate_{step}"):
             _restore_and_validate(
                 manager,
                 metrics,

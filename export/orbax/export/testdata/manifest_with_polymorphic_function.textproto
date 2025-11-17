@@ -144,6 +144,8 @@ objects {
             }
           }
         }
+        data_names: "params.Dense_0.bias"
+        data_names: "params.Dense_0.kernel"
         visibility: PUBLIC
       }
       concrete_functions {
@@ -286,6 +288,8 @@ objects {
             }
           }
         }
+        data_names: "params.Dense_0.bias"
+        data_names: "params.Dense_0.kernel"
         visibility: PUBLIC
       }
       concrete_functions {
@@ -428,6 +432,8 @@ objects {
             }
           }
         }
+        data_names: "params.Dense_0.bias"
+        data_names: "params.Dense_0.kernel"
         visibility: PUBLIC
       }
       concrete_functions {
@@ -570,6 +576,8 @@ objects {
             }
           }
         }
+        data_names: "params.Dense_0.bias"
+        data_names: "params.Dense_0.kernel"
         visibility: PUBLIC
       }
     }

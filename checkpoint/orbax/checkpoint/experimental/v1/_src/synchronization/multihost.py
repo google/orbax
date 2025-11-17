@@ -154,3 +154,8 @@ def broadcast_one_to_all(in_tree, is_source: Optional[bool] = None):
   if is_source is None:
     is_source = process_index() == 0
   return multihost_utils.broadcast_one_to_all(in_tree, is_source=is_source)
+
+
+def process_allgather(in_tree, tiled: bool | None = None):
+  """All-gather data from all hosts."""
+  return multihost_utils.process_allgather(in_tree, tiled=tiled)

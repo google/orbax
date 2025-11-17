@@ -62,6 +62,16 @@ class DirectorySetupTest(absltest.TestCase):
     self.assertEqual(path, epath.Path(temp_dir.full_path) / 'my_test')
     self.assertFalse(path.exists())
 
+  def test_setup_test_directory_with_repeat_index(self):
+    temp_dir = self.create_tempdir()
+    path = directory_setup.setup_test_directory(
+        'my_test', base_path=temp_dir.full_path, repeat_index=0
+    )
+    self.assertEqual(
+        path, epath.Path(temp_dir.full_path) / 'my_test' / 'repeat_0'
+    )
+    self.assertTrue(path.exists())
+
 
 if __name__ == '__main__':
   absltest.main()

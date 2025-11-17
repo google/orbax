@@ -41,7 +41,7 @@ def jax_exported_to_shlo_fn(
     exported: jax_export.Exported,
     xla_compile_options_per_platform: (
         obm.manifest_pb2.CompileOptionsProtoMap | None
-    prune_custom_pytree_nodes: bool = False,
+    model_param_names: Sequence[str] | None = None,
 ) -> obm.ShloFunction:
   """Converts a `jax.export.Exported` to an Orbax Model `ShloFunction`."""
 
@@ -58,7 +58,6 @@ def jax_exported_to_shlo_fn(
           exported.in_avals,
           in_shardings_hlo,
           exported.in_tree,
-          prune_custom_pytree_nodes=prune_custom_pytree_nodes,
       )
   )
   shlo_out_sig, jax_out_sig_refinements = (
@@ -66,7 +65,6 @@ def jax_exported_to_shlo_fn(
           exported.out_avals,
           out_shardings_hlo,
           exported.out_tree,
-          prune_custom_pytree_nodes=prune_custom_pytree_nodes,
       )
   )
   supplemental_info_ = {}
@@ -85,6 +83,7 @@ def jax_exported_to_shlo_fn(
   shlo_func = obm.ShloFunction(
       input_signature=shlo_in_sig,
       output_signature=shlo_out_sig,
+      data_names=model_param_names,
       mlir_module_serialized=exported.mlir_module_serialized,
       calling_convention_version=exported.calling_convention_version,
       module_kept_var_idx=exported.module_kept_var_idx,
@@ -110,7 +109,7 @@ def convert(
     native_serialization_disabled_checks: Sequence[
         jax_export.DisabledSafetyCheck
     ] = (),
-    prune_custom_pytree_nodes: bool = False,
+    model_param_names: Sequence[str] | None = None,
 ) -> obm.ShloFunction:
   """Converts a JAX function to an Orbax Model `ShloFunction`.
 
@@ -142,8 +141,10 @@ def convert(
       model artifact, to ensure XLA compilation consistency and reproducibility
       between export time and serving time. Each map entry corresponds to a
       platform type (e.g. TPU, GPU, etc.).
-    prune_custom_pytree_nodes: Optional. True if the custom pytree nodes should
-      be pruned. False by default.
+    model_param_names: Optional. A list of the model parameter names in the
+      dot-separated key path format (e.g. "params.key.subkey"). If provided,
+      only these parameters will be loaded from the checkpoint when the function
+      is executed.
 
   Returns:
     An Orbax Model `ShloFunction`.
@@ -162,7 +163,7 @@ def convert(
   exported = exported_creator(*args_spec, **kwargs_spec)
   return jax_exported_to_shlo_fn(
       exported,
-      prune_custom_pytree_nodes=prune_custom_pytree_nodes,
+      model_param_names=model_param_names,
   )
 
 

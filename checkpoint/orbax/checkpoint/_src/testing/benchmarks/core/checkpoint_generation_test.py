@@ -103,9 +103,14 @@ class CheckpointGenerationTest(parameterized.TestCase):
             'shape': [4, 5],
         }
     }
-    config = configs.CheckpointConfig(spec=spec)
-    expected_array = np.arange(20, dtype=np.int32).reshape(4, 5)
-
+    init_random_seed = 0
+    config = configs.CheckpointConfig(spec=spec, random_seed=init_random_seed)
+    np.random.seed(init_random_seed)
+    expected_array = jnp.asarray(
+        np.random.normal(
+            size=spec['a']['shape'], scale=np.prod(spec['a']['shape'])
+        ).astype(np.int32)
+    )
     pytree = checkpoint_generation.generate_checkpoint(config)
 
     np.testing.assert_array_equal(np.array(pytree['a']), expected_array)
@@ -120,11 +125,15 @@ class CheckpointGenerationTest(parameterized.TestCase):
             'sharding': ['data'],
         }
     }
-    config = configs.CheckpointConfig(spec=spec)
+    init_random_seed = 0
+    config = configs.CheckpointConfig(spec=spec, random_seed=init_random_seed)
     expected_sharding = jax.sharding.NamedSharding(
         mesh, jax.sharding.PartitionSpec('data')
     )
-    expected_array = np.arange(512, dtype=np.float32).reshape(16, 32)
+    np.random.seed(init_random_seed)
+    expected_array = np.random.normal(
+        size=spec['x']['shape'], scale=np.prod(spec['x']['shape'])
+    ).astype(dtype=np.float32)
 
     pytree = checkpoint_generation.generate_checkpoint(config, mesh=mesh)
 
@@ -145,8 +154,12 @@ class CheckpointGenerationTest(parameterized.TestCase):
             'shape': [16, 32],
         }
     }
-    config = configs.CheckpointConfig(spec=spec)
-    expected_array = np.arange(512, dtype=np.int32).reshape(16, 32)
+    init_random_seed = 0
+    config = configs.CheckpointConfig(spec=spec, random_seed=init_random_seed)
+    np.random.seed(init_random_seed)
+    expected_array = np.random.normal(
+        size=spec['x']['shape'], scale=np.prod(spec['x']['shape'])
+    ).astype(dtype=np.int32)
     expected_sharding = jax.sharding.NamedSharding(
         mesh, jax.sharding.PartitionSpec()
     )

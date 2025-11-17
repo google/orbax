@@ -78,10 +78,16 @@ def _load_yaml_config(config_path: str) -> Dict[str, Any]:
 
 def _validate_config(config: Dict[str, Any]) -> None:
   """Performs basic validation on the loaded YAML config."""
-  required_keys = ['suite_name', 'checkpoint_config', 'benchmarks']
+  required_keys = ['suite_name', 'benchmarks']
   for key in required_keys:
     if key not in config:
       raise ValueError(f'Missing required key in YAML config: {key}')
+
+  if 'checkpoint_config' not in config and 'checkpoint_configs' not in config:
+    raise ValueError(
+        'Missing required key in YAML config: checkpoint_config or'
+        ' checkpoint_configs'
+    )
 
   if not isinstance(config['benchmarks'], list):
     raise ValueError("'benchmarks' must be a list.")
@@ -121,10 +127,25 @@ def create_test_suite_from_config(
   _validate_config(config)
 
   suite_name = config['suite_name']
-  checkpoint_config = config_lib.CheckpointConfig(**config['checkpoint_config'])
-  mesh_config = None
-  if 'mesh_config' in config:
-    mesh_config = config_lib.MeshConfig(**config['mesh_config'])
+  num_repeats = config.get('num_repeats', 1)
+  if 'checkpoint_configs' in config:
+    checkpoint_configs = [
+        config_lib.CheckpointConfig(**cc) for cc in config['checkpoint_configs']
+    ]
+  else:
+    checkpoint_configs = [
+        config_lib.CheckpointConfig(**config['checkpoint_config'])
+    ]
+
+  if 'mesh_configs' in config:
+    mesh_configs = [
+        config_lib.MeshConfig(**mc) for mc in config['mesh_configs']
+    ]
+  elif 'mesh_config' in config:
+    mesh_configs = [config_lib.MeshConfig(**config['mesh_config'])]
+  else:
+    mesh_configs = None
+
   generators: List[core.BenchmarksGenerator] = []
 
   for i, benchmark_group in enumerate(config['benchmarks']):
@@ -153,7 +174,7 @@ def create_test_suite_from_config(
 
     generator_options_dict = benchmark_group['options']
     try:
-      generator_options = options_class(**generator_options_dict)
+      generator_options = options_class.from_dict(generator_options_dict)
     except TypeError as e:
       logging.error(
           'Failed to instantiate options class %s with provided options %s: %s',
@@ -164,11 +185,13 @@ def create_test_suite_from_config(
       raise
 
     generator = generator_class(
-        checkpoint_config=checkpoint_config,
+        checkpoint_configs=checkpoint_configs,
         options=generator_options,
         output_dir=output_dir,
-        mesh_config=mesh_config,
+        mesh_configs=mesh_configs,
     )
     generators.append(generator)
 
-  return core.TestSuite(name=suite_name, benchmarks_generators=generators)
+  return core.TestSuite(
+      name=suite_name, benchmarks_generators=generators, num_repeats=num_repeats
+  )

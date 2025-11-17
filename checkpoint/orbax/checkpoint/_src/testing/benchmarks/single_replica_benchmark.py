@@ -13,20 +13,25 @@
 # limitations under the License.
 
 """Benchmarks for orbax.checkpoint._src.serialization.type_handlers.SingleReplicaArrayHandler."""
+
 from collections.abc import Sequence
 import dataclasses
 from typing import Any
+
 from absl import flags
 from absl import logging
 import jax
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.serialization import pathways_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import mesh_utils
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 from orbax.checkpoint._src.tree import utils
+
 
 
 # ==============================================================================
@@ -49,6 +54,13 @@ class SingleReplicaBenchmarkOptions(benchmarks_core.BenchmarkOptions):
   use_replica_parallel: bool | Sequence[bool] = True
   broadcast_memory_limit_bytes: int | Sequence[int] | None = None
   broadcast_memory_scaling_factor: float | Sequence[float] = 0.75
+  use_colocated_python: bool | Sequence[bool] = False
+  use_distributed_process_id: bool | Sequence[bool] = True
+
+  def is_valid(self) -> bool:
+    assert isinstance(self.use_colocated_python, bool)
+
+    return True
 
 
 # ==============================================================================
@@ -86,7 +98,7 @@ class SingleReplicaBenchmark(benchmarks_core.BenchmarksGenerator):
       self, context: benchmarks_core.TestContext
   ) -> benchmarks_core.TestResult:
     """The core test logic for a single save/restore cycle."""
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = context.pytree
     save_path = context.path / "single_replica_ckpt"
     options = context.options
@@ -96,38 +108,43 @@ class SingleReplicaBenchmark(benchmarks_core.BenchmarksGenerator):
     if mesh is None:
       raise ValueError("Mesh must be provided for SingleReplicaBenchmark")
 
-    flags.FLAGS.experimental_orbax_use_distributed_process_id = True
-    if not multihost.is_runtime_to_distributed_ids_initialized():
+    flags.FLAGS.experimental_orbax_use_distributed_process_id = (
+        options.use_distributed_process_id
+    )
+    if (
+        options.use_distributed_process_id
+        and not multihost.is_runtime_to_distributed_ids_initialized()
+    ):
       multihost.initialize_runtime_to_distributed_ids()
 
-    type_handlers.register_type_handler(
-        jax.Array,
-        type_handlers.SingleReplicaArrayHandler(
-            replica_axis_index=options.replica_axis_index,
-            primary_replica_id=options.primary_replica_id,
-            use_replica_parallel=options.use_replica_parallel,
-            broadcast_memory_limit_bytes=options.broadcast_memory_limit_bytes,
-            broadcast_memory_scaling_factor=options.broadcast_memory_scaling_factor,
+    pathways_handler_registry.register_pathways_handlers(
+        use_single_replica_array_handler=True,
+        checkpointing_impl=pathways_handler_registry.CheckpointingImpl.from_options(
+            use_colocated_python=options.use_colocated_python,
         ),
-        override=True,
+        replica_axis_index=options.replica_axis_index,
+        primary_replica_id=options.primary_replica_id,
+        use_replica_parallel=options.use_replica_parallel,
+        broadcast_memory_limit_bytes=options.broadcast_memory_limit_bytes,
+        broadcast_memory_scaling_factor=options.broadcast_memory_scaling_factor,
     )
 
     handler = pytree_checkpoint_handler.PyTreeCheckpointHandler()
     checkpointer = async_checkpointer.AsyncCheckpointer(handler)
 
-    with metrics.time("save"):
+    with metrics.measure("save"):
       checkpointer.save(
           save_path, args=pytree_checkpoint_handler.PyTreeSaveArgs(pytree)
       )
 
-    with metrics.time("wait_until_finished"):
+    with metrics.measure("wait_until_finished"):
       checkpointer.wait_until_finished()
 
     abstract_pytree = jax.tree.map(utils.to_shape_dtype_struct, pytree)
     logging.info("abstract_pytree: %s", abstract_pytree)
 
-    with metrics.time("restore"):
-      with metrics.time("construct_restore_args"):
+    with metrics.measure("restore"):
+      with metrics.measure("construct_restore_args"):
         restore_args = self._construct_restore_args(
             abstract_pytree,
             options.replica_axis_index,

@@ -1,12 +1,34 @@
 # The name for the entire test suite run.
 suite_name: "SingleReplicaArrayHandler Benchmark"
 
-mesh_config:
-  mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
-  # ICI: Within a slice. Assuming 8 devices per slice.
-  # DCN: Across slices.
-  ici_parallelism: {"fsdp": 16, "tensor": 1, "data": 16}
-  dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
+mesh_configs:
+  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+    # ICI: Within a slice. Assuming 256 devices per slice.
+    # DCN: Across slices.
+    ici_parallelism: {"fsdp": 16, "tensor": 1, "data": 16}
+    dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
+  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+    # ICI: Within a slice. Assuming 8 devices per slice.
+    # DCN: Across slices.
+    ici_parallelism: {"fsdp": 2, "tensor": 2, "data": 2}
+    dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
+  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+    # ICI: Within a slice. Assuming 8 devices per slice.
+    # DCN: Across slices.
+    ici_parallelism: {"fsdp": 4, "tensor": 2, "data": 1}
+    dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
+  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+    # ICI: Within a slice. Assuming 64 devices per slice.
+    # DCN: Across slices.
+    ici_parallelism: {"fsdp": 32, "tensor": 1, "data": 2}
+    dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
+    allow_split_physical_axes: True
+  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+    # ICI: Within a slice. Assuming 64 devices per slice.
+    # DCN: Across slices.
+    ici_parallelism: {"fsdp": 32, "tensor": 2, "data": 1}
+    dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
+    allow_split_physical_axes: True
 
 checkpoint_config:
   spec:
@@ -29,5 +51,7 @@ benchmarks:
       replica_axis_index: [0]  # Index of "data" in mesh_axes, which has DCN parallelism
       primary_replica_id: [0]
       use_replica_parallel: [True]
-      broadcast_memory_limit_bytes: null
+      broadcast_memory_limit_bytes: [null]
       broadcast_memory_scaling_factor: [0.75]
+      use_distributed_process_id: [False]
+      use_colocated_python: [True, False]

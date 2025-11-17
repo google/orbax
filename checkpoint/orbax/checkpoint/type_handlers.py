@@ -29,27 +29,27 @@ from orbax.checkpoint._src.serialization.type_handlers import StringHandler
 from orbax.checkpoint._src.serialization.type_handlers import TypeHandler
 
 # TypeHandler Registry
-from orbax.checkpoint._src.serialization.type_handlers import TypeHandlerRegistry
-from orbax.checkpoint._src.serialization.type_handlers import create_type_handler_registry
-from orbax.checkpoint._src.serialization.type_handlers import get_type_handler
-from orbax.checkpoint._src.serialization.type_handlers import has_type_handler
-from orbax.checkpoint._src.serialization.type_handlers import register_standard_handlers_with_options
-from orbax.checkpoint._src.serialization.type_handlers import register_type_handler
-from orbax.checkpoint._src.serialization.type_handlers import supported_types
+from orbax.checkpoint._src.serialization.types import TypeHandlerRegistry
+from orbax.checkpoint._src.serialization.type_handler_registry import create_type_handler_registry
+from orbax.checkpoint._src.serialization.type_handler_registry import get_type_handler
+from orbax.checkpoint._src.serialization.type_handler_registry import has_type_handler
+from orbax.checkpoint._src.serialization.type_handler_registry import register_standard_handlers_with_options
+from orbax.checkpoint._src.serialization.type_handler_registry import register_type_handler
+from orbax.checkpoint._src.serialization.type_handler_registry import supported_types
 
 from orbax.checkpoint._src.serialization.type_handlers import is_ocdbt_checkpoint
 
 # BEGIN OF DEPRECATED FUNCTIONS
 # DON'T USE UNLESS YOU KNOW WHAT YOU'RE DOING
-from orbax.checkpoint._src.serialization.type_handlers import _assert_parameter_files_exist
-from orbax.checkpoint._src.serialization.type_handlers import _get_json_tspec
-from orbax.checkpoint._src.serialization.type_handlers import check_input_arguments
-from orbax.checkpoint._src.serialization.type_handlers import get_cast_tspec_deserialize
-from orbax.checkpoint._src.serialization.type_handlers import get_cast_tspec_serialize
-from orbax.checkpoint._src.serialization.type_handlers import get_json_tspec_read
-from orbax.checkpoint._src.serialization.type_handlers import get_json_tspec_write
-from orbax.checkpoint._src.serialization.type_handlers import get_ts_context
-from orbax.checkpoint._src.serialization.type_handlers import is_supported_empty_value
-from orbax.checkpoint._src.serialization.type_handlers import is_supported_type
-from orbax.checkpoint._src.serialization.type_handlers import merge_ocdbt_per_process_files
+from orbax.checkpoint._src.serialization.types import check_input_arguments
+from orbax.checkpoint._src.metadata.empty_values import is_supported_empty_value
+from orbax.checkpoint._src.serialization.types import is_supported_type
+from orbax.checkpoint._src.serialization.ocdbt_utils import merge_ocdbt_per_process_files
+from orbax.checkpoint._src.serialization.tensorstore_utils import _get_json_tspec
+from orbax.checkpoint._src.serialization.tensorstore_utils import assert_parameter_files_exist as _assert_parameter_files_exist
+from orbax.checkpoint._src.serialization.tensorstore_utils import get_cast_tspec_deserialize
+from orbax.checkpoint._src.serialization.tensorstore_utils import get_cast_tspec_serialize
+from orbax.checkpoint._src.serialization.tensorstore_utils import get_json_tspec_read
+from orbax.checkpoint._src.serialization.tensorstore_utils import get_json_tspec_write
+from orbax.checkpoint._src.serialization.tensorstore_utils import get_ts_context
 # END OF DEPRECATED FUNCTIONS

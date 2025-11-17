@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-from typing import cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -136,7 +135,7 @@ class MainLibTest(parameterized.TestCase):
         save_dir_path,
         obm.SaveOptions(
             version=2,
-            supplemental_info={
+            supplementals={
                 simple_orchestration.TEST_ORCHESTRATION_SUPPLEMENTAL_NAME: (
                     obm.GlobalSupplemental(
                         simple_orchestration.create(
@@ -156,9 +155,7 @@ class MainLibTest(parameterized.TestCase):
         f'Checkpoint directory {ckpt_subdir} is empty.',
     )
 
-    manifest_proto = obm.manifest_pb2.Manifest()
-    with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), 'rb') as f:
-      manifest_proto.ParseFromString(f.read())
+    manifest_proto = obm.load(save_dir_path)
 
     if polymorphic_shape:
       batch_size = ''
@@ -301,7 +298,9 @@ class MainLibTest(parameterized.TestCase):
     """
     )
 
-    jax_supplemental_filename = f'{model_function_name}_supplemental.pb'
+    jax_supplemental_filename = (
+        f'{model_function_name}_jax_specific_info_supplemental.pb'
+    )
 
     expected_manifest_proto_text = (
         """
@@ -554,11 +553,10 @@ class MainLibTest(parameterized.TestCase):
         ),
     )
 
-    manifest_proto = obm.manifest_pb2.Manifest()
-    with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), 'rb') as f:
-      manifest_proto.ParseFromString(f.read())
-
-    jax_supplemental_filename = f'{model_function_name}_supplemental.pb'
+    manifest_proto = obm.load(save_dir_path)
+    jax_supplemental_filename = (
+        f'{model_function_name}_jax_specific_info_supplemental.pb'
+    )
 
     expected_manifest_proto_text = (
         """

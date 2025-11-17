@@ -30,7 +30,7 @@ from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import value as value_metadata
-from orbax.checkpoint._src.serialization import serialization
+from orbax.checkpoint._src.serialization import limits
 import tensorstore as ts
 
 PyTreeMetadataOptions = pytree_metadata_options_lib.PyTreeMetadataOptions
@@ -49,27 +49,15 @@ def is_supported_type(
   ) or empty_values.is_supported_empty_value(value, pytree_metadata_options)
 
 
-def get_param_typestr(
-    value: Any,
-    registry: TypeHandlerRegistry,
-    pytree_metadata_options: PyTreeMetadataOptions,
-) -> str:
-  """Retrieves the typestr for a given value."""
-  if empty_values.is_supported_empty_value(value, pytree_metadata_options):
-    typestr = empty_values.get_empty_value_typestr(
-        value, pytree_metadata_options
-    )
-  else:
-    try:
-      handler = registry.get(type(value))
-      typestr = handler.typestr()
-    except ValueError:
-      # Not an error because users' training states often have a bunch of
-      # random unserializable objects in them (empty states, optimizer
-      # objects, etc.). An error occurring due to a missing TypeHandler
-      # will be surfaced elsewhere.
-      typestr = empty_values.RESTORE_TYPE_NONE
-  return typestr
+def check_input_arguments(*args):
+  l = None
+  for arg in args:
+    if l == 0:
+      raise ValueError('Cannot pass TypeHandler input of length 0.')
+    if l is None:
+      l = len(arg)
+    elif len(arg) != l:
+      raise ValueError('Found input args with mismatched lengths.')
 
 
 @dataclasses.dataclass
@@ -132,8 +120,8 @@ class ParamInfo:
   path: Optional[epath.Path] = None
   parent_dir: Optional[epath.Path] = None
   skip_deserialize: Optional[bool] = None
-  byte_limiter: Optional[serialization.ByteLimiter] = None
-  device_host_byte_limiter: Optional[serialization.ByteLimiter] = None
+  byte_limiter: Optional[limits.ByteLimiter] = None
+  device_host_byte_limiter: Optional[limits.ByteLimiter] = None
   is_ocdbt_checkpoint: Optional[bool] = None
   use_compression: bool | None = True
   use_zarr3: Optional[bool] = False

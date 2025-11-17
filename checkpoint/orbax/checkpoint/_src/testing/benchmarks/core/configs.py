@@ -25,19 +25,15 @@ class CheckpointConfig:
   Attributes:
       path: The path to the checkpoint data to be used in the test. If not
         provided, the checkpoint will be generated using the `spec` attribute.
+      random_seed: The random seed to use for generating the checkpoint data. If
+        not provided, default random seed will be used.
       spec: A dictionary defining the structure and type of the PyTree to be
-        generated. Example:
-        {
-            'params': {
-                'dtype': 'float32',
-                'shape': [1024, 1024],
-                'sharding': ['data', 'model']  # PartitionSpec
-            },
-            'step': 'int'
-        }
+        generated. Example: { 'params': { 'dtype': 'float32', 'shape': [1024,
+        1024], 'sharding': ['data', 'model']  # PartitionSpec }, 'step': 'int' }
   """
 
   path: str | None = None
+  random_seed: int = 0
   spec: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 

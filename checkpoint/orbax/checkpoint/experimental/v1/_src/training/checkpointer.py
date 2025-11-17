@@ -23,10 +23,10 @@ from etils import epy
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.loading import v0_compatibility as v0_loading_utils
 from orbax.checkpoint.experimental.v1._src.metadata import loading as metadata_loading
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import step as path_step_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import saving
@@ -42,7 +42,7 @@ CheckpointMetadata = training_metadata_types.CheckpointMetadata
 RootMetadata = training_metadata_types.RootMetadata
 
 
-PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
+PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 
 
 class _AsyncSaveResponse(async_types.AsyncResponse[bool]):
@@ -517,6 +517,10 @@ class Checkpointer(epy.ContextManager):
   def is_saving_in_progress(self) -> bool:
     """Whether a checkpoint is currently being saved in the background."""
     return self._manager.is_saving_in_progress()
+
+  def wait(self):
+    """Waits for any outstanding async operations to complete."""
+    self._manager.wait_until_finished()
 
   def close(self):
     """Ensures any outstanding async operations are completed before closing."""

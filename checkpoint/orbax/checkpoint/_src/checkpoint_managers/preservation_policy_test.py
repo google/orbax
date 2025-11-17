@@ -115,8 +115,14 @@ class PreservationPolicyTest(parameterized.TestCase):
       ),
       dict(
           interval_steps=3,
-          steps=[0, 1, 2, 3, 4],
-          expected_preserved_steps=[0, 3],
+          steps=[0, 1, 2, 4],
+          expected_preserved_steps=[0],
+      ),
+      dict(
+          exact_interval=False,
+          interval_steps=3,
+          steps=[0, 1, 2, 4],
+          expected_preserved_steps=[0, 4],
       ),
       dict(
           interval_steps=6,
@@ -124,15 +130,18 @@ class PreservationPolicyTest(parameterized.TestCase):
           expected_preserved_steps=[0],
       ),
       dict(
+          exact_interval=False,
           interval_steps=3,
           steps=[0, 1, 2, 4, 5, 8, 9, 13, 14, 25],
           expected_preserved_steps=[0, 4, 8, 13, 25],
       ),
   )
   def test_every_n_steps_policy(
-      self, interval_steps, steps, expected_preserved_steps
+      self, interval_steps, steps, expected_preserved_steps, exact_interval=True
   ):
-    policy = preservation_policy_lib.EveryNSteps(interval_steps=interval_steps)
+    policy = preservation_policy_lib.EveryNSteps(
+        interval_steps=interval_steps, exact_interval=exact_interval
+    )
 
     self.assertEqual(
         expected_preserved_steps,

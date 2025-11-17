@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Mapping
 from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
@@ -143,6 +144,143 @@ class ExportManagerTest(tf.test.TestCase, parameterized.TestCase):
 
     with self.assertRaises(NotImplementedError):
       em.serving_signatures  # pylint: disable=pointless-statement
+
+  def test_save_model_with_preprocess_output_passthrough_succeeds(self):
+    """Tests that the model can be saved with preprocess output passthrough."""
+
+    rng = jax.random.PRNGKey(0)
+    params = {
+        'w': jax.random.normal(rng, shape=(8, 8)),
+        'b': jax.random.normal(rng, shape=(8, 1)),
+    }
+    bs = 1
+
+    @tf.function
+    def tf_preprocessor(x_float: tf.Tensor, y_str: tf.Tensor):
+      # Returns two outputs, one to be passed to the JAX function, the other to
+      # be passed to the TF postprocessor.
+      return {'pre_out_float': x_float}, {'pre_out_str': y_str}
+
+    def jax_func(
+        params: Mapping[str, jax.Array], inputs: Mapping[str, jax.Array]
+    ):
+      outputs = params['w'] @ inputs['pre_out_float'] + params['b']
+      return {
+          'jax_out_float': outputs,
+      }
+
+    # The TF postprocessor gets two inputs: the JAX function output and the
+    # second of the preprocessor output.
+    @tf.function
+    def tf_postprocessor(
+        inputs: Mapping[str, tf.Tensor], inputs_extra: Mapping[str, tf.Tensor]
+    ):
+      return {
+          'post_out_float': inputs['jax_out_float'],
+          'post_out_str': inputs_extra['pre_out_str'],
+      }
+
+    m = jax_module.JaxModule(
+        params,
+        jax_func,
+    )
+    serving_configs = [
+        sc.ServingConfig(
+            'serving_default',
+            [
+                tf.TensorSpec((bs, 8, 1), tf.float32, name='x_float'),
+                tf.TensorSpec((bs, 8, 1), tf.string, name='y_str'),
+            ],
+            tf_preprocessor=tf_preprocessor,
+            tf_postprocessor=tf_postprocessor,
+            preprocess_output_passthrough_enabled=True,
+        )
+    ]
+    em = export_manager.ExportManager(m, serving_configs)
+    em.save(
+        self._output_dir,
+    )
+
+    x_float = jax.random.normal(rng, shape=(bs, 8, 1))
+    y_str = tf.constant(['a dummy string'] * bs)
+    loaded = em.load(self._output_dir)
+    self.assertAllClose(
+        loaded.signatures['serving_default'](
+            x_float=tf.convert_to_tensor(x_float, dtype=tf.float32),
+            y_str=y_str,
+        )['post_out_float'],
+        params['w'] @ x_float + params['b'],
+        atol=0.05,
+        rtol=0.2,
+    )
+    self.assertAllEqual(
+        loaded.signatures['serving_default'](
+            x_float=tf.convert_to_tensor(x_float),
+            y_str=y_str,
+        )['post_out_str'],
+        y_str,
+    )
+
+  def test_save_jax2tf_model_with_preprocess_output_passthrough_raises_error(
+      self,
+  ):
+    """Tests that the model saving with preprocess output passthrough raises error.
+
+    The error is raised because the preprocessor output doesn't comply with
+    the requirements of a tuple of two dicts.
+    """
+    rng = jax.random.PRNGKey(0)
+    params = {
+        'w': jax.random.normal(rng, shape=(8, 8)),
+        'b': jax.random.normal(rng, shape=(8, 1)),
+    }
+    bs = 1
+
+    @tf.function
+    def tf_preprocessor(x_float: tf.Tensor, y_str: tf.Tensor):
+      return {'pre_out_float': x_float, 'pre_out_str': y_str}
+
+    def jax_func(
+        params: Mapping[str, jax.Array], inputs: Mapping[str, jax.Array]
+    ):
+      outputs = params['w'] @ inputs['pre_out_float'] + params['b']
+      return {
+          'jax_out_float': outputs,
+      }
+
+    @tf.function
+    def tf_postprocessor(
+        inputs: Mapping[str, tf.Tensor], inputs_extra: Mapping[str, tf.Tensor]
+    ):
+      return {
+          'post_out_float': inputs['jax_out_float'],
+          'post_out_str': inputs_extra['pre_out_str'],
+      }
+
+    m = jax_module.JaxModule(
+        params,
+        jax_func,
+    )
+    serving_configs = [
+        sc.ServingConfig(
+            'serving_default',
+            [
+                tf.TensorSpec((bs, 8, 1), tf.float32, name='x_float'),
+                tf.TensorSpec((bs, 8, 1), tf.string, name='y_str'),
+            ],
+            tf_preprocessor=tf_preprocessor,
+            tf_postprocessor=tf_postprocessor,
+            preprocess_output_passthrough_enabled=True,
+        )
+    ]
+    em = export_manager.ExportManager(m, serving_configs)
+    with self.assertRaisesRegex(
+        ValueError,
+        'requiring the preprocessor output to be a tuple of two elements',
+    ):
+      em.save(
+          self._output_dir,
+      )
 
 
 if __name__ == '__main__':

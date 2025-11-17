@@ -37,7 +37,7 @@ from orbax.checkpoint.experimental.v1._src.context import options
 from orbax.checkpoint.experimental.v1._src.context.context import (
     Context,
 )
-from orbax.checkpoint.experimental.v1._src.layout.format_utils import (
+from orbax.checkpoint.experimental.v1._src.layout.orbax_layout import (
     is_orbax_checkpoint,
 )
 from orbax.checkpoint.experimental.v1._src.loading.loading import (

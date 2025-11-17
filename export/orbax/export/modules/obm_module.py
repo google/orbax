@@ -87,6 +87,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     )
 
     self._jax_mesh = jax2obm_kwargs.get(constants.JAX_MESH, None)
+    self._strip_xla_flags = jax2obm_kwargs.get(constants.STRIP_XLA_FLAGS, False)
 
     self.polymorphic_constraints = self._maybe_set_polymorphic_constraints(
         jax2obm_kwargs
@@ -99,8 +100,8 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     self._checkpoint_path: str = None
     # Set the Orbax checkpoint path if provided in the jax2obm_kwargs.
     self._maybe_set_orbax_checkpoint_path(jax2obm_kwargs)
-    self._prune_custom_pytree_nodes = jax2obm_kwargs.get(
-        constants.PRUNE_CUSTOM_PYTREE_NODES, False
+    self._load_all_checkpoint_weights = jax2obm_kwargs.get(
+        constants.LOAD_ALL_CHECKPOINT_WEIGHTS, False
     )
 
   def _normalize_apply_fn_map(

@@ -26,6 +26,7 @@ from typing import Any, List, Mapping, Optional, Sequence, Tuple, Union
 import jax
 import numpy as np
 
+_AXIS_TYPE_MAP = {str(val): val for val in jax.sharding.AxisType}
 PartitionSpecElement = Union[None, str, Tuple[str, ...]]
 
 _PARTITION_SPEC = 'partition_spec'
@@ -33,6 +34,7 @@ _SHARDING = '_sharding'
 _SHARDING_TYPE = 'sharding_type'
 _DEVICE_STR = 'device_str'
 _MESH_AXES = 'axis_names'
+_MESH_AXIS_TYPES = 'axis_types'
 _MESH_SHAPE = 'shape'
 _DEVICES_SHAPE = 'shape'
 _DEVICE_MESH = 'device_mesh'
@@ -181,6 +183,7 @@ class NamedShardingMetadata(ShardingMetadata):
   partition_spec: Tuple[
       PartitionSpecElement, ...
   ]  # Each element is either ``None``, a string, or a tuple of strings.
+  axis_types: Optional[Tuple[jax.sharding.AxisType, ...]] = None
 
   # Optional device mesh.  If it's None, use jax.devices(),
   # otherwise, the stored device_mesh will be used to recreate NamedSharding.
@@ -193,6 +196,7 @@ class NamedShardingMetadata(ShardingMetadata):
     return cls(
         shape=np.array(list(jax_sharding.mesh.shape.values())),
         axis_names=list(jax_sharding.mesh.axis_names),
+        axis_types=tuple(jax_sharding.mesh.axis_types),
         partition_spec=tuple(jax_sharding.spec),
         device_mesh=DeviceMetadataMesh.from_jax_mesh(jax_sharding.mesh),
     )
@@ -207,6 +211,7 @@ class NamedShardingMetadata(ShardingMetadata):
         jax.sharding.Mesh(
             np.asarray(mesh_devices).reshape(self.shape),
             axis_names=self.axis_names,
+            axis_types=self.axis_types,
         ),
         spec=jax.sharding.PartitionSpec(*self.partition_spec),
     )
@@ -222,6 +227,9 @@ class NamedShardingMetadata(ShardingMetadata):
     ):
       shape = np.array(deserialized_dict[_MESH_SHAPE])
       axis_names = list(deserialized_dict[_MESH_AXES])
+      axis_types = None
+      if axis_types_raw := deserialized_dict.get(_MESH_AXIS_TYPES):
+        axis_types = tuple([_AXIS_TYPE_MAP[s] for s in axis_types_raw])
       partition_spec = tuple(deserialized_dict[_PARTITION_SPEC])
       if device_mesh_dic := deserialized_dict.get(_DEVICE_MESH):
         device_mesh = DeviceMetadataMesh.from_dict(device_mesh_dic)
@@ -231,6 +239,7 @@ class NamedShardingMetadata(ShardingMetadata):
       return cls(
           shape=shape,
           axis_names=axis_names,
+          axis_types=axis_types,
           partition_spec=partition_spec,
           device_mesh=device_mesh,
       )
@@ -244,6 +253,8 @@ class NamedShardingMetadata(ShardingMetadata):
     sharding_data[_SHARDING_TYPE] = ShardingTypes.NAMED_SHARDING.value
     sharding_data[_MESH_SHAPE] = self.shape.tolist()
     sharding_data[_MESH_AXES] = self.axis_names
+    if self.axis_types is not None:
+      sharding_data[_MESH_AXIS_TYPES] = [str(a) for a in self.axis_types]
     sharding_data[_PARTITION_SPEC] = self.partition_spec
     if self.device_mesh:
       sharding_data[_DEVICE_MESH] = dataclasses.asdict(self.device_mesh)
@@ -252,14 +263,15 @@ class NamedShardingMetadata(ShardingMetadata):
   def __repr__(self):
     return (
         f'NamedShardingMetadata(shape={self.shape},'
-        f' axis_names={self.axis_names}, partition_spec={self.partition_spec})'
-        f' device_mesh={self.device_mesh}'
+        f' axis_names={self.axis_names}, axis_types={self.axis_types},'
+        f' partition_spec={self.partition_spec}) device_mesh={self.device_mesh}'
     )
 
   def __eq__(self, other):
     return (
         np.array_equal(self.shape, other.shape)
         and self.axis_names == other.axis_names
+        and self.axis_types == other.axis_types
         and self.partition_spec == other.partition_spec
         and self.device_mesh == other.device_mesh
     )

@@ -262,7 +262,8 @@ absl::Status BuildMirrorBfloat16Variable(Graph* graph, Node* var_handle_node,
 
   // 3. Build Mirroring VarHandleOp.
   Node* var_handle_bfloat16 = nullptr;
-  string var_handle_name(absl::StrCat(var_handle_node->name(), "_bfloat16"));
+  std::string var_handle_name(
+      absl::StrCat(var_handle_node->name(), "_bfloat16"));
   auto var_handle_builder =
       NodeBuilder(var_handle_name, "VarHandleOp")
           .Attr("_class", {absl::StrCat("loc@", var_handle_name)})
@@ -713,7 +714,7 @@ absl::Status PartiallyWrapNodeFloatValue(
 }
 
 absl::Status WrapBfloat16IncompatibleNodes(
-    Graph* g, const ::gtl::linked_hash_set<string>& filterlist) {
+    Graph* g, const ::gtl::linked_hash_set<std::string>& filterlist) {
   ::gtl::linked_hash_map<std::pair<Node*, int>, Node*>
       output_tensor_to_cast_node;
   ::gtl::linked_hash_map<std::pair<Node*, int>, Node*>
@@ -1037,7 +1038,7 @@ static absl::Status FixRestoreAssignDType(const Edge& restore_out_edge) {
 }
 
 static absl::Status FixRestoreDTypes(
-    const ::gtl::linked_hash_map<string, Tensor>& checkpoint_tensors,
+    const ::gtl::linked_hash_map<std::string, Tensor>& checkpoint_tensors,
     Node* restore_node) {
   // Record the dtypes for each tensor in the checkpoint.
   ::gtl::linked_hash_map<int, DataType> checkpoint_types;
@@ -1047,7 +1048,7 @@ static absl::Status FixRestoreDTypes(
       tensor_names_node->attrs().Find("value")->tensor();
   const auto& tensor_names = tensor.string_val();
   for (int index = 0; index < tensor_names.size(); index++) {
-    const string& tensor_name = tensor_names[index];
+    const std::string& tensor_name = tensor_names[index];
     // 2.x saved models have a second RestoreV2 op that contains only one
     // tensor called "_CHECKPOINTABLE_OBJECT_GRAPH". This RestoreV2 op does not
     // need to be rewritten.
@@ -1081,7 +1082,7 @@ static absl::Status FixRestoreDTypes(
 }
 
 static absl::Status FixSaveDTypes(
-    const ::gtl::linked_hash_map<string, Tensor>& checkpoint_tensors,
+    const ::gtl::linked_hash_map<std::string, Tensor>& checkpoint_tensors,
     Graph* graph, Node* save_node) {
   // Record the dtypes for each tensor in the checkpoint.
   ::gtl::linked_hash_map<int, DataType> checkpoint_types;
@@ -1091,7 +1092,7 @@ static absl::Status FixSaveDTypes(
       tensor_names_node->attrs().Find("value")->tensor();
   const auto& tensor_names = tensor.string_val();
   for (int index = 0; index < tensor_names.size(); index++) {
-    const string& tensor_name = tensor_names[index];
+    const std::string& tensor_name = tensor_names[index];
     // 2.x saved models have a second SaveV2 op that contains only one
     // tensor called "_CHECKPOINTABLE_OBJECT_GRAPH". This SaveV2 op does not
     // need to be rewritten.
@@ -1138,7 +1139,7 @@ absl::Status FixRestoreAndSaveDtypes(FunctionInfo* func,
                                      const ConverterOptions& options) {
   // Read the newly updated checkpoint tensors. These tensors will be used
   // to determine which ops surrounding RestoreV2 and SaveV2 need to be updated.
-  ::gtl::linked_hash_map<string, Tensor> checkpoint_tensors;
+  ::gtl::linked_hash_map<std::string, Tensor> checkpoint_tensors;
   TF_RETURN_IF_ERROR(ReadVariablesAsTensors(
       options.output_variables_filename_prefix(), &checkpoint_tensors));
 
@@ -1199,7 +1200,7 @@ absl::Status CheckpointToBFloat16(const ConverterOptions& options,
   // the variables directly maps to the ordering of the variables in
   // the checkpoint. So for example, if the RestoreV2 op's third output edge is
   // to my_variable, my_variable is also the third tensor in the checkpoint.
-  ::gtl::linked_hash_map<string, Node*> checkpoint_variables;
+  ::gtl::linked_hash_map<std::string, Node*> checkpoint_variables;
   for (const auto& it : var_handles) {
     Node* variable = it.first;
     if (variable->attrs().Find("dtype")->type() != DT_BFLOAT16) continue;
@@ -1244,18 +1245,18 @@ absl::Status CheckpointToBFloat16(const ConverterOptions& options,
   }
 
   // Read Tensor values from saved params.
-  ::gtl::linked_hash_map<string, Tensor> var_tensors;
+  ::gtl::linked_hash_map<std::string, Tensor> var_tensors;
   TF_RETURN_IF_ERROR(ReadVariablesAsTensors(
       options.input_variables_filename_prefix(), &var_tensors));
 
   // Cast tensor values to bfloat16.
-  std::vector<string> var_names;
+  std::vector<std::string> var_names;
   for (const auto& it : checkpoint_variables) {
     if (var_tensors.contains(it.first)) {
       var_names.push_back(it.first);
     }
   }
-  for (const string& var_name : var_names) {
+  for (const std::string& var_name : var_names) {
     // Skip if the variable is already in bfloat16 (e.g. when using mixed
     // precision).
     if (var_tensors[var_name].dtype() == DT_BFLOAT16) continue;
@@ -1281,9 +1282,9 @@ absl::Status CheckpointToBFloat16(const ConverterOptions& options,
 absl::Status GenerateFilterlists(
     FunctionInfo* bfloat16_func, const ConverterOptions& options,
     bool auto_generate_filterlist,
-    ::gtl::linked_hash_set<string>& tpu_filterlist,
-    ::gtl::linked_hash_set<string>& cpu_filterlist) {
-  ::gtl::linked_hash_set<string> general_filterlist({
+    ::gtl::linked_hash_set<std::string>& tpu_filterlist,
+    ::gtl::linked_hash_set<std::string>& cpu_filterlist) {
+  ::gtl::linked_hash_set<std::string> general_filterlist({
       // clang-format off
     "Assert",  // Unexpected behaviour if try to modify Assert.
     "Bucketize",
@@ -1454,12 +1455,12 @@ absl::Status UpdateSignatureDef(
 
 absl::Status FuncFloatToBFloat16(
     FunctionInfo* bfloat16_func, const ConverterOptions& options,
-    std::map<string, tensorflow::SignatureDef>* signature_def,
+    std::map<std::string, tensorflow::SignatureDef>* signature_def,
     bool auto_generate_filterlist) {
   LOG(INFO) << "BFloat16 scope function: " << bfloat16_func->name();
   // 0. Generate filterlist.
-  ::gtl::linked_hash_set<string> tpu_filterlist;
-  ::gtl::linked_hash_set<string> cpu_filterlist;
+  ::gtl::linked_hash_set<std::string> tpu_filterlist;
+  ::gtl::linked_hash_set<std::string> cpu_filterlist;
   TF_RETURN_IF_ERROR(GenerateFilterlists(bfloat16_func, options,
                                          auto_generate_filterlist,
                                          tpu_filterlist, cpu_filterlist));
@@ -1675,7 +1676,7 @@ absl::Status ApplyBFloat16Optimization(
 absl::Status ApplyBfloat16OptimizationV2(
     ::orbax::BFloat16OptimizationOptions bfloat16_options,
     FunctionInfo* xla_function_info,
-    std::map<string, tensorflow::SignatureDef>* signature_def) {
+    std::map<std::string, tensorflow::SignatureDef>* signature_def) {
   LOG(INFO) << "Applying bfloat16 optimization to "
             << xla_function_info->name();
 
@@ -1773,7 +1774,7 @@ absl::StatusOr<std::unique_ptr<FunctionInfo>> GetFunctionInfoFromGraphDef(
       ImportGraphDef(opts, graph_def, graph.get(), nullptr, nullptr));
 
   // Build function tree.
-  ::gtl::linked_hash_map<string, int> func_overhead;
+  ::gtl::linked_hash_map<std::string, int> func_overhead;
   const FunctionLibraryDefinition flib_def = graph->flib_def();
   auto root_func = std::make_unique<FunctionInfo>("root");
   root_func->set_graph(&graph);

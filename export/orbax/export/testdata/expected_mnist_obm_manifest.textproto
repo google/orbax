@@ -1,4 +1,4 @@
-# proto-file: experimental/model/core/protos/manifest.proto
+# proto-file: //orbax/experimental/model/core/protos/manifest.proto
 # proto-message: Manifest
 objects {
   key: "__MODEL_FUNCTION_NAME__"
@@ -397,6 +397,14 @@ objects {
           }
         }
       }
+      data_names: "params.Conv_0.bias"
+      data_names: "params.Conv_0.kernel"
+      data_names: "params.Conv_1.bias"
+      data_names: "params.Conv_1.kernel"
+      data_names: "params.Dense_0.bias"
+      data_names: "params.Dense_0.kernel"
+      data_names: "params.Dense_1.bias"
+      data_names: "params.Dense_1.kernel"
       visibility: PUBLIC
     }
   }

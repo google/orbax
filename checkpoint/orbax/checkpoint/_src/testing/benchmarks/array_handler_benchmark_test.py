@@ -26,6 +26,7 @@ import numpy as np
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value
+from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.testing.benchmarks import array_handler_benchmark
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
@@ -51,7 +52,7 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
     )
     self.mock_merge_ocdbt = self.enter_context(
         mock.patch.object(
-            type_handlers, 'merge_ocdbt_per_process_files', autospec=True
+            ocdbt_utils, 'merge_ocdbt_per_process_files', autospec=True
         )
     )
     self.mock_assert_pytree_equal = self.enter_context(
@@ -80,7 +81,7 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
 
   def _run_benchmark_workflow_test(self, options: ArrayHandlerBenchmarkOptions):
     benchmark = ArrayHandlerBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=options,
     )
     mesh = jax.sharding.Mesh(np.array(jax.devices()), ('data',))
@@ -137,10 +138,10 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
     result = self._run_benchmark_workflow_test(options)
 
     self.assertIsInstance(result, benchmarks_core.TestResult)
-    self.assertIn('serialize', result.metrics.timings)
-    self.assertIn('metadata_validation', result.metrics.timings)
-    self.assertIn('deserialize', result.metrics.timings)
-    self.assertIn('correctness_check', result.metrics.timings)
+    self.assertIn('serialize_time_duration', result.metrics.results)
+    self.assertIn('metadata_validation_time_duration', result.metrics.results)
+    self.assertIn('deserialize_time_duration', result.metrics.results)
+    self.assertIn('correctness_check_time_duration', result.metrics.results)
 
   @parameterized.named_parameters(
       dict(
@@ -155,14 +156,14 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
   def test_benchmark_ocdbt_enabled_calls_merge(self, options):
     result = self._run_benchmark_workflow_test(options)
 
-    self.assertIn('merge_ocdbt', result.metrics.timings)
+    self.assertIn('merge_ocdbt_time_duration', result.metrics.results)
     self.mock_merge_ocdbt.assert_called_once()
 
   def test_benchmark_ocdbt_disabled_does_not_merge(self):
     options = ArrayHandlerBenchmarkOptions(use_ocdbt=False, use_zarr3=True)
     result = self._run_benchmark_workflow_test(options)
 
-    self.assertNotIn('merge_ocdbt', result.metrics.timings)
+    self.assertNotIn('merge_ocdbt_time_duration', result.metrics.results)
     self.mock_merge_ocdbt.assert_not_called()
 
   @parameterized.named_parameters(
@@ -193,7 +194,7 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
         use_zarr3=[True, False],
     )
     benchmark = ArrayHandlerBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=options,
     )
 
@@ -210,7 +211,7 @@ class ValidateMetadataTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.benchmark = ArrayHandlerBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=ArrayHandlerBenchmarkOptions(),
     )
     mesh = jax.sharding.Mesh(np.array(jax.devices()), ('data',))

@@ -15,6 +15,8 @@
 import os
 
 from absl.testing import parameterized
+import jax
+import jax.numpy as jnp
 import numpy as np
 from orbax.export import utils
 import tensorflow as tf
@@ -292,7 +294,6 @@ class UtilsTest(tf.test.TestCase, parameterized.TestCase):
         ' tensors',
     ):
       batching_fn([1, 2, 3], [4, 5, 6], [7, 8])
-
 
 if __name__ == '__main__':
   tf.test.main()

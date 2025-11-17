@@ -14,6 +14,7 @@
 
 """Some utilities for type.proto ."""
 
+import jax
 from orbax.experimental.model.core.protos import type_pb2
 from orbax.experimental.model.core.python.function import ShloDimSize
 from orbax.experimental.model.core.python.function import ShloDType
@@ -117,7 +118,18 @@ def shlo_tensor_spec_pytree_to_manifest_type(
           shlo_tensor_spec_pytree_to_manifest_type(value)
       )
   else:
-    raise ValueError(f"Unsupported tree type: {type(tree)}")
+    # TODO: b/444497750 - Now we flattern the tree as list, but the custom
+    # pytree node sometime can be respresented as other structures, like dict,
+    # we should use the PytreeDef to decide how to represent it.
+    leaves, tree_def = jax.tree_util.tree_flatten(tree)
+    # If tree_def.node_data() is empty, it means `tree` is a leaf node.
+    # Since we have handled all supported leaf types (ShloTensorSpec and None)
+    # above, this indicates an unsupported leaf type.
+    if not tree_def.node_data():
+      raise ValueError(f"Unsupported tree type: {type(tree)}")
+    result.list.SetInParent()
+    for x in leaves:
+      result.list.elements.append(shlo_tensor_spec_pytree_to_manifest_type(x))
   return result
 
 

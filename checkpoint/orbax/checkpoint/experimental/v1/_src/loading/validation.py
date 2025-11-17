@@ -14,7 +14,7 @@
 
 """Validation functions involved in loading."""
 
-from orbax.checkpoint.experimental.v1._src.path import format_utils
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 
 
 def validate_abstract_checkpointables(abstract_checkpointables):
@@ -22,7 +22,7 @@ def validate_abstract_checkpointables(abstract_checkpointables):
     return
   if (
       provided_reserved_keys := abstract_checkpointables.keys()
-      & format_utils.RESERVED_CHECKPOINTABLE_KEYS
+      & checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
   ):
     raise ValueError(
         f'Provided reserved checkpointable keys: {provided_reserved_keys}.'

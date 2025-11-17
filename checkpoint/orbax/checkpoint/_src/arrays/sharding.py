@@ -16,12 +16,23 @@
 
 from __future__ import annotations
 import math
-from typing import Any
+from typing import Any, Sequence
 from absl import logging
 import jax
+import jax.experimental.layout as jax_layout
 import numpy as np
 
 PyTree = Any
+
+if jax.__version_info__ >= (0, 6, 3):
+  DLL = jax_layout.Layout
+else:
+  DLL = jax_layout.DeviceLocalLayout  # type: ignore
+
+if jax.__version_info__ >= (0, 6, 2):
+  Format = jax_layout.Format
+else:
+  Format = jax_layout.Layout
 
 
 def _partition_axis_name(offset: int) -> str:
@@ -30,27 +41,30 @@ def _partition_axis_name(offset: int) -> str:
 
 def _construct_maximal_sharding(
     sds: jax.ShapeDtypeStruct,
+    devices: Sequence[jax.Device] | None = None,
 ) -> jax.sharding.Sharding:
   """Constructs a sharding that partitions the array as much as possible."""
+  devices = devices or jax.devices()
+  device_count = len(devices)
   shape = sds.shape
   if not shape:
     return jax.sharding.NamedSharding(
-        mesh=jax.sharding.Mesh(jax.devices(), ('a',)),
+        mesh=jax.sharding.Mesh(devices, ('a',)),
         spec=jax.sharding.PartitionSpec(),
     )
   if np.max(shape) < jax.device_count():
     # Array is small - no sharding needed.
     return jax.sharding.NamedSharding(
-        mesh=jax.sharding.Mesh(jax.devices(), ('a',)),
+        mesh=jax.sharding.Mesh(devices, ('a',)),
         spec=jax.sharding.PartitionSpec(),
     )
 
-  available_device_dim = jax.device_count()
+  available_device_dim = device_count
   partition_axes = [None] * len(shape)
   mesh_shape = []
   mesh_axes = []
 
-  current_parition_axis = 0
+  current_partition_axis = 0
   # Max to min.
   for i in np.argsort(shape)[::-1]:
     assert available_device_dim > 0
@@ -64,15 +78,15 @@ def _construct_maximal_sharding(
     available_device_dim //= gcd
     mesh_shape.append(gcd)
 
-    current_parition_axis_name = _partition_axis_name(current_parition_axis)
-    partition_axes[i] = current_parition_axis_name
-    mesh_axes.append(current_parition_axis_name)
-    current_parition_axis += 1
+    current_partition_axis_name = _partition_axis_name(current_partition_axis)
+    partition_axes[i] = current_partition_axis_name
+    mesh_axes.append(current_partition_axis_name)
+    current_partition_axis += 1
 
   # Still have some partition dimension left over.
   if available_device_dim > 1:
     mesh_shape.append(available_device_dim)
-    mesh_axes.append(_partition_axis_name(current_parition_axis))
+    mesh_axes.append(_partition_axis_name(current_partition_axis))
 
   logging.info(
       'Constructed sharding for array with shape: %s, mesh_shape: %s,'
@@ -86,25 +100,30 @@ def _construct_maximal_sharding(
   assert len(mesh_shape) == len(mesh_axes)
   assert len(partition_axes) == len(shape)
   mesh = jax.sharding.Mesh(
-      np.asarray(jax.devices()).reshape(mesh_shape),
+      np.asarray(devices).reshape(mesh_shape),
       tuple(mesh_axes),
   )
   pspec = jax.sharding.PartitionSpec(*partition_axes)
   return jax.sharding.NamedSharding(mesh=mesh, spec=pspec)
 
 
-def construct_maximal_shardings(abstract_state: PyTree) -> PyTree:
+def construct_maximal_shardings(
+    abstract_state: PyTree, devices: Sequence[jax.Device] | None = None
+) -> PyTree:
   """Construct a sharding that partitions each array as much as possible.
 
   This method is subject to change and should not be considered stable.
 
   Args:
     abstract_state: PyTree of jax.ShapeDtypeStruct.
+    devices: Devices to shard across. If None, uses all available devices.
 
   Returns:
     PyTree of jax.sharding.Sharding.
   """
-  shardings = jax.tree.map(_construct_maximal_sharding, abstract_state)
+  shardings = jax.tree.map(
+      lambda x: _construct_maximal_sharding(x, devices=devices), abstract_state
+  )
 
   total_size = 0
 
@@ -118,3 +137,27 @@ def construct_maximal_shardings(abstract_state: PyTree) -> PyTree:
   jax.tree.map(_calculate_sharding_hbm_consumption, abstract_state, shardings)
   logging.info('Expected per-device HBM consumption: %s', total_size)
   return shardings
+
+
+def get_device_local_layout(arr: jax.Array) -> Any:
+  """Returns device_local_layout of a jax.Array."""
+  return (
+      arr.format.layout  # pytype: disable=attribute-error
+      if jax.__version_info__ >= (0, 6, 3)
+      else arr.format.device_local_layout  # pytype: disable=attribute-error
+  )
+
+
+def get_sharding_or_format(
+    value: Any,
+) -> jax.sharding.Sharding | Format | None:  # pytype: disable=unsupported-operands
+  """Returns the Format if it exists, then the Sharding if it exists, otherwise None."""
+
+  if hasattr(value, 'sharding'):
+    if hasattr(value, 'format') and get_device_local_layout(value):
+      # value is a jax.Array or a jax.ShapeDtypeStruct.
+      return value.format
+    else:
+      return value.sharding
+  else:
+    return None

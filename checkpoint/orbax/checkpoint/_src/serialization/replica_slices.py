@@ -46,6 +46,7 @@ class SliceArgs:
   Intended to be passed to `ReplicaSlice` in order to select a slice of
   the `unsliced_data` array.
   """
+
   start_index: int
   limit_index: int
   axis: int
@@ -81,15 +82,28 @@ class ReplicaSlice:
     return isinstance(self.unsliced_data, np.ndarray)
 
   def data(self):
+    """Returns the sliced data for this replica.
+
+    If `slice_args` is None, the entire `unsliced_data` is returned. Otherwise,
+    a slice of `unsliced_data` is returned based on `slice_args`.
+    """
     if self.slice_args is None:
       return self.unsliced_data
     else:
-      return jax.lax.slice_in_dim(
-          self.unsliced_data,
-          start_index=self.slice_args.start_index,
-          limit_index=self.slice_args.limit_index,
-          axis=self.slice_args.axis,
+      # If a global mesh is set, slice_in_dim can fail with incompatible device
+      # errors. To avoid this, we temporarily set a mesh constructed from
+      # array's devices.
+      mesh = jax.sharding.Mesh(
+          np.array(list(self.unsliced_data.sharding.device_set)), ('data',)
       )
+      with jax.sharding.set_mesh(mesh):
+        sliced_data = jax.lax.slice_in_dim(
+            self.unsliced_data,
+            start_index=self.slice_args.start_index,
+            limit_index=self.slice_args.limit_index,
+            axis=self.slice_args.axis,
+        )
+      return sliced_data
 
 
 @dataclasses.dataclass(frozen=True)
@@ -421,10 +435,7 @@ def transfer_arrays_to_host(
     has_pinned_host = any(
         m.kind == 'pinned_host' for m in device.addressable_memories()
     )
-    return (
-        enable_pinned_host_transfer
-        and has_pinned_host
-    )
+    return enable_pinned_host_transfer and has_pinned_host
 
   def async_transfer_slice(
       rslice: ReplicaSlice,

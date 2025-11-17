@@ -15,8 +15,9 @@
 """Wraps JAX functions and parameters into a tf.Module."""
 
 from collections.abc import Callable, Mapping
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Sequence, Union, cast
 
+import jax
 from jax import export as jax_export
 from orbax.export import constants
 from orbax.export import typing as orbax_export_typing
@@ -159,6 +160,21 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
   def model_params(self) -> PyTree:
     """Returns the model parameters."""
     return self._export_module.model_params
+
+  @property
+  def model_param_names(self) -> Sequence[str]:
+    """Returns the list of model parameter names.
+
+    The name format matches the one used by JSV to look up parameters in the
+    checkpoint (e.g. "params.key.subkey").
+    """
+
+    param_names_tree = jax.tree_util.tree_map_with_path(
+        lambda path, _: jax.tree_util.keystr(path, simple=True, separator='.'),
+        self.model_params,
+    )
+
+    return jax.tree.leaves(param_names_tree)
 
   @property
   def export_version(self) -> constants.ExportModelType:

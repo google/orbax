@@ -926,6 +926,21 @@ class SaveLoadTestBase:
 
       test_utils.assert_tree_equal(self, expected, loaded)
 
+    @parameterized.parameters(True, False)
+    def test_save_with_global_mesh(self, use_same_mesh: bool):
+      if use_same_mesh:
+        devices = np.asarray(jax.devices())
+        axis_names = ('x',)
+      else:
+        devices = np.asarray(jax.devices()[:4])
+        axis_names = ('x',)
+      mesh = jax.sharding.Mesh(devices, axis_names)
+      jax.sharding.set_mesh(mesh)
+
+      ocp.save_pytree(self.directory, self.pytree)
+      loaded = ocp.load_pytree(self.directory, self.abstract_pytree)
+      test_utils.assert_tree_equal(self, self.pytree, loaded)
+
     @parameterized.parameters((3,), (8,))
     def test_primary_host_background_error(self, timeout):
       def _assert_false(*args, **kwargs):
@@ -958,3 +973,16 @@ class SaveLoadTestBase:
           with self.assertRaises(BaseException):
             r.result()
           self.assertLessEqual(time.time() - start, timeout + 1)
+
+    def test_save_checkpointables_directory_consistency_failure(self):
+      if jax.process_count() <= 1:
+        self.skipTest('Skip test for single-process.')
+
+      # Generates a random directory path for each process.
+      # This will cause a directory mismatch error when running multi-process.
+      directory = epath.Path(self.create_tempdir().full_path)
+
+      with self.assertRaisesRegex(
+          ValueError, 'Directory path mismatch in multi-process save'
+      ):
+        ocp.save_pytree(directory, self.pytree)

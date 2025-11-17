@@ -48,7 +48,8 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step
-from orbax.checkpoint._src.serialization import serialization
+from orbax.checkpoint._src.serialization import limits
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import test_tree_utils
 
@@ -349,7 +350,7 @@ class CheckpointerTestBase:
 
       byte_limiter = test_utils.get_byte_limiter(limit_bytes, sleep_time)
       with mock.patch.object(
-          serialization,
+          limits,
           'get_byte_limiter',
           new=lambda _: byte_limiter,
       ):
@@ -370,7 +371,7 @@ class CheckpointerTestBase:
 
       byte_limiter = test_utils.get_byte_limiter(limit_bytes, sleep_time)
       with mock.patch.object(
-          serialization,
+          limits,
           'get_byte_limiter',
           new=lambda _: byte_limiter,
       ):
@@ -622,13 +623,13 @@ class CheckpointerTestBase:
       array_metadata_store = array_metadata_store_lib.Store(
           serializer=IncompleteArrayMetadataSerializer()
       )
-      type_handler_registry = copy.deepcopy(
-          type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY
+      registry = copy.deepcopy(
+          type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY
       )
       array_handler = type_handlers.ArrayHandler(
           array_metadata_store=array_metadata_store
       )
-      type_handler_registry.add(jax.Array, array_handler, override=True)
+      registry.add(jax.Array, array_handler, override=True)
 
       class InterceptingValidator(array_metadata_store_lib.Validator):
         """Intercepts ArrayMetadata validation in CheckpointHandler.finalize()."""
@@ -649,7 +650,7 @@ class CheckpointerTestBase:
       array_metadata_validator = InterceptingValidator()
       with self.checkpointer(
           PyTreeCheckpointHandler(
-              type_handler_registry=type_handler_registry,
+              type_handler_registry=registry,
               array_metadata_validator=array_metadata_validator,
           )
       ) as checkpointer:
@@ -765,30 +766,6 @@ class CheckpointerTestBase:
               ),
           )
           test_utils.assert_tree_equal(self, expected, restored)
-
-      with self.subTest('extra_leaf'):
-        with self.checkpointer(
-            PyTreeCheckpointHandler()
-        ) as restore_checkpointer:
-          reference_item = {
-              'a': 0,
-              'c': {
-                  'a': 0,
-              },
-              'z': 0,
-          }
-          with self.assertRaisesRegex(
-              ValueError,
-              r"Missing 1 keys in structure path \(\), including: \['z'\]",
-          ):
-            restore_checkpointer.restore(
-                directory,
-                args=pytree_checkpoint_handler.PyTreeRestoreArgs(
-                    item=reference_item,
-                    restore_args=self.pytree_restore_args,
-                    partial_restore=True,
-                ),
-            )
 
     def test_restore_logs_read_event(self):
       """Tests that restore logs a read event to DM Sawmill log."""

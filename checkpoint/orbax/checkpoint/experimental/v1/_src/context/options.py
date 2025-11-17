@@ -140,7 +140,6 @@ class PyTreeOptions:
       If provided, it overrides any default settings in
       `ArrayOptions.Saving.StorageOptions`.
     pytree_metadata_options: Options for managing PyTree metadata.
-    partial_update: NOT IMPLEMENTED.
     """
 
     class CreateArrayStorageOptionsFn(Protocol):
@@ -154,7 +153,6 @@ class PyTreeOptions:
     pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
         dataclasses.field(default_factory=tree_metadata.PyTreeMetadataOptions)
     )
-    partial_update: bool = False
 
   @dataclasses.dataclass(frozen=True, kw_only=True)
   class Loading:
@@ -192,6 +190,7 @@ class ArrayOptions:
         individual leaves. See below.
       use_ocdbt: Enables OCDBT format.
       use_zarr3: If True, use Zarr3 format.
+      use_compression: If True, use ZSTD compression.
       ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
         OCDBT data file. It only applies when OCDBT is enabled and Zarr3 must be
         turned on. If left unspecified, default size is 2GB.  A value of 0
@@ -205,6 +204,13 @@ class ArrayOptions:
       enable_post_merge_validation: If True, enables validation of the
         parameters after the finalize step.
       use_replica_parallel: Whether to parallelize saving across replicas.
+      min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica
+        slice. Only uses replica-parallel when the amount of data written per
+        replica is greater than or equal to this number.
+      max_replicas_for_replica_parallel: Maximum number of replicas over which
+        saving will be parallelized if use_replica_parallel is True.
+      enable_replica_parallel_separate_folder: Whether to save replica data in
+        separate folders.
       enable_write_sharding_file: whether to write sharding file, defaults to
         True.
       array_metadata_store: Store to manage per host ArrayMetadata. To disable
@@ -242,10 +248,14 @@ class ArrayOptions:
     )
     use_ocdbt: bool = True
     use_zarr3: bool = True
+    use_compression: bool = True
     ocdbt_target_data_file_size: int | None = None
     enable_pinned_host_transfer: bool | None = None
     enable_post_merge_validation: bool = True
     use_replica_parallel: bool = True
+    min_slice_bytes_for_replica_parallel: int | None = None
+    max_replicas_for_replica_parallel: int | None = None
+    enable_replica_parallel_separate_folder: bool = False
     enable_write_sharding_file: bool = True
     array_metadata_store: array_metadata_store_lib.Store | None = (
         array_metadata_store_lib.Store()

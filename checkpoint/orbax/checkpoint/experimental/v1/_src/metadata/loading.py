@@ -24,14 +24,14 @@ import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pyl
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.synchronization import asyncio_utils
 
 
 CheckpointMetadata = metadata_types.CheckpointMetadata
 InvalidLayoutError = errors.InvalidLayoutError
 PyTreeMetadata = metadata_types.PyTreeMetadata
-PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
+PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 
 
 def pytree_metadata(
@@ -87,20 +87,14 @@ def pytree_metadata(
   Returns:
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
-  context = context_lib.get_context()
-
+  asyncio_utils.maybe_apply_nest_asyncio()
   path = epath.Path(path)
-  if checkpointable_name is None:
-    checkpointable_name = path.name
-    path = path.parent
-
-  layout = layout_registry.get_checkpoint_layout(
-      path, context.checkpoint_layout
+  layout, checkpointable_name = asyncio.run(
+      layout_registry.get_checkpoint_layout_pytree(
+          path, context_lib.get_context().checkpoint_layout, checkpointable_name
+      )
   )
-  layout.validate_pytree(checkpointable_name)
-
   metadata = _checkpointables_metadata_impl(layout)
-
   return CheckpointMetadata[PyTreeMetadata](
       metadata=metadata.metadata[checkpointable_name],
       init_timestamp_nsecs=metadata.init_timestamp_nsecs,
@@ -136,13 +130,14 @@ def checkpointables_metadata(
   Returns:
     A `CheckpointMetadata[dict[str, Any]]` object.
   """
+  asyncio_utils.maybe_apply_nest_asyncio()
   path = epath.Path(path)
   context = context_lib.get_context()
-  layout = layout_registry.get_checkpoint_layout(
-      path, context.checkpoint_layout
+  layout = asyncio.run(
+      layout_registry.get_checkpoint_layout(
+          path, context.checkpoint_layout
+      )
   )
-  layout.validate()
-
   return _checkpointables_metadata_impl(layout)
 
 

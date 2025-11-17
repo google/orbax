@@ -36,18 +36,24 @@ class UnstructuredDataWithExtName:
       name will be just the base file name (no dot). If it's not empty, the full
       file name will be `base_name + "." + ext_name` (therefore `ext_name`
       shouldn't contain a leading ".").
+    subfolder: an optional subfolder name to save the data to. The subfolder can
+      exist before, if not, it will be created.
   """
   proto: UnstructuredData
   ext_name: str | None
+  subfolder: str | None = None
 
 
-def build_filename_from_extension(base_name, ext):
+def build_relative_filepath_from_extension(base_name, ext, *, subfolder=None):
   suffix = "." + ext if ext else ""
-  return base_name + suffix
+  if subfolder:
+    return os.path.join(subfolder, base_name + suffix)
+  else:
+    return base_name + suffix
 
 
 def write_inlined_data_to_file(
-    proto: UnstructuredData, dirname: str, filename: str
+    proto: UnstructuredData, dirname: str, relative_filepath: str
 ) -> UnstructuredData:
   """Writes an inlined `UnstructuredData` to a file.
 
@@ -56,8 +62,10 @@ def write_inlined_data_to_file(
   Args:
     proto: The `UnstructuredData` to write.
     dirname: The directory name of the file to write to.
-    filename: The name of the file to write to. The full name of the file will
-      be `os.path.join(dirname, filename)`.
+    relative_filepath: The name of the file to write to, relative to `dirname`.
+      The full name of the file will be `os.path.join(dirname,
+      relative_filepath)`. If `relative_filepath` contains noneixistent
+      subdirectories, they will be created recursively by this function.
 
   Returns:
     A new `UnstructuredData` which is the same as `proto` except that its `data`
@@ -67,6 +75,8 @@ def write_inlined_data_to_file(
     ValueError: If `proto` is not inlined data (i.e. it's already a
     `file_system_location` data).
   """
+  if relative_filepath.startswith("/"):
+    raise ValueError(f"{relative_filepath=} is an absolute path")
   case_name = proto.WhichOneof("data")
   if case_name == "file_system_location":
     raise ValueError("Can only write inlined data (string or bytes) to a file.")
@@ -78,10 +88,14 @@ def write_inlined_data_to_file(
   else:
     data_to_write = proto.inlined_bytes
     io_mode = "wb"
-  with file_utils.open_file(os.path.join(dirname, filename), io_mode) as f:
+  file_path = os.path.join(dirname, relative_filepath)
+  dir_path = os.path.dirname(file_path)
+  if dir_path:
+    file_utils.mkdir_p(dir_path)
+  with file_utils.open_file(file_path, io_mode) as f:
     f.write(data_to_write)
   result = UnstructuredData()
-  result.file_system_location.string_path = filename
+  result.file_system_location.string_path = relative_filepath
   result.mime_type = proto.mime_type
   result.version = proto.version
   return result

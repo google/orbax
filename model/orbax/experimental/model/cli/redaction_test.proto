@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package orbax.experimental.model.cli;
+
+option java_multiple_files = true;
+
+message NestedMessageWithBytes {
+  bytes nested_bytes = 1;
+  string nested_string = 2;
+}
+
+message RedactionTestMessage {
+  string string_field = 1;
+  bytes bytes_field = 2;
+  int32 int_field = 3;
+  repeated bytes repeated_bytes_field = 4;
+  NestedMessageWithBytes nested_message = 5;
+  map<string, bytes> map_bytes_field = 6;
+  map<string, NestedMessageWithBytes> map_message_field = 7;
+  map<string, string> map_string_field = 8;
+}

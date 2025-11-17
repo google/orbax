@@ -103,6 +103,7 @@ METADATA_ITEM_NAME = 'metadata'
 RESERVED_ITEM_NAMES = []
 
 _INIT_TIME = datetime.datetime.now(tz=datetime.timezone.utc)
+_WAIT_FOR_PREV_SAVE_WARNING_THRESHOLD_SECS = 1.0
 
 
 def _metrics_file_exists(metrics_item_path: epath.Path) -> bool:
@@ -614,22 +615,29 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # Multiple items.
       with CheckpointManager(
         'path/to/dir/',
+        # Global metadata.
         metadata={'version': 1.1, 'lang': 'en'},
       ) as mngr:
-        mngr.save(0, args=args.Composite(
-            train_state=args.StandardSave(train_state),
-            custom_metadata=args.JsonSave(custom_metadata),
-          )
+        mngr.save(
+            0,
+            args=args.Composite(
+              train_state=args.StandardSave(train_state),
+              json_states=args.JsonSave(json_states),
+            ),
+            # Metadata varying by step.
+            custom_metadata={'learning_rate': 0.001}
         )
         restored = mngr.restore(0)
         print(restored.train_state)
-        print(restored.custom_metadata)
+        print(restored.json_states)
         restored = mngr.restore(0, args=args.Composite(
             train_state=args.StandardRestore(abstract_train_state),
           )
         )
         print(restored.train_state)
-        print(restored.custom_metadata)  # Error, not restored
+        print(restored.json_states)  # Error, not restored
+        global_metadata = mngr.metadata()
+        step_metadata = mngr.metadata(0)  # custom_metadata in here
 
       # Single, unnamed (default) item.
       with CheckpointManager(
@@ -902,6 +910,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         multiprocessing_options=self._multiprocessing_options,
         async_options=self._options.async_options,
     )
+
+    self._last_save_time = None
 
     logging.info(
         '[process=%s][thread=%s] CheckpointManager created,  primary_host=%s,'
@@ -1398,6 +1408,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # checkpointers are AsyncCheckpointers.
     # Must happen after `should_save` to avoid blocking callers.
     step_stats.wait_for_prev_start_time = time.time()
+    if self._last_save_time is not None:
+      # This may be negative if we arrive at
+      # wait_until_finished() before the save completed.
+      # TODO: b/448361885 - Investigate if we can make this more robust to
+      # manual wait_until_finished() calls.
+      step_stats.time_between_consecutive_saves_sec = (
+          step_stats.wait_for_prev_start_time - self._last_save_time
+      )
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/checkpoint_manager/time_between_consecutive_saves_secs',
+          step_stats.time_between_consecutive_saves_sec,
+      )
     self.wait_until_finished()
     step_stats.wait_for_prev_duration_secs = (
         time.time() - step_stats.wait_for_prev_start_time
@@ -1407,6 +1429,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         '/jax/checkpoint/write/wait_for_prev_duration_secs',
         step_stats.wait_for_prev_duration_secs,
     )
+    if (
+        step_stats.wait_for_prev_duration_secs
+        > _WAIT_FOR_PREV_SAVE_WARNING_THRESHOLD_SECS
+    ):
+      logging.warning(
+          'Waiting for previous save to complete took %f seconds. If this'
+          ' number is high, consider checkpointing less frequently.',
+          step_stats.wait_for_prev_duration_secs,
+      )
     # We consider the save in progress only when we have finished waiting for
     # previous save to complete.
     self._save_progress_tracker.set(True)
@@ -1683,7 +1714,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """Retrieves metadata for all known items.
 
     Important note: This method will soon be deprecated in favor of
-    `metadata().item_metadata`. Please use that method instead.
+    `metadata(step).item_metadata`. Please use that method instead.
 
     Note that metadata will only be returned for items that can actually be
     interpreted. If an item is present in the checkpoint but not registered
@@ -2080,6 +2111,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           current_thread.name,
           step,
       )
+      # This time is tracked for metric purposes only.
+      self._last_save_time = time.time()
 
   def close(self):
     """Waits for outstanding operations to finish and closes internal objects."""

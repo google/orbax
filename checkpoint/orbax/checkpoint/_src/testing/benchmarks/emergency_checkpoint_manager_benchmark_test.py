@@ -26,6 +26,7 @@ from orbax.checkpoint._src.testing.benchmarks import emergency_checkpoint_manage
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import mesh_utils
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
 
@@ -76,7 +77,7 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
         mock.patch.object(mesh_utils, 'get_local_replica_mesh', autospec=True)
     )
     benchmark = EmergencyCheckpointManagerBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=EcmBenchmarkOptions(),
     )
     mesh_shape = (jax.device_count(), 1)
@@ -117,14 +118,22 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
     with self.subTest('benchmark result type'):
       self.assertIsInstance(result, benchmarks_core.TestResult)
     with self.subTest('metrics timings'):
-      self.assertIn('create_directories', result.metrics.timings)
-      self.assertIn('create_abstract_pytree', result.metrics.timings)
-      self.assertIn('create_restore_args', result.metrics.timings)
-      self.assertIn('create_checkpoint_manager', result.metrics.timings)
-      self.assertIn('train_loop', result.metrics.timings)
-      self.assertIn('save_0', result.metrics.timings)
-      self.assertIn('wait_until_finished_0', result.metrics.timings)
-      self.assertIn('sync_global_processes_0', result.metrics.timings)
+      self.assertIn('create_directories_time_duration', result.metrics.results)
+      self.assertIn(
+          'create_abstract_pytree_time_duration', result.metrics.results
+      )
+      self.assertIn('create_restore_args_time_duration', result.metrics.results)
+      self.assertIn(
+          'create_checkpoint_manager_time_duration', result.metrics.results
+      )
+      self.assertIn('train_loop_time_duration', result.metrics.results)
+      self.assertIn('save_0_time_duration', result.metrics.results)
+      self.assertIn(
+          'wait_until_finished_0_time_duration', result.metrics.results
+      )
+      self.assertIn(
+          'sync_global_processes_0_time_duration', result.metrics.results
+      )
     with self.subTest('checkpoint manager calls'):
       mock_checkpoint_manager_cls.assert_called_once()
       mock_checkpoint_manager.save.assert_called_once()
@@ -140,7 +149,7 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
         replica_axis_index=[0, 1],
     )
     benchmark = EmergencyCheckpointManagerBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=options,
     )
     benchmarks = benchmark.generate()
@@ -212,7 +221,7 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
         mock.patch.object(mesh_utils, 'get_local_replica_mesh', autospec=True)
     )
     self.benchmark = EmergencyCheckpointManagerBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=options,
     )
     mesh_shape = (jax.device_count(), 1)
@@ -363,7 +372,7 @@ class RestoreAndValidateTest(parameterized.TestCase):
       mock_assert_pytree_equal,
       mock_sync_global_processes,
   ):
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = {'a': np.array([1, 2, 3])}
     step = 0
     restore_args = {'a': mock.MagicMock()}
@@ -397,7 +406,7 @@ class RestoreAndValidateTest(parameterized.TestCase):
       mock_assert_pytree_equal,
       mock_sync_global_processes,
   ):
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = {'a': np.array([1, 2, 3])}
     step = 0
     restore_args = {'a': mock.MagicMock()}
@@ -434,7 +443,7 @@ class RestoreAndValidateTest(parameterized.TestCase):
       mock_assert_pytree_equal,
       mock_sync_global_processes,
   ):
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = {'a': np.array([1, 2, 3])}
     step = 0
     restore_args = {'a': mock.MagicMock()}

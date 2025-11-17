@@ -59,7 +59,7 @@ class MultiTierCheckpointingInitializationTest(
           epath.Path(tmp_dir),
           run_name="test-run",
           num_nodes=1,
-          num_slices=1,
+          data_parallelism=1,
           node_rank=0,
           peer_ranks=[1],
           backup_interval_minutes=10,
@@ -207,6 +207,7 @@ class MultiTierCheckpointingInitializationTest(
           epath.Path(tmp_dir),
           num_slices=1,
           run_name="test-run",
+          data_parallelism=1,
       )
       mock_jax_distributed_initialize.assert_called_once_with(
           process_id=0,

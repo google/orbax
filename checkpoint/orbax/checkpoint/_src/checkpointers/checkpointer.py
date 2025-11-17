@@ -320,6 +320,16 @@ class Checkpointer(
         restore_duration_secs,
         directory,
     )
+
+    if multihost.is_primary_host(self._primary_host):
+      jax.monitoring.record_event(
+          '/jax/orbax/read/storage_type',
+          storage_type=path_utils.get_storage_type(directory),
+      )
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/read/total_duration_secs',
+          restore_duration_secs,
+      )
     return restored
 
   def _restore(

@@ -148,6 +148,7 @@ class EveryNSteps(PreservationPolicy):
   """Preserves checkpoints after at least N steps."""
 
   interval_steps: int
+  exact_interval: bool = True
 
   def should_preserve(
       self,
@@ -158,16 +159,19 @@ class EveryNSteps(PreservationPolicy):
     if self.interval_steps == 0:
       raise ValueError("interval_steps must not be 0.")
     result = []
-    previous_step = None
-    for i, ckpt in enumerate(checkpoints):
-      if i == 0:
-        result.append(True)  # Always preserve the first checkpoint.
-        previous_step = ckpt.step
-      elif ckpt.step - previous_step >= self.interval_steps:
-        result.append(True)
-        previous_step = ckpt.step
-      else:
-        result.append(False)
+    if self.exact_interval:
+      result = [ckpt.step % self.interval_steps == 0 for ckpt in checkpoints]
+    else:
+      previous_step = None
+      for i, ckpt in enumerate(checkpoints):
+        if i == 0:
+          result.append(True)  # Always preserve the first checkpoint.
+          previous_step = ckpt.step
+        elif ckpt.step - previous_step >= self.interval_steps:
+          result.append(True)
+          previous_step = ckpt.step
+        else:
+          result.append(False)
     _log_preservation_decision(
         f"EveryNSteps (interval_steps={self.interval_steps})",
         checkpoints,
@@ -181,7 +185,7 @@ class CustomSteps(PreservationPolicy):
   """Preserves checkpoints at the given steps."""
 
   steps: dataclasses.InitVar[Sequence[int]]
-  _steps_set: Set[int] = dataclasses.field(init=False, repr=False)
+  _steps_set: Set[int] = dataclasses.field(init=False)
 
   def __post_init__(self, steps_init: Sequence[int]):
     """Initializes the internal set of steps after the object is created."""

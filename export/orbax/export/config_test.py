@@ -43,6 +43,16 @@ class ConfigTest(absltest.TestCase):
     with config.obx_export_tf_preprocess_only(True):
       self.assertEqual(orbax_export_config.obx_export_tf_preprocess_only, True)
     self.assertEqual(orbax_export_config.obx_export_tf_preprocess_only, False)
+
+    self.assertEqual(orbax_export_config.obx_export_preprocessors_only, False)
+    with config.OBX_EXPORT_PREPROCESSORS_ONLY(True):
+      self.assertEqual(orbax_export_config.obx_export_preprocessors_only, True)
+    self.assertEqual(orbax_export_config.obx_export_preprocessors_only, False)
+
+    self.assertEqual(orbax_export_config.obx_export_postprocessors_only, False)
+    with config.OBX_EXPORT_POSTPROCESSORS_ONLY(True):
+      self.assertEqual(orbax_export_config.obx_export_postprocessors_only, True)
+    self.assertEqual(orbax_export_config.obx_export_postprocessors_only, False)
     # pytype: enable=attribute-error
 
   def test_config_setting_via_env(self):

@@ -83,8 +83,9 @@ bool IsInferenceFunctionCallNode(Node* node,
   }
 }
 
-int GetNodeOverhead(const Node* n,
-                    const ::gtl::linked_hash_map<string, int>& func_overhead) {
+int GetNodeOverhead(
+    const Node* n,
+    const ::gtl::linked_hash_map<std::string, int>& func_overhead) {
   // TODO(lzr,ylc): figure out a better cost model.
   if (absl::StartsWith(n->type_string(), "Conv") ||
       absl::StartsWith(n->type_string(), "FusedConv2DBiasActivation") ||

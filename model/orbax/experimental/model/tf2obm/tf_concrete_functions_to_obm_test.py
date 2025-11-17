@@ -12,15 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dataclasses
 import os
 from typing import Any, Sequence
 
+from absl.testing import absltest
 from absl.testing import parameterized
+import chex
+from jax import tree_util as jax_tree_util
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
 from orbax.experimental.model.tf2obm import utils
-from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import _generate_names
-from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import _is_dict_only
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import save_tf_concrete_functions
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import SAVED_MODEL_MIME_TYPE
 from orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm import SAVED_MODEL_VERSION
@@ -34,7 +36,6 @@ import tensorflow as tf
 
 from tensorflow.python.util.protobuf import compare
 from google.protobuf import text_format
-from absl.testing import absltest
 
 
 _TUPLE = (
@@ -50,6 +51,38 @@ _DICT = {
 }
 
 
+@dataclasses.dataclass
+class _Dataclass:
+  a: tf.TensorSpec
+  b: tf.TensorSpec
+
+
+_DATACLASS = _Dataclass(
+    a=tf.TensorSpec((2, 3), tf.float32),
+    b=tf.TensorSpec((4, 5), tf.float64),
+)
+
+
+@chex.dataclass
+class _ChexDataclass:
+  a: tf.TensorSpec
+  b: tf.TensorSpec
+
+  def tree_flatten(self):
+    return (self.a, self.b), None
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, children):
+    del aux_data
+    return cls(*children)
+
+
+_CHEX_DATACLASS = _ChexDataclass(
+    a=tf.TensorSpec((2, 3), tf.float32),
+    b=tf.TensorSpec((4, 5), tf.float64),
+)
+
+
 def _dict_from_seq(prefix: str, seq: Sequence[Any]):
   return {f"{prefix}{i}": elem for i, elem in enumerate(seq)}
 
@@ -57,7 +90,7 @@ def _dict_from_seq(prefix: str, seq: Sequence[Any]):
 def _as_output_signature(tree):
   @tf.function(autograph=False)
   def f():
-    return obm.tree_util.tree_map(
+    return jax_tree_util.tree_map(
         lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), tree
     )
 
@@ -80,73 +113,6 @@ class TfConcreteFunctionsToObmTest(
 
   @parameterized.named_parameters(
       (  # pylint: disable=g-complex-comprehension
-          f"_{idx}_{as_output_signature}",
-          signature,
-          expected,
-          as_output_signature,
-      )
-      for as_output_signature in (False, True)
-      for idx, (signature, expected) in enumerate((
-          (
-              _TUPLE,
-              False,
-          ),
-          (
-              _DICT,
-              True,
-          ),
-          (
-              ((), _DICT),
-              True,
-          ),
-          (
-              ((_DICT,), {}),
-              True,
-          ),
-      ))
-  )
-  def test_is_dict_only(self, signature, expected, as_output_signature):
-    if as_output_signature:
-      signature = _as_output_signature(signature)
-    self.assertEqual(
-        _is_dict_only(signature),
-        expected,
-    )
-
-  @parameterized.named_parameters(
-      (  # pylint: disable=g-complex-comprehension
-          f"_{name}_{as_output_signature}",
-          signature,
-          expected_names,
-          as_output_signature,
-      )
-      for as_output_signature in (False, True)
-      for name, signature, expected_names in (
-          (
-              "tuple",
-              _TUPLE,
-              ("my_prefix_0", "my_prefix_1", "my_prefix_2"),
-          ),
-          (
-              "dict",
-              _DICT,
-              ("my_prefix_0", "my_prefix_1"),
-          ),
-      )
-  )
-  def test_generate_names(self, signature, expected_names, as_output_signature):
-    if as_output_signature:
-      signature = _as_output_signature(signature)
-    prefix = "my_prefix"
-
-    names, _ = _generate_names(signature, prefix=prefix)
-    self.assertEqual(
-        names,
-        expected_names,
-    )
-
-  @parameterized.named_parameters(
-      (  # pylint: disable=g-complex-comprehension
           f"_{input_case_id}_{output_case_id}",
           input_sig,
           expected_input_sig,
@@ -160,20 +126,31 @@ class TfConcreteFunctionsToObmTest(
           ),
           (
               ((), _DICT),
-              ((), _dict_from_seq("input_", obm.tree_util.flatten(_DICT))),
+              ((), _dict_from_seq("input_", jax_tree_util.tree_leaves(_DICT))),
           ),
           (
               (_TUPLE, _DICT),
               (
                   (),
                   _dict_from_seq(
-                      "input_", obm.tree_util.flatten((_TUPLE, _DICT))
+                      "input_", jax_tree_util.tree_leaves((_TUPLE, _DICT))
                   ),
               ),
           ),
           (
               ((_DICT,), {}),
-              ((), _dict_from_seq("input_", obm.tree_util.flatten(_DICT))),
+              ((), _dict_from_seq("input_", jax_tree_util.tree_leaves(_DICT))),
+          ),
+          (
+              ((_CHEX_DATACLASS,), {}),
+              # Registered dataclasses are flattened.
+              (
+                  (),
+                  _dict_from_seq(
+                      "input_",
+                      (_CHEX_DATACLASS.a, _CHEX_DATACLASS.b),
+                  ),
+              ),
           ),
       ))
       for output_case_id, (output_sig, expected_output_sig) in enumerate((
@@ -187,15 +164,22 @@ class TfConcreteFunctionsToObmTest(
           ),
           (
               _DICT,
-              (_dict_from_seq("output_", obm.tree_util.flatten(_DICT))),
+              (_dict_from_seq("output_", jax_tree_util.tree_leaves(_DICT))),
           ),
           (
               (_DICT,),
-              _dict_from_seq("output_", obm.tree_util.flatten(_DICT)),
+              _dict_from_seq("output_", jax_tree_util.tree_leaves(_DICT)),
           ),
           (
               (_TUPLE, _DICT),
-              _dict_from_seq("output_", obm.tree_util.flatten((_TUPLE, _DICT))),
+              _dict_from_seq(
+                  "output_", jax_tree_util.tree_leaves((_TUPLE, _DICT))
+              ),
+          ),
+          (
+              _CHEX_DATACLASS,
+              # Registered dataclasses are flattened.
+              _dict_from_seq("output_", (_CHEX_DATACLASS.a, _CHEX_DATACLASS.b)),
           ),
       ))
   )
@@ -206,8 +190,9 @@ class TfConcreteFunctionsToObmTest(
     @tf.function(autograph=False)
     def f(*args, **kwargs):
       del args, kwargs
-      return obm.tree_util.tree_map(
-          lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), output_sig
+      return jax_tree_util.tree_map(
+          lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype),
+          output_sig,
       )
 
     args, kwargs = input_sig
@@ -229,6 +214,29 @@ class TfConcreteFunctionsToObmTest(
         expected_output_sig,
         is_spec_equiv,
     )
+
+  def test_to_keyword_only_fn_fails_with_unregistered_dataclass_input(self):
+    @tf.function(autograph=False)
+    def f(*args, **kwargs):
+      del args, kwargs
+      return ()
+
+    args, kwargs = ((_DATACLASS,), {})
+    with self.assertRaises(TypeError):
+      f.get_concrete_function(*args, **kwargs)
+
+  def test_to_keyword_only_fn_fails_with_unregistered_dataclass_output(self):
+    output_sig = _DATACLASS
+
+    @tf.function(autograph=False)
+    def f():
+      return jax_tree_util.tree_map(
+          lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype),
+          output_sig,
+      )
+
+    with self.assertRaises(AttributeError):
+      f.get_concrete_function()
 
   def test_e2e(self):
     var = tf.Variable(100.0)
@@ -302,7 +310,7 @@ class TfConcreteFunctionsToObmTest(
         save_dir_path,
         obm.SaveOptions(
             version=2,
-            supplemental_info={
+            supplementals={
                 TF_SAVED_MODEL_SUPPLEMENTAL_NAME: obm.GlobalSupplemental(
                     tf_global_supplemental, None
                 ),
@@ -311,9 +319,7 @@ class TfConcreteFunctionsToObmTest(
     )
 
     # Check resulting manifest proto.
-    manifest_proto = obm.manifest_pb2.Manifest()
-    with open(os.path.join(save_dir_path, obm.MANIFEST_FILENAME), "rb") as f:
-      manifest_proto.ParseFromString(f.read())
+    manifest_proto = obm.load(save_dir_path)
 
     pre_processor_filename = f"{pre_processor_name}.pb"
     post_processor_filename = f"{post_processor_name}.pb"

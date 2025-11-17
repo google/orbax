@@ -15,11 +15,11 @@
 """Core classes and functions for benchmarking Orbax."""
 
 import abc
-from collections.abc import MutableMapping, Sequence
-import contextlib
+from collections.abc import Sequence
 import dataclasses
+import hashlib
 import itertools
-import time
+import sys
 from typing import Any, Callable
 
 from absl import logging
@@ -30,11 +30,21 @@ from orbax.checkpoint._src.testing.benchmarks.core import checkpoint_generation
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 from orbax.checkpoint._src.testing.benchmarks.core import directory_setup
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
 
 @dataclasses.dataclass(frozen=True)
 class BenchmarkOptions:
   """Base class for benchmark generator options."""
+
+  @classmethod
+  def from_dict(cls, options_dict: dict[str, Any]) -> "BenchmarkOptions":
+    """Creates a BenchmarkOptions subclass from a dictionary of options."""
+    return cls(**options_dict)
+
+  def is_valid(self) -> bool:
+    """Returns whether the current option combination is valid."""
+    return True
 
 
 def benchmark_options(options_cls):
@@ -59,56 +69,6 @@ def benchmark_options(options_cls):
 
 
 @dataclasses.dataclass
-class Metrics:
-  """A simple dataclass to store and report test metrics.
-
-  Attributes:
-    timings: A dictionary mapping metric names to their duration in seconds.
-    name: The name of the metric group.
-  """
-
-  timings: MutableMapping[str, float] = dataclasses.field(default_factory=dict)
-  name: str = ""
-
-  @contextlib.contextmanager
-  def time(self, name: str):
-    """A context manager to time a block of code and record it."""
-    logging.info(
-        "[process_id=%s] Starting metric: '%s'...",
-        multihost.process_index(),
-        name,
-    )
-    start_time = time.perf_counter()
-    yield
-    end_time = time.perf_counter()
-    duration = end_time - start_time
-    self.timings[name] = duration
-    logging.info(
-        "[process_id=%s] Finished metric: '%s' took %.4f s.",
-        multihost.process_index(),
-        name,
-        duration,
-    )
-
-  def report(self):
-    """Logs a formatted report of all collected metrics."""
-    report_lines = []
-    report_lines.append(
-        f"---[process_id={multihost.process_index()}] {self.name} Metrics"
-        " Report ---"
-    )
-    if not self.timings:
-      report_lines.append(
-          f"[process_id={multihost.process_index()}] No metrics recorded."
-      )
-    else:
-      for name, duration in self.timings.items():
-        report_lines.append(f"{name}: {duration:.4f} seconds")
-    report_lines.append("----------------------")
-    logging.info("\n".join(report_lines))
-
-
-@dataclasses.dataclass
 class TestContext:
   """Input object passed to each test function, providing pre-configured components for the test run.
 
@@ -129,7 +89,14 @@ class TestContext:
 class TestResult:
   """Output object returned by each test function, containing the results of the test run, including collected metrics."""
 
-  metrics: Metrics
+  metrics: metric_lib.Metrics
+  error: Exception | None = (
+      None  # The error raised during the test run, if any.
+  )
+
+  def is_successful(self) -> bool:
+    """Returns whether the test run was successful."""
+    return self.error is None
 
 
 class Benchmark(abc.ABC):
@@ -142,53 +109,17 @@ class Benchmark(abc.ABC):
       options: BenchmarkOptions,
       name: str,
       output_dir: str | None = None,
-      mesh_config: configs.MeshConfig | None = None,
+      mesh: jax.sharding.Mesh | None = None,
   ):
     self.test_fn = test_fn
     self.checkpoint_config = checkpoint_config
     self.options = options
-    self.mesh_config = mesh_config
+    self.mesh = mesh
     self.name = name
     self.output_dir = output_dir
 
-  def run(self) -> TestResult:
-    """Executes the benchmark test case."""
-    logging.info(
-        "[process_id=%s] Setting up test: %s",
-        multihost.process_index(),
-        self.name,
-    )
-
-    benchmark_metrics = Metrics(name=f"{self.name} Internal")
-    with benchmark_metrics.time("sync_global_processes:benchmark:run"):
-      multihost.sync_global_processes("benchmark:run")
-
-    path = directory_setup.setup_test_directory(self.name, self.output_dir)
-
-    with benchmark_metrics.time(
-        "sync_global_processes:benchmark:setup_test_directory"
-    ):
-      multihost.sync_global_processes("benchmark:setup_test_directory")
-
-    if self.mesh_config is not None:
-      mesh = device_mesh.create_mesh(self.mesh_config)
-    else:
-      mesh = None
-
-    if self.checkpoint_config.path is None:
-      data = checkpoint_generation.generate_checkpoint(
-          self.checkpoint_config, mesh=mesh
-      )
-    else:
-      data = checkpoint_generation.load_checkpoint(self.checkpoint_config.path)
-
-    with benchmark_metrics.time("sync_global_processes:benchmark:setup_pytree"):
-      multihost.sync_global_processes("benchmark:setup_pytree")
-
-    context = TestContext(
-        pytree=data, path=path, options=self.options, mesh=mesh
-    )
-
+  def _build_test_context_summary(self, context: TestContext) -> str:
+    """Builds a string summary of the test context."""
     pytree_summary = jax.tree_util.tree_map(
         lambda x: (
             f"shape={x.shape}, dtype={x.dtype}"
@@ -197,25 +128,81 @@ class Benchmark(abc.ABC):
         ),
         context.pytree,
     )
+    test_context_str = f"TestContext for '{self.name}':\n"
+    test_context_str += f"Path: {context.path}\n"
+    test_context_str += f"Options: {context.options}\n"
+    test_context_str += f"PyTree Summary:\n{pytree_summary}\n"
+    return test_context_str
+
+  def run(self, repeat_index: int | None = None) -> TestResult:
+    """Executes the benchmark test case."""
+    name = self.name
+    if repeat_index is not None:
+      name += f"_repeat_{repeat_index}"
     logging.info(
-        "--- TestContext for '%s' ---\n"
-        "Path: %s\n"
-        "Options: %s\n"
-        "PyTree Summary:\n%s\n"
-        "----------------------------------",
-        self.name,
-        context.path,
-        context.options,
-        pytree_summary,
+        "[process_id=%s] Setting up test: %s",
+        multihost.process_index(),
+        name,
     )
+
+    benchmark_metrics = metric_lib.Metrics(name=f"{name} Internal")
+    with benchmark_metrics.measure("sync_global_processes:benchmark:run"):
+      multihost.sync_global_processes("benchmark:run")
+
+    path = directory_setup.setup_test_directory(
+        self.name, self.output_dir, repeat_index
+    )
+
+    with benchmark_metrics.measure(
+        "sync_global_processes:benchmark:setup_test_directory"
+    ):
+      multihost.sync_global_processes("benchmark:setup_test_directory")
+
+    if self.checkpoint_config.path is None:
+      data = checkpoint_generation.generate_checkpoint(
+          self.checkpoint_config, mesh=self.mesh
+      )
+    else:
+      data = checkpoint_generation.load_checkpoint(self.checkpoint_config.path)
+
+    with benchmark_metrics.measure(
+        "sync_global_processes:benchmark:setup_pytree"
+    ):
+      multihost.sync_global_processes("benchmark:setup_pytree")
+
+    context = TestContext(
+        pytree=data, path=path, options=self.options, mesh=self.mesh
+    )
+
+    test_context_summary = self._build_test_context_summary(context)
+    logging.info(test_context_summary)
 
     logging.info(
         "[process_id=%s] Executing test function: %s",
         multihost.process_index(),
-        self.name,
+        name,
     )
-    result = self.test_fn(context)
-    result.metrics.name = self.name
+    try:
+      result = self.test_fn(context)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      # We catch all exceptions to ensure that any error during the test
+      # execution is recorded in the TestResult.
+      if sys.version_info >= (3, 11):
+        e.add_note(
+            f"[process_id={multihost.process_index()}],"
+            f" {test_context_summary[:100]}"
+        )
+      logging.error(
+          "[process_id=%s] Test function '%s' context: %s, raised an"
+          " exception: %s",
+          multihost.process_index(),
+          name,
+          test_context_summary[:100],
+          e,
+          exc_info=True,
+      )
+      result = TestResult(metrics=metric_lib.Metrics(), error=e)
+    result.metrics.name = name
 
     result.metrics.report()
     benchmark_metrics.report()
@@ -223,7 +210,7 @@ class Benchmark(abc.ABC):
     logging.info(
         "[process_id=%s] Test finished: %s",
         multihost.process_index(),
-        self.name,
+        name,
     )
 
     return result
@@ -245,19 +232,19 @@ class BenchmarksGenerator(abc.ABC):
 
   def __init__(
       self,
-      checkpoint_config: configs.CheckpointConfig,
+      checkpoint_configs: Sequence[configs.CheckpointConfig],
       options: BenchmarkOptions,
       output_dir: str | None = None,
-      mesh_config: configs.MeshConfig | None = None,
+      mesh_configs: Sequence[configs.MeshConfig] | None = None,
   ):
     """Initializes the generator.
 
     Args:
-        checkpoint_config: The checkpoint configuration, shared across all
+        checkpoint_configs: The checkpoint configurations, shared across all
           generated benchmarks.
         options: A dataclass instance defining the parameters to sweep over.
         output_dir: The directory to store the benchmark results in.
-        mesh_config: The mesh configuration, shared across all generated
+        mesh_configs: The mesh configurations, shared across all generated
           benchmarks. If None, no mesh will be created.
     """
     if self.options_class is None:
@@ -272,8 +259,8 @@ class BenchmarksGenerator(abc.ABC):
           f" {type(options).__name__}"
       )
 
-    self._checkpoint_config = checkpoint_config
-    self._mesh_config = mesh_config
+    self._checkpoint_configs = checkpoint_configs
+    self._mesh_configs = mesh_configs
     self._options = options
     self._output_dir = output_dir
 
@@ -297,28 +284,83 @@ class BenchmarksGenerator(abc.ABC):
     option_names = [field.name for field in option_fields]
     for p in product:
       kwargs = dict(zip(option_names, p))
-      option_instances.append(type(self._options)(**kwargs))
+      option_instance = self._options.__class__(**kwargs)
+      if option_instance.is_valid():
+        option_instances.append(option_instance)
+        logging.info(
+            "[process_id=%s] Generating valid option combination: %s",
+            multihost.process_index(),
+            option_instance,
+        )
+      else:
+        logging.info(
+            "[process_id=%s] Skipping invalid option combination: %s",
+            multihost.process_index(),
+            option_instance,
+        )
     return option_instances
 
-  def generate(self) -> Sequence[Benchmark]:
+  def _get_meshes(
+      self, skip_incompatible_mesh_configs: bool
+  ) -> Sequence[jax.sharding.Mesh]:
+    """Returns a list of meshes for all mesh configs that are compatible with the runtime environment."""
+    meshes = []
+    for mesh_config in self._mesh_configs:
+      try:
+        mesh = device_mesh.create_mesh(mesh_config)
+        meshes.append(mesh)
+      except ValueError as e:
+        if not skip_incompatible_mesh_configs:
+          raise ValueError(
+              f"Failed to create mesh with config {mesh_config}: {e}"
+          ) from e
+        else:
+          logging.warning(
+              "Failed to create mesh with config %s: %s", mesh_config, e
+          )
+    if not meshes:
+      raise ValueError("No compatibile meshes found.")
+    return meshes
+
+  def generate_benchmark_name(
+      self,
+      option: BenchmarkOptions,
+      mesh: jax.sharding.Mesh,
+      checkpoint_config: configs.CheckpointConfig,
+  ) -> str:
+    """Generates a unique and short benchmark name."""
+    class_name = self.__class__.__name__
+    long_name = (
+        f"{class_name}-{repr(option)}-{repr(mesh)}-{repr(checkpoint_config)}"
+    )
+    # The concise, one-liner version of the hashing logic
+    short_hash = hashlib.md5(long_name.encode()).hexdigest()[:12]
+    return f"{class_name}_{short_hash}"
+
+  def generate(
+      self, skip_incompatible_mesh_configs: bool = True
+  ) -> Sequence[Benchmark]:
     """Generates a list of `Benchmark` objects for all option combinations."""
     benchmarks = []
     option_combinations = self._get_options_product()
+    if self._mesh_configs is None:
+      meshes = [None]
+    else:
+      meshes = self._get_meshes(skip_incompatible_mesh_configs)
 
-    for test_config_options in option_combinations:
-      name_parts = [
-          f"{field.name}_{getattr(test_config_options, field.name)}"
-          for field in dataclasses.fields(test_config_options)
-      ]
-      benchmark_name = f"{self.__class__.__name__}_{'_'.join(name_parts)}"
-
+    for test_config_options, mesh, checkpoint_config in itertools.product(
+        option_combinations, meshes, self._checkpoint_configs
+    ):
+      benchmark_name = self.generate_benchmark_name(
+          test_config_options, mesh, checkpoint_config
+      )
       benchmark_obj = Benchmark(
           test_fn=self.test_fn,
           name=benchmark_name,
-          checkpoint_config=self._checkpoint_config,
+          checkpoint_config=checkpoint_config,
           options=test_config_options,
           output_dir=self._output_dir,
-          mesh_config=self._mesh_config,
+          mesh=mesh,
       )
       benchmarks.append(benchmark_obj)
 
@@ -329,18 +371,27 @@ class TestSuite:
   """A class to orchestrate running and comparing a list of benchmarks."""
 
   def __init__(
-      self, name: str, benchmarks_generators: Sequence[BenchmarksGenerator]
+      self,
+      name: str,
+      benchmarks_generators: Sequence[BenchmarksGenerator],
+      skip_incompatible_mesh_configs: bool = True,
+      num_repeats: int = 1,
   ):
     self._name = name
     self._benchmarks_generators = benchmarks_generators
+    self._skip_incompatible_mesh_configs = skip_incompatible_mesh_configs
+    self._num_repeats = num_repeats
+    self._suite_metrics = metric_lib.MetricsManager(
+        name=name, num_repeats=num_repeats
+    )
 
-  def run(self):
+  def run(self) -> Sequence[TestResult]:
     """Runs all benchmarks in the suite sequentially."""
     logging.info(
         "\n%s Running Test Suite: %s %s", "=" * 25, self._name, "=" * 25
     )
 
-    has_run_benchmarks = False
+    all_results = []
     for i, generator in enumerate(self._benchmarks_generators):
       logging.info(
           "\n%s Running Generator %d: %s %s",
@@ -349,21 +400,34 @@ class TestSuite:
           generator.__class__.__name__,
           "-" * 15,
       )
-      generated_benchmarks = generator.generate()
+      generated_benchmarks = generator.generate(
+          self._skip_incompatible_mesh_configs
+      )
       if not generated_benchmarks:
         logging.warning(
-            "Generator %s produced no benchmarks.", generator.__class__.__name__
+            "Generator %s produced no benchmarks.",
+            generator.__class__.__name__,
         )
         continue
 
-      has_run_benchmarks = True
       for benchmark in generated_benchmarks:
-        logging.info("\n--- Running test: %s ---", benchmark.name)
-        benchmark.run()
+        for i in range(self._num_repeats):
+          repeat_index = i if self._num_repeats > 1 else None
+          logging.info(
+              "\n--- Running test: %s (Repeat %d/%d) ---",
+              benchmark.name,
+              i + 1,
+              self._num_repeats,
+          )
+          result = benchmark.run(repeat_index=repeat_index)
+          all_results.append(result)
+          self._suite_metrics.add_result(
+              benchmark.name, result.metrics, result.error
+          )
 
-    if not has_run_benchmarks:
+    if not all_results:
       logging.warning("No benchmarks were run for this suite.")
 
-    logging.info(
-        "\n%s Finished Test Suite: %s %s", "=" * 25, self._name, "=" * 25
-    )
+    logging.info(self._suite_metrics.generate_report())
+    multihost.sync_global_processes("test_suite:run_end")
+    return all_results

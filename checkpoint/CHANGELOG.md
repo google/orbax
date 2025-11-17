@@ -7,10 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix `step_from_checkpoint_name` to allow the passed in checkpoint name to
+  include an arbitrary `step_prefix` with any character(s) such as underscores.
+
+### Changed
+
+- Validate checkpoints before writing merged OCDBT database using in-memory
+  state, avoiding additional I/O to re-read metadata.
+- add `support_format` to utils.to_shape_dtype_struct()
+- Moved `register_pathways_handlers` to `ocp.pathways.register_type_handlers`.
+
+## [0.11.28] - 2025-11-06
+
+### Added
+
+- #v1 `Checkpointer.wait` method.
+- Added `register_pathways_handlers` to `ocp.type_handlers`
+
+## [0.11.27] - 2025-11-04
+
+### Added
+
+- #v1 Add Save option `enable_replica_parallel_separate_folder`
+- #v1 Add Save option `min_slice_bytes_for_replica_parallel` and `max_replicas_for_replica_parallel`
+- Add support for dispatchers in Jax Array Handlers.
+- Add support to restore JAX random key with abstract representation such as
+  `ShapeDtypeStruct`
+
+### Changed
+
+- #v1 Allow PyTree checkpointables to be automatically identified in
+both `pytree_metadata` and `load_pytree`.
+
+## [0.11.26] - 2025-10-22
+
 ### Added
 
 - Added an option `use_compression` to `PyTreeCheckpointHandler` to
-  control whether compress will be used. Default is kept `True`.
+  control whether compression will be used. Default is kept `True`.
+- v1 Added `ArrayOptions.Saving.use_compression` to control whether compression
+  will be used. Default is kept `True`.
+- Add `LocalPath` for testing process-local storage.
+- Added new memory metrics into benchmark library
+- Added `Dispatcher` interface with `ColocatedPythonDispatcher` implementations,
+  enabling function execution on colocated CPU devices.
+- Add `enable_replica_parallel_separate_folder` into type_handlers.ArrayHandler
+  which will store replica data in separate folders.
 
 ### Changed
 

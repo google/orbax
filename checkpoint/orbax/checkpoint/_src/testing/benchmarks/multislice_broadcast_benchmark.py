@@ -20,11 +20,11 @@ from absl import flags
 from absl import logging
 import jax
 import jax.numpy as jnp
-import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import mesh_utils
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 
 
@@ -53,7 +53,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
       self, context: benchmarks_core.TestContext
   ) -> benchmarks_core.TestResult:
     """The core test logic multislice operations."""
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     options = context.options
     mesh = context.mesh
     assert isinstance(options, MultisliceBroadcastBenchmarkOptions)
@@ -77,7 +77,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
         local_replica_mesh,
     )
 
-    with metrics.time("process_spans_multiple_replicas"):
+    with metrics.measure("process_spans_multiple_replicas"):
       if multislice.process_spans_multiple_replicas(
           mesh, replica_axis_index=options.replica_axis_index
       ):
@@ -104,9 +104,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
     def _fn(expected_arr):
       expected_arr_list.append(expected_arr)
       if is_source_replica:
-        arr = jnp.arange(
-            np.prod(expected_arr.shape), dtype=expected_arr.dtype
-        ).reshape(expected_arr.shape)
+        arr = jax.device_get(expected_arr)
       else:
         arr = jnp.zeros(expected_arr.shape, dtype=expected_arr.dtype)
       arr_single_replica_sharding = jax.sharding.NamedSharding(
@@ -117,7 +115,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
       single_replica_arr_list.append(arr_single_replica)
 
     jax.tree.map(_fn, context.pytree)
-    with metrics.time("broadcast_array"):
+    with metrics.measure("broadcast_array"):
       broadcasted_tuple, num_broadcasts = (
           multislice.broadcast_one_replica_to_all(
               tuple(single_replica_arr_list),

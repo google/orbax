@@ -88,7 +88,7 @@ bool NodeIsPrunable(Node* node, bool consider_sink = true) {
 }
 }  // namespace
 
-FunctionInfo::FunctionInfo(const string& name) {
+FunctionInfo::FunctionInfo(const std::string& name) {
   root_graph_ = nullptr;
   node_in_parent_graph_ = nullptr;
   name_ = name;
@@ -289,8 +289,9 @@ absl::StatusOr<FunctionInfo*> FunctionInfo::get_child(Node* call_node) {
 
 absl::Status FunctionInfo::BuildChild(
     const FunctionLibraryDefinition& flib_def,
-    ::gtl::linked_hash_map<string, int>* func_overhead, Node* node,
-    string attr_name, string func_name, absl::optional<string> new_func_name) {
+    ::gtl::linked_hash_map<std::string, int>* func_overhead, Node* node,
+    std::string attr_name, std::string func_name,
+    absl::optional<std::string> new_func_name) {
   if (!new_func_name.has_value()) {
     new_func_name = func_name;
   }
@@ -323,7 +324,7 @@ absl::Status FunctionInfo::BuildChild(
 // Build function tree recursively.
 absl::Status FunctionInfo::Build(
     const FunctionLibraryDefinition& flib_def,
-    ::gtl::linked_hash_map<string, int>* func_overhead) {
+    ::gtl::linked_hash_map<std::string, int>* func_overhead) {
   uint unique_name_counter = 0;
 
   this->overhead_ = 0;
@@ -339,7 +340,7 @@ absl::Status FunctionInfo::Build(
     // Therefore we have to manually address each case without using
     // IsFunctionCall.
     if (node->type_string() == "SymbolicGradient") continue;
-    std::vector<string> attr_names;
+    std::vector<std::string> attr_names;
     if (absl::StrContains(node->type_string(), "PartitionedCall") ||
         node->type_string() == "BatchFunction") {
       attr_names.push_back("f");
@@ -353,14 +354,15 @@ absl::Status FunctionInfo::Build(
       attr_names.push_back("else_branch");
     }
     for (const auto& attr_name : attr_names) {
-      const string& func_name = node->attrs().Find(attr_name)->func().name();
+      const std::string& func_name =
+          node->attrs().Find(attr_name)->func().name();
       TF_RETURN_IF_ERROR(
           BuildChild(flib_def, func_overhead, node, attr_name, func_name));
     }
 
     // Customized functions.
     if (flib_def.Contains(node->type_string())) {
-      string new_func_name =
+      std::string new_func_name =
           absl::StrCat(node->type_string(), "_", unique_name_counter++);
       TF_RETURN_IF_ERROR(BuildChild(flib_def, func_overhead, node, "",
                                     node->type_string(), new_func_name));
@@ -433,7 +435,7 @@ absl::Status FunctionInfo::LazyUpdate(FunctionDefLibrary* fdef_lib) {
 
 // Mark the current function as mutated, and retrospectively mark all its
 // ancestors until root.
-absl::Status FunctionInfo::MarkMutated(const string& suffix) {
+absl::Status FunctionInfo::MarkMutated(const std::string& suffix) {
   this->name_new_ = absl::StrCat(this->name(), suffix);
   this->mutated_ = true;
   if (!this->IsRoot()) TF_RETURN_IF_ERROR(this->parent_->MarkMutated(suffix));
@@ -442,7 +444,7 @@ absl::Status FunctionInfo::MarkMutated(const string& suffix) {
 
 absl::Status FunctionInfo::RebuildChildren(
     const FunctionLibraryDefinition& flib_def,
-    ::gtl::linked_hash_map<string, int>* func_overhead) {
+    ::gtl::linked_hash_map<std::string, int>* func_overhead) {
   children_.clear();
   return Build(flib_def, func_overhead);
 }

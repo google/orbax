@@ -39,9 +39,7 @@ from orbax.checkpoint.experimental.v1._src.serialization import types
 Shape = arrays_types_v0.Shape
 AbstractShardedArray = types.AbstractShardedArray
 ArraySerializationParam = types.SerializationParam[jax.Array]
-ArrayDeserializationParam = types.DeserializationParam[
-    AbstractShardedArray
-]
+ArrayDeserializationParam = types.DeserializationParam[AbstractShardedArray]
 
 
 @dataclasses.dataclass
@@ -88,6 +86,9 @@ def _create_v0_array_handler(
       primary_host=primary_host,
       replica_id=None if primary_host is None else 0,
       use_replica_parallel=saving_options.use_replica_parallel,
+      min_slice_bytes_for_replica_parallel=saving_options.min_slice_bytes_for_replica_parallel,
+      max_replicas_for_replica_parallel=saving_options.max_replicas_for_replica_parallel,
+      enable_replica_parallel_separate_folder=saving_options.enable_replica_parallel_separate_folder,
       enable_write_sharding_file=saving_options.enable_write_sharding_file,
       array_metadata_store=saving_options.array_metadata_store,
   )
@@ -112,6 +113,7 @@ def _create_v0_saving_paraminfo(
       byte_limiter=serialization_context.byte_limiter,
       is_ocdbt_checkpoint=saving_options.use_ocdbt,
       use_zarr3=saving_options.use_zarr3,
+      use_compression=saving_options.use_compression,
       ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
       ts_context=serialization_context.ts_context,
       value_typestr=None,  # TODO(dnlng): Add value typestr.
@@ -215,7 +217,6 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
     self._handler_impl = _create_v0_array_handler(
         self._context,
     )
-
     logging.vlog(1, 'ArrayLeafHandler created.')
 
   async def serialize(

@@ -14,6 +14,7 @@
 
 from collections.abc import Mapping, Sequence
 import contextlib
+import importlib
 import os
 from typing import Any, Callable
 
@@ -21,6 +22,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
+from orbax.export import config
 from orbax.export import constants
 from orbax.export import export_testing_utils
 from orbax.export import jax_module
@@ -43,13 +45,7 @@ def _assert(b):
   assert b
 
 
-class ObmExportTest(parameterized.TestCase, tf.test.TestCase):
-
-  def setUp(self):
-    super().setUp()
-    base_path = os.path.dirname(os.path.abspath(__file__))
-    self._testdata_dir = os.path.join(base_path, 'testdata')
-    self._output_dir = self.create_tempdir().full_path
+class ObmExportUnitTest(parameterized.TestCase, tf.test.TestCase):
 
   def test_incorrect_export_version(self):
     pass

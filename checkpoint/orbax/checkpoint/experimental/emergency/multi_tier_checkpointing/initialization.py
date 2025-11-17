@@ -49,7 +49,7 @@ def _create_replicator_file(
     *,
     run_name: str,
     num_nodes: int,
-    num_slices: int,
+    data_parallelism: int,
     node_rank: int,
     peer_ranks: List[int],
     backup_interval_minutes: int,
@@ -59,7 +59,7 @@ def _create_replicator_file(
   replicator_file = epath.Path(file_path) / _REPLICATOR_FILE
   replicator_yaml = f"""job-name: {run_name}
   framework: orbax
-  assume-data-parallelism: {num_slices}
+  assume-data-parallelism: {data_parallelism}
   node-rank: {node_rank}
   nodes: {num_nodes}
   peer-ranks: {peer_ranks}
@@ -73,9 +73,10 @@ def _create_replicator_file(
 def initialize_multi_tier_checkpointing(
     local_checkpoint_directory: epath.Path,
     *,
-    backup_interval_minutes: int = 10,
+    backup_interval_minutes: int = 30,
     num_slices: Optional[int] = None,
     run_name: Optional[str] = None,
+    data_parallelism: Optional[int] = None,
     jax_initialization_timeout_seconds: int = 900,
 ):
   """Initializes multi-tier checkpointing.
@@ -86,6 +87,9 @@ def initialize_multi_tier_checkpointing(
       minutes.
     num_slices: The number of slices.
     run_name: The name of the run.
+    data_parallelism: Number of identical pipelines in job, should be
+      equal to ICI data parallelism * DCN data parallelism. If not provided, it
+      will be inferred from the number of slices.
     jax_initialization_timeout_seconds: The timeout for JAX initialization.
   """
   local_checkpoint_directory = epath.Path(local_checkpoint_directory)
@@ -118,6 +122,7 @@ def initialize_multi_tier_checkpointing(
   num_nodes = jax.process_count()
   nodes_per_slice = num_nodes // num_slices
   node_rank = jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
+  data_parallelism = data_parallelism or num_slices
   my_process_index = jax.process_index()
   process_index_to_node_rank = (
       multihost.runtime_to_distributed_ids()
@@ -147,7 +152,7 @@ def initialize_multi_tier_checkpointing(
       local_checkpoint_directory,
       run_name=run_name,
       num_nodes=num_nodes,
-      num_slices=num_slices,
+      data_parallelism=data_parallelism,
       node_rank=node_rank,
       peer_ranks=peer_ranks,
       backup_interval_minutes=backup_interval_minutes,

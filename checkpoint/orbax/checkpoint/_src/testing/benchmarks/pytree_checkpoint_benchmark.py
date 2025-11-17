@@ -13,14 +13,29 @@
 # limitations under the License.
 
 """Benchmarks for orbax.checkpoint.PyTreeCheckpointHandler."""
+
 from collections.abc import Sequence
 import dataclasses
+import functools
+import pprint
 from typing import Any
+from unittest import mock
+
+from absl import logging
 import jax
-from orbax.checkpoint import checkpoint_utils
-from orbax.checkpoint._src.checkpointers import async_checkpointer
-from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+import orbax.checkpoint as ocp
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
+from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
+
+
+def _metrics_to_measure(options: "PyTreeCheckpointOptions") -> list[str]:
+  """Returns the list of metrics to measure."""
+  metrics = ["time", "rss", "io"]
+  if options.metric_tracemalloc_enabled:
+    metrics.append("tracemalloc")
+  if options.metric_tensorstore_enabled:
+    metrics.append("tensorstore")
+  return metrics
 
 
 # ==============================================================================
@@ -34,12 +49,47 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
   a parameter sweep.
 
   Attributes:
+    async_enabled: Whether to use async checkpointer.
     use_ocdbt: Whether to use OCPDBT for checkpointing.
     use_zarr3: Whether to use Zarr3 for checkpointing.
+    use_compression: Whether to use compression for checkpointing.
+    save_concurrent_gb: The number of concurrent GB to use for saving.
+    restore_concurrent_gb: The number of concurrent GB to use for restoring.
+    metric_tracemalloc_enabled: Whether to enable tracemalloc metrics.
+    metric_tensorstore_enabled: Whether to enable tensorstore metrics.
   """
 
+  async_enabled: bool | Sequence[bool] = True
   use_ocdbt: bool | Sequence[bool] = True
   use_zarr3: bool | Sequence[bool] = False
+  use_compression: bool | Sequence[bool] = True
+  save_concurrent_gb: int | None | Sequence[int | None] = None
+  restore_concurrent_gb: int | None | Sequence[int | None] = None
+  metric_tracemalloc_enabled: bool = False
+  metric_tensorstore_enabled: bool = False
+  use_replica_parallel: bool | Sequence[bool] = False
+  enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
+  use_jax_array_handler: bool | Sequence[bool] = True
+  use_colocated_python: bool | Sequence[bool] = False
+  save_device_host_concurrent_gb: int | None | Sequence[int | None] = None
+
+  def is_valid(self):
+    assert isinstance(self.use_replica_parallel, bool)
+    assert isinstance(self.enable_replica_parallel_separate_folder, bool)
+    assert isinstance(self.use_jax_array_handler, bool)
+    assert isinstance(self.use_colocated_python, bool)
+
+    if self.enable_replica_parallel_separate_folder and (
+        not self.use_replica_parallel or not self.use_ocdbt
+    ):
+      return False
+    if not ocp.multihost.is_pathways_backend() and (
+        self.use_colocated_python or not self.use_jax_array_handler
+    ):
+      return False
+    if not self.use_jax_array_handler and self.use_replica_parallel:
+      return False
+    return True
 
 
 # ==============================================================================
@@ -59,6 +109,31 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
         lambda x: x.delete() if isinstance(x, jax.Array) else None, pytree
     )
 
+  def register_array_type_handler(self, options: PyTreeCheckpointOptions):
+    if not ocp.multihost.is_pathways_backend():
+      array_handler = ocp.type_handlers.ArrayHandler(
+          use_replica_parallel=options.use_replica_parallel,
+          enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,
+      )
+      logging.info("Registering MC-JAX array type handler")
+      ocp.type_handlers.register_type_handler(
+          jax.Array,
+          array_handler,
+          override=True,
+      )
+    else:
+      if options.use_jax_array_handler:
+        if options.use_persistence_array_handler:
+          ocp.pathways.register_type_handlers(
+              use_persistence_array_handler=options.use_persistence_array_handler,
+          )
+        else:
+          ocp.pathways.register_type_handlers(
+              use_colocated_python=options.use_colocated_python,
+              use_replica_parallel=options.use_replica_parallel,
+              enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,
+          )
+
   def test_fn(
       self, context: benchmarks_core.TestContext
   ) -> benchmarks_core.TestResult:
@@ -74,36 +149,52 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
     Returns:
       The test result containing the metrics.
     """
-    metrics = benchmarks_core.Metrics()
+    metrics = metric_lib.Metrics()
     pytree = context.pytree
     save_path = context.path / "pytree"
     options = context.options
     assert isinstance(options, PyTreeCheckpointOptions)
 
-    handler = pytree_checkpoint_handler.PyTreeCheckpointHandler(
+    logging.info("Benchmark options: %s", pprint.pformat(options))
+
+    self.register_array_type_handler(options)
+
+    handler = ocp.PyTreeCheckpointHandler(
         use_ocdbt=options.use_ocdbt,
         use_zarr3=options.use_zarr3,
+        use_compression=options.use_compression,
+        save_concurrent_gb=options.save_concurrent_gb,
+        restore_concurrent_gb=options.restore_concurrent_gb,
+        save_device_host_concurrent_gb=options.save_device_host_concurrent_gb,
+        is_prioritized_key_fn=lambda key: "a" in ocp.tree.str_keypath(key),
     )
-    checkpointer = async_checkpointer.AsyncCheckpointer(handler)
 
-    with metrics.time("save"):
-      checkpointer.save(
-          save_path, args=pytree_checkpoint_handler.PyTreeSaveArgs(pytree)
-      )
+    if options.async_enabled:
+      checkpointer = ocp.AsyncCheckpointer(handler)
+    else:
+      checkpointer = ocp.Checkpointer(handler)
+    metrics_to_measure = _metrics_to_measure(options)
 
-    with metrics.time("wait_until_finished"):
-      checkpointer.wait_until_finished()
+    with metrics.measure("save", metrics_to_measure):
+      checkpointer.save(save_path, args=ocp.args.PyTreeSave(pytree))
+
+    if options.async_enabled:
+      with metrics.measure("wait_until_finished", metrics_to_measure):
+        assert hasattr(checkpointer, "wait_until_finished")
+        checkpointer.wait_until_finished()
 
     context.pytree = self._clear_pytree(context.pytree)
 
-    with metrics.time("restore"):
-      checkpointer.restore(
+    with metrics.measure("restore", metrics_to_measure):
+      restored_pytree = checkpointer.restore(
           save_path,
-          args=pytree_checkpoint_handler.PyTreeRestoreArgs(
+          args=ocp.args.PyTreeRestore(
               item=pytree,
-              restore_args=checkpoint_utils.construct_restore_args(pytree),
+              restore_args=ocp.checkpoint_utils.construct_restore_args(pytree),
           ),
       )
+
+    self._clear_pytree(restored_pytree)
 
     checkpointer.close()
     return benchmarks_core.TestResult(metrics=metrics)

@@ -23,7 +23,6 @@ from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
-from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint.experimental.emergency import local_checkpoint_data_debugging
 
@@ -101,7 +100,7 @@ class LocalCheckpointDataValidatorTest(
     await serialization.async_serialize(
         array,
         tspec,
-        context=type_handlers.get_ts_context(use_ocdbt=use_ocdbt),
+        context=ts_utils.get_ts_context(use_ocdbt=use_ocdbt),
         primary_host=None,
         replica_id=replica_id,
     )

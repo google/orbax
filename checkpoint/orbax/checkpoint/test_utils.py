@@ -26,7 +26,7 @@ import copy
 import inspect
 import time
 import typing
-from typing import Any, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from unittest import mock
 
 from absl import logging
@@ -46,11 +46,13 @@ from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
+from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import replica_slices
-from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
+import tensorstore as ts
 
 
 PyTree = Any
@@ -230,9 +232,9 @@ def assert_array_equal(testclass, v_expected, v_actual):
       for shard_expected, shard_actual in zip(
           v_expected.addressable_shards, v_actual.addressable_shards
       ):
-        np.testing.assert_array_equal(shard_expected.data, shard_actual.data)
+        np.testing.assert_array_equal(shard_actual.data, shard_expected.data)
   elif isinstance(v_expected, (np.ndarray, jnp.ndarray)):
-    np.testing.assert_array_equal(v_expected, v_actual)
+    np.testing.assert_array_equal(v_actual, v_expected)
   else:
     testclass.assertEqual(v_expected, v_actual)
 
@@ -249,6 +251,13 @@ def assert_tree_equal(testclass, expected, actual):
     assert_array_equal(testclass, x, y)
 
   jax.tree.map(_eq, expected, actual, is_leaf=lambda x: x is None)
+
+
+def assert_tree_same_structure(testclass, expected, actual):
+  """Asserts that two PyTrees have the same structure."""
+  expected_structure = jax.tree.structure(expected)
+  actual_structure = jax.tree.structure(actual)
+  testclass.assertEqual(expected_structure, actual_structure)
 
 
 def setup_pytree(add: int = 0):
@@ -534,12 +543,14 @@ class ErrorRestoreArgs(pytree_checkpoint_handler.PyTreeSaveArgs):
 @contextlib.contextmanager
 def register_type_handler(ty, handler, func):
   """Registers new func for type, and restores original handler when done."""
-  original_handler = type_handlers.get_type_handler(ty)
-  type_handlers.register_type_handler(ty, handler, func=func, override=True)
+  original_handler = type_handler_registry.get_type_handler(ty)
+  type_handler_registry.register_type_handler(
+      ty, handler, func=func, override=True
+  )
   try:
     yield
   finally:
-    type_handlers.register_type_handler(
+    type_handler_registry.register_type_handler(
         ty, original_handler, func=func, override=True
     )
 
@@ -547,12 +558,14 @@ def register_type_handler(ty, handler, func):
 @contextlib.contextmanager
 def global_type_handler_registry_context():
   """Context manager for changing the GLOBAL_TYPE_HANDLER_REGISTRY."""
-  original_type_handlers = copy.deepcopy(type_handlers._DEFAULT_TYPE_HANDLERS)
+  original_type_handlers = copy.deepcopy(
+      type_handler_registry._DEFAULT_TYPE_HANDLERS
+  )
   try:
     yield
   finally:
     for original_type, original_handler in original_type_handlers:
-      type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY.add(
+      type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY.add(
           original_type, original_handler, override=True
       )
 
@@ -560,16 +573,18 @@ def global_type_handler_registry_context():
 @contextlib.contextmanager
 def ocdbt_checkpoint_context(use_ocdbt: bool, ts_context: Any):
   """Use OCDBT driver within context."""
-  original_type_handlers = copy.deepcopy(type_handlers._DEFAULT_TYPE_HANDLERS)
+  original_type_handlers = copy.deepcopy(
+      type_handler_registry._DEFAULT_TYPE_HANDLERS
+  )
   if use_ocdbt:
-    type_handlers.register_standard_handlers_with_options(
+    type_handler_registry.register_standard_handlers_with_options(
         use_ocdbt=use_ocdbt, ts_context=ts_context
     )
   try:
     yield
   finally:
     for original_type, original_handler in original_type_handlers:
-      type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY.add(
+      type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY.add(
           original_type, original_handler, override=True
       )
 
@@ -693,7 +708,7 @@ def _replica_devices(device_array: np.ndarray, replica_axis_idx: int):
   return np.expand_dims(replica_result, axis=replica_axis_idx)
 
 
-class TestLimitInFlightBytes(serialization.LimitInFlightBytes):
+class TestLimitInFlightBytes(limits.LimitInFlightBytes):
   """Limits in-flight bytes when reading/writing checkpoints per process."""
 
   def __init__(self, limit_bytes: int, sleep_time: float):
@@ -769,6 +784,7 @@ def get_expected_chunk_shape(
     *,
     use_replica_parallel: bool = True,
     max_replicas_for_replica_parallel: Optional[bool] = None,
+    pathways_support_replica_parallel: bool = False,
 ) -> tuple[int, ...]:
   """Expected chunk shape for an array, accounting for replica-parallel."""
   if not use_replica_parallel:
@@ -796,3 +812,54 @@ def filter_metadata_fields(
     return result
 
   return jax.tree.map(_include, pytree)
+
+
+def _get_simple_tensorstore_read_spec(
+    checkpoint_directory: epath.Path,
+    param_name: str,
+    use_zarr3: bool,
+    use_ocdbt: bool,
+) -> Dict[str, Any]:
+  """Returns a simple TensorStore read spec for testing."""
+  if use_ocdbt:
+    ts_spec = {
+        'driver': 'zarr3' if use_zarr3 else 'zarr',
+        'kvstore': {
+            'driver': 'ocdbt',
+            'base': f'file://{checkpoint_directory}',
+            'path': param_name,
+        },
+    }
+  else:
+    ts_spec = {
+        'driver': 'zarr3' if use_zarr3 else 'zarr',
+        'kvstore': {
+            'driver': 'file',
+            'path': f'{checkpoint_directory/ param_name}',
+        },
+    }
+
+  return ts_spec
+
+
+def is_compression_used(
+    checkpoint_directory: epath.Path,
+    param_name: str,
+    use_zarr3: bool,
+    use_ocdbt: bool,
+):
+  """Returns True if compression is used for a given paramin in Tensorstore."""
+  ts_spec = _get_simple_tensorstore_read_spec(
+      checkpoint_directory, param_name, use_zarr3, use_ocdbt
+  )
+  read_spec = ts.open(ts_spec).result().spec().to_json()
+
+  if use_zarr3:
+    # check if zstd is in the codecs
+    for codec in read_spec['metadata']['codecs'][0]['configuration']['codecs']:
+      if codec['name'] == 'zstd':
+        return True
+    return False
+
+  else:
+    return read_spec['metadata']['compressor'] is not None

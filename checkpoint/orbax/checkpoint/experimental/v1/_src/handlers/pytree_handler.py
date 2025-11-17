@@ -45,6 +45,10 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 Path = path_types.Path
 CheckpointableHandler = handler_types.CheckpointableHandler
 PyTree = tree_types.PyTree
+PartialSaveError = base_pytree_checkpoint_handler.PartialSaveError
+PartialSaveReplacementError = (
+    base_pytree_checkpoint_handler.PartialSaveReplacementError
+)
 
 PYTREE_CHECKPOINTABLE_KEY = 'pytree'
 
@@ -87,6 +91,7 @@ def _create_v0_handler(
       restore_concurrent_bytes=context.array_options.loading.concurrent_bytes,
       use_ocdbt=context.array_options.saving.use_ocdbt,
       use_zarr3=context.array_options.saving.use_zarr3,
+      use_compression=context.array_options.saving.use_compression,
       multiprocessing_options=v0_options_lib.MultiprocessingOptions(
           primary_host=context.multiprocessing_options.primary_host,
           active_processes=context.multiprocessing_options.active_processes,

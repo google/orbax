@@ -921,9 +921,18 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
       handler = items_to_handlers[item_name]
       assert handler is not None
-      item_metadata[item_name] = handler.metadata(
-          self._get_item_directory(directory, item_name)
-      )
+      try:
+        item_metadata[item_name] = handler.metadata(
+            self._get_item_directory(directory, item_name)
+        )
+      except FileNotFoundError:
+        logging.warning(
+            'Item "%s" was found in the checkpoint, but could not'
+            ' be restored. Please provide a `CheckpointHandlerRegistry`, or'
+            ' call `restore` with an appropriate `CheckpointArgs` subclass.',
+            item_name,
+        )
+        item_metadata[item_name] = None
     return item_metadata
 
   def _get_metadata_base(

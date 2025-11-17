@@ -23,19 +23,20 @@ from orbax.checkpoint._src.metadata import value as value_metadata
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
 import safetensors.numpy
+
 
 Foo = handler_utils.Foo
 Bar = handler_utils.Bar
 AbstractFoo = handler_utils.AbstractFoo
 AbstractBar = handler_utils.AbstractBar
 InvalidLayoutError = ocp.errors.InvalidLayoutError
-PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
+PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 
 
 class PyTreeMetadataTest(absltest.TestCase):
@@ -174,6 +175,22 @@ class PyTreeMetadataTest(absltest.TestCase):
         ocp.pytree_metadata(self.directory)
 
 
+  def test_pytree_metadata_with_incompatible_item(self):
+    self.directory.rmtree()
+    # Save a valid PyTree to 'state'
+    ocp.save_checkpointables(self.directory, {'state': self.pytree})
+
+    # Create dummy files in datasets to simulate a non-pytree item
+    (self.directory / 'datasets').mkdir()
+    (self.directory / 'datasets' / 'data.txt').write_text('some data')
+
+    metadata = ocp.pytree_metadata(self.directory, checkpointable_name='state')
+    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
+    self.assertIsInstance(metadata.metadata, dict)
+    self.assertSetEqual(
+        {'a', 'b', 'c', 'x', 'y'}, set(metadata.metadata.keys())
+    )
+
 
 class CheckpointablesMetadataTest(absltest.TestCase):
 
@@ -260,6 +277,24 @@ class CheckpointablesMetadataTest(absltest.TestCase):
       ):
         ocp.checkpointables_metadata(self.directory)
 
+
+  def test_checkpointables_metadata_with_incompatible_item(self):
+    self.directory.rmtree()
+    # Save a valid PyTree to 'state'
+    ocp.save_checkpointables(
+        self.directory, {'state': {'a': 1, 'b': 2, 'c': {'d': 3}}}
+    )
+
+    # Create dummy files in datasets to simulate a non-pytree item
+    (self.directory / 'datasets').mkdir()
+    (self.directory / 'datasets' / 'data.txt').write_text('some data')
+
+    metadata = ocp.checkpointables_metadata(self.directory)
+    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
+    self.assertIsInstance(metadata.metadata, dict)
+    self.assertSetEqual({'state', 'datasets'}, set(metadata.metadata.keys()))
+    self.assertSetEqual({'a', 'b', 'c'}, set(metadata.metadata['state'].keys()))
+    self.assertIsNone(metadata.metadata['datasets'])
 
 
 if __name__ == '__main__':

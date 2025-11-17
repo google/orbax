@@ -20,7 +20,7 @@ import chex
 import jax
 import numpy as np
 from orbax.checkpoint._src.metadata import tree as tree_metadata_lib
-from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.testing import test_tree_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
@@ -43,9 +43,9 @@ def _to_param_infos(
   return jax.tree.map(
       # Other properties are not relevant.
       lambda x: types.ParamInfo(
-          value_typestr=types.get_param_typestr(
+          value_typestr=type_handler_registry.get_param_typestr(
               x,
-              type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
+              type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY,
               pytree_metadata_options,
           )
       ),

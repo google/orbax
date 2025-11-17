@@ -14,14 +14,14 @@
 
 """Test utils for work with PyTrees."""
 
-from orbax.checkpoint.experimental.v1._src.path import format_utils
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 
 
 def is_pytree_checkpoint_complete(directory):
   return (
-      directory / format_utils.PYTREE_CHECKPOINTABLE_KEY / 'manifest.ocdbt'
+      directory / checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY / 'manifest.ocdbt'
   ).exists()
 
 
@@ -58,7 +58,7 @@ def get_d_files_mtimes(path: path_types.Path) -> list[int]:
   ), f'Expected exactly one matching directory, got {matching_dirs}.'
   tmpdir = matching_dirs[0]
   matching_pytree_dirs = list(
-      tmpdir.glob(f'{format_utils.PYTREE_CHECKPOINTABLE_KEY}*')
+      tmpdir.glob(f'{checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY}*')
   )
   if not matching_pytree_dirs:
     # Temp path not created yet.

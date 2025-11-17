@@ -25,6 +25,7 @@ from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.multihost import multihost
 from typing_extensions import Protocol
 
+PyTree = Any
 _SIGNAL_ACTION_SUCCESS = 'signal_action_success'
 
 
@@ -311,6 +312,14 @@ class _SignalingThread(threading.Thread):
       super().run()
       self._set_signals()
     except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.exception(
+          '[process=%d][thread=%s][operation_id=%s] _SignalingThread.run()'
+          ' raised an exception: %s',
+          multihost.process_index(),
+          threading.current_thread().name,
+          self._operation_id,
+          e,
+      )
       self._exception = e
 
   def join(self, timeout: Optional[float] = None):

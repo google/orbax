@@ -233,7 +233,27 @@ obx_export_tf_preprocess_only = config.define_bool_state(
     default=bool_env('OBX_EXPORT_TF_PREPROCESS_ONLY', False),
     help_str=(
         'If it is True, the export will only export the '
-        'servering_config.tf_preprocess instead of the whole model. This mode '
+        'serving_config.tf_preprocess instead of the whole model. This mode '
         'is majorly used for debugging.'
+    ),
+)
+
+OBX_EXPORT_PREPROCESSORS_ONLY = config.define_bool_state(
+    name='obx_export_preprocessors_only',
+    default=bool_env('OBX_EXPORT_PREPROCESSORS_ONLY', False),
+    help_str=(
+        'If it is True, the export will only export the '
+        'serving_config.preprocessors instead of the whole model. This mode '
+        'is majorly used for debugging.'
+    ),
+)
+
+OBX_EXPORT_POSTPROCESSORS_ONLY = config.define_bool_state(
+    name='obx_export_postprocessors_only',
+    default=bool_env('OBX_EXPORT_POSTPROCESSORS_ONLY', False),
+    help_str=(
+        'If it is True, the export will only export the'
+        ' serving_config.post_processors instead of the whole model. This'
+        ' mode is majorly used for debugging.'
     ),
 )

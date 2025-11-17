@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package orbax_model_voxel_assets_map;
+
+// Defines a map from original asset paths to their new locations within the
+// saved model. This is used by the Voxel plan loader to correctly locate and
+// load assets.
+message VoxelAssetsMap {
+  // Key: The original path of an asset.
+  // Value: The relative path of the asset within the Orbax saved model folder.
+  map<string, string> assets = 1;
+}

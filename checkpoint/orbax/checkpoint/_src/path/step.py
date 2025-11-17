@@ -38,6 +38,8 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import temporary_paths
 
+# Allowed checkpoint step naming using any non empty `step_prefix`.
+ALLOWED_STEP_NAME_PATTERN = r'(.+)_(\d+)'
 
 TMP_DIR_SUFFIX = temporary_paths.TMP_DIR_SUFFIX
 # prefix_1000.orbax-checkpoint-tmp-1010101
@@ -526,7 +528,11 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps matching with name_format attributes."""
-    if multihost.process_count() > 1 and self.single_host_load_and_broadcast:
+    # Note: the order of conjuncts is important here; we should not call
+    # `multihost.process_count()` when `single_host_load_and_broadcast` is False
+    # as this has the possible side effect of initializing the jax backend. See
+    # b/454565916 for details.
+    if self.single_host_load_and_broadcast and multihost.process_count() > 1:
       return self._find_all_with_single_host_load_and_broadcast(base_path)
 
     # <step_prefix>_?<0 padding>?*
@@ -730,10 +736,8 @@ def step_from_checkpoint_name(name: str) -> int:
   """Returns the step from a checkpoint name. Also works for tmp checkpoints."""
   if name.isdigit():
     return int(name)
-  elif name.split('_')[-1].isdigit():
-    split = name.split('_')
-    if len(split) == 2 and split[0]:
-      return int(split[-1])
+  elif m := re.fullmatch(ALLOWED_STEP_NAME_PATTERN, name):
+    return int(m.group(2))
   elif tmp_match := re.match(TMP_DIR_STEP_PATTERN, name):
     return int(tmp_match.group(1))
   raise ValueError(f'Unrecognized name format: {name}.')

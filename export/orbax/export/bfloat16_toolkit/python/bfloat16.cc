@@ -45,7 +45,7 @@ PYBIND11_MODULE(bfloat16, m) {
   m.def("apply_bfloat16_optimization_v2",
         [](::orbax::BFloat16OptimizationOptions bfloat16_options,
            FunctionInfo* xla_function_info,
-           std::map<string, tensorflow::SignatureDef>* signature_def) {
+           std::map<std::string, tensorflow::SignatureDef>* signature_def) {
           absl::Status status = ApplyBfloat16OptimizationV2(
               bfloat16_options, xla_function_info, signature_def);
           if (!status.ok()) {

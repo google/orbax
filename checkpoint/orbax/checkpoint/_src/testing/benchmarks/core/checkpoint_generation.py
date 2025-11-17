@@ -15,6 +15,7 @@
 """Functions for checkpoint generation and loading in Orbax benchmark tests."""
 
 from typing import Any
+
 from absl import logging
 from etils import epath
 import jax
@@ -28,6 +29,7 @@ from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.tree import utils
+
 
 
 def _create_array(
@@ -54,7 +56,9 @@ def _create_array(
     logging.info(
         'No mesh and sharding spec provided, create an array with no sharding.'
     )
-    return jnp.arange(np.prod(shape), dtype=dtype).reshape(shape)
+    return jnp.asarray(
+        np.random.normal(size=shape, scale=np.prod(shape)), dtype=dtype
+    )
   else:
     if sharding_spec is None:
       logging.info(
@@ -70,7 +74,7 @@ def _create_array(
         dtype,
         sharding,
     )
-    np_array = np.arange(np.prod(shape), dtype=dtype).reshape(shape)
+    np_array = np.random.normal(size=shape, scale=np.prod(shape)).astype(dtype)
     return jax.make_array_from_callback(
         shape, sharding, lambda index: np_array[index]
     )
@@ -93,6 +97,9 @@ def generate_checkpoint(
       ValueError: If the spec string is not supported.
   """
   pytree = {}
+  if config.random_seed is not None:
+    np.random.seed(config.random_seed)
+
   for name, spec in config.spec.items():
     if isinstance(spec, str):
       if spec == 'int':
@@ -113,10 +120,14 @@ def _partition_axis_name(offset: int) -> str:
   return str(chr(ord('a') + offset))
 
 
+
+
 def load_checkpoint(path: str) -> Any:
   """Loads a PyTree of test checkpoint from a provided path."""
   logging.info('Loading checkpoint from path: %s', path)
   path = epath.Path(path)
+
+
   use_ocdbt = type_handlers.is_ocdbt_checkpoint(path)
   with checkpointer.Checkpointer(
       pytree_checkpoint_handler.PyTreeCheckpointHandler(use_ocdbt=use_ocdbt)

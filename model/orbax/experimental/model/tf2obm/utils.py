@@ -16,6 +16,7 @@
 
 from typing import Any
 
+from jax import tree_util as jax_tree_util
 import numpy as np
 from orbax.experimental.model import core as obm
 import tensorflow as tf
@@ -60,7 +61,9 @@ def tf_tensor_spec_to_obm(spec: Any) -> obm.ShloTensorSpec:
         f'Expected a tf.TensorSpec or a SymbolicTensor, got {spec} of type'
         f' {type(spec)}'
     )
-  return obm.ShloTensorSpec(shape=spec.shape, dtype=tf_dtype_to_obm(spec.dtype))
+  return obm.ShloTensorSpec(
+      shape=spec.shape, dtype=tf_dtype_to_obm(spec.dtype), name=spec.name
+  )
 
 
 TfSignature = obm.Tree[Any]
@@ -68,7 +71,7 @@ TfSignature = obm.Tree[Any]
 
 def tf_signature_to_obm_spec(tree: TfSignature) -> obm.Tree[obm.ShloTensorSpec]:
   try:
-    return obm.tree_util.tree_map(tf_tensor_spec_to_obm, tree)
+    return jax_tree_util.tree_map(tf_tensor_spec_to_obm, tree)
   except Exception as err:
     raise ValueError(
         f'Failed to convert TF signature {tree} of type {type(tree)} to OBM.'
@@ -84,4 +87,29 @@ def get_input_signature(
 def get_output_signature(
     concrete_function: tf.types.experimental.ConcreteFunction,
 ) -> TfSignature:
-  return concrete_function.structured_outputs
+  """Gets the output signature from a concrete function.
+
+  Args:
+    concrete_function: The concrete function to get the output signature from.
+
+  Returns:
+    The output signature as a PyTree of `tf.TensorSpec`s.
+
+  Raises:
+    ValueError: If the structured_outputs cannot be converted to
+    `tf.TensorSpec`.
+  """
+  try:
+    # The structured_outputs are `SymbolicTensor`s with "name" that we don't
+    # need. To make a unified path to obm.ShloTensorSpec, we convert them to
+    # `TensorSpec`s (without name) first.
+    output_signature = jax_tree_util.tree_map(
+        lambda x: tf.TensorSpec(shape=x.shape, dtype=x.dtype),
+        concrete_function.structured_outputs,
+    )
+  except Exception as err:
+    raise ValueError(
+        'Failed to convert TF structured_outputs'
+        f' {concrete_function.structured_outputs} to tf.TensorSpec.'
+    ) from err
+  return output_signature

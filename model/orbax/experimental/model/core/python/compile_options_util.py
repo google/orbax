@@ -49,20 +49,16 @@ def generate_tpu_compilation_env(
   )
   # Override with supplied XLA flags if any is provided.
   if xla_flags:
-    is_proto_formatted = False if xla_flags[0].startswith('--') else True
-    if is_proto_formatted:
-      merge_proto_formatted_flags_into_compile_options(xla_flags, env)
-    else:
-      parsed_flags = {}
-      for flag in xla_flags:
-        if not flag.startswith('--'):
-          raise ValueError(
-              f"Flag {flag} does not start with '--'. All flags must be in the"
-              ' format of --flag_name=flag_value.'
-          )
-        flag_name, flag_value = flag[2:].split('=', 1)
-        parsed_flags[flag_name] = flag_value
-      merge_flags_into_compile_options(parsed_flags, env)
+    parsed_flags = {}
+    for flag in xla_flags:
+      if not flag.startswith('--'):
+        raise ValueError(
+            f"Flag {flag} does not start with '--'. All flags must be in the"
+            ' format of --flag_name=flag_value.'
+        )
+      flag_name, flag_value = flag[2:].split('=', 1)
+      parsed_flags[flag_name] = flag_value
+    merge_flags_into_compile_options(parsed_flags, env)
 
   # Pack the TPU compilation environment into a compilation env proto.
   any_proto = any_pb2.Any()
@@ -119,6 +115,7 @@ def generate_xla_compile_options(
     native_serialization_platforms: Sequence[str] | None,
     xla_flags_per_platform: Mapping[str, Sequence[str] | None],
     jax_mesh: jax.sharding.Mesh | None = None,
+    strip_xla_flags: bool = False,
 ) -> manifest_pb2.CompileOptionsProtoMap:
   """Sets the XLA compilation options.
 
@@ -130,50 +127,69 @@ def generate_xla_compile_options(
       which will be used to override the default XLA compilation flags.
     jax_mesh: The JAX mesh used for sharding. If None, the compile options will
       be set for a default single-replica.
+    strip_xla_flags: Whether to strip XLA flags from the compile options.
 
   Returns:
     A `CompileOptionsProtoMap` containing the XLA compilation options per
     platform.
 
   Raises:
+    ValueError: If an unknown platform is provided as a native serialization
+      platform.
+    ValueError: If an unknown platform is provided as a platform for XLA flags.
+    ValueError: If a platform is provided for XLA flags which is not provided
+      in the native serialization platforms.
     ValueError: If the supplied XLA flag overrides cannot be parsed.
   """
-
+  tpu_platform_name = manifest_pb2.Platform.Name(
+      manifest_pb2.Platform.TPU
+  ).lower()
   compile_options_map = manifest_pb2.CompileOptionsProtoMap()
-  if native_serialization_platforms is None:
+  platforms = native_serialization_platforms
+  if platforms is None:
     # If no native serialization platforms are specified, we will set the
     # compilation environment for TPU only.
-    xla_flags = None
-    if xla_flags_per_platform is not None:
-      logging.info('Setting XLA flags per platform: %s', xla_flags_per_platform)
-      xla_flags = xla_flags_per_platform.get(
-          manifest_pb2.Platform.Name(manifest_pb2.Platform.TPU).lower(),
-          None,
+    platforms = [tpu_platform_name]
+
+  # Validate the platform provided are valid.
+  valid_platforms = {
+      p.lower() for p in manifest_pb2.Platform.DESCRIPTOR.values_by_name
+  }
+  for platform in platforms:
+    if platform.lower() not in valid_platforms:
+      raise ValueError(
+          f'Platform "{platform}" is not a valid platform. Valid platforms are:'
+          f' {sorted(list(valid_platforms))}'
       )
-    tpu_compilation_env = generate_tpu_compilation_env(xla_flags)
-    compilation_options = generate_compilation_options(
-        tpu_compilation_env, jax_mesh
-    )
-    compile_options_map.map[
-        manifest_pb2.Platform.Name(manifest_pb2.Platform.TPU).lower()
-    ].CopyFrom(compilation_options)
-  else:
-    for platform in native_serialization_platforms:
-      compile_environment = None
-      tpu_platform = manifest_pb2.Platform.Name(
-          manifest_pb2.Platform.TPU
-      ).lower()
-      if platform == tpu_platform:
-        # Adding a TPU compilation environment with all values set from global
-        # flag values.
-        compile_environment = generate_tpu_compilation_env(
-            xla_flags_per_platform.get(platform, None)
-            if xla_flags_per_platform is not None
-            else None
+
+  if xla_flags_per_platform:
+    logging.info('Setting XLA flags per platform: %s', xla_flags_per_platform)
+    # validate XLA flags provided are for a provided platform.
+    for xla_platform in xla_flags_per_platform.keys():
+      if xla_platform.lower() not in valid_platforms:
+        raise ValueError(
+            f'Platform "{xla_platform}" is not a valid platform. Valid'
+            f' platforms are: {sorted(list(valid_platforms))}'
         )
-      compile_options_map.map.get_or_create(platform.lower()).CopyFrom(
-          generate_compilation_options(compile_environment, jax_mesh)
-      )
+      if xla_platform.lower() not in platforms:
+        raise ValueError(
+            f'Platform "{xla_platform}" used for XLA flags is not provided in'
+            ' the native_serialization_platforms. '
+        )
+
+  for platform in platforms:
+    compile_environment = None
+    if platform.lower() == tpu_platform_name:
+      xla_flags = None
+      if xla_flags_per_platform:
+        xla_flags = xla_flags_per_platform.get(platform, None)
+      compile_environment = generate_tpu_compilation_env(xla_flags)
+    compile_options_map.map[platform.lower()].CopyFrom(
+        generate_compilation_options(compile_environment, jax_mesh)
+    )
+  if strip_xla_flags:
+    for compile_options in compile_options_map.map.values():
+      compile_options.executable_build_options.comp_envs.Clear()
   return compile_options_map
 
 
@@ -244,8 +260,8 @@ def merge_flags_into_compile_options(
   Args:
     xla_flags: A mapping of XLA flag names to their string values. These flags
       will be parsed and merged into the `env` proto.
-    env: The TpuCompilationEnvironment proto to merge the flags into. This
-      proto will be modified in place.
+    env: The TpuCompilationEnvironment proto to merge the flags into. This proto
+      will be modified in place.
   """
   env_override = tpu_comp_env_pb2.TpuCompilationEnvironment()
   for flag_name, value in xla_flags.items():
@@ -257,21 +273,4 @@ def merge_flags_into_compile_options(
     else:
       # For scalar types, we can set the attribute directly.
       setattr(env_override, field_descriptor.name, parsed_value)
-  env.MergeFrom(env_override)
-
-
-# TODO(b/438187387): remove this path and only allow the "--flag=value" format.
-def merge_proto_formatted_flags_into_compile_options(
-    xla_flags: Sequence[str],
-    env: tpu_comp_env_pb2.TpuCompilationEnvironment,
-):
-  """Merges flags into a proto."""
-  env_override = tpu_comp_env_pb2.TpuCompilationEnvironment()
-  xla_flags_str = '\n'.join(xla_flags)
-  try:
-    text_format.Parse(xla_flags_str, env_override)
-  except text_format.ParseError as e:
-    raise ValueError(
-        f'Error parsing supplied XLA flag overrides {xla_flags_str}.'
-    ) from e
   env.MergeFrom(env_override)

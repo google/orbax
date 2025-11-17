@@ -28,14 +28,14 @@ from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
 from orbax.checkpoint.experimental.v1._src.loading import validation
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.synchronization import asyncio_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
-PYTREE_CHECKPOINTABLE_KEY = format_utils.PYTREE_CHECKPOINTABLE_KEY
+PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeafType]
 CheckpointMetadata = metadata_types.CheckpointMetadata
 PLACEHOLDER = type_handlers.PLACEHOLDER
@@ -102,24 +102,14 @@ def load_pytree(
     The restored PyTree.
   """
   start_time = time.time()
+  asyncio_utils.maybe_apply_nest_asyncio()
   logging.info('Loading checkpoint from %s.', path)
   path = epath.Path(path)
-
-  if checkpointable_name is None:  # `path` is direct path to pytree ckpt.
-    # TODO(niketkb): Refactor to load the pytree directly from the path.
-
-    # Workaround to load the PyTree by reusing the load_checkpointables
-    # function:
-    # Treat the path as a checkpointable and its parent as the step dir.
-    path = epath.Path(path)
-    checkpointable_name = path.name
-    path = path.parent
-  layout = layout_registry.get_checkpoint_layout(
-      path, context_lib.get_context().checkpoint_layout
+  layout, checkpointable_name = asyncio.run(
+      layout_registry.get_checkpoint_layout_pytree(
+          path, context_lib.get_context().checkpoint_layout, checkpointable_name
+      )
   )
-
-  layout.validate_pytree(checkpointable_name)
-
   return _load_checkpointables_impl(
       layout,
       abstract_checkpointables={
@@ -180,12 +170,14 @@ def load_checkpointables(
   Raises:
     FileNotFoundError: If the checkpoint path does not exist.
   """
-
   start_time = time.time()
+  asyncio_utils.maybe_apply_nest_asyncio()
   logging.info('Loading checkpoint from %s.', path)
   path = epath.Path(path)
-  layout = layout_registry.get_checkpoint_layout(
-      path, context_lib.get_context().checkpoint_layout
+  layout = asyncio.run(
+      layout_registry.get_checkpoint_layout(
+          path, context_lib.get_context().checkpoint_layout
+      )
   )
 
   return _load_checkpointables_impl(

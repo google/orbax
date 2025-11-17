@@ -38,6 +38,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint.experimental.emergency import checkpoint_manager
 from orbax.checkpoint.experimental.emergency import mesh_consistency
+from orbax.checkpoint.experimental.emergency import path as emergency_path_utils
 from orbax.checkpoint.experimental.emergency import process_metadata_checkpoint_handler
 from orbax.checkpoint.experimental.emergency.test_utils import dataset_iterator_checkpoint_handler
 
@@ -597,8 +598,8 @@ class LocalCheckpointManagerTestBase:
       per_process_steps = {
           pid: steps for pid, steps in enumerate(process_steps)
       }
-      result = checkpoint_manager._common_values_per_slice(  # pylint: disable=protected-access
-          per_process_steps, self.global_mesh, replica_axis_index=0
+      result = emergency_path_utils._common_values_per_replica(  # pylint: disable=protected-access
+          per_process_steps, global_mesh=self.global_mesh, replica_axis_index=0
       )
       self.assertSameElements(result, expectation)
 
@@ -752,7 +753,7 @@ class CheckpointManagerTestBase:
         local_host_inputs = [local_host_inputs]
         expectation = [expectation]
       self.assertEqual(
-          checkpoint_manager._global_max(local_host_inputs),
+          multihost.global_max(local_host_inputs),
           expectation,
       )
 
@@ -811,7 +812,7 @@ class CheckpointManagerTestBase:
     @parameterized.parameters(
         (2, 2, 2, [0, 2, 4, 6, 8, 9]),
         (3, 2, 4, [0, 4, 7, 8, 9]),
-        (2, 2, 5, [0, 6, 8, 9]),
+        (2, 2, 5, [0, 8, 9]),
         (2, 6, 3, [0, 6, 8, 9]),
     )
     def test_all_steps_with_keep_interval(

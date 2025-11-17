@@ -84,9 +84,9 @@ using ProcessConsumerCallable =
     absl::FunctionRef<void(NodeInfoContainer& node_info, FunctionInfo* func,
                            Node* node, const Edge* edge, bool is_end_consumer)>;
 
-absl::StatusOr<OutputTensor> ParseOutputTensorFromString(const Graph& g,
-                                                         const string& tensor) {
-  std::vector<string> parts = absl::StrSplit(tensor, ':');
+absl::StatusOr<OutputTensor> ParseOutputTensorFromString(
+    const Graph& g, const std::string& tensor) {
+  std::vector<std::string> parts = absl::StrSplit(tensor, ':');
   if (parts.size() > 2) {
     return errors::InvalidArgument("Invalid tensor name: ", tensor);
   }
@@ -294,7 +294,7 @@ bool IsTPUCompatible(Node* node, FunctionInfo* func_info, int depth,
 // `func_info` is the function in which `nodes` lies.
 absl::Status GetTpuCompatibility(
     const FunctionLibraryDefinition& flib_def, const std::vector<Node*>& nodes,
-    const ::gtl::linked_hash_set<string>& disallowed_nodes,
+    const ::gtl::linked_hash_set<std::string>& disallowed_nodes,
     FunctionInfo* func_info, ::gtl::linked_hash_map<Node*, bool>* compatibility,
     absl::string_view xla_jit_device) {
   // Env preparation.
@@ -504,7 +504,7 @@ absl::Status AnalyseConnectedComponent(
     ::gtl::linked_hash_set<const Edge*>* input_edges,
     ::gtl::linked_hash_set<const Edge*>* output_edges,
     ::gtl::linked_hash_set<const Edge*>* nonsplit_output_edges, int* overhead,
-    const ::gtl::linked_hash_map<string, int>& func_overhead) {
+    const ::gtl::linked_hash_map<std::string, int>& func_overhead) {
   for (int node_id : *node_ids) {
     Node* n = g->FindNodeId(node_id);
     *overhead += GetNodeOverhead(n, func_overhead);
@@ -704,7 +704,7 @@ absl::Status AnalyseGraph(
     ::gtl::linked_hash_map<Node*, bool>* compatibility,
     Predecessors* predecessors,
     ::gtl::linked_hash_set<std::pair<Node*, Node*>>* tpu_complete_dependency,
-    const ::gtl::linked_hash_set<string>& disallowed_nodes,
+    const ::gtl::linked_hash_set<std::string>& disallowed_nodes,
     absl::string_view xla_jit_device) {
   if (func_info != nullptr && g != func_info->get_graph())
     return errors::Internal("Input graph is not the same graph in ",
@@ -727,7 +727,7 @@ absl::Status GetConnectedComponentsOnTpu(
     const ::gtl::linked_hash_set<std::pair<Node*, Node*>>&
         tpu_complete_dependency,
     std::vector<ConnectedComponent>* connected_components,
-    const ::gtl::linked_hash_map<string, int>& func_overhead,
+    const ::gtl::linked_hash_map<std::string, int>& func_overhead,
     bool enforce_subgraph_convexity) {
   connected_components->clear();  // Reuse. Save memory.
 
@@ -848,7 +848,7 @@ int ComputeMergeCost(
     const ::gtl::linked_hash_set<Node*>& descs,
     const ::gtl::linked_hash_map<const Edge*, int>& edge_overhead,
     const int unknown_dim_weight,
-    const ::gtl::linked_hash_map<string, int>& func_overhead) {
+    const ::gtl::linked_hash_map<std::string, int>& func_overhead) {
   ::gtl::linked_hash_set<const Edge*> edges_charged =
       ::gtl::linked_hash_set<const Edge*>();
   // Collect ops cost on path to descs.
@@ -937,7 +937,7 @@ void GetMergeCandidates(
 }
 
 void GetMergeCandidatesByType(
-    const Graph* g, const ::gtl::linked_hash_set<string>& merge_node_types,
+    const Graph* g, const ::gtl::linked_hash_set<std::string>& merge_node_types,
     const ::gtl::linked_hash_set<int>& tpu_node_ids,
     const Predecessors& predecessors,
     const ::gtl::linked_hash_set<Node*>& original_input_nodes,
@@ -963,7 +963,7 @@ absl::Status MaybeFindBetterCut(
     std::vector<ConnectedComponent>* connected_components,
     int edge_unknown_dim_weight, int edge_penalty, bool get_merge_node_by_type,
     bool enforce_subgraph_convexity,
-    const ::gtl::linked_hash_map<string, int>& func_overhead) {
+    const ::gtl::linked_hash_map<std::string, int>& func_overhead) {
   // Get edge overhead.
   ::gtl::linked_hash_map<const Edge*, int> edge_overhead;
   TF_RETURN_IF_ERROR(GetEdgeOverhead(g, flib_def, edge_unknown_dim_weight,
@@ -974,7 +974,7 @@ absl::Status MaybeFindBetterCut(
     input_nodes.insert(edge->src());
   }
   // Set of allowed merge node types.
-  ::gtl::linked_hash_set<string> merge_node_types({"Concat", "ConcatV2"});
+  ::gtl::linked_hash_set<std::string> merge_node_types({"Concat", "ConcatV2"});
   // Get merge candidates.
   ::gtl::linked_hash_map<Node*, ::gtl::linked_hash_set<Node*>>
       merge_candidates =
@@ -1300,7 +1300,7 @@ absl::Status DuplicateConsts(ConnectedComponent& connected_component,
 // Check if a function graph is eligible for partition.
 bool IsPartitionEligible(
     FunctionInfo* func, const FunctionLibraryDefinition& flib_def,
-    const ::gtl::linked_hash_set<string>& disallowed_nodes,
+    const ::gtl::linked_hash_set<std::string>& disallowed_nodes,
     absl::string_view xla_jit_device) {
   bool has_partitioned_call = false;
   bool has_tpu_compatible_partitioned_call = false;
@@ -1339,8 +1339,9 @@ bool IsPartitionEligible(
 // in `func_names` will be selected.
 // If empty all functions are taken into consideration.
 FunctionInfo* FindPartitionCandidate(
-    FunctionInfo* root_func, const ::gtl::linked_hash_set<string>& func_names,
-    const ::gtl::linked_hash_set<string>& disallowed_nodes,
+    FunctionInfo* root_func,
+    const ::gtl::linked_hash_set<std::string>& func_names,
+    const ::gtl::linked_hash_set<std::string>& disallowed_nodes,
     absl::string_view xla_jit_device) {
   FunctionInfo* candidate = nullptr;
   FunctionLibraryDefinition flib_def = root_func->get_graph()->flib_def();
@@ -1504,9 +1505,9 @@ absl::Status HandleConnectedComponentOverlap(
 // Build function tree and search for partition candidate.
 absl::Status GetGraphForPartition(
     Graph* graph, FunctionInfo* root_func, FunctionInfo** partition_candidate,
-    ::gtl::linked_hash_map<string, int>* func_overhead,
-    const ::gtl::linked_hash_set<string>& func_names,
-    const ::gtl::linked_hash_set<string>& disallowed_nodes,
+    ::gtl::linked_hash_map<std::string, int>* func_overhead,
+    const ::gtl::linked_hash_set<std::string>& func_names,
+    const ::gtl::linked_hash_set<std::string>& disallowed_nodes,
     absl::string_view xla_jit_device) {
   // Build FunctionInfo tree.
   root_func->set_graph(graph);

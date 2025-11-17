@@ -23,6 +23,7 @@ import numpy as np
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.serialization import pathways_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing.benchmarks import single_replica_benchmark
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
@@ -40,7 +41,7 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.benchmark = SingleReplicaBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=SingleReplicaBenchmarkOptions(),
     )
 
@@ -92,7 +93,9 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
     self.assertLen(devices.flatten(), jax.device_count())
 
   @mock.patch.object(async_checkpointer, 'AsyncCheckpointer', autospec=True)
-  @mock.patch.object(type_handlers, 'register_type_handler', autospec=True)
+  @mock.patch.object(
+      pathways_handler_registry, 'register_pathways_handlers', autospec=True
+  )
   @mock.patch.object(
       multihost, 'is_runtime_to_distributed_ids_initialized', autospec=True
   )
@@ -105,7 +108,7 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
       mock_get_local_replica_mesh,
       mock_initialize_runtime_to_distributed_ids,
       mock_is_runtime_to_distributed_ids_initialized,
-      mock_register_type_handler,
+      register_pathways_handlers,
       mock_checkpointer_cls,
   ):
     mesh_shape = (jax.device_count(), 1)
@@ -136,12 +139,14 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
     mock_get_local_replica_mesh.assert_called_once_with(mesh, 0)
     mock_initialize_runtime_to_distributed_ids.assert_called_once()
     mock_is_runtime_to_distributed_ids_initialized.assert_called_once()
-    mock_register_type_handler.assert_called_once()
+    register_pathways_handlers.assert_called_once()
     self.assertIsInstance(result, benchmarks_core.TestResult)
-    self.assertIn('save', result.metrics.timings)
-    self.assertIn('wait_until_finished', result.metrics.timings)
-    self.assertIn('restore', result.metrics.timings)
-    self.assertIn('construct_restore_args', result.metrics.timings)
+    self.assertIn('save_time_duration', result.metrics.results)
+    self.assertIn('wait_until_finished_time_duration', result.metrics.results)
+    self.assertIn('restore_time_duration', result.metrics.results)
+    self.assertIn(
+        'construct_restore_args_time_duration', result.metrics.results
+    )
     mock_checkpointer.save.assert_called_once()
     mock_checkpointer.wait_until_finished.assert_called_once()
     mock_checkpointer.restore.assert_called_once()
@@ -160,7 +165,7 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
         replica_axis_index=[0, 1], primary_replica_id=[0, 1]
     )
     benchmark = SingleReplicaBenchmark(
-        checkpoint_config=benchmarks_configs.CheckpointConfig(),
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
         options=options,
     )
     benchmarks = benchmark.generate()
@@ -181,8 +186,9 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
       dict(options=SingleReplicaBenchmarkOptions()),
   )
   @mock.patch.object(async_checkpointer, 'AsyncCheckpointer', autospec=True)
-  @mock.patch.object(type_handlers, 'register_type_handler', autospec=True)
-  @mock.patch.object(type_handlers, 'SingleReplicaArrayHandler', autospec=True)
+  @mock.patch.object(
+      pathways_handler_registry, 'register_pathways_handlers', autospec=True
+  )
   @mock.patch.object(
       multihost, 'is_runtime_to_distributed_ids_initialized', autospec=True
   )
@@ -195,8 +201,7 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
       mock_get_local_replica_mesh,
       mock_initialize_runtime_to_distributed_ids,
       mock_is_runtime_to_distributed_ids_initialized,
-      mock_single_replica_handler,
-      mock_register_type_handler,
+      register_pathways_handlers,
       mock_checkpointer_cls,
       options,
   ):
@@ -230,8 +235,11 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
     )
     mock_initialize_runtime_to_distributed_ids.assert_called_once()
     mock_is_runtime_to_distributed_ids_initialized.assert_called_once()
-    mock_register_type_handler.assert_called_once()
-    mock_single_replica_handler.assert_called_once_with(
+    register_pathways_handlers.assert_called_once_with(
+        use_single_replica_array_handler=True,
+        checkpointing_impl=pathways_handler_registry.CheckpointingImpl.from_options(
+            use_colocated_python=options.use_colocated_python,
+        ),
         replica_axis_index=options.replica_axis_index,
         primary_replica_id=options.primary_replica_id,
         use_replica_parallel=options.use_replica_parallel,

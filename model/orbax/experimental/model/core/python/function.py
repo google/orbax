@@ -14,18 +14,19 @@
 
 """The `Function` base class."""
 
-from dataclasses import dataclass  # pylint: disable=g-importing-member
+import dataclasses
 import enum
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, Optional, Sequence, Tuple, TypeAlias
 
 import numpy as np
-from orbax.experimental.model.core.python.tree_util import Tree
+from orbax.experimental.model.core.python import tree_util
 
-from tensorflow.compiler.xla import xla_data_pb2
+from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
 
 
-ShloDimSize = Optional[int]
-ShloShape = Optional[Sequence[ShloDimSize]]
+Sharding: TypeAlias = xla_data_pb2.OpSharding
+ShloDimSize: TypeAlias = Optional[int]
+ShloShape: TypeAlias = Optional[Sequence[ShloDimSize]]
 
 
 # pylint: disable=invalid-name
@@ -89,34 +90,36 @@ def shlo_dtype_to_np_dtype(dtype: ShloDType) -> np.dtype[Any]:
   return _SHLO_DTYPE_TO_NP_DTYPE[dtype]
 
 
-Sharding = xla_data_pb2.OpSharding
-
-
 # TODO(wangpeng): value.py needs this class, so we should move this class out
 #   of function.py .
-@dataclass
+@dataclasses.dataclass
 class ShloTensorSpec:
 
   shape: ShloShape
   dtype: ShloDType
   # None means unspecified sharding
-  sharding: Optional[Sharding] = None
+  sharding: Sharding | None = None
+  name: str| None = None
 
 
-@dataclass(kw_only=True)
+@dataclasses.dataclass(kw_only=True)
 class Function:
   """An abstract base class for functions whose signatures are StableHLO types.
 
   Attributes:
     input_signature: the input signature of the function.
     output_signature: the output signature of the function.
+    data_names: checkpoint data names used by the function.
     signature: the pair `(input_signature, output_signature)`.
   """
 
-  input_signature: Tree[ShloTensorSpec]
-  output_signature: Tree[ShloTensorSpec]
+  input_signature: tree_util.Tree[ShloTensorSpec]
+  output_signature: tree_util.Tree[ShloTensorSpec]
+  data_names: Sequence[str] | None = None
   # TODO(b/372084833): Add `vjp_name``.
 
   @property
-  def signature(self) -> Tuple[Tree[ShloTensorSpec], Tree[ShloTensorSpec]]:
+  def signature(
+      self,
+  ) -> Tuple[tree_util.Tree[ShloTensorSpec], tree_util.Tree[ShloTensorSpec]]:
     return self.input_signature, self.output_signature

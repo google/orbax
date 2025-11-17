@@ -35,6 +35,7 @@ class SaveStepStatistics:
     wait_for_prev_start_time: The start time of waiting for previous checkpoint.
     wait_for_prev_duration_secs: The duration of waiting for previous
       checkpoint.
+    time_between_consecutive_saves_sec: The time between consecutive saves.
     checkpointer_blocking_start_time: The start time of blocking time introduced
       by checkpointer.
     checkpointer_blocking_duration_secs: The duration of blocking time
@@ -55,6 +56,7 @@ class SaveStepStatistics:
   synchronous: Optional[bool] = False
   wait_for_prev_start_time: Optional[float] = None
   wait_for_prev_duration_secs: Optional[float] = None
+  time_between_consecutive_saves_sec: Optional[float] = None
   checkpointer_blocking_start_time: Optional[float] = None
   checkpointer_blocking_duration_secs: Optional[float] = None
   get_old_steps_start_time: Optional[float] = None

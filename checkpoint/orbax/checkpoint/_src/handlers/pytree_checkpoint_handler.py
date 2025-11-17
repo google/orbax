@@ -44,8 +44,9 @@ from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
-from orbax.checkpoint._src.serialization import serialization
+from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization import type_handler_registry as handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types as serialization_types
 from orbax.checkpoint._src.tree import types as tree_types
@@ -58,9 +59,9 @@ TupleKey = Tuple[str, ...]
 RestoreArgs = type_handlers.RestoreArgs
 ArrayRestoreArgs = type_handlers.ArrayRestoreArgs
 SaveArgs = type_handlers.SaveArgs
-ParamInfo = type_handlers.ParamInfo
-TypeHandler = type_handlers.TypeHandler
-TypeHandlerRegistry = type_handlers.TypeHandlerRegistry
+ParamInfo = serialization_types.ParamInfo
+TypeHandler = serialization_types.TypeHandler
+TypeHandlerRegistry = serialization_types.TypeHandlerRegistry
 AggregateHandler = aggregate_handlers.AggregateHandler
 MsgpackHandler = aggregate_handlers.MsgpackHandler
 LegacyTransformFn = Callable[[PyTree, PyTree, PyTree], Tuple[PyTree, PyTree]]
@@ -494,7 +495,9 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       use_zarr3: bool = False,
       use_compression: bool = True,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
-      type_handler_registry: TypeHandlerRegistry = type_handlers.GLOBAL_TYPE_HANDLER_REGISTRY,
+      type_handler_registry: TypeHandlerRegistry = (
+          handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY
+      ),
       handler_impl: Optional[BasePyTreeCheckpointHandler] = None,
       pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
           tree_metadata.PYTREE_METADATA_OPTIONS
@@ -583,7 +586,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         use_zarr3=use_zarr3,
         use_compression=use_compression,
         multiprocessing_options=multiprocessing_options,
-        type_handler_registry=type_handler_registry,
+        type_handler_registry=self._type_handler_registry,
         pytree_metadata_options=pytree_metadata_options,
         array_metadata_validator=array_metadata_validator,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
@@ -663,9 +666,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       restore_args: PyTree,
   ) -> PyTree:
     """Deserializes values or gets them from the aggregate file."""
-    byte_limiter = serialization.get_byte_limiter(
-        self._restore_concurrent_bytes
-    )
+    byte_limiter = limits.get_byte_limiter(self._restore_concurrent_bytes)
     param_infos = jax.tree.map(
         lambda info: dataclasses.replace(info, byte_limiter=byte_limiter),
         param_infos,
@@ -1164,7 +1165,8 @@ class PyTreeRestoreArgs(CheckpointArgs):
       regexes and implicit keys means that it does not need to match
       completely. See `transform_utils` for further information.
       `TreeMetadata` is also allowed as the `transforms` tree.
-    transforms_default_to_original: See transform_utils.apply_transformations.
+    transforms_default_to_original:
+      See transform_utils.apply_transformations.
     legacy_transform_fn: WARNING: NOT GENERALLY SUPPORTED. A function which
       accepts the `item` argument, a PyTree checkpoint structure and a PyTree
       of ParamInfos based on the checkpoint. Returns a transformed PyTree

@@ -14,22 +14,33 @@
 
 """TensorStore serialization helper functions."""
 
+import base64
+from collections.abc import Sequence
 import copy
+import json
 import math
 import os
 import re
-from typing import Any, Dict, TypeAlias, Union
+from typing import Any, TypeAlias
 
 from absl import logging
-from jax import numpy as jnp
+from etils import epath
+import jax
+import jax.numpy as jnp
+import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
-from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.metadata import array_metadata
+from orbax.checkpoint._src.metadata import sharding as sharding_metadata
+from orbax.checkpoint._src.metadata import value as value_metadata
+from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.serialization import types
 import tensorstore as ts
 
+
 JsonSpec: TypeAlias = dict[str, Any]
-Shape: TypeAlias = types.Shape
-DType: TypeAlias = types.DType
+Shape: TypeAlias = arrays_types.Shape
+DType: TypeAlias = arrays_types.DType
 ArrayMetadata: TypeAlias = array_metadata.ArrayMetadata
 ExtMetadata: TypeAlias = array_metadata.ExtMetadata
 
@@ -37,6 +48,7 @@ FILE_DRIVER = 'file'
 DEFAULT_DRIVER = FILE_DRIVER
 
 PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
+REPLICA_SUBDIR_SUFFIX = 'replica_'
 _OCDBT_PROCESS_ID_RE = r'[A-Za-z0-9]+'
 _DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE = 2**31  # 2 GiB
 
@@ -129,6 +141,7 @@ def build_kvstore_tspec(
     *,
     use_ocdbt: bool = True,
     process_id: int | str | None = None,
+    replica_separate_folder: bool = False,
 ) -> JsonSpec:
   """Constructs a spec for a Tensorstore KvStore.
 
@@ -140,6 +153,7 @@ def build_kvstore_tspec(
     process_id: [only used with OCDBT driver] If provided,
       `{directory}/ocdbt.process_{process_id}` path is used as the base path. If
       a string, must conform to [A-Za-z0-9]+ pattern.
+    replica_separate_folder: Whether a replica separated folder is used.
 
   Returns:
     A Tensorstore KvStore spec in dictionary form.
@@ -161,9 +175,15 @@ def build_kvstore_tspec(
             f'process_id must conform to {_OCDBT_PROCESS_ID_RE} pattern'
             f', got {process_id}'
         )
-      directory = os.path.join(
-          directory, f'{PROCESS_SUBDIR_PREFIX}{process_id}'
-      )
+
+      join_paths = [directory, f'{PROCESS_SUBDIR_PREFIX}{process_id}']
+      if replica_separate_folder:
+        # make sure the the sub dictory is ended with '_process_id'
+        join_paths = [
+            directory,
+            f'{PROCESS_SUBDIR_PREFIX}{REPLICA_SUBDIR_SUFFIX}{process_id}',
+        ]
+      directory = os.path.join(*join_paths)
     base_driver_spec = (
         directory
         if is_gcs_path
@@ -203,6 +223,23 @@ def build_kvstore_tspec(
   return kv_spec
 
 
+def build_kvstore_tspec_for_merge(
+    directory: str,
+    subdir: str,
+) -> JsonSpec:
+  """Constructs a spec for a Tensorstore KvStore."""
+
+  tokens = subdir.split('_')
+  process_id = tokens[-1]
+  is_replica_separate_folder = REPLICA_SUBDIR_SUFFIX in subdir
+  return build_kvstore_tspec(
+      directory,
+      use_ocdbt=True,
+      process_id=process_id,
+      replica_separate_folder=is_replica_separate_folder,
+  )
+
+
 def add_ocdbt_write_options(
     kvstore_tspec: JsonSpec,
     target_data_file_size: int | None = None,
@@ -231,6 +268,17 @@ def add_ocdbt_write_options(
   # consistent configuration, since Orbax never writes to the same OCDBT
   # database concurrently from multiple processes.
   kvstore_tspec.update(assume_config=True)
+
+
+async def open_kv_store(
+    kvstore_tspec: JsonSpec,
+    ts_context: ts.Context,
+) -> ts.KvStore:
+  """Opens a TensorStore KvStore from a spec."""
+  return await ts.KvStore.open(
+      ts.KvStore.Spec(kvstore_tspec),
+      context=ts_context,
+  )
 
 
 ### Building Zarr array metadata.
@@ -363,6 +411,7 @@ class ArrayWriteSpec:
       ocdbt_target_data_file_size: int | None = None,
       process_id: int | str | None = None,
       metadata_key: str | None = None,
+      replica_separate_folder: bool = False,
       ext_metadata: ExtMetadata | None = None,
   ):
     """Builds a TensorStore spec for writing an array."""
@@ -372,6 +421,7 @@ class ArrayWriteSpec:
         name=relative_array_filename,
         use_ocdbt=use_ocdbt,
         process_id=process_id,
+        replica_separate_folder=replica_separate_folder,
     )
     # Construct the top-level array spec.
     tspec = {
@@ -453,7 +503,7 @@ class ArrayWriteSpec:
     return self._metadata
 
 
-def is_remote_storage(tspec: Union[Dict[str, Any], str]) -> bool:
+def is_remote_storage(tspec: dict[str, Any] | str) -> bool:
   """Detect if user is using remote storages.
 
   This can detect common defines and unable to detect some corner cases such as
@@ -487,3 +537,250 @@ def is_remote_storage(tspec: Union[Dict[str, Any], str]) -> bool:
           return True
 
   return False
+
+
+def get_sharding_tensorstore_spec(
+    directory: str, param_name: str
+) -> dict[str, Any]:
+  kvstore_tspec = build_kvstore_tspec(
+      directory, name='_sharding', use_ocdbt=False
+  )
+  param_name = base64.urlsafe_b64encode(param_name.encode()).decode('utf-8')
+  return {
+      'driver': 'json',
+      'kvstore': kvstore_tspec,
+      'json_pointer': f'/{param_name}',
+  }
+
+
+async def assert_parameter_files_exist(
+    param_dir: epath.Path, metadata_key: str | None, use_zarr3: bool = False
+):
+  """Checks for existence of parameter subdir and .zarray file."""
+  exists = await async_path.exists(param_dir)
+  if not exists:
+    raise FileNotFoundError(
+        f'Individual parameter subdirectory not found at path: {param_dir}.'
+    )
+  if metadata_key is None:
+    metadata_key = 'zarr.json' if use_zarr3 else '.zarray'
+  metadata_path = param_dir / metadata_key
+  exists = await async_path.exists(metadata_path)
+  if not exists:
+    raise FileNotFoundError(
+        f'File not found: {metadata_path}. In many cases, this results from'
+        ' copying a checkpoint without using the `-a` flag.'
+    )
+
+
+# TS functions
+def _get_json_tspec(
+    info: types.ParamInfo,
+    use_ocdbt: bool,
+    *,
+    process_index: int | str | None = None,
+    metadata_key: str | None = None,
+    raise_array_data_missing_error: bool = True,
+) -> dict[str, Any]:
+  """Gets Tensorstore spec in JSON format."""
+  if info.path is None:
+    raise ValueError('Must construct serialization path.')
+  parent_dir = info.parent_dir
+  assert parent_dir is not None
+  directory = parent_dir.as_posix()
+  kvstore_tspec = build_kvstore_tspec(
+      directory,
+      name=info.name,
+      use_ocdbt=use_ocdbt,
+      process_id=process_index,
+  )
+
+  tspec = {
+      'driver': ZARR_VER3 if info.use_zarr3 else ZARR_VER2,
+      'kvstore': kvstore_tspec,
+      'recheck_cached_data': False,
+      'recheck_cached_metadata': False,
+      # Raise error if data is missing.
+      'fill_missing_data_reads': not raise_array_data_missing_error,
+  }
+  if metadata_key is not None:
+    tspec['metadata_key'] = metadata_key
+  return tspec
+
+
+# TODO: b/354139177 - Rename this to `build_array_tspec_read`.
+# Keep the existing name for backward compatibility but mark as deprecated.
+def get_json_tspec_read(
+    info: types.ParamInfo,
+    use_ocdbt: bool,
+    metadata_key: str | None = None,
+    raise_array_data_missing_error: bool = True,
+) -> dict[str, Any]:
+  """Gets Tensorstore spec for reading."""
+  return _get_json_tspec(
+      info,
+      use_ocdbt=use_ocdbt,
+      metadata_key=metadata_key,
+      raise_array_data_missing_error=raise_array_data_missing_error,
+  )
+
+
+# TODO: b/354139177 - Replace usages of this with `build_array_tspec_write`
+# and remove it.
+def get_json_tspec_write(
+    info: types.ParamInfo,
+    use_ocdbt: bool,
+    global_shape: tuple[int, ...],
+    local_shape: tuple[int, ...],
+    dtype: jnp.dtype | np.dtype,
+    process_index: int | str | None = None,
+    metadata_key: str | None = None,
+    arg: types.SaveArgs | None = None,
+) -> dict[str, Any]:
+  """Gets Tensorstore spec for writing."""
+  tspec = _get_json_tspec(
+      info,
+      use_ocdbt=use_ocdbt,
+      process_index=process_index,
+      metadata_key=metadata_key,
+  )
+
+  chunk_byte_size = arg.chunk_byte_size if arg else None
+  if use_ocdbt:
+    ocdbt_target_data_file_size = info.ocdbt_target_data_file_size
+    add_ocdbt_write_options(
+        tspec['kvstore'],
+        ocdbt_target_data_file_size,
+    )
+    chunk_byte_size = calculate_chunk_byte_size(
+        local_shape,
+        dtype,
+        chunk_byte_size=chunk_byte_size,
+        ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+    )
+
+  chunk_shape = subchunking.choose_chunk_shape(
+      global_shape,
+      local_shape,
+      dtype,
+      chunk_byte_size,
+  )
+
+  tspec['metadata'] = build_zarr_shard_and_chunk_metadata(
+      global_shape=global_shape,
+      shard_shape=local_shape,
+      use_compression=info.use_compression,
+      use_zarr3=info.use_zarr3,
+      chunk_shape=chunk_shape,
+  )
+
+  return tspec
+
+
+def build_array_write_spec(
+    info: types.ParamInfo,
+    arg: types.SaveArgs | None = None,
+    *,
+    global_shape: arrays_types.Shape,
+    local_shape: arrays_types.Shape,
+    dtype: jnp.dtype | np.dtype,
+    use_ocdbt: bool,
+    process_index: int | str | None = None,
+    replica_separate_folder: bool = False,
+    metadata_key: str | None = None,
+    ext_metadata: dict[str, Any] | None = None,
+) -> ArrayWriteSpec:
+  """Gets ArrayWriteSpec for writing."""
+  if info.path is None:
+    raise ValueError('Must construct serialization path.')
+  parent_dir = info.parent_dir
+  assert parent_dir is not None
+  directory = parent_dir.as_posix()
+
+  return ArrayWriteSpec(
+      directory,
+      relative_array_filename=info.name,
+      global_shape=global_shape,
+      write_shape=local_shape,
+      dtype=dtype,
+      target_dtype=(arg.dtype if arg is not None else None),
+      chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
+      shard_axes=(arg.shard_axes if arg is not None else tuple()),
+      use_compression=info.use_compression,
+      use_zarr3=info.use_zarr3,
+      use_ocdbt=use_ocdbt,
+      process_id=process_index,
+      replica_separate_folder=replica_separate_folder,
+      ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
+      metadata_key=metadata_key,
+      ext_metadata=ext_metadata,
+  )
+
+
+def get_cast_tspec_serialize(
+    tspec: dict[str, Any], value: Any, args: types.SaveArgs
+) -> dict[str, Any]:
+  """Creates a Tensorstore spec for casting a param during serialize."""
+  tspec = {
+      'base': tspec,
+      'driver': 'cast',
+  }
+  # Origin dtype.
+  tspec['dtype'] = jnp.dtype(value.dtype).name
+  # Destination dtype.
+  if args.dtype is None:
+    tspec['base']['dtype'] = jnp.dtype(value.dtype).name
+  else:
+    tspec['base']['dtype'] = jnp.dtype(args.dtype).name
+  return tspec
+
+
+def get_cast_tspec_deserialize(
+    tspec: dict[str, Any], args: types.RestoreArgs
+) -> dict[str, Any]:
+  """Creates a Tensorstore spec for casting a param during deserialize."""
+
+  # Cast is not needed dtype is None or JAX random key type
+  if args.dtype is not None and not jax.dtypes.issubdtype(
+      args.dtype, jax.dtypes.prng_key
+  ):
+    tspec = {
+        'base': tspec,
+        'driver': 'cast',
+        'dtype': jnp.dtype(args.dtype).name,
+    }
+  return tspec
+
+
+def array_metadata_from_tensorstore(
+    t: Any,
+    info: types.ParamInfo,
+    sharding: sharding_metadata.ShardingMetadata | None = None,
+) -> value_metadata.ArrayMetadata:
+  return value_metadata.ArrayMetadata(
+      name=info.name,
+      directory=info.parent_dir,
+      shape=t.shape,
+      dtype=jnp.dtype(t.dtype.name),
+      sharding=sharding,
+      storage=value_metadata.StorageMetadata(
+          chunk_shape=t.chunk_layout.read_chunk_template.shape,
+          write_shape=info.write_shape,
+      ),
+  )
+
+
+def print_ts_debug_data(key: str | None, infos: Sequence[types.ParamInfo]):
+  """Log Tensorstore related metrics."""
+  ts_metrics = ts.experimental_collect_matching_metrics('/tensorstore')
+  ts_metrics += ts.experimental_collect_matching_metrics('/mallocz')
+  ts_metrics += ts.experimental_collect_matching_metrics('/tcmalloc/')
+  ts_metrics += [
+      {'key': key},
+      {'infos': [f'{info.name}' for info in infos]},
+  ]
+
+  for metrics in ts_metrics:
+    logging.vlog(1, 'ts_metric: %s', metrics)
+
+  return json.dumps(ts_metrics)

@@ -1147,6 +1147,31 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     ):
       handler.metadata(self.directory)
 
+  def test_metadata_with_missing_metadata_file(self):
+    # Simulate a case where an item is not a PyTree, but the handler
+    # a PyTreeHandler.
+    handler = CompositeCheckpointHandler(
+        state=StandardCheckpointHandler(), datasets=StandardCheckpointHandler()
+    )
+    state = {'a': 1, 'b': 2}
+    self.save(
+        handler,
+        self.directory,
+        CompositeArgs(
+            state=args_lib.StandardSave(state),
+        ),
+    )
+
+    # Create dummy files in datasets to simulate a non-pytree item
+    (self.directory / 'datasets').mkdir()
+    (self.directory / 'datasets' / 'data.txt').write_text('some data')
+
+    step_metadata = handler.metadata(self.directory)
+    self.assertIn('state', step_metadata.item_metadata)
+    self.assertIsNotNone(step_metadata.item_metadata['state'])
+    self.assertIn('datasets', step_metadata.item_metadata)
+    self.assertIsNone(step_metadata.item_metadata['datasets'])
+
 
 if __name__ == '__main__':
   absltest.main()

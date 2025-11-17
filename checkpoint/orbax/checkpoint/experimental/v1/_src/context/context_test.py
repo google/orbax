@@ -21,6 +21,7 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 
 ArrayOptions = options_lib.ArrayOptions
+FileOptions = options_lib.FileOptions
 
 
 def fake_checkpoint_operation() -> ocp.Context:
@@ -131,18 +132,37 @@ class ContextTest(absltest.TestCase):
       )
 
   def test_nested_contexts_with_inheritance(self):
+    default_ctx = fake_checkpoint_operation()
+    self.assertEqual(
+        default_ctx.array_options,
+        ArrayOptions(
+            saving=ArrayOptions.Saving(use_ocdbt=True, use_zarr3=True)
+        ),
+    )
+    self.assertEqual(
+        default_ctx.file_options,
+        FileOptions(path_permission_mode=None),
+    )
+
     with ocp.Context(
-        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False))
+        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False)),
+        file_options=FileOptions(path_permission_mode=0o750),
     ):
       ctx = fake_checkpoint_operation()
       self.assertEqual(
           ctx.array_options,
-          ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False)),
+          ArrayOptions(
+              saving=ArrayOptions.Saving(use_ocdbt=True, use_zarr3=False)
+          ),
+      )
+      self.assertEqual(
+          ctx.file_options,
+          FileOptions(path_permission_mode=0o750),
       )
       with ocp.Context(
           ctx,
           array_options=ArrayOptions(
-              saving=ArrayOptions.Saving(use_ocdbt=False, use_zarr3=True)
+              saving=ArrayOptions.Saving(use_ocdbt=False)
           ),
       ):
         ctx = fake_checkpoint_operation()
@@ -152,10 +172,20 @@ class ContextTest(absltest.TestCase):
                 saving=ArrayOptions.Saving(use_ocdbt=False, use_zarr3=True)
             ),
         )
+        self.assertEqual(
+            ctx.file_options,
+            FileOptions(path_permission_mode=0o750),
+        )
       ctx = fake_checkpoint_operation()
       self.assertEqual(
           ctx.array_options,
-          ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False)),
+          ArrayOptions(
+              saving=ArrayOptions.Saving(use_ocdbt=True, use_zarr3=False)
+          ),
+      )
+      self.assertEqual(
+          ctx.file_options,
+          FileOptions(path_permission_mode=0o750),
       )
 
 

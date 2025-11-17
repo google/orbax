@@ -85,11 +85,11 @@ class TfDataProcessorTest(googletest.TestCase):
     self.assertIsNotNone(processor.obm_function)
     self.assertEqual(
         processor.input_signature[0][0],
-        obm.ShloTensorSpec(shape=(None, 3), dtype=obm.ShloDType.f64),
+        obm.ShloTensorSpec(shape=(None, 3), dtype=obm.ShloDType.f64, name='x'),
     )
     self.assertEqual(
         processor.input_signature[0][1],
-        obm.ShloTensorSpec(shape=(None, 3), dtype=obm.ShloDType.f64),
+        obm.ShloTensorSpec(shape=(None, 3), dtype=obm.ShloDType.f64, name='y'),
     )
     self.assertEqual(
         processor.output_signature,
@@ -97,10 +97,11 @@ class TfDataProcessorTest(googletest.TestCase):
     )
 
   def test_prepare_polymorphic_function_with_default_input_signature(self):
+
     @tf.function(
         input_signature=[
-            tf.TensorSpec(shape=[None, 4], dtype=tf.float32),
-            tf.TensorSpec(shape=[None, 4], dtype=tf.float32),
+            tf.TensorSpec(shape=[None, 4], dtype=tf.float32, name='not_x'),
+            tf.TensorSpec(shape=[None, 4], dtype=tf.float32, name='not_y'),
         ]
     )
     def preprocessor_callable(x, y):
@@ -116,11 +117,15 @@ class TfDataProcessorTest(googletest.TestCase):
     )
     self.assertEqual(
         processor.input_signature[0][0],
-        obm.ShloTensorSpec(shape=(None, 4), dtype=obm.ShloDType.f32),
+        obm.ShloTensorSpec(
+            shape=(None, 4), dtype=obm.ShloDType.f32, name='not_x'
+        ),
     )
     self.assertEqual(
         processor.input_signature[0][1],
-        obm.ShloTensorSpec(shape=(None, 4), dtype=obm.ShloDType.f32),
+        obm.ShloTensorSpec(
+            shape=(None, 4), dtype=obm.ShloDType.f32, name='not_y'
+        ),
     )
     self.assertEqual(
         processor.output_signature,
@@ -178,6 +183,23 @@ class TfDataProcessorTest(googletest.TestCase):
               )
           ),
       )
+
+  def test_prepare_with_shlo_bf16_inputs(self):
+    processor = tf_data_processor.TfDataProcessor(lambda x: x)
+    processor.prepare(
+        'identity',
+        input_signature=(
+            obm.ShloTensorSpec(shape=(1,), dtype=obm.ShloDType.bf16),
+        ),
+    )
+    self.assertEqual(
+        processor.concrete_function.structured_input_signature[0][0].dtype,
+        tf.bfloat16,
+    )
+    self.assertEqual(
+        processor.input_signature[0][0],
+        obm.ShloTensorSpec(shape=(1,), dtype=obm.ShloDType.bf16, name='x'),
+    )
 
 
 if __name__ == '__main__':
