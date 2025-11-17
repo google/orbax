@@ -63,13 +63,23 @@ _SHARDING_FILE_NAME = '_sharding'
 def check_array_values(
     values: Sequence[Union[jax.Array, np.ndarray]],
     infos: Sequence[types.ParamInfo],
+    raise_error: bool = True,
 ):
+  """Checks array values for zero size."""
   for v, info in zip(values, infos):
     if v.size == 0:
-      raise ValueError(
-          f'Cannot save arrays with zero size: ParamInfo: [name={info.name},'
-          f'value_typestr={info.value_typestr}]'
-      )
+      if raise_error:
+        raise ValueError(
+            f'Cannot save arrays with zero size: ParamInfo: [name={info.name},'
+            f'value_typestr={info.value_typestr}]'
+        )
+      else:
+        logging.warning(
+            'Saving array with zero size: ParamInfo: [name=%s,'
+            ' value_typestr=%s]',
+            info.name,
+            info.value_typestr,
+        )
 
 
 JAX_ARRAY_TYPE_STR = 'jax.Array'
@@ -1011,7 +1021,9 @@ class ArrayHandler(types.TypeHandler):
     """See superclass documentation."""
     args = args or [types.SaveArgs()] * len(values)
     types.check_input_arguments(values, infos, args)
-    check_array_values(values, infos)
+    # TODO(b/461467565): Raise error when saving zero sized arrays on pathways
+    # as well.
+    check_array_values(values, infos, raise_error=not self.has_dispatcher())
 
     self._ext_metadata = dict()
     arrays = []
