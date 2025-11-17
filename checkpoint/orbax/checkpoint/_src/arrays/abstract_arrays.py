@@ -18,6 +18,7 @@ from typing import Protocol
 import jax
 from jax import numpy as jnp
 import numpy as np
+from orbax.checkpoint._src.arrays import sharding as arrays_sharding_lib
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 
@@ -65,6 +66,7 @@ def to_shape_dtype_struct(
     arr: ArrayLike,
     dtype: jnp.dtype | None = None,
     scalar_dtype: ScalarType | None = None,
+    support_format: bool = False,  # TODO(b/460844509) - True by default.
 ) -> jax.ShapeDtypeStruct | ScalarType:
   """Get ShapeDtypeStruct from array-like object.
 
@@ -76,6 +78,7 @@ def to_shape_dtype_struct(
     dtype: Optional dtype that overrides the dtype of `arr` in the result.
     scalar_dtype: Optional dtype to use for scalars. Useful for converting to
       Python scalar types.
+    support_format: Whether to support layout in the result.
 
   Returns:
     jax.ShapeDtypeStruct or scalar value.
@@ -100,4 +103,7 @@ def to_shape_dtype_struct(
     sharding = arr.sharding
     if isinstance(sharding, sharding_metadata.ShardingMetadata):
       sharding = sharding.to_jax_sharding()
+    else:
+      if support_format:
+        sharding = arrays_sharding_lib.get_sharding_or_format(arr)
     return jax.ShapeDtypeStruct(shape, dtype, sharding=sharding)

@@ -24,11 +24,11 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import jax
 from jax import dtypes as _dtypes
-from jax.experimental import layout
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.arrays import sharding as arrays_sharding_lib
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import serialization
@@ -38,14 +38,8 @@ import tensorstore as ts
 
 NamedSharding = jax.sharding.NamedSharding
 P = jax.sharding.PartitionSpec
-if jax.__version_info__ >= (0, 6, 3):
-  DLL = layout.Layout
-else:
-  DLL = layout.DeviceLocalLayout  # type: ignore
-if jax.__version_info__ >= (0, 6, 2):
-  Format = layout.Format
-else:
-  Format = layout.Layout
+DLL = arrays_sharding_lib.DLL
+Format = arrays_sharding_lib.Format
 jax.config.update('jax_enable_x64', True)
 
 
@@ -608,11 +602,7 @@ class CheckpointTest(parameterized.TestCase):
     np_inp = np.arange(32).reshape(8, 4)
     s = NamedSharding(mesh, P('x', 'y'))
     arr = jax.device_put(np_inp, s)
-    arr_layout = (
-        arr.format.layout
-        if jax.__version_info__ >= (0, 6, 3)
-        else arr.format.device_local_layout  # type: ignore
-    )
+    arr_layout = arrays_sharding_lib.get_device_local_layout(arr)
     out_layout = Format(
         DLL(
             arr_layout.major_to_minor[::-1],
