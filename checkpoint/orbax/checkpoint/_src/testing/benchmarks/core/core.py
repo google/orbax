@@ -134,19 +134,24 @@ class Benchmark(abc.ABC):
     test_context_str += f"PyTree Summary:\n{pytree_summary}\n"
     return test_context_str
 
-  def run(self) -> TestResult:
+  def run(self, repeat_index: int | None = None) -> TestResult:
     """Executes the benchmark test case."""
+    name = self.name
+    if repeat_index is not None:
+      name += f"_repeat_{repeat_index}"
     logging.info(
         "[process_id=%s] Setting up test: %s",
         multihost.process_index(),
-        self.name,
+        name,
     )
 
-    benchmark_metrics = metric_lib.Metrics(name=f"{self.name} Internal")
+    benchmark_metrics = metric_lib.Metrics(name=f"{name} Internal")
     with benchmark_metrics.measure("sync_global_processes:benchmark:run"):
       multihost.sync_global_processes("benchmark:run")
 
-    path = directory_setup.setup_test_directory(self.name, self.output_dir)
+    path = directory_setup.setup_test_directory(
+        self.name, self.output_dir, repeat_index
+    )
 
     with benchmark_metrics.measure(
         "sync_global_processes:benchmark:setup_test_directory"
@@ -175,7 +180,7 @@ class Benchmark(abc.ABC):
     logging.info(
         "[process_id=%s] Executing test function: %s",
         multihost.process_index(),
-        self.name,
+        name,
     )
     try:
       result = self.test_fn(context)
@@ -184,19 +189,20 @@ class Benchmark(abc.ABC):
       # execution is recorded in the TestResult.
       if sys.version_info >= (3, 11):
         e.add_note(
-            f"[process_id={multihost.process_index()}], {test_context_summary}"
+            f"[process_id={multihost.process_index()}],"
+            f" {test_context_summary[:100]}"
         )
       logging.error(
           "[process_id=%s] Test function '%s' context: %s, raised an"
           " exception: %s",
           multihost.process_index(),
-          self.name,
-          test_context_summary,
+          name,
+          test_context_summary[:100],
           e,
           exc_info=True,
       )
       result = TestResult(metrics=metric_lib.Metrics(), error=e)
-    result.metrics.name = self.name
+    result.metrics.name = name
 
     result.metrics.report()
     benchmark_metrics.report()
@@ -204,7 +210,7 @@ class Benchmark(abc.ABC):
     logging.info(
         "[process_id=%s] Test finished: %s",
         multihost.process_index(),
-        self.name,
+        name,
     )
 
     return result
@@ -369,10 +375,12 @@ class TestSuite:
       name: str,
       benchmarks_generators: Sequence[BenchmarksGenerator],
       skip_incompatible_mesh_configs: bool = True,
+      num_repeats: int = 1,
   ):
     self._name = name
     self._benchmarks_generators = benchmarks_generators
     self._skip_incompatible_mesh_configs = skip_incompatible_mesh_configs
+    self._num_repeats = num_repeats
 
   def _generate_report(self, results: Sequence[TestResult]) -> str:
     """Generates a report from the test results."""
@@ -429,8 +437,15 @@ class TestSuite:
         continue
 
       for benchmark in generated_benchmarks:
-        logging.info("\n--- Running test: %s ---", benchmark.name)
-        results.append(benchmark.run())
+        for i in range(self._num_repeats):
+          repeat_index = i if self._num_repeats > 1 else None
+          logging.info(
+              "\n--- Running test: %s (Repeat %d/%d) ---",
+              benchmark.name,
+              i + 1,
+              self._num_repeats,
+          )
+          results.append(benchmark.run(repeat_index=repeat_index))
 
     if not results:
       logging.warning("No benchmarks were run for this suite.")

@@ -186,13 +186,15 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
     context.pytree = self._clear_pytree(context.pytree)
 
     with metrics.measure("restore", metrics_to_measure):
-      checkpointer.restore(
+      restored_pytree = checkpointer.restore(
           save_path,
           args=ocp.args.PyTreeRestore(
               item=pytree,
               restore_args=ocp.checkpoint_utils.construct_restore_args(pytree),
           ),
       )
+
+    self._clear_pytree(restored_pytree)
 
     checkpointer.close()
     return benchmarks_core.TestResult(metrics=metrics)

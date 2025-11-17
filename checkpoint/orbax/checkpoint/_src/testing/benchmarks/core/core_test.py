@@ -108,7 +108,9 @@ class BenchmarkTest(parameterized.TestCase):
     result = benchmark.run()
 
     self.assertEqual(result.metrics.results, {'save': (1.0, 's')})
-    mock_setup_test_directory.assert_called_once_with('test_benchmark', None)
+    mock_setup_test_directory.assert_called_once_with(
+        'test_benchmark', None, None
+    )
     mock_create_mesh.assert_called_once_with(mesh_config)
     mock_generate_checkpoint.assert_called_once_with(
         ckpt_config, mesh=mock_mesh
@@ -160,10 +162,55 @@ class BenchmarkTest(parameterized.TestCase):
     result = benchmark.run()
 
     self.assertEqual(result.metrics.results, {'restore': (2.0, 's')})
-    mock_setup_test_directory.assert_called_once_with('test_benchmark', None)
+    mock_setup_test_directory.assert_called_once_with(
+        'test_benchmark', None, None
+    )
     mock_load_checkpoint.assert_called_once_with('/tmp/path')
     mock_create_mesh.assert_called_once_with(mesh_config)
     self.assertEqual(mock_metrics_report.call_count, 2)
+
+  @mock.patch.object(directory_setup, 'setup_test_directory')
+  @mock.patch.object(checkpoint_generation, 'generate_checkpoint')
+  @mock.patch.object(device_mesh, 'create_mesh')
+  @mock.patch.object(metric_lib.Metrics, 'report')
+  def test_run_with_repeat_index(
+      self,
+      mock_metrics_report,
+      mock_create_mesh,
+      mock_generate_checkpoint,
+      mock_setup_test_directory,
+  ):
+    path = epath.Path(self.create_tempdir().full_path)
+    mock_setup_test_directory.return_value = path
+    mock_generate_checkpoint.return_value = self._get_test_tree()
+    mock_mesh = mock.create_autospec(jax.sharding.Mesh, instance=True)
+    mock_create_mesh.return_value = mock_mesh
+    options = MyBenchmarkOptions()
+
+    def test_fn(_):
+      return core.TestResult(metrics=metric_lib.Metrics())
+
+    ckpt_config = configs.CheckpointConfig(path=None, spec={})
+    mesh_config = configs.MeshConfig(
+        mesh_axes=['x'],
+        ici_parallelism={'x': 1},
+        dcn_parallelism={},
+    )
+    mesh = device_mesh.create_mesh(mesh_config)
+    benchmark = core.Benchmark(
+        test_fn=test_fn,
+        checkpoint_config=ckpt_config,
+        options=options,
+        name='test_benchmark',
+        mesh=mesh,
+    )
+
+    result = benchmark.run(repeat_index=0)
+    mock_setup_test_directory.assert_called_once_with(
+        'test_benchmark', None, 0
+    )
+    self.assertEqual(mock_metrics_report.call_count, 2)
+    self.assertEqual(result.metrics.name, 'test_benchmark_repeat_0')
 
 
 class BenchmarksGeneratorTest(parameterized.TestCase):
@@ -325,6 +372,25 @@ class TestSuiteTest(parameterized.TestCase):
 
     # gen1 produces 1 benchmark (2,a is invalid), gen2 produces 2 benchmarks
     self.assertEqual(mock_benchmark_run.call_count, 3)
+
+  @mock.patch.object(core.Benchmark, 'run')
+  def test_run_with_num_repeats(self, mock_benchmark_run):
+    gen = MyGenerator(
+        checkpoint_configs=[configs.CheckpointConfig()],
+        options=MyBenchmarkOptions(opt1=1),
+    )
+    suite = core.TestSuite(
+        name='my_suite', benchmarks_generators=[gen], num_repeats=3
+    )
+
+    suite.run()
+
+    self.assertEqual(mock_benchmark_run.call_count, 3)
+    mock_benchmark_run.assert_has_calls([
+        mock.call(repeat_index=0),
+        mock.call(repeat_index=1),
+        mock.call(repeat_index=2),
+    ])
 
   @mock.patch.object(core.Benchmark, 'run')
   @mock.patch.object(logging, 'warning')

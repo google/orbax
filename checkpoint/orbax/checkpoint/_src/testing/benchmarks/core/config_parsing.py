@@ -127,6 +127,7 @@ def create_test_suite_from_config(
   _validate_config(config)
 
   suite_name = config['suite_name']
+  num_repeats = config.get('num_repeats', 1)
   if 'checkpoint_configs' in config:
     checkpoint_configs = [
         config_lib.CheckpointConfig(**cc) for cc in config['checkpoint_configs']
@@ -191,4 +192,6 @@ def create_test_suite_from_config(
     )
     generators.append(generator)
 
-  return core.TestSuite(name=suite_name, benchmarks_generators=generators)
+  return core.TestSuite(
+      name=suite_name, benchmarks_generators=generators, num_repeats=num_repeats
+  )

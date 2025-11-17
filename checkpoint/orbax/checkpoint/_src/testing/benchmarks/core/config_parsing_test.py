@@ -178,6 +178,7 @@ benchmarks:
     mock_import.assert_called_with('MockGenerator')
     self.assertIsInstance(test_suite, core.TestSuite)
     self.assertEqual(test_suite._name, 'Full Test Suite')
+    self.assertEqual(test_suite._num_repeats, 1)
     self.assertLen(test_suite._benchmarks_generators, 2)
     self.assertIsInstance(test_suite._benchmarks_generators[0], MockGenerator)
     self.assertEqual(
@@ -192,6 +193,26 @@ benchmarks:
     self.assertEqual(opts.param1, [20, 30])
     self.assertIsNone(test_suite._benchmarks_generators[0]._mesh_configs)
     self.assertIsNone(test_suite._benchmarks_generators[1]._mesh_configs)
+
+  @mock.patch.object(config_parsing, '_load_yaml_config')
+  @mock.patch.object(config_parsing, '_import_class')
+  def test_valid_creation_with_num_repeats(self, mock_import, mock_load):
+    yaml_content = """
+suite_name: Repeated Test Suite
+num_repeats: 5
+checkpoint_config:
+  spec: { 'a': 'numpy.ndarray:float32:10' }
+benchmarks:
+  -
+    generator: MockGenerator
+    options:
+      param1: 10
+"""
+    mock_load.return_value = yaml.safe_load(yaml_content)
+    mock_import.return_value = MockGenerator
+
+    test_suite = config_parsing.create_test_suite_from_config('fake.yaml')
+    self.assertEqual(test_suite._num_repeats, 5)
 
   def _get_yaml_with_mesh_config(self):
     return """
