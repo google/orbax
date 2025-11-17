@@ -17,7 +17,6 @@
 import asyncio
 from typing import Any
 
-from etils import epath
 from orbax.checkpoint.experimental.v1 import errors
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
@@ -88,10 +87,11 @@ def pytree_metadata(
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
   asyncio_utils.maybe_apply_nest_asyncio()
-  path = epath.Path(path)
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
   layout, checkpointable_name = asyncio.run(
       layout_registry.get_checkpoint_layout_pytree(
-          path, context_lib.get_context().checkpoint_layout, checkpointable_name
+          path, ctx.checkpoint_layout, checkpointable_name
       )
   )
   metadata = _checkpointables_metadata_impl(layout)
@@ -131,12 +131,10 @@ def checkpointables_metadata(
     A `CheckpointMetadata[dict[str, Any]]` object.
   """
   asyncio_utils.maybe_apply_nest_asyncio()
-  path = epath.Path(path)
-  context = context_lib.get_context()
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
   layout = asyncio.run(
-      layout_registry.get_checkpoint_layout(
-          path, context.checkpoint_layout
-      )
+      layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
   )
   return _checkpointables_metadata_impl(layout)
 

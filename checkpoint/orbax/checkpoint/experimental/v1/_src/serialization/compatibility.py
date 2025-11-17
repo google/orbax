@@ -18,7 +18,6 @@ import dataclasses
 from typing import Any, Generic, Sequence, Tuple, Type, cast, get_args
 
 from absl import logging
-from etils import epath
 import jax
 from jax import tree_util as jtu
 import jax.numpy as jnp
@@ -254,7 +253,7 @@ def _validate_deserialization_infos(
 
 def _convert_v1_metadata_to_v0(
     name: str,
-    directory: epath.Path | None,
+    directory: path_types.Path | None,
     metadata: types.AbstractShardedArray,
 ) -> value_metadata.Metadata:
   """Wrap V1 metadata into V0Metadata."""
@@ -378,7 +377,11 @@ class CompatibleTypeHandler(
 
     ret = []
     for info, metadata in zip(infos, metadatas):
-      ret.append(_convert_v1_metadata_to_v0(info.name, info.path, metadata))
+      ret.append(
+          _convert_v1_metadata_to_v0(
+              info.name, info.parent_dir / info.name, metadata
+          )
+      )
     return ret
 
   def memory_size(

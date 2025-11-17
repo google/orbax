@@ -67,6 +67,10 @@ def is_pathways_backend() -> bool:
   )
 
 
+def is_pathways_controller() -> bool:
+  return jax.local_devices()[0].client.runtime_type == 'pathways'
+
+
 def is_runtime_to_distributed_ids_initialized() -> bool:
   return _RUNTIME_TO_DISTRIBUTED_ID is not None
 
