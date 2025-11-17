@@ -124,11 +124,11 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
     else:
       if options.use_jax_array_handler:
         if options.use_persistence_array_handler:
-          ocp.type_handlers.register_pathways_handlers(
+          ocp.pathways.register_type_handlers(
               use_persistence_array_handler=options.use_persistence_array_handler,
           )
         else:
-          ocp.type_handlers.register_pathways_handlers(
+          ocp.pathways.register_type_handlers(
               use_colocated_python=options.use_colocated_python,
               use_replica_parallel=options.use_replica_parallel,
               enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,

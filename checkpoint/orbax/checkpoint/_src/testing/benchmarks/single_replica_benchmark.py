@@ -119,7 +119,9 @@ class SingleReplicaBenchmark(benchmarks_core.BenchmarksGenerator):
 
     pathways_handler_registry.register_pathways_handlers(
         use_single_replica_array_handler=True,
-        use_colocated_python=options.use_colocated_python,
+        checkpointing_impl=pathways_handler_registry.CheckpointingImpl.from_options(
+            use_colocated_python=options.use_colocated_python,
+        ),
         replica_axis_index=options.replica_axis_index,
         primary_replica_id=options.primary_replica_id,
         use_replica_parallel=options.use_replica_parallel,

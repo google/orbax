@@ -32,6 +32,7 @@ from orbax.checkpoint import metadata
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import options
 from orbax.checkpoint import path
+from orbax.checkpoint import pathways
 from orbax.checkpoint import serialization
 from orbax.checkpoint import transform_utils
 from orbax.checkpoint import tree

@@ -237,7 +237,9 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
     mock_is_runtime_to_distributed_ids_initialized.assert_called_once()
     register_pathways_handlers.assert_called_once_with(
         use_single_replica_array_handler=True,
-        use_colocated_python=options.use_colocated_python,
+        checkpointing_impl=pathways_handler_registry.CheckpointingImpl.from_options(
+            use_colocated_python=options.use_colocated_python,
+        ),
         replica_axis_index=options.replica_axis_index,
         primary_replica_id=options.primary_replica_id,
         use_replica_parallel=options.use_replica_parallel,
