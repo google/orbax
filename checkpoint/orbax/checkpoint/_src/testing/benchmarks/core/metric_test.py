@@ -151,5 +151,70 @@ metric2: 4.5600 s
     self.assertIn('test_metric_tensorstore_diff_count', metrics.results)
 
 
+class MetricsManagerTest(parameterized.TestCase):
+
+  def test_add_result_and_generate_report_no_repeats(self):
+    manager = metric_lib.MetricsManager(name='Suite', num_repeats=1)
+    metrics1 = metric_lib.Metrics()
+    metrics1.results['op1_time_duration'] = (1.0, 's')
+    manager.add_result('bench1', metrics1, None)
+
+    metrics2 = metric_lib.Metrics()
+    metrics2.results['op1_time_duration'] = (2.0, 's')
+    manager.add_result('bench2', metrics2, ValueError('failure'))
+
+    report = manager.generate_report()
+    self.assertIn('Suite', report)
+    self.assertIn('Total benchmark configurations: 2', report)
+    self.assertIn('Total runs (1 repeats): 2, Passed: 1, Failed: 1', report)
+    self.assertNotIn('Aggregated Metrics', report)
+    self.assertIn('Failed Runs', report)
+    self.assertIn("Error: ValueError('failure')", report)
+
+  def test_generate_report_with_repeats_and_aggregation(self):
+    manager = metric_lib.MetricsManager(name='Suite', num_repeats=3)
+
+    # Benchmark 1, Run 1
+    m1r1 = metric_lib.Metrics()
+    m1r1.results['op_time_duration'] = (1.0, 's')
+    m1r1.results['op_rss_diff'] = (10.0, 'MB')
+    manager.add_result('bench1', m1r1, None)
+    # Benchmark 1, Run 2
+    m1r2 = metric_lib.Metrics()
+    m1r2.results['op_time_duration'] = (1.2, 's')
+    m1r2.results['op_rss_diff'] = (12.0, 'MB')
+    manager.add_result('bench1', m1r2, None)
+    # Benchmark 1, Run 3 (Failed)
+    m1r3 = metric_lib.Metrics()
+    manager.add_result('bench1', m1r3, RuntimeError('Run 3 failed'))
+
+    report = manager.generate_report()
+
+    self.assertIn('Suite', report)
+    self.assertIn('Total benchmark configurations: 1', report)
+    self.assertIn('Total runs (3 repeats): 3, Passed: 2, Failed: 1', report)
+    self.assertIn('Aggregated Metrics', report)
+    self.assertIn('Benchmark: bench1', report)
+    # mean=1.1, std=0.1, min=1.0, max=1.2
+    self.assertIn(
+        'op_time_duration: 1.1000 +/- 0.1000 s (min: 1.0000, max: 1.2000, n=2)',
+        report,
+    )
+    # mean=11.0, std=1.0, min=10.0, max=12.0
+    self.assertIn(
+        'op_rss_diff: 11.0000 +/- 1.0000 MB (min: 10.0000, max: 12.0000, n=2)',
+        report,
+    )
+    self.assertIn('Failed Runs', report)
+    self.assertIn("Error: RuntimeError('Run 3 failed')", report)
+
+  def test_generate_report_no_successful_runs_for_aggregation(self):
+    manager = metric_lib.MetricsManager(name='Suite', num_repeats=2)
+    manager.add_result('bench1', metric_lib.Metrics(), ValueError('1'))
+    manager.add_result('bench1', metric_lib.Metrics(), ValueError('2'))
+    report = manager.generate_report()
+    self.assertIn('No successful runs to aggregate', report)
+
+
 if __name__ == '__main__':
   absltest.main()

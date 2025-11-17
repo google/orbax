@@ -14,6 +14,7 @@
 
 """Metric classes for benchmarking."""
 
+import collections
 from collections.abc import MutableMapping
 import contextlib
 import dataclasses
@@ -25,6 +26,7 @@ import tracemalloc
 from typing import Any
 
 from absl import logging
+import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 import psutil
 import tensorstore as ts
@@ -433,6 +435,89 @@ class Metrics:
           report_lines.append(f"{name}: {value} {unit}")
     report_lines.append("----------------------")
     logging.info("\n".join(report_lines))
+
+
+class MetricsManager:
+  """Manages metrics aggregation across multiple benchmark runs."""
+
+  def __init__(self, name: str, num_repeats: int):
+    self._name = name
+    self._num_repeats = num_repeats
+    self._runs: dict[str, list[tuple[Metrics, Exception | None]]] = (
+        collections.defaultdict(list)
+    )
+
+  def add_result(
+      self, benchmark_name: str, metrics: Metrics, error: Exception | None
+  ):
+    """Adds a result from a single benchmark run."""
+    self._runs[benchmark_name].append((metrics, error))
+
+  def generate_report(self) -> str:
+    """Generates a report with statistics from the test results."""
+    report_lines = []
+    title = f" Test Suite Report: {self._name} "
+    report_lines.append(f"\n{title:=^80}")
+
+    total_runs = 0
+    passed_runs = 0
+    failed_runs = 0
+    for _, results in self._runs.items():
+      total_runs += len(results)
+      for _, error in results:
+        if error is None:
+          passed_runs += 1
+        else:
+          failed_runs += 1
+
+    report_lines.append(f"Total benchmark configurations: {len(self._runs)}")
+    report_lines.append(
+        f"Total runs ({self._num_repeats} repeats): {total_runs}, Passed:"
+        f" {passed_runs}, Failed: {failed_runs}"
+    )
+
+    if self._num_repeats > 1:
+      report_lines.append("\n" + "-" * 80)
+      report_lines.append("--- Aggregated Metrics per Benchmark ---")
+      for benchmark_name, results in self._runs.items():
+        if not results:
+          continue
+        report_lines.append(f"\nBenchmark: {benchmark_name}")
+        metrics_collector = collections.defaultdict(list)
+        metric_units = {}
+        for metrics, error in results:
+          if error is None:
+            for key, (value, unit) in metrics.results.items():
+              if isinstance(value, (int, float)):
+                metrics_collector[key].append(value)
+                metric_units[key] = unit
+        if not metrics_collector:
+          report_lines.append("  No successful runs to aggregate.")
+          continue
+        for key, values in metrics_collector.items():
+          unit = metric_units[key]
+          mean = np.mean(values)
+          stdev = np.std(values)
+          min_val = np.min(values)
+          max_val = np.max(values)
+          report_lines.append(
+              f"  {key}: {mean:.4f} +/- {stdev:.4f} {unit} (min:"
+              f" {min_val:.4f}, max: {max_val:.4f}, n={len(values)})"
+          )
+
+    if failed_runs > 0:
+      report_lines.append("\n" + "-" * 80)
+      report_lines.append("--- Failed Runs ---")
+      for _, results in self._runs.items():
+        for metrics, error in results:
+          if error is not None:
+            error_repr = repr(error)
+            # Limit error length to avoid flooding logs.
+            if len(error_repr) > 1000:
+              error_repr = error_repr[:1000] + "..."
+            report_lines.append(f"Test: {metrics.name}, Error: {error_repr}")
+    report_lines.append("\n" + "=" * 80)
+    return "\n".join(report_lines)
 
 
 class _MetricsCollector:

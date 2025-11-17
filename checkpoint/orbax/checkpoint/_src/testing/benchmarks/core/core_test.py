@@ -452,10 +452,9 @@ class TestSuiteTest(parameterized.TestCase):
     report_log = report_log_call[0][0]
 
     self.assertIn(' Test Suite Report: report_suite ', report_log)
-    self.assertIn('Total tests run: 3', report_log)
-    self.assertIn('Passed: 2', report_log)
-    self.assertIn('Failed: 1', report_log)
-    self.assertIn('--- Failed Tests ---', report_log)
+    self.assertIn('Total benchmark configurations: 3', report_log)
+    self.assertIn('Total runs (1 repeats): 3, Passed: 2, Failed: 1', report_log)
+    self.assertIn('--- Failed Runs ---', report_log)
     self.assertIn("Error: ValueError('opt1=2, opt2=b failed')", report_log)
 
 
