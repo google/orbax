@@ -370,15 +370,37 @@ class _StandardNameFormat(NameFormat[Metadata]):
   def _glob_step_paths(self, base_path: epath.PathLike) -> list[epath.Path]:
     """Returns step paths under `base_path`."""
     base_path = epath.Path(base_path)
-
-    # The epath.glob() method relies on the underlying filesystem (GcsFileSystem).
-    # This glob call can list step directories (prefixes)
-    # correctly for both HNS and non-HNS (flat) buckets.
-    return list(
-        base_path.glob(
-            f'{step_prefix_with_underscore(self.step_prefix)}*'
-        )
-    )
+    # <step_prefix>_?<0 padding>?*
+    if self.enable_hns and gcs_utils.is_hierarchical_namespace_enabled(
+        base_path
+    ):
+      logging.vlog(
+          1,
+          'HNS enabled. Using GCS API to list step paths at %s',
+          base_path.as_posix(),
+      )
+      bucket_name, path_prefix = gcs_utils.parse_gcs_path(base_path)
+      bucket = gcs_utils.get_bucket(bucket_name)
+      result = bucket.list_blobs(
+          prefix=path_prefix,
+          delimiter='/',
+          include_folders_as_prefixes=True,
+      )
+      # Iterate over pages to force a fetch from the server, after which
+      # `result.prefixes` will be populated.
+      for _ in result.pages:
+        pass
+      return [
+          epath.Path(f'gs://{bucket_name}/{folder}')
+          for folder in result.prefixes
+          if folder.startswith(os.path.join(path_prefix, self.step_prefix))
+      ]
+    else:
+      return list(
+          epath.Path(base_path).glob(
+              f'{step_prefix_with_underscore(self.step_prefix)}*'
+          )
+      )
 
   def _get_step_paths_and_total_steps(
       self, base_path: epath.PathLike, is_primary_host: bool
