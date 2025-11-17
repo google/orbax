@@ -371,7 +371,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
     """Returns step paths under `base_path`."""
     base_path = epath.Path(base_path)
     # <step_prefix>_?<0 padding>?*
-    if self.enable_hns and gcs_utils.is_hierarchical_namespace_enabled(
+    if gcs_utils.is_hierarchical_namespace_enabled(
         base_path
     ):
       logging.vlog(
