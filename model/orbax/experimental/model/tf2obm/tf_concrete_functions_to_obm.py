@@ -37,7 +37,6 @@ OBM_TF_SAVED_MODEL_SUB_DIR = 'tf_saved_model/'
 
 TF_SAVED_MODEL_SUPPLEMENTAL_NAME = 'tensorflow_saved_model'
 
-_INPUT_NAME_PREFIX = 'input'
 _OUTPUT_NAME_PREFIX = 'output'
 
 
@@ -51,9 +50,6 @@ def is_args_kwargs_pattern(tree: utils.TfSignature) -> bool:
       and isinstance(tree[0], Sequence)
       and isinstance(tree[1], dict)
   )
-
-
-_NamesAndSequence = Tuple[Sequence[str], Sequence[Any]]
 
 
 def tf_concrete_function_name_to_obm_function(
@@ -95,10 +91,8 @@ def tf_concrete_function_name_to_obm_function(
     input_signature = utils.get_input_signature(fn)
     output_signature = utils.get_output_signature(fn)
 
-  input_names, _, _ = _get_flat_signature(input_signature, _INPUT_NAME_PREFIX)
-  output_names, _, _ = _get_flat_signature(
-      output_signature, _OUTPUT_NAME_PREFIX
-  )
+  input_names, _, _ = _flat_input_signature(fn)
+  output_names = _output_names(fn)
   unstructured_data = obm.manifest_pb2.UnstructuredData(
       inlined_bytes=tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(
           fn_name=name,
@@ -260,33 +254,62 @@ class SignatureFlat(NamedTuple):
   tree_def: jax_tree_util.PyTreeDef
 
 
-# We choose to rely solely on a concrete function's TF signature to
-# determine its argument names, not using any other information (such
-# as the argument names in the original Python `def`, or the `name`
-# field in `TensorSpec`). Currently in TF SavedModel, if a concrete
-# function's TF signature is a list, SavedModel may use the argument
-# names in the original Python `def` to generate a keyword-based
-# version of this function (which is needed for Servomatic which only
-# supports keyword-based calling conventions). We think relying on
-# this SavedModel behavior is a mistake and the user should make the
-# TF signature a dict instead if they want to serve the function on
-# Servomatic. If we find that there are too many users relying on this
-# SavedModel behavior, we can revisit the decision here.
-def _get_flat_signature(
-    signature: utils.TfSignature, name_prefix: str
+def _flat_input_signature(
+    fn: tf.types.experimental.ConcreteFunction,
 ) -> SignatureFlat:
-  """Gets the flattened signature.
+  """Returns the flattened input signature of the given function."""
+  leaves, tree_def = jax_tree_util.tree_flatten(utils.get_input_signature(fn))
+  # The argument names in SavedModel's SignatureDef may not match the names in
+  # the input signature due to internal name mangling, hence we're looking
+  # it up in the FunctionDef.
+  input_names = [arg.name for arg in fn.function_def.signature.input_arg]
+  if len(input_names) < len(leaves):
+    # There could be more arguments in the FunctionDef than in the input
+    # signature, because it also contains the captured inputs appended
+    # to the flattened list of the input arguments.
+    raise ValueError(
+        f'The number of input arguments in FunctionDef ({len(input_names)}) is'
+        ' smaller than the number of leaves in the flattened input signature'
+        f' ({len(leaves)})'
+    )
+  return SignatureFlat(input_names[: len(leaves)], leaves, tree_def)
 
-  Args:
-    signature: The TF signature.
-    name_prefix: The prefix for generating names.
 
-  Returns:
-    A SignatureFlat object `(names, leaves, treedef)`.
-  """
-  leaves, tree_def = jax_tree_util.tree_flatten(signature)
-  names = tuple(f'{name_prefix}_{i}' for i in range(len(leaves)))
-  return SignatureFlat(names, leaves, tree_def)
+def _output_name_for_key(key: Any) -> str:
+  if isinstance(key, jax_tree_util.SequenceKey):
+    return f'{_OUTPUT_NAME_PREFIX}_{key.idx}'
+  elif isinstance(key, jax_tree_util.DictKey):
+    # The order is stable as guaranteed by `jax.tree.flatten`.
+    return f'{key.key}'
+  elif isinstance(key, jax_tree_util.GetAttrKey):
+    return f'{key.name}'
+  raise ValueError(f'Invalid output key type: {key}')
+
+
+def _output_name(path: Sequence[Any]) -> str:
+  """Returns the output name based on its path in the output signature."""
+  if not path:
+    # Scalar return value (single tensor).
+    return f'{_OUTPUT_NAME_PREFIX}_0'
+
+  # Multiple levels of nesting is normally not suppported for
+  # TF concrete function outputs. However, we already
+  # support the case of nested sturctures in Orbax TF export,
+  # so we will explicitly support nested structures here.
+  return '.'.join(_output_name_for_key(k) for k in path)
+
+
+def _output_names(
+    fn: tf.types.experimental.ConcreteFunction,
+) -> Sequence[str]:
+  """Returns the flattened output signature of the given function."""
+  leaves_with_path = jax_tree_util.tree_leaves_with_path(
+      utils.get_output_signature(fn)
+  )
+  if not leaves_with_path:
+    return []
+  paths, _ = zip(*leaves_with_path)
+  return [_output_name(path) for path in paths]
 
 
 def to_keyword_only_fn(
@@ -300,12 +323,8 @@ def to_keyword_only_fn(
   Returns:
     The wrapped function (also a TF concrete function).
   """
-  input_names, input_leaves, input_def = _get_flat_signature(
-      utils.get_input_signature(f), _INPUT_NAME_PREFIX
-  )
-  output_names, _, _ = _get_flat_signature(
-      utils.get_output_signature(f), _OUTPUT_NAME_PREFIX
-  )
+  input_names, input_leaves, input_def = _flat_input_signature(f)
+  output_names = _output_names(f)
 
   if input_names is None and output_names is None:
     return f
