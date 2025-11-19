@@ -95,12 +95,6 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
 
     mngr = ocp.CheckpointManager(
         save_path,
-        item_handlers={
-            'pytree_item': ocp.PyTreeCheckpointHandler(
-                use_ocdbt=options.use_ocdbt,
-                use_zarr3=options.use_zarr3,
-            )
-        },
         options=ocp.CheckpointManagerOptions(
             save_decision_policy=save_decision_policy_lib.ContinuousCheckpointingPolicy(),
             preservation_policy=preservation_policy_lib.LatestN(n=1),
