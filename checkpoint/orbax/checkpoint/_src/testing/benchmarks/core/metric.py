@@ -26,6 +26,8 @@ import tracemalloc
 from typing import Any
 
 from absl import logging
+from clu import metric_writers
+from etils import epath
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 import psutil
@@ -437,89 +439,6 @@ class Metrics:
     logging.info("\n".join(report_lines))
 
 
-class MetricsManager:
-  """Manages metrics aggregation across multiple benchmark runs."""
-
-  def __init__(self, name: str, num_repeats: int):
-    self._name = name
-    self._num_repeats = num_repeats
-    self._runs: dict[str, list[tuple[Metrics, Exception | None]]] = (
-        collections.defaultdict(list)
-    )
-
-  def add_result(
-      self, benchmark_name: str, metrics: Metrics, error: Exception | None
-  ):
-    """Adds a result from a single benchmark run."""
-    self._runs[benchmark_name].append((metrics, error))
-
-  def generate_report(self) -> str:
-    """Generates a report with statistics from the test results."""
-    report_lines = []
-    title = f" Test Suite Report: {self._name} "
-    report_lines.append(f"\n{title:=^80}")
-
-    total_runs = 0
-    passed_runs = 0
-    failed_runs = 0
-    for _, results in self._runs.items():
-      total_runs += len(results)
-      for _, error in results:
-        if error is None:
-          passed_runs += 1
-        else:
-          failed_runs += 1
-
-    report_lines.append(f"Total benchmark configurations: {len(self._runs)}")
-    report_lines.append(
-        f"Total runs ({self._num_repeats} repeats): {total_runs}, Passed:"
-        f" {passed_runs}, Failed: {failed_runs}"
-    )
-
-    if self._num_repeats > 1:
-      report_lines.append("\n" + "-" * 80)
-      report_lines.append("--- Aggregated Metrics per Benchmark ---")
-      for benchmark_name, results in self._runs.items():
-        if not results:
-          continue
-        report_lines.append(f"\nBenchmark: {benchmark_name}")
-        metrics_collector = collections.defaultdict(list)
-        metric_units = {}
-        for metrics, error in results:
-          if error is None:
-            for key, (value, unit) in metrics.results.items():
-              if isinstance(value, (int, float)):
-                metrics_collector[key].append(value)
-                metric_units[key] = unit
-        if not metrics_collector:
-          report_lines.append("  No successful runs to aggregate.")
-          continue
-        for key, values in metrics_collector.items():
-          unit = metric_units[key]
-          mean = np.mean(values)
-          stdev = np.std(values)
-          min_val = np.min(values)
-          max_val = np.max(values)
-          report_lines.append(
-              f"  {key}: {mean:.4f} +/- {stdev:.4f} {unit} (min:"
-              f" {min_val:.4f}, max: {max_val:.4f}, n={len(values)})"
-          )
-
-    if failed_runs > 0:
-      report_lines.append("\n" + "-" * 80)
-      report_lines.append("--- Failed Runs ---")
-      for _, results in self._runs.items():
-        for metrics, error in results:
-          if error is not None:
-            error_repr = repr(error)
-            # Limit error length to avoid flooding logs.
-            if len(error_repr) > 1000:
-              error_repr = error_repr[:1000] + "..."
-            report_lines.append(f"Test: {metrics.name}, Error: {error_repr}")
-    report_lines.append("\n" + "=" * 80)
-    return "\n".join(report_lines)
-
-
 class _MetricsCollector:
   """Internal context manager to collect specified metrics."""
 
@@ -549,3 +468,208 @@ class _MetricsCollector:
         self.metrics_obj._add_results(metric.name, key, metric_results)
       except Exception as e:  # pylint: disable=broad-exception-caught
         logging.exception("Error stopping metric %s: %s", metric.name, e)
+
+
+################################################################################
+# Aggregation and Reporting
+################################################################################
+
+
+@dataclasses.dataclass
+class AggregatedStats:
+  """Statistics aggregated over multiple benchmark repetitions.
+
+  Attributes:
+    mean: Mean value.
+    std: Standard deviation.
+    min: Minimum value.
+    max: Maximum value.
+    count: Number of values aggregated.
+  """
+
+  mean: float
+  std: float
+  min: float
+  max: float
+  count: int
+
+
+class MetricsManager:
+  """Manages metrics aggregation and reporting for a test suite.
+
+  This class collects metrics from multiple benchmark runs and repetitions,
+  computes aggregate statistics (mean, std, min, max), generates a
+  human-readable report for logging, and exports metrics to TensorBoard
+  if configured.
+  """
+
+  def __init__(
+      self,
+      name: str,
+      num_repeats: int,
+  ):
+    """Initializes the MetricsManager.
+
+    Args:
+      name: The name of the test suite.
+      num_repeats: The number of repetitions for each benchmark configuration.
+    """
+    self._name = name
+    self._num_repeats = num_repeats
+    self._runs: dict[str, list[tuple[Metrics, Exception | None]]] = (
+        collections.defaultdict(list)
+    )
+    self._benchmark_options: dict[str, Any] = {}
+
+  def add_result(
+      self,
+      benchmark_name: str,
+      options: Any,
+      metrics: Metrics,
+      error: Exception | None,
+  ):
+    """Adds metrics from a single benchmark run/repetition.
+
+    Args:
+      benchmark_name: The name of the benchmark configuration.
+      options: The BenchmarkOptions used for this run.
+      metrics: The Metrics object containing results for this run.
+      error: An exception if the run failed, otherwise None.
+    """
+    self._runs[benchmark_name].append((metrics, error))
+    if benchmark_name not in self._benchmark_options:
+      self._benchmark_options[benchmark_name] = options
+
+  def _aggregate_metrics(
+      self, results: list[tuple[Metrics, Exception | None]]
+  ) -> tuple[dict[str, AggregatedStats], dict[str, str]]:
+    """Computes aggregate stats (mean, std, etc.) for successful runs.
+
+    Args:
+      results: A list of (Metrics, error) tuples for a benchmark configuration.
+
+    Returns:
+      A tuple containing:
+        - A dict mapping metric keys to AggregatedStats.
+        - A dict mapping metric keys to their units.
+    """
+    metrics_collector = collections.defaultdict(list)
+    metric_units = {}
+    for metrics, error in results:
+      if error is None:
+        for key, (value, unit) in metrics.results.items():
+          if isinstance(value, (int, float)):
+            metrics_collector[key].append(value)
+            metric_units[key] = unit
+
+    aggregated_stats_dict = {}
+    for key, values in metrics_collector.items():
+      aggregated_stats_dict[key] = AggregatedStats(
+          mean=np.mean(values),
+          std=np.std(values),
+          min=np.min(values),
+          max=np.max(values),
+          count=len(values),
+      )
+    return aggregated_stats_dict, metric_units
+
+  def generate_report(self) -> str:
+    """Generates a final string report containing aggregated metrics.
+
+    Returns:
+      A formatted string containing the full benchmark report.
+    """
+    report_lines = []
+    title = f" Test Suite Report: {self._name} "
+    report_lines.append(f"\n{title:=^80}")
+
+    total_runs = 0
+    passed_runs = 0
+    failed_runs = 0
+    for _, results in self._runs.items():
+      total_runs += len(results)
+      for _, error in results:
+        if error is None:
+          passed_runs += 1
+        else:
+          failed_runs += 1
+
+    report_lines.append(f"Total benchmark configurations: {len(self._runs)}")
+    report_lines.append(
+        f"Total runs ({self._num_repeats} repeats): {total_runs}, Passed:"
+        f" {passed_runs}, Failed: {failed_runs}"
+    )
+
+    # Aggregate metrics, add to report, and write aggregates to TensorBoard
+    if self._num_repeats > 1:
+      report_lines.append("\n" + "-" * 80)
+      report_lines.append("--- Aggregated Metrics per Benchmark ---")
+      for benchmark_name, results in self._runs.items():
+        if not results:
+          continue
+        report_lines.append(f"\nBenchmark: {benchmark_name}")
+
+        aggregated_stats_dict, metric_units = self._aggregate_metrics(results)
+
+        if not aggregated_stats_dict:
+          report_lines.append("  No successful runs to aggregate.")
+          continue
+
+        for key, stats in aggregated_stats_dict.items():
+          unit = metric_units[key]
+          report_lines.append(
+              f"  {key}: {stats.mean:.4f} +/- {stats.std:.4f} {unit} (min:"
+              f" {stats.min:.4f}, max: {stats.max:.4f}, n={stats.count})"
+          )
+
+    # Report failed runs
+    if failed_runs > 0:
+      report_lines.append("\n" + "-" * 80)
+      report_lines.append("--- Failed Runs ---")
+      for _, results in self._runs.items():
+        for metrics, error in results:
+          if error is not None:
+            error_repr = repr(error)
+            # Limit error length to avoid flooding logs.
+            if len(error_repr) > 1000:
+              error_repr = error_repr[:1000] + "..."
+            report_lines.append(f"Test: {metrics.name}, Error: {error_repr}")
+
+    report_lines.append("\n" + "=" * 80)
+    return "\n".join(report_lines)
+
+  def export_to_tensorboard(self, tensorboard_dir: epath.Path):
+    """Exports metrics to TensorBoard."""
+    logging.info("Writing per-repetition metrics to TensorBoard...")
+    for benchmark_name, results in self._runs.items():
+      is_primary_host = multihost.process_index() == 0
+      writer = metric_writers.create_default_writer(
+          tensorboard_dir,
+          just_logging=not is_primary_host,
+          collection=benchmark_name,
+      )
+      # Write metrics for each repetition
+      for i, (metrics, error) in enumerate(results):
+        if error is None:
+          for key, (value, unit) in metrics.results.items():
+            tag = f'{key}_{unit.replace("/", "_")}'
+            if isinstance(value, (int, float)):
+              writer.write_scalars(step=i, scalars={tag: value})
+            else:
+              writer.write_texts(step=i, texts={tag: str(value)})
+        else:
+          tag = "error"
+          writer.write_texts(step=i, texts={tag: f"<pre>{repr(error)}</pre>"})
+      # Write benchmark options as text
+      if self._benchmark_options[benchmark_name]:
+        writer.write_texts(
+            step=0,
+            texts={
+                "options": (
+                    f"<pre>{repr(self._benchmark_options[benchmark_name])}</pre>"
+                )
+            },
+        )
+      writer.flush()
+      writer.close()
+    logging.info("Finished writing metrics to TensorBoard.")

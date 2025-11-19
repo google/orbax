@@ -22,22 +22,22 @@ checkpoint_config:
   #   h: {dtype: "float32", shape: [256, 1048576], sharding: ["tensor", "data"]}
   #   i: {dtype: "float32", shape: [128, 2097152], sharding: ["tensor", "data"]}
   #   j: {dtype: "float32", shape: [64, 4194304], sharding: ["tensor", "data"]}
-  #   # k: {dtype: "float32", shape: [32, 8388608], sharding: ["tensor", "data"]}
-  #   # l: {dtype: "float32", shape: [16, 16777216], sharding: ["tensor", "data"]}
-  #   # m: {dtype: "float32", shape: [8, 33554432], sharding: ["tensor", "data"]}
-  #   # n: {dtype: "float32", shape: [4, 67108864], sharding: ["tensor", "data"]}
-  #   # o: {dtype: "float32", shape: [4, 4, 16777216], sharding: [null, "tensor", "data"]}
-  #   # p: {dtype: "float32", shape: [4, 8, 8388608], sharding: [null, "tensor", "data"]}
-  #   # q: {dtype: "float32", shape: [4, 16, 4194304], sharding: [null, "tensor", "data"]}
-  #   # r: {dtype: "float32", shape: [4, 32, 2097152], sharding: [null, "tensor", "data"]}
-  #   # s: {dtype: "float32", shape: [4, 64, 1048576], sharding: [null, "tensor", "data"]}
-  #   # t: {dtype: "float32", shape: [4, 128, 524288], sharding: [null, "tensor", "data"]}
-  #   # u: {dtype: "float32", shape: [4, 256, 262144], sharding: [null, "tensor", "data"]}
-  #   # v: {dtype: "float32", shape: [4, 512, 131072], sharding: [null, "tensor", "data"]}
-  #   # w: {dtype: "float32", shape: [4, 1024, 65536], sharding: [null, "tensor", "data"]}
-  #   # x: {dtype: "float32", shape: [4, 2048, 32768], sharding: [null, "tensor", "data"]}
-  #   # y: {dtype: "float32", shape: [4, 4096, 16384], sharding: [null, "tensor", "data"]}
-  #   # z: {dtype: "float32", shape: [4, 8192, 8192], sharding: [null, "tensor", "data"]}
+  #   k: {dtype: "float32", shape: [32, 8388608], sharding: ["tensor", "data"]}
+  #   l: {dtype: "float32", shape: [16, 16777216], sharding: ["tensor", "data"]}
+  #   m: {dtype: "float32", shape: [8, 33554432], sharding: ["tensor", "data"]}
+  #   n: {dtype: "float32", shape: [4, 67108864], sharding: ["tensor", "data"]}
+  #   o: {dtype: "float32", shape: [4, 4, 16777216], sharding: [null, "tensor", "data"]}
+  #   p: {dtype: "float32", shape: [4, 8, 8388608], sharding: [null, "tensor", "data"]}
+  #   q: {dtype: "float32", shape: [4, 16, 4194304], sharding: [null, "tensor", "data"]}
+  #   r: {dtype: "float32", shape: [4, 32, 2097152], sharding: [null, "tensor", "data"]}
+  #   s: {dtype: "float32", shape: [4, 64, 1048576], sharding: [null, "tensor", "data"]}
+  #   t: {dtype: "float32", shape: [4, 128, 524288], sharding: [null, "tensor", "data"]}
+  #   u: {dtype: "float32", shape: [4, 256, 262144], sharding: [null, "tensor", "data"]}
+  #   v: {dtype: "float32", shape: [4, 512, 131072], sharding: [null, "tensor", "data"]}
+  #   w: {dtype: "float32", shape: [4, 1024, 65536], sharding: [null, "tensor", "data"]}
+  #   x: {dtype: "float32", shape: [4, 2048, 32768], sharding: [null, "tensor", "data"]}
+  #   y: {dtype: "float32", shape: [4, 4096, 16384], sharding: [null, "tensor", "data"]}
+  #   z: {dtype: "float32", shape: [4, 8192, 8192], sharding: [null, "tensor", "data"]}
 
 benchmarks:
   - generator: "orbax.checkpoint._src.testing.benchmarks.pytree_checkpoint_benchmark.PyTreeCheckpointBenchmark"
@@ -62,5 +62,4 @@ benchmarks:
         # - 4
       metric_tracemalloc_enabled: True
       metric_tensorstore_enabled: True
-      use_colocated_python: [False]
-      use_jax_array_handler: [False, True]
+      use_colocated_python: [True, False]

@@ -19,6 +19,7 @@ from unittest import mock
 from absl import logging
 from absl.testing import absltest
 from absl.testing import parameterized
+from etils import epath
 import numpy as np
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 import tensorstore as ts
@@ -157,11 +158,11 @@ class MetricsManagerTest(parameterized.TestCase):
     manager = metric_lib.MetricsManager(name='Suite', num_repeats=1)
     metrics1 = metric_lib.Metrics()
     metrics1.results['op1_time_duration'] = (1.0, 's')
-    manager.add_result('bench1', metrics1, None)
+    manager.add_result('bench1', {}, metrics1, None)
 
     metrics2 = metric_lib.Metrics()
     metrics2.results['op1_time_duration'] = (2.0, 's')
-    manager.add_result('bench2', metrics2, ValueError('failure'))
+    manager.add_result('bench2', {}, metrics2, ValueError('failure'))
 
     report = manager.generate_report()
     self.assertIn('Suite', report)
@@ -178,15 +179,15 @@ class MetricsManagerTest(parameterized.TestCase):
     m1r1 = metric_lib.Metrics()
     m1r1.results['op_time_duration'] = (1.0, 's')
     m1r1.results['op_rss_diff'] = (10.0, 'MB')
-    manager.add_result('bench1', m1r1, None)
+    manager.add_result('bench1', {}, m1r1, None)
     # Benchmark 1, Run 2
     m1r2 = metric_lib.Metrics()
     m1r2.results['op_time_duration'] = (1.2, 's')
     m1r2.results['op_rss_diff'] = (12.0, 'MB')
-    manager.add_result('bench1', m1r2, None)
+    manager.add_result('bench1', {}, m1r2, None)
     # Benchmark 1, Run 3 (Failed)
     m1r3 = metric_lib.Metrics()
-    manager.add_result('bench1', m1r3, RuntimeError('Run 3 failed'))
+    manager.add_result('bench1', {}, m1r3, RuntimeError('Run 3 failed'))
 
     report = manager.generate_report()
 
@@ -208,10 +209,79 @@ class MetricsManagerTest(parameterized.TestCase):
     self.assertIn('Failed Runs', report)
     self.assertIn("Error: RuntimeError('Run 3 failed')", report)
 
+  @mock.patch('clu.metric_writers.create_default_writer')
+  def test_export_to_tensorboard_separate_runs(self, mock_create_writer):
+    mock_writer = mock.Mock()
+    mock_create_writer.return_value = mock_writer
+    temp_dir = epath.Path(self.create_tempdir().full_path)
+    manager = metric_lib.MetricsManager(name='TBSuite', num_repeats=2)
+
+    # Benchmark 'bench1', Rep 1: success
+    m1 = metric_lib.Metrics()
+    m1.results['op_time_duration'] = (1.0, 's')
+    m1.results['op_other_metric'] = ('some_string', 'text')
+    manager.add_result('bench1', {'opt1': 1}, m1, None)
+
+    # Benchmark 'bench1', Rep 2: failure
+    m2 = metric_lib.Metrics()
+    manager.add_result('bench1', {'opt1': 1}, m2, ValueError('failure'))
+
+    # Add a second benchmark to ensure writers are created per benchmark
+    m3 = metric_lib.Metrics()
+    m3.results['loss'] = (0.5, 'none')
+    manager.add_result('bench2', {'opt2': 2}, m3, None)
+
+    manager.export_to_tensorboard(temp_dir)
+
+    # Check that SummaryWriter was called for each benchmark with correct path
+    self.assertEqual(mock_create_writer.call_count, 2)
+    mock_create_writer.assert_has_calls(
+        [
+            mock.call(
+                temp_dir,
+                just_logging=False,
+                collection='bench1',
+            ),
+            mock.call(
+                temp_dir,
+                just_logging=False,
+                collection='bench2',
+            ),
+        ],
+        any_order=True,
+    )
+
+    # Since the mock writer instance is reused, we check all calls on it.
+    # Calls for 'bench1'
+    mock_writer.write_scalars.assert_any_call(
+        step=0, scalars={'op_time_duration_s': 1.0}
+    )
+    mock_writer.write_texts.assert_any_call(
+        step=0, texts={'op_other_metric_text': 'some_string'}
+    )
+    mock_writer.write_texts.assert_any_call(
+        step=1, texts={'error': "<pre>ValueError('failure')</pre>"}
+    )
+    mock_writer.write_texts.assert_any_call(
+        step=0, texts={'options': "<pre>{'opt1': 1}</pre>"}
+    )
+
+    # Calls for 'bench2'
+    mock_writer.write_scalars.assert_any_call(
+        step=0, scalars={'loss_none': 0.5}
+    )
+    mock_writer.write_texts.assert_any_call(
+        step=0, texts={'options': "<pre>{'opt2': 2}</pre>"}
+    )
+
+    # Check that flush and close were called for each writer instance
+    self.assertEqual(mock_writer.flush.call_count, 2)
+    self.assertEqual(mock_writer.close.call_count, 2)
+
   def test_generate_report_no_successful_runs_for_aggregation(self):
     manager = metric_lib.MetricsManager(name='Suite', num_repeats=2)
-    manager.add_result('bench1', metric_lib.Metrics(), ValueError('1'))
-    manager.add_result('bench1', metric_lib.Metrics(), ValueError('2'))
+    manager.add_result('bench1', {}, metric_lib.Metrics(), ValueError('1'))
+    manager.add_result('bench1', {}, metric_lib.Metrics(), ValueError('2'))
     report = manager.generate_report()
     self.assertIn('No successful runs to aggregate', report)
 

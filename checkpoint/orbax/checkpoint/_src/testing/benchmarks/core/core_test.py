@@ -344,6 +344,18 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
 
 class TestSuiteTest(parameterized.TestCase):
 
+  @mock.patch.object(metric_lib, 'MetricsManager')
+  def test_init_with_output_dir(self, mock_metrics_manager):
+    gen = MyGenerator(
+        checkpoint_configs=[configs.CheckpointConfig()],
+        options=MyBenchmarkOptions(opt1=1),
+    )
+    output_dir = '/tmp/foo'
+    core.TestSuite(
+        name='my_suite', benchmarks_generators=[gen], output_dir=output_dir
+    )
+    mock_metrics_manager.assert_called_once_with(name='my_suite', num_repeats=1)
+
   @mock.patch.object(core.Benchmark, 'run')
   def test_run(self, mock_benchmark_run):
     gen = MyGenerator(

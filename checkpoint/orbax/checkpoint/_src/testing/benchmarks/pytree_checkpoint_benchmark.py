@@ -69,25 +69,19 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
   metric_tensorstore_enabled: bool = False
   use_replica_parallel: bool | Sequence[bool] = False
   enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
-  use_jax_array_handler: bool | Sequence[bool] = True
   use_colocated_python: bool | Sequence[bool] = False
   save_device_host_concurrent_gb: int | None | Sequence[int | None] = None
 
   def is_valid(self):
     assert isinstance(self.use_replica_parallel, bool)
     assert isinstance(self.enable_replica_parallel_separate_folder, bool)
-    assert isinstance(self.use_jax_array_handler, bool)
     assert isinstance(self.use_colocated_python, bool)
 
     if self.enable_replica_parallel_separate_folder and (
         not self.use_replica_parallel or not self.use_ocdbt
     ):
       return False
-    if not ocp.multihost.is_pathways_backend() and (
-        self.use_colocated_python or not self.use_jax_array_handler
-    ):
-      return False
-    if not self.use_jax_array_handler and self.use_replica_parallel:
+    if not ocp.multihost.is_pathways_backend() and self.use_colocated_python:
       return False
     return True
 
@@ -122,17 +116,14 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
           override=True,
       )
     else:
-      if options.use_jax_array_handler:
-        if options.use_persistence_array_handler:
-          ocp.pathways.register_type_handlers(
-              use_persistence_array_handler=options.use_persistence_array_handler,
-          )
-        else:
-          ocp.pathways.register_type_handlers(
-              use_colocated_python=options.use_colocated_python,
-              use_replica_parallel=options.use_replica_parallel,
-              enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,
-          )
+      checkpointing_impl = ocp.pathways.CheckpointingImpl.from_options(
+          use_colocated_python=options.use_colocated_python,
+      )
+      ocp.pathways.register_type_handlers(
+          checkpointing_impl=checkpointing_impl,
+          use_replica_parallel=options.use_replica_parallel,
+          enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,
+      )
 
   def test_fn(
       self, context: benchmarks_core.TestContext

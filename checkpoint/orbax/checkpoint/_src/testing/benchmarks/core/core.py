@@ -374,6 +374,7 @@ class TestSuite:
       self,
       name: str,
       benchmarks_generators: Sequence[BenchmarksGenerator],
+      output_dir: str | None = None,
       skip_incompatible_mesh_configs: bool = True,
       num_repeats: int = 1,
   ):
@@ -381,6 +382,7 @@ class TestSuite:
     self._benchmarks_generators = benchmarks_generators
     self._skip_incompatible_mesh_configs = skip_incompatible_mesh_configs
     self._num_repeats = num_repeats
+    self._output_dir = output_dir
     self._suite_metrics = metric_lib.MetricsManager(
         name=name, num_repeats=num_repeats
     )
@@ -422,11 +424,16 @@ class TestSuite:
           result = benchmark.run(repeat_index=repeat_index)
           all_results.append(result)
           self._suite_metrics.add_result(
-              benchmark.name, result.metrics, result.error
+              benchmark.name, benchmark.options, result.metrics, result.error
           )
 
     if not all_results:
       logging.warning("No benchmarks were run for this suite.")
+
+    if self._output_dir is not None:
+      self._suite_metrics.export_to_tensorboard(
+          epath.Path(self._output_dir) / "tensorboard"
+      )
 
     logging.info(self._suite_metrics.generate_report())
     multihost.sync_global_processes("test_suite:run_end")

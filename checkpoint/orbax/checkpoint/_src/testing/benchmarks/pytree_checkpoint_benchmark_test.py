@@ -84,7 +84,6 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
       save_device_host_concurrent_gb=(None, 1),
       use_replica_parallel=(True,),
       enable_replica_parallel_separate_folder=(False,),
-      use_jax_array_handler=(True,),
       use_colocated_python=(False,),
   )
   def test_benchmark_test_fn(
@@ -97,7 +96,6 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
       save_device_host_concurrent_gb,
       use_replica_parallel,
       enable_replica_parallel_separate_folder,
-      use_jax_array_handler,
       use_colocated_python,
   ):
     generator = PyTreeCheckpointBenchmark(
@@ -121,7 +119,6 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
         save_device_host_concurrent_gb=save_device_host_concurrent_gb,
         use_replica_parallel=use_replica_parallel,
         enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,
-        use_jax_array_handler=use_jax_array_handler,
         use_colocated_python=use_colocated_python,
     )
     context = benchmarks_core.TestContext(
