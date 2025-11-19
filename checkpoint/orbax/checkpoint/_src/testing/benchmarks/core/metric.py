@@ -670,6 +670,28 @@ class MetricsManager:
                 )
             },
         )
+      # Write Aggreagated metrics as text
+      aggregated_metrics = []
+      aggregated_stats_dict, metric_units = self._aggregate_metrics(results)
+
+      if not aggregated_stats_dict:
+        aggregated_metrics.append("No successful runs to aggregate.")
+        continue
+
+      for key, stats in aggregated_stats_dict.items():
+        unit = metric_units[key]
+        aggregated_metrics.append(
+            f"{key}: {stats.mean:.4f} +/- {stats.std:.4f} {unit} (min:"
+            f" {stats.min:.4f}, max: {stats.max:.4f}, n={stats.count})"
+        )
+        aggregated_metrics_str = "\n".join(aggregated_metrics)
+        writer.write_texts(
+            step=0,
+            texts={
+                "aggregated_metrics": f"<pre>{aggregated_metrics_str}</pre>"
+            },
+        )
+
       writer.flush()
       writer.close()
     logging.info("Finished writing metrics to TensorBoard.")

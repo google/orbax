@@ -156,7 +156,7 @@ def get_device_memory() -> int:
       'NVIDIA H100 80GB HBM3': int(80e9),
       'NVIDIA H200': int(144e9),
       'NVIDIA B200': int(183e9),
-      'NVIDIA B300 SXM6 AC': int(275e9)
+      'NVIDIA B300 SXM6 AC': int(275e9),
   }
   memory = hbm_memory.get(device.device_kind, None)
   if memory is None:
