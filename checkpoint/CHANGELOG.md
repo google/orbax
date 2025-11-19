@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fix `step_from_checkpoint_name` to allow the passed in checkpoint name to
   include an arbitrary `step_prefix` with any character(s) such as underscores.
+- Fix CheckpointManager initial directory creation to use `file_options.path_permission_mode`.
 
 ### Changed
 

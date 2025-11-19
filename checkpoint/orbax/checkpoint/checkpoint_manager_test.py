@@ -1982,6 +1982,33 @@ class CheckpointManagerTest(
     with CheckpointManager(directory, options=options) as _:
       self.assertTrue(directory.exists())
 
+  @parameterized.parameters((0o750,), (0o775,))
+  def test_directory_creation_with_file_mode(self, mode):
+    old_umask = os.umask(0)
+    try:
+      directory = self.directory / 'mydir'
+      self.assertFalse(directory.exists())
+      # Finish check before object initialization creates the directory.
+      test_utils.sync_global_processes(
+          'CheckpointManagerTest:done_directory_check_0'
+      )
+      options = CheckpointManagerOptions(
+          create=True, file_options=FileOptions(path_permission_mode=mode)
+      )
+      with CheckpointManager(directory, options=options) as _:
+        self.assertTrue(directory.exists())
+        self.assert_directory_mode_equal(directory, mode)
+      test_utils.sync_global_processes(
+          'CheckpointManagerTest:done_directory_check_1'
+      )
+      # Do it again to make sure we don't run into issues if the directory
+      # already exists.
+      with CheckpointManager(directory, options=options) as _:
+        self.assertTrue(directory.exists())
+        self.assert_directory_mode_equal(directory, mode)
+    finally:
+      os.umask(old_umask)
+
   def test_delete(self):
     manager = CheckpointManager(self.directory)
     self.assertTrue(manager.save(0, args=args.JsonSave({'a': 1, 'b': 'hello'})))
