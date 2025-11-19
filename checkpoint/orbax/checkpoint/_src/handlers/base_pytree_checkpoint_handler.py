@@ -472,7 +472,6 @@ class BasePyTreeCheckpointHandler(
       return ParamInfo(
           name=name,
           keypath=keypath,
-          path=(directory / name),
           parent_dir=directory,
           skip_deserialize=skip_deserialize,
           is_ocdbt_checkpoint=use_ocdbt,

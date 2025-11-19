@@ -151,7 +151,6 @@ class ArrayHandlerBenchmark(core.BenchmarksGenerator):
     )
     sharded_array = test_context.pytree['array']
     array_name = 'array'
-    array_path = test_context.path / array_name
 
     ts_context = ts_utils.get_ts_context(use_ocdbt=options.use_ocdbt)
     value_typestr = type_handler_registry.get_param_typestr(
@@ -162,7 +161,6 @@ class ArrayHandlerBenchmark(core.BenchmarksGenerator):
 
     param_info = type_handlers.ParamInfo(
         name=array_name,
-        path=array_path,
         parent_dir=test_context.path,
         use_zarr3=options.use_zarr3,
         is_ocdbt_checkpoint=options.use_ocdbt,

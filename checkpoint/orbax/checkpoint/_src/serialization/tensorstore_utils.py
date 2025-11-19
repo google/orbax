@@ -583,8 +583,8 @@ def _get_json_tspec(
     raise_array_data_missing_error: bool = True,
 ) -> dict[str, Any]:
   """Gets Tensorstore spec in JSON format."""
-  if info.path is None:
-    raise ValueError('Must construct serialization path.')
+  if info.name is None or info.parent_dir is None:
+    raise ValueError('Must provide info.name and info.parent_dir.')
   parent_dir = info.parent_dir
   assert parent_dir is not None
   directory = parent_dir.as_posix()
@@ -691,8 +691,8 @@ def build_array_write_spec(
     ext_metadata: dict[str, Any] | None = None,
 ) -> ArrayWriteSpec:
   """Gets ArrayWriteSpec for writing."""
-  if info.path is None:
-    raise ValueError('Must construct serialization path.')
+  if info.name is None or info.parent_dir is None:
+    raise ValueError('Must provide info.name and info.parent_dir.')
   parent_dir = info.parent_dir
   assert parent_dir is not None
   directory = parent_dir.as_posix()

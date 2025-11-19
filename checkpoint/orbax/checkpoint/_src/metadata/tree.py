@@ -485,7 +485,6 @@ class InternalTreeMetadata:
       param_name = '.'.join(keypath)
       flat_param_infos[keypath] = types.ParamInfo(
           name=param_name,
-          path=directory / param_name,
           parent_dir=directory,
           skip_deserialize=value_meta.skip_deserialize,
           is_ocdbt_checkpoint=use_ocdbt,

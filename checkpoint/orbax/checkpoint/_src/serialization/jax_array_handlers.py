@@ -681,7 +681,7 @@ async def _validate_non_ocdbt_files(
 ):
   await asyncio.gather(*[
       ts_utils.assert_parameter_files_exist(  # pylint: disable=protected-access
-          info.path, metadata_key, info.use_zarr3
+          info.parent_dir / info.name, metadata_key, info.use_zarr3
       )
       for info in infos
   ])

@@ -268,7 +268,6 @@ def _get_restore_parameters(
       skip_deserialize = meta_or_value.skip_deserialize
     return ParamInfo(
         name=name,
-        path=directory / name,
         parent_dir=directory,
         skip_deserialize=skip_deserialize,
         is_ocdbt_checkpoint=is_ocdbt_checkpoint,
@@ -283,7 +282,9 @@ def _get_restore_parameters(
   if partial_restore:
     for key, meta in flat_structure.items():
       if key not in flat_item:
-        flat_param_infos[key] = ParamInfo(skip_deserialize=True)
+        flat_param_infos[key] = ParamInfo(
+            name='', parent_dir=directory, skip_deserialize=True
+        )
         flat_input_restore_args[key] = RestoreArgs()
       else:
         flat_param_infos[key] = _get_param_info(flat_param_names[key], meta)
@@ -322,7 +323,9 @@ def _get_restore_parameters(
             # Specified `use_fallback`, but key was also present in the
             # checkpoint. This means we should skip loading, since it will be
             # overridden with a new value.
-            flat_param_infos[input_key] = ParamInfo(skip_deserialize=True)
+            flat_param_infos[input_key] = ParamInfo(
+                name='', parent_dir=directory, skip_deserialize=True
+            )
             flat_input_restore_args[input_key] = RestoreArgs()
           else:
             # Specified `use_fallback`, but `transforms_default_to_original`
@@ -343,12 +346,16 @@ def _get_restore_parameters(
           else:
             # Take the value from the user-provided `item`, ignoring any value
             # in the checkpoint.
-            flat_param_infos[input_key] = ParamInfo(skip_deserialize=True)
+            flat_param_infos[input_key] = ParamInfo(
+                name='', parent_dir=directory, skip_deserialize=True
+            )
             flat_input_restore_args[input_key] = RestoreArgs()
       else:
         # No match, restoration not required since it will be dropped from the
         # output.
-        flat_param_infos[input_key] = ParamInfo(skip_deserialize=True)
+        flat_param_infos[input_key] = ParamInfo(
+            name='', parent_dir=directory, skip_deserialize=True
+        )
         flat_input_restore_args[input_key] = RestoreArgs()
 
     restore_args = tree_utils.from_flat_dict(

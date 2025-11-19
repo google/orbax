@@ -378,7 +378,11 @@ class CompatibleTypeHandler(
 
     ret = []
     for info, metadata in zip(infos, metadatas):
-      ret.append(_convert_v1_metadata_to_v0(info.name, info.path, metadata))
+      ret.append(
+          _convert_v1_metadata_to_v0(
+              info.name, info.parent_dir / info.name, metadata
+          )
+      )
     return ret
 
   def memory_size(

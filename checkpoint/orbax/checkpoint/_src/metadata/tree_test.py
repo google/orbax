@@ -17,6 +17,7 @@ from typing import Any, NamedTuple
 from absl.testing import absltest
 from absl.testing import parameterized
 import chex
+from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint._src.metadata import tree as tree_metadata_lib
@@ -43,6 +44,8 @@ def _to_param_infos(
   return jax.tree.map(
       # Other properties are not relevant.
       lambda x: types.ParamInfo(
+          name='',
+          parent_dir=epath.Path(''),
           value_typestr=type_handler_registry.get_param_typestr(
               x,
               type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY,

@@ -153,10 +153,8 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     # checkpoints lacking PYTREE_METADATA_FILE is no longer needed.
     restore_args = args.restore_args or type_handlers.RestoreArgs()
 
-    checkpoint_path = directory / self._checkpoint_name
     info = type_handlers.ParamInfo(
         name=self._checkpoint_name,
-        path=checkpoint_path,
         parent_dir=directory,
         skip_deserialize=False,
         is_ocdbt_checkpoint=type_handlers.is_ocdbt_checkpoint(directory),

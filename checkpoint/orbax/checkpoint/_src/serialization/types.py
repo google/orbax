@@ -60,7 +60,7 @@ def check_input_arguments(*args):
       raise ValueError('Found input args with mismatched lengths.')
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class ParamInfo:
   """Information describing a parameter in a PyTree.
 
@@ -70,13 +70,12 @@ class ParamInfo:
 
   name:
     Name of the parameter.
-  path:
-    A path providing a location where file(s) should be saved. The path is
-    assumed to be a directory.
   parent_dir:
     A path providing location where all files under the same checkpoint should
     be saved under. All `ParamInfo` provided to a given TypeHandler should have
     the same `parent_dir`. The parent_dir is assumed to be a directory.
+  path:
+    Do not provide directly. Automatically set to `parent_dir / name`.
   skip_deserialize:
     If specified, skips deserialization of the given parameter using the
     TypeHandler. This may be for multiple different reasons, including that the
@@ -115,10 +114,10 @@ class ParamInfo:
   is_prioritized_key_fn: See `IsPrioritizedKeyFn` definition.
   """
 
-  name: Optional[str] = None
-  keypath: Optional[Tuple[Any, ...]] = None
+  name: str
+  parent_dir: epath.Path
   path: Optional[epath.Path] = None
-  parent_dir: Optional[epath.Path] = None
+  keypath: Optional[Tuple[Any, ...]] = None
   skip_deserialize: Optional[bool] = None
   byte_limiter: Optional[limits.ByteLimiter] = None
   device_host_byte_limiter: Optional[limits.ByteLimiter] = None
@@ -132,6 +131,10 @@ class ParamInfo:
   raise_array_data_missing_error: bool = True
   write_shape: arrays_types.Shape | None = None
   is_prioritized_key_fn: Optional[IsPrioritizedKeyFn] = None
+
+  def __post_init__(self):
+    if self.path is None:
+      self.path = self.parent_dir / self.name
 
 
 @dataclasses.dataclass
