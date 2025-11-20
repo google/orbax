@@ -197,6 +197,7 @@ class CompileOptionsUtilTest(parameterized.TestCase):
           native_serialization_platforms=None,
           xla_flags_per_platform=None,
           expected_platforms=['tpu'],
+          persist_xla_flags=False,
       ),
       dict(
           testcase_name='no_native_serialization_platforms_with_xla_flags',
@@ -205,12 +206,14 @@ class CompileOptionsUtilTest(parameterized.TestCase):
               'tpu': [f'--{k}={v}' for k, v in XLA_FLAGS_DICT.items()]
           },
           expected_platforms=['tpu'],
+          persist_xla_flags=True,
       ),
       dict(
           testcase_name='with_native_serialization_platforms_no_xla_flags',
           native_serialization_platforms=['cpu', 'tpu', 'cuda'],
           xla_flags_per_platform=None,
           expected_platforms=['cpu', 'tpu', 'cuda'],
+          persist_xla_flags=False,
       ),
       dict(
           testcase_name='with_native_serialization_platforms_with_xla_flags',
@@ -219,6 +222,7 @@ class CompileOptionsUtilTest(parameterized.TestCase):
               'tpu': [f'--{k}={v}' for k, v in XLA_FLAGS_DICT.items()]
           },
           expected_platforms=['cpu', 'tpu', 'cuda'],
+          persist_xla_flags=True,
       ),
   )
   def test_generate_xla_compile_options_flags_and_platforms(
@@ -226,10 +230,12 @@ class CompileOptionsUtilTest(parameterized.TestCase):
       native_serialization_platforms,
       xla_flags_per_platform,
       expected_platforms,
+      persist_xla_flags,
   ):
     compile_options_map = compile_options_util.generate_xla_compile_options(
         native_serialization_platforms=native_serialization_platforms,
         xla_flags_per_platform=xla_flags_per_platform,
+        persist_xla_flags=persist_xla_flags,
     )
     self.assertLen(compile_options_map.map, len(expected_platforms))
 
@@ -237,7 +243,7 @@ class CompileOptionsUtilTest(parameterized.TestCase):
       self.assertIn(platform, compile_options_map.map)
       compile_options = compile_options_map.map[platform]
 
-      if platform != 'tpu':
+      if platform != 'tpu' or not persist_xla_flags:
         self.assertEmpty(
             compile_options.executable_build_options.comp_envs.environments
         )
@@ -307,49 +313,17 @@ class CompileOptionsUtilTest(parameterized.TestCase):
           },
       )
 
-  @parameterized.named_parameters(
-      dict(testcase_name='strip_xla_flags_true', strip_xla_flags=True),
-      dict(testcase_name='strip_xla_flags_false', strip_xla_flags=False),
-  )
-  def test_generate_xla_compile_options_strip_xla_flags(self, strip_xla_flags):
-    xla_flags_per_platform = {
-        'tpu': [f'--{k}={v}' for k, v in XLA_FLAGS_DICT.items()]
-    }
-    compile_options_map = compile_options_util.generate_xla_compile_options(
-        native_serialization_platforms=['cpu', 'tpu', 'cuda'],
-        xla_flags_per_platform=xla_flags_per_platform,
-        strip_xla_flags=strip_xla_flags,
-    )
-    self.assertLen(compile_options_map.map, 3)
-    for platform in ['cpu', 'tpu', 'cuda']:
-      self.assertIn(platform, compile_options_map.map)
-      compile_options = compile_options_map.map[platform]
-
-      if strip_xla_flags or platform != 'tpu':
-        self.assertEmpty(
-            compile_options.executable_build_options.comp_envs.environments
-        )
-      else:
-        # For TPU platform when not stripping, it should have xla flags.
-        self.assertLen(
-            compile_options.executable_build_options.comp_envs.environments, 1
-        )
-        actual_env_proto = tpu_comp_env_pb2.TpuCompilationEnvironment()
-        compile_options.executable_build_options.comp_envs.environments[
-            0
-        ].Unpack(actual_env_proto)
-
-        expected_env_overrides = EXPECTED_ENV
-        expected_env_proto = tpu_comp_env_pb2.TpuCompilationEnvironment()
-        expected_env_proto.ParseFromString(
-            tpu_comp_env.create_default_tpu_comp_env()
-        )
-        expected_env_proto.MergeFrom(expected_env_overrides)
-
-        self.assertEqual(
-            text_format.MessageToString(actual_env_proto),
-            text_format.MessageToString(expected_env_proto),
-        )
+  def test_generate_xla_compile_options_xla_flags_no_persist_raise_error(self):
+    with self.assertRaisesWithLiteralMatch(
+        ValueError, 'persist_xla_flags must be True if xla_flags are provided.'
+    ):
+      compile_options_util.generate_xla_compile_options(
+          native_serialization_platforms=['tpu'],
+          xla_flags_per_platform={
+              'tpu': [f'--{k}={v}' for k, v in XLA_FLAGS_DICT.items()]
+          },
+          persist_xla_flags=False,
+      )
 
   @parameterized.named_parameters(
       dict(
