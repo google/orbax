@@ -18,6 +18,7 @@ from collections.abc import Mapping, Sequence
 import dataclasses
 import functools
 import inspect
+import jax.numpy as jnp
 import os
 from typing import Any, Callable, List, Optional, Tuple, Union
 
@@ -532,3 +533,40 @@ def get_lowering_platforms(
     )
 
   return native_serialization_platforms
+
+
+def to_bfloat16(x: Any) -> Any:
+  """Helper to convert leaves of a pytree to bfloat16.
+
+  It handles `float`, `jax.ShapeDtypeStruct`, and other array-like objects with
+  a floating point `dtype`.
+
+  Args:
+    x: The input pytree to convert.
+
+  Returns:
+    The input `x` with floating point values converted to `jnp.bfloat16`.
+  """
+
+  def _to_bfloat16_leaf(x: Any) -> Any:
+    if isinstance(x, jax.ShapeDtypeStruct) and jnp.issubdtype(
+        x.dtype, jnp.floating
+    ):
+      return jax.ShapeDtypeStruct(
+          x.shape,
+          jnp.bfloat16,
+          sharding=x.sharding,
+      )
+    if isinstance(x, jax.ShapeDtypeStruct):
+      return x
+    if hasattr(x, 'dtype') and jnp.issubdtype(x.dtype, jnp.floating):
+      return x.astype(jnp.bfloat16)
+    if isinstance(x, float):
+      return jnp.bfloat16(x)
+    return x
+
+  flattened_x, treedef = jax.tree_util.tree_flatten(x)
+  flattened_y = [
+      jax.tree_util.tree_map(_to_bfloat16_leaf, y) for y in flattened_x
+  ]
+  return jax.tree_util.tree_unflatten(treedef, flattened_y)
