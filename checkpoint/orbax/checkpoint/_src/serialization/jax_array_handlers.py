@@ -763,12 +763,13 @@ async def _deserialize_arrays(
       await _validate_non_ocdbt_files(infos, metadata_key)
     deserialize_ops = []
     for info, arg, sharding in zip(infos, args, shardings):
-      tspec = ts_utils.get_json_tspec_read(
+      array_read_spec = ts_utils.build_array_read_spec(
           info,
           use_ocdbt=use_ocdbt,
           metadata_key=metadata_key,
           raise_array_data_missing_error=info.raise_array_data_missing_error,
       )
+      tspec = array_read_spec.json
       tspec = ts_utils.get_cast_tspec_deserialize(tspec, arg)
 
       # set dtype=None to deserialize for random keys
@@ -939,19 +940,6 @@ class ArrayHandler(types.TypeHandler):
   def has_dispatcher(self) -> bool:
     return self._dispatcher is not None
 
-  def _get_json_tspec_read(
-      self,
-      info: types.ParamInfo,
-      use_ocdbt: bool,
-  ) -> Dict[str, Any]:
-    """Gets Tensorstore spec for reading."""
-    return ts_utils.get_json_tspec_read(
-        info,
-        use_ocdbt=use_ocdbt,
-        metadata_key=self._metadata_key,
-        raise_array_data_missing_error=info.raise_array_data_missing_error,
-    )
-
   def typestr(self) -> str:
     return JAX_ARRAY_TYPE_STR
 
@@ -968,7 +956,13 @@ class ArrayHandler(types.TypeHandler):
     for info in infos:
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
-      tspec = self._get_json_tspec_read(info, use_ocdbt=use_ocdbt)
+      array_read_spec = ts_utils.build_array_read_spec(
+          info,
+          use_ocdbt=use_ocdbt,
+          metadata_key=self._metadata_key,
+          raise_array_data_missing_error=info.raise_array_data_missing_error,
+      )
+      tspec = array_read_spec.json
       open_ops.append(
           ts.open(ts.Spec(tspec), open=True, context=info.ts_context)
       )
