@@ -97,8 +97,12 @@ XLA_FLAGS_PER_PLATFORM = 'xla_flags_per_platform'
 # Mesh for the model.
 JAX_MESH = 'jax_mesh'
 
+# TODO: b/459991985 - Remove this flag and use PERSIST_XLA_FLAGS instead.
 # Whether to strip XLA flags from the model.
 STRIP_XLA_FLAGS = 'strip_xla_flags'
+
+# Whether to persist XLA flags in the model.
+PERSIST_XLA_FLAGS = 'persist_xla_flags'
 
 ################################################################################
 # Proto field names
