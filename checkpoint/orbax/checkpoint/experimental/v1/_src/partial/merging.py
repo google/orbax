@@ -14,17 +14,20 @@
 
 """Partial merging utils."""
 
+import collections
 from typing import Any, NamedTuple, TypeVar
 
 from etils import epath
 import jax
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.tree import structure_utils
+from orbax.checkpoint._src.tree import utils as tree_utils
 from orbax.checkpoint.experimental.v1._src.metadata import loading as metadata_loading
 
 PyTree = Any
 T = TypeVar('T')
 PyTreeOf = PyTree | T
+Keypath = tuple[Any, ...]
 ArrayMetadata = value_metadata.ArrayMetadata
 
 
@@ -49,3 +52,19 @@ def merge_ckpt_metadata(
       overwrite=True,
       is_leaf=lambda x: isinstance(x, SourceIndexedMetadata)
   )
+
+
+def group_leaves_by_ckpt(
+    merged_metadata: PyTreeOf[SourceIndexedMetadata],
+) -> dict[int, dict[Keypath, ArrayMetadata]]:
+  """Groups leaves by the checkpoint index they belong to."""
+  leaves_by_ckpt = collections.defaultdict(dict)
+  for keypath, (ckpt_idx, metadata) in sorted(
+      tree_utils.to_flat_dict(
+          merged_metadata,
+          is_leaf=lambda x: isinstance(x, SourceIndexedMetadata),
+      ).items(),
+      key=lambda x: x[0],
+  ):
+    leaves_by_ckpt[ckpt_idx][keypath] = metadata
+  return leaves_by_ckpt
