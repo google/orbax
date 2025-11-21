@@ -391,6 +391,45 @@ def _maybe_add_cast_to_write_spec(
   return array_tspec
 
 
+class ArrayReadSpec:
+  """Full TensorStore spec for reading an array."""
+
+  def __init__(
+      self,
+      directory: str,
+      relative_array_filename: str,
+      use_zarr3: bool,
+      *,
+      use_ocdbt: bool,
+      metadata_key: str | None = None,
+      raise_array_data_missing_error: bool = True,
+  ):
+    """Builds a TensorStore spec for reading an array."""
+    kvstore_tspec = build_kvstore_tspec(
+        directory,
+        name=relative_array_filename,
+        use_ocdbt=use_ocdbt,
+        process_id=None,
+    )
+
+    tspec = {
+        'driver': ZARR_VER3 if use_zarr3 else ZARR_VER2,
+        'kvstore': kvstore_tspec,
+        'recheck_cached_data': False,
+        'recheck_cached_metadata': False,
+        # Raise error if data is missing.
+        'fill_missing_data_reads': not raise_array_data_missing_error,
+    }
+    if metadata_key is not None:
+      tspec['metadata_key'] = metadata_key
+    self._json_spec = tspec
+
+  @property
+  def json(self) -> JsonSpec:
+    """Spec to be used to open a TensorStore for reading the array."""
+    return self._json_spec
+
+
 class ArrayWriteSpec:
   """Full TensorStore spec for writing an array."""
 
@@ -675,6 +714,26 @@ def get_json_tspec_write(
   )
 
   return tspec
+
+
+def build_array_read_spec(
+    info: types.ParamInfo,
+    *,
+    use_ocdbt: bool,
+    metadata_key: str | None = None,
+    raise_array_data_missing_error: bool = True,
+) -> ArrayReadSpec:
+  """Gets ArrayReadSpec for reading."""
+  if info.name is None or info.parent_dir is None:
+    raise ValueError('Must provide info.name and info.parent_dir.')
+  return ArrayReadSpec(
+      directory=info.parent_dir.as_posix(),
+      relative_array_filename=info.name,
+      use_zarr3=info.use_zarr3,
+      use_ocdbt=use_ocdbt,
+      metadata_key=metadata_key,
+      raise_array_data_missing_error=raise_array_data_missing_error,
+  )
 
 
 def build_array_write_spec(
