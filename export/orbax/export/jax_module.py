@@ -198,6 +198,16 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
     ).jax2tf_kwargs_map
 
   @property
+  def jax2obm_kwargs(self) -> Mapping[str, Any]:
+    """Returns the jax2obm_kwargs."""
+    if self._export_version == constants.ExportModelType.TF_SAVEDMODEL:
+      raise TypeError(
+          'jax2obm_kwargs is not implemented for export version'
+          ' ExportModelType.TF_SAVEDMODEL.'
+      )
+    return cast(obm_module.ObmModule, self._export_module).jax2obm_kwargs
+
+  @property
   def input_polymorphic_shape_map(self) -> Mapping[str, PyTree]:
     """Returns the polymorphic shapes."""
     if self._export_version == constants.ExportModelType.ORBAX_MODEL:
