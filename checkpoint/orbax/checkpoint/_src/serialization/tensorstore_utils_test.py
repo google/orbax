@@ -613,6 +613,60 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     self.assertTrue(ts_utils.is_remote_storage(nested_tspec))
 
 
+class BuildArrayTSpecForReadTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.directory = self.create_tempdir().full_path
+    self.param_name = 'params/a'
+
+    self.array_read_spec_constructor = functools.partial(
+        ts_utils.ArrayReadSpec,
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+    )
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      use_ocdbt=(True, False),
+  )
+  def test_basic(self, use_zarr3: bool, use_ocdbt: bool):
+    tspec = self.array_read_spec_constructor(
+        use_zarr3=use_zarr3,
+        use_ocdbt=use_ocdbt,
+    )
+    json_spec = tspec.json
+    self.assertEqual(json_spec['driver'], 'zarr3' if use_zarr3 else 'zarr')
+    self.assertEqual(
+        json_spec['kvstore']['driver'],
+        'ocdbt' if use_ocdbt else ts_utils.DEFAULT_DRIVER,
+    )
+    self.assertFalse(json_spec['recheck_cached_data'])
+    self.assertFalse(json_spec['recheck_cached_metadata'])
+    self.assertFalse(json_spec['fill_missing_data_reads'])
+    self.assertNotIn('metadata_key', json_spec)
+
+  def test_metadata_key(self):
+    tspec = self.array_read_spec_constructor(
+        use_zarr3=False,
+        use_ocdbt=False,
+        metadata_key='custom_metadata',
+    )
+    self.assertEqual(tspec.json['metadata_key'], 'custom_metadata')
+
+  @parameterized.parameters(True, False)
+  def test_fill_missing_data_reads(self, raise_array_data_missing_error):
+    tspec = self.array_read_spec_constructor(
+        use_zarr3=False,
+        use_ocdbt=False,
+        raise_array_data_missing_error=raise_array_data_missing_error,
+    )
+    self.assertEqual(
+        tspec.json['fill_missing_data_reads'],
+        not raise_array_data_missing_error,
+    )
+
+
 class GetTsContextTest(parameterized.TestCase):
 
   @parameterized.product(
