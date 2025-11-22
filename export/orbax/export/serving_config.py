@@ -21,6 +21,7 @@ from absl import logging
 import jax
 import jaxtyping
 from orbax.export.data_processors import data_processor_base
+from orbax.export.data_processors import tf_data_processor
 import tensorflow as tf
 
 
@@ -107,6 +108,32 @@ class ServingConfig:
       return [self.signature_key]
     else:
       return self.signature_key
+
+  def get_preprocessors(self) -> Sequence[data_processor_base.DataProcessor]:
+    """Returns the preprocessors for this serving config."""
+    if self.preprocessors:
+      return self.preprocessors
+    elif self.tf_preprocessor:
+      return [
+          tf_data_processor.TfDataProcessor(
+              self.tf_preprocessor,
+          )
+      ]
+    else:
+      return []
+
+  def get_postprocessors(self) -> Sequence[data_processor_base.DataProcessor]:
+    """Returns the postprocessors for this serving config."""
+    if self.postprocessors:
+      return self.postprocessors
+    elif self.tf_postprocessor:
+      return [
+          tf_data_processor.TfDataProcessor(
+              self.tf_postprocessor,
+          )
+      ]
+    else:
+      return []
 
   def get_input_signature(self, required=True) -> Any:
     """Gets the input signature from the explict one or tf_preprocessor."""
