@@ -19,4 +19,4 @@
 
 # The following symbols are provided for legacy use and WILL be removed in the
 # future. Please do not use.
-from orbax.checkpoint._src.metadata.tree import ValueMetadataEntry
+from orbax.checkpoint._src.metadata.tree import ValueMetadataEntry, NestedKeyMetadataEntry
