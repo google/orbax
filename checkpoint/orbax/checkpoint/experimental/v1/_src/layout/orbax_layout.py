@@ -292,3 +292,15 @@ class OrbaxLayout(CheckpointLayout):
         self._path, abstract_checkpointables
     )
     return load_awaitable
+
+  async def save(
+      self,
+      path: path_types.PathAwaitingCreation,
+      *,
+      checkpointables: dict[str, Any],
+  ) -> Awaitable[None]:
+    """Saves the checkpoint to the given directory."""
+    save_awaitable = await self._composite_handler.save(
+        path, checkpointables
+    )
+    return save_awaitable

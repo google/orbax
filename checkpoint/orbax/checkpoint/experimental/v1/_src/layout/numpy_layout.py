@@ -216,3 +216,12 @@ class NumpyLayout(CheckpointLayout):
           checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
       )
     return _load_numpy(self._path, abstract_pytree)
+
+  async def save(
+      self,
+      path: types.PathAwaitingCreation,
+      *,
+      checkpointables: dict[str, Any],
+  ) -> Awaitable[None]:
+    """Saves the checkpoint to the given directory."""
+    raise NotImplementedError('Saving to NumPy format is not supported yet.')
