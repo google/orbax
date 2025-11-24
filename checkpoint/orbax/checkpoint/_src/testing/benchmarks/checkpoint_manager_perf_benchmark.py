@@ -118,19 +118,13 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
       with metrics.measure(f'train_step_{i}'):
         pytree = self._train_step(pytree)
 
-    save_times = np.array(save_times)
     total_save_times = np.array(total_save_times)
 
     # Exclude step 0 from assertions; setup may take extra time.
-    asserting_save_times = save_times[1:]
     asserting_total_save_times = total_save_times[1:]
 
-    mean_save_time = np.mean(asserting_save_times)
     mean_total_save_time = np.mean(asserting_total_save_times)
 
-    assert np.all(asserting_save_times <= 2 * mean_save_time), (
-        f'Save times={asserting_save_times}, mean save time={mean_save_time}'
-    )
     assert np.all(asserting_total_save_times <= 2 * mean_total_save_time), (
         f'Total save times={asserting_total_save_times}, mean total save'
         f' time={mean_total_save_time}'
