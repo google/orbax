@@ -102,6 +102,18 @@ class ServingConfig:
   #   }
   preprocess_output_passthrough_enabled: bool = False
 
+  def __post_init__(self):
+    if self.tf_preprocessor and self.preprocessors:
+      raise ValueError(
+          '`tf_preprocessor` and `preprocessors` cannot be set at the same'
+          ' time.'
+      )
+    if self.tf_postprocessor and self.postprocessors:
+      raise ValueError(
+          '`tf_postprocessor` and `postprocessors` cannot be set at the same'
+          ' time.'
+      )
+
   def get_signature_keys(self) -> Sequence[str]:
     if isinstance(self.signature_key, str):
       return [self.signature_key]
