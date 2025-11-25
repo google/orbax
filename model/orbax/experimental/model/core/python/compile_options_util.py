@@ -39,7 +39,7 @@ _XLA_FLAG_TO_FIELD_MAP = {
 
 
 def generate_tpu_compilation_env(
-    xla_flags: Sequence[str] | None = None,
+    xla_flags_overrides: Sequence[str] | None = None,
 ) -> xla_pb2.CompilationEnvironmentsProto:
   """Generates the TPU compilation environment."""
   # Get default TPU compilation environment.
@@ -48,9 +48,9 @@ def generate_tpu_compilation_env(
       tpu_compilation_env_str
   )
   # Override with supplied XLA flags if any is provided.
-  if xla_flags:
+  if xla_flags_overrides:
     parsed_flags = {}
-    for flag in xla_flags:
+    for flag in xla_flags_overrides:
       if not flag.startswith('--'):
         raise ValueError(
             f"Flag {flag} does not start with '--'. All flags must be in the"
@@ -115,7 +115,7 @@ def generate_xla_compile_options(
     native_serialization_platforms: Sequence[str] | None,
     xla_flags_per_platform: Mapping[str, Sequence[str] | None],
     jax_mesh: jax.sharding.Mesh | None = None,
-    strip_xla_flags: bool = False,
+    persist_xla_flags: bool = True,
 ) -> manifest_pb2.CompileOptionsProtoMap:
   """Sets the XLA compilation options.
 
@@ -127,7 +127,7 @@ def generate_xla_compile_options(
       which will be used to override the default XLA compilation flags.
     jax_mesh: The JAX mesh used for sharding. If None, the compile options will
       be set for a default single-replica.
-    strip_xla_flags: Whether to strip XLA flags from the compile options.
+    persist_xla_flags: Whether to persist XLA flags in the compile options.
 
   Returns:
     A `CompileOptionsProtoMap` containing the XLA compilation options per
@@ -140,6 +140,9 @@ def generate_xla_compile_options(
     ValueError: If a platform is provided for XLA flags which is not provided
       in the native serialization platforms.
     ValueError: If the supplied XLA flag overrides cannot be parsed.
+    ValueError: If `xla_flags` are provided but `persist_xla_flags` is False.
+      This ensures that the XLA flags are persisted in the compile options,
+      otherwise they would be lost, leading to unexpected behavior.
   """
   tpu_platform_name = manifest_pb2.Platform.Name(
       manifest_pb2.Platform.TPU
@@ -180,17 +183,42 @@ def generate_xla_compile_options(
   for platform in platforms:
     compile_environment = None
     if platform.lower() == tpu_platform_name:
-      xla_flags = None
+      xla_flags_overrides = None
       if xla_flags_per_platform:
-        xla_flags = xla_flags_per_platform.get(platform, None)
-      compile_environment = generate_tpu_compilation_env(xla_flags)
+        xla_flags_overrides = xla_flags_per_platform.get(platform, None)
+        _validate_xla_flags_setting(xla_flags_overrides, persist_xla_flags)
+      compile_environment = generate_tpu_compilation_env(xla_flags_overrides)
     compile_options_map.map[platform.lower()].CopyFrom(
         generate_compilation_options(compile_environment, jax_mesh)
     )
-  if strip_xla_flags:
+  if not persist_xla_flags:
     for compile_options in compile_options_map.map.values():
       compile_options.executable_build_options.comp_envs.Clear()
   return compile_options_map
+
+
+def _validate_xla_flags_setting(
+    xla_flags_overrides: Sequence[str] | None, persist_xla_flags: bool
+) -> None:
+  """Validates the XLA flags setting.
+
+  XLA flag overrides are allowed only when XLA flags are required to be
+  persisted.
+
+  Args:
+    xla_flags_overrides: A sequence of XLA flags provided for overriding. Can be
+      None.
+    persist_xla_flags: A boolean indicating whether the XLA flags should be
+      persisted in the compile options.
+
+  Raises:
+    ValueError: If `xla_flags_overrides` is not None but `persist_xla_flags` is
+    False.
+  """
+  if xla_flags_overrides and not persist_xla_flags:
+    raise ValueError(
+        'persist_xla_flags must be True if xla_flags_overrides are provided.'
+    )
 
 
 def get_field_for_flag(flag_name: str) -> descriptor.FieldDescriptor:

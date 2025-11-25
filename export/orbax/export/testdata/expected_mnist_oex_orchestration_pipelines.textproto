@@ -92,6 +92,7 @@ name_to_pipeline {
         allowed_batch_sizes: 16
         max_enqueued_batches: 300
       }
+      mixed_priority_batching_policy: LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE
     }
   }
 }
