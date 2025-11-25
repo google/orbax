@@ -21,19 +21,19 @@ import pickle
 from typing import Any, Awaitable
 import zipfile
 
-from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import types
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
 CheckpointLayout = checkpoint_layout.CheckpointLayout
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
-Path = types.Path
+Path = path_types.Path
 
 
 _PICKLE_FILENAME = "data.pkl"
@@ -228,7 +228,7 @@ def _read_zip_contents_sync(path: Path) -> tuple[bytes, dict[str, bytes]]:
       if name.endswith(_PICKLE_FILENAME):
         pickle_bytes = zf.read(name)
       else:
-        p = epath.Path(name)
+        p = context_lib.get_context().file_options.path_class(name)
         if p.parent.name == _STORAGE_PREFIX:
           storage_id = p.name
           # Accommodate different key formats. Some PyTorch versions may use

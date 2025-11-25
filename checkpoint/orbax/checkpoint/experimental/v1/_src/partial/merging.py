@@ -16,11 +16,11 @@
 
 from typing import Any, NamedTuple, TypeVar
 
-from etils import epath
 import jax
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.tree import structure_utils
 from orbax.checkpoint.experimental.v1._src.metadata import loading as metadata_loading
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 PyTree = Any
 T = TypeVar('T')
@@ -34,7 +34,7 @@ class SourceIndexedMetadata(NamedTuple):
 
 
 def merge_ckpt_metadata(
-    ckpts_to_merge: list[epath.Path],
+    ckpts_to_merge: list[path_types.Path],
 ) -> PyTreeOf[SourceIndexedMetadata]:
   """Merges metadata from multiple checkpoints, labeling each leaf with its source index."""
   labeled_ckpt_metadata: list[PyTreeOf[SourceIndexedMetadata]] = [
