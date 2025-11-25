@@ -19,7 +19,6 @@ import time
 from typing import Any
 
 from absl import logging
-from etils import epath
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -104,10 +103,11 @@ def load_pytree(
   start_time = time.time()
   asyncio_utils.maybe_apply_nest_asyncio()
   logging.info('Loading checkpoint from %s.', path)
-  path = epath.Path(path)
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
   layout, checkpointable_name = asyncio.run(
       layout_registry.get_checkpoint_layout_pytree(
-          path, context_lib.get_context().checkpoint_layout, checkpointable_name
+          path, ctx.checkpoint_layout, checkpointable_name
       )
   )
   return _load_checkpointables_impl(
@@ -173,11 +173,10 @@ def load_checkpointables(
   start_time = time.time()
   asyncio_utils.maybe_apply_nest_asyncio()
   logging.info('Loading checkpoint from %s.', path)
-  path = epath.Path(path)
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
   layout = asyncio.run(
-      layout_registry.get_checkpoint_layout(
-          path, context_lib.get_context().checkpoint_layout
-      )
+      layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
   )
 
   return _load_checkpointables_impl(
