@@ -20,7 +20,6 @@ import abc
 import dataclasses
 from typing import Any
 
-from etils import epath
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
@@ -64,7 +63,7 @@ class CompatibilityCheckpointHandler(
 
   async def async_save(
       self,
-      directory: epath.Path,
+      directory: path_types.Path,
       args: Args,
   ) -> list[future.Future] | None:
     async_path = _PathAwaitingCreation(
@@ -77,7 +76,7 @@ class CompatibilityCheckpointHandler(
 
     return [future.CommitFuture(_background_save())]
 
-  def save(self, directory: epath.Path, *args, **kwargs):
+  def save(self, directory: path_types.Path, *args, **kwargs):
     async def async_save(*args, **kwargs):
       commit_futures = await self.async_save(*args, **kwargs)  # pytype: disable=bad-return-type
       # Futures are already running, so sequential waiting is equivalent to
@@ -88,7 +87,9 @@ class CompatibilityCheckpointHandler(
 
     asyncio_utils.run_sync(async_save(directory, *args, **kwargs))
 
-  def restore(self, directory: epath.Path, args: Args | None = None) -> Any:
+  def restore(
+      self, directory: path_types.Path, args: Args | None = None
+  ) -> Any:
     abstract_checkpointable = args.checkpointable if args else None
 
     async def _synchronous_load():
@@ -99,10 +100,10 @@ class CompatibilityCheckpointHandler(
 
     return asyncio_utils.run_sync(_synchronous_load())
 
-  def metadata(self, directory: epath.Path) -> Any | None:
+  def metadata(self, directory: path_types.Path) -> Any | None:
     return asyncio_utils.run_sync(self._handler.metadata(directory))
 
-  def finalize(self, directory: epath.Path) -> None:
+  def finalize(self, directory: path_types.Path) -> None:
     pass
 
   def close(self):

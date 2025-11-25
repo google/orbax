@@ -21,7 +21,6 @@ import itertools
 from typing import Any, Awaitable
 
 from absl import logging
-from etils import epath
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
@@ -57,7 +56,7 @@ _V0_ERROR_MESSAGE = (
 )
 
 
-def _existing_checkpointable_names(directory: epath.Path) -> set[str]:
+def _existing_checkpointable_names(directory: path_types.Path) -> set[str]:
   return {p.name for p in directory.iterdir() if p.is_dir()}
 
 

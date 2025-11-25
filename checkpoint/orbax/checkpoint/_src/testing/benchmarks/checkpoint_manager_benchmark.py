@@ -20,10 +20,10 @@ from typing import Any, Sequence
 from absl import logging
 import jax
 import numpy as np
+import orbax.checkpoint as ocp
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import multihost
-from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
@@ -57,6 +57,13 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
     options = context.options
     assert isinstance(options, CheckpointManagerBenchmarkOptions)
 
+    if multihost.is_pathways_backend():
+      checkpointing_impl = ocp.pathways.CheckpointingImpl.from_options(
+          use_remote_python=True
+      )
+      ocp.pathways.register_type_handlers(
+          checkpointing_impl=checkpointing_impl,
+      )
 
     cm_options = checkpoint_manager.CheckpointManagerOptions(
         save_interval_steps=options.save_interval_steps,

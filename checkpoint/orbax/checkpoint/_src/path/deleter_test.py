@@ -13,6 +13,10 @@
 # limitations under the License.
 
 """To test Orbax in single-host setup."""
+
+import unittest
+from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -63,6 +67,52 @@ class CheckpointDeleterTest(parameterized.TestCase):
 
     deleter.close()
 
+
+class GcsRenameTest(unittest.TestCase):
+
+  @mock.patch('orbax.checkpoint._src.path.deleter.epath.Path')
+  def test_gcs_rename_logic_directly(self, mock_epath_constructor):
+    """Tests path construction and rename call logic."""
+    standard_checkpoint_deleter = deleter_lib.StandardCheckpointDeleter
+
+    deleter = standard_checkpoint_deleter(
+        directory=mock.MagicMock(),
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+        todelete_subdir=None,
+        todelete_full_path='trash_bin',
+        enable_hns=False,
+    )
+    # When epath.Path() is called inside the code, it returns this mock parent
+    mock_dest_parent = mock.MagicMock()
+    mock_epath_constructor.return_value = mock_dest_parent
+
+    # When the code does (parent / child), return a specific final mock
+    mock_final_dest = mock.MagicMock()
+    mock_final_dest.__str__.return_value = 'gs://mocked/final/destination'
+    mock_dest_parent.__truediv__.return_value = mock_final_dest
+
+    # Setup the "Source" Mock (The step being deleted)
+    mock_step_path = mock.MagicMock()
+    mock_step_path.__str__.return_value = 'gs://my-bucket/checkpoints/step_10'
+    mock_step_path.name = 'step_10'
+
+    deleter._gcs_rename_step(step=10, delete_target=mock_step_path)
+
+    # Verify mkdir was called on the destination parent.
+    mock_dest_parent.mkdir.assert_called_with(parents=True, exist_ok=True)
+
+    # Verify the Parent Path string was constructed correctly
+    # The code does: epath.Path(f'gs://{bucket}/{todelete_full_path}')
+    (parent_path_arg,), _ = mock_epath_constructor.call_args
+    self.assertEqual(parent_path_arg, 'gs://my-bucket/trash_bin')
+
+    # Verify the Child Filename was constructed correctly
+    (child_name_arg,), _ = mock_dest_parent.__truediv__.call_args
+    self.assertIn('step_10-', child_name_arg)
+
+    # Verify the Rename was actually called
+    mock_step_path.rename.assert_called_with(mock_final_dest)
 
 if __name__ == '__main__':
   absltest.main()

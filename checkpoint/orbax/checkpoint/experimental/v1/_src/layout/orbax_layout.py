@@ -18,7 +18,6 @@ import asyncio
 from typing import Any, Awaitable
 
 from absl import logging
-from etils import epath
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -70,7 +69,8 @@ def is_orbax_checkpoint(path: path_types.PathLike) -> bool:
   Returns:
     True if the path is an Orbax checkpoint, False otherwise.
   """
-  path = epath.Path(path)
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
   try:
     OrbaxLayout(path).validate()
     return True
