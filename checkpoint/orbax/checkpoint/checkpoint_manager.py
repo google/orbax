@@ -318,8 +318,6 @@ class CheckpointManagerOptions:
     gs://my-bucket/trash/<step_id>. Useful when direct deletion is time
     consuming. It gathers all deleted items in a centralized path for
     future cleanup.
-  enable_hns: If True, enables HNS-specific path manipulation logic.
-    Experimental feature.
   enable_background_delete: If True, old checkpoint deletions will be done in a
     background thread, otherwise, it will be done at the end of each save.  When
     it's enabled, make sure to call CheckpointManager.close() or use context to
@@ -386,7 +384,6 @@ class CheckpointManagerOptions:
   single_host_load_and_broadcast: bool = False
   todelete_subdir: Optional[str] = None
   todelete_full_path: Optional[str] = None
-  enable_hns: bool = False
   enable_background_delete: bool = False
   read_only: bool = False
   enable_async_checkpointing: bool = True
@@ -878,7 +875,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             single_host_load_and_broadcast=(
                 self._options.single_host_load_and_broadcast
             ),
-            enable_hns=self._options.enable_hns,
         )
     )
 
@@ -909,7 +905,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             primary_host=self._multiprocessing_options.primary_host,
             todelete_subdir=self._options.todelete_subdir,
             todelete_full_path=self._options.todelete_full_path,
-            enable_hns=self._options.enable_hns,
             enable_background_delete=self._options.enable_background_delete,
         )
     )

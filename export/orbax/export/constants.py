@@ -97,8 +97,13 @@ XLA_FLAGS_PER_PLATFORM = 'xla_flags_per_platform'
 # Mesh for the model.
 JAX_MESH = 'jax_mesh'
 
-# Whether to strip XLA flags from the model.
-STRIP_XLA_FLAGS = 'strip_xla_flags'
+# Whether to persist XLA flags in the model.
+PERSIST_XLA_FLAGS = 'persist_xla_flags'
+
+# Whether to enable bf16 optimization for the model.
+# TODO_REGEX: b/422170690: (1): Apply this flag to the pre/post processors. (2):
+# Adding filter flags once the flag is applied to the pre/post processors.
+ENABLE_BF16_OPTIMIZATION = 'enable_bf16_optimization'
 
 ################################################################################
 # Proto field names

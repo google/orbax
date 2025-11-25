@@ -506,10 +506,16 @@ def construct_restore_args(
       sharding: Optional[jax.sharding.Sharding | Format],  # pytype: disable=unsupported-operands
       dtype: Optional[np.dtype] = None,
   ) -> type_handlers.ArrayRestoreArgs:
+    global_shape = None
+    # For random keys, we only allow overriding the sharding.
+    if set_global_shape and not jax.dtypes.issubdtype(
+        value.dtype, jax.dtypes.prng_key
+    ):
+      global_shape = value.shape
     return type_handlers.ArrayRestoreArgs(
         restore_type=jax.Array,
         sharding=sharding,
-        global_shape=value.shape if set_global_shape else None,
+        global_shape=global_shape,
         dtype=dtype,
     )
 

@@ -321,13 +321,11 @@ class _StandardNameFormat(NameFormat[Metadata]):
     single_host_load_and_broadcast: If True, the jax process=0 will list all
       steps and broadcast them to all other processes. NOTE: Ignored if jax
       backend is not multi controller.
-    enable_hns: Enables HNS-specific path logic.
   """
 
   step_prefix: Optional[str] = None
   step_format_fixed_length: Optional[int] = None
   single_host_load_and_broadcast: bool = False
-  enable_hns: bool = False
 
   def __str__(self):
     return f'StandardNameFormat("{self.build_name(1234)}")'
@@ -375,9 +373,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
     """Returns step paths under `base_path`."""
     base_path = epath.Path(base_path)
     # <step_prefix>_?<0 padding>?*
-    if self.enable_hns and gcs_utils.is_hierarchical_namespace_enabled(
-        base_path
-    ):
+    if gcs_utils.is_hierarchical_namespace_enabled(base_path):
       logging.vlog(
           1,
           'HNS enabled. Using GCS API to list step paths at %s',
@@ -560,7 +556,6 @@ def standard_name_format(
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
     single_host_load_and_broadcast: bool = False,
-    enable_hns: bool = False,
 ) -> NameFormat[Metadata]:
   """Returns NameFormat for 'standard' steps for common Orbax use cases.
 
@@ -580,13 +575,11 @@ def standard_name_format(
     single_host_load_and_broadcast: If True, the jax process=0 will list all
       steps and broadcast them to all other processes. NOTE: Ignored if jax
       backend is not multi controller.
-    enable_hns: Enables HNS-specific path logic.
   """
   return _StandardNameFormat(
       step_prefix=step_prefix,
       step_format_fixed_length=step_format_fixed_length,
       single_host_load_and_broadcast=single_host_load_and_broadcast,
-      enable_hns=enable_hns,
   )
 
 
