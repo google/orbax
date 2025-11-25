@@ -35,6 +35,7 @@ from jax import numpy as jnp
 import numpy as np
 import optax
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.checkpointers import standard_checkpointer
 from orbax.checkpoint._src.multihost import multihost as multihost_v0
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.serialization import serialization
@@ -124,6 +125,16 @@ class SaveLoadTestBase:
       self.save_and_wait(self.directory, self.pytree, use_async=use_async)
       loaded = self.load_and_wait(self.directory, use_async=use_async)
       test_utils.assert_tree_equal(self, self.pytree, loaded)
+
+    def test_flat_v0_checkpoint(self):
+      flat_dir = self.directory / 'flat_ckpt'
+      pytree = {'a': np.array([1, 2, 3])}
+      with standard_checkpointer.StandardCheckpointer() as ckptr:
+        ckptr.save(flat_dir, pytree)
+
+      # Verify load_pytree
+      loaded = ocp.load_pytree(flat_dir, checkpointable_name=None)
+      test_utils.assert_tree_equal(self, loaded, pytree)
 
     def test_save_pytree_async(self):
       start_serialize = threading.Event()
@@ -810,6 +821,69 @@ class SaveLoadTestBase:
             ValueError, 'User-provided restore item and on-disk value'
         ):
           self.load_and_wait(directory, reference_item, use_async=use_async)
+
+    def test_missing_checkpoint_metadata_checkpointables(self):
+      """Checkpointables API save and restore test for missing _CHECKPOINT_METADATA."""
+      step_dir = self.directory / 'step_0'
+      checkpointables = {'a': self.pytree, 'b': self.pytree}
+      ocp.save_checkpointables(step_dir, checkpointables)
+
+      # Delete the _CHECKPOINT_METADATA file
+      metadata_file = step_dir / '_CHECKPOINT_METADATA'
+      self.assertTrue(metadata_file.exists())
+      metadata_file.unlink(missing_ok=True)
+
+      loaded = ocp.load_checkpointables(step_dir)
+
+      test_utils.assert_tree_equal(self, self.pytree, loaded['a'])
+      test_utils.assert_tree_equal(self, self.pytree, loaded['b'])
+
+    def test_missing_checkpoint_metadata_pytree(self):
+      """Pytree API save and restore test for missing _CHECKPOINT_METADATA."""
+      step_dir = self.directory / 'step_2'
+      ocp.save_pytree(step_dir, self.pytree)
+
+      # Delete the _CHECKPOINT_METADATA file
+      metadata_file = step_dir / '_CHECKPOINT_METADATA'
+      self.assertTrue(metadata_file.exists())
+      metadata_file.unlink(missing_ok=True)
+
+      loaded = ocp.load_pytree(step_dir)
+      test_utils.assert_tree_equal(self, self.pytree, loaded)
+
+    @parameterized.parameters(True, False)
+    def test_missing_metadata_with_registered_handler_succeeds(
+        self, registered
+    ):
+      """Tests fallback success for non-PyTree items with registered handler."""
+      step_dir = self.directory / 'step_3'
+      checkpointables = {'a': self.pytree, 'b': {'some': 'data'}}
+      # Ensure 'b' is saved with JsonHandler
+
+      options = ocp.options.CheckpointablesOptions.create_with_handlers(
+          b=ocp.handlers.JsonHandler
+      )
+      with ocp.Context(checkpointables_options=options):
+        ocp.save_checkpointables(step_dir, checkpointables)
+
+      # Delete the _CHECKPOINT_METADATA file
+      metadata_file = step_dir / '_CHECKPOINT_METADATA'
+      self.assertTrue(metadata_file.exists())
+      metadata_file.unlink(missing_ok=True)
+
+      if registered:
+        # Register the handler for 'b' during load as well
+        with ocp.Context(checkpointables_options=options):
+          loaded = ocp.load_checkpointables(step_dir)
+
+        test_utils.assert_tree_equal(self, self.pytree, loaded['a'])
+        self.assertEqual(checkpointables['b'], loaded['b'])
+      else:
+        # Try to load without registering 'b'
+        with self.assertRaisesRegex(
+            ValueError, "Cannot determine handler for checkpointable 'b'"
+        ):
+          ocp.load_checkpointables(step_dir)
 
     def test_checkpointable_with_stateful_checkpointable(self):
       point = handler_utils.Point(1, 2)
