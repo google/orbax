@@ -14,7 +14,6 @@
 
 """Defines free-function interface for partial saving and finalizing."""
 
-from etils import epath
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -185,7 +184,9 @@ def save_pytree_async(
     FileExistsError: If a finalized checkpoint already exists at `path`. To
       overwrite, it must be deleted first.
   """
-  if epath.Path(path).exists():
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
+  if path.exists():
     raise FileExistsError(f'Finalized checkpoint already exists at {path}.')
 
   return execution.save_checkpointables_impl(
@@ -238,8 +239,7 @@ def finalize(path: path_types.PathLike) -> None:
       This can happen if `ocp.partial.save_*` was not called first.
   """
   context = context_lib.get_context()
-
-  path = epath.Path(path)
+  path = context.file_options.path_class(path)
   if partial_path_lib.is_partial_save_path(path):
     final_path = partial_path_lib.remove_partial_save_suffix(path)
     partial_path = path
