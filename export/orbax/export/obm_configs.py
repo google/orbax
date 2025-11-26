@@ -51,6 +51,22 @@ class BatchPaddingPolicy(enum.Enum):
   MINIMIZE_TPU_COST_PER_REQUEST = "minimize_tpu_cost_per_request"
 
 
+@enum.unique
+class MixedPriorityBatchingPolicy(enum.Enum):
+  """The mixed priority batch policy for the batch scheduler.
+
+  Options:
+    LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE: Pad low priority inputs up to the
+    max_batch_size.
+    LOW_PRIORITY_PADDING_WITH_NEXT_ALLOWED_BATCH_SIZE: Pad low priority inputs
+    up to the next allowed batch size.
+  """
+  # TODO: b/417977029 - Add PRIORITY_MERGE, PRIORITY_ISOLATION.
+  LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE = "low_priority_padding_with_max_batch_size"
+  LOW_PRIORITY_PADDING_WITH_NEXT_ALLOWED_BATCH_SIZE = "low_priority_padding_with_next_allowed_batch_size"
+
+
+
 # LINT.ThenChange(//depot//orbax/export/obm_export.py)
 
 
@@ -105,6 +121,8 @@ class BatchOptions:
     batch_padding_policy: The batch padding policy for the batch scheduler.
       Default is PAD_UP.
     low_priority_batch_options: The batch options for low priority inputs.
+    mixed_priority_batching_policy: The mixed priority batching policy for the
+      batch scheduler. Default is LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE.
   """
 
   batch_component: BatchComponent
@@ -116,6 +134,9 @@ class BatchOptions:
   disable_large_batch_splitting: bool = False
   batch_padding_policy: BatchPaddingPolicy = BatchPaddingPolicy.PAD_UP
   low_priority_batch_options: LowPriorityBatchOptions | None = None
+  mixed_priority_batching_policy: MixedPriorityBatchingPolicy = (
+      MixedPriorityBatchingPolicy.LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE
+  )
 
   def _validate_batch_options(
       self,

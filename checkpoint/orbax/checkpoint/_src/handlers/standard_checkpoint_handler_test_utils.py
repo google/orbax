@@ -505,8 +505,13 @@ class StandardCheckpointHandlerTestBase:
       return StandardCheckpointHandler()
 
     def test_with_random_keys(self):
+      # TODO(b/393160483) investigate Pathways remote Python support for
+      # random.keys.
       if utils.is_pathways_backend():
-        self.skipTest('Pathways does not support random keys checkpoint.')
+        self.skipTest(
+            'Disabled on Pathways because random keys are not supported by'
+            ' remote Python.'
+        )
 
       def create_random_keys(seed):
         duplicated_sharding = jax.sharding.NamedSharding(
@@ -559,3 +564,38 @@ class StandardCheckpointHandlerTestBase:
             args=self.restore_args_cls(abstract_tree),
         )
         test_utils.assert_tree_equal(self, self.pytree, restored)
+
+    def test_save_restore_random_keys_with_jax_eval_shape(self):
+      # TODO(b/393160483) investigate Pathways remote Python support for
+      # random.keys.
+      if utils.is_pathways_backend():
+        self.skipTest(
+            'Disabled on Pathways because random keys are not supported by'
+            ' remote Python.'
+        )
+
+      mesh = jax.sharding.Mesh(jax.devices(), ('x',))
+      sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+
+      @functools.partial(
+          jax.jit,
+          in_shardings=sharding,
+          out_shardings=sharding,
+      )
+      def sharded_create_state_fn(root_key):
+        return dict(
+            matrix=jnp.array([[1, 2], [3, 4], [5, 6], [7, 8]]),
+            rngkey=jax.random.fold_in(root_key, 42),
+        )
+
+      pytree = sharded_create_state_fn(jax.random.key(0))
+      abstract_pytree = jax.eval_shape(
+          sharded_create_state_fn, jax.random.key(0)
+      )
+
+      self.handler.save(self.directory, args=self.save_args_cls(pytree))
+
+      restored = self.handler.restore(
+          self.directory, args=self.restore_args_cls(abstract_pytree)
+      )
+      test_utils.assert_tree_equal(self, pytree, restored)
