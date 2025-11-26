@@ -357,6 +357,32 @@ class ObmModuleTest(parameterized.TestCase):
             jax2obm_kwargs=jax2obm_kwargs,
         )
 
+  @parameterized.named_parameters(
+      {'testcase_name': 'enable_bf16', 'enable_bf16_optimization': True},
+      {'testcase_name': 'disable_bf16', 'enable_bf16_optimization': False},
+  )
+  def test_obm_module_bfloat16_conversion(self, enable_bf16_optimization):
+    params_spec = {
+        'w': jax.ShapeDtypeStruct((2, 2), jnp.float32),
+        'b': jax.ShapeDtypeStruct((2,), jnp.float32),
+    }
+    input_spec = {constants.DEFAULT_METHOD_KEY: 'b, ...'}
+
+    module = obm_module.ObmModule(
+        params=params_spec,
+        apply_fn=_linear,
+        input_polymorphic_shape=input_spec,
+        jax2obm_kwargs={
+            constants.ENABLE_BF16_OPTIMIZATION: enable_bf16_optimization
+        },
+    )
+
+    expected_dtype = jnp.bfloat16 if enable_bf16_optimization else jnp.float32
+    with self.subTest('test_weights_w_dtype'):
+      self.assertEqual(module.model_params['w'].dtype, expected_dtype)
+    with self.subTest('test_weights_b_dtype'):
+      self.assertEqual(module.model_params['b'].dtype, expected_dtype)
+
 
 if __name__ == '__main__':
   absltest.main()

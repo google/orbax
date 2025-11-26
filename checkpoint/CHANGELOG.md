@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.29] - 2025-11-25
+
 ### Fixed
 
 - Fix `step_from_checkpoint_name` to allow the passed in checkpoint name to
   include an arbitrary `step_prefix` with any character(s) such as underscores.
 - Fix CheckpointManager initial directory creation to use `file_options.path_permission_mode`.
+- Fix using jax.eval_shape with StandardRestore
 
 ### Changed
 
@@ -19,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   state, avoiding additional I/O to re-read metadata.
 - add `support_format` to utils.to_shape_dtype_struct()
 - Moved `register_pathways_handlers` to `ocp.pathways.register_type_handlers`.
+- Replace usage of `get_json_tpec_read` and delegate functionality to new
+  function `build_array_read_spec` which constructs and returns an
+  `ArrayReadSpec`.
 
 ## [0.11.28] - 2025-11-06
 

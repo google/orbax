@@ -14,7 +14,7 @@
 
 """Registry for checkpoint layouts."""
 
-from etils import epath
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
@@ -42,7 +42,8 @@ async def get_checkpoint_layout(
     InvalidLayoutError: If the path is not a valid checkpoint for any registered
     layout, with details from each layout's validation attempt.
   """
-  path = epath.Path(path)
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
 
   match layout_enum:
     case CheckpointLayoutEnum.ORBAX:
