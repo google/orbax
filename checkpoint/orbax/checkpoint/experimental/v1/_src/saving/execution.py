@@ -21,7 +21,6 @@ from typing import Any, Awaitable, Iterable
 import uuid
 
 from absl import logging
-from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint._src.futures import future
@@ -266,7 +265,7 @@ def create_save_response(
   )
 
 
-def check_directory_consistency(directory: epath.PathLike):
+def check_directory_consistency(directory: path_types.PathLike):
   """Raises error if directory paths are not consistent across processes."""
   if multihost.process_count() <= 1:
     return
@@ -310,8 +309,8 @@ def save_checkpointables_impl(
   asyncio_utils.maybe_apply_nest_asyncio()
   context = context_lib.get_context()
 
+  path = context.file_options.path_class(path)
   check_directory_consistency(path)
-  path = epath.Path(path)
   path_exists = path.exists() if partial_save else False
 
   # Prevent internal mutation from affecting the caller.

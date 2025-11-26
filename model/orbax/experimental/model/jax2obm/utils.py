@@ -95,7 +95,7 @@ JaxDType = np.dtype[Any]
 
 
 def _aval_dtype(a) -> JaxDType:
-  assert isinstance(a, jax.core.UnshapedArray)
+  assert isinstance(a, jax.core.ShapedArray)
   return a.dtype
 
 
