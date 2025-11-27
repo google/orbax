@@ -17,5 +17,5 @@ benchmarks:
       use_replica_parallel: [True, False]
       enable_replica_parallel_separate_folder: [True, False]
       use_metadata_store: [True, False]
-      use_colocated_python: [True, False]
+      use_colocated_python: [True]
 
