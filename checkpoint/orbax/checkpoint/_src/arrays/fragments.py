@@ -19,7 +19,7 @@ relationship to a mesh of devices, or to other fragments.
 """
 
 import dataclasses
-from typing import Optional, Sequence, TypeAlias
+from typing import ClassVar, Generic, Self, Sequence, TypeAlias, TypeVar
 
 import jax
 import numpy as np
@@ -29,6 +29,10 @@ from orbax.checkpoint._src.arrays import types
 Shape: TypeAlias = types.Shape
 Index: TypeAlias = types.Index
 NpIndex: TypeAlias = np.ndarray  # shape=[{rank}, 3], dtype=int
+
+
+Module: TypeAlias = type(dataclasses)
+A = TypeVar('A', bound=(np.ndarray | jax.Array))
 
 
 def _ndarray_from_index(idx: Index) -> NpIndex:
@@ -42,8 +46,12 @@ def _index_from_ndarray(a: NpIndex) -> Index:
   return tuple(slice(*xs) for xs in a)
 
 
+def _qualified_name(cls):
+  return f'{cls.__module__}.{cls.__qualname__}'
+
+
 @dataclasses.dataclass(frozen=True, init=False)
-class Fragment:
+class _GenericFragment(Generic[A]):
   """One of a collection of slices into the same (abstract or concrete) array.
 
   Fields:
@@ -54,6 +62,8 @@ class Fragment:
     value: The data for this fragment. If this is `None`, the fragment is
       abstract.
   """
+  NP_API: ClassVar[Module]
+  ARRAY_T: ClassVar[type[A]]
 
   np_index: NpIndex  # shape=[{rank}, 3], dtype=int
   value: np.ndarray | None = None
@@ -65,9 +75,10 @@ class Fragment:
       np_index: NpIndex | None = None,
       value: np.ndarray | None = None,
   ):
-    if value is not None and not isinstance(value, np.ndarray):
+    if value is not None and not isinstance(value, self.ARRAY_T):
       raise TypeError(
-          f'Fragment value must be an np.ndarray (or None), not {type(value)}.'
+          f'Fragment value must be a {_qualified_name(self.ARRAY_T)} (or None),'
+          f' not {type(value)}.'
       )
 
     if index is not None and np_index is not None:
@@ -114,7 +125,7 @@ class Fragment:
     return np.prod(self.shape)
 
   def __eq__(self, other: 'Fragment'):
-    if not isinstance(other, Fragment):
+    if not isinstance(other, type(self)):
       return False
     if not np.array_equal(self.np_index, other.np_index):
       return False
@@ -132,11 +143,11 @@ class Fragment:
   def __repr__(self):
     maybe_value_str = ', value=...' if self.value is not None else ''
     return (
-        f'Fragment(index={np_utils.pretty_nd_slice(self.index)}'
+        f'{type(self).__name__}(index={np_utils.pretty_nd_slice(self.index)}'
         f'{maybe_value_str})'
     )
 
-  def __array__(self) -> np.ndarray:
+  def __array__(self) -> A:
     if self.value is None:
       raise ValueError(f"Can't convert abstract fragment to array: {self!r}.'")
     return self.value  # pytype: disable=bad-return-type
@@ -159,15 +170,15 @@ class Fragment:
   def offset_by(
       self,
       delta: np.ndarray,  # shape=[{rank}], dtype=int
-  ) -> 'Fragment':
+  ) -> Self:
     out_idx = self.np_index.copy()
     out_idx[:, :2] += np.expand_dims(delta, axis=1)
-    return Fragment(np_index=out_idx, value=self.value)
+    return type(self)(np_index=out_idx, value=self.value)
 
   def slice(
       self,
       np_index: NpIndex,  # shape=[{rank}, 3], dtype=int
-  ) -> Optional['Fragment']:
+  ) -> Self | None:
     """Slices this fragment to find the part that overlaps the given NpIndex."""
     if (self.step != 1).any() or (np_index[:, 2] != 1).any():
       raise NotImplementedError('Coming ... soon?')
@@ -190,7 +201,7 @@ class Fragment:
     start = self.start
     stop = self.stop
     # This is just a convenient way to construct the required tuple of slices.
-    f = Fragment(
+    f = type(self)(
         np_index=np.stack([
             np.maximum(start, new_np_idx[:, 0]),
             np.minimum(stop, new_np_idx[:, 1]),
@@ -200,8 +211,28 @@ class Fragment:
     return self.value[f.index or ...]
 
 
-@dataclasses.dataclass(frozen=True)
-class Fragments:
+@dataclasses.dataclass(frozen=True, init=False, eq=False, repr=False)
+class NpFragment(_GenericFragment[np.ndarray]):
+  """One of a collection of slices into the same concrete array."""
+  NP_API = np
+  ARRAY_T = np.ndarray
+
+
+@dataclasses.dataclass(frozen=True, init=False, eq=False, repr=False)
+class JaxFragment(_GenericFragment[jax.Array]):
+  """One of a collection of slices into the same JAX array."""
+  NP_API = jax.numpy
+  ARRAY_T = jax.Array
+
+
+Fragment = NpFragment  # For backwards compatibility.
+
+
+F = TypeVar('F', bound=(NpFragment | JaxFragment))
+
+
+@dataclasses.dataclass(frozen=True, eq=False, repr=False)
+class _GenericFragments(Generic[F]):
   """An abstract or concrete collection of fragments.
 
   A `Fragments` is a lot like a `jax.Array` (or a `jax.ShapeDtypeStruct`) but
@@ -210,16 +241,18 @@ class Fragments:
   of a `jax.Array` (fragments are not required to have the same shape, or to map
   to a device mesh).
   """
+  FRAGMENT_T: ClassVar[type[F]]
 
   shape: Shape
   dtype: np.dtype
-  fragments: Sequence[Fragment]
+  fragments: Sequence[F]
 
   def __post_init__(self):
     for fragment in self.fragments:
-      if not isinstance(fragment, Fragment):
+      if not isinstance(fragment, self.FRAGMENT_T):
         raise TypeError(
-            f'Fragments must contain Fragment, not {type(fragment)}.'
+            f'Fragments must contain {self.FRAGMENT_T.__name__}, not'
+            f' {type(fragment)}.'
         )
 
   def is_degenerate(self) -> bool:
@@ -265,7 +298,7 @@ class Fragments:
   def slice(
       self,
       index: NpIndex | Index,  # shape=[{rank}, 3], dtype=int
-  ) -> 'Fragments':
+  ) -> Self:
     """Returns a slice of this object."""
     if not isinstance(index, np.ndarray):
       index = np_utils.resolve_slice(index, self.shape)
@@ -280,7 +313,7 @@ class Fragments:
           f'with out-of-bounds index {_index_from_ndarray(index)}'
       )
 
-    return Fragments(
+    return type(self)(
         tuple(d.item() for d in sliced_shape),
         self.dtype,
         [
@@ -291,7 +324,22 @@ class Fragments:
     )
 
 
-def _is_full(fragments: Fragments) -> bool:
+@dataclasses.dataclass(frozen=True, init=False)
+class NpFragments(_GenericFragments[NpFragment]):
+  """A collection of fragments whose values are of type `np.ndarray`."""
+  FRAGMENT_T = NpFragment
+
+
+@dataclasses.dataclass(frozen=True, init=False)
+class JaxFragments(_GenericFragments[JaxFragment]):
+  """A collection of fragments whose values are of type `jax.Array`."""
+  FRAGMENT_T = JaxFragment
+
+
+Fragments = NpFragments  # For backwards compatibility.
+
+
+def _is_full(fragments: _GenericFragments) -> bool:
   """True iff every array element is covered by some fragment."""
   present = np.zeros(fragments.shape, dtype=bool)
   for f in fragments.fragments:
@@ -323,19 +371,21 @@ def addressable_shards(x: jax.Array | jax.ShapeDtypeStruct) -> list[Index]:
 
 
 def abstract_fragments(
-    x: jax.Array | jax.ShapeDtypeStruct | Fragments,
-) -> Fragments:
+    x: jax.Array | jax.ShapeDtypeStruct | _GenericFragments[F],
+    fragments_t: type[_GenericFragments[F]] = NpFragments,
+) -> _GenericFragments[F]:
   """Returns abstract fragments matching the given array."""
-  if isinstance(x, Fragments):
+  if isinstance(x, _GenericFragments):
     return x
-  return Fragments(
+  fragment_t = fragments_t.FRAGMENT_T
+  return fragments_t(
       x.shape,
       x.dtype,
-      [Fragment(index=index, value=None) for index in addressable_shards(x)],
+      [fragment_t(index=index, value=None) for index in addressable_shards(x)],
   )
 
 
-def validate_fragments_can_be_stacked(fragments: Fragments) -> None:
+def validate_fragments_can_be_stacked(fragments: _GenericFragments[F]) -> None:
   """Validates that the given fragments can be stacked."""
   if not fragments.fragments:
     raise ValueError('No fragments to stack.')
@@ -353,14 +403,15 @@ def validate_fragments_can_be_stacked(fragments: Fragments) -> None:
     )
 
 
-def stack_fragments(fragments: Fragments | None) -> np.ndarray | None:
+def stack_fragments(fragments: _GenericFragments[F] | None) -> A | None:
   """Stacks the given fragments, which must all have the same shape."""
   if fragments is None:
     return fragments
   validate_fragments_can_be_stacked(fragments)
   fragment_arrays = [fragment.value for fragment in fragments.fragments]
+  np_api = fragments.FRAGMENT_T.NP_API
   return (
-      np.expand_dims(fragment_arrays[0], axis=0)
+      np_api.expand_dims(fragment_arrays[0], axis=0)
       if len(fragment_arrays) == 1
-      else np.stack(fragment_arrays)
+      else np_api.stack(fragment_arrays)
   )
