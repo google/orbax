@@ -15,7 +15,10 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.export import oex_orchestration
+from orbax.export import oex_orchestration_pb2
 import tensorflow as tf
+
+from google.protobuf import text_format
 
 
 @tf.function
