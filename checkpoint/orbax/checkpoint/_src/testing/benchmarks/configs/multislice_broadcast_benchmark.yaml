@@ -1,12 +1,15 @@
 # The name for the entire test suite run.
 suite_name: "Multislice Broadcast Benchmark"
 
-mesh_config:
-  mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
-  # ICI: Within a slice.
-  ici_parallelism: {"fsdp": 4, "data": 2}
-  # DCN: Across slices.
-  dcn_parallelism: {"data": 2}
+mesh_configs:
+  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+    # ICI: Within a slice.
+    ici_parallelism: {"fsdp": 4, "data": 2}
+    # DCN: Across slices.
+    dcn_parallelism: {"data": 2}
+  - mesh_axes: ["data", "model", "tensor", "fsdp"]
+    ici_parallelism: {"data": 1, "model": 1}
+    dcn_parallelism: {"data": 4, "model": 1}
 
 checkpoint_config:
   spec:
