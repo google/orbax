@@ -58,10 +58,12 @@ class MixedPriorityBatchingPolicy(enum.Enum):
   Options:
     LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE: Pad low priority inputs up to the
     max_batch_size.
+    LOW_PRIORITY_PADDING_WITH_NEXT_ALLOWED_BATCH_SIZE: Pad low priority inputs
+    up to the next allowed batch size.
   """
-  # TODO: b/417977029 - Add LOW_PRIORITY_PADDING_WITH_NEXT_ALLOWED_BATCH_SIZE,
-  # PRIORITY_MERGE, PRIORITY_ISOLATION.
+  # TODO: b/417977029 - Add PRIORITY_MERGE, PRIORITY_ISOLATION.
   LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE = "low_priority_padding_with_max_batch_size"
+  LOW_PRIORITY_PADDING_WITH_NEXT_ALLOWED_BATCH_SIZE = "low_priority_padding_with_next_allowed_batch_size"
 
 
 
