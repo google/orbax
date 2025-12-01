@@ -148,10 +148,7 @@ class TensorFlowExport(export_base.ExportBase):
           method = sc.get_infer_step(self._computation_module.methods)
           inference_fn = utils.make_e2e_inference_fn(method, sc)
 
-        if isinstance(sc.signature_key, str):
-          keys = [sc.signature_key]
-        else:
-          keys = sc.signature_key
+        keys = sc.get_signature_keys()
 
         for key in keys:
           if key in self._serving_signatures:

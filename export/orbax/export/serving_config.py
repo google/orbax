@@ -103,6 +103,8 @@ class ServingConfig:
   preprocess_output_passthrough_enabled: bool = False
 
   def __post_init__(self):
+    if not self.signature_key:
+      raise ValueError('`signature_key` must be set.')
     if self.tf_preprocessor and self.preprocessors:
       raise ValueError(
           '`tf_preprocessor` and `preprocessors` cannot be set at the same'
