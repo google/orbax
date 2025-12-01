@@ -55,6 +55,13 @@ class ServingConfig:
   # Optional sequence of `DataProcessor`s to be applied after the main model
   # function.
   postprocessors: Sequence[data_processor_base.DataProcessor] = ()
+  # Optional sequence of `DataProcessor`s to be applied. `DataProcessor` is a
+  # new abstraction for constructing pipelines for Orbax Model export. This
+  # field is mutually exclusive with `tf_preprocessor`, `preprocessors`,
+  # `tf_postprocessor`, and `postprocessors`. If this field is used, the
+  # `DataProcessor`s and the model function will be ordered based on their
+  # input and output keys using topological sorting.
+  data_processors: Sequence[data_processor_base.DataProcessor] = ()
   # A nested structure of tf.saved_model.experimental.TrackableResource that are
   # used in `tf_preprocessor` and/or `tf_postprocessor`. If a TrackableResource
   # an attritute of the `tf_preprocessor` (or `tf_postprocessor`), and the
@@ -123,16 +130,40 @@ class ServingConfig:
       )
     if not self.signature_key:
       raise ValueError('`signature_key` must be set.')
-    if self.tf_preprocessor and self.preprocessors:
-      raise ValueError(
-          '`tf_preprocessor` and `preprocessors` cannot be set at the same'
-          ' time.'
-      )
-    if self.tf_postprocessor and self.postprocessors:
-      raise ValueError(
-          '`tf_postprocessor` and `postprocessors` cannot be set at the same'
-          ' time.'
-      )
+    if self.data_processors:
+      if (
+          self.tf_preprocessor
+          or self.preprocessors
+          or self.tf_postprocessor
+          or self.postprocessors
+      ):
+        raise ValueError(
+            '`data_processors` cannot be set at the same time as'
+            ' `tf_preprocessor`, `preprocessors`, `tf_postprocessor` or'
+            ' `postprocessors`.'
+        )
+      for processor in self.data_processors:
+        if not processor.input_keys:
+          raise ValueError(
+              f'Processor {processor.name} in `data_processors` must have'
+              ' `input_keys`.'
+          )
+        if not processor.output_keys:
+          raise ValueError(
+              f'Processor {processor.name} in `data_processors` must have'
+              ' `output_keys`.'
+          )
+    else:
+      if self.tf_preprocessor and self.preprocessors:
+        raise ValueError(
+            '`tf_preprocessor` and `preprocessors` cannot be set at the same'
+            ' time.'
+        )
+      if self.tf_postprocessor and self.postprocessors:
+        raise ValueError(
+            '`tf_postprocessor` and `postprocessors` cannot be set at the same'
+            ' time.'
+        )
 
   def get_signature_keys(self) -> Sequence[str]:
     if isinstance(self.signature_key, str):
