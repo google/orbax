@@ -387,6 +387,7 @@ class TestSuite:
         name=name, num_repeats=num_repeats
     )
 
+
   def run(self) -> Sequence[TestResult]:
     """Runs all benchmarks in the suite sequentially."""
     logging.info(
@@ -424,7 +425,11 @@ class TestSuite:
           result = benchmark.run(repeat_index=repeat_index)
           all_results.append(result)
           self._suite_metrics.add_result(
-              benchmark.name, benchmark.options, result.metrics, result.error
+              benchmark.name,
+              benchmark.options,
+              benchmark.checkpoint_config,
+              result.metrics,
+              result.error,
           )
 
     if not all_results:
