@@ -211,7 +211,7 @@ Model
          :class-card: sd-text-black sd-bg-light
          :link: api_reference/model.html
 
-    .. grid-item::
+   .. grid-item::
       :columns: 6 6 6 4
 
       .. card:: Roundtripping between Orbax Model and JAX Model
