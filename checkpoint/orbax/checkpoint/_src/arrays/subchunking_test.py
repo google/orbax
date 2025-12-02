@@ -25,8 +25,10 @@ from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
 
 
-Fragment = fragments_lib.Fragment
-Fragments = fragments_lib.Fragments
+AbstractFragment = fragments_lib.AbstractFragment
+AbstractFragments = fragments_lib.AbstractFragments
+ConcreteFragment = fragments_lib.ConcreteFragment
+ConcreteFragments = fragments_lib.ConcreteFragments
 Shape = types.Shape
 
 
@@ -462,7 +464,7 @@ class ChunkFragmentTest(parameterized.TestCase):
       target_shape: Shape,
       expected_regex: str,
   ):
-    fragment = Fragment(
+    fragment = ConcreteFragment(
         index=tuple(slice(0, d, 1) for d in fragment_shape),
         value=np.zeros(fragment_shape, dtype=np.int32),
     )
@@ -531,7 +533,7 @@ class ChunkFragmentTest(parameterized.TestCase):
       global_array = np.arange(np.prod(global_shape), dtype=np.int32).reshape(
           global_shape
       )
-      fragment = Fragment(
+      fragment = ConcreteFragment(
           index=fragment_index,
           value=global_array[fragment_index],
       )
@@ -554,7 +556,7 @@ class ChunkFragmentTest(parameterized.TestCase):
         )
 
     with self.subTest('abstract_fragment'):
-      fragment = Fragment(index=fragment_index, value=None)
+      fragment = AbstractFragment(index=fragment_index, value=None)
       chunks = subchunking.chunk_fragment(fragment, target_shape)
       self.assertLen(chunks, len(expected_indices))
 
@@ -581,11 +583,11 @@ class ChunkFragmentsTest(parameterized.TestCase):
         np.s_[2:4:1, 0:10:1, 0:3:1],
         np.s_[2:4:1, 0:10:1, 3:6:1],
     ]
-    original_fragments = Fragments(
+    original_fragments = ConcreteFragments(
         shape=global_shape,
         dtype=np.dtype(np.int32),
         fragments=[
-            Fragment(index=idx, value=global_array[idx])
+            ConcreteFragment(index=idx, value=global_array[idx])
             for idx in original_indices
         ],
     )

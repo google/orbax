@@ -17,6 +17,7 @@
 import dataclasses
 import itertools
 import math
+from typing import TypeVar
 
 from absl import logging
 import jax.numpy as jnp
@@ -25,8 +26,14 @@ from orbax.checkpoint._src.arrays import fragments as fragments_lib
 from orbax.checkpoint._src.arrays import types
 
 
-Fragment = fragments_lib.Fragment
-Fragments = fragments_lib.Fragments
+F = TypeVar(
+    'F',
+    bound=fragments_lib.AbstractFragment | fragments_lib.ConcreteFragment,
+)
+FS = TypeVar(
+    'FS',
+    bound=fragments_lib.AbstractFragments | fragments_lib.ConcreteFragments,
+)
 Shape = types.Shape
 
 
@@ -225,7 +232,7 @@ def validate_divisible_shapes(
 # TODO(b/363218206): double-check if we can have scalar fragments.
 
 
-def chunk_fragment(fragment: Fragment, target_shape: Shape) -> list[Fragment]:
+def chunk_fragment(fragment: F, target_shape: Shape) -> list[F]:
   """Chunks the given fragment into the given target shape.
 
   Args:
@@ -247,6 +254,8 @@ def chunk_fragment(fragment: Fragment, target_shape: Shape) -> list[Fragment]:
   Raises:
     ValueError: If the fragment's shape is not divisible by the target shape.
   """
+  fragment_t = type(fragment)
+
   if fragment.shape == target_shape:
     return [fragment]
 
@@ -277,16 +286,17 @@ def chunk_fragment(fragment: Fragment, target_shape: Shape) -> list[Fragment]:
     if fragment.value is None:
       value = None
     else:
-      value_index = Fragment(index=new_index).offset_by(-fragment.start).index
+      value_index = (
+          fragments_lib.AbstractFragment(index=new_index)
+          .offset_by(-fragment.start)
+          .index
+      )
       value = fragment.value[value_index]
-    new_fragments.append(Fragment(index=new_index, value=value))
+    new_fragments.append(fragment_t(index=new_index, value=value))
   return new_fragments
 
 
-def chunk_fragments(
-    fragments: Fragments,
-    target_shape: Shape,
-) -> Fragments:
+def chunk_fragments(fragments: FS, target_shape: Shape) -> FS:
   """Chunks (with zero-copy) the given fragments into the given target shape."""
   new_fragments = []
   for fragment in fragments.fragments:

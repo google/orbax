@@ -245,7 +245,7 @@ async def async_serialize_from_host(
       transaction=transaction,
   )
 
-  async def write_fragment(fragment: fragments.Fragment):
+  async def write_fragment(fragment: fragments.ConcreteFragment):
     """Writes a single fragment using TensorStore. No copy is performed."""
     assert isinstance(fragment.value, np.ndarray)
     requested_bytes = estimate_write_memory_footprint(fragment.value)

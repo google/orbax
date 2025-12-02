@@ -146,14 +146,14 @@ class ReplicaSlices:
       total_bytes += slice_nbytes
     return total_bytes
 
-  def to_fragments(self) -> fragments.Fragments:
+  def to_fragments(self) -> fragments.ConcreteFragments:
     """Converts replica slices to fragments."""
     assert self.is_on_host
-    result = fragments.Fragments(
+    result = fragments.ConcreteFragments(
         shape=self.global_shape,
         dtype=self.dtype,
         fragments=[
-            fragments.Fragment(
+            fragments.ConcreteFragment(
                 index=numpy_utils.resolve_slice(
                     rslice.index, self.global_shape
                 ),
