@@ -44,12 +44,17 @@ jobs:
       uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Free up space
+      run: |
+        pip cache purge
+        sudo docker image prune -a -f
+        df -h
     - name: Install dependencies
       # TODO(b/275613424): remove `pip install -e .` and `pip uninstall -y orbax`.
       # Currently in place to override remote orbax import due to flax dependency.
       run: |
-        pip install -e .
-        pip install -e .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip install --no-cache-dir -e .
+        pip install --no-cache-dir -e .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         pip uninstall -y orbax
         if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
           pip install -U jax jaxlib
