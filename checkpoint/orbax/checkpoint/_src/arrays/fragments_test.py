@@ -218,6 +218,66 @@ class FragmentTest(parameterized.TestCase):
       ('np_fragment', NpFragment),
       ('jax_fragment', JaxFragment),
   )
+  def test_intersect(
+      self,
+      fragment_t: ConcreteFragmentT,
+  ):
+    np_api = fragment_t.NP_API
+    full_value = np_api.arange(8 * 9).reshape((8, 9))
+    fragment_index = np.s_[4:8:1, 3:9:1]
+
+    f = fragment_t(index=fragment_index, value=full_value[fragment_index])
+
+    with self.subTest('fully_within_fragment_index'):
+      bounds = np.s_[5:7:1, 4:8:1]
+      s = f.intersect(array_fragments._ndarray_from_index(bounds))
+      self.assertEqual(
+          fragment_t(index=np.s_[5:7:1, 4:8:1], value=full_value[bounds]),
+          s,
+      )
+
+    with self.subTest('fully_enclosing_fragment_index'):
+      bounds = np.s_[2:10:1, 1:11:1]
+      s = f.intersect(array_fragments._ndarray_from_index(bounds))
+      self.assertEqual(fragment_t(index=np.s_[4:8:1, 3:9:1], value=f.value), s)
+
+    with self.subTest('spanning_fragment_start'):
+      bounds = np.s_[2:6:1, 2:4:1]
+      s = f.intersect(array_fragments._ndarray_from_index(bounds))
+      self.assertEqual(
+          fragment_t(index=np.s_[4:6:1, 3:4:1], value=f.value[:2, :1]), s
+      )
+
+    with self.subTest('spanning_fragment_stop'):
+      bounds = np.s_[6:10:1, 6:10:1]
+      s = f.intersect(array_fragments._ndarray_from_index(bounds))
+      self.assertEqual(
+          fragment_t(index=np.s_[6:8:1, 6:9:1], value=f.value[2:, 3:]), s
+      )
+
+    with self.subTest('with_no_overlap'):
+      self.assertIsNone(
+          f.intersect(
+              array_fragments._ndarray_from_index(np.s_[10:12:1, 10:12:1])
+          )
+      )
+      # This is within the bounds of the fragment but spans no elements.
+      self.assertIsNone(
+          f.intersect(array_fragments._ndarray_from_index(np.s_[6:6:1, 3:9:1]))
+      )
+
+    with self.subTest('rank_0'):
+      s = fragment_t(index=(), value=np_api.ones([])).intersect(
+          np.zeros([0, 3], dtype=int)
+      )
+      self.assertIsNotNone(s)
+      self.assertEqual((), s.index)
+      self.assertIsInstance(s.value, np_api.ndarray)
+
+  @parameterized.named_parameters(
+      ('np_fragment', NpFragment),
+      ('jax_fragment', JaxFragment),
+  )
   def test_slice(
       self,
       fragment_t: ConcreteFragmentT,
@@ -271,6 +331,40 @@ class FragmentTest(parameterized.TestCase):
       self.assertIsNotNone(s)
       self.assertEqual((), s.index)
       self.assertIsInstance(s.value, np_api.ndarray)
+
+  @parameterized.named_parameters(
+      ('np_fragment', NpFragment),
+      ('jax_fragment', JaxFragment),
+  )
+  def test_slice_of_value(
+      self,
+      fragment_t: ConcreteFragmentT,
+  ):
+    np_api = fragment_t.NP_API
+    full_value = np_api.arange(8 * 9).reshape((8, 9))
+    fragment_index = np.s_[4:8:1, 3:9:1]
+    fragment = fragment_t(
+        index=fragment_index, value=full_value[fragment_index]
+    )
+
+    with self.subTest('returns_slice_of_value'):
+      np.testing.assert_array_equal(
+          full_value[np.s_[5:7:1, 4:8:1]],
+          fragment.slice_of_value(
+              array_fragments._ndarray_from_index(np.s_[5:7:1, 4:8:1])
+          ),
+      )
+
+    with self.subTest('raises_if_slice_is_out_of_bounds'):
+      with self.assertRaises(ValueError):
+        fragment.slice_of_value(
+            array_fragments._ndarray_from_index(np.s_[2:6:1, 3:9:1])
+        )
+
+      with self.assertRaises(ValueError):
+        fragment.slice_of_value(
+            array_fragments._ndarray_from_index(np.s_[4:8:1, 8:12:1])
+        )
 
 
 @parameterized.named_parameters(

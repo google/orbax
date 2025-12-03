@@ -142,6 +142,66 @@ class _GenericFragment(Generic[A]):
     out_idx[:, :2] += np.expand_dims(delta, axis=1)
     return type(self)(np_index=out_idx, value=self.value)
 
+  def intersect(
+      self,
+      np_index: NpIndex,  # shape=[{rank}, 3], dtype=int
+  ) -> _GenericFragment[A] | None:
+    """Intersects this fragment with the given NpIndex.
+
+    The result is in this fragment's coordinate space. For example,
+    intersecting a fragment with its own index gives an identical fragment.
+
+    Args:
+      np_index: The NpIndex to intersect with.
+
+    Returns:
+      A new fragment representing the intersection, or None if there is no
+      overlap.
+    """
+    if (self.step != 1).any() or (np_index[:, 2] != 1).any():
+      raise NotImplementedError('index steps other than 1 are not supported.')
+
+    out_np_index = np_index.copy()
+    start = out_np_index[:, 0] = np.maximum(out_np_index[:, 0], self.start)
+    stop = out_np_index[:, 1] = np.minimum(out_np_index[:, 1], self.stop)
+    if not (start < stop).all():
+      return None
+    return type(self)(
+        np_index=out_np_index, value=self.slice_of_value(out_np_index)
+    )
+
+  def slice(
+      self,
+      np_index: NpIndex,  # shape=[{rank}, 3], dtype=int
+  ) -> _GenericFragment[A] | None:  # Use typing.Self once 3.11 is minimum.
+    """Slices this fragment by the given NpIndex.
+
+    The result is in the slice's coordinate space. For example, slicing a
+    fragment by its own index gives a fragment whose start is zero.
+
+    Args:
+      np_index: The NpIndex to slice by.
+
+    Returns:
+      A new fragment representing the slice, or None if there is no overlap.
+    """
+    intersection = self.intersect(np_index)
+    return intersection.offset_by(-np_index[:, 0]) if intersection else None
+
+  def slice_of_value(self, np_index: NpIndex) -> A:
+    """Takes a slice of the value of this fragment.
+
+    It is required that `np_index` has already been clamped to the fragment's
+    bounds; otherwise a ValueError will result.
+
+    Args:
+      np_index: The NpIndex to slice by.
+
+    Returns:
+      A slice of the fragment's value.
+    """
+    raise NotImplementedError()
+
 
 @dataclasses.dataclass(frozen=True, init=False, eq=False, repr=False)
 class AbstractFragment(_GenericFragment[type(None)]):
@@ -178,21 +238,9 @@ class AbstractFragment(_GenericFragment[type(None)]):
     out_idx[:, :2] += np.expand_dims(delta, axis=1)
     return type(self)(np_index=out_idx)
 
-  def slice(
-      self,
-      np_index: NpIndex,  # shape=[{rank}, 3], dtype=int
-  ) -> AbstractFragment | None:  # Use typing.Self once 3.11 is minimum.
-    """Slices this fragment to find the part that overlaps the given NpIndex."""
-    if (self.step != 1).any() or (np_index[:, 2] != 1).any():
-      raise NotImplementedError('Coming ... soon?')
-
-    slice_shape = np_index[:, 1] - np_index[:, 0]
-    out = self.offset_by(-np_index[:, 0])
-    start = out.start[:] = np.maximum(out.start, 0)
-    stop = out.stop[:] = np.minimum(out.stop, slice_shape)
-    if not (start < stop).all():
-      return None
-    return out
+  def slice_of_value(self, np_index: NpIndex) -> None:
+    del np_index
+    return None
 
 
 @dataclasses.dataclass(frozen=True, init=False)
@@ -230,39 +278,14 @@ class _ConcreteFragment(_GenericFragment[Aconcrete]):
   def nbytes(self) -> int:
     return self.value.nbytes
 
-  def slice(
-      self,
-      np_index: NpIndex,  # shape=[{rank}, 3], dtype=int
-  ) -> _ConcreteFragment | None:  # Use typing.Self once 3.11 is minimum.
-    """Slices this fragment to find the part that overlaps the given NpIndex."""
-    if (self.step != 1).any() or (np_index[:, 2] != 1).any():
-      raise NotImplementedError('Coming ... soon?')
-
-    slice_shape = np_index[:, 1] - np_index[:, 0]
-    out = self.offset_by(-np_index[:, 0])
-    start = out.start[:] = np.maximum(out.start, 0)
-    stop = out.stop[:] = np.minimum(out.stop, slice_shape)
-    if not (start < stop).all():
-      return None
-    return type(self)(
-        np_index=out.np_index, value=self.slice_of_value(np_index)
-    )
-
-  def slice_of_value(
-      self,
-      new_np_idx: NpIndex,
-  ) -> A:
-    """Returns a slice of `value`."""
-    start = self.start
-    stop = self.stop
+  def slice_of_value(self, np_index: NpIndex) -> Aconcrete:
     # This is just a convenient way to construct the required tuple of slices.
-    f = AbstractFragment(
-        np_index=np.stack([
-            np.maximum(start, new_np_idx[:, 0]),
-            np.minimum(stop, new_np_idx[:, 1]),
-            new_np_idx[:, 2],
-        ], axis=1)
-    ).offset_by(-start)
+    f = AbstractFragment(np_index=np_index).offset_by(-self.start)
+    if (f.start < 0).any() or (f.stop > self.value.shape).any():
+      raise ValueError(
+          f'Attempt to slice fragment value of shape {self.shape} with'
+          f' out-of-bounds index {f}'
+      )
     return self.value[f.index or ...]
 
 
@@ -353,7 +376,7 @@ class _GenericFragments(Generic[_F]):
   def slice(
       self,
       index: NpIndex | Index,  # shape=[{rank}, 3], dtype=int
-  ) -> '_GenericFragments[F]':  # Use typing.Self once 3.11 is minimum.
+  ) -> '_GenericFragments[_GenericFragment[A]]':  # Use typing.Self once >=3.11.
     """Returns a slice of this object."""
     if not isinstance(index, np.ndarray):
       index = np_utils.resolve_slice(index, self.shape)
