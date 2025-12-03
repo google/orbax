@@ -699,6 +699,7 @@ class BasePyTreeCheckpointHandler(
                   param_infos=param_infos,
                   save_args=save_args,
                   custom_metadata=custom_metadata,
+                  use_ocdbt=self._use_ocdbt,
                   use_zarr3=self._use_zarr3,
                   partial_save=partial_save,
               ),
@@ -991,6 +992,11 @@ class BasePyTreeCheckpointHandler(
         if internal_tree_metadata.use_zarr3 is not None
         else self._use_zarr3
     )
+    use_ocdbt = (
+        internal_tree_metadata.use_ocdbt
+        if internal_tree_metadata.use_ocdbt is not None
+        else type_handlers.is_ocdbt_checkpoint(directory)
+    )
     raise_array_data_missing_error = (
         internal_tree_metadata.store_array_data_equal_to_fill_value
     )
@@ -1038,7 +1044,7 @@ class BasePyTreeCheckpointHandler(
     param_infos = self._get_param_infos(
         item=value_metadata_tree,
         directory=directory,
-        use_ocdbt=type_handlers.is_ocdbt_checkpoint(directory),
+        use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
         raise_array_data_missing_error=raise_array_data_missing_error,
     )
@@ -1135,9 +1141,10 @@ class BasePyTreeCheckpointHandler(
       *,
       param_infos: PyTree,
       save_args: PyTree,
-      custom_metadata: tree_types.JsonType | None = None,
-      use_zarr3: bool = False,
-      partial_save: bool = False,
+      custom_metadata: tree_types.JsonType | None,
+      use_ocdbt: bool,
+      use_zarr3: bool,
+      partial_save: bool,
   ) -> None:
     if utils.is_primary_host(self._primary_host):
       metadata_write_start_time = time.time()
@@ -1145,6 +1152,7 @@ class BasePyTreeCheckpointHandler(
       metadata_content = tree_metadata.InternalTreeMetadata.build(
           param_infos,
           save_args=save_args,
+          use_ocdbt=use_ocdbt,
           use_zarr3=use_zarr3,
           custom_metadata=custom_metadata,
           pytree_metadata_options=self._pytree_metadata_options,
@@ -1178,7 +1186,8 @@ class BasePyTreeCheckpointHandler(
       *,
       param_infos: PyTree,
       save_args: PyTree,
-      custom_metadata: tree_types.JsonType | None = None,
+      custom_metadata: tree_types.JsonType | None,
+      use_ocdbt: bool,
       use_zarr3: bool,
       partial_save: bool,
   ) -> None:
@@ -1207,6 +1216,7 @@ class BasePyTreeCheckpointHandler(
         param_infos=param_infos,
         save_args=save_args,
         custom_metadata=custom_metadata,
+        use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
         partial_save=partial_save,
     )
@@ -1284,7 +1294,6 @@ class BasePyTreeCheckpointHandler(
     Returns:
       tree containing metadata.
     """
-    is_ocdbt_checkpoint = type_handlers.is_ocdbt_checkpoint(directory)
     internal_tree_metadata = asyncio_utils.run_sync(
         self._read_metadata_file(directory)
     )
@@ -1292,7 +1301,6 @@ class BasePyTreeCheckpointHandler(
         internal_tree_metadata.as_custom_metadata(
             directory,
             self._type_handler_registry,
-            use_ocdbt=is_ocdbt_checkpoint,
         ),
         custom_metadata=internal_tree_metadata.custom_metadata,
     )
