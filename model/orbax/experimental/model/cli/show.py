@@ -14,7 +14,9 @@
 
 """OBM CLI `show` command."""
 
+import itertools
 import os
+from typing import List, NoReturn
 
 from google.protobuf import message
 from google.protobuf import text_format
@@ -30,16 +32,22 @@ import typer
 from typing_extensions import Annotated
 
 
+def _bail(msg: str) -> NoReturn:
+  typer.secho(f'Error: {msg}', fg=typer.colors.RED, err=True)
+  raise typer.Exit(1)
+
+
 def _get_stable_hlo_body(
     manifest: obm.manifest_pb2.Manifest, fn_name: str
 ) -> obm.manifest_pb2.StableHloFunctionBody:
+  """Returns the StableHLO function body for the given function."""
   if fn_name not in manifest.objects:
-    raise ValueError(f'Function `{fn_name}` not found in the manifest')
+    _bail(f'Function `{fn_name}` not found in the manifest')
   if not manifest.objects[fn_name].HasField('function'):
-    raise ValueError(f'Object `{fn_name}` is not a function')
+    _bail(f'Object `{fn_name}` is not a function')
   fn = manifest.objects[fn_name].function
   if not fn.body.HasField('stable_hlo_body'):
-    raise ValueError(f'Function `{fn_name}` does not have a StableHLO body')
+    _bail(f'Function `{fn_name}` does not have a StableHLO body')
   return fn.body.stable_hlo_body
 
 
@@ -65,9 +73,7 @@ def _show_jax_specific_info(
       rich.print(table)
 
   if not found_data:
-    raise ValueError(
-        'Function `%s` does not have JAX specific information' % fn_name
-    )
+    _bail(f'Function `{fn_name}` does not have JAX specific info')
 
 
 def _save_stablehlo(
@@ -88,14 +94,14 @@ def show(
         str, typer.Argument(help='Base directory of the model')
     ],
     details: Annotated[
-        str,
+        List[str],
         typer.Option(
             help=(
                 'Show the detailed information about an object or a'
                 ' supplemental'
             )
         ),
-    ] = '',
+    ] = [],
     verbose: Annotated[
         bool,
         typer.Option(
@@ -125,8 +131,7 @@ def show(
   try:
     manifest = obm.load(model_base_dir)
   except IOError as e:
-    typer.echo(f'Failed to load Orbax model: {e}')
-    raise typer.Exit(1)
+    _bail(f'Failed to load Orbax model: {e}')
 
   rich.print(
       f'Manifest: {manifest.ByteSize()//1024} KiB,'
@@ -134,17 +139,27 @@ def show(
       f' {len(manifest.supplemental_info)} supplementals'
   )
 
+  # Support both --details=a --details=b and --details=a,b.
+  details = tuple(
+      set(itertools.chain.from_iterable([d.split(',') for d in details]))
+  )
+
   if details and savehlo:
-    _save_stablehlo(manifest, details, savehlo)
+    if len(details) > 1:
+      _bail('Please specify only one function to save')
+    _save_stablehlo(manifest, details[0], savehlo)
     return
 
   if details and jax_specific_info:
-    _show_jax_specific_info(model_base_dir, manifest, details)
+    if len(details) > 1:
+      _bail('Please specify only one function to show JAX specific info')
+    _show_jax_specific_info(model_base_dir, manifest, details[0])
     return
 
   if details:
-    rich.print(f'Showing details for {details}...')
-    _show_details(model_base_dir, manifest, details, verbose)
+    rich.print(f'Showing details for {', '.join(details)}...')
+    for obj in details:
+      _show_details(model_base_dir, manifest, obj, verbose)
     return
 
   if manifest.objects:
@@ -207,9 +222,7 @@ def _show_object_details(
     _show_value_details(name, obj.value)
   elif obj.HasField('poly_fn'):
     for i, fn in enumerate(obj.poly_fn.concrete_functions):
-      _show_function_details(
-          model_base_dir, f'{name} #{i+1}', fn, verbose
-      )
+      _show_function_details(model_base_dir, f'{name} #{i+1}', fn, verbose)
   else:
     rich.print('Unknown object type')
 
@@ -339,4 +352,4 @@ def _read_proto_from_data(
   elif data.HasField('inlined_string'):
     proto.ParseFromString(data.inlined_string.encode('utf-8'))
   else:
-    raise ValueError('Unsupported data type')
+    _bail(f'Unsupported data type: {data.mime_type}')
