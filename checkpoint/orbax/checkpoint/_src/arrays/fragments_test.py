@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import dataclasses
-from typing import TypeAlias
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -30,21 +29,16 @@ ConcreteFragments = array_fragments.ConcreteFragments
 AnyFragment = (AbstractFragment | ConcreteFragment)
 AnyFragments = (AbstractFragments | ConcreteFragments)
 
-Module: TypeAlias = type(dataclasses)
-
 
 class FragmentTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
-      ('abstract_fragment', AbstractFragment, None),
-      ('concrete_fragment', ConcreteFragment, np),
+      ('abstract_fragment', AbstractFragment),
+      ('concrete_fragment', ConcreteFragment),
   )
-  def test_construction(
-      self,
-      fragment_t: type[AnyFragment],
-      np_api: Module | None,
-  ):
-    value = np.ones((2, 3)) if np_api is not None else None
+  def test_construction(self, fragment_t: type[AnyFragment]):
+    np_api = fragment_t.NP_API
+    value = np_api.ones((2, 3)) if np_api is not None else None
     with self.subTest('rejects_index_as_ndarray'):
       index = np.s_[1:2:1, 3:4:1]
       with self.assertRaisesRegex(TypeError, 'must be a tuple of slices'):
@@ -104,14 +98,11 @@ class FragmentTest(parameterized.TestCase):
     )
 
   @parameterized.named_parameters(
-      ('abstract_fragment', AbstractFragment, None),
-      ('concrete_fragment', ConcreteFragment, np),
+      ('abstract_fragment', AbstractFragment),
+      ('concrete_fragment', ConcreteFragment),
   )
-  def test_nd_properties(
-      self,
-      fragment_t: type[AnyFragment],
-      np_api: Module | None,
-  ):
+  def test_nd_properties(self, fragment_t: type[AnyFragment]):
+    np_api = fragment_t.NP_API
     value = np_api.ones([10, 10]) if np_api is not None else None
     f = fragment_t(index=np.s_[1:8:2, 3:9:4], value=value)
     np.testing.assert_array_equal([1, 3], f.start)
@@ -119,14 +110,11 @@ class FragmentTest(parameterized.TestCase):
     np.testing.assert_array_equal([2, 4], f.step)
 
   @parameterized.named_parameters(
-      ('abstract_fragment', AbstractFragment, None),
-      ('concrete_fragment', ConcreteFragment, np),
+      ('abstract_fragment', AbstractFragment),
+      ('concrete_fragment', ConcreteFragment),
   )
-  def test_rank_zero(
-      self,
-      fragment_t: type[AnyFragment],
-      np_api: Module | None,
-  ):
+  def test_rank_zero(self, fragment_t: type[AnyFragment]):
+    np_api = fragment_t.NP_API
     f = fragment_t(
         index=(), value=np_api.ones([]) if np_api is not None else None
     )
@@ -137,7 +125,7 @@ class FragmentTest(parameterized.TestCase):
   def test_repr_abstract(self):
     self.assertEqual(
         repr(AbstractFragment(index=np.s_[1:2:1, 3:4:1])),
-        'Fragment(index=np.s_[1:2:1, 3:4:1])',
+        'AbstractFragment(index=np.s_[1:2:1, 3:4:1])',
     )
 
   def test_repr_concrete(self):
@@ -145,7 +133,7 @@ class FragmentTest(parameterized.TestCase):
         repr(
             ConcreteFragment(index=np.s_[1:2:1, 3:4:1], value=np.ones([4, 4]))
         ),
-        'Fragment(index=np.s_[1:2:1, 3:4:1], value=...)',
+        'ConcreteFragment(index=np.s_[1:2:1, 3:4:1], value=...)',
     )
 
   def test_nbytes_of_concrete_fragment_is_nbytes_of_its_value(self):
@@ -234,17 +222,16 @@ class FragmentTest(parameterized.TestCase):
 
 
 @parameterized.named_parameters(
-    ('abstract_fragments', AbstractFragments, None),
-    ('concrete_fragments', ConcreteFragments, np),
+    ('abstract_fragments', AbstractFragments),
+    ('concrete_fragments', ConcreteFragments),
 )
 class FragmentsTest(parameterized.TestCase):
 
   def test_can_be_constructed_with_fragment_list(
-      self,
-      fragments_t: type[AnyFragments],
-      np_api: Module | None,
+      self, fragments_t: type[AnyFragments]
   ):
     fragment_t = fragments_t.FRAGMENT_T
+    np_api = fragment_t.NP_API
     fragment_value = np_api.full([1, 1], 2.0) if np_api is not None else None
     fragments_t(
         shape=(4, 4),
@@ -253,9 +240,8 @@ class FragmentsTest(parameterized.TestCase):
     )
 
   def test_cannot_be_constructed_with_non_fragment_list(
-      self, fragments_t: type[AnyFragments], np_api: Module | None,
+      self, fragments_t: type[AnyFragments]
   ):
-    del np_api
     with self.assertRaises(TypeError):
       fragments_t(
           shape=(4, 4),
@@ -263,12 +249,9 @@ class FragmentsTest(parameterized.TestCase):
           fragments=[np.s_[1:2:1, 3:4:1]],
       )
 
-  def test_non_degenerate_fragments(
-      self,
-      fragments_t: type[AnyFragments],
-      np_api: Module | None,
-  ):
+  def test_non_degenerate_fragments(self, fragments_t: type[AnyFragments]):
     fragment_t = fragments_t.FRAGMENT_T
+    np_api = fragment_t.NP_API
     fragment_value = (
         [np_api.full([1, 1], 2.0), np_api.full([2, 2], 3.0)]
         if np_api is not None
@@ -285,11 +268,10 @@ class FragmentsTest(parameterized.TestCase):
     self.assertFalse(fragments.is_degenerate())
 
   def test_non_degenerate_fragments_due_to_one_non_empty_fragment(
-      self,
-      fragments_t: type[AnyFragments],
-      np_api: Module | None,
+      self, fragments_t: type[AnyFragments]
   ):
     fragment_t = fragments_t.FRAGMENT_T
+    np_api = fragment_t.NP_API
     fragment_value = (
         [np_api.full([1, 1], 2.0), np_api.full([2, 2], 3.0)]
         if np_api is not None
@@ -306,11 +288,10 @@ class FragmentsTest(parameterized.TestCase):
     self.assertFalse(fragments.is_degenerate())
 
   def test_non_degenerate_fragments_due_to_all_degenerate_fragment(
-      self,
-      fragments_t: type[AnyFragments],
-      np_api: Module | None,
+      self, fragments_t: type[AnyFragments]
   ):
     fragment_t = fragments_t.FRAGMENT_T
+    np_api = fragment_t.NP_API
     fragment_value = (
         [np_api.full([0, 1], 2.0), np_api.full([2, 0], 3.0)]
         if np_api is not None
@@ -327,11 +308,10 @@ class FragmentsTest(parameterized.TestCase):
     self.assertTrue(fragments.is_degenerate())
 
   def test_nbytes_of_fragments_matches_nbytes_of_same_shaped_array(
-      self,
-      fragments_t: type[AnyFragments],
-      np_api: Module | None,
+      self, fragments_t: type[AnyFragments]
   ):
     fragment_t = fragments_t.FRAGMENT_T
+    np_api = fragment_t.NP_API
     fragment_value = (
         [np_api.full([1, 1], 2.0), np_api.full([2, 2], 3.0)]
         if np_api is not None
@@ -349,11 +329,10 @@ class FragmentsTest(parameterized.TestCase):
     self.assertEqual(np.ones((5, 5), np.float32).nbytes, fragments.nbytes)
 
   def test_addressable_nbytes_is_sum_of_individual_fragment_bytes(
-      self,
-      fragments_t: type[AnyFragments],
-      np_api: Module | None,
+      self, fragments_t: type[AnyFragments]
   ):
     fragment_t = fragments_t.FRAGMENT_T
+    np_api = fragment_t.NP_API
     fragment_value = (
         [np_api.full([1, 1], 2.0), np_api.full([2, 2], 3.0)]
         if np_api is not None
@@ -369,12 +348,9 @@ class FragmentsTest(parameterized.TestCase):
     )
     self.assertEqual(((1 * 1) + (2 * 2)) * 4, fragments.addressable_nbytes)
 
-  def test_slice(
-      self,
-      fragments_t: type[AnyFragments],
-      np_api: Module | None,
-  ):
+  def test_slice(self, fragments_t: type[AnyFragments]):
     fragment_t = fragments_t.FRAGMENT_T
+    np_api = fragment_t.NP_API
     full_value = (
         np_api.arange(5 * 5).reshape((5, 5))
         if np_api is not None
