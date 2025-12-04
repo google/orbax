@@ -325,7 +325,7 @@ class _SignalingThread(threading.Thread):
   def join(self, timeout: Optional[float] = None):
     """Waits for the target function to complete."""
     if threading.current_thread() is threading.main_thread():
-      logging.warning(
+      logging.info(
           '[process=%d][thread=%s][operation_id=%s] _SignalingThread.join()'
           ' waiting for signals (%r) blocking the main thread will slow down'
           ' blocking save times. This is likely due to main thread calling'
