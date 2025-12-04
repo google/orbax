@@ -105,9 +105,8 @@ class SafetensorsLayoutTest(
 
     # Load the checkpoint
     layout = SafetensorsLayout(test_path)
-    restore_fn = await layout.load()
-    restored_checkpointables = await restore_fn
-    pytree = restored_checkpointables['pytree']
+    restore_fn = await layout.load_pytree()
+    pytree = await restore_fn
 
     # Verify restored data
     # TODO(b/430651483)
@@ -132,7 +131,7 @@ class SafetensorsLayoutTest(
           return_value=incomplete_dtypes,
           spec=True,
       ):
-        awaitable_fn = await layout.load()
+        awaitable_fn = await layout.load_pytree()
         _ = await awaitable_fn
 
   async def test_metadata(self):

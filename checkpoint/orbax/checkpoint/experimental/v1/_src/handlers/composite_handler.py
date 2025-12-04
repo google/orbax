@@ -25,7 +25,9 @@ from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
@@ -262,7 +264,7 @@ class CompositeHandler:
 
   def _get_saved_handler_typestrs(
       self, directory: path_types.Path
-  ) -> dict[str, str]:
+  ) -> dict[str, str | None]:
     """Reads from the checkpoint metadata to get saved handler typestrs."""
     step_metadata_file_path = checkpoint_metadata.step_metadata_file_path(
         directory
@@ -291,28 +293,40 @@ class CompositeHandler:
         directory,
     )
 
-    saved_handler_typestrs: dict[str, str] = {}
+    # The following generically handles the case where the checkpoint is missing
+    # the checkpoint metadata file. This is a fallback for older v0 checkpoints.
+
+    # We check each subdirectory treating it as a checkpointable.
+    # The order of presedence for mapping checkpointable names to handlers is:
+    # 1. A pytree metadata file, indicating a pytree handler
+    # 2. A checkpointable with a handler registered in the handler registry.
+    # 3. If neither, we skip it and treat it as garbage since we don't know
+    #    how to handle it.
+
+    saved_handler_typestrs: dict[str, str | None] = {}
     for checkpointable_path in directory.iterdir():
-      serialized_metadata = self._metadata_store.read(
-          checkpoint_metadata.step_metadata_file_path(checkpointable_path)
-      )
-      if serialized_metadata is None:
+      if not checkpointable_path.is_dir():
         continue
-      saved_metadata = step_metadata_serialization.deserialize(
-          serialized_metadata
+      checkpointable_name = checkpointable_path.name
+
+      pytree_metadata_path = (
+          checkpointable_path / format_utils.PYTREE_METADATA_FILE
       )
-      if isinstance(saved_metadata.item_handlers, dict):
-        raise ValueError(
-            f'Path at {directory} contains subdirectories:'
-            f' {_subdirs(directory)}, which are expected to'
-            ' match the keys given by the _CHECKPOINT_METADATA file:'
-            f' {saved_metadata.item_handlers}. If you intended to load a pytree'
-            ' checkpoint from the given path, then please consider using'
-            ' `loading.load_pytree(..., checkpointable_name=None)` instead.'
-            f' {_V0_ERROR_MESSAGE}'
+
+      if pytree_metadata_path.exists():
+        saved_handler_typestrs[checkpointable_name] = handler_types.typestr(
+            pytree_handler.PyTreeHandler
         )
-      item_handlers = saved_metadata.item_handlers
-      if item_handlers is not None:
-        checkpointable_name = checkpointable_path.name
-        saved_handler_typestrs[checkpointable_name] = item_handlers
+      elif self._handler_registry.has(checkpointable_name):
+        # If the handler is registered we can assume it will be found in
+        # resolve_handler_for_load.
+        saved_handler_typestrs[checkpointable_name] = None
+      else:
+        raise ValueError(
+            'Cannot determine handler for checkpointable'
+            f" '{checkpointable_name}' in directory {directory}. The top-level"
+            " '_CHECKPOINT_METADATA' is missing, and this item does not have a"
+            " '_METADATA' file to be loaded as a PyTree, nor is it registered"
+            ' in the handler registry.'
+        )
     return saved_handler_typestrs

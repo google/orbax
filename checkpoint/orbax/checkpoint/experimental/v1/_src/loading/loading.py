@@ -109,15 +109,17 @@ def load_pytree(
           path, ctx.checkpoint_layout, checkpointable_name
       )
   )
-  return _load_checkpointables_impl(
+  abstract_pytree = _standardize_abstract_checkpointables(abstract_pytree)
+
+  return _load_impl_common(
       layout,
-      abstract_checkpointables={
-          checkpointable_name: _standardize_abstract_checkpointables(
-              abstract_pytree
-          )
-      },
+      lambda: layout.load_pytree(
+          checkpointable_name,
+          abstract_pytree,
+      ),
+      sync_key='load_pytree',
       start_time=start_time,
-  )[checkpointable_name]
+  )
 
 
 def load_checkpointables(
@@ -182,52 +184,54 @@ def load_checkpointables(
       layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
   )
 
-  return _load_checkpointables_impl(
-      layout, abstract_checkpointables, start_time=start_time
-  )
-
-
-def _load_checkpointables_impl(
-    layout: checkpoint_layout.CheckpointLayout,
-    abstract_checkpointables: (
-        dict[str, Any] | CheckpointMetadata[dict[str, Any]] | None
-    ) = None,
-    *,
-    start_time: float,
-) -> dict[str, Any]:
-  """Implementation of :py:func:`.load_checkpointables`.
-
-  Args:
-    layout: The layout to use for loading the checkpoint (Orbax, SafeTensors, or
-      other).
-    abstract_checkpointables: A dictionary of abstract checkpointables.
-      Dictionary keys represent the names of the checkpointables, while the
-      values are the abstract checkpointable objects themselves.
-    start_time: The time when the loading process started.
-
-  Returns:
-    A dictionary of checkpointables. Dictionary keys represent the names of the
-    checkpointables, while the values are the checkpointable objects themselves.
-  """
-  if not layout.path:
-    raise ValueError('Path must not be None.')
-
-  context = context_lib.get_context()
   abstract_checkpointables = _standardize_abstract_checkpointables(
       abstract_checkpointables
   )
   validation.validate_abstract_checkpointables(abstract_checkpointables)
 
-  async def _load() -> dict[str, Any]:
-    load_awaitable = await layout.load(abstract_checkpointables)
+  return _load_impl_common(
+      layout,
+      lambda: layout.load_checkpointables(abstract_checkpointables),
+      sync_key='load_checkpointables',
+      start_time=start_time,
+  )
+
+
+def _load_impl_common(
+    layout: checkpoint_layout.CheckpointLayout,
+    load_awaitable_factory: Any,
+    sync_key: str,
+    start_time: float,
+) -> dict[str, Any] | tree_types.PyTreeOf[tree_types.LeafType]:
+  """Implementation of loading logic for both :py:func:`.load_checkpointables` and :py:func:`.load_pytree`.
+
+  Args:
+    layout: The layout to use for loading the checkpoint (Orbax, SafeTensors, or
+      other).
+    load_awaitable_factory: A factory function that returns an awaitable for
+      loading the checkpoint based on either :py:func:`.load_checkpointables` or
+      :py:func:`.load_pytree`.
+    sync_key: The key to use for synchronization.
+    start_time: The time when the loading process started.
+
+  Returns:
+    The loaded checkpointables or PyTree itself.
+  """
+  if not layout.path:
+    raise ValueError('Path must not be None.')
+
+  ctx = context_lib.get_context()
+
+  async def _load() -> Any:
+    load_awaitable = await load_awaitable_factory()
     result = await load_awaitable
     await multihost.sync_global_processes(
         multihost.unique_barrier_key(
-            'load_checkpointables',
-            prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+            sync_key,
+            prefix=ctx.multiprocessing_options.barrier_sync_key_prefix,
         ),
-        operation_id=context.operation_id(),
-        processes=context.multiprocessing_options.active_processes,
+        operation_id=ctx.operation_id(),
+        processes=ctx.multiprocessing_options.active_processes,
     )
     return result
 
