@@ -96,6 +96,7 @@ class ExportManager:
         additional signatures to export.
       tree_verity_options: Settings to enable model hashing and signing via
        
+      inference_converter_options: Options for the TPU Inference Converter V2.
     """
     self._serialization_functions.save(
         model_path=model_path,
