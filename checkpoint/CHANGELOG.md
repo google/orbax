@@ -18,6 +18,8 @@ creation scheduling, which may slow down background saving
 (but not the blocking time). The change also improves the
 `PathAwaitingCreation` interface so that any call to `await_creation` will
 trigger creation if it has not already been started.
+- Add sharding fallback for target tree leaves in `StandardCheckpointHandler`
+restore, removing sharding/topology warnings.
 
 ## [0.11.31] - 2025-12-11
 
