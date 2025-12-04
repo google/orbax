@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Roll back earlier change altering metadata format, which was observed to cause
 breakages.
+- Fix warning message when restoring due to sharding layout, when user doesn't
+provide a target on restore.
 
 ## [0.11.29] - 2025-11-25
 
