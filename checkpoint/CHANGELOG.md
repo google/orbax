@@ -22,6 +22,8 @@ breakages.
   include an arbitrary `step_prefix` with any character(s) such as underscores.
 - Fix CheckpointManager initial directory creation to use `file_options.path_permission_mode`.
 - Fix using jax.eval_shape with StandardRestore
+- #v1 Fix missing `_CHECKPOINT_METADATA` upon restoration and reading for
+  checkpointable handlers.
 
 ### Changed
 
