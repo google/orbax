@@ -16,7 +16,7 @@
 
 import dataclasses
 import inspect
-from typing import Tuple, Type, TypeVar, Union
+from typing import Tuple, Type, Union
 
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_type_registry
@@ -77,8 +77,6 @@ _RESTORE_ARG_TO_HANDLER: dict[Type[CheckpointArgs], Type[CheckpointHandler]] = (
     {}
 )
 
-_CheckpointArgsType = TypeVar('_CheckpointArgsType', bound=CheckpointArgs)
-
 
 def register_with_handler(
     handler_cls: Type[CheckpointHandler],
@@ -106,9 +104,7 @@ def register_with_handler(
   if not for_save and not for_restore:
     raise ValueError('`for_save` and `for_restore` cannot both be False.')
 
-  def decorator(
-      cls: Type[_CheckpointArgsType],
-  ) -> Type[_CheckpointArgsType]:
+  def decorator(cls: Type[CheckpointArgs]):
     if not issubclass(cls, CheckpointArgs):
       raise TypeError(
           f'{cls} must subclass `CheckpointArgs` in order to be registered.'
