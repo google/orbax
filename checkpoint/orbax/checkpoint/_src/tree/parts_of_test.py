@@ -297,6 +297,39 @@ class ValueKeyFromPathTest(parameterized.TestCase):
       self.assertIs(t._present[parts_of.value_key_from_path(path)], value)
 
 
+class SelectTest(parameterized.TestCase):
+
+  def test_select_extracts_nested_dict(self):
+    template = MyState(a=(X, X), b={'c': {'d': X}})
+    t = PartsOf(template, MyState(a=(1, PH), b={'c': {'d': 2}}))
+
+    path = ('b', 'c')
+    select_template = {'d': X}
+    result = t.select(path, select_template)
+
+    self.assertEqual(result.full_structure, {'d': 2})
+
+  def test_select_with_placeholders(self):
+    template = MyState(a=(X, X), b={'c': {'d': X}})
+    t = PartsOf(template, MyState(a=(1, 1), b={'c': {'d': PH}}))
+
+    path = ('b', 'c')
+    select_template = {'d': X}
+    result = t.select(path, select_template)
+
+    self.assertEqual(result.unsafe_structure, {'d': PH})
+    with self.assertRaises(parts_of.TreeNotCompleteError):
+      _ = result.full_structure
+
+  def test_select_missing_key_returns_empty(self):
+    template = {'a': {'b': X}}
+    t = PartsOf(template, {'a': {'b': 1}})
+
+    result = t.select(('nonexistent',), {'c': X})
+
+    self.assertTrue(result.is_empty())
+
+
 class PartitionTest(parameterized.TestCase):
 
   def test_partition(self):

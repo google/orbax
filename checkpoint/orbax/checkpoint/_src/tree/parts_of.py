@@ -275,6 +275,34 @@ class PartsOf(Generic[T]):
     new_leaves = {k: v for k, v in self._present.items() if k in other._present}  # pylint:disable=protected-access
     return PartsOf._with_present_values(self._template, new_leaves)
 
+  def select(
+      self,
+      path: tuple[Any, ...],
+      new_template: T,
+  ) -> 'PartsOf[T]':
+    """Extracts a subpath and wraps it in a new PartsOf with the given template.
+
+    This is useful when you have a `PartsOf[FullStructure]` and want to extract
+    a `PartsOf[Substructure]`.
+
+    Args:
+      path: A tuple of keys to navigate into the structure. For example,
+        `('donated_carry', 'params')` would extract
+        `self['donated_carry']['params']`.
+      new_template: The template for the resulting PartsOf. This should match
+        the structure at the given path.
+
+    Returns:
+      A new PartsOf with the extracted substructure and the given template.
+    """
+    value = self.unsafe_structure
+    for key in path:
+      if isinstance(value, Mapping):
+        value = value.get(key, {})
+      else:
+        value = getattr(value, key, {})
+    return PartsOf(new_template, value)
+
   def __sub__(self, other: 'PartsOf[T]') -> 'PartsOf[T]':
     """Removes all leaves that are present in `other`."""
     _check_templates_match(self._template, other._template)
