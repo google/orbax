@@ -520,11 +520,13 @@ class MetricsManager:
         collections.defaultdict(list)
     )
     self._benchmark_options: dict[str, Any] = {}
+    self._checkpoint_configs: dict[str, Any] = {}
 
   def add_result(
       self,
       benchmark_name: str,
-      options: Any,
+      benchmark_options: Any,
+      checkpoint_config: Any,
       metrics: Metrics,
       error: Exception | None,
   ):
@@ -532,13 +534,15 @@ class MetricsManager:
 
     Args:
       benchmark_name: The name of the benchmark configuration.
-      options: The BenchmarkOptions used for this run.
+      benchmark_options: The BenchmarkOptions used for this run.
+      checkpoint_config: The CheckpointConfig used for this run.
       metrics: The Metrics object containing results for this run.
       error: An exception if the run failed, otherwise None.
     """
     self._runs[benchmark_name].append((metrics, error))
     if benchmark_name not in self._benchmark_options:
-      self._benchmark_options[benchmark_name] = options
+      self._benchmark_options[benchmark_name] = benchmark_options
+    self._checkpoint_configs[benchmark_name] = checkpoint_config
 
   def _aggregate_metrics(
       self, results: list[tuple[Metrics, Exception | None]]
@@ -660,14 +664,17 @@ class MetricsManager:
         else:
           tag = "error"
           writer.write_texts(step=i, texts={tag: f"<pre>{repr(error)}</pre>"})
-      # Write benchmark options as text
+      # Write benchmark configs as text
       if self._benchmark_options[benchmark_name]:
         writer.write_texts(
             step=0,
             texts={
-                "options": (
-                    f"<pre>{repr(self._benchmark_options[benchmark_name])}</pre>"
-                )
+                "configuration": (
+                    "<pre> options:"
+                    f" {repr(self._benchmark_options[benchmark_name])} \n"
+                    " checkpoint:"
+                    f" {repr(self._checkpoint_configs[benchmark_name])}</pre>"
+                ),
             },
         )
       # Write Aggreagated metrics as text

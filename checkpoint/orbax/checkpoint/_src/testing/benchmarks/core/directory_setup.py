@@ -17,6 +17,7 @@
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint._src.multihost import multihost
 
 
 def setup_test_directory(
@@ -43,5 +44,6 @@ def setup_test_directory(
     if path.exists():
       logging.warning("Test directory %s already exists. Deleting it.", path)
       path.rmtree()
-    path.mkdir(parents=True)
+    path.mkdir(parents=True, exist_ok=False)
+  multihost.sync_global_processes("directory_setup:setup_test_directory")
   return path

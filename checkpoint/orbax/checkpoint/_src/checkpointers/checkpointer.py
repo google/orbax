@@ -359,12 +359,15 @@ class Checkpointer(
 
     try:
       step_metadata.item_metadata = self._handler.metadata(directory)
-    except (FileNotFoundError, NotImplementedError, ValueError, TypeError):
-      logging.warning(
-          'Failed to get item metadata from directory %s. Either it was not'
-          ' present in the checkpoint, or the handler does not support it.',
-          directory,
-      )
+    except (FileNotFoundError, NotImplementedError, ValueError, TypeError) as e:
+      raise e
+      # logging.warning(
+      #     'Failed to get item metadata from directory %s. Either it was not'
+      #     ' present in the checkpoint, or the handler does not support it.'
+      #     ' Original error: %s',
+      #     directory,
+      #     e,
+      # )
     return step_metadata
 
   def _save_step_metadata(
@@ -382,11 +385,17 @@ class Checkpointer(
         partial_metadata: StepMetadata = (
             self._handler.metadata_from_temporary_paths(directory)
         )
-      except (FileNotFoundError, NotImplementedError, ValueError, TypeError):
+      except (
+          FileNotFoundError,
+          NotImplementedError,
+          ValueError,
+          TypeError,
+      ) as e:
         logging.warning(
             'Failed to get per-item metadata from directory %s. Handler types '
-            'will not be saved.',
+            'will not be saved. Original error: %s',
             directory,
+            e,
         )
       else:
         update_dict['item_handlers'] = partial_metadata.item_handlers
