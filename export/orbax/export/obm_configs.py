@@ -61,11 +61,12 @@ class MixedPriorityBatchingPolicy(enum.Enum):
     LOW_PRIORITY_PADDING_WITH_NEXT_ALLOWED_BATCH_SIZE: Pad low priority inputs
     up to the next allowed batch size.
     PRIORITY_ISOLATION: Keep low and high priority inputs in separate batches.
+    PRIORITY_MERGE: Merge low priority inputs into the high priority batch.
   """
-  # TODO: b/417977029 - Add PRIORITY_MERGE.
   LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE = "low_priority_padding_with_max_batch_size"
   LOW_PRIORITY_PADDING_WITH_NEXT_ALLOWED_BATCH_SIZE = "low_priority_padding_with_next_allowed_batch_size"
   PRIORITY_ISOLATION = "priority_isolation"
+  PRIORITY_MERGE = "priority_merge"
 
 
 
