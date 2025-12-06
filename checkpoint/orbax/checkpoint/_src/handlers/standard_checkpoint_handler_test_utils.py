@@ -18,6 +18,7 @@
 
 import functools
 from typing import Any
+from unittest import mock
 
 from absl.testing import parameterized
 from etils import epath
@@ -295,6 +296,23 @@ class StandardCheckpointHandlerTestBase:
           args=self.restore_args_cls(pytree),
       )
       jax.tree.map(lambda x: check_dtype(x, jnp.bfloat16), restored)
+
+    def test_topology_mismatch(self):
+      n_devices = len(jax.devices())
+
+      mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
+      mesh_axes = jax.sharding.PartitionSpec('x')
+      arr = test_utils.create_sharded_array(
+          np.zeros((n_devices,)), mesh, mesh_axes
+      )
+      item = {'a': arr}
+
+      self.handler.save(self.directory, args=self.save_args_cls(item))
+
+      # Restore without target and mock jax.devices() to trigger mismatch
+      with mock.patch('jax.devices', return_value=jax.devices()[:1]):
+        with self.assertRaisesRegex(ValueError, 'Topology mismatch detected'):
+          self.handler.restore(self.directory)
 
     def test_flax_model(self):
 

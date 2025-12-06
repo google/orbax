@@ -20,7 +20,6 @@ import dataclasses
 import numbers
 from typing import Any, List, Optional
 
-from absl import logging
 from etils import epath
 import jax
 import numpy as np
@@ -243,14 +242,28 @@ class StandardCheckpointHandler(
           args.item, support_layout=args.support_layout
       )
     else:
-      logging.warning(
-          '`StandardCheckpointHandler` expects a target tree to be provided for'
-          ' restore. Not doing so is generally UNSAFE unless you know the'
-          ' present topology to be the same one as the checkpoint was saved'
-          ' under.'
-      )
+      # check for topology mismatch
+      metadata = self.metadata(directory)
+      for leaf in jax.tree_util.tree_leaves(metadata):
+        if (
+            isinstance(leaf, value_metadata.ArrayMetadata)
+            and leaf.sharding is not None
+        ):
+          try:
+            # this call compares the sharding with the current topology
+            leaf.sharding.to_jax_sharding()
+          except ValueError as e:
+            # if fallback_sharding is provided, we don't raise an error here,
+            # as it will be handled in _construct_restore_args.
+            if args.fallback_sharding is None:
+              raise ValueError(
+                  'Topology mismatch detected. The checkpoint was saved with a'
+                  ' different topology than the current one. Please provide a'
+                  ' target tree with the current topology to restore.'
+              ) from e
+
       restore_args = _construct_restore_args(
-          self.metadata(directory),
+          metadata,
           args.fallback_sharding,
       )
 
