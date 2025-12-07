@@ -1,13 +1,16 @@
 # The name for the entire test suite run.
 suite_name: "EmergencyCheckpointManager Benchmark"
 
-mesh_config:
-  mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
-  # ICI: Within a slice. Assuming 8 devices per slice.
-  # DCN: Across slices.
-  ici_parallelism: {"fsdp": 4, "tensor": 1, "data": 2}
-  dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
-  allow_split_physical_axes: true
+mesh_configs:
+  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+    # ICI: Within a slice. Assuming 8 devices per slice.
+    # DCN: Across slices.
+    ici_parallelism: {"fsdp": 4, "tensor": 1, "data": 2}
+    dcn_parallelism: {"data": 2} # num_slices on the axis at replica_axis_index
+    allow_split_physical_axes: true
+  - mesh_axes: ["data", "model", "tensor", "fsdp"]
+    ici_parallelism: {"data": 1, "model": 1}
+    dcn_parallelism: {"data": 4, "model": 1}
 
 checkpoint_config:
   spec:
