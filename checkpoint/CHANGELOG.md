@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `use_ocdbt` property in PyTree metadata.
+
 ## [0.11.30] - 2025-11-26
 
 ### Fixed
