@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `use_ocdbt` property in PyTree metadata.
 
+### Changed
+
+- #v1 Modify background thread execution to allow the runner to accept multiple
+concurrent tasks for the background event loop. This allows scheduling multiple
+operations, like async directory creation and background commits, on the
+same event loop.
+
 ## [0.11.30] - 2025-11-26
 
 ### Fixed

@@ -46,6 +46,7 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 InternalCheckpointMetadata = (
     step_metadata_serialization.InternalCheckpointMetadata
 )
+_BACKGROUND_SAVE_TASK_NAME = 'background_save'
 
 
 def add_internal_checkpointables(
@@ -75,6 +76,7 @@ class SaveResponse(async_types.AsyncResponse[None]):
       custom_metadata: tree_types.JsonType | None,
       context: context_lib.Context,
       async_origin: bool,
+      background_thread_runner: thread_utils.BackgroundThreadRunner[None],
   ):
     self._operation_id = operation_id
     self._tmp_path = tmp_path
@@ -84,8 +86,9 @@ class SaveResponse(async_types.AsyncResponse[None]):
     self._custom_metadata = custom_metadata
     self._context = context
     self._async_origin = async_origin
-    self._thread_runner = thread_utils.BackgroundThreadRunner[None](
-        self._finalize_save()
+    self._background_thread_runner = background_thread_runner
+    self._background_thread_runner.run(
+        _BACKGROUND_SAVE_TASK_NAME, self._finalize_save()
     )
 
   async def _finalize_save(self):
@@ -153,7 +156,11 @@ class SaveResponse(async_types.AsyncResponse[None]):
     )
 
   def result(self, timeout: float | None = None) -> None:
-    return self._thread_runner.result(timeout=timeout)
+    self._background_thread_runner.result(
+        _BACKGROUND_SAVE_TASK_NAME, timeout=timeout
+    )
+    self._background_thread_runner.close(timeout=timeout)
+    return
 
 
 async def run_blocking_save(
@@ -230,6 +237,7 @@ def create_save_response(
     context: context_lib.Context,
     custom_metadata: tree_types.JsonType | None,
     async_origin: bool,
+    background_thread_runner: thread_utils.BackgroundThreadRunner[None],
 ) -> async_types.AsyncResponse[None]:
   """Creates and returns the final AsyncResponse for a save operation."""
   blocking_duration_secs = time.time() - start_time
@@ -262,6 +270,7 @@ def create_save_response(
       custom_metadata=custom_metadata,
       context=context,
       async_origin=async_origin,
+      background_thread_runner=background_thread_runner,
   )
 
 
@@ -328,6 +337,7 @@ def save_checkpointables_impl(
   )
   subdirectories = [] if path_exists else checkpointables.keys()
 
+  background_thread_runner = thread_utils.BackgroundThreadRunner[None]()
   background_awaitable = asyncio.run(
       run_blocking_save(
           tmp_path,
@@ -347,4 +357,5 @@ def save_checkpointables_impl(
       context=context,
       custom_metadata=custom_metadata,
       async_origin=async_origin,
+      background_thread_runner=background_thread_runner,
   )
