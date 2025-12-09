@@ -20,7 +20,9 @@ import chex
 import flax
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 from orbax.checkpoint._src.tree import parts_of
+from orbax.checkpoint._src.tree import utils as tree_utils
 
 PartsOf = parts_of.PartsOf
 
@@ -199,7 +201,7 @@ class PartsOfTest(parameterized.TestCase):
   def test_unflatten_raises_if_placeholder_is_encountered(self):
     template = MyState(a=(X, X), b=[X, X])
     t = PartsOf(template, MyState(a=(1, 2), b=[PH, PH]))
-    leaves, treedef = jax.tree_util.tree_flatten(t)
+    leaves, treedef = jtu.tree_flatten(t)
     leaves = [PH for _ in leaves]
     with self.assertRaisesRegex(
         parts_of.UnexpectedPlaceholderError,
@@ -292,9 +294,50 @@ class ValueKeyFromPathTest(parameterized.TestCase):
 
     t = PartsOf(template, MyState(a=(1, PH), b={'c': PH, 'd': 33}))
 
-    flat_t, _ = jax.tree_util.tree_flatten_with_path(t)
+    flat_t, _ = jtu.tree_flatten_with_path(t)
     for path, value in flat_t:
       self.assertIs(t._present[parts_of.value_key_from_path(path)], value)
+
+
+class SelectTest(parameterized.TestCase):
+
+  def test_select_extracts_nested_dict(self):
+    template = MyState(a=(X, X), b={'c': {'d': X}})
+    t = PartsOf(template, MyState(a=(1, PH), b={'c': {'d': 2}}))
+
+    path = ('b', 'c')
+    result = t.select(path)
+
+    self.assertEqual(result.full_structure, {'d': 2})
+
+  def test_select_with_placeholders(self):
+    template = MyState(a=(X, X), b={'c': {'d': X}})
+    t = PartsOf(template, MyState(a=(1, 1), b={'c': {'d': PH}}))
+
+    path = ('b', 'c')
+    result = t.select(path)
+
+    self.assertEqual(result.unsafe_structure, {'d': PH})
+    with self.assertRaises(parts_of.TreeNotCompleteError):
+      _ = result.full_structure
+
+  def test_select_missing_key_fails(self):
+    template = {'a': {'b': X}}
+    t = PartsOf(template, {'a': {'b': 1}})
+
+    path = ('nonexistent',)
+    with self.assertRaisesRegex(ValueError, 'nonexistent'):
+      _ = t.select(path)
+
+  def test_select_commutativity(self):
+    template = MyState(a=(X, X), b={'c': {'d': X}})
+    t = PartsOf(template, MyState(a=(1, PH), b={'c': {'d': 2}}))
+
+    path = ('b', 'c')
+    self.assertEqual(
+        t.select(path).unsafe_structure,
+        tree_utils.select_by_tree_path(t.unsafe_structure, path)
+    )
 
 
 class PartitionTest(parameterized.TestCase):

@@ -21,6 +21,7 @@ from absl.testing import parameterized
 from etils import epath
 import flax
 import jax
+import jax.tree_util as jtu
 import numpy as np
 import optax
 from orbax.checkpoint import test_utils
@@ -29,6 +30,12 @@ from orbax.checkpoint._src.tree import utils as tree_utils
 
 
 PyTree = tree_utils.PyTree
+
+
+@flax.struct.dataclass
+class FlaxRecord:
+  alpha: Any
+  beta: Any
 
 
 # TODO: b/365169723 - Add tests: PyTreeMetadataOptions.support_rich_types=True.
@@ -265,6 +272,220 @@ class UtilsTest(parameterized.TestCase):
   def test_non_named_tuple_type_detection(self, nt):
     self.assertFalse(tree_utils.isinstance_of_namedtuple(nt))
     self.assertFalse(tree_utils.issubclass_of_namedtuple(type(nt)))
+
+
+class LookUpPyTreeKeyTest(parameterized.TestCase):
+
+  def test_retrieves_element_of_internal_node(self):
+    self.assertEqual(
+        tree_utils.look_up_pytree_key(
+            [[0], [10], [20]],
+            jtu.SequenceKey(1),
+        ),
+        [10],
+    )
+    self.assertEqual(
+        tree_utils.look_up_pytree_key(
+            {'a': [0], 'b': [100], 'c': [200]},
+            jtu.DictKey('b'),
+        ),
+        [100],
+    )
+    self.assertEqual(
+        tree_utils.look_up_pytree_key(
+            FlaxRecord(alpha=[0, 10, 20], beta={'a': 100, 'b': 200}),
+            jtu.FlattenedIndexKey(1),
+        ),
+        {'a': 100, 'b': 200},
+    )
+    self.assertEqual(
+        tree_utils.look_up_pytree_key(
+            FlaxRecord(alpha=[0, 10, 20], beta={'a': 100, 'b': 200}),
+            jtu.GetAttrKey('beta'),
+        ),
+        {'a': 100, 'b': 200},
+    )
+
+  def test_raises_key_error_if_key_is_not_present(self):
+    with self.subTest('sequence'):
+      with self.assertRaises(KeyError):
+        tree_utils.look_up_pytree_key(
+            [[0], [10], [20]],
+            jtu.SequenceKey(4),
+        )
+    with self.subTest('dict'):
+      with self.assertRaises(KeyError):
+        tree_utils.look_up_pytree_key(
+            {'a': [0], 'b': [100], 'c': [200]},
+            jtu.DictKey('d'),
+        )
+    with self.subTest('flattened_index'):
+      with self.assertRaises(KeyError):
+        tree_utils.look_up_pytree_key(
+            FlaxRecord(alpha=[0, 10, 20], beta={'a': 100, 'b': 200}),
+            jtu.FlattenedIndexKey(2),
+        )
+    with self.subTest('attr'):
+      with self.assertRaises(KeyError):
+        tree_utils.look_up_pytree_key(
+            FlaxRecord(alpha=[0, 10, 20], beta={'a': 100, 'b': 200}),
+            jtu.GetAttrKey('gamma'),
+        )
+
+
+class PyTreePathAsTreePathTest(parameterized.TestCase):
+
+  def test_converts_pytree_path_to_tree_path(self):
+    structure = {
+        'a': [0, 10],
+        'b': FlaxRecord(alpha=[65], beta=(66,)),
+    }
+    paths_and_values, _ = jtu.tree_flatten_with_path(structure)
+    legacy_paths = [
+        tree_utils.pytree_path_as_tree_path(p) for p, _ in paths_and_values
+    ]
+
+    self.assertSameStructure(
+        [
+            ('a', 0),
+            ('a', 1),
+            ('b', 'alpha', 0),
+            ('b', 'beta', 0),
+        ],
+        legacy_paths,
+    )
+
+
+class SelectByPyTreePathTest(parameterized.TestCase):
+
+  def test_select_dict(self):
+    tree = {'a': 1, 'b': 2}
+    self.assertEqual(
+        tree_utils.select_by_pytree_path(tree, (jtu.DictKey('a'),)), 1
+    )
+    self.assertEqual(
+        tree_utils.select_by_pytree_path(tree, (jtu.DictKey('b'),)), 2
+    )
+
+  def test_select_sequence(self):
+    tree = [10, 20]
+    self.assertEqual(
+        tree_utils.select_by_pytree_path(tree, (jtu.SequenceKey(0),)), 10
+    )
+    self.assertEqual(
+        tree_utils.select_by_pytree_path(tree, (jtu.SequenceKey(1),)), 20
+    )
+
+  def test_select_named_tuple(self):
+    tree = test_tree_utils.IntegerNamedTuple(1, 2)
+    self.assertEqual(
+        tree_utils.select_by_pytree_path(tree, (jtu.GetAttrKey('x'),)), 1
+    )
+    self.assertEqual(
+        tree_utils.select_by_pytree_path(tree, (jtu.GetAttrKey('y'),)), 2
+    )
+
+  def test_select_object(self):
+    tree = FlaxRecord(alpha=1, beta=2)
+    self.assertEqual(
+        tree_utils.select_by_pytree_path(tree, (jtu.GetAttrKey('alpha'),)), 1
+    )
+    self.assertEqual(
+        tree_utils.select_by_pytree_path(tree, (jtu.GetAttrKey('beta'),)), 2
+    )
+
+  def test_select_nested(self):
+    tree = {'a': FlaxRecord(alpha={'x': 10}, beta=20)}
+    self.assertEqual(
+        tree_utils.select_by_pytree_path(
+            tree, (jtu.DictKey('a'), jtu.GetAttrKey('alpha'), jtu.DictKey('x'))
+        ),
+        10,
+    )
+    self.assertEqual(
+        tree_utils.select_by_pytree_path(
+            tree, (jtu.DictKey('a'), jtu.GetAttrKey('beta'))
+        ),
+        20,
+    )
+
+  def test_select_empty_path(self):
+    tree = {'a': 1}
+    self.assertEqual(tree_utils.select_by_pytree_path(tree, ()), tree)
+
+  def test_select_dict_raises_error(self):
+    tree = {'a': 1}
+    with self.assertRaisesRegex(ValueError, 'Path .* does not exist'):
+      tree_utils.select_by_pytree_path(tree, (jtu.DictKey('b'),))
+
+  def test_select_sequence_raises_error(self):
+    tree = [10, 20]
+    with self.assertRaisesRegex(ValueError, 'Path .* does not exist'):
+      tree_utils.select_by_pytree_path(tree, (jtu.SequenceKey(2),))
+
+  def test_select_named_tuple_raises_error(self):
+    tree = test_tree_utils.IntegerNamedTuple(1, 2)
+    with self.assertRaisesRegex(ValueError, 'Path .* does not exist'):
+      tree_utils.select_by_pytree_path(tree, (jtu.GetAttrKey('z'),))
+
+  def test_select_object_raises_error(self):
+    tree = FlaxRecord(alpha=1, beta=2)
+    with self.assertRaisesRegex(ValueError, 'Path .* does not exist'):
+      tree_utils.select_by_pytree_path(tree, (jtu.GetAttrKey('gamma'),))
+
+
+class SelectByTreePathTest(parameterized.TestCase):
+
+  def test_select_dict(self):
+    tree = {'a': 1, 'b': 2}
+    self.assertEqual(tree_utils.select_by_tree_path(tree, ('a',)), 1)
+    self.assertEqual(tree_utils.select_by_tree_path(tree, ('b',)), 2)
+
+  def test_select_sequence(self):
+    tree = [10, 20]
+    self.assertEqual(tree_utils.select_by_tree_path(tree, (0,)), 10)
+    self.assertEqual(tree_utils.select_by_tree_path(tree, (1,)), 20)
+
+  def test_select_named_tuple(self):
+    tree = test_tree_utils.IntegerNamedTuple(1, 2)
+    self.assertEqual(tree_utils.select_by_tree_path(tree, ('x',)), 1)
+    self.assertEqual(tree_utils.select_by_tree_path(tree, ('y',)), 2)
+
+  def test_select_object(self):
+    tree = FlaxRecord(alpha=1, beta=2)
+    self.assertEqual(tree_utils.select_by_tree_path(tree, ('alpha',)), 1)
+    self.assertEqual(tree_utils.select_by_tree_path(tree, ('beta',)), 2)
+
+  def test_select_nested(self):
+    tree = {'a': FlaxRecord(alpha={'x': 10}, beta=20)}
+    self.assertEqual(
+        tree_utils.select_by_tree_path(tree, ('a', 'alpha', 'x')), 10
+    )
+    self.assertEqual(tree_utils.select_by_tree_path(tree, ('a', 'beta')), 20)
+
+  def test_select_empty_path(self):
+    tree = {'a': 1}
+    self.assertEqual(tree_utils.select_by_tree_path(tree, ()), tree)
+
+  def test_select_dict_raises_error(self):
+    tree = {'a': 1}
+    with self.assertRaisesRegex(ValueError, 'Path .* does not exist'):
+      tree_utils.select_by_tree_path(tree, ('b',))
+
+  def test_select_sequence_raises_error(self):
+    tree = [10, 20]
+    with self.assertRaisesRegex(ValueError, 'Path .* does not exist'):
+      tree_utils.select_by_tree_path(tree, (2,))
+
+  def test_select_named_tuple_raises_error(self):
+    tree = test_tree_utils.IntegerNamedTuple(1, 2)
+    with self.assertRaisesRegex(ValueError, 'Path .* does not exist'):
+      tree_utils.select_by_tree_path(tree, ('z',))
+
+  def test_select_object_raises_error(self):
+    tree = FlaxRecord(alpha=1, beta=2)
+    with self.assertRaisesRegex(ValueError, 'Path .* does not exist'):
+      tree_utils.select_by_tree_path(tree, ('gamma',))
 
 
 if __name__ == '__main__':

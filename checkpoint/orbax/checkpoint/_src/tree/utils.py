@@ -17,6 +17,7 @@
 from typing import Any, Callable, Mapping, Optional, Tuple, TypeVar, Union
 
 import jax
+import jax.tree_util as jtu
 from orbax.checkpoint._src.arrays import abstract_arrays
 
 
@@ -33,6 +34,12 @@ PyTreeKey = (
     | jax.tree_util.FlattenedIndexKey
 )
 PyTreePath = tuple[PyTreeKey, ...]
+
+# These types are useful for specifying PyTree paths using user-friendly types,
+# rather than PyTreeKeys. For example, we may specify dictionary keys as
+# strings, and sequence indices as integers.
+TreeKey = str | int
+TreePath = tuple[TreeKey, ...]
 
 to_shape_dtype_struct = abstract_arrays.to_shape_dtype_struct
 
@@ -357,3 +364,111 @@ def tree_flatten_with_path_one_level(
     x: Any,
 ) -> tuple[list[tuple[PyTreePath, Any]], jax.tree_util.PyTreeDef]:
   return jax.tree_util.tree_flatten_with_path(x, is_leaf=lambda y: y is not x)
+
+
+def look_up_pytree_key(pytree: PyTreeOf[T], key: PyTreeKey) -> PyTreeOf[T]:
+  """Resolves a single PyTree key (i.e. one element of a PyTreePath).
+
+  Args:
+    pytree: The PyTree node with respect to which to resolve the key.
+    key: The key to resolve.
+
+  Returns:
+    An element of the given collection or custom PyTree node.
+
+  Raises:
+    KeyError: If the given key is not present in the given node.
+  """
+  match key:
+    case jtu.SequenceKey(idx=k) | jtu.DictKey(key=k):
+      try:
+        return pytree[k]
+      except IndexError as e:
+        raise KeyError(f'Key {key!r} not found in {pytree!r}') from e
+    case jtu.FlattenedIndexKey(key=k):
+      leaves, _ = tree_flatten_with_path_one_level(pytree)
+      try:
+        idx_and_leaf = leaves[k]
+      except IndexError as e:
+        raise KeyError(f'Key {key!r} not found in {pytree!r}') from e
+      else:
+        return idx_and_leaf[1]
+    case jtu.GetAttrKey(name=k):
+      try:
+        return getattr(pytree, k)
+      except AttributeError as e:
+        raise KeyError(f'Key {key!r} not found in {pytree!r}') from e
+  raise KeyError(f'Key {key!r} not found in {pytree!r}')
+
+
+def _pytree_key_as_tree_key(key: PyTreeKey) -> TreeKey:
+  match key:
+    case (jtu.SequenceKey(idx=k)
+          | jtu.DictKey(key=k)
+          | jtu.FlattenedIndexKey(key=k)
+          | jtu.GetAttrKey(name=k)):
+      return k  # pytype: disable=bad-return-type
+  raise KeyError(f'Cannot convert unexpected PyTreeKey to TreeKey: {key!r}')
+
+
+def pytree_path_as_tree_path(path: PyTreePath) -> TreePath:
+  """Converts a PyTreePath to a legacy tree path.
+
+  Each PyTreeKey in a PyTreePath has a type specific to the type into which it
+  indexes. Legacy tree keys are either strings or integers.
+
+  Args:
+    path: The path to be converted.
+
+  Returns:
+    A legacy representation of the path.
+  """
+  return tuple(_pytree_key_as_tree_key(k) for k in path)
+
+
+def select_by_pytree_path(
+    tree: PyTreeOf[T],
+    path: PyTreePath,
+) -> PyTreeOf[T]:
+  """Extracts a subtree from a PyTree, using a PyTreePath to describe the path.
+
+  Args:
+    tree: The PyTree from which to extract the subtree.
+    path: A tuple of PyTreeKeys specifying the path to the subtree.
+
+  Returns:
+    The subtree.
+  """
+  match path:
+    case (key, *rest):
+      try:
+        return select_by_pytree_path(look_up_pytree_key(tree, key), tuple(rest))
+      except KeyError as e:
+        raise ValueError(f'Path {path} does not exist in {tree=}.') from e
+    case ():
+      return tree
+
+
+def select_by_tree_path(
+    tree: PyTreeOf[T],
+    path: TreePath,
+) -> PyTreeOf[T]:
+  """Extracts a subtree from a PyTree, using a tree path to describe the path.
+
+  Args:
+    tree: The PyTree from which to extract the subtree.
+    path: A tuple of keys (str | int) specifying the path to the subtree.
+
+  Returns:
+    The subtree.
+  """
+  match path:
+    case (key, *rest):
+      keys_and_children, _ = tree_flatten_with_path_one_level(tree)
+      for (pytree_key,), child in keys_and_children:
+        if _pytree_key_as_tree_key(pytree_key) == key:
+          return select_by_tree_path(child, tuple(rest))
+      else:
+        raise ValueError(f'Path {path} does not exist in {tree=}.')
+    case ():
+      return tree
