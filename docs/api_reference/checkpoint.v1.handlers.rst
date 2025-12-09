@@ -1,9 +1,25 @@
 Checkpointable Handlers
 ============================================================================
 
-.. toctree::
-   :maxdepth: 3
+.. currentmodule:: orbax.checkpoint.experimental.v1.handlers
 
-   checkpoint.v1.handlers.types
-   checkpoint.v1.handlers.pytree_handler
-   checkpoint.v1.handlers.proto_handler
+.. automodule:: orbax.checkpoint.experimental.v1.handlers
+  :members:
+
+Types
+------------------------------------------------------------
+.. autoclass:: CheckpointableHandler
+.. autoclass:: StatefulCheckpointable
+
+Handlers
+------------------------------------------------------------
+.. autoclass:: PyTreeHandler
+.. autoclass:: ProtoHandler
+.. autoclass:: JsonHandler
+
+Registration
+------------------------------------------------------------
+.. autoclass:: CheckpointableHandlerRegistry
+.. autofunction:: global_registry
+.. autofunction:: local_registry
+.. autofunction:: register_handler

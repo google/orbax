@@ -28,12 +28,3 @@ from orbax.checkpoint.experimental.v1._src.serialization.types import (
     SerializationContext,
     DeserializationContext,
 )
-
-from orbax.checkpoint.experimental.v1._src.serialization.array_leaf_handler import (
-    ArrayMetadata,
-)
-
-from orbax.checkpoint.experimental.v1._src.serialization.numpy_leaf_handler import (
-    NumpyShapeDtype,
-    NumpyMetadata,
-)

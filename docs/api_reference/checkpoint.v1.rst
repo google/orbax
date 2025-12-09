@@ -12,4 +12,7 @@ orbax.checkpoint API Reference
    checkpoint.v1.handler_registration
    checkpoint.v1.context
    checkpoint.v1.options
-   
+   checkpoint.v1.serialization
+   checkpoint.v1.path
+   checkpoint.v1.tree
+   checkpoint.v1.partial
