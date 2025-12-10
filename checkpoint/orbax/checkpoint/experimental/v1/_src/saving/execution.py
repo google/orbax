@@ -54,7 +54,16 @@ def add_internal_checkpointables(
     context: context_lib.Context,
     metrics: tree_types.JsonType | None = None,
 ) -> dict[str, Any]:
-  """Adds descriptor to checkpointables if enabled."""
+  """Adds a descriptor to checkpointables if enabled.
+
+  Args:
+    checkpointables: A dictionary of checkpointables.
+    context: The Orbax context.
+    metrics: Optional metrics to add to the checkpointables.
+
+  Returns:
+    The updated dictionary of checkpointables.
+  """
   # Global registration ties metrics key to JsonHandler.
   if metrics:
     checkpointables[checkpoint_layout.METRICS_CHECKPOINTABLE_KEY] = metrics
@@ -62,7 +71,7 @@ def add_internal_checkpointables(
 
 
 class SaveResponse(async_types.AsyncResponse[None]):
-  """An `AsyncResponse` representing the result of `save_pytree_async`."""
+  """An `AsyncResponse` representing the result of :py:func:`.save_pytree_async`."""
 
   def __init__(
       self,
@@ -178,8 +187,8 @@ async def run_blocking_save(
     partial_save: Whether to save the checkpoint in partial mode.
 
   Returns:
-    An awaitable that will be completed when the synchronous portion of the
-    save operation is complete.
+    An awaitable that will be completed when the synchronous portion of the save
+    operation is complete.
   """
   await context_lib.synchronize_next_operation_id()
 
@@ -231,7 +240,20 @@ def create_save_response(
     custom_metadata: tree_types.JsonType | None,
     async_origin: bool,
 ) -> async_types.AsyncResponse[None]:
-  """Creates and returns the final AsyncResponse for a save operation."""
+  """Creates and returns the final AsyncResponse for a save operation.
+
+  Args:
+    background_awaitable: The awaitable for the background save operation.
+    checkpointables: A dictionary of checkpointables.
+    tmp_path: The temporary path used for saving.
+    start_time: The time when the save operation started.
+    context: The Orbax context.
+    custom_metadata: Optional custom metadata to include in the checkpoint.
+    async_origin: Whether the save operation originated from an async call.
+
+  Returns:
+    An AsyncResponse for the save operation.
+  """
   blocking_duration_secs = time.time() - start_time
   jax.monitoring.record_event_duration_secs(
       '/jax/checkpoint/write/async/blocking_duration_secs',
@@ -266,7 +288,14 @@ def create_save_response(
 
 
 def check_directory_consistency(directory: path_types.PathLike):
-  """Raises error if directory paths are not consistent across processes."""
+  """Raises an error if directory paths are not consistent across processes.
+
+  Args:
+    directory: The directory path to check.
+
+  Raises:
+    ValueError: If the directory paths are not consistent across processes.
+  """
   if multihost.process_count() <= 1:
     return
 

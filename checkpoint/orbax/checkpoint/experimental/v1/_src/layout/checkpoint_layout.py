@@ -40,9 +40,9 @@ class CheckpointLayout(Protocol):
   """CheckpointLayout.
 
   This class defines a protocol for different checkpoint formats. It is a helper
-  component for `save_checkpointables` and
-  `load_checkpointables`. It supports
-  alternative checkpoint formats. It performs a few core functions:
+  component for :py:func:`~.v1.save_checkpointables` and
+  :py:func:`~.v1.load_checkpointables`.
+  It supports alternative checkpoint formats. It performs a few core functions:
     - Resolves handlers for saving and loading.
     - Saves and loads checkpointables to/from individual subdirectories by
     delegating to the resolved handlers.

@@ -45,7 +45,16 @@ def get_v0_checkpointer_and_args(
     async_checkpointer.AsyncCheckpointer,
     composite_checkpoint_handler.CompositeArgs,
 ]:
-  """Construct V0 Checkpointer and Args for loading."""
+  """Constructs V0 Checkpointer and Args for loading.
+
+  Args:
+    path: The path to load the checkpoint from.
+    abstract_checkpointables: A dictionary of abstract checkpointables.
+    context: The Orbax context.
+
+  Returns:
+    A tuple containing the V0 Checkpointer and Args.
+  """
   validation.validate_abstract_checkpointables(abstract_checkpointables)
   abstract_checkpointables = abstract_checkpointables or {}
 

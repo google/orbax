@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Define types for `LeafHandler`."""
+"""Define types for :py:class:`.LeafHandler`."""
 
 import dataclasses
 from typing import Any, Awaitable, Generic, Protocol, Sequence, Tuple, Type, TypeVar
@@ -68,7 +68,8 @@ class AbstractShardedArray(Protocol):
   """Abstract representation of an array.
 
   This is a protocol for an abstract array that can be used to represent various
-  metadata types such as jax.ShapeDtypeStruct and ArrayMetadata.
+  metadata types such as :py:class:`jax.ShapeDtypeStruct` and
+  :py:class:`~orbax.checkpoint.metadata.ArrayMetadata`.
 
   #TODO(dnlng): All attributes are made optional to support the case where
   # the ArrayMetadata is passed into the metadata() call to pass only the
@@ -155,8 +156,9 @@ class LeafHandler(Protocol[Leaf, AbstractLeaf]):
     storage write operations.
 
     Args:
-      params: a sequence of SerializationParam per leaf.
-      serialization_context: SerializationContext for the leaf handler.
+      params: a sequence of :py:class:`.SerializationParam` per leaf.
+      serialization_context: :py:class:`.SerializationContext` for the leaf
+        handler.
 
     Returns:
       A awaitable which can be awaited to complete the save operation.
@@ -175,12 +177,14 @@ class LeafHandler(Protocol[Leaf, AbstractLeaf]):
     confirm the completion of this data transfer.
 
     Args:
-      params: sequence of DeserializationParam per leaf. The Param contains a
-        value corresponding to the `AbstractLeaf` type. `Type[AbstractLeaf]` is
-        always valid. E.g. if the `AbstractLeaf` is `AbstractFoo`, it is always
-        valid to pass `AbstractFoo()` or `AbstractFoo`. Passing the latter two
-        indicates that metadata should be used to restore the leaf.
-      deserialization_context: DeserializationContext for the leaf handler.
+      params: sequence of :py:class:`.DeserializationParam` per leaf. The Param
+        contains a value corresponding to the `AbstractLeaf` type.
+        `Type[AbstractLeaf]` is always valid. E.g. if the `AbstractLeaf` is
+        `AbstractFoo`, it is always valid to pass `AbstractFoo()` or
+        `AbstractFoo`. Passing the latter two indicates that metadata should be
+        used to restore the leaf.
+      deserialization_context: :py:class:`.DeserializationContext` for the leaf
+        handler.
 
     Returns:
       A awaitable which can be awaited to complete the load operation and obtain
@@ -196,12 +200,14 @@ class LeafHandler(Protocol[Leaf, AbstractLeaf]):
     """Returns a squence of AbstractLeaf from a stored checkpointable location.
 
     Args:
-      params: sequence of DeserializationParam[None] per leaf, the keypath is
-        essential to look up the leaf metadata.
-      deserialization_context: DeserializationContext for the leaf handler.
+      params: sequence of :py:class:`.DeserializationParam` [None] per leaf, the
+        keypath is essential to look up the leaf metadata.
+      deserialization_context: :py:class:`.DeserializationContext` for the leaf
+        handler.
 
     Returns:
-      Sequence of AbstractLeaf for each provided DeserializationParam.
+      Sequence of AbstractLeaf for each provided
+      :py:class:`.DeserializationParam`.
     """
     ...
 

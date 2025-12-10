@@ -21,17 +21,17 @@ import typing_extensions
 
 
 def is_subclass_protocol(cls: Type[Any], protocol: Type[Any]) -> bool:
-  """Perform a best-effort check if `cls` is a subclass of protocol.
+  """Performs a best-effort check if `cls` is a subclass of a protocol.
 
   This is needed because when the protocol has only attributes (no methods),
-  isinstance() doesn't work.  In additional, issubclass also doesn't work with
-  Protocols.  This is a best-effort workaround and can only check if the `cls`
-  defines all the attributes of the `protocol`.  It does't check the type of the
+  `isinstance()` doesn't work. In addition, `issubclass` also doesn't work with
+  protocols. This is a best-effort workaround and can only check if the `cls`
+  defines all the attributes of the `protocol`. It doesn't check the type of the
   attributes.
 
   Args:
-    cls: the cls will be checked if it implements `protocol`.
-    protocol: the protocol to be checked.
+    cls: The `cls` will be checked if it implements `protocol`.
+    protocol: The protocol to be checked.
 
   Returns:
     True if the class defines all the attributes of the protocol.

@@ -35,7 +35,7 @@ HEADER_NUM_BYTES = 8
 
 
 def _get_dtypes() -> dict[str, Any]:
-  """Returns the mapping from safetensor dtype strings to numpy dtypes."""
+  """Returns the mapping from safetensor `dtype` strings to NumPy `dtypes`."""
   return {
       "BOOL": np.bool_,
       "I8": np.int8,
@@ -72,7 +72,7 @@ async def _read_safetensors_header(path: Path) -> tuple[dict[str, Any], int]:
 
 
 def _get_array_properties(info: dict[str, Any]) -> tuple[tuple[int, ...], Any]:
-  """Parses shape and dtype from a safetensors tensor header."""
+  """Parses shape and `dtype` from a safetensors tensor header."""
   try:
     dtype_str = info["dtype"]
     dtype = _get_dtypes()[dtype_str]
@@ -92,7 +92,7 @@ async def _read_non_contiguous_slice(
   """Reads a slice of a tensor from a file.
 
   This function solves the problem of reading a multi-dimensional slice from an
-  array, where the slice's data is not stored as a single, contiguous block in
+  array where the slice's data is not stored as a single, contiguous block in
   the file. It does so by recursively "walking" the dimensions of the slice.
 
   Args:
@@ -100,7 +100,7 @@ async def _read_non_contiguous_slice(
       idx: A tuple of slice objects representing the n-dimensional slice to
         read.
       stored_shape: The shape of the tensor.
-      stored_dtype: The dtype of the tensor.
+      stored_dtype: The `dtype` of the tensor.
       tensor_file_offset: The starting byte offset of the tensor's data within
         the file.
 
@@ -245,8 +245,8 @@ class SafetensorsLayout(CheckpointLayout):
   """SafetensorsLayout.
 
   This class defines a class to handle Safetensors checkpoint formats. It
-  inherits
-  abstract methods from CheckpointLayout. It performs a few core functions:
+  inherits abstract methods from :py:class:`~.CheckpointLayout`.
+  It performs a few core functions:
     - Resolves handlers for saving and loading.
     - Saves and loads checkpointables to/from individual subdirectories by
     delegating to the resolved handlers.

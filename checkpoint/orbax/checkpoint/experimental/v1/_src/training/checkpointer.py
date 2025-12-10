@@ -265,9 +265,9 @@ class Checkpointer(epy.ContextManager):
   ) -> bool:
     """Saves a PyTree checkpoint at the given step.
 
-    This function behaves similarly to `ocp.save_pytree` (see documentation),
-    but performs additional tasks related to managing a sequence of checkpoint
-    steps.
+    This function behaves similarly to :py:func:`.save_pytree` (see
+    documentation), but performs additional tasks related to managing a sequence
+    of checkpoint steps.
 
     It consists roughly of the following steps:
       - Check whether a checkpoint should be saved at the given step.
@@ -278,8 +278,8 @@ class Checkpointer(epy.ContextManager):
     Args:
       step: The step number to save.
       pytree: The PyTree to save.
-      force: If True, ignores all `SaveDecisionPolicy` checks, and always
-        decides to save a checkpoint.
+      force: If True, ignores all :py:class:`.SaveDecisionPolicy` checks, and
+        always decides to save a checkpoint.
       overwrite: If True, deletes any existing checkpoint at the given step
         before saving. Otherwise, raises an error if the checkpoint already
         exists.
@@ -332,14 +332,15 @@ class Checkpointer(epy.ContextManager):
   ) -> async_types.AsyncResponse[bool]:
     """Saves a PyTree checkpoint asynchronously at the given step.
 
-    See documentation for `save_pytree` for more details. This function executes
-    in the background, and blocks for as little time as possible.
+    See documentation for :py:func:`.save_pytree` for more details. This
+    function executes in the background, and blocks for as little time as
+    possible.
 
     Args:
       step: The step number to save.
       pytree: The PyTree to save.
-      force: If True, ignores all `SaveDecisionPolicy` checks, and always
-        decides to save a checkpoint.
+      force: If True, ignores all :py:class:`.SaveDecisionPolicy` checks, and
+        always decides to save a checkpoint.
       overwrite: If True, deletes any existing checkpoint at the given step
         before saving. Otherwise, raises an error if the checkpoint already
         exists.
@@ -407,10 +408,11 @@ class Checkpointer(epy.ContextManager):
   ) -> tree_types.PyTreeOf[tree_types.LeafType]:
     """Loads a PyTree checkpoint at the given step.
 
-    This function behaves similarly to `ocp.load_pytree` (see documentation).
+    This function behaves similarly to :py:func:`.load_pytree` (see
+    documentation).
 
     Args:
-      step: The step number or `CheckpointMetadata` to load.
+      step: The step number or :py:class:`.CheckpointMetadata` to load.
       abstract_pytree: The abstract PyTree to load.
 
     Returns:

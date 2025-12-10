@@ -83,7 +83,7 @@ class SignalingClient(Protocol):
 
 
 class _SignalingClient(SignalingClient):
-  """An implementation of SignalingClient that wraps V0 implementation."""
+  """An implementation of :py:class:`.SignalingClient` that wraps V0 implementation."""
 
   def __init__(self, client: signaling_client.SignalingClient):
     self._client = client

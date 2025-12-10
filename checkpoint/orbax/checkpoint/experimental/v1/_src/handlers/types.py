@@ -24,7 +24,7 @@ AbstractT = TypeVar('AbstractT')
 
 @runtime_checkable
 class StatefulCheckpointable(Protocol[T]):
-  """An interface that defines save/load logic for a `checkpointable` object."""
+  """An interface that defines save/load logic for a checkpointable object."""
 
   async def save(
       self, directory: path_types.PathAwaitingCreation
@@ -44,7 +44,9 @@ class StatefulCheckpointable(Protocol[T]):
 class CheckpointableHandler(Protocol[T, AbstractT]):
   """An interface that defines save/load logic for a `checkpointable` object.
 
-  NOTE: Prefer to use `StatefulCheckpointable` interface when possible.
+  NOTE: Prefer to use
+  :py:class:`.StatefulCheckpointable`
+  interface when possible.
 
   A "checkpointable" is a fundamental concept in Orbax. A “checkpointable”
   refers to a logical piece of the checkpoint that is distinct in some way from

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Toy CheckpointableHandlers implementations for testing."""
+"""Toy :py:class:`~.v1.handlers.CheckpointableHandler` implementations for testing."""
 
 from __future__ import annotations
 
@@ -47,9 +47,9 @@ async def _run_awaitable(awaitable: Awaitable[Any]) -> Any:
 
 
 class _TestHandler(Generic[T, AbstractT]):
-  """This class facilitates testing of CheckpointableHandlers independently.
+  """This class facilitates testing of :py:class:`~.v1.handlers.CheckpointableHandler` independently.
 
-  Use `create_test_handler`.
+  Use :py:func:`.create_test_handler`.
   """
 
   def __init__(
@@ -147,7 +147,7 @@ class DataclassRestoreArgs(v0_args.CheckpointArgs):
 
 @dataclasses.dataclass
 class Point:
-  """Implements StatefulCheckpointable."""
+  """Implements :py:class:`~.v1.handlers.StatefulCheckpointable`."""
 
   x: int
   y: int

@@ -36,7 +36,7 @@ async def get_checkpoint_layout(
     layout_enum: The checkpoint layout to use.
 
   Returns:
-    The class of the matching CheckpointLayout.
+    The class of the matching :py:class:`.CheckpointLayout`.
 
   Raises:
     InvalidLayoutError: If the path is not a valid checkpoint for any registered
@@ -73,10 +73,8 @@ async def get_checkpoint_layout_pytree(
 ) -> tuple[checkpoint_layout.CheckpointLayout, str | None]:
   """Returns the checkpoint layout and checkpointable name for the given path."""
   layout = await get_checkpoint_layout(path, layout_enum)
-  layout, checkpointable_name = (
-      await _try_resolve_pytree_checkpointable(
-          layout, checkpointable_name
-      )
+  layout, checkpointable_name = await _try_resolve_pytree_checkpointable(
+      layout, checkpointable_name
   )
   await layout.validate_pytree(checkpointable_name)
   return layout, checkpointable_name
@@ -86,18 +84,20 @@ async def _try_resolve_pytree_checkpointable(
     layout: CheckpointLayout,
     checkpointable_name: str | None,
 ) -> tuple[CheckpointLayout, str | None]:
-  """Tries to resolve the PyTree checkpointable name for a given layout.
+  """Tries to resolve the `PyTree` checkpointable name for a given layout.
 
   Args:
-    layout: The CheckpointLayout object.
-    checkpointable_name: An optional name for the PyTree checkpointable.
+    layout: The :py:class:`.CheckpointLayout` object.
+    checkpointable_name: An optional name for the `PyTree` checkpointable.
 
   Returns:
-    A tuple containing the (potentially updated) CheckpointLayout and the
+    A tuple containing the (potentially updated)
+    :py:class:`.CheckpointLayout`
+    and the
     resolved checkpointable name.
 
   Raises:
-    ValueError: If it's a V0 checkpoint and a PyTree checkpointable name
+    ValueError: If it's a V0 checkpoint and a `PyTree` checkpointable name
       cannot be resolved.
   """
   # Selected a specific name; use it.
@@ -130,7 +130,7 @@ async def _try_resolve_pytree_checkpointable(
     return layout, name
   raise checkpoint_layout.InvalidLayoutError(
       f"Detected an Orbax V0 checkpoint at {layout.path}, but failed to resolve"
-      " a checkpointable name for the PyTree checkpointable. Found"
+      " a checkpointable name for the `PyTree` checkpointable. Found"
       f" subdirectory names: {dir_names}."
   )
 

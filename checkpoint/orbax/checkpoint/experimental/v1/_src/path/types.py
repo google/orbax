@@ -32,11 +32,12 @@ class PathAwaitingCreation(Protocol):
 
   This construct is used to represent a path in the process of being created.
   The underlying path can be accessed logically, but the actual location in
-  the filesystem should not be accessed until `await_creation` is called.
+  the filesystem should not be accessed until :py:meth:`.await_creation` is
+  called.
 
   Usage::
 
-    path: PathAwaitingCreation = ...
+    path: :py:class:`.PathAwaitingCreation` = ...
     # Logical accesses are OK.
     print(path.path)
     # Block until the path is known to exist.

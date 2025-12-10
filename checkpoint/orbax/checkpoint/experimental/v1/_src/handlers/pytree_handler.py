@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Implementation of :py:class:`.CheckpointableHandler` for PyTrees."""
+"""Implementation of :py:class:`~.v1.handlers.CheckpointableHandler` for PyTrees."""
 
 from __future__ import annotations
 
@@ -123,24 +123,24 @@ def create_v0_save_args(
 def _restore_type_by_abstract_type(
     abstract_checkpointable: Any,
 ) -> Any:
-  """This is to allow users to override the restored type.
+  """Allows users to override the restored type.
 
-  When users pass in the `value` in the DeserializationParam, the PytreeHandler
-  will try to restore to the specified type. T. This only supports the standard
+  When users pass the `value` in the `DeserializationParam`, the `PyTreeHandler`
+  will try to restore to the specified type `T`. This only supports the standard
   types supported by Orbax.
   For example:
-    - jax.ShapeDtype -> jax.Array
-    - NumpyAbstractType -> jax.Array
-    - int | float | Type[int] | Type[float] -> int | float | int | float
+    - `jax.ShapeDtype` -> `jax.Array`
+    - `NumpyAbstractType` -> `jax.Array`
+    - `int` | `float` | `Type[int]` | `Type[float]` -> `int` | `float` | `int` |
+    `float`
 
   Args:
-    abstract_checkpointable: The abstract checkpointable that passed in by the
-      user.
+    abstract_checkpointable: The abstract checkpointable passed in by the user.
 
   Returns:
-    Return the restore_type parameter for the V0RestoreArgs.  This is needed to
-    determine which LeafHandler will eventually handle this
-    abstract_checkpointable.
+    Returns the `restore_type` parameter for `V0RestoreArgs`. This is needed to
+    determine which `LeafHandler` will eventually handle this
+    `abstract_checkpointable`.
   """
 
   if abstract_checkpointable is None:
@@ -315,8 +315,9 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       abstract_checkpointable: The abstract checkpointable to load into. If
         None, the handler will attempt to load the entire checkpoint using the
         recorded metadata. Otherwise, the `abstract_checkpointable` is expected
-        to be a PyTree of abstract leaves. See :py:class:`.LeafHandler` for more
-        details. The abstract leaf may be a value of type `AbstractLeaf`,
+        to be a PyTree of abstract leaves. See
+        :py:class:`~.v1.serialization.LeafHandler` for more details. The
+        abstract leaf may be a value of type `AbstractLeaf`,
         `Type[AbstractLeaf]`, or `None`. E.g. if the `AbstractLeaf` is
         `AbstractFoo`, it is always valid to pass `AbstractFoo()` or
         `AbstractFoo` or `None`. Passing the latter two indicates that metadata

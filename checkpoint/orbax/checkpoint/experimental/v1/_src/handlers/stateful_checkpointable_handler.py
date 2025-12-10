@@ -25,7 +25,7 @@ class StatefulCheckpointableHandler(
     handler_types.CheckpointableHandler[T, T],
     Generic[T],
 ):
-  """Serializes/deserializes a Checkpointable."""
+  """Serializes/deserializes a :py:class:`~.v1.handlers.StatefulCheckpointable`."""
 
   async def save(
       self,

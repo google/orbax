@@ -12,15 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Registry for `CheckpointableHandler`.
+"""Registry for :py:class:`~.v1.handlers.CheckpointableHandler`.
 
-A `CheckpointableHandler` defines logic needed to save and restore a
-"checkpointable" object. Once defined, the handler must be registered either
-globally or locally.
+A :py:class:`~.v1.handlers.CheckpointableHandler` defines logic needed to save
+and restore a "checkpointable" object. Once defined, the handler must be
+registered either globally or locally.
 
-To register the handler globally, use `register_handler`. Alternatively,
+To register the handler globally, use
+:py:func:`~.v1._src.handlers.registration.register_handler`.
+Alternatively,
 create a local registry confined to a specific scope by using
-`local_registry` (note that globally-registered handlers are included in this
+:py:func:`~.v1._src.handlers.registration.local_registry`
+(note that globally-registered handlers are included in this
 registry by default).
 
 For example::
@@ -75,7 +78,7 @@ def add_all(
 
 
 class CheckpointableHandlerRegistry(Protocol):
-  """A registry defining a mapping from name to CheckpointableHandler.
+  """A registry defining a mapping from name to :py:class:`~.v1.handlers.CheckpointableHandler`.
 
   See module docstring for usage details.
   """
@@ -92,7 +95,7 @@ class CheckpointableHandlerRegistry(Protocol):
       self,
       checkpointable: str,
   ) -> Type[CheckpointableHandler]:
-    """Gets the type of a `CheckpointableHandler` from the registry."""
+    """Gets the type of a :py:class:`~.v1.handlers.CheckpointableHandler` from the registry."""
     ...
 
   def has(
@@ -117,7 +120,7 @@ class NoEntryError(KeyError):
 
 
 class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
-  """Default implementation of `CheckpointableHandlerRegistry`."""
+  """Default implementation of :py:class:`~.v1.handlers.registration.CheckpointableHandlerRegistry`."""
 
   def __init__(
       self, other_registry: CheckpointableHandlerRegistry | None = None
@@ -225,7 +228,7 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
 
 
 class ReadOnlyCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
-  """Read-only implementation of `CheckpointableHandlerRegistry`."""
+  """Read-only implementation of :py:class:`~.v1.handlers.registration.CheckpointableHandlerRegistry`."""
 
   def __init__(self, registry: CheckpointableHandlerRegistry):
     self._registry = registry
@@ -279,7 +282,7 @@ def local_registry(
   Args:
     other_registry: An optional registry of handlers to include in the returned
       registry.
-    include_global_registry: If true, includes globally-registered handlers in
+    include_global_registry: If True, includes globally-registered handlers in
       the returned registry by default.
 
   Returns:
@@ -301,7 +304,7 @@ CheckpointableHandlerType = TypeVar(
 def register_handler(
     cls: CheckpointableHandlerType,
 ) -> CheckpointableHandlerType:
-  """Registers a :py:class:`.CheckpointableHandler` globally.
+  """Registers a :py:class:`~.v1.handlers.CheckpointableHandler` globally.
 
   The order in which handlers are registered matters. If multiple handlers
   could potentially be used to save or load, the one added most recently will be
@@ -337,10 +340,10 @@ def _construct_handler_instance(
     return handler_type()
   except TypeError as e:
     raise ValueError(
-        'The `CheckpointableHandler` resolved for'
-        f' checkpointable={name} could not be'
-        ' default-constructed. Please ensure the object is'
-        ' default-constructible or provide a concrete instance.'
+        'The :py:class:`~.v1.handlers.CheckpointableHandler`'
+        f' resolved for checkpointable={name} could not be default-constructed.'
+        ' Please ensure the object is default-constructible or provide a'
+        ' concrete instance.'
     ) from e
 
 
@@ -395,25 +398,28 @@ def resolve_handler_for_save(
     *,
     name: str,
 ) -> CheckpointableHandler:
-  """Resolves a CheckpointableHandler for saving.
+  """Resolves a :py:class:`~.v1.handlers.CheckpointableHandler` for saving.
 
     1. If a name matching the provided checkpointable name is explicitly
        registered, return the corresponding handler.
     2. Resolve based on the `checkpointable` (using
-      `CheckpointableHandler.is_handleable`).
+      :py:meth:`~.v1._src.handlers.types.CheckpointableHandler.is_handleable`).
     3. If multiple handlers are usable, return the *last* usable handler. This
        allows us to resolve the most recently-registered handler.
 
   Args:
-    registry: The CheckpointableHandlerRegistry to search.
+    registry: The
+      :py:class:`~.v1.handlers.registration.CheckpointableHandlerRegistry` to
+      search.
     checkpointable: A checkpointable to resolve.
     name: The name of the checkpointable.
 
   Raises:
-    NoEntryError: If no compatible `CheckpointableHandler` can be found.
+    NoEntryError: If no compatible
+    :py:class:`~.v1.handlers.CheckpointableHandler` can be found.
 
   Returns:
-    A CheckpointableHandler instance.
+    A :py:class:`~.v1.handlers.CheckpointableHandler` instance.
   """
   # If explicitly registered, use that first.
   if registry.has(name):
@@ -440,11 +446,11 @@ def resolve_handler_for_load(
     name: str,
     handler_typestr: str,
 ) -> CheckpointableHandler:
-  """Resolves a CheckpointableHandler for loading.
+  """Resolves a :py:class:`~.v1.handlers.CheckpointableHandler` for loading.
 
     1. If name is explicitly registered, return the handler.
     2. Resolve based on the `abstract_checkpointable` (using
-      `CheckpointableHandler.is_abstract_handleable`).
+      :py:meth:`~.v1._src.handlers.types.CheckpointableHandler.is_abstract_handleable`).
     3. If `abstract_checkpointable` is None or not provided, all registered
       handlers not scoped to a specific item name are potentially usable.
     4. If multiple handlers are usable, return the handler with the matching
@@ -454,16 +460,21 @@ def resolve_handler_for_load(
        recently-registered handler.
 
   Raises:
-    NoEntryError: If no compatible `CheckpointableHandler` can be found.
+    NoEntryError: If no compatible
+    :py:class:`~.v1.handlers.CheckpointableHandler`
+    can be found.
 
   Args:
-    registry: The CheckpointableHandlerRegistry to search.
+    registry: The
+      :py:class:`~.v1.handlers.registration.CheckpointableHandlerRegistry` to
+      search.
     abstract_checkpointable: An abstract checkpointable to resolve.
     name: The name of the checkpointable.
-    handler_typestr: A CheckpointableHandler typestr to guide resolution.
+    handler_typestr: A :py:class:`~.v1.handlers.CheckpointableHandler` typestr
+      to guide resolution.
 
   Returns:
-    A CheckpointableHandler instance.
+    A :py:class:`~.v1.handlers.CheckpointableHandler` instance.
   """
   # If explicitly registered, use that first.
   if registry.has(name):

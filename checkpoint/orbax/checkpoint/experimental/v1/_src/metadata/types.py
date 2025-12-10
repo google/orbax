@@ -28,10 +28,10 @@ SerializedMetadata = TypeVar('SerializedMetadata', bound=dict[str, Any])
 
 PyTreeMetadata: TypeAlias = tree_types.PyTreeOf[tree_types.AbstractLeafType]
 PyTreeMetadata.__doc__ = """
-Metadata describing a PyTree checkpoint.
+Metadata describing a `PyTree` checkpoint.
 
-A serialized PyTree structure with the same structure as the checkpointed
-PyTree. By "serialized", we mean that the PyTree has been converted to a
+A serialized `PyTree` structure with the same structure as the checkpointed
+`PyTree`. By "serialized", we mean that the `PyTree` has been converted to a
 standardized representation, with all container nodes represented as standard
 types (e.g., tuple, list, dict, etc.). The leaves of the tree are individual
 parameter metadatas.
@@ -46,10 +46,10 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
   `dict[str, Any]`.
 
   `CheckpointMetadata` can be accessed via one of two metadata methods. Please
-  see `ocp.pytree_metadata` and `ocp.checkpointables_metadata` for more
-  information and usage instructions.
+  see :py:func:`.pytree_metadata` and :py:func:`.checkpointables_metadata` for
+  more information and usage instructions.
 
-  If the checkpoint contains a PyTree, this metadata can be acccessed via::
+  If the checkpoint contains a `PyTree`, this metadata can be accessed via::
 
     metadata = ocp.pytree_metadata(path)
 
@@ -70,10 +70,10 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
 
   Attributes:
     metadata: Metadata for the checkpointable.
-    init_timestamp_nsecs: timestamp when uncommitted checkpoint was initialized.
-      Specified as nano seconds since epoch. default=None.
-    commit_timestamp_nsecs: commit timestamp of a checkpoint, specified as nano
-      seconds since epoch. default=None.
+    init_timestamp_nsecs: The timestamp when the uncommitted checkpoint was
+      initialized, specified in nanoseconds since the epoch. Defaults to `None`.
+    commit_timestamp_nsecs: The commit timestamp of a checkpoint, specified in
+      nanoseconds since the epoch. Defaults to `None`.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.

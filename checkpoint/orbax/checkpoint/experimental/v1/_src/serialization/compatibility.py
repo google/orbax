@@ -49,7 +49,7 @@ class V0Metadata(value_metadata.Metadata):
 
 
 class _PathAwaitingCreation(path_types.PathAwaitingCreation):
-  """Implementation of `PathAwaitingCreation` that awaits contracted signals."""
+  """Implementation of :py:class:`~.v1.path.PathAwaitingCreation` that awaits contracted signals."""
 
   def __init__(self, path: path_types.Path, operation_id: str):
     self._path = path
@@ -74,8 +74,8 @@ class _PathAwaitingCreation(path_types.PathAwaitingCreation):
 def _keypath_from_param_name(param_name: str) -> tree_types.PyTreeKeyPath:
   """Converts a param name to a PyTreeKeyPath.
 
-  This is based on reversing of the name construction from tree/utils.py's
-  param_name_from_keypath.
+  This is based on reversing the name construction from `tree/utils.py`'s
+  `param_name_from_keypath`.
 
   Args:
     param_name: A string representing the parameter name.
@@ -122,12 +122,12 @@ def _construct_deserialization_param(
     | Type[types.AbstractString]
     | None
 ]:
-  """Constructs a DeserializationParam from a ParamInfo and RestoreArg."""
+  """Constructs a :py:class:`~.v1.serialization.DeserializationParam` from a ParamInfo and :py:class:`~orbax.checkpoint.type_handlers.RestoreArgs`."""
 
   logging.vlog(1, 'compatibility.py: restore_args: %s', restore_args)
 
   if restore_args.restore_type == np.ndarray:
-    # Numpy type
+    # NumPy type
     value = numpy_leaf_handler.NumpyShapeDtype(
         dtype=restore_args.dtype,
         shape=None,
@@ -139,7 +139,7 @@ def _construct_deserialization_param(
     logging.vlog(1, 'Scalar restore_type set to: %s', restore_args.restore_type)
     value = restore_args.restore_type
   elif isinstance(restore_args, type_handlers_v0.ArrayRestoreArgs):
-    # JAX Array type, construct value as jax.ShapeDtypeStruct.
+    # JAX Array type, construct value as `jax.ShapeDtypeStruct`.
     arg = cast(type_handlers_v0.ArrayRestoreArgs, restore_args)
 
     logging.info(
@@ -256,7 +256,7 @@ def _convert_v1_metadata_to_v0(
     directory: path_types.Path | None,
     metadata: types.AbstractShardedArray,
 ) -> value_metadata.Metadata:
-  """Wrap V1 metadata into V0Metadata."""
+  """Wrap V1 metadata into :py:class:`~.V0Metadata`."""
   return V0Metadata(
       name=name,
       directory=directory,

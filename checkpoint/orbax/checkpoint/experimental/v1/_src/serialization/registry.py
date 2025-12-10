@@ -204,8 +204,8 @@ class StandardLeafHandlerRegistry(BaseLeafHandlerRegistry):
   """Default Leaf Handler Registry.
 
   This registry is designed as the default implementation of
-  LeafHandlerRegistry. It also registers the handlers for all the standard types
-  including jax.Array, np.ndarray, int, float, bytes, and np.number.
+  LeafHandlerRegistry.  It also registers the handlers for all the standard
+  types including jax.Array, np.ndarray, int, float, bytes, and np.number.
   """
 
   def __init__(self):

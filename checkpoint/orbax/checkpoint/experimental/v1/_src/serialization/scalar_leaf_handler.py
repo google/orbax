@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ScalarLeafHandler that implements the types.LeafHandler Protocol.
+""":py:class:`.ScalarLeafHandler` that implements the :py:class:`~.v1.serialization.LeafHandler` Protocol.
 
 The primary purpose of this handler is to provide serialization and
 deserialization for scalar values.
@@ -140,7 +140,7 @@ async def _async_futures(commit_futures: Sequence[future.Future]):
 
 
 class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
-  """ScalarLeafHandler that implements the types.LeafHandler Protocol."""
+  """:py:class:`.ScalarLeafHandler` that implements the :py:class:`~.v1.serialization.LeafHandler` Protocol."""
 
   def __init__(
       self,

@@ -31,7 +31,7 @@ from orbax.checkpoint.experimental.v1._src.synchronization import synchronizatio
 
 
 class _PathAwaitingCreation(path_types.PathAwaitingCreation):
-  """Implementation of `PathAwaitingCreation` that awaits contracted signals."""
+  """Implementation of :py:class:`~.v1.path.PathAwaitingCreation` that awaits contracted signals."""
 
   def __init__(self, path: path_types.Path, operation_id: str):
     self._path = path
@@ -56,7 +56,7 @@ class _PathAwaitingCreation(path_types.PathAwaitingCreation):
 class CompatibilityCheckpointHandler(
     async_checkpoint_handler.AsyncCheckpointHandler
 ):
-  """A V0 CheckpointHandler that wraps a V1 CheckpointableHandler."""
+  """A V0 :py:class:`~orbax.checkpoint.AsyncCheckpointHandler` that wraps a V1 :py:class:`~.v1.handlers.CheckpointableHandler`."""
 
   def __init__(self, handler: handler_types.CheckpointableHandler):
     self._handler = handler

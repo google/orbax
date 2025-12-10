@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Metadata for `training.Checkpointer`."""
+"""Metadata for :py:class:`~.v1.training.Checkpointer`."""
 
 import dataclasses
 import datetime

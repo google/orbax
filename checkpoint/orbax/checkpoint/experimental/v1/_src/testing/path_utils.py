@@ -23,7 +23,7 @@ PathAwaitingCreation = path_types.PathAwaitingCreation
 
 
 class PathAwaitingCreationWrapper(path_types.PathAwaitingCreation):
-  """PathAwaitingCreation where the path is already created."""
+  """:py:class:`~.v1.path.PathAwaitingCreation` where the path is already created."""
 
   def __init__(self, path: Path):
     self._path = path

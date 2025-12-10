@@ -39,18 +39,18 @@ def save_pytree(
     overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
 ):
-  """Saves a PyTree.
+  """Saves a `PyTree`.
 
   The operation blocks until complete. For improved performance, consider using
-  `save_async` instead.
+  :py:func:`.save_pytree_async` instead.
 
   Args:
     path: The path to save the checkpoint to.
-    pytree: The PyTree to save. This may be any JAX PyTree (including custom
-      objects registered as PyTrees) consisting of supported leaf types. Default
-      supported leaf types include `jax.Array`, `np.ndarray`, simple types like
-      `int`, `float`, `str`, and empty nodes. Support for custom leaves is also
-      possible by implementing a `LeafTypeHandler`.
+    pytree: The `PyTree` to save. This may be any JAX `PyTree` (including custom
+      objects registered as `PyTrees`) consisting of supported leaf types.
+      Default supported leaf types include `jax.Array`, `np.ndarray`, simple
+      types like `int`, `float`, `str`, and empty nodes. Support for custom
+      leaves is also possible by implementing a `LeafTypeHandler`.
     overwrite: If True, fully overwrites an existing checkpoint in `path`.
       Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
@@ -134,24 +134,24 @@ def save_pytree_async(
     overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
 ) -> async_types.AsyncResponse[None]:
-  """Saves a PyTree asynchronously.
+  """Saves a `PyTree` asynchronously.
 
-  Unlike `save_pytree`, this function returns immediately after the save
-  operation is scheduled
-  (except for certain operations, like device-to-host copying of
-  on-device arrays, which must happen on the main thread). Further writing
-  operations continue in a background thread. An `AsyncResponse` is returned
-  that can be used to block until the save is complete (using
+  Unlike :py:func:`.save_pytree`, this function returns immediately after the
+  save operation is scheduled
+  (except for certain operations, like device-to-host copying of on-device
+  arrays, which must happen on the main thread). Further writing operations
+  continue in a background thread. An
+  :py:class:`~.AsyncResponse`
+  is returned that can be used to block until the save is complete (using
   `response.result()`). Make sure to wait for completion before attempting to
   load the checkpoint or exiting the program.
-
   Args:
     path: The path to save the checkpoint to.
-    pytree: The PyTree to save. This may be any JAX PyTree (including custom
-      objects registered as PyTrees) consisting of supported leaf types. Default
-      supported leaf types include `jax.Array`, `np.ndarray`, simple types like
-      `int`, `float`, `str`, and empty nodes. Support for custom leaves is also
-      possible by implementing a `LeafTypeHandler`.
+    pytree: The `PyTree` to save. This may be any JAX `PyTree` (including custom
+      objects registered as `PyTrees`) consisting of supported leaf types.
+      Default supported leaf types include `jax.Array`, `np.ndarray`, simple
+      types like `int`, `float`, `str`, and empty nodes. Support for custom
+      leaves is also possible by implementing a `LeafTypeHandler`.
     overwrite: If True, fully overwrites an existing checkpoint in `path`.
       Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
@@ -179,13 +179,14 @@ def save_checkpointables_async(
 ) -> async_types.AsyncResponse[None]:
   """Saves a dictionary of checkpointables asynchronously.
 
-  See `save_checkpointables` documentation.
+  See :py:func:`.save_checkpointables`
+  documentation.
 
-  Unlike `save_checkpointables`, this function returns immediately after the
-  save operation is scheduled
-  (except for certain operations, like device-to-host copying of
-  on-device arrays, which must happen on the main thread). Further writing
-  operations continue in a background thread. An `AsyncResponse` is returned
+  Unlike :py:func:`.save_checkpointables`, this function returns immediately
+  after the save operation is scheduled
+  (except for certain operations, like device-to-host copying of on-device
+  arrays, which must happen on the main thread). Further writing operations
+  continue in a background thread. An :py:class:`~.AsyncResponse` is returned
   that can be used to block until the save is complete (using
   `response.result()`). Make sure to wait for completion before attempting to
   load the checkpoint or exiting the program.
@@ -223,7 +224,16 @@ def get_v0_checkpointer_and_args(
     async_checkpointer.AsyncCheckpointer,
     composite_checkpoint_handler.CompositeArgs,
 ]:
-  """Construct V0 Checkpointer and Args for saving."""
+  """Constructs V0 Checkpointer and Args for saving.
+
+  Args:
+    checkpointables: A dictionary of checkpointables.
+    metrics: Optional metrics to add to the checkpointables.
+    context: The Orbax context.
+
+  Returns:
+    A tuple containing the V0 Checkpointer and Args.
+  """
   if (
       provided_reserved_keys := checkpointables.keys()
       & checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS

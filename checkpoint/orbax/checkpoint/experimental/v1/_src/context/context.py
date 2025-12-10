@@ -47,9 +47,9 @@ class Context(epy.ContextManager):
     with ocp.Context(...):
       ocp.save_pytree(...)
 
-  Creating a new `Context` within an existing `Context` sets all parameters from
-  scratch; it does not inherit properties from the parent `Context`. To achieve
-  this, use::
+  Creating a new :py:class:`.Context` within an existing :py:class:`.Context`
+  sets all parameters from scratch; it does not inherit properties from the
+  parent :py:class:`.Context`. To achieve this, use::
 
     with Context(**some_properties) as outer_ctx:
       with Context(outer_ctx, **other) as inner_ctx:
@@ -59,7 +59,7 @@ class Context(epy.ContextManager):
   properties modified in the `dataclasses.replace` call.
 
   NOTE: The context is not shared across threads. In other words, the whole
-  context block must be executed in the same thread. Following example will
+  context block must be executed in the same thread. The following example will
   not work as expected::
 
     executor = ThreadPoolExecutor()

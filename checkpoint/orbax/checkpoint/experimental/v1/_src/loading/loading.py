@@ -56,32 +56,32 @@ def load_pytree(
 ) -> tree_types.PyTreeOf[tree_types.LeafType]:
   """Loads a PyTree.
 
-  Loads from a PyTree checkpoint. A PyTree checkpoint must be a path
-  containing a subdirectory with name provided by `checkpointable_name`, with
-  default value `pytree`. Please see `checkpointable_name` for more details.
+  Loads from a `PyTree` checkpoint. A `PyTree` checkpoint must be a path
+  containing a subdirectory with the name provided by `checkpointable_name`,
+  with default value `pytree`. See `checkpointable_name` for more details.
 
   The operation blocks until complete. For improved performance, consider using
-  `load_async` instead.
+  :py:func:`.load_pytree_async` instead.
 
-  If `abstract_pytree` is not provided, the PyTree will be loaded exactly as
+  If `abstract_pytree` is not provided, the `PyTree` will be loaded exactly as
   saved.
 
   IMPORTANT: Loading is more brittle and error-prone when not providing
   `abstract_pytree`. Always provide `abstract_pytree` if possible. Note that
   you can always obtain the tree structure from a saved checkpoint using
-  `ocp.pytree_metadata`.
+  :py:func:`.pytree_metadata`.
 
-  Providing the `abstract_tree` guarantees two things:
+  Providing the `abstract_pytree` guarantees two things:
 
   1. The restored tree will exactly match the structure of `abstract_pytree` (or
   raise an error if it is impossible to guarantee this). For example, if
-  `abstract_pytree` is a custom object registered as a PyTree, the checkpoint
+  `abstract_pytree` is a custom object registered as a `PyTree`, the checkpoint
   will be restored as the same object, if possible.
 
   2. The leaves of the restored tree will be restored with the properties
   indicated by the abstract leaves. For example, if a leaf in `abstract_pytree`
   is a `jax.ShapeDtypeStruct`, the restored leaf will be a `jax.Array` with the
-  same shape and dtype. Each `AbstractLeafType` has a corresponding `LeafType`
+  same shape and `dtype`. Each `AbstractLeafType` has a corresponding `LeafType`
   that is restored.
 
   Args:
@@ -89,16 +89,16 @@ def load_pytree(
       subdirectory with name provided by `checkpointable_name`. See
       `checkpointable_name` for more details.
     abstract_pytree: Provides a tree structure for the checkpoint to be restored
-      into. May be omitted to load exactly as saved., but this is much more
+      into. May be omitted to load exactly as saved, but this is much more
       brittle than providing the tree.
     checkpointable_name: The name of the checkpointable to load. Defaults to
-      `pytree`. A subdirectory with this name must exist in `path`. If None then
-      path itself is expected to contain all files relevant for loading the
+      `pytree`. A subdirectory with this name must exist in `path`. If None,
+      then path itself is expected to contain all files relevant for loading the
       PyTree, rather than any subdirectory. Such files include, for example,
-      manifest.ocdbt, _METADATA, ocdbt.process_X.
+      `manifest.ocdbt`, `_METADATA`, `ocdbt.process_X`.
 
   Returns:
-    The restored PyTree.
+    The restored `PyTree`.
   """
   start_time = time.time()
   asyncio_utils.maybe_apply_nest_asyncio()
@@ -129,13 +129,16 @@ def load_checkpointables(
 ) -> dict[str, Any]:
   """Loads checkpointables.
 
-  See documentation for `save_checkpointables` for more context on what a
-  "checkpointable" is.
+  See documentation for :py:func:`.save_checkpointables` for more context on
+  what a checkpointable is.
 
   This function can be used to load any checkpoint saved by
-  `save_checkpointables` (or `save_pytree`). The path should contain a
-  number of subdirectories - each of these represents the name of a
+  :py:func:`.save_checkpointables` (or :py:func:`.save_pytree`). The path should
+  contain a number of subdirectories - each of these represents the name of a
   checkpointable.
+
+  The operation blocks until complete. For improved performance, consider using
+  :py:func:`.load_checkpointables_async` instead.
 
   If `abstract_checkpointables` is not provided, the checkpointables will be
   loaded exactly as saved.
@@ -143,14 +146,15 @@ def load_checkpointables(
   IMPORTANT: Loading is more brittle and error-prone when not providing
   `abstract_checkpointables`. Always provide `abstract_checkpointables` if
   possible. Note that you can always obtain the information about the
-  checkpointables using `ocp.checkpointables_metadata`.
+  checkpointables using
+  :py:func:`.checkpointables_metadata`.
 
   If `abstract_checkpointables` is provided, the value provided for each key
   is treated as the abstract type for the given checkpointable. For example, for
-  a PyTree of `jax.Array`, the corresponding abstract checkpointable is a PyTree
-  of `jax.ShapeDtypeStruct`. `None` is always a valid abstract checkpointable,
-  which just indicates that the checkpointable should be loaded exactly as
-  saved.
+  a `PyTree` of `jax.Array`, the corresponding abstract checkpointable is a
+  `PyTree` of `jax.ShapeDtypeStruct`. `None` is always a valid abstract
+  checkpointable, which just indicates that the checkpointable should be loaded
+  exactly as saved.
 
   The keys provided in `abstract_checkpointables` may be any subset of the
   checkpointables in the checkpoint. Any checkpointables names not provided in
@@ -192,11 +196,11 @@ def _load_checkpointables_impl(
     *,
     start_time: float,
 ) -> dict[str, Any]:
-  """Implementation of load_checkpointables.
+  """Implementation of :py:func:`.load_checkpointables`.
 
   Args:
     layout: The layout to use for loading the checkpoint (Orbax, SafeTensors, or
-      other.)
+      other).
     abstract_checkpointables: A dictionary of abstract checkpointables.
       Dictionary keys represent the names of the checkpointables, while the
       values are the abstract checkpointable objects themselves.
@@ -259,6 +263,6 @@ def load_checkpointables_async(
         dict[str, Any] | CheckpointMetadata[dict[str, Any]] | None
     ) = None,
 ) -> async_types.AsyncResponse[dict[str, Any]]:
-  """Loads a checkpointables asynchronously. Not yet implemented."""
+  """Loads checkpointables asynchronously. Not yet implemented."""
   del path, abstract_checkpointables
   raise NotImplementedError('Asynchronous loading is not yet supported.')

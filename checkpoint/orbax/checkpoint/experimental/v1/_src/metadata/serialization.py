@@ -64,8 +64,8 @@ async def write(metadata_file: path_types.Path, metadata: SerializedMetadata):
 async def read(metadata_file: path_types.Path) -> SerializedMetadata | None:
   """Reads metadata from a file.
 
-  Like `serialize`, it is expected that when called, this function is a unique
-  reader of the metadata file.
+  Like :py:func:`.write`, it is expected that, when called, this function is a
+  unique reader of the metadata file.
 
   Args:
     metadata_file: The file to read metadata from.

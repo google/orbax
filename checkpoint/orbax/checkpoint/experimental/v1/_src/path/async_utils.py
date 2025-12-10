@@ -29,7 +29,7 @@ PathAwaitingCreation = types.PathAwaitingCreation
 
 
 class _PathAwaitingCreation(PathAwaitingCreation):
-  """Implementation of `PathAwaitingCreation` that wraps an awaitable."""
+  """Implementation of :py:class:`.PathAwaitingCreation` that wraps an awaitable."""
 
   def __init__(
       self, directory: Path, f: future.Future
@@ -57,11 +57,11 @@ def start_async_mkdir(
     path: atomicity_types.TemporaryPath,
     subdirectories: Iterable[str] = (),
 ) -> PathAwaitingCreation:
-  """Starts async directory creation on a TemporaryPath.
+  """Starts async directory creation on a :py:class:`~.atomicity_types.TemporaryPath`.
 
-  The mkdir operation is started immediately in a background thread on `path`.
-  Creation is also started for any provided subdirectories. A
-  `PathAwaitingCreation` object is returned.
+  The `mkdir` operation starts immediately in a background thread on `path`.
+  Creation also starts for any provided subdirectories. A
+  :py:class:`.PathAwaitingCreation` object is returned.
 
   Subsequent operations on the returned object will NOT create any additional
   directories. For example, using::
@@ -73,11 +73,12 @@ def start_async_mkdir(
   and `path/b` will be created.
 
   Args:
-    path: The path to create. May be an instance of `TemporaryPath`.
+    path: The path to create. May be an instance of
+      :py:class:`~.atomicity_types.TemporaryPath`.
     subdirectories: A sequence of subdirectories to create under `path`.
 
   Returns:
-    A PathAwaitingCreation object.
+    A :py:class:`.PathAwaitingCreation` object.
   """
   context = context_lib.get_context()
 

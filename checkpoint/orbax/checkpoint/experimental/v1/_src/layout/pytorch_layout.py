@@ -44,8 +44,8 @@ _TORCH_TO_NP_DTYPE = {
     "torch.float16": np.float16,
     "torch.float32": np.float32,
     "torch.float64": np.float64,
-    # JAX's numpy supports bfloat16, but we use a string to avoid a direct
-    # dependency on a specific numpy implementation having np.bfloat16.
+    # JAX's NumPy supports bfloat16, but we use a string to avoid a direct
+    # dependency on a specific NumPy implementation having `np.bfloat16`.
     "torch.bfloat16": "bfloat16",
     "torch.uint8": np.uint8,
     "torch.int8": np.int8,
@@ -124,7 +124,7 @@ class CustomTorchUnpickler(pickle.Unpickler):
 
 @dataclasses.dataclass
 class _StorageMetadata:
-  """A placeholder for torch.Storage metadata, containing only the dtype."""
+  """A placeholder for `torch.Storage` metadata, containing only the `dtype`."""
 
   dtype: str
 
@@ -134,7 +134,7 @@ class _StorageMetadata:
 
 @dataclasses.dataclass
 class _NumpySdsMaker:
-  """Placeholder for numpy array metadata."""
+  """Placeholder for NumPy array metadata."""
 
   shape: tuple[int, ...] | None = None
   dtype: np.dtype | None = None
@@ -153,7 +153,7 @@ def _rebuild_tensor_as_sds(
     requires_grad: bool = False,
     backward_hooks: Any = (),
 ) -> jax.ShapeDtypeStruct:
-  """Pickle reduction function to rebuild a tensor as a ShapeDtypeStruct."""
+  """Pickle reduction function to rebuild a tensor as a `ShapeDtypeStruct`."""
   del storage_offset, stride, requires_grad, backward_hooks  # Unused.
   if not isinstance(storage, _StorageMetadata):
     # This error indicates that the unpickler's persistent_load did not return
@@ -177,7 +177,7 @@ def _rebuild_numpy_as_sds(
     shape: tuple[int, ...],
     dtype: Any,
 ) -> _NumpySdsMaker:
-  """Pickle reduction function to rebuild a numpy ndarray as a _NumpySdsMaker."""
+  """Pickle reduction function to rebuild a NumPy `ndarray` as a `_NumpySdsMaker`."""
   del subtype, shape, dtype  # Unused for metadata
   return _NumpySdsMaker()
 
@@ -248,7 +248,7 @@ async def _read_zip_contents(path: Path) -> tuple[bytes, dict[str, bytes]]:
 def _structure_to_numpy(
     pytorch_data: tree_types.PyTreeOf[Any],
 ) -> tree_types.PyTreeOf[Any]:
-  """Converts torch.Tensors in pytorch_data to NumPy arrays."""
+  """Converts `torch.Tensors` in `pytorch_data` to NumPy arrays."""
 
   def _to_numpy(leaf: Any) -> Any:
     if hasattr(leaf, "numpy"):
@@ -262,7 +262,7 @@ def _load_pytorch_on_device(
     pytorch_data: tree_types.PyTreeOf[Any],
     abstract_pytree: tree_types.PyTreeOf[jax.ShapeDtypeStruct],
 ) -> tree_types.PyTreeOf[jax.Array]:
-  """Loads tensors from pytorch_data into on-device JAX arrays based on abstract_pytree."""
+  """Loads tensors from `pytorch_data` into on-device JAX arrays based on `abstract_pytree`."""
 
   def _load_leaf(leaf: Any, abstract_leaf: Any) -> jax.Array:
     if not hasattr(leaf, "numpy"):
@@ -325,10 +325,10 @@ async def _load_pytorch(
 
 
 class PyTorchLayout(CheckpointLayout):
-  """Layout for loading PyTorch checkpoints (.pt, .pth).
+  """Layout for loading PyTorch checkpoints (`.pt`, `.pth`).
 
-  Uses zipfile and a custom unpickler to handle torch.Tensors
-  without calling torch.load().
+  Uses `zipfile` and a custom unpickler to handle `torch.Tensors`
+  without calling `torch.load()`.
   """
 
   def __init__(self, path: Path):
@@ -397,8 +397,8 @@ class PyTorchLayout(CheckpointLayout):
   ) -> Awaitable[dict[str, tree_types.PyTreeOf[Any]]]:
     """Loads a PyTorch checkpoint file.
 
-    If abstract_checkpointables are provided, it attempts to load tensors as
-    sharded jax.Arrays onto devices. Otherwise, it loads tensors as host
+    If `abstract_checkpointables` are provided, it attempts to load tensors as
+    sharded `jax.Arrays` onto devices. Otherwise, it loads tensors as host
     NumPy arrays.
 
     Args:

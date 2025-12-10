@@ -38,7 +38,7 @@ class ProtoHandler(
       self,
       filename: str = _DEFAULT_FILENAME,
   ):
-    """Initializes ProtoCheckpointHandler."""
+    """Initializes :py:class:`.ProtoHandler`."""
     self._filename = filename
 
   async def _background_save(

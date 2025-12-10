@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Implementation of `CheckpointableHandler` for PyTrees."""
+"""Implementation of :py:class:`.CheckpointableHandler` for PyTrees."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _get_supported_filenames(filename: str | None = None) -> list[str]:
 
 
 class JsonHandler(CheckpointableHandler[JsonType, None]):
-  """An implementation of `CheckpointableHandler` for Json."""
+  """An implementation of :py:class:`.CheckpointableHandler` for Json."""
 
   def __init__(self, filename: str | None = None):
     self._supported_filenames = _get_supported_filenames(filename)

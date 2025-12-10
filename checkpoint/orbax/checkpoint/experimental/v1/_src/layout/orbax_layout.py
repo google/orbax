@@ -100,7 +100,8 @@ class OrbaxLayout(CheckpointLayout):
   """OrbaxLayout.
 
   This class defines a class to handle Orbax checkpoint formats. It inherits
-  abstract methods from CheckpointLayout. It performs a few core functions:
+  abstract methods from :py:class:`~.CheckpointLayout`.
+  It performs a few core functions:
     - Resolves handlers for saving and loading.
     - Saves and loads checkpointables to/from individual subdirectories by
     delegating to the resolved handlers.

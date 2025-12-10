@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Defines `CompositeHandler`, a helper component for saving and loading."""
+"""Defines CompositeHandler, a helper component for saving and loading."""
 
 from __future__ import annotations
 
@@ -74,8 +74,8 @@ async def _create_orbax_identifier_file(
 class CompositeHandler:
   """CompositeHandler.
 
-  This class is a helper component for `save_checkpointables` and
-  `load_checkpointables`. It performs a few core functions:
+  This class is a helper component for :py:func:`~.v1.save_checkpointables`,
+  :py:func:`~.v1.load_checkpointables`, etc. It performs a few core functions:
     - Resolves handlers for saving and loading.
     - Saves and loads checkpointables to/from individual subdirectories by
     delegating to the resolved handlers.
