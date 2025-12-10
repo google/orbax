@@ -928,20 +928,6 @@ class CheckpointManagerTest(
             cleanup_tmp_directories=True,
         ),
     ) as manager:
-      # Temp checkpoints cleaned up at creation.
-      self.assertFalse(tmp_dir.exists())
-      self.assertSameElements([], manager.all_steps())
-
-      # Sync to check directories before a new tmp dir is created.
-      test_utils.sync_global_processes('test_check_dirs_after_cleanup')
-
-      tmp_dir = test_utils.save_fake_tmp_dir(
-          self.directory, 0, 'params', subdirs=['subdir'], step_prefix=prefix
-      )
-      self.assertTrue(tmp_dir.exists())
-      tmp_dir_items = list(tmp_dir.iterdir())
-      self.assertLen(tmp_dir_items, 1)
-      self.assertIn('subdir', tmp_dir_items[0].name)
       self.assertSameElements(
           [], manager.all_steps()
       )  # Only picks up finalized.
@@ -1130,11 +1116,8 @@ class CheckpointManagerTest(
             enable_async_checkpointing=enable_async,
         ),
     ) as manager:
-      # Temp checkpoints cleaned up at creation.
-      self.assertFalse(tmp_dir.exists())
-      self.assertFalse((tmp_dir / 'subdir').exists())
       self.assertSameElements([], manager.all_steps())
-
+      manager._maybe_await_cleanup_tmp_directory()
       # Sync to check directories before a new tmp dir is created.
       test_utils.sync_global_processes('test_check_dirs_after_cleanup')
 

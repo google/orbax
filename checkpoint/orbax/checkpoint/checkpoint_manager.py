@@ -34,7 +34,6 @@ from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
-from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src import threading as threading_lib
 from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
@@ -858,8 +857,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
 
     # Cleanup directories from previous runs that may not have been finalized.
+    self._cleanup_tmp_directory_future = None
     if self._options.cleanup_tmp_directories:
-      asyncio_utils.run_sync(
+      self._cleanup_tmp_directory_future = future.CommitFuture(
           temporary_paths.cleanup_temporary_paths(
               self._directory,
               multiprocessing_options=self._options.multiprocessing_options,
@@ -927,6 +927,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         self.directory,
         self,
     )
+
+  def _maybe_await_cleanup_tmp_directory(self):
+    if self._cleanup_tmp_directory_future is None:
+      return
+
+    self._cleanup_tmp_directory_future.result()
+    # Reset the future to None to avoid waiting for cleanup again.
+    self._cleanup_tmp_directory_future = None
 
   def _configure_checkpointer_common(
       self,
@@ -1388,7 +1396,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._validate_args(items, args)
     if not force and not self.should_save(step):
       return False
-
+    # Wait for any ongoing temporary path cleanup before starting the save.
+    self._maybe_await_cleanup_tmp_directory()
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
             'CheckpointManager:save_start',

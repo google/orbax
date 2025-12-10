@@ -156,11 +156,3 @@ async def cleanup_temporary_paths(
     await asyncio.gather(
         *[async_path.rmtree(tmp_path.get()) for tmp_path in tmp_paths]
     )
-  multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'cleanup_tmp_dirs',
-          prefix=multiprocessing_options.barrier_sync_key_prefix,
-      ),
-      timeout=multihost.coordination_timeout(),
-      processes=multiprocessing_options.active_processes,
-  )
