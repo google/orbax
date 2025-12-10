@@ -150,6 +150,7 @@ class JsonRestoreArgs(CheckpointArgs):
 
   Attributes:
     item: unused, but included for legacy-compatibility reasons.
+      New code should not set this attribute.
   """
 
   item: Optional[bytes] = None
