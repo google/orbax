@@ -69,13 +69,10 @@ tmp_checkpoints = lambda *a, **k: [
 ]
 
 
-def _validate_base_path(base_path: epath.PathLike):
+def _is_valid_base_path(base_path: epath.PathLike) -> bool:
   """Validates base_path and returns it as an epath.Path."""
   base_path = epath.Path(base_path)
-  if not base_path.exists():
-    raise ValueError(f'Base path {base_path} does not exist.')
-  if not base_path.is_dir():
-    raise ValueError(f'Base path {base_path} is not a directory.')
+  return base_path.exists() and base_path.is_dir()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -532,7 +529,8 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps matching with name_format attributes."""
-    _validate_base_path(base_path)
+    if not _is_valid_base_path(base_path):
+      return iter([])
     # Note: the order of conjuncts is important here; we should not call
     # `multihost.process_count()` when `single_host_load_and_broadcast` is False
     # as this has the possible side effect of initializing the jax backend. See
@@ -546,7 +544,11 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
   def find_step(self, base_path: epath.PathLike, step: int) -> Metadata:
     """Returns the metadata for `step` or raises ValueError."""
-    _validate_base_path(base_path)
+    if not _is_valid_base_path(base_path):
+      raise ValueError(
+          f'Invalid base_path: {base_path} does not exist or is not a'
+          ' directory.'
+      )
     step_path = build_step_path(base_path, self, step)
     metadata = self._build_metadata(step_path, step=step)
     if metadata is not None:
