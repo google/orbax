@@ -857,16 +857,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
 
 
-    # Cleanup directories from previous runs that may not have been finalized.
-    if self._options.cleanup_tmp_directories:
-      asyncio_utils.run_sync(
-          temporary_paths.cleanup_temporary_paths(
-              self._directory,
-              multiprocessing_options=self._options.multiprocessing_options,
-              temporary_path_cls=self._options.temporary_path_class,
-          )
-      )
-
     self._step_name_format = (
         self._options.step_name_format
         or step_lib.standard_name_format(
@@ -908,6 +898,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             enable_background_delete=self._options.enable_background_delete,
         )
     )
+
+    # Cleanup directories from previous runs that may not have been finalized.
+    if self._options.cleanup_tmp_directories:
+      self._checkpoint_deleter.delete_steps(
+        [
+          step_lib.step_from_checkpoint_name(tmp_path.get().name)
+          for tmp_path in asyncio_utils.run_sync(
+            temporary_paths.all_temporary_paths(self._directory)
+          )
+        ]
+      )
+
 
     self._save_progress_tracker = synchronization.MultihostSynchronizedValue(
         value=False,
