@@ -530,6 +530,57 @@ class CheckpointManagerTest(
     manager.close()
     new_manager.close()
 
+  def test_lightweight_intialize_loads_without_metadata_read(self):
+    options = CheckpointManagerOptions(
+        best_fn=lambda metrics: metrics['loss'],
+        best_mode='min',
+    )
+    with CheckpointManager(
+        self.directory, item_names=('params',), options=options
+    ) as manager:
+      self.assertTrue(
+          manager.save(
+              0,
+              args=args.Composite(params=args.PyTreeSave(self.pytree)),
+              metrics={'loss': 1.0},
+          )
+      )
+      self.assertTrue(
+          manager.save(
+              1,
+              args=args.Composite(params=args.PyTreeSave(self.pytree)),
+              metrics={'loss': 0.5},
+          )
+      )
+      self.wait_if_async(manager)
+
+    light_options = CheckpointManagerOptions(
+        lightweight_initialize=True,
+        best_fn=lambda metrics: metrics['loss'],
+        best_mode='min',
+    )
+    with CheckpointManager(
+        self.directory, item_names=('params',), options=light_options
+    ) as light_manager:
+      self.assertLen(light_manager._checkpoints, 2)
+      for ckpt in light_manager._checkpoints:
+        self.assertIsNone(ckpt.metrics)
+        self.assertEqual(ckpt.time, datetime.datetime.min)
+
+      # reload should load metrics
+      light_manager.reload()
+      self.assertLen(light_manager._checkpoints, 2)
+      self.assertIsNotNone(light_manager._checkpoints[0].metrics)
+      self.assertIsNotNone(light_manager._checkpoints[1].metrics)
+      self.assertEqual(light_manager._checkpoints[0].metrics['loss'], 1.0)
+      self.assertEqual(light_manager._checkpoints[1].metrics['loss'], 0.5)
+      self.assertNotEqual(
+          light_manager._checkpoints[0].time, datetime.datetime.min
+      )
+      self.assertNotEqual(
+          light_manager._checkpoints[1].time, datetime.datetime.min
+      )
+
   @parameterized.parameters((False, 1), (True, 2))
   def test_latest_step(self, enable_async, save_interval_steps):
     options = CheckpointManagerOptions(

@@ -364,6 +364,12 @@ class CheckpointManagerOptions:
     supposed to be created per process. This is used to support async
     directory creation. If True, `multiprocessing_options.primary_host` must be
     None.
+  lightweight_initialize: If True, checkpoint step metadata is not
+  read on
+    CheckpointManager initialization during checkpoint info loading. This is
+    useful to improve init performance
+    when there are O(1k) or more existing checkpoint step present and checkpoint
+    info properties like `time` and `metrics` are not needed.
   """
 
   save_interval_steps: int = 1
@@ -404,6 +410,7 @@ class CheckpointManagerOptions:
   # TODO(b/428061876) Remove this option.
   enable_should_save_is_saving_in_progress_check: bool = True
   enable_per_process_directory_creation: bool = False
+  lightweight_initialize: bool = False
 
   def __post_init__(self):
     step_name_format_single_host_load_and_broadcast = (
@@ -879,7 +886,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
 
     self._checkpoints = checkpoint_info.CheckpointInfos(
-        self._load_checkpoint_infos()
+        self._load_checkpoint_infos(
+            skip_metadata_read=self._options.lightweight_initialize
+        )
     )
 
     self._metadata_dir = self.directory / METADATA_ITEM_NAME
@@ -1764,10 +1773,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """Returns true if we should track the best checkpoints by given metric."""
     return self._options.best_fn is not None
 
-  def _load_checkpoint_infos(self) -> List[CheckpointInfo]:
+  def _load_checkpoint_infos(
+      self, skip_metadata_read=False
+  ) -> List[CheckpointInfo]:
     """Loads a list of CheckpointInfo for existing checkpoints.
 
     If none are present, returns empty list.
+
+    Args:
+      skip_metadata_read: If True, will not read metadata from disk to build
+        checkpoint infos.
 
     Returns:
       a list of CheckpointInfo, sorted by increasing step.
@@ -1778,11 +1793,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     step_metadatas = self._step_name_format.find_all(self.directory)
 
     def build_checkpoint_info(step_metadata):
-      return CheckpointInfo(
-          step=step_metadata.step,
-          time=step_metadata.commit_timestamp,
-          metrics=self.metrics(step_metadata.step),
-      )
+      if skip_metadata_read:
+        return CheckpointInfo(
+            step=step_metadata.step,
+            time=datetime.datetime.min,
+            metrics=None,
+        )
+      else:
+        return CheckpointInfo(
+            step=step_metadata.step,
+            time=step_metadata.commit_timestamp,
+            metrics=self.metrics(step_metadata.step),
+        )
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
       checkpoint_infos = list(
