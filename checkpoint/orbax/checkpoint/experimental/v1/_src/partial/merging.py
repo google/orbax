@@ -14,38 +14,22 @@
 
 """Partial merging utils."""
 
-from typing import Any, NamedTuple, TypeVar
+from typing import Any, TypeVar
 
-import jax
-from orbax.checkpoint._src.metadata import value as value_metadata
-from orbax.checkpoint._src.tree import structure_utils
-from orbax.checkpoint.experimental.v1._src.metadata import loading as metadata_loading
-from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from etils import epath
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+
+PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 
 PyTree = Any
 T = TypeVar('T')
 PyTreeOf = PyTree | T
-ArrayMetadata = value_metadata.ArrayMetadata
 
 
-class SourceIndexedMetadata(NamedTuple):
-  ckpt_idx: int
-  metadata: ArrayMetadata
+# TODO(b/447415436): Use OrbaxLayout for this once the implementation is ready.
+def resolve_pytree_path(path: epath.Path) -> epath.Path:
+  """Resolves the path to the pytree checkpoint."""
+  if not (path / PYTREE_CHECKPOINTABLE_KEY).exists():
+    raise ValueError(f'Path {path} does not contain a pytree checkpoint.')
 
-
-def merge_ckpt_metadata(
-    ckpts_to_merge: list[path_types.Path],
-) -> PyTreeOf[SourceIndexedMetadata]:
-  """Merges metadata from multiple checkpoints, labeling each leaf with its source index."""
-  labeled_ckpt_metadata: list[PyTreeOf[SourceIndexedMetadata]] = [
-      jax.tree.map(
-          lambda metadata, index=i: SourceIndexedMetadata(index, metadata),
-          metadata_loading.pytree_metadata(ckpt_path).metadata,
-      )
-      for i, ckpt_path in enumerate(ckpts_to_merge)
-  ]
-  return structure_utils.merge_trees(
-      *labeled_ckpt_metadata,
-      overwrite=True,
-      is_leaf=lambda x: isinstance(x, SourceIndexedMetadata)
-  )
+  return path / PYTREE_CHECKPOINTABLE_KEY
