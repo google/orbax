@@ -69,15 +69,6 @@ tmp_checkpoints = lambda *a, **k: [
 ]
 
 
-def _validate_base_path(base_path: epath.PathLike):
-  """Validates base_path and returns it as an epath.Path."""
-  base_path = epath.Path(base_path)
-  if not base_path.exists():
-    raise ValueError(f'Base path {base_path} does not exist.')
-  if not base_path.is_dir():
-    raise ValueError(f'Base path {base_path} is not a directory.')
-
-
 @dataclasses.dataclass(frozen=True)
 class Metadata:
   """Metadata of a step.
@@ -405,8 +396,11 @@ class _StandardNameFormat(NameFormat[Metadata]):
           if folder.startswith(os.path.join(path_prefix, self.step_prefix))
       ]
     else:
-      prefix = step_prefix_with_underscore(self.step_prefix)
-      return [x for x in base_path.iterdir() if x.name.startswith(prefix)]
+      return list(
+          epath.Path(base_path).glob(
+              f'{step_prefix_with_underscore(self.step_prefix)}*'
+          )
+      )
 
   def _get_step_paths_and_total_steps(
       self, base_path: epath.PathLike, is_primary_host: bool
@@ -532,7 +526,6 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps matching with name_format attributes."""
-    _validate_base_path(base_path)
     # Note: the order of conjuncts is important here; we should not call
     # `multihost.process_count()` when `single_host_load_and_broadcast` is False
     # as this has the possible side effect of initializing the jax backend. See
@@ -546,7 +539,6 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
   def find_step(self, base_path: epath.PathLike, step: int) -> Metadata:
     """Returns the metadata for `step` or raises ValueError."""
-    _validate_base_path(base_path)
     step_path = build_step_path(base_path, self, step)
     metadata = self._build_metadata(step_path, step=step)
     if metadata is not None:
