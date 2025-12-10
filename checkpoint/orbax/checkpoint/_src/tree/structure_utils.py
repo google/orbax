@@ -40,7 +40,7 @@ def tree_difference(
     *,
     is_leaf: Callable[[PyTree], bool] | None = None,
     leaves_equal: Callable[[PyTree, PyTree], bool] | None = None,
-):
+) -> PyTree:
   """Recursively compute differences in tree structure.
 
   Lists, tuples, named tuples, mappings and custom PyTree nodes are treated
