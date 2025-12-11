@@ -17,6 +17,9 @@
 from typing import Any, TypeVar
 
 from etils import epath
+import jax
+from orbax.checkpoint._src.arrays import sharding as array_sharding
+from orbax.checkpoint._src.tree import structure_utils
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 
 PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
@@ -33,3 +36,26 @@ def resolve_pytree_path(path: epath.Path) -> epath.Path:
     raise ValueError(f'Path {path} does not contain a pytree checkpoint.')
 
   return path / PYTREE_CHECKPOINTABLE_KEY
+
+
+def merge_transform_fn(*args: PyTree) -> PyTree:
+  """Merges trees, overwriting existing keys."""
+  return structure_utils.merge_trees(*args, overwrite=True)
+
+
+def resolve_target_structure(
+    abstract_sources: list[PyTree], host_cpus: list[jax.Device]
+) -> PyTree:
+  """Resolves output structure and output sharding for merged sources."""
+  abstract_target = jax.eval_shape(merge_transform_fn, *abstract_sources)
+
+  shardings = array_sharding.construct_maximal_shardings(
+      abstract_target, devices=host_cpus
+  )
+  sharded_abstract_target = jax.tree.map(
+      lambda x, s: jax.ShapeDtypeStruct(x.shape, x.dtype, sharding=s),
+      abstract_target,
+      shardings,
+  )
+
+  return sharded_abstract_target
