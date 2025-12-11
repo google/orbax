@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `use_ocdbt` property in PyTree metadata.
 
+### Changed
+
+- Remove support for `jax.sharding.PmapSharding` from multihost dispatchers.
+  `jax.sharding.PmapSharding` is deprecated as of JAX v0.8.1.
+
 ## [0.11.30] - 2025-11-26
 
 ### Fixed

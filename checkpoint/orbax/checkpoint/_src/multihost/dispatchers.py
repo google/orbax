@@ -152,10 +152,6 @@ class ColocatedPythonDispatcher(Dispatcher):
       return jax.sharding.NamedSharding(
           cpu_mesh, sharding.spec, memory_kind=sharding.memory_kind
       )
-    elif isinstance(sharding, jax.sharding.PmapSharding):
-      cpu_devices = cp.colocated_cpu_devices(sharding.devices.flat)
-      cpu_devices = np.array(cpu_devices).reshape(sharding.devices.shape)
-      return jax.sharding.PmapSharding(cpu_devices, sharding.sharding_spec)
     else:
       raise TypeError(
           f'Sharding type {type(sharding)} not supported in'
