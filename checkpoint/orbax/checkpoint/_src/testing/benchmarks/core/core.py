@@ -424,7 +424,11 @@ class TestSuite:
           result = benchmark.run(repeat_index=repeat_index)
           all_results.append(result)
           self._suite_metrics.add_result(
-              benchmark.name, benchmark.options, result.metrics, result.error
+              benchmark.name,
+              result.metrics,
+              benchmark_options=benchmark.options,
+              checkpoint_config=benchmark.checkpoint_config,
+              error=result.error,
           )
 
     if not all_results:
