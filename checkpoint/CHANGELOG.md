@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `use_ocdbt` property in PyTree metadata.
+- Add more storage types into path.utils.get_storage_type()
 
 ### Changed
 
