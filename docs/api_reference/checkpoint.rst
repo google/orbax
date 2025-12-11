@@ -14,8 +14,8 @@ orbax.checkpoint API Reference
    checkpoint.path.atomicity_types
    checkpoint.path.step
    checkpoint.path.deleter
-   checkpoint.checkpoint_managers.preservation_policy
-   checkpoint.checkpoint_managers.save_decision_policy
+   checkpoint.preservation_policy
+   checkpoint.save_decision_policy
    checkpoint.checkpoint_utils
    checkpoint.transform_utils
    checkpoint.msgpack_utils
