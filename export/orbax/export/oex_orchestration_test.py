@@ -12,15 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.export import oex_orchestration
+from orbax.export.data_processors import data_processor_base
+from orbax.export.modules import obm_module
 import tensorflow as tf
 
 
 @tf.function
 def tf_fn(a):
   return a
+
+
+class TestProcessor(data_processor_base.DataProcessor):
+
+  def prepare(self, input_signature):
+    pass
 
 
 class OexOrchestrationTest(parameterized.TestCase):

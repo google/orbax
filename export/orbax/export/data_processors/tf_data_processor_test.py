@@ -56,26 +56,23 @@ class TfDataProcessorTest(googletest.TestCase):
       _ = processor.output_signature
 
   def test_prepare_fails_with_multiple_calls(self):
-    processor = tf_data_processor.TfDataProcessor(lambda x: x)
+    processor = tf_data_processor.TfDataProcessor(lambda x: x, name='identity')
     processor.prepare(
-        'add',
-        input_signature=(tf.TensorSpec([None, 3], tf.float32),),
+        (tf.TensorSpec([None, 3], tf.float32),),
     )
     with self.assertRaisesWithLiteralMatch(
         RuntimeError, '`prepare()` can only be called once.'
     ):
       processor.prepare(
-          'add',
-          input_signature=(tf.TensorSpec([None, 3], tf.float32),),
+          (tf.TensorSpec([None, 3], tf.float32),),
       )
 
   def test_prepare_succeeds(self):
     processor = tf_data_processor.TfDataProcessor(
-        tf.function(lambda x, y: x + y)
+        tf.function(lambda x, y: x + y), name='add'
     )
     processor.prepare(
-        'add',
-        input_signature=(
+        (
             tf.TensorSpec([None, 3], tf.float64),
             tf.TensorSpec([None, 3], tf.float64),
         ),
@@ -107,10 +104,11 @@ class TfDataProcessorTest(googletest.TestCase):
     def preprocessor_callable(x, y):
       return x + y
 
-    processor = tf_data_processor.TfDataProcessor(preprocessor_callable)
+    processor = tf_data_processor.TfDataProcessor(
+        preprocessor_callable, name='add'
+    )
     processor.prepare(
-        'add',
-        input_signature=(
+        (
             tf.TensorSpec([None, 3], tf.float32),
             tf.TensorSpec([None, 3], tf.float32),
         ),
@@ -136,7 +134,8 @@ class TfDataProcessorTest(googletest.TestCase):
     processor = tf_data_processor.TfDataProcessor(
         tf.function(
             lambda x, y: tf.cast(x, tf.float64) + tf.cast(y, tf.float64)
-        )
+        ),
+        name='add_f64',
     )
     input_signature = (
         tf.TensorSpec([None, 3], tf.float32),
@@ -144,17 +143,18 @@ class TfDataProcessorTest(googletest.TestCase):
     )
 
     # With suppress_x64_output=True, f64 output is suppressed to f32.
-    processor.prepare('add_f64', input_signature, suppress_x64_output=True)
+    processor.prepare(input_signature, suppress_x64_output=True)
     self.assertEqual(
         processor.output_signature,
         obm.ShloTensorSpec(shape=(None, 3), dtype=obm.ShloDType.f32),
     )
 
   def test_convert_to_bfloat16(self):
-    processor = tf_data_processor.TfDataProcessor(lambda x: 0.5 + x)
+    processor = tf_data_processor.TfDataProcessor(
+        lambda x: 0.5 + x, name='preprocessor'
+    )
     processor.prepare(
-        'preprocessor',
-        input_signature=(tf.TensorSpec((), tf.float32)),
+        (tf.TensorSpec((), tf.float32)),
         bfloat16_options=converter_options_v2_pb2.ConverterOptionsV2(
             bfloat16_optimization_options=converter_options_v2_pb2.BFloat16OptimizationOptions(
                 scope=converter_options_v2_pb2.BFloat16OptimizationOptions.ALL,
@@ -168,15 +168,16 @@ class TfDataProcessorTest(googletest.TestCase):
     )
 
   def test_bfloat16_convert_error(self):
-    processor = tf_data_processor.TfDataProcessor(lambda x: 0.5 + x)
+    processor = tf_data_processor.TfDataProcessor(
+        lambda x: 0.5 + x, name='preprocessor'
+    )
     with self.assertRaisesRegex(
         google_error.StatusNotOk,
         'Found bfloat16 ops in the model. The model may have been converted'
         ' before. It should not be converted again.',
     ):
       processor.prepare(
-          'preprocessor',
-          input_signature=(tf.TensorSpec((), tf.bfloat16)),
+          (tf.TensorSpec((), tf.bfloat16)),
           bfloat16_options=converter_options_v2_pb2.ConverterOptionsV2(
               bfloat16_optimization_options=converter_options_v2_pb2.BFloat16OptimizationOptions(
                   scope=converter_options_v2_pb2.BFloat16OptimizationOptions.ALL,
@@ -185,12 +186,9 @@ class TfDataProcessorTest(googletest.TestCase):
       )
 
   def test_prepare_with_shlo_bf16_inputs(self):
-    processor = tf_data_processor.TfDataProcessor(lambda x: x)
+    processor = tf_data_processor.TfDataProcessor(lambda x: x, name='identity')
     processor.prepare(
-        'identity',
-        input_signature=(
-            obm.ShloTensorSpec(shape=(1,), dtype=obm.ShloDType.bf16),
-        ),
+        (obm.ShloTensorSpec(shape=(1,), dtype=obm.ShloDType.bf16),),
     )
     self.assertEqual(
         processor.concrete_function.structured_input_signature[0][0].dtype,
