@@ -295,5 +295,19 @@ class UtilsTest(tf.test.TestCase, parameterized.TestCase):
     ):
       batching_fn([1, 2, 3], [4, 5, 6], [7, 8])
 
+  def test_to_bfloat16(self):
+    x = {
+        'a': np.array([1.0, 2.0], dtype=np.float32),
+        'b': tf.constant(['hello', 'world'], dtype=tf.string),
+        'c': 3.0,
+        'd': jax.ShapeDtypeStruct((2, 2), jnp.float32),
+    }
+    y = utils.to_bfloat16(x)
+    self.assertEqual(y['a'].dtype, jnp.bfloat16)
+    self.assertEqual(y['b'].dtype, tf.string)
+    self.assertAllEqual(y['b'], x['b'])
+    self.assertEqual(y['c'].dtype, jnp.bfloat16)
+    self.assertEqual(y['d'].dtype, jnp.bfloat16)
+
 if __name__ == '__main__':
   tf.test.main()
