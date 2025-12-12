@@ -19,6 +19,8 @@ import dataclasses
 import enum
 import itertools
 import logging
+from typing import Any, Mapping
+import jax
 
 
 # LINT.IfChange
@@ -67,7 +69,6 @@ class MixedPriorityBatchingPolicy(enum.Enum):
   LOW_PRIORITY_PADDING_WITH_NEXT_ALLOWED_BATCH_SIZE = "low_priority_padding_with_next_allowed_batch_size"
   PRIORITY_ISOLATION = "priority_isolation"
   PRIORITY_MERGE = "priority_merge"
-
 
 
 # LINT.ThenChange(//depot//orbax/export/obm_export.py)
@@ -279,3 +280,46 @@ class BatchOptions:
           self.low_priority_batch_options.max_enqueued_batches,
           is_low_priority_batch_options=True,
       )
+
+
+@dataclasses.dataclass(kw_only=True)
+class Jax2ObmOptions:
+  """Options for jax2obm conversion.
+
+  Attributes:
+    native_serialization_platforms: The native serialization platforms to use
+      when converting the jax function to an obm function.
+    checkpoint_path: The checkpoint path to use when setting the checkpoint
+      attribute on the OrbaxModule.
+    weights_name: The weights name to use when setting the checkpoint attribute
+      on the OrbaxModule.
+    polymorphic_constraints: Input polymorphic constraints.
+    load_all_checkpoint_weights: Whether to load all checkpoint weights for the
+      exported functions.
+    xla_flags_per_platform: XLA flags per platform for the model.
+    jax_mesh: Mesh for the model.
+    persist_xla_flags: Whether to persist XLA flags in the model.
+    enable_bf16_optimization: Whether to enable bf16 optimization for the model.
+  """
+
+  native_serialization_platforms: Sequence[str] | str | None = None
+  checkpoint_path: str | None = None
+  weights_name: str | None = None
+  polymorphic_constraints: Any = None
+  load_all_checkpoint_weights: bool = False
+  xla_flags_per_platform: Mapping[str, Sequence[str]] | None = None
+  jax_mesh: jax.sharding.Mesh | None = None
+  persist_xla_flags: bool = True
+  enable_bf16_optimization: bool = False
+
+
+@dataclasses.dataclass(kw_only=True)
+class ObmExportOptions:
+  """Options for Orbax Model Export.
+
+  Attributes:
+    batch_options: The batch options for the model.
+    converter_options: The converter options for the model.
+  """
+
+  batch_options: BatchOptions | None = None

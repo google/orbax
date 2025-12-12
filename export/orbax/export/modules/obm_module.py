@@ -18,9 +18,11 @@ from collections.abc import Callable, Mapping, Sequence
 import copy
 import logging
 from typing import Any, Optional, Tuple, Union
+import warnings
 
 import jax
 from orbax.export import constants
+from orbax.export import obm_configs
 from orbax.export import typing as orbax_export_typing
 from orbax.export import utils
 from orbax.export.modules import orbax_module_base
@@ -42,6 +44,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       input_polymorphic_shape_symbol_values: Union[
           Mapping[str, PyTree], Mapping[str, Mapping[str, PyTree]], None
       ] = None,
+      jax2obm_options: obm_configs.Jax2ObmOptions | None = None,
       jax2obm_kwargs: Union[Mapping[str, Any], None] = None,
   ):
     """Data container for Orbax Model export.
@@ -57,11 +60,48 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         same keys (e.g. { 'serving_default': { 'b': (1, 2), 'l': (128, 512)}).
         When this argument is set, the polymorphic shape will be concretized to
         a set of all possible concretized input shape combinations.
-      jax2obm_kwargs: A dictionary of kwargs to pass to the jax2obm conversion
-        library. Accepted arguments to jax2obm_kwargs are
-        'native_serialization_platforms', 'weights_name', 'checkpoint_path' and
-        'polymorphic_constraints'.
+      jax2obm_options: Options for jax2obm conversion.
+      jax2obm_kwargs: DEPRECATED. Use `jax2obm_options` instead. A dictionary of
+        kwargs to pass to the jax2obm conversion library. Accepted arguments to
+        jax2obm_kwargs are 'native_serialization_platforms', 'weights_name',
+        'checkpoint_path' and 'polymorphic_constraints'.
     """
+    if jax2obm_kwargs:
+      if jax2obm_options is not None:
+        raise ValueError(
+            'Both `jax2obm_kwargs` and `jax2obm_options` are set. Please only'
+            ' use `jax2obm_options`.'
+        )
+      warnings.warn(
+          '`jax2obm_kwargs` is deprecated, use `jax2obm_options` instead.',
+          DeprecationWarning,
+      )
+      jax2obm_options = obm_configs.Jax2ObmOptions(
+          native_serialization_platforms=jax2obm_kwargs.get(
+              constants.NATIVE_SERIALIZATION_PLATFORMS
+          ),
+          checkpoint_path=jax2obm_kwargs.get(constants.CHECKPOINT_PATH),
+          weights_name=jax2obm_kwargs.get(constants.WEIGHTS_NAME),
+          polymorphic_constraints=jax2obm_kwargs.get(
+              constants.POLYMORPHIC_CONSTRAINTS
+          ),
+          load_all_checkpoint_weights=jax2obm_kwargs.get(
+              constants.LOAD_ALL_CHECKPOINT_WEIGHTS, False
+          ),
+          xla_flags_per_platform=jax2obm_kwargs.get(
+              constants.XLA_FLAGS_PER_PLATFORM
+          ),
+          jax_mesh=jax2obm_kwargs.get(constants.JAX_MESH),
+          persist_xla_flags=jax2obm_kwargs.get(
+              constants.PERSIST_XLA_FLAGS, True
+          ),
+          enable_bf16_optimization=jax2obm_kwargs.get(
+              constants.ENABLE_BF16_OPTIMIZATION, False
+          ),
+      )
+    elif jax2obm_options is None:
+      jax2obm_options = obm_configs.Jax2ObmOptions()
+    self._jax2obm_options = jax2obm_options
 
     if (
         input_polymorphic_shape is None
@@ -72,13 +112,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
           ' `input_polymorphic_shape_symbol_values` is provided.'
       )
 
-    # It is possible for jax2obm_kwargs to be None if the key is present.
-
-    self._jax2obm_kwargs = jax2obm_kwargs if jax2obm_kwargs else {}
-
-    enable_bf16_optimization = self.jax2obm_kwargs.get(
-        constants.ENABLE_BF16_OPTIMIZATION, False
-    )
+    enable_bf16_optimization = self._jax2obm_options.enable_bf16_optimization
 
     if enable_bf16_optimization:
       mapped_apply_fn = utils.to_bfloat16(apply_fn)
@@ -96,18 +130,18 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         input_polymorphic_shape_symbol_values,
     )
 
-    self._jax_mesh = self.jax2obm_kwargs.get(constants.JAX_MESH, None)
+    self._jax_mesh = self._jax2obm_options.jax_mesh
 
     self.polymorphic_constraints = self._maybe_set_polymorphic_constraints()
     self._native_serialization_platforms = utils.get_lowering_platforms(
-        self.jax2obm_kwargs
+        self._jax2obm_options.native_serialization_platforms
     )
 
     self._checkpoint_path: str = None
     # Set the Orbax checkpoint path if provided in the jax2obm_kwargs.
-    self._maybe_set_orbax_checkpoint_path(self.jax2obm_kwargs)
-    self._load_all_checkpoint_weights = self.jax2obm_kwargs.get(
-        constants.LOAD_ALL_CHECKPOINT_WEIGHTS, False
+    self._maybe_set_orbax_checkpoint_path()
+    self._load_all_checkpoint_weights = (
+        self._jax2obm_options.load_all_checkpoint_weights
     )
 
   def _normalize_apply_fn_map(
@@ -197,15 +231,15 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         f'`apply_fn` must be a callable or a mapping, but got {type(apply_fn)}.'
     )
 
-  def _maybe_set_orbax_checkpoint_path(self, jax2obm_kwargs):
-    if constants.CHECKPOINT_PATH not in jax2obm_kwargs:
+  def _maybe_set_orbax_checkpoint_path(self):
+    if self._jax2obm_options.checkpoint_path is None:
       return
 
     # TODO: b/374195447 - Add a version check for the Orbax checkpointer.
-    self._checkpoint_path = jax2obm_kwargs[constants.CHECKPOINT_PATH]
+    self._checkpoint_path = self._jax2obm_options.checkpoint_path
     self._weights_name = (
-        jax2obm_kwargs[constants.WEIGHTS_NAME]
-        if constants.WEIGHTS_NAME in jax2obm_kwargs
+        self._jax2obm_options.weights_name
+        if self._jax2obm_options.weights_name is not None
         else constants.DEFAULT_WEIGHTS_NAME
     )
 
@@ -221,9 +255,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         size of the apply_fn_map or if a key in apply_fn_map is not found in
         polymorphic_constraints.
     """
-    polymorphic_constraints = self.jax2obm_kwargs.get(
-        constants.POLYMORPHIC_CONSTRAINTS, None
-    )
+    polymorphic_constraints = self._jax2obm_options.polymorphic_constraints
     if not isinstance(polymorphic_constraints, Mapping):
       polymorphic_constraints_mapping = {}
       if polymorphic_constraints is None:
@@ -302,6 +334,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     raise NotImplementedError('apply_fn_map is not implemented for ObmModule.')
 
   @property
-  def jax2obm_kwargs(self) -> Mapping[str, Any]:
-    """Returns the jax2obm_kwargs."""
-    return self._jax2obm_kwargs
+  def jax2obm_options(self) -> obm_configs.Jax2ObmOptions:
+    """Returns the jax2obm_options."""
+    return self._jax2obm_options
