@@ -501,23 +501,19 @@ def make_e2e_inference_fn(
 
 
 def get_lowering_platforms(
-    kwargs: Mapping[str, Any],
-) -> Optional[Sequence[str]]:
+    native_serialization_platforms: Sequence[str] | str | None,
+) -> Sequence[str] | None:
   """Returns a Sequence of lowering platforms provided by the user.
 
   Args:
-    kwargs: The kwargs passed to the export function. This function only 
-            cares about 'native_serialization_platforms' kwarg key.
+    native_serialization_platforms: A platform string or a sequence of platform
+      strings for native serialization (e.g., 'tpu', 'cpu'), or None.
 
   Returns:
-    A Sequence of lowering platforms provided by the user.
+    A Sequence of lowering platforms provided by the user, or None.
   """
-  if constants.NATIVE_SERIALIZATION_PLATFORMS not in kwargs:
+  if native_serialization_platforms is None:
     return None
-
-  native_serialization_platforms = kwargs[
-      constants.NATIVE_SERIALIZATION_PLATFORMS
-  ]
 
   if isinstance(native_serialization_platforms, str):
     native_serialization_platforms = [native_serialization_platforms]
