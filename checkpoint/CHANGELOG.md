@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove support for `jax.sharding.PmapSharding` from multihost dispatchers.
   `jax.sharding.PmapSharding` is deprecated as of JAX v0.8.1.
 
+### Changed
+
+- #v1 Modify background thread execution to allow the runner to accept multiple
+concurrent tasks for the background event loop. This allows scheduling multiple
+operations, like async directory creation and background commits, on the
+same event loop.
+
 ## [0.11.30] - 2025-11-26
 
 ### Fixed

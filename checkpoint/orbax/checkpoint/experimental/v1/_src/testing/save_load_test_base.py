@@ -986,3 +986,10 @@ class SaveLoadTestBase:
           ValueError, 'Directory path mismatch in multi-process save'
       ):
         ocp.save_pytree(directory, self.pytree)
+
+    def test_discard_response(self):
+      # Still works even if we discard the response.
+      ocp.save_pytree_async(self.directory, self.pytree)
+      time.sleep(3)
+      loaded = ocp.load_pytree(self.directory, self.abstract_pytree)
+      test_utils.assert_tree_equal(self, self.pytree, loaded)

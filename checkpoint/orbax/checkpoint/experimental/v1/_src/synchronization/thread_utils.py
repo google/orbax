@@ -15,6 +15,7 @@
 """Utilities for working with threads and asyncio event loops."""
 
 import asyncio
+from concurrent import futures
 import threading
 from typing import Awaitable, Generic, TypeVar
 
@@ -28,30 +29,41 @@ class BackgroundThreadRunner(Generic[T]):
   thread. It creates an event loop that is passed to the thread. This event loop
   should only be interacted with via asyncio thread-safe APIs, when tasks are
   scheduled from the main thread.
+
+  TODO(b/407609827): Ensure the event loop can be cleaned up without
+  calling `close`.
   """
 
   def __init__(
       self,
-      target: Awaitable[T],
   ):
-    self._target = target
     self._event_loop = asyncio.new_event_loop()
     self._thread = threading.Thread(
         target=self._event_loop_runner, args=(self._event_loop,), daemon=True
     )
     self._thread.start()
-    self._future = asyncio.run_coroutine_threadsafe(
-        self._target, self._event_loop
-    )
+    self._futures: dict[str, futures.Future[T]] = {}
 
   def _event_loop_runner(self, event_loop: asyncio.AbstractEventLoop):
     event_loop.run_forever()
     event_loop.close()
 
-  def result(self, timeout: float | None = None) -> T:
-    r = self._future.result(timeout=timeout)
+  def run(self, name: str, target: Awaitable[T]) -> None:
+    if self._thread is None:
+      raise ValueError('Cannot run after `close` has been called.')
+    if name in self._futures:
+      raise ValueError(f'A future with name {name} already exists.')
+    self._futures[name] = asyncio.run_coroutine_threadsafe(
+        target, self._event_loop
+    )
+
+  def result(self, name: str, *, timeout: float | None = None) -> T:
+    if name not in self._futures:
+      raise ValueError(f'No future with name {name} exists.')
+    return self._futures[name].result(timeout=timeout)
+
+  def close(self, timeout: float | None = None) -> None:
     if self._thread:
       self._event_loop.call_soon_threadsafe(self._event_loop.stop)
       self._thread.join(timeout=timeout)
       self._thread = None
-    return r
