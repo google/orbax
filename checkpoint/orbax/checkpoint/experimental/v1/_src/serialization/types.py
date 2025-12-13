@@ -211,6 +211,10 @@ class LeafHandler(Protocol[Leaf, AbstractLeaf]):
     """
     ...
 
+  def typestr(self) -> str:
+    """A string used to represent the leaf type."""
+    ...
+
 
 LeafHandlerRegistryItem = Tuple[
     Type[Leaf], Type[AbstractLeaf], Type[LeafHandler[Leaf, AbstractLeaf]]

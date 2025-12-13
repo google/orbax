@@ -251,3 +251,6 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
       return ret
 
     return await _convert_to_scalar_metadata()
+
+  def typestr(self) -> str:
+    return "scalar"

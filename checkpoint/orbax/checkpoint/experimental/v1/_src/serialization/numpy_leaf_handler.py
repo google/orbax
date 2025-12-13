@@ -265,3 +265,6 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
       return ret
 
     return await _convert_to_numpy_metadata()
+
+  def typestr(self) -> str:
+    return 'np.ndarray'
