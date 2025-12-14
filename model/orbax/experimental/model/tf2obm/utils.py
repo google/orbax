@@ -77,39 +77,3 @@ def tf_signature_to_obm_spec(tree: TfSignature) -> obm.Tree[obm.ShloTensorSpec]:
         f'Failed to convert TF signature {tree} of type {type(tree)} to OBM.'
     ) from err
 
-
-def get_input_signature(
-    concrete_function: tf.types.experimental.ConcreteFunction,
-) -> TfSignature:
-  return concrete_function.structured_input_signature
-
-
-def get_output_signature(
-    concrete_function: tf.types.experimental.ConcreteFunction,
-) -> TfSignature:
-  """Gets the output signature from a concrete function.
-
-  Args:
-    concrete_function: The concrete function to get the output signature from.
-
-  Returns:
-    The output signature as a PyTree of `tf.TensorSpec`s.
-
-  Raises:
-    ValueError: If the structured_outputs cannot be converted to
-    `tf.TensorSpec`.
-  """
-  try:
-    # The structured_outputs are `SymbolicTensor`s with "name" that we don't
-    # need. To make a unified path to obm.ShloTensorSpec, we convert them to
-    # `TensorSpec`s (without name) first.
-    output_signature = jax_tree_util.tree_map(
-        lambda x: tf.TensorSpec(shape=x.shape, dtype=x.dtype),
-        concrete_function.structured_outputs,
-    )
-  except Exception as err:
-    raise ValueError(
-        'Failed to convert TF structured_outputs'
-        f' {concrete_function.structured_outputs} to tf.TensorSpec.'
-    ) from err
-  return output_signature
