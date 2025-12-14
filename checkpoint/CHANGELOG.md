@@ -34,6 +34,9 @@ breakages.
   include an arbitrary `step_prefix` with any character(s) such as underscores.
 - Fix CheckpointManager initial directory creation to use `file_options.path_permission_mode`.
 - Fix using jax.eval_shape with StandardRestore
+- Fix checkpoint restoration logic for integer dict keys. Ensures
+  these keys, which were being temporarily stored as strings, are properly
+  restored back to integers.
 
 ### Changed
 
