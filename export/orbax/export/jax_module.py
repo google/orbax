@@ -16,10 +16,12 @@
 
 from collections.abc import Callable, Mapping
 from typing import Any, Optional, Sequence, Union, cast
+import warnings
 
 import jax
 from jax import export as jax_export
 from orbax.export import constants
+from orbax.export import obm_configs
 from orbax.export import typing as orbax_export_typing
 from orbax.export.modules import obm_module
 from orbax.export.modules import orbax_module_base
@@ -51,6 +53,7 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
       allow_multi_axis_sharding_consolidation: Optional[bool] = None,
       export_version: constants.ExportModelType = constants.ExportModelType.TF_SAVEDMODEL,
       jax2obm_kwargs: Optional[Mapping[str, Any]] = None,
+      jax2obm_options: obm_configs.Jax2ObmOptions | None = None,
   ):
     """JaxModule constructor.
 
@@ -106,13 +109,25 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
         This is only relevant for TF SavedModel export.
       export_version: The model export version. Either TF_SAVEDMODEL or
         ORBAX_MODEL.
-      jax2obm_kwargs: options passed to the Orbax Model export. Accepted
-        arguments are 'native_serialization_platforms' which must be a tuple of
+      jax2obm_kwargs: DEPRECATED: use `jax2obm_options` instead. Options passed
+        to the Orbax Model export. Accepted arguments are
+        'native_serialization_platforms' which must be a tuple of
         OrbaxNativeSerializationType.
+      jax2obm_options: Options for jax2obm conversion.
 
     raises:
       ValueError: If the export version is not supported.
     """
+    if jax2obm_kwargs is not None:
+      if jax2obm_options is not None:
+        raise ValueError(
+            'Both `jax2obm_kwargs` and `jax2obm_options` are set. Please only'
+            ' use `jax2obm_options`.'
+        )
+      warnings.warn(
+          '`jax2obm_kwargs` is deprecated, use `jax2obm_options` instead.',
+          DeprecationWarning,
+      )
     self._export_version = export_version
     if (
         input_polymorphic_shape_symbol_values is not None
@@ -143,6 +158,7 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
             input_polymorphic_shape=input_polymorphic_shape,
             input_polymorphic_shape_symbol_values=input_polymorphic_shape_symbol_values,
             jax2obm_kwargs=jax2obm_kwargs,
+            jax2obm_options=jax2obm_options,
         )
       case _:
         raise ValueError(
@@ -196,16 +212,6 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
     return cast(
         tensorflow_module.TensorFlowModule, self._export_module
     ).jax2tf_kwargs_map
-
-  @property
-  def jax2obm_kwargs(self) -> Mapping[str, Any]:
-    """Returns the jax2obm_kwargs."""
-    if self._export_version == constants.ExportModelType.TF_SAVEDMODEL:
-      raise TypeError(
-          'jax2obm_kwargs is not implemented for export version'
-          ' ExportModelType.TF_SAVEDMODEL.'
-      )
-    return cast(obm_module.ObmModule, self._export_module).jax2obm_kwargs
 
   @property
   def input_polymorphic_shape_map(self) -> Mapping[str, PyTree]:

@@ -113,7 +113,7 @@ def generate_compilation_options(
 
 def generate_xla_compile_options(
     native_serialization_platforms: Sequence[str] | None,
-    xla_flags_per_platform: Mapping[str, Sequence[str] | None],
+    xla_flags_per_platform: Mapping[str, Sequence[str]] | None = None,
     jax_mesh: jax.sharding.Mesh | None = None,
     persist_xla_flags: bool = True,
 ) -> manifest_pb2.CompileOptionsProtoMap:
@@ -148,11 +148,12 @@ def generate_xla_compile_options(
       manifest_pb2.Platform.TPU
   ).lower()
   compile_options_map = manifest_pb2.CompileOptionsProtoMap()
-  platforms = native_serialization_platforms
-  if platforms is None:
+  if native_serialization_platforms is None:
     # If no native serialization platforms are specified, we will set the
     # compilation environment for TPU only.
     platforms = [tpu_platform_name]
+  else:
+    platforms = native_serialization_platforms
 
   # Validate the platform provided are valid.
   valid_platforms = {
@@ -181,13 +182,15 @@ def generate_xla_compile_options(
         )
 
   for platform in platforms:
-    compile_environment = None
     if platform.lower() == tpu_platform_name:
-      xla_flags_overrides = None
       if xla_flags_per_platform:
         xla_flags_overrides = xla_flags_per_platform.get(platform, None)
         _validate_xla_flags_setting(xla_flags_overrides, persist_xla_flags)
+      else:
+        xla_flags_overrides = None
       compile_environment = generate_tpu_compilation_env(xla_flags_overrides)
+    else:
+      compile_environment = None
     compile_options_map.map[platform.lower()].CopyFrom(
         generate_compilation_options(compile_environment, jax_mesh)
     )

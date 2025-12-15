@@ -14,11 +14,12 @@
 
 """Configuration classes for Orbax Model Export."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 import dataclasses
 import enum
 import itertools
 import logging
+import jax
 
 
 # LINT.IfChange
@@ -278,6 +279,50 @@ class BatchOptions:
           self.low_priority_batch_options.max_enqueued_batches,
           is_low_priority_batch_options=True,
       )
+
+
+@dataclasses.dataclass(kw_only=True)
+class Jax2ObmOptions:
+  """Options for jax2obm conversion.
+
+  Attributes:
+    native_serialization_platforms: The native serialization platforms to use
+      when converting the jax function to an obm function (i.e., 'cpu', 'cuda',
+      'rocm', 'tpu'). The values are case-insensitive.
+    checkpoint_path: Path for checkpoint weights relative to the output model
+      directory. (e.g., if 'ckpt' is provided, weights will be saved in
+      '<output_model_dir>/ckpt').
+    weights_name: This name serves as a key in `OrbaxModule.checkpoint` to
+      identify a specific set of weights that will be used by the exported JAX
+      function.
+    polymorphic_constraints: Input polymorphic constraints.
+    load_all_checkpoint_weights: If set to True, all weights from the checkpoint
+      will be loaded, including those not used by the exported function(s).
+      Defaults to False, which only loads necessary weights to save memory
+      during serving.
+    xla_flags_per_platform: XLA flags per platform for the model.
+    jax_mesh: Mesh for the model.
+    persist_xla_flags: Whether to persist XLA flags in the exported model. If
+      true, it will allow the model to be served with these XLA flags by
+      overriding default XLA flags used by the serving runtime.
+    enable_bf16_optimization: If set to True, float32 weights are converted to
+      bfloat16 to save memory.
+  """
+
+  # TODO: b/448900820 - Consider constraint the type to the proto enums.
+  native_serialization_platforms: Sequence[str] | str | None = None
+  checkpoint_path: str | None = None
+  weights_name: str | None = None
+  polymorphic_constraints: (
+      Mapping[str, Sequence[str]] | Sequence[str] | None
+  ) = None
+  # TODO: b/448900820 - Remove this variable, we should always load necessary
+  # weights only.
+  load_all_checkpoint_weights: bool = False
+  xla_flags_per_platform: Mapping[str, Sequence[str]] | None = None
+  jax_mesh: jax.sharding.Mesh | None = None
+  persist_xla_flags: bool = True
+  enable_bf16_optimization: bool = False
 
 
 @dataclasses.dataclass(kw_only=True)
