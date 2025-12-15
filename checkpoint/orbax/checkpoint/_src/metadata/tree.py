@@ -489,6 +489,23 @@ class InternalTreeMetadata:
     flat_param_infos = {}
     flat_restore_types = {}
     reference_metadata_tree = self.as_nested_tree()
+
+    try:
+      next(
+          iter(tree_utils.to_flat_dict(reference_metadata_tree).values())
+      ).skip_deserialize
+    except AttributeError as e:
+      if "'int' object has no attribute 'skip_deserialize'" in str(e):
+        logging.exception(
+            'Encountered b/469067182 while reading PyTree metadata. Attempting'
+            ' to load metadata again without the `value_metadata_tree`, which'
+            ' may be corrupted.'
+        )
+        self.value_metadata_tree = None
+        reference_metadata_tree = self.as_nested_tree()
+      else:
+        raise
+
     ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
     for keypath, value_meta in tree_utils.to_flat_dict(
         reference_metadata_tree
