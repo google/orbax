@@ -69,7 +69,6 @@ class MixedPriorityBatchingPolicy(enum.Enum):
   PRIORITY_MERGE = "priority_merge"
 
 
-
 # LINT.ThenChange(//depot//orbax/export/obm_export.py)
 
 
@@ -279,3 +278,15 @@ class BatchOptions:
           self.low_priority_batch_options.max_enqueued_batches,
           is_low_priority_batch_options=True,
       )
+
+
+@dataclasses.dataclass(kw_only=True)
+class ObmExportOptions:
+  """Options for Orbax Model Export.
+
+  Attributes:
+    batch_options: The batch options for the model.
+    converter_options: The converter options for the model.
+  """
+
+  batch_options: BatchOptions | None = None
