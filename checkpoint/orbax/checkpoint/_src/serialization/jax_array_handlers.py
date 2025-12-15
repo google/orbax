@@ -768,9 +768,9 @@ async def _deserialize_arrays(
           use_ocdbt=use_ocdbt,
           metadata_key=metadata_key,
           raise_array_data_missing_error=info.raise_array_data_missing_error,
+          target_dtype=arg.dtype,
       )
       tspec = array_read_spec.json
-      tspec = ts_utils.get_cast_tspec_deserialize(tspec, arg)
 
       # set dtype=None to deserialize for random keys
       dtype = (

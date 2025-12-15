@@ -391,6 +391,23 @@ def _maybe_add_cast_to_write_spec(
   return array_tspec
 
 
+def _maybe_add_cast_to_read_spec(
+    array_tspec: JsonSpec,
+    *,
+    dtype: DType,
+) -> JsonSpec:
+  """Adds cast driver to a read array TensorStore spec, if needed."""
+  if not jax.dtypes.issubdtype(
+      dtype, jax.dtypes.prng_key
+  ):
+    array_tspec = {
+        'base': array_tspec,
+        'driver': 'cast',
+        'dtype': jnp.dtype(dtype).name,
+    }
+  return array_tspec
+
+
 class ArrayReadSpec:
   """Full TensorStore spec for reading an array."""
 
@@ -403,6 +420,7 @@ class ArrayReadSpec:
       use_ocdbt: bool,
       metadata_key: str | None = None,
       raise_array_data_missing_error: bool = True,
+      target_dtype: DType | None = None,
   ):
     """Builds a TensorStore spec for reading an array."""
     kvstore_tspec = build_kvstore_tspec(
@@ -422,6 +440,11 @@ class ArrayReadSpec:
     }
     if metadata_key is not None:
       tspec['metadata_key'] = metadata_key
+    if target_dtype is not None:
+      tspec = _maybe_add_cast_to_read_spec(
+          tspec,
+          dtype=target_dtype,
+      )
     self._json_spec = tspec
 
   @property
@@ -722,6 +745,7 @@ def build_array_read_spec(
     use_ocdbt: bool,
     metadata_key: str | None = None,
     raise_array_data_missing_error: bool = True,
+    target_dtype: DType | None = None,
 ) -> ArrayReadSpec:
   """Gets ArrayReadSpec for reading."""
   if info.name is None or info.parent_dir is None:
@@ -733,6 +757,7 @@ def build_array_read_spec(
       use_ocdbt=use_ocdbt,
       metadata_key=metadata_key,
       raise_array_data_missing_error=raise_array_data_missing_error,
+      target_dtype=target_dtype,
   )
 
 
