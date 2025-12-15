@@ -27,6 +27,10 @@ def tf_fn(a):
   return a
 
 
+def tf_t(shape, name=None, dtype=tf.float32):
+  return tf.TensorSpec(shape=shape, dtype=dtype, name=name)
+
+
 class TestProcessor(data_processor_base.DataProcessor):
 
   def prepare(self, input_signature):
