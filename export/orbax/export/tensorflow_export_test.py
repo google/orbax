@@ -164,9 +164,13 @@ class TensorFlowExportTest(tf.test.TestCase, parameterized.TestCase):
           expected_keys=['serving_default'],
       ),
   )
-  def test_save(self, serving_configs,
-                expected_keys,
-                ):
+  def test_save(
+      self,
+      serving_configs,
+      expected_keys,
+      tree_verity_options=None,
+      inference_converter_options=None,
+  ):
     module = jax_module.JaxModule(
         {'bias': jnp.array(1)}, lambda p, x: x + p['bias']
     )

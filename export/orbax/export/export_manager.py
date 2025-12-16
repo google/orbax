@@ -94,8 +94,6 @@ class ExportManager:
         options.
       signature_overrides: signatures to override the self-maintained ones, or
         additional signatures to export.
-      tree_verity_options: Settings to enable model hashing and signing via
-       
     """
     self._serialization_functions.save(
         model_path=model_path,

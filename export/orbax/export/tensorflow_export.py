@@ -15,6 +15,8 @@
 """Export class that implements the save and load abstract class defined in Export Base for use with the TensorFlow SavedModel export format."""
 
 from collections.abc import Callable, Mapping, Sequence
+import os
+import tempfile
 from typing import Any
 
 from absl import logging
@@ -85,12 +87,24 @@ class TensorFlowExport(export_base.ExportBase):
     if signature_overrides:
       serving_signatures.update(signature_overrides)
 
-    tf.saved_model.save(
-        self._tf_module,
-        model_path,
-        serving_signatures,
-        options=save_options,
-    )
+    converter_options = kwargs.get('inference_converter_options')
+    if converter_options:
+      with tempfile.TemporaryDirectory() as tmpdir:
+        tf_model_path = tmpdir
+        tf.saved_model.save(
+            self._tf_module,
+            tf_model_path,
+            serving_signatures,
+            options=save_options,
+        )
+    else:
+      tf_model_path = model_path
+      tf.saved_model.save(
+          self._tf_module,
+          tf_model_path,
+          serving_signatures,
+          options=save_options,
+      )
 
   def load(self, model_path: str, **kwargs: Any) -> Any:
     """Loads the model previously saved in the TensorFlow SavedModel format."""
