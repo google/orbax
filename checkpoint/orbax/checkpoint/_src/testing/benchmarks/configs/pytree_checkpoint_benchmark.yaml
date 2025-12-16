@@ -3,9 +3,8 @@ suite_name: "PyTreeCheckpointer Performance Matrix"
 
 mesh_config:
   mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
-  # DCN: Across processes assuming 4 processes.
-  dcn_parallelism: {"tensor": 2, "data": 2}
-  process_is_granule: True
+  ici_parallelism: {"data": 4, "tensor": 4}
+  dcn_parallelism: {"data": 2, "tensor": 1}
 
 # The checkpoint configuration, shared across all generated benchmarks.
 checkpoint_config:
