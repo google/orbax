@@ -428,19 +428,6 @@ def get_v0_type_handler_registry(
       type handler registry.
     context: The Context to be used to default construct the LeafHandlers.
   """
-
-  def _get_typestr(leaf_type: Any) -> str:
-    if leaf_type == jax.Array:
-      return type_handlers_v0.JAX_ARRAY_TYPE_STR
-    elif leaf_type == np.ndarray:
-      return 'np.ndarray'
-    elif leaf_type in (int, float, bytes, np.number):
-      return 'scalar'
-    elif leaf_type == str:
-      return 'string'
-    else:
-      return f'{leaf_type!r}'
-
   # register standardard v1 leaf handlers to the v0 type handler registry.
   handlers = []
   for leaf_type, _, leaf_handler_type in leaf_handler_registry.get_all():
@@ -455,7 +442,7 @@ def get_v0_type_handler_registry(
         leaf_type,
         CompatibleTypeHandler(
             leaf_handler,
-            typestr=_get_typestr(leaf_type),
+            typestr=leaf_handler.typestr(),
         ),
     ))
   return type_handler_registry.create_type_handler_registry(*handlers)

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- #v1 Add a fresh implementation of `StringLeafHandler` to reduce unnecessary
+delegation complexity. Also introduce a `typestr` function for `LeafHandler`.
+
 ## [0.11.31] - 2025-12-11
 
 ### Added

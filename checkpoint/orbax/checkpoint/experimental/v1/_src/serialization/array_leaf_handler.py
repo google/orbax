@@ -311,3 +311,6 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
       return ret
 
     return await _convert_to_array_metadata()
+
+  def typestr(self) -> str:
+    return 'jax.Array'
