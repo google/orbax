@@ -259,7 +259,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     # save operations before proceeding to finalize.
     barrier_name = f'save_and_finalize_{operation_id}_commit_complete'
     await multihost.sync_global_processes(
-        barrier_name, processes=active_processes
+        barrier_name, operation_id=operation_id, processes=active_processes
     )
     # Finalize.
     await self._finalize(directory)
@@ -267,7 +267,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     # has completed before returning to the user.
     barrier_name = f'save_and_finalize_{operation_id}_finalize_complete'
     await multihost.sync_global_processes(
-        barrier_name, processes=active_processes
+        barrier_name, operation_id=operation_id, processes=active_processes
     )
 
   async def save(

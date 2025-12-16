@@ -63,6 +63,7 @@ def unique_barrier_key(
 async def sync_global_processes(
     key: str,
     *,
+    operation_id: str,
     timeout: int | None = None,
     processes: Collection[int] | None = None,
     record_event_name: str = '/jax/checkpoint/sync_global_devices_duration_sec',
@@ -74,6 +75,8 @@ async def sync_global_processes(
 
   Args:
     key: barrier name. Must be unique.
+    operation_id: The barrier name will be prefixed with the
+      operation id.
     timeout: timeout in seconds.
     processes: If None, expects to wait across all processes and devices.
       Otherwise, creates a barrier only across devices associated with the given
@@ -81,6 +84,7 @@ async def sync_global_processes(
     record_event_name: The name of the event to record the duration of the
       synchronization.
   """
+  key = f'[op={operation_id}] {key}'
   if should_skip_process_sync(processes):
     logging.vlog(
         1,

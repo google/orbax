@@ -252,6 +252,7 @@ def finalize(path: path_types.PathLike) -> None:
             'OcpPartialSaving:finalize_path_existence_start',
             prefix=context.multiprocessing_options.barrier_sync_key_prefix,
         ),
+        operation_id=context.operation_id(),
         processes=context.multiprocessing_options.active_processes,
     )
     if await async_path.exists(final_path):
@@ -268,6 +269,7 @@ def finalize(path: path_types.PathLike) -> None:
             'OcpPartialSaving:finalize_path_rename_start',
             prefix=context.multiprocessing_options.barrier_sync_key_prefix,
         ),
+        operation_id=context.operation_id(),
         processes=context.multiprocessing_options.active_processes,
     )
 
@@ -292,6 +294,7 @@ def finalize(path: path_types.PathLike) -> None:
             'OcpPartialSaving:finalize_rename_complete',
             prefix=context.multiprocessing_options.barrier_sync_key_prefix,
         ),
+        operation_id=context.operation_id(),
         processes=context.multiprocessing_options.active_processes,
     )
 

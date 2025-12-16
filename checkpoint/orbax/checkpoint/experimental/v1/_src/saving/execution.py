@@ -152,6 +152,7 @@ class SaveResponse(async_types.AsyncResponse[None]):
             'save_checkpointables_async:finalize',
             prefix=self._context.multiprocessing_options.barrier_sync_key_prefix,
         ),
+        operation_id=self._operation_id,
         processes=self._context.multiprocessing_options.active_processes,
     )
     total_duration_secs = time.time() - self._start_time
@@ -217,6 +218,7 @@ async def run_blocking_save(
             'save_checkpointables_async:run_blocking_save:partial_save',
             prefix=context.multiprocessing_options.barrier_sync_key_prefix,
         ),
+        operation_id=context.operation_id(),
         processes=context.multiprocessing_options.active_processes,
     )
 

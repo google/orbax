@@ -166,6 +166,7 @@ async def synchronize_next_operation_id():
           'next_awaitable_signal_operation_id:sync',
           prefix=context.multiprocessing_options.barrier_sync_key_prefix,
       ),
+      operation_id=context.operation_id(),
       processes=context.multiprocessing_options.active_processes,
   )
   logging.vlog(
