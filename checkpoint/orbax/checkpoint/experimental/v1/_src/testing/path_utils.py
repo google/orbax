@@ -31,8 +31,8 @@ class PathAwaitingCreationWrapper(path_types.PathAwaitingCreation):
   def __truediv__(
       self, other: PathAwaitingCreation | PathLike
   ) -> PathAwaitingCreation:
-    if isinstance(other, PathAwaitingCreation):
-      other = other.path
+    if not isinstance(other, path_types.PathLike):
+      raise TypeError(f'Expected PathLike, got {type(other)}.')
     return PathAwaitingCreationWrapper(self._path / other)
 
   @property

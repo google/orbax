@@ -20,14 +20,12 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import json
 import threading
 import time
 from typing import Awaitable
 from unittest import mock
 
 from absl.testing import parameterized
-import aiofiles
 from etils import epath
 import flax
 import jax
@@ -42,6 +40,7 @@ from orbax.checkpoint._src.tree import utils as tree_utils
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+from orbax.checkpoint.experimental.v1._src.path import async_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
@@ -69,7 +68,7 @@ AbstractBar = handler_utils.AbstractBar
 
 ocp.handlers.register_handler(handler_utils.BazHandler)
 
-_original_create_paths = atomicity._create_paths
+_original_create_paths = async_utils._create_paths
 
 
 async def _sleep_and_create_paths(*args, **kwargs):
@@ -458,7 +457,28 @@ class SaveLoadTestBase:
 
     def test_overwrites(self):
       ocp.save_pytree(self.directory, self.pytree)
-      ocp.save_pytree(self.directory, self.numpy_pytree, overwrite=True)
+      with self.assertLogs(level='INFO') as cm:
+        ocp.save_pytree(self.directory, self.numpy_pytree, overwrite=True)
+        found_log = any(
+            'Specified `overwrite`: removing existing path.' in log
+            for log in cm.output
+        )
+        self.assertEqual(found_log, multihost.is_primary_host(0))
+      test_utils.assert_tree_equal(
+          self, self.numpy_pytree, ocp.load_pytree(self.directory)
+      )
+
+    def test_auto_overwrite_tmp_checkpoint(self):
+      ocp.save_pytree(self.directory, self.pytree)
+      if multihost.is_primary_host(0):
+        self.directory.rename(
+            self.directory.parent
+            / (self.directory.name + atomicity.TMP_DIR_SUFFIX)
+        )
+      test_utils.sync_global_processes(
+          'test_auto_overwrite_tmp_checkpoint:rename'
+      )
+      ocp.save_pytree(self.directory, self.numpy_pytree)
       test_utils.assert_tree_equal(
           self, self.numpy_pytree, ocp.load_pytree(self.directory)
       )
@@ -702,7 +722,9 @@ class SaveLoadTestBase:
           ocp.Context(checkpointables_options=checkpointables_options)
       )
       self.enter_context(
-          mock.patch.object(atomicity, '_create_paths', _sleep_and_create_paths)
+          mock.patch.object(
+              async_utils, '_create_paths', _sleep_and_create_paths
+          )
       )
       result = ocp.save_checkpointables_async(
           self.directory, {'foo': Foo(123, 'hi')}
@@ -712,45 +734,6 @@ class SaveLoadTestBase:
       result.result()
       self.assertTrue(self.directory.exists())
       self.assertLen(list(self.directory.parent.iterdir()), 1)
-
-    def test_async_directory_creation_failure(self):
-      class IncorrectFooHandler(handler_utils.FooHandler):
-
-        async def background_save(
-            self,
-            directory: path_types.PathAwaitingCreation,
-            checkpointable: Foo,
-        ):
-          directory = directory.path
-          # Note that we do not await contracted signals.
-          async with aiofiles.open(directory / 'foo.txt', 'w') as f:
-            contents = json.dumps(dataclasses.asdict(checkpointable))
-            await f.write(contents)
-
-        async def save(
-            self,
-            directory: path_types.PathAwaitingCreation,
-            checkpointable: Foo,
-        ) -> Awaitable[None]:
-          return self.background_save(
-              directory, Foo(**dataclasses.asdict(checkpointable))
-          )
-
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              IncorrectFooHandler,
-          )
-      )
-      self.enter_context(
-          ocp.Context(checkpointables_options=checkpointables_options)
-      )
-      self.enter_context(
-          mock.patch.object(atomicity, '_create_paths', _sleep_and_create_paths)
-      )
-      with self.assertRaisesRegex(
-          FileNotFoundError, 'No such file or directory'
-      ):
-        ocp.save_checkpointables(self.directory, {'foo': Foo(123, 'hi')})
 
     def test_background_error(self):
 
@@ -868,7 +851,9 @@ class SaveLoadTestBase:
 
     def test_async_save_completes_without_result(self):
       self.enter_context(
-          mock.patch.object(atomicity, '_create_paths', _sleep_and_create_paths)
+          mock.patch.object(
+              async_utils, '_create_paths', _sleep_and_create_paths
+          )
       )
       ocp.save_checkpointables_async(
           self.directory, dict(baz=handler_utils.Baz(123, 'hi'))
@@ -947,7 +932,6 @@ class SaveLoadTestBase:
         del args, kwargs
         assert False
 
-      start = time.time()
       with (
           mock.patch.object(
               atomicity, '_create_tmp_directory', new=_assert_false
@@ -964,6 +948,7 @@ class SaveLoadTestBase:
           ),
       ):
         r = ocp.save_pytree_async(self.directory, self.pytree)
+        start = time.time()
         if multihost.is_primary_host(primary_host=0):
           with self.assertRaises(AssertionError):
             r.result()
@@ -972,7 +957,7 @@ class SaveLoadTestBase:
         else:
           with self.assertRaises(BaseException):
             r.result()
-          self.assertLessEqual(time.time() - start, timeout + 1)
+          self.assertGreaterEqual(time.time() - start, timeout)
 
     def test_save_checkpointables_directory_consistency_failure(self):
       if jax.process_count() <= 1:

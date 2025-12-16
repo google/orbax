@@ -88,7 +88,8 @@ class AwaitableSignalsContract:
     else:
       logging.vlog(
           1,
-          '[process=%s][operation_id=%s] Got Awaitable signals: %s.',
+          '[process=%s][operation_id=%s] Got awaitable signals from'
+          ' contract: %s.',
           multihost.process_index(),
           operation_id,
           values_str,
@@ -130,7 +131,8 @@ class AwaitableSignalsContract:
     client.key_value_set(barrier_key, keys, allow_overwrite=True)
     logging.vlog(
         1,
-        '[process=%s][operation_id=%s] Added awaitable signals: %s.',
+        '[process=%s][operation_id=%s] Added awaitable signals to'
+        ' contract: %s.',
         multihost.process_index(),
         operation_id,
         keys,
@@ -213,6 +215,56 @@ class ChainedFuture:
     self._cb()
 
 
+def wait_for_signals(
+    receive_signals: Sequence[synchronization.HandlerAwaitableSignal],
+    *,
+    timeout_secs: int,
+    operation_id: str,
+):
+  """Waits for signals to be set."""
+  for signal in receive_signals:
+    logging.vlog(
+        1,
+        '[process=%d][thread=%s][operation_id=%s] Waiting for <%s> timeout:'
+        ' %d secs to be set',
+        multihost.process_index(),
+        threading.current_thread().name,
+        operation_id,
+        signal.value,
+        timeout_secs,
+    )
+    barrier_key = AwaitableSignalsContract.get_unique_awaitable_singal_key(
+        signal, operation_id
+    )
+    client = signaling_client.get_signaling_client()
+    client.blocking_key_value_get(barrier_key, timeout_secs)
+
+
+def set_signals(
+    send_signals: Sequence[synchronization.HandlerAwaitableSignal],
+    *,
+    operation_id: str,
+):
+  """Sets the barrier keys for the signals using send_signals."""
+  for signal in send_signals:
+    logging.vlog(
+        1,
+        '[process=%d][thread=%s][operation_id=%s] Signalling completion of'
+        ' <%s>.',
+        multihost.process_index(),
+        threading.current_thread().name,
+        operation_id,
+        signal.value,
+    )
+    barrier_key = AwaitableSignalsContract.get_unique_awaitable_singal_key(
+        signal, operation_id
+    )
+    client = signaling_client.get_signaling_client()
+    client.key_value_set(
+        barrier_key, _SIGNAL_ACTION_SUCCESS, allow_overwrite=True
+    )
+
+
 class _SignalingThread(threading.Thread):
   """Thread that raises an exception if it encounters an error.
 
@@ -265,45 +317,28 @@ class _SignalingThread(threading.Thread):
         operation_id
         or synchronization.OperationIdGenerator.get_current_operation_id()
     )
+    logging.vlog(
+        1,
+        '[process=%d][thread=%s][operation_id=%s] _SignalingThread'
+        ' initialized with timeout: %d secs',
+        multihost.process_index(),
+        threading.current_thread().name,
+        self._operation_id,
+        self._timeout_secs,
+    )
 
   def _wait_for_signals(self):
-    """Waits for signals to be set."""
-    for signal in self._receive_signals:
-      logging.vlog(
-          1,
-          '[process=%d][thread=%s][operation_id=%s] Waiting for <%s> timeout:'
-          ' %d secs to be set',
-          multihost.process_index(),
-          threading.current_thread().name,
-          self._operation_id,
-          signal.value,
-          self._timeout_secs,
-      )
-      barrier_key = AwaitableSignalsContract.get_unique_awaitable_singal_key(
-          signal, self._operation_id
-      )
-      client = signaling_client.get_signaling_client()
-      client.blocking_key_value_get(barrier_key, self._timeout_secs)
+    wait_for_signals(
+        self._receive_signals,
+        timeout_secs=self._timeout_secs,
+        operation_id=self._operation_id,
+    )
 
   def _set_signals(self):
-    """Sets the barrier keys for the signals using send_signals."""
-    for signal in self._send_signals:
-      logging.vlog(
-          1,
-          '[process=%d][thread=%s][operation_id=%s] Signalling completion of'
-          ' <%s>.',
-          multihost.process_index(),
-          threading.current_thread().name,
-          self._operation_id,
-          signal.value,
-      )
-      barrier_key = AwaitableSignalsContract.get_unique_awaitable_singal_key(
-          signal, self._operation_id
-      )
-      client = signaling_client.get_signaling_client()
-      client.key_value_set(
-          barrier_key, _SIGNAL_ACTION_SUCCESS, allow_overwrite=True
-      )
+    set_signals(
+        self._send_signals,
+        operation_id=self._operation_id,
+    )
 
   def run(self):
     """Runs the target function after waiting for signals."""
@@ -431,10 +466,23 @@ class CommitFutureAwaitingContractedSignals(Future):
         current operation id is used.
     """
     super().__init__()
+    operation_id = operation_id or (
+        synchronization.OperationIdGenerator.get_current_operation_id()
+    )
     receive_signals = (
         AwaitableSignalsContract.get_awaitable_signals_from_contract(
             operation_id=operation_id
         )
+    )
+    logging.vlog(
+        1,
+        '[process=%d][thread=%s][operation_id=%s]'
+        ' CommitFutureAwaitingContractedSignals expecting to recieve signals:'
+        ' %s',
+        multihost.process_index(),
+        threading.current_thread().name,
+        operation_id,
+        receive_signals,
     )
     self._f = CommitFuture(
         coro,

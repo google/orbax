@@ -45,9 +45,7 @@ class PathAwaitingCreation(Protocol):
     path.exists()  # True.
   """
 
-  def __truediv__(
-      self, other: PathAwaitingCreation | PathLike
-  ) -> PathAwaitingCreation:
+  def __truediv__(self, other: PathLike) -> PathAwaitingCreation:
     ...
 
   @property
@@ -55,4 +53,17 @@ class PathAwaitingCreation(Protocol):
     ...
 
   async def await_creation(self) -> Path:
+    """Waits for the directory to be created.
+
+    This is a blocking operation, though it should return immediately if the
+    path has already been created. Be cautious about where this method is
+    called, since implementations may trigger the creation if `await_creation`
+    is called before the directory creation has been triggered.
+
+    It is recommended to only call this from background awaitables, or to
+    delay as long as possible.
+
+    Returns:
+      The path that was created.
+    """
     ...

@@ -98,8 +98,27 @@ async def maybe_overwrite_existing(
   Raises:
     ValueError: If the path exists and overwrite is False.
   """
+  # Sync before and after existence check, since otherwise the processes may
+  # not agree and it is possible for one process to run ahead and create the
+  # directory before another has checked for its existence.
+  await multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'save_checkpointables_async:maybe_overwrite_existing:pre',
+          prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+      ),
+      operation_id=context.operation_id(),
+      processes=context.multiprocessing_options.active_processes,
+  )
   if await async_path.exists(path):
     if overwrite:
       await remove_existing_path(path, context=context)
     else:
       raise ValueError(f'Destination {path} already exists.')
+  await multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'save_checkpointables_async:maybe_overwrite_existing:post',
+          prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+      ),
+      operation_id=context.operation_id(),
+      processes=context.multiprocessing_options.active_processes,
+  )

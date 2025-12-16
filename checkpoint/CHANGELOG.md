@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- #v1 Add a new implementation of async directory creation that starts the
+operation entirely from the background thread rather than beginning it in the
+main thread and carrying it into the background. Since the latter approach does
+not play well with asyncio event loops, this approach is simpler to reason
+about. It does have the disadvantage of slightly delaying async directory
+creation scheduling, which may slow down background saving
+(but not the blocking time). The change also improves the
+`PathAwaitingCreation` interface so that any call to `await_creation` will
+trigger creation if it has not already been started.
+
 ## [0.11.31] - 2025-12-11
 
 ### Added

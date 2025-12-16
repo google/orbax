@@ -40,8 +40,8 @@ class _PathAwaitingCreation(path_types.PathAwaitingCreation):
   def __truediv__(
       self, other: path_types.PathAwaitingCreation | path_types.PathLike
   ) -> path_types.PathAwaitingCreation:
-    if isinstance(other, path_types.PathAwaitingCreation):
-      other = other.path
+    if not isinstance(other, path_types.PathLike):
+      raise TypeError(f'Expected PathLike, got {type(other)}.')
     return _PathAwaitingCreation(self._path / other, self._operation_id)
 
   async def await_creation(self) -> path_types.Path:
