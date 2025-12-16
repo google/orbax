@@ -1,9 +1,12 @@
 suite_name: "Multihost Dispatchers Benchmark"
 
-mesh_config:
-  mesh_axes: ["data", "model"]
-  ici_parallelism: {"data": 2, "model": 2}
-  dcn_parallelism: {"data": 2}
+mesh_configs:
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 2, "model": 2}
+    dcn_parallelism: {"data": 2}
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 1, "model": 1}
+    dcn_parallelism: {"data": 4, "model": 1}
 
 checkpoint_config:
   spec:

@@ -25,7 +25,7 @@ jobs:
         working-directory: checkpoint
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.12"]
         jax-version: ["0.6.0"]
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -47,12 +47,30 @@ jobs:
         fi
         pip install gcsfs
         pip install portpicker
-    - name: Run benchmarks
+    - name: Run correctness integration tests
       env:
         GCS_BUCKET_PATH: gs://orbax-benchmarks/benchmark-results/${{ github.run_id }}
+        TF_FORCE_GPU_ALLOW_GROWTH: true
+        XLA_PYTHON_CLIENT_PREALLOCATE: false
       run: |
-        cd orbax/checkpoint/_src/testing/benchmarks && python run_benchmarks.py --config_file=configs/pytree_checkpoint_benchmark.yaml --output_directory=$GCS_BUCKET_PATH
+        cd orbax/checkpoint/_src/testing/benchmarks
+        failed_benchmarks=""
+        benchmark_configs_file="multiprocess_benchmark_configs.txt"
+        echo "Running benchmarks specified in $benchmark_configs_file"
+        while IFS= read -r entry || [ -n "$entry" ]; do
+          if [ -n "$entry" ]; then
+            echo "Running benchmark for $entry"
+            if ! python run_benchmarks.py --config_file="$entry" --output_directory=$GCS_BUCKET_PATH; then
+              echo "Benchmark $entry failed"
+              failed_benchmarks="$failed_benchmarks $entry"
+            fi
+          fi
+        done < "$benchmark_configs_file"
         cd ../../../../..
+        if [ -n "$failed_benchmarks" ]; then
+          echo "The following benchmarks failed:$failed_benchmarks"
+          exit 1
+        fi
     # python -m pytest orbax/checkpoint/_src/handlers/array_checkpoint_handler_test.py
     # cd orbax/checkpoint/_src/testing/benchmarks && python run_benchmarks.py --config_file=configs/pytree_checkpoint_benchmark.yaml --output_directory=$GCS_BUCKET_PATH
     # The below step just reports the success or failure of tests as a "commit status".
