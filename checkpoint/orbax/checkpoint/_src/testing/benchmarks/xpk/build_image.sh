@@ -26,6 +26,7 @@ function print_usage() {
   echo "  --help                  Show this help"
 }
 
+# LINT.IfChange(build_image_flags)
 # Parse flags
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -40,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown argument: $1"; print_usage; exit 1 ;;
   esac
 done
+# LINT.ThenChange(README.md:build_image_flags_table)
 
 if [[ -z "$PROJECT_ID" ]]; then
   echo "Error: Project ID not set."

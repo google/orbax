@@ -41,6 +41,8 @@ from absl import app
 from absl import flags
 from absl import logging
 
+# LINT.IfChange(launch_xpk_flags)
+
 # ==============================================================================
 # 1. Required Flags
 # ==============================================================================
@@ -278,6 +280,7 @@ _PATHWAYS_PROXY_IMAGE = flags.DEFINE_string(
     'us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/proxy_server:2025-10-03',
     'Pathways proxy image (bridges user code to server).',
 )
+# LINT.ThenChange(README.md:launch_xpk_flags_table)
 
 
 class Console:
