@@ -17,6 +17,7 @@ from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from etils import epath
 from orbax.checkpoint._src.testing.benchmarks.core import config_parsing
 from orbax.checkpoint._src.testing.benchmarks.core import configs as config_lib
 from orbax.checkpoint._src.testing.benchmarks.core import core
@@ -48,23 +49,26 @@ class TestLoadYamlConfig(parameterized.TestCase):
 
   def test_load_valid_yaml(self):
     content = 'suite_name: test'
-
-    with mock.patch('builtins.open', mock.mock_open(read_data=content)) as m:
+    mocker = mock.mock_open(read_data=content)
+    with mock.patch.object(epath, 'Path', autospec=True) as mock_path_cls:
+      mock_path_cls.return_value.open = mocker
       config = config_parsing._load_yaml_config('fake/path.yaml')
-
-      m.assert_called_once_with('fake/path.yaml', 'r')
+      mock_path_cls.assert_called_once_with('fake/path.yaml')
+      mocker.assert_called_once_with('r')
       self.assertEqual(config, {'suite_name': 'test'})
 
 
   def test_file_not_found(self):
-    with mock.patch('builtins.open', side_effect=FileNotFoundError):
+    with mock.patch.object(epath, 'Path', autospec=True) as mock_path_cls:
+      mock_path_cls.return_value.open.side_effect = FileNotFoundError
       with self.assertRaises(FileNotFoundError):
         config_parsing._load_yaml_config('bad/path.yaml')
 
   def test_yaml_error(self):
-    with mock.patch(
-        'builtins.open', mock.mock_open(read_data='key: value: error')
-    ):
+    with mock.patch.object(epath, 'Path', autospec=True) as mock_path_cls:
+      mock_path_cls.return_value.open = mock.mock_open(
+          read_data='key: value: error'
+      )
       with self.assertRaises(yaml.YAMLError):
         config_parsing._load_yaml_config('fake/path.yaml')
 
@@ -166,8 +170,8 @@ benchmarks:
       param1: [20, 30]
 """
 
-  @mock.patch.object(config_parsing, '_load_yaml_config')
-  @mock.patch.object(config_parsing, '_import_class')
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
   def test_valid_creation(self, mock_import, mock_load):
     mock_load.return_value = yaml.safe_load(self._get_valid_yaml_content())
     mock_import.return_value = MockGenerator
@@ -194,8 +198,8 @@ benchmarks:
     self.assertIsNone(test_suite._benchmarks_generators[0]._mesh_configs)
     self.assertIsNone(test_suite._benchmarks_generators[1]._mesh_configs)
 
-  @mock.patch.object(config_parsing, '_load_yaml_config')
-  @mock.patch.object(config_parsing, '_import_class')
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
   def test_valid_creation_with_num_repeats(self, mock_import, mock_load):
     yaml_content = """
 suite_name: Repeated Test Suite
@@ -266,8 +270,8 @@ benchmarks:
       param2: 'test'
 """
 
-  @mock.patch.object(config_parsing, '_load_yaml_config')
-  @mock.patch.object(config_parsing, '_import_class')
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
   def test_valid_creation_with_mesh_config(self, mock_import, mock_load):
     mock_load.return_value = yaml.safe_load(self._get_yaml_with_mesh_config())
     mock_import.return_value = MockGenerator
@@ -294,8 +298,8 @@ benchmarks:
         ],
     )
 
-  @mock.patch.object(config_parsing, '_load_yaml_config')
-  @mock.patch.object(config_parsing, '_import_class')
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
   def test_valid_creation_with_mesh_configs(self, mock_import, mock_load):
     mock_load.return_value = yaml.safe_load(self._get_yaml_with_mesh_configs())
     mock_import.return_value = MockGenerator
@@ -326,8 +330,8 @@ benchmarks:
         ],
     )
 
-  @mock.patch.object(config_parsing, '_load_yaml_config')
-  @mock.patch.object(config_parsing, '_import_class')
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
   def test_valid_creation_with_checkpoint_configs(self, mock_import, mock_load):
     mock_load.return_value = yaml.safe_load(
         self._get_yaml_with_checkpoint_configs()
@@ -362,8 +366,8 @@ benchmarks:
         ],
     )
 
-  @mock.patch.object(config_parsing, '_load_yaml_config')
-  @mock.patch.object(config_parsing, '_import_class')
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
   def test_generator_import_fail(self, mock_import, mock_load):
     config = yaml.safe_load(self._get_valid_yaml_content())
     mock_load.return_value = config
@@ -372,7 +376,7 @@ benchmarks:
     with self.assertRaisesRegex(ImportError, 'Test Import Error'):
       config_parsing.create_test_suite_from_config('fake.yaml')
 
-  @mock.patch.object(config_parsing, '_load_yaml_config')
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
   def test_generator_not_subclass(self, mock_load):
     yaml_content = """
 suite_name: Bad Generator
@@ -389,7 +393,7 @@ benchmarks:
     ):
       config_parsing.create_test_suite_from_config('fake.yaml')
 
-  @mock.patch.object(config_parsing, '_load_yaml_config')
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
   def test_generator_not_decorated(self, mock_load):
     yaml_content = """
 suite_name: Not Decorated
@@ -406,7 +410,7 @@ benchmarks:
     ):
       config_parsing.create_test_suite_from_config('fake.yaml')
 
-  @mock.patch.object(config_parsing, '_load_yaml_config')
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
   def test_invalid_options_for_dataclass(self, mock_load):
     yaml_content = """
 suite_name: Bad Options

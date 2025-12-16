@@ -46,6 +46,7 @@ import importlib
 from typing import Any, Dict, List, Type
 
 from absl import logging
+from etils import epath
 from orbax.checkpoint._src.testing.benchmarks.core import configs as config_lib
 from orbax.checkpoint._src.testing.benchmarks.core import core
 import yaml
@@ -66,7 +67,7 @@ def _load_yaml_config(config_path: str) -> Dict[str, Any]:
   """Loads a YAML configuration file."""
   logging.info('Loading configuration from: %s', config_path)
   try:
-    with open(config_path, 'r') as f:
+    with epath.Path(config_path).open('r') as f:
       return yaml.safe_load(f)
   except yaml.YAMLError as e:
     logging.error('Error parsing YAML file: %s', e)
