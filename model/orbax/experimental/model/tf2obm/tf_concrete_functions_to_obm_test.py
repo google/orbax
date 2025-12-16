@@ -23,7 +23,6 @@ from jax import tree_util as jax_tree_util
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
 from orbax.experimental.model.tf2obm import tf_concrete_functions_to_obm as tf_obm
-from orbax.experimental.model.tf2obm import utils
 import tensorflow as tf
 
 from tensorflow.python.util.protobuf import compare
@@ -62,7 +61,7 @@ def _as_output_signature(tree):
         lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), tree
     )
 
-  return utils.get_output_signature(f.get_concrete_function())
+  return tf_obm.get_output_signature(f.get_concrete_function())
 
 
 _INPUT_SIGNATURES = (
@@ -225,12 +224,12 @@ class TfConcreteFunctionsToObmTest(
       return True
 
     self.assertTreeEquiv(
-        tf_obm.utils.get_input_signature(new_cf),
+        new_cf.structured_input_signature,
         new_input_sig,
         is_spec_equiv,
     )
     self.assertTreeEquiv(
-        tf_obm.utils.get_output_signature(new_cf),
+        tf_obm.get_output_signature(new_cf),
         new_output_sig,
         is_spec_equiv,
     )
