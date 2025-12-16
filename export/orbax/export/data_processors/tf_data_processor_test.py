@@ -90,7 +90,9 @@ class TfDataProcessorTest(googletest.TestCase):
     )
     self.assertEqual(
         processor.output_signature,
-        obm.ShloTensorSpec(shape=(None, 3), dtype=obm.ShloDType.f64),
+        obm.ShloTensorSpec(
+            shape=(None, 3), dtype=obm.ShloDType.f64, name='output_0'
+        ),
     )
 
   def test_prepare_polymorphic_function_with_default_input_signature(self):
@@ -127,7 +129,9 @@ class TfDataProcessorTest(googletest.TestCase):
     )
     self.assertEqual(
         processor.output_signature,
-        obm.ShloTensorSpec(shape=(None, 4), dtype=obm.ShloDType.f32),
+        obm.ShloTensorSpec(
+            shape=(None, 4), dtype=obm.ShloDType.f32, name='output_0'
+        ),
     )
 
   def test_suppress_x64_output(self):
@@ -146,7 +150,9 @@ class TfDataProcessorTest(googletest.TestCase):
     processor.prepare(input_signature, suppress_x64_output=True)
     self.assertEqual(
         processor.output_signature,
-        obm.ShloTensorSpec(shape=(None, 3), dtype=obm.ShloDType.f32),
+        obm.ShloTensorSpec(
+            shape=(None, 3), dtype=obm.ShloDType.f32, name='output_0'
+        ),
     )
 
   def test_convert_to_bfloat16(self):
@@ -167,7 +173,9 @@ class TfDataProcessorTest(googletest.TestCase):
     )
     self.assertEqual(
         processor.output_signature,
-        obm.ShloTensorSpec(shape=(2, 3), dtype=obm.ShloDType.bf16),
+        obm.ShloTensorSpec(
+            shape=(2, 3), dtype=obm.ShloDType.bf16, name='output_0'
+        ),
     )
     self.assertLen(processor.concrete_function.variables, 1)
     self.assertEqual(

@@ -12,6 +12,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# pylint: disable=missing-module-docstring
-from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
-from orbax.experimental.model.tf2obm._src.converter import *

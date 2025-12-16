@@ -66,6 +66,20 @@ name_to_pipeline {
           }
         }
       }
+      outputs {
+        named_tensor_types {
+          name: "__OUTPUT_NAME__"
+          tensor_type {
+            shape {
+              shape_with_known_rank {
+                dimension_sizes {
+                }
+              }
+            }
+            dtype: f32
+          }
+        }
+      }
     }
     model_functions {
       model_function_name: "__MODEL_FUNCTION_NAME__"

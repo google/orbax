@@ -19,9 +19,9 @@ import os
 from typing import Any, Callable, Dict, NamedTuple, Tuple
 
 from jax import tree_util as jax_tree_util
+import numpy as np
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
-from orbax.experimental.model.tf2obm import utils
 import tensorflow as tf
 
 
@@ -40,62 +40,98 @@ TF_SAVED_MODEL_SUPPLEMENTAL_NAME = 'tensorflow_saved_model'
 _OUTPUT_NAME_PREFIX = 'output'
 
 
-def is_pair(tree: utils.TfSignature) -> bool:
-  return isinstance(tree, Sequence) and len(tree) == 2
+TfSignature = obm.Tree[Any]
+_StrDict = Dict[str, Any]
 
 
-def is_args_kwargs_pattern(tree: utils.TfSignature) -> bool:
+def _is_args_kwargs_pattern(tree: TfSignature) -> bool:
   return (
-      is_pair(tree)
+      isinstance(tree, Sequence)
+      and len(tree) == 2
       and isinstance(tree[0], Sequence)
       and isinstance(tree[1], dict)
   )
 
 
-def tf_concrete_function_name_to_obm_function(
-    name: str,
-    *,
-    input_signature: utils.TfSignature | None = None,
-    output_signature: utils.TfSignature | None = None,
-    fn: tf.types.experimental.ConcreteFunction | None = None,
+def tf_dtype_to_obm(t: tf.DType) -> obm.ShloDType:
+  """Converts a TensorFlow dtype to an OBM ShloDType.
+
+  Args:
+    t: The TensorFlow dtype to convert.
+
+  Returns:
+    The corresponding OBM ShloDType.
+
+  Raises:
+    ValueError: If the TensorFlow dtype cannot be converted to an OBM ShloDType.
+  """
+  if t == tf.string:
+    return obm.ShloDType.str
+  # need special handling for bfloat16 since numpy doesn't have a bfloat16
+  # dtype.
+  if t == tf.bfloat16:
+    return obm.ShloDType.bf16
+  if t in (tf.resource, tf.variant):
+    raise ValueError(f"Can't convert TF dtype {t} to OBM.")
+  np_dtype = t.as_numpy_dtype()
+  try:
+    np_dtype = np.dtype(np_dtype)
+  except Exception as err:
+    raise ValueError(
+        f'Failed to create a numpy.dtype object from {np_dtype} of type '
+        f'{type(np_dtype)} . The original TF dtype was {t} of type {type(t)} .'
+    ) from err
+  return obm.np_dtype_to_shlo_dtype(np_dtype)
+
+
+def tf_tensor_spec_to_obm(spec: Any) -> obm.ShloTensorSpec:
+  # ConcreteFunction.structured_outputs returns `SymbolicTensor`s, not
+  # `TensorSpec`s, so we need to also check for `SymbolicTensor`.
+  if not (isinstance(spec, tf.TensorSpec) or tf.is_symbolic_tensor(spec)):
+    raise ValueError(
+        f'Expected a tf.TensorSpec or a SymbolicTensor, got {spec} of type'
+        f' {type(spec)}'
+    )
+  return obm.ShloTensorSpec(
+      shape=spec.shape, dtype=tf_dtype_to_obm(spec.dtype), name=spec.name
+  )
+
+
+def tf_signature_to_obm_spec(
+    tree: TfSignature,
+) -> obm.Tree[obm.ShloTensorSpec]:
+  try:
+    return jax_tree_util.tree_map(tf_tensor_spec_to_obm, tree)
+  except Exception as err:
+    raise ValueError(
+        f'Failed to convert TF signature {tree} of type {type(tree)} to OBM.'
+    ) from err
+
+
+def tf_function_to_obm(
+    fn_name: str,
+    fn: tf.types.experimental.ConcreteFunction,
 ) -> obm.SerializableFunction:
   """Converts a TensorFlow (TF) concrete function name (with input/output signatures) to an Orbax Model (OBM) function.
 
-  The OBM function is essentially a name pointing into a TF SavedModel where the
-  concrete function is actually stored.
-
-  Only one of `fn` and the `(input_signature, output_signature)` pair should be
-  provided.
+  The OBM function is a name pointing into a TF SavedModel where the
+  concrete function is stored.
 
   Args:
-    name: a name used in `save_tf_concrete_functions` to identify a concrete
-      function.
-    input_signature: the input signature of the concrete function.
-    output_signature: the output signature of the concrete function.
-    fn: the concrete function itself.
+    fn_name: The name of the function to be saved in the OBM manifest.
+    fn: A TF concrete function.
 
   Returns:
     An OBM function.
   """
-  if fn is not None:
-    if input_signature is not None:
-      raise ValueError(
-          'Both `fn` and `input_signature` are provided. Please provide only '
-          'one of them.'
-      )
-    if output_signature is not None:
-      raise ValueError(
-          'Both `fn` and `output_signature` are provided. Please provide only '
-          'one of them.'
-      )
-    input_signature = utils.get_input_signature(fn)
-    output_signature = utils.get_output_signature(fn)
+  input_signature = fn.structured_input_signature
+  output_signature = get_output_signature(fn)
 
   input_names, _, _ = _flat_input_signature(fn)
   output_names = _output_names(fn)
   unstructured_data = obm.manifest_pb2.UnstructuredData(
       inlined_bytes=tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(
-          fn_name=name,
+          fn_name=fn_name,
           input_names=list(input_names),
           output_names=list(output_names),
       ).SerializeToString(),
@@ -107,8 +143,8 @@ def tf_concrete_function_name_to_obm_function(
           proto=unstructured_data,
           ext_name='pb',
       ),
-      input_signature=utils.tf_signature_to_obm_spec(input_signature),
-      output_signature=utils.tf_signature_to_obm_spec(output_signature),
+      input_signature=tf_signature_to_obm_spec(input_signature),
+      output_signature=tf_signature_to_obm_spec(output_signature),
   )
 
 
@@ -134,9 +170,6 @@ def tf_saved_model_as_obm_supplemental(subdir: str) -> obm.UnstructuredData:
       mime_type=SAVED_MODEL_MIME_TYPE,
       version=SAVED_MODEL_VERSION,
   )
-
-
-_StrDict = Dict[str, Any]
 
 
 def _make_dict_only_signature(
@@ -166,7 +199,7 @@ def _make_dict_only_signature(
 
 
 def _tree_to_dict(
-    tree: utils.TfSignature | None,
+    tree: TfSignature | None,
     names: Sequence[str] | None,
 ) -> _StrDict | None:
   """Converts a TF signature tree to a dictionary if names are provided.
@@ -191,7 +224,7 @@ def _dict_to_tree(
     d: _StrDict | None,
     names: Sequence[str] | None,
     tree_def: jax_tree_util.PyTreeDef,
-) -> utils.TfSignature | None:
+) -> TfSignature | None:
   """Converts a dictionary to a TF signature tree if names are provided.
 
   If `names` is None, `d` is returned unchanged. If `names` is provided,
@@ -213,7 +246,7 @@ def _dict_to_tree(
 
 
 def _to_args_kwargs_pattern(
-    tree: utils.TfSignature,
+    tree: TfSignature,
 ) -> Tuple[Sequence[Any], Dict[str, Any]]:
   """Converts a TF signature tree to the '(args, kwargs)' pattern.
 
@@ -227,7 +260,7 @@ def _to_args_kwargs_pattern(
   Raises:
     ValueError: if the tree cannot be converted to the '(args, kwargs)' pattern.
   """
-  if is_args_kwargs_pattern(tree):
+  if _is_args_kwargs_pattern(tree):
     return tree[0], tree[1]
   elif isinstance(tree, Sequence):
     return tree, {}
@@ -258,7 +291,7 @@ def _flat_input_signature(
     fn: tf.types.experimental.ConcreteFunction,
 ) -> SignatureFlat:
   """Returns the flattened input signature of the given function."""
-  leaves, tree_def = jax_tree_util.tree_flatten(utils.get_input_signature(fn))
+  leaves, tree_def = jax_tree_util.tree_flatten(fn.structured_input_signature)
   # The argument names in SavedModel's SignatureDef may not match the names in
   # the input signature due to internal name mangling, hence we're looking
   # it up in the FunctionDef.
@@ -303,13 +336,32 @@ def _output_names(
     fn: tf.types.experimental.ConcreteFunction,
 ) -> Sequence[str]:
   """Returns the flattened output signature of the given function."""
-  leaves_with_path = jax_tree_util.tree_leaves_with_path(
-      utils.get_output_signature(fn)
-  )
+  leaves_with_path = jax_tree_util.tree_leaves_with_path(fn.structured_outputs)
   if not leaves_with_path:
     return []
   paths, _ = zip(*leaves_with_path)
   return [_output_name(path) for path in paths]
+
+
+def get_output_signature(
+    fn: tf.types.experimental.ConcreteFunction,
+) -> TfSignature:
+  """Returns the output signature of the TF function.
+
+  Tensor names in the output signature match the output names of the TF function
+  in the TF SavedModel.
+
+  Args:
+    fn: A concrete TF function.
+  """
+  output_names_iter = iter(list(_output_names(fn)))
+
+  return jax_tree_util.tree_map(
+      lambda t: tf.TensorSpec(
+          shape=t.shape, dtype=t.dtype, name=next(output_names_iter)
+      ),
+      fn.structured_outputs,
+  )
 
 
 def to_keyword_only_fn(
@@ -373,7 +425,8 @@ def save_tf_concrete_functions(
       `tf.saved_model.experimental.TrackableResource`s that are used in
       `concrete_functions`. All TF resources the concrete functions use
       (directly or indirectly) must be present in this structure. Otherwise, an
-      "untracked resource" error will be raised.
+      "untracked resource" error will be raised. If tf.Module is passed, it will
+      be used to create the saved model.
   """
   # We are using saved_model.save(signatures=...)
   # (i.e. serving_signatures) to save concrete functions, but
@@ -387,8 +440,15 @@ def save_tf_concrete_functions(
   }
 
   tf_module = tf.Module()
-  if trackable_resources is not None:
+  if isinstance(trackable_resources, tf.Module):
+    # tf.Module may contain variables and other resources that cannot be
+    # easily accessed piecemeal. The caller can pass the tf.Module directly
+    # and it will be used to create the saved model; all nested resources
+    # will be included.
+    tf_module = trackable_resources
+  elif trackable_resources is not None:
     tf_module.resources = trackable_resources
+
   tf.saved_model.save(tf_module, path, signatures=concrete_functions)
 
 

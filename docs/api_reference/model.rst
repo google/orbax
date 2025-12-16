@@ -17,5 +17,3 @@ orbax.experimental.model API Reference
    model.core.python.type_proto
    model.core.python.unstructured_data
    model.core.python.value
-   model.tf2obm.tf_concrete_functions_to_obm
-   model.tf2obm.tf_function_def_to_obm
