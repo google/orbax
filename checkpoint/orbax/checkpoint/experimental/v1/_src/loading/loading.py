@@ -20,7 +20,6 @@ from typing import Any
 
 from absl import logging
 from orbax.checkpoint._src.logging import event_tracking
-from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
@@ -37,7 +36,7 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeafType]
 CheckpointMetadata = metadata_types.CheckpointMetadata
-PLACEHOLDER = type_handlers.PLACEHOLDER
+PLACEHOLDER = ...
 
 
 def _standardize_abstract_checkpointables(abstract_checkpointables):

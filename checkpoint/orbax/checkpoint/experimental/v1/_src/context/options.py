@@ -26,6 +26,7 @@ from orbax.checkpoint import options as v0_options_lib
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.serialization import pathways_types
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -347,6 +348,17 @@ class CheckpointablesOptions:
     for name, handler in named_handlers.items():
       registry.add(handler, name)
     return cls(registry=registry)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class PathwaysOptions:
+  """Options used to configure Pathways saving and loading.
+
+  Attributes:
+    checkpointing_impl: The implementation to use for Pathways checkpointing.
+  """
+
+  checkpointing_impl: pathways_types.CheckpointingImpl | None = None
 
 
 class CheckpointLayout(enum.Enum):

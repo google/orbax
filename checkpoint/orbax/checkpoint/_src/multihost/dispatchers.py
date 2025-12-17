@@ -28,7 +28,6 @@ from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import jax_array_restore_args
 
-
 PyTree = Any
 
 

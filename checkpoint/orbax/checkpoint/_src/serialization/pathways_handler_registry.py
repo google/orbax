@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import enum
 import types
 
 from absl import logging
@@ -24,8 +23,12 @@ import jax
 import numpy as np
 from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.serialization import jax_array_handlers
+from orbax.checkpoint._src.serialization import pathways_types
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
+
+
+CheckpointingImpl = pathways_types.CheckpointingImpl
 
 
 
@@ -74,38 +77,6 @@ def _register_numpy_and_scalar_handlers():
   type_handler_registry.register_type_handler(
       np.ndarray, numpy_handler, override=True
   )
-
-
-class CheckpointingImpl(enum.Enum):
-  """The implementation to use for Pathways checkpointing."""
-
-  NO_DISPATCHER = enum.auto()
-  COLOCATED_PYTHON = enum.auto()
-
-  @classmethod
-  def from_options(
-      cls,
-      *,
-      use_colocated_python: bool = False,
-  ) -> CheckpointingImpl:
-    """Obtains a CheckpointingImpl from the given options.
-
-    More than one option can be set to True. Resolves in order of priority:
-      1. Colocated Python
-      4. No Dispatcher
-
-    Args:
-      use_colocated_python: Whether to use colocated Python. # BEGIN
-      use_remote_python: Whether to use remote Python.
-      use_persistence_array_handler: Whether to use the persistence array
-
-    Returns:
-      The CheckpointingImpl to use.
-    """
-    if use_colocated_python:
-      return cls.COLOCATED_PYTHON
-    else:
-      return cls.NO_DISPATCHER
 
 
 def get_pathways_array_handler(

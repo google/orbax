@@ -27,7 +27,7 @@ from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
-from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.serialization import types as v0_serialization_types
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
@@ -70,7 +70,7 @@ def _get_v0_save_args(
         if array_storage_options.dtype
         else None
     )
-    return type_handlers.SaveArgs(
+    return v0_serialization_types.SaveArgs(
         dtype=save_dtype,
         chunk_byte_size=array_storage_options.chunk_byte_size,
         shard_axes=array_storage_options.shard_axes,
@@ -82,7 +82,7 @@ def _get_v0_save_args(
 def _create_v0_handler(
     context: context_lib.Context,
     *,
-    type_handler_registry: type_handlers.TypeHandlerRegistry,
+    type_handler_registry: v0_serialization_types.TypeHandlerRegistry,
     array_metadata_validator: array_metadata_store_lib.Validator = array_metadata_store_lib.Validator(),
 ) -> base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler:
   """Creates a V0 handler from a V1 context."""
