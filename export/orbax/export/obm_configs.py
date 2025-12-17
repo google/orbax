@@ -327,11 +327,5 @@ class Jax2ObmOptions:
 
 @dataclasses.dataclass(kw_only=True)
 class ObmExportOptions:
-  """Options for Orbax Model Export.
-
-  Attributes:
-    batch_options: The batch options for the model.
-    converter_options: The converter options for the model.
-  """
 
   batch_options: BatchOptions | None = None
