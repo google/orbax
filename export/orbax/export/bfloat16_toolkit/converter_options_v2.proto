@@ -427,6 +427,15 @@ message BFloat16OptimizationOptions {
   // by default, and will raise an error if this flag is set.
   bool preserve_signature = 4;
 
+  // Experimental bfloat16 optimization features, which are not guaranteed to
+  // work for all models.
+  message Experimental {
+    // If true, checkpoint float values will be converted to bfloat16.
+    // It is only supported if `scope` == ALL.
+    bool convert_checkpoint = 1;
+  }
+  Experimental experimental = 5;
+
   // If set to true, bfloat16 type cast happens outside function around call
   // node. If false (default) the cast happens inside function after _Arg and
   // before _Retval. Only valid when the batching scope is set to only batch
