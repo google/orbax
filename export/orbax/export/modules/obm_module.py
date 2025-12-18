@@ -237,6 +237,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
 
   def _maybe_set_orbax_checkpoint_path(self):
     if self._jax2obm_options.checkpoint_path is None:
+      self._weights_name = None
       return
 
     # TODO: b/374195447 - Add a version check for the Orbax checkpointer.
