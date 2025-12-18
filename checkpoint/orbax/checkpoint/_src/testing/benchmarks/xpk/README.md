@@ -1,5 +1,6 @@
 # Orbax Checkpoint XPK Benchmarks
 
+
 **The Production Tooling for Orbax Benchmarks on Cloud TPUs.**
 
 This directory provides a push-button experience for running distributed JAX
@@ -94,6 +95,10 @@ gcloud auth configure-docker
 
 *   **XPK**: [Installation Guide](https://github.com/AI-Hypercomputer/xpk/blob/main/docs/installation.md)
 *   **Docker**: [Get Docker](https://docs.docker.com/get-docker/)
+
+### 🔗 Useful Resources
+
+*   **[TPU Accelerator Zones](https://docs.cloud.google.com/compute/docs/regions-zones/accelerator-zones)**
 
 
 ---
