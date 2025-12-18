@@ -518,17 +518,18 @@ def get_lowering_platforms(
   if isinstance(native_serialization_platforms, str):
     native_serialization_platforms = [native_serialization_platforms]
 
-  lower_platforms = set(p.lower() for p in manifest_pb2.Platform.keys())
-  if not all(
-      isinstance(p, str) and p in lower_platforms
-      for p in native_serialization_platforms
-  ):
-    raise ValueError(
-        'native_serialization_platforms must be a sequence'
-        ' and should be a Platform enum type.'
-    )
+  allowed_lower_platforms = set(p.lower() for p in manifest_pb2.Platform.keys())
+  lowered_native_serialization_platforms = [
+      p.lower() for p in native_serialization_platforms
+  ]
+  for p in lowered_native_serialization_platforms:
+    if p not in allowed_lower_platforms:
+      raise ValueError(
+          'native_serialization_platforms must be a sequence'
+          ' and should be a Platform enum type.'
+      )
 
-  return native_serialization_platforms
+  return lowered_native_serialization_platforms
 
 
 def to_bfloat16(x: Any) -> Any:
