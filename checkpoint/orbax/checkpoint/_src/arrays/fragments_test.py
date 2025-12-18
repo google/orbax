@@ -102,6 +102,10 @@ class FragmentTest(parameterized.TestCase):
         AbstractFragment(index=np.s_[1:2:1, 3:4:1]),
         AbstractFragment(index=np.s_[1:2:1, 4:5:1]),
     )
+    self.assertNotEqual(
+        AbstractFragment(index=np.s_[1:2:1, 3:4:1], dtype=np.dtype(np.float32)),
+        AbstractFragment(index=np.s_[1:2:1, 3:4:1], dtype=np.dtype(np.int32)),
+    )
 
   @parameterized.named_parameters(
       ('np_fragment', NpFragment),
@@ -155,10 +159,22 @@ class FragmentTest(parameterized.TestCase):
     np.testing.assert_array_equal([], f.stop)
     np.testing.assert_array_equal([], f.step)
 
+  def test_dtype_abstract(self):
+    f = AbstractFragment(index=np.s_[1:2:1, 3:4:1], dtype=np.dtype(np.float32))
+    self.assertEqual(f.dtype, np.dtype(np.float32))
+
+  def test_dtype_mismatch_raises(self):
+    with self.assertRaisesRegex(ValueError, 'Fragment value dtype'):
+      NpFragment(
+          index=np.s_[1:2:1, 3:4:1],
+          value=np.ones((1, 1), dtype=np.float32),
+          dtype=np.dtype(np.int32),
+      )
+
   def test_repr_abstract(self):
     self.assertEqual(
         repr(AbstractFragment(index=np.s_[1:2:1, 3:4:1])),
-        'AbstractFragment(index=np.s_[1:2:1, 3:4:1])',
+        'AbstractFragment(index=np.s_[1:2:1, 3:4:1], dtype=None)',
     )
 
   @parameterized.named_parameters(
@@ -750,7 +766,9 @@ class AbstractFragmentsTest(parameterized.TestCase):
         dtype=np.dtype(np.float32),
         fragments=[
             AbstractFragment(
-                index=np.s_[0:2:1, 0:3:1], value=None
+                index=np.s_[0:2:1, 0:3:1],
+                value=None,
+                dtype=np.dtype(np.float32),
             ),
         ],
     )
@@ -764,7 +782,11 @@ class AbstractFragmentsTest(parameterized.TestCase):
         AbstractFragments(
             shape=(4, 5),
             dtype=np.dtype(np.float32),
-            fragments=[AbstractFragment(index=np.s_[0:4:1, 0:5:1])],
+            fragments=[
+                AbstractFragment(
+                    index=np.s_[0:4:1, 0:5:1], dtype=np.dtype(np.float32)
+                )
+            ],
         ),
         array_fragments.abstract_fragments(
             jax.ShapeDtypeStruct((4, 5), np.dtype(np.float32))
