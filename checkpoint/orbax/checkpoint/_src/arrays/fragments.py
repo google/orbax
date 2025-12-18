@@ -70,6 +70,7 @@ class _GenericFragment(Generic[A]):
 
   np_index: NpIndex  # shape=[{rank}, 3], dtype=int
   value: A
+  dtype: np.dtype | None
 
   def __init__(
       self,
@@ -77,12 +78,15 @@ class _GenericFragment(Generic[A]):
       index: Index | None = None,
       np_index: NpIndex | None = None,
       value: A,
+      dtype: np.dtype | None = None,
   ):
     if not isinstance(value, self.ARRAY_T):
       raise TypeError(
           f'Fragment value must be a {_qualified_name(self.ARRAY_T)},'
           f' not {type(value)}.'
       )
+    if value is not None:
+      dtype = value.dtype
 
     if index is not None and np_index is not None:
       raise ValueError('Cannot specify both index and np_index.')
@@ -101,6 +105,7 @@ class _GenericFragment(Generic[A]):
 
     object.__setattr__(self, 'value', value)
     object.__setattr__(self, 'np_index', np_index)
+    object.__setattr__(self, 'dtype', dtype)
 
   @property
   def index(self) -> Index:
@@ -140,7 +145,7 @@ class _GenericFragment(Generic[A]):
   ) -> _GenericFragment[A]:  # Use typing.Self once 3.11 is minimum.
     out_idx = self.np_index.copy()
     out_idx[:, :2] += np.expand_dims(delta, axis=1)
-    return type(self)(np_index=out_idx, value=self.value)
+    return type(self)(np_index=out_idx, value=self.value, dtype=self.dtype)
 
   def intersect(
       self,
@@ -167,7 +172,9 @@ class _GenericFragment(Generic[A]):
     if not (start < stop).all():
       return None
     return type(self)(
-        np_index=out_np_index, value=self.slice_of_value(out_np_index)
+        np_index=out_np_index,
+        value=self.slice_of_value(out_np_index),
+        dtype=self.dtype,
     )
 
   def slice(
@@ -215,19 +222,23 @@ class AbstractFragment(_GenericFragment[type(None)]):
       index: Index | None = None,
       np_index: NpIndex | None = None,
       value: Literal[None] = None,
+      dtype: np.dtype | None = None,
   ):
-    super().__init__(index=index, np_index=np_index, value=value)
+    super().__init__(index=index, np_index=np_index, value=value, dtype=dtype)
 
   def __eq__(self, other: AbstractFragment):  # Use typing.Self once on 3.11+.
     if not isinstance(other, type(self)):
       return False
     if not np.array_equal(self.np_index, other.np_index):
       return False
+    if self.dtype is not None and other.dtype is not None:
+      return self.dtype == other.dtype
     return True
 
   def __repr__(self):
     return (
-        f'{type(self).__name__}(index={np_utils.pretty_nd_slice(self.index)})'
+        f'{type(self).__name__}(index={np_utils.pretty_nd_slice(self.index)},'
+        f' dtype={self.dtype!r})'
     )
 
   def offset_by(
@@ -236,7 +247,7 @@ class AbstractFragment(_GenericFragment[type(None)]):
   ) -> 'AbstractFragment':
     out_idx = self.np_index.copy()
     out_idx[:, :2] += np.expand_dims(delta, axis=1)
-    return type(self)(np_index=out_idx)
+    return type(self)(np_index=out_idx, dtype=self.dtype)
 
   def slice_of_value(self, np_index: NpIndex) -> None:
     del np_index
@@ -493,9 +504,11 @@ def abstract_fragments(
       indices = (fragment.index for fragment in x.fragments)
     else:
       indices = addressable_shards(x)
-    return AbstractFragments(x.shape, x.dtype, [
-        AbstractFragment(index=index) for index in indices
-    ])
+    return AbstractFragments(
+        x.shape,
+        x.dtype,
+        [AbstractFragment(index=index, dtype=x.dtype) for index in indices],
+    )
 
 
 def validate_fragments_can_be_stacked(fragments: FSconcrete) -> None:
