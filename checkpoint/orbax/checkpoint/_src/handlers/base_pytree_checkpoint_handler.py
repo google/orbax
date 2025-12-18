@@ -1303,6 +1303,7 @@ class BasePyTreeCheckpointHandler(
             self._type_handler_registry,
         ),
         custom_metadata=internal_tree_metadata.custom_metadata,
+        use_zarr3=internal_tree_metadata.use_zarr3,
     )
 
   async def _finalize_async(self, directory: epath.Path) -> None:

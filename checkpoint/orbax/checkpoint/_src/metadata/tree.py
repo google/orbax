@@ -798,6 +798,10 @@ class TreeMetadata(Protocol):
   def custom_metadata(self) -> PyTree | None:
     ...
 
+  @property
+  def use_zarr3(self) -> bool:
+    ...
+
 
   def tree_flatten(self):
     ...
@@ -861,6 +865,7 @@ class TreeMetadata(Protocol):
       tree: PyTree,
       *,
       custom_metadata: PyTree | None = None,
+      use_zarr3: bool = False,
   ) -> TreeMetadata:
     """Builds the TreeMetadata."""
     ...
@@ -878,9 +883,11 @@ class _TreeMetadataImpl(TreeMetadata):
       *,
       tree: PyTree,
       custom_metadata: PyTree | None = None,
+      use_zarr3: bool = False,
   ):
     self._tree = tree
     self._custom_metadata = custom_metadata
+    self._use_zarr3 = use_zarr3
     self._validate_tree_type(tree)
 
   def _validate_tree_type(self, tree: PyTree):
@@ -901,6 +908,10 @@ class _TreeMetadataImpl(TreeMetadata):
   @property
   def custom_metadata(self) -> PyTree | None:
     return self._custom_metadata
+
+  @property
+  def use_zarr3(self) -> bool:
+    return self._use_zarr3
 
 
   def tree_flatten(self):
@@ -1026,11 +1037,13 @@ class _TreeMetadataImpl(TreeMetadata):
       tree: PyTree,
       *,
       custom_metadata: PyTree | None = None,
+      use_zarr3: bool = False,
   ) -> TreeMetadata:
     """Builds the TreeMetadata."""
     return cls(
         tree=tree,
         custom_metadata=custom_metadata,
+        use_zarr3=use_zarr3,
     )
 
 
@@ -1038,9 +1051,11 @@ def build_default_tree_metadata(
     tree: PyTree,
     *,
     custom_metadata: PyTree | None = None,
+    use_zarr3: bool = False,
 ) -> TreeMetadata:
   """Builds the TreeMetadata using a default implementation."""
   return _TreeMetadataImpl.build(
       tree,
       custom_metadata=custom_metadata,
+      use_zarr3=use_zarr3,
   )
