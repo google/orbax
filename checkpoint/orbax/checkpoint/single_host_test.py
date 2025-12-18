@@ -21,6 +21,7 @@ import ml_dtypes
 import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler_test_utils
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
@@ -159,7 +160,7 @@ class SingleHostTest(parameterized.TestCase):
     ):
       handler.save(
           self.ckpt_dir,
-          args=standard_checkpoint_handler_test_utils.StandardSaveArgs(x),
+          args=standard_checkpoint_handler.StandardSaveArgs(x),
       )
 
   @parameterized.product(
