@@ -14,8 +14,9 @@
 
 """Pipeline: pre-processor + model-function + post-processor."""
 
+from collections.abc import Sequence, Set
 import dataclasses
-from typing import Any, Dict, List, Sequence, Tuple, TypeVar
+from typing import Any
 
 from absl import logging
 import jax
