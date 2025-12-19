@@ -86,7 +86,7 @@ You want a small, single-host TPU. It's instant and cheap.
 
 ```bash
 # Create a standard v4-8
-./manage_tpu.sh create --name=orbax-dev-1 --type=v4-8 --zone=us-central2-b
+./manage_tpu.sh create --name orbax-dev-1 --type v4-8 --zone us-central2-b
 ```
 
 ### Scenario B: "I need to test distributed scaling."
@@ -96,7 +96,7 @@ requires a "Queued Resource". Use `--node-count > 1`.
 ```bash
 # Create a v6e-16 (2 nodes * 8 chips)
 # This will poll the queue until your resource is ACTIVE.
-./manage_tpu.sh create --name=orbax-scale-1 --type=v6e-16 --zone=europe-west4-a --node-count=2
+./manage_tpu.sh create --name orbax-scale-1 --type v6e-16 --zone europe-west4-a --node-count 2
 ```
 
 ### Scenario C: "Is it ready yet?"
@@ -104,7 +104,7 @@ You took a coffee break. Now check the status. The script automatically figures
 out if you are asking about a VM or a Queue.
 
 ```bash
-./manage_tpu.sh status --name=orbax-scale-1
+./manage_tpu.sh status --name orbax-scale-1
 ```
 
 ---
@@ -125,10 +125,10 @@ Your VMs are empty. You need Python, JAX, and Orbax installed.
 
 ```bash
 ./launch_on_vm.sh \
-  --tpu-name=orbax-dev-1 \
-  --config=../configs/pytree_checkpoint_benchmark.yaml \
-  --setup-script=setup_tpu.sh \
-  --branch=main # Optional
+  --tpu-name orbax-dev-1 \
+  --config ../configs/pytree_checkpoint_benchmark.yaml \
+  --setup-script setup_tpu.sh \
+  --branch main # Optional
 ```
 
 ### Step 2: The Code Edit (The "Update" Loop)
@@ -140,10 +140,10 @@ You found a bug, or you want to review a PR.
 
 ```bash
 ./launch_on_vm.sh \
-  --tpu-name=orbax-dev-1 \
-  --config=../configs/pytree_checkpoint_benchmark.yaml \
+  --tpu-name orbax-dev-1 \
+  --config ../configs/pytree_checkpoint_benchmark.yaml \
   --update \
-  --pr=123 # Optional: Switch to PR #123
+  --pr 123 # Optional: Switch to PR #123
 ```
 
 ### Step 3: The Debug Session
@@ -155,10 +155,10 @@ machine.
 
 ```bash
 # Check if python processes are stuck
-./launch_on_vm.sh --tpu-name=orbax-dev-1 --command "ps aux | grep python"
+./launch_on_vm.sh --tpu-name orbax-dev-1 --command "ps aux | grep python"
 
 # Kill them all
-./launch_on_vm.sh --tpu-name=orbax-dev-1 --command "sudo pkill -9 python3"
+./launch_on_vm.sh --tpu-name orbax-dev-1 --command "sudo pkill -9 python3"
 ```
 
 ---
@@ -210,7 +210,7 @@ consistency issues.
 *   **Solution**: The script acts as a facade. For operations like `status` or
     `delete`, it attempts to find the resource in the QR API first. If that
     fails (404), it falls back to the VM API.
-*   **Benefit**: a unified interface (`./manage_tpu.sh delete --name=foo`) for all TPU types.
+*   **Benefit**: a unified interface (`./manage_tpu.sh delete --name foo`) for all TPU types.
 
 ### 3. Robust Setup (`setup_tpu.sh`)
 

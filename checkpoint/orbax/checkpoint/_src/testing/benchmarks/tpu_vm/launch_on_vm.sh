@@ -59,52 +59,171 @@ check_tpu_exists() {
     fi
 }
 
-# --- Standard Workflow (External) ---
+# --- Standard Workflow ---
+
+# Discover all TPU nodes (slices)
+discover_nodes() {
+    local nodes=()
+    
+    # Check for Queued Resource
+    if gcloud alpha compute tpus queued-resources describe "$TPU_NAME" --zone="$ZONE" --project="$PROJECT_ID" >/dev/null 2>&1; then
+        log "Detected Queued Resource: $TPU_NAME"
+        # Discovery via list filter
+        local nodes_list=$(gcloud alpha compute tpus tpu-vm list --zone="$ZONE" --project="$PROJECT_ID" --filter="name~${TPU_NAME}-.*" --format="value(name)")
+        if [ -n "$nodes_list" ]; then
+            mapfile -t nodes <<< "$nodes_list"
+            log "QR Node Count: ${#nodes[@]}"
+        else
+            echo "Error: No nodes found matching ${TPU_NAME}-*. Please verify TPU name." >&2
+            exit 1
+        fi
+    else
+        log "Assuming Standard TPU VM: $TPU_NAME"
+        nodes+=("$TPU_NAME")
+    fi
+    # Print nodes array space-separated
+    echo "${nodes[@]}"
+}
+
+# Discover workers for a given node
+# Returns a list of hostnames (one per line)
+get_workers_for_node() {
+    local node=$1
+    log "Scanning node: $node"
+    
+    # Try efficient JSON path first
+    local json_filter="value(query_value.items.filter(key:hostname).value)"
+    local raw_workers=$(gcloud alpha compute tpus tpu-vm get-guest-attributes "$node" \
+        --zone="$ZONE" --project="$PROJECT_ID" --format="$json_filter" 2>/dev/null || true)
+
+    # Fallback to grep if specific JMESPath fails
+    if [ -z "$raw_workers" ]; then
+         raw_workers=$(gcloud alpha compute tpus tpu-vm get-guest-attributes "$node" \
+            --zone="$ZONE" --project="$PROJECT_ID" --format="json" 2>/dev/null \
+            | grep -A 2 '"key": "hostname"' | grep '"value":' | awk -F'"' '{print $4}')
+    fi
+    
+    echo "$raw_workers"
+}
+
+# Discover all worker hostnames across all nodes (Internal only)
+discover_all_workers() {
+    # Capture output into array
+    read -r -a nodes <<< "$(discover_nodes)"
+    
+    # Iterate and collect workers
+    local all_workers=()
+    for node in "${nodes[@]}"; do
+        local node_workers=$(get_workers_for_node "$node")
+        if [ -n "$node_workers" ]; then
+            while IFS= read -r worker; do
+                all_workers+=("$worker")
+            done <<< "$node_workers"
+        else
+            log "Warning: No workers found for node $node."
+        fi
+    done
+    
+    if [ ${#all_workers[@]} -eq 0 ]; then
+        echo "Error: No workers found across any nodes." >&2
+        exit 1
+    fi
+    
+    echo "${all_workers[@]}"
+}
 
 run_standard() {
     log "Starting Standard Workflow (gcloud)..."
 
-    # 1. Setup
-    if [ -n "$SETUP_SCRIPT" ]; then
-        log "Running Setup..."
-        # SETUP_SCRIPT is already validated
-        local setup_args="--repo-url \"$REPO_URL\" --branch \"$BRANCH\" --jax-version \"$JAX_VERSION\""
-        if [ -n "$PR_NUMBER" ]; then setup_args="$setup_args --pr \"$PR_NUMBER\""; fi
-        
-        gcloud alpha compute tpus tpu-vm ssh "$TPU_NAME" --zone="$ZONE" --project="$PROJECT_ID" \
-          --worker=all --command "bash -s -- $setup_args" < "$SETUP_SCRIPT"
-        log "Setup Complete."
-    fi
+    # Discover nodes (handles Multislice/QR)
+    read -r -a nodes <<< "$(discover_nodes)"
+    log "Target Nodes (${#nodes[@]}): ${nodes[@]}"
 
-    # 1b. Update Code (Git Fetch/Checkout)
-    if [ "$DO_UPDATE" = true ]; then
-        log "Updating Code (Git Fetch/Checkout)..."
-        local git_cmd=""
-        if [ -n "$PR_NUMBER" ]; then
-             git_cmd="cd /app/orbax_repo && git fetch --depth 1 origin pull/$PR_NUMBER/head:pr_branch && git checkout pr_branch"
-        else
-             git_cmd="cd /app/orbax_repo && git fetch origin $BRANCH --depth=1 && git checkout FETCH_HEAD"
-        fi
-        
-        gcloud alpha compute tpus tpu-vm ssh "$TPU_NAME" --zone="$ZONE" --project="$PROJECT_ID" \
-           --worker=all --command "$git_cmd"
-        log "Update Complete."
-    fi
-
-    # 2. Upload Config
+    # Shared config path
+    local remote_config=""
     if [ -n "$CONFIG_FILE" ]; then
-        log "Uploading Config..."
-        local remote_config="/tmp/orbax_config_$(date +%s).yaml"
-        gcloud alpha compute tpus tpu-vm scp "$CONFIG_FILE" "$TPU_NAME:$remote_config" \
-           --zone="$ZONE" --project="$PROJECT_ID" --worker=all
+        remote_config="/tmp/orbax_config_$(date +%s).yaml"
     fi
 
-    # 3. Execution
-    log "Launching Benchmark..."
-    local run_cmd=$(build_run_command "$remote_config")
+    # Phase 0: Sync SSH Keys (Sequential)
+    # Prevents "Multiple concurrent mutations" error by ensuring keys are pushed once.
+    if [ ${#nodes[@]} -gt 0 ]; then
+        log "Phase 0: Synchronizing SSH keys (Sequential)..."
+        # Dry-run connection to first node to trigger key propagation
+        gcloud alpha compute tpus tpu-vm ssh "${nodes[0]}" --zone="$ZONE" --project="$PROJECT_ID" \
+            --worker=0 --command "true" || true
+    fi
+
+    # Phase 1: Setup, Update, Upload (Parallel)
+    log "Phase 1: Setup and Configuration..."
+    local setup_pids=()
+    for node in "${nodes[@]}"; do
+        (
+            log "Configuring node: $node"
+            # 1. Setup
+            if [ -n "$SETUP_SCRIPT" ]; then
+                local setup_args="--repo-url \"$REPO_URL\" --branch \"$BRANCH\" --jax-version \"$JAX_VERSION\""
+                if [ -n "$PR_NUMBER" ]; then setup_args="$setup_args --pr \"$PR_NUMBER\""; fi
+                
+                gcloud alpha compute tpus tpu-vm ssh "$node" --zone="$ZONE" --project="$PROJECT_ID" \
+                  --worker=all --command "bash -s -- $setup_args" < "$SETUP_SCRIPT"
+            fi
+
+            # 1b. Update Code
+            if [ "$DO_UPDATE" = true ]; then
+                local git_cmd=""
+                if [ -n "$PR_NUMBER" ]; then
+                     git_cmd="cd /app/orbax_repo && git fetch --depth 1 origin pull/$PR_NUMBER/head:pr_branch && git checkout pr_branch"
+                else
+                     git_cmd="cd /app/orbax_repo && git fetch origin $BRANCH --depth=1 && git checkout FETCH_HEAD"
+                fi
+                
+                gcloud alpha compute tpus tpu-vm ssh "$node" --zone="$ZONE" --project="$PROJECT_ID" \
+                   --worker=all --command "$git_cmd"
+            fi
+
+            # 2. Upload Config
+            if [ -n "$CONFIG_FILE" ]; then
+                gcloud alpha compute tpus tpu-vm scp "$CONFIG_FILE" "$node:$remote_config" \
+                   --zone="$ZONE" --project="$PROJECT_ID" --worker=all
+            fi
+        ) &
+        setup_pids+=($!)
+    done
     
-    gcloud alpha compute tpus tpu-vm ssh "$TPU_NAME" --zone="$ZONE" --project="$PROJECT_ID" \
-       --worker=all --command "$run_cmd"
+    # Wait for setup to fail/complete
+    for pid in "${setup_pids[@]}"; do
+        wait "$pid"
+        if [ $? -ne 0 ]; then
+             echo "Error: Setup failed on one or more nodes." >&2
+             exit 1
+        fi
+    done
+    log "Phase 1 Complete."
+
+    # Phase 2: Execution (Parallel)
+    log "Phase 2: Execution..."
+    local run_cmd=$(build_run_command "$remote_config")
+    local exec_pids=()
+    
+    for node in "${nodes[@]}"; do
+        (
+            gcloud alpha compute tpus tpu-vm ssh "$node" --zone="$ZONE" --project="$PROJECT_ID" \
+               --worker=all --command "$run_cmd"
+        ) &
+        exec_pids+=($!)
+    done
+    
+    # Wait for execution
+    local failures=0
+    for pid in "${exec_pids[@]}"; do
+        wait "$pid" || failures=$((failures+1))
+    done
+    
+    if [ "$failures" -ne 0 ]; then
+        echo "Error: Execution failed on $failures node(s)." >&2
+        exit 1
+    fi
     
     log "Benchmark Finished."
 }

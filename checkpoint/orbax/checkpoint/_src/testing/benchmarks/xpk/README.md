@@ -13,19 +13,19 @@ benchmarks on Google Kubernetes Engine (GKE) via XPK.
 **1. Build the Image** (Only when code changes)
 
 ```bash
-./build_image.sh --project=orbax-checkpoint --tag=stable-v1
+./build_image.sh --project orbax-checkpoint --tag stable-v1
 ```
 
 **2. Run the Benchmark** (Iterate on configs freely)
 
 ```bash
 python3 launch_xpk.py \
-  --cluster_name=orbax-dev-cluster \
-  --tpu_type=v5litepod-8 \
-  --zone=us-west1-c \
-  --config_file=../configs/pytree_checkpoint_benchmark.yaml \
-  --docker_image=gcr.io/orbax-checkpoint/orbax-benchmarks:stable-v1 \
-  --output_directory=gs://orbax-benchmarks/runs/$(date +%Y%m%d)
+  --cluster_name orbax-dev-cluster \
+  --tpu_type v5litepod-8 \
+  --zone us-west1-c \
+  --config_file ../configs/pytree_checkpoint_benchmark.yaml \
+  --docker_image gcr.io/orbax-checkpoint/orbax-benchmarks:stable-v1 \
+  --output_directory gs://orbax-benchmarks/runs/$(date +%Y%m%d)
 ```
 
 ---
@@ -130,21 +130,21 @@ JAX on TPU.
 
 ```bash
 # Builds from 'main' branch, installs stable JAX
-./build_image.sh --project=orbax-checkpoint --tag=stable-v1
+./build_image.sh --project orbax-checkpoint --tag stable-v1
 ```
 
 **Scenario B: Testing a Pull Request**
 
 ```bash
 # Fetches code from PR #1234, helpful for testing pre-submit changes on TPU
-./build_image.sh --pr=1234 --tag=pr-1234
+./build_image.sh --pr 1234 --tag pr-1234
 ```
 
 **Scenario C: Debugging JAX Regressions**
 
 ```bash
 # Installs JAX Nightly to test latest compiler features
-./build_image.sh --jax-version=nightly --tag=jax-nightly-debug
+./build_image.sh --jax-version nightly --tag jax-nightly-debug
 ```
 
 
@@ -197,8 +197,8 @@ the complexities of cluster management and config propagation.
 
 #### Recommended Dev Flow
 1.  **Edit Code** (Locally).
-2.  **Build & Tag**: `./build_image.sh --tag=dev-$(date +%s) ...` (Using timestamp ensures uniqueness).
-3.  **Launch**: `python3 launch_xpk.py --docker_image=...:dev-<timestamp> ...`
+2.  **Build & Tag**: `./build_image.sh --tag dev-$(date +%s) ...` (Using timestamp ensures uniqueness).
+3.  **Launch**: `python3 launch_xpk.py --docker_image ...:dev-<timestamp> ...`
 
 <!-- LINT.IfChange(launch_xpk_flags_table) -->
 ### 🎛️ Key Flags
@@ -367,12 +367,12 @@ xpk inspector --cluster <CLUSTER_NAME> --workload <WORKLOAD_ID>
 > Always delete your cluster when you are done. Even idle clusters incur
 > significant hourly costs.
 
-By default, `launch_xpk.py` uses `--delete_cluster_on_completion=True`, which
+By default, `launch_xpk.py` uses `--delete_cluster_on_completion True`, which
 automatically deletes the cluster after the workload finishes.
 
 **However, you MUST manually delete the cluster if:**
 
-*   You explicitly set `--delete_cluster_on_completion=False` (e.g., for
+*   You explicitly set `--delete_cluster_on_completion False` (e.g., for
 debugging).
 *   The script crashed or was interrupted before cleanup could occur.
 
