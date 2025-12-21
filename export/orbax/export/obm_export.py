@@ -65,7 +65,9 @@ class ObmExport(export_base.ExportBase):
 
   def load(self, model_path: str, **kwargs: Any):
     """Loads the model previously saved in the Orbax Model export format."""
-    logging.info("Loading model using Orbax Export Model.")
+    logging.info(
+        "%s Loading model using Orbax Export Model.", constants.LOG_PREFIX
+    )
     raise NotImplementedError("ObmExport.load not implemented yet.")
 
   @property

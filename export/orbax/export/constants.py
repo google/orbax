@@ -111,3 +111,10 @@ ENABLE_BF16_OPTIMIZATION = 'enable_bf16_optimization'
 # Proto field names for ConverterOptionsV2.BatchOptionsV2
 PROTO_FIELD_BATCHOPTIONSV2_BATCH_COMPONENT = 'batch_component'
 PROTO_FIELD_BATCHOPTIONSV2_SIGNATURE_NAME = 'signature_name'
+
+
+################################################################################
+# Logging Messages
+################################################################################
+# Prefix to use for prepending to logging messages
+LOG_PREFIX = '[OrbaxExport]'
