@@ -88,9 +88,12 @@ class CheckpointManagerPerfBenchmarkTest(parameterized.TestCase):
     )
     mock_save = self.mock_checkpoint_manager.return_value.save
     mock_restore = self.mock_checkpoint_manager.return_value.restore
+    mock_restore.return_value = {'pytree_item': {'a': jnp.arange(10) + 2.5}}
     mock_close = self.mock_checkpoint_manager.return_value.close
     mock_all_steps = self.mock_checkpoint_manager.return_value.all_steps
-    mock_all_steps.return_value = list(range(200))
+    mock_latest_step = self.mock_checkpoint_manager.return_value.latest_step
+    mock_all_steps.return_value = [4]
+    mock_latest_step.return_value = 4
     pytree = {
         'a': jnp.arange(10),
     }
@@ -98,6 +101,7 @@ class CheckpointManagerPerfBenchmarkTest(parameterized.TestCase):
     test_options = CheckpointManagerPerfBenchmarkOptions(
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
+        train_steps=5,
     )
     context = benchmarks_core.TestContext(
         pytree=pytree, path=test_path, options=test_options
@@ -107,7 +111,7 @@ class CheckpointManagerPerfBenchmarkTest(parameterized.TestCase):
 
     self.mock_checkpoint_manager.assert_called_once()
     self.assertIsInstance(result, benchmarks_core.TestResult)
-    self.assertEqual(mock_save.call_count, 20)
+    self.assertEqual(mock_save.call_count, 5)
     save_args = mock_save.call_args[1]['args']
     self.assertIsInstance(save_args, ocp.args.Composite)
     self.assertIn('pytree_item', save_args)

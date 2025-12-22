@@ -25,6 +25,7 @@ from orbax.checkpoint._src.checkpoint_managers import preservation_policy as pre
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
+from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 
 
 # ==============================================================================
@@ -103,6 +104,8 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
     save_times = []
     total_save_times = []
     for i in range(options.train_steps):
+      with metrics.measure(f'train_step_{i}'):
+        pytree = self._train_step(pytree)
       with metrics.measure(f'save_{i}'):
         save_start = time.time()
         mngr.save(
@@ -114,8 +117,9 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
         save_times.append(time.time() - save_start)
         mngr.wait_until_finished()
         total_save_times.append(time.time() - save_start)
-      with metrics.measure(f'train_step_{i}'):
-        pytree = self._train_step(pytree)
+
+    assert mngr.latest_step() == options.train_steps - 1
+    assert mngr.all_steps() == [options.train_steps - 1]
 
     abstract_pytree = jax.tree.map(
         lambda x: ocp.utils.to_shape_dtype_struct(x)
@@ -123,10 +127,11 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
         else x,
         pytree,
     )
+    expected_pytree = pytree
     context.pytree = self._clear_pytree(context.pytree)
 
     with metrics.measure('restore'):
-      mngr.restore(
+      restored = mngr.restore(
           mngr.latest_step(),
           args=ocp.args.Composite(
               pytree_item=ocp.args.StandardRestore(
@@ -134,8 +139,9 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
               ),
           ),
       )
+      restored_pytree = restored['pytree_item']
 
-    # TODO(nikhilbansall) : Add assertions for this test.
+    pytree_utils.assert_pytree_equal(expected_pytree, restored_pytree)
 
     mngr.close()
     return benchmarks_core.TestResult(metrics=metrics)
