@@ -37,7 +37,7 @@ def get_storage_type(path: epath.Path | str) -> str:
 
   if gcs_utils.is_gcs_path(path):
     return 'gcs'
-  else if s3_utils.is_s3_path(path):
+  elif s3_utils.is_s3_path(path):
     return 's3'
   else:
     return 'other'

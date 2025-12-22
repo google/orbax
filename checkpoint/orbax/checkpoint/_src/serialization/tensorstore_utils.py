@@ -180,7 +180,7 @@ def build_kvstore_tspec(
   default_driver = DEFAULT_DRIVER
   # Normalize path to exclude trailing '/'. In GCS path case, we will need to
   # fix the path prefix to add back the stripped '/'.
-  directory = os.path.normpath(directory).replace('gs:/', 'gs://')
+  directory = os.path.normpath(directory).replace('gs:/', 'gs://').replace('s3:/', 's3://')
   is_gcs_path = directory.startswith('gs://')
   is_s3_path = directory.startswith('s3://')
   kv_spec = {}
