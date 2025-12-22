@@ -327,5 +327,13 @@ class Jax2ObmOptions:
 
 @dataclasses.dataclass(kw_only=True)
 class ObmExportOptions:
+  """Options for Orbax Model Export.
+
+  Attributes:
+    batch_options: Configures if and how incoming inference requests are batched
+      together for efficiency (a technique called online batching). See
+      `BatchOptions` above for configuration details. If set to None, batching
+      is disabled, and requests are processed individually. #
+  """
 
   batch_options: BatchOptions | None = None
