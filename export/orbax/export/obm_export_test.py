@@ -29,7 +29,7 @@ from orbax.export import jax_module
 from orbax.export import obm_configs
 from orbax.export import obm_export
 from orbax.export import oex_orchestration
-from orbax.export import serving_config as osc
+from orbax.export import serving_config
 from orbax.export import utils
 import tensorflow as tf
 

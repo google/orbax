@@ -31,7 +31,7 @@ from orbax.export import export_base
 from orbax.export import jax_module
 from orbax.export import obm_configs
 from orbax.export import oex_orchestration
-from orbax.export import serving_config as osc
+from orbax.export import serving_config
 from orbax.export import utils
 from orbax.export.modules import obm_module
 import tensorflow as tf
@@ -46,7 +46,7 @@ class ObmExport(export_base.ExportBase):
   def __init__(
       self,
       module: jax_module.JaxModule | None,
-      serving_configs: Sequence[osc.ServingConfig],
+      cfgs: Sequence[serving_config.ServingConfig],
   ):
     """Initializes the ObmExport class."""
 
