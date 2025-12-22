@@ -70,6 +70,7 @@ class UtilsTest(parameterized.TestCase):
 
   @parameterized.parameters(
       ('gs://bucket/path', 'gcs'),
+      ('s3://bucket/path', 's3'),
       ('/tmp/foo/bar', 'other'),
   )
   def test_get_storage_type(self, path, expected_type):

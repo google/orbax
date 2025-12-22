@@ -171,6 +171,36 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(
+          testcase_name='regular_path',
+          directory='s3://s3_bucket/object_path',
+      ),
+      dict(
+          testcase_name='path_with_single_slash',
+          directory='s3:/s3_bucket/object_path',
+      ),
+  )
+  def test_file_kvstore_with_s3_path(
+      self,
+      directory: str,
+  ):
+    tspec = self.array_write_spec_constructor(
+        directory=directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=False,
+        use_ocdbt=False,
+    )
+    self.assertFalse(tspec.metadata.use_ocdbt)
+    self.assertEqual(
+        tspec.json['kvstore'],
+        {
+            'driver': 's3',
+            'bucket': 's3_bucket',
+            'path': f'object_path/{self.param_name}',
+        },
+    )
+
+  @parameterized.named_parameters(
+      dict(
           testcase_name='local_fs_path',
           directory='/tmp/local_path',
           expected_base_driver=ts_utils.DEFAULT_DRIVER,
@@ -212,6 +242,39 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       ),
   )
   def test_ocdbt_kvstore_with_gcs_path(
+      self,
+      directory: str,
+      expected_directory: str | None,
+  ):
+    tspec = self.array_write_spec_constructor(
+        directory=directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=False,
+        use_ocdbt=True,
+        process_id=0,
+    )
+    self.assertTrue(tspec.metadata.use_ocdbt)
+    kvstore_tspec = tspec.json['kvstore']
+    self.assertEqual(kvstore_tspec['driver'], 'ocdbt')
+    self.assertEqual(
+        kvstore_tspec['base'],
+        os.path.join(expected_directory or directory, 'ocdbt.process_0'),
+    )
+    self.assertEqual(kvstore_tspec['path'], self.param_name)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='regular_path',
+          directory='s3://s3_bucket/object_path',
+          expected_directory=None,
+      ),
+      dict(
+          testcase_name='path_with_single_slash',
+          directory='s3:/s3_bucket/object_path',
+          expected_directory='s3://s3_bucket/object_path',
+      ),
+  )
+  def test_ocdbt_kvstore_with_s3_path(
       self,
       directory: str,
       expected_directory: str | None,
@@ -597,6 +660,10 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     gs_path = 'gs://some-buck/path'
     gs_spec = serialization.get_tensorstore_spec(gs_path, ocdbt=True)
     self.assertTrue(ts_utils.is_remote_storage(gs_spec))
+
+    s3_path = 's3://some-bucket/path'
+    s3_spec = serialization.get_tensorstore_spec(s3_path, ocdbt=True)
+    self.assertTrue(ts_utils.is_remote_storage(s3_spec))
 
     local_path = '/tmp/checkpoint'
     local_spec = serialization.get_tensorstore_spec(local_path, ocdbt=True)
