@@ -22,8 +22,7 @@ import chex
 from jax import tree_util as jax_tree_util
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
-from orbax.experimental.model.tf2obm import tf_concrete_functions_to_obm as tf_obm
-from orbax.experimental.model.tf2obm import utils
+from orbax.experimental.model.tf2obm._src import converter
 import tensorflow as tf
 
 from tensorflow.python.util.protobuf import compare
@@ -62,7 +61,7 @@ def _as_output_signature(tree):
         lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), tree
     )
 
-  return utils.get_output_signature(f.get_concrete_function())
+  return converter.get_output_signature(f.get_concrete_function())
 
 
 _INPUT_SIGNATURES = (
@@ -217,7 +216,7 @@ class TfConcreteFunctionsToObmTest(
 
     args, kwargs = old_input_sig
     cf = f.get_concrete_function(*args, **kwargs)
-    new_cf = tf_obm.to_keyword_only_fn(cf)
+    new_cf = converter.to_keyword_only_fn(cf)
 
     def is_spec_equiv(a, b):
       self.assertEqual(a.shape, b.shape)
@@ -225,12 +224,12 @@ class TfConcreteFunctionsToObmTest(
       return True
 
     self.assertTreeEquiv(
-        tf_obm.utils.get_input_signature(new_cf),
+        new_cf.structured_input_signature,
         new_input_sig,
         is_spec_equiv,
     )
     self.assertTreeEquiv(
-        tf_obm.utils.get_output_signature(new_cf),
+        converter.get_output_signature(new_cf),
         new_output_sig,
         is_spec_equiv,
     )
@@ -283,9 +282,9 @@ class TfConcreteFunctionsToObmTest(
 
     cf = f.get_concrete_function(_T1, _T2)
 
-    tf_obm.save_tf_concrete_functions(
+    converter.save_tf_concrete_functions(
         self.create_tempdir().full_path,
-        {"f": tf_obm.to_keyword_only_fn(cf)},
+        {"f": converter.to_keyword_only_fn(cf)},
     )
 
     with self.assertRaisesRegex(ValueError, "Got a non-Tensor value"):
@@ -333,18 +332,18 @@ class TfConcreteFunctionsToObmTest(
     pre_processor_name_in_tf = "my_pre_processor_in_tf"
     post_processor_name_in_tf = "my_post_processor_in_tf"
 
-    pre_processor = tf_obm.tf_concrete_function_name_to_obm_function(
-        pre_processor_name_in_tf, fn=tf_pre_processor
+    pre_processor = converter.tf_function_to_obm(
+        pre_processor_name_in_tf, tf_pre_processor
     )
-    post_processor = tf_obm.tf_concrete_function_name_to_obm_function(
-        post_processor_name_in_tf, fn=tf_post_processor
+    post_processor = converter.tf_function_to_obm(
+        post_processor_name_in_tf, tf_post_processor
     )
     saved_model_rel_path = "tf_saved_model/"
     saved_model_abs_path = os.path.join(save_dir_path, saved_model_rel_path)
-    tf_global_supplemental = tf_obm.tf_saved_model_as_obm_supplemental(
+    tf_global_supplemental = converter.tf_saved_model_as_obm_supplemental(
         saved_model_rel_path
     )
-    tf_obm.save_tf_concrete_functions(
+    converter.save_tf_concrete_functions(
         saved_model_abs_path,
         {
             pre_processor_name_in_tf: tf_pre_processor,
@@ -368,8 +367,8 @@ class TfConcreteFunctionsToObmTest(
         obm.SaveOptions(
             version=2,
             supplementals={
-                tf_obm.TF_SAVED_MODEL_SUPPLEMENTAL_NAME: obm.GlobalSupplemental(
-                    tf_global_supplemental, None
+                converter.TF_SAVED_MODEL_SUPPLEMENTAL_NAME: (
+                    obm.GlobalSupplemental(tf_global_supplemental, None)
                 ),
             },
         ),
@@ -391,17 +390,17 @@ class TfConcreteFunctionsToObmTest(
         "__POST_PROCESSOR_NAME__": post_processor_name,
         "__POST_PROCESSOR_PATH__": post_processor_filename,
         "__TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE__": (
-            tf_obm.TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE
+            converter.TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE
         ),
         "__TF_CONCRETE_FUNCTION_HANDLE_VERSION__": (
-            tf_obm.TF_CONCRETE_FUNCTION_HANDLE_VERSION
+            converter.TF_CONCRETE_FUNCTION_HANDLE_VERSION
         ),
         "__TF_SAVED_MODEL_SUPPLEMENTAL_NAME__": (
-            tf_obm.TF_SAVED_MODEL_SUPPLEMENTAL_NAME
+            converter.TF_SAVED_MODEL_SUPPLEMENTAL_NAME
         ),
         "__SAVED_MODEL_PATH__": saved_model_rel_path,
-        "__SAVED_MODEL_MIME_TYPE__": tf_obm.SAVED_MODEL_MIME_TYPE,
-        "__SAVED_MODEL_VERSION__": tf_obm.SAVED_MODEL_VERSION,
+        "__SAVED_MODEL_MIME_TYPE__": converter.SAVED_MODEL_MIME_TYPE,
+        "__SAVED_MODEL_VERSION__": converter.SAVED_MODEL_VERSION,
     }
     for k, v in manifest_replace_dict.items():
       expected_manifest_proto_text = expected_manifest_proto_text.replace(k, v)
