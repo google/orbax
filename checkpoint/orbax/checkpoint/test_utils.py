@@ -536,7 +536,7 @@ class ErrorSaveArgs(pytree_checkpoint_handler.PyTreeSaveArgs):
 
 
 @checkpoint_args.register_with_handler(ErrorCheckpointHandler, for_restore=True)
-class ErrorRestoreArgs(pytree_checkpoint_handler.PyTreeSaveArgs):
+class ErrorRestoreArgs(pytree_checkpoint_handler.PyTreeRestoreArgs):
   pass
 
 
