@@ -14,11 +14,15 @@
 
 """Pipeline: pre-processor + model-function + post-processor."""
 
+import collections
+from collections.abc import Sequence, Set
 import dataclasses
-from typing import Any, Dict, List, Sequence, Tuple, TypeVar
+from typing import Any
 
 from absl import logging
 import jax
 import jaxtyping
+# TODO: b/448900820 - remove this unused import.
 from orbax.export.data_processors import data_processor_base
 from orbax.export.modules import obm_module
+import orbax.export.typing as oex_typing
