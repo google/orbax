@@ -16,10 +16,17 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.export import obm_configs
 from orbax.export import serving_config
+from orbax.export.data_processors import data_processor_base
 import tensorflow as tf
 
 
 ServingConfig = serving_config.ServingConfig
+
+
+class _TestDataProcessor(data_processor_base.DataProcessor):
+
+  def prepare(self):
+    pass
 
 
 class ServingConfigTest(tf.test.TestCase):
