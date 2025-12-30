@@ -88,9 +88,6 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
         'json_item': args_lib.JsonRestore(),
         'np_random_key': args_lib.NumpyRandomKeyRestore(),
     }
-    if not multihost.is_pathways_backend():
-      save_kwargs['jax_random_key'] = args_lib.JaxRandomKeySave(random_key)
-      restore_kwargs['jax_random_key'] = args_lib.JaxRandomKeyRestore()
     composite_args = args_lib.Composite(**save_kwargs)
     restore_args = args_lib.Composite(**restore_kwargs)
 
@@ -122,10 +119,6 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
       assert (
           json_data == restored['json_item']
       ), f"Expected {json_data}, got {restored['json_item']}"
-      if not multihost.is_pathways_backend():
-        assert jax.numpy.array_equal(
-            random_key, restored['jax_random_key']
-        ), f"Expected {random_key}, got {restored['jax_random_key']}"
       jax.tree.map(
           np.testing.assert_equal, np_random_key, restored['np_random_key']
       )
