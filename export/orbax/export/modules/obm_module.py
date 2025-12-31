@@ -38,7 +38,13 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
   def __init__(
       self,
       params: PyTree,
-      apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
+      apply_fn: (
+          orbax_export_typing.ApplyFn
+          | orbax_export_typing.ApplyFnInfo
+          | Mapping[
+              str, orbax_export_typing.ApplyFn | orbax_export_typing.ApplyFnInfo
+          ]
+      ),
       *,
       input_polymorphic_shape: Any = None,
       input_polymorphic_shape_symbol_values: Union[
@@ -51,7 +57,11 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
 
     Args:
       params: The model parameter specs (e.g. `jax.ShapeDtypeStruct`s).
-      apply_fn: The apply_fn for the model.
+      apply_fn: A single `ApplyFn` (taking `model_params` and `model_inputs`), a
+        single `ApplyFnInfo` object (containing `ApplyFn` and input/output
+        keys), or a mapping of method keys to `ApplyFn`s or `ApplyFnInfo`
+        objects. If it is a single ``ApplyFn`` or ``ApplyFnInfo``, it will be
+        assigned a key ``constants.DEFAULT_METHOD_KEY`` automatically.
       input_polymorphic_shape: polymorphic shape for the inputs of `apply_fn`.
       input_polymorphic_shape_symbol_values: optional mapping of symbol names
         presented in `input_polymorphic_shape` to discrete values (e.g. {'b':
@@ -150,20 +160,29 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
 
   def _normalize_apply_fn_map(
       self,
-      apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
+      apply_fn: (
+          orbax_export_typing.ApplyFn
+          | orbax_export_typing.ApplyFnInfo
+          | Mapping[
+              str, orbax_export_typing.ApplyFn | orbax_export_typing.ApplyFnInfo
+          ]
+      ),
       input_polymorphic_shape: Union[PyTree, Mapping[str, PyTree], None],
       input_polymorphic_shape_symbol_values: Union[
           PyTree, Mapping[str, PyTree], None
       ],
   ) -> Tuple[
-      Mapping[str, ApplyFn],
+      Mapping[
+          str, orbax_export_typing.ApplyFn | orbax_export_typing.ApplyFnInfo
+      ],
       Mapping[str, Union[PyTree, None]],
       Mapping[str, Union[PyTree, None]],
   ]:
     """Converts all the inputs to maps that share the same keys."""
 
     # Single apply_fn case. Will use the default method key.
-    if callable(apply_fn):
+    if not isinstance(apply_fn, Mapping):
+      apply_fn: orbax_export_typing.ApplyFnInfo | orbax_export_typing.ApplyFn
       apply_fn_map = {constants.DEFAULT_METHOD_KEY: apply_fn}
       input_polymorphic_shape_map = {
           constants.DEFAULT_METHOD_KEY: input_polymorphic_shape
@@ -302,7 +321,11 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     return self
 
   @property
-  def apply_fn_map(self) -> Mapping[str, ApplyFn]:
+  def apply_fn_map(
+      self,
+  ) -> Mapping[
+      str, orbax_export_typing.ApplyFn | orbax_export_typing.ApplyFnInfo
+  ]:
     """Returns the apply_fn_map from function name to jit'd apply function."""
     return self._apply_fn_map
 
