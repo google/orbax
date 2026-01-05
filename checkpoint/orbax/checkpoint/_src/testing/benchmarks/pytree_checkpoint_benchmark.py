@@ -174,7 +174,8 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
         assert hasattr(checkpointer, "wait_until_finished")
         checkpointer.wait_until_finished()
 
-    context.pytree = self._clear_pytree(context.pytree)
+    if not context.reuse_checkpoint:
+      context.pytree = self._clear_pytree(context.pytree)
 
     with metrics.measure("restore", metrics_to_measure):
       restored_pytree = checkpointer.restore(

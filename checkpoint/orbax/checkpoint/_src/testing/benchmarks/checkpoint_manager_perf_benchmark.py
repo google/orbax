@@ -128,7 +128,8 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
         pytree,
     )
     expected_pytree = pytree
-    context.pytree = self._clear_pytree(context.pytree)
+    if not context.reuse_checkpoint:
+      context.pytree = self._clear_pytree(context.pytree)
 
     with metrics.measure('restore'):
       restored = mngr.restore(

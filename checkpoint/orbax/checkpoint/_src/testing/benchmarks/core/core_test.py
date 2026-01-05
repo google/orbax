@@ -108,7 +108,7 @@ class BenchmarkTest(parameterized.TestCase):
         mesh=mesh,
     )
 
-    result = benchmark.run()
+    result, _ = benchmark.run()
 
     self.assertEqual(result.metrics.results, {'save': (1.0, 's')})
     mock_setup_test_directory.assert_called_once_with(
@@ -162,7 +162,7 @@ class BenchmarkTest(parameterized.TestCase):
         mesh=mesh,
     )
 
-    result = benchmark.run()
+    result, _ = benchmark.run()
 
     self.assertEqual(result.metrics.results, {'restore': (2.0, 's')})
     mock_setup_test_directory.assert_called_once_with(
@@ -247,7 +247,7 @@ class BenchmarkTest(parameterized.TestCase):
         mesh=mesh,
     )
 
-    result = benchmark.run(repeat_index=0)
+    result, _ = benchmark.run(repeat_index=0)
     mock_setup_test_directory.assert_called_once_with(
         'test_benchmark', None, 0
     )
@@ -404,6 +404,10 @@ class TestSuiteTest(parameterized.TestCase):
 
   @mock.patch.object(core.Benchmark, 'run')
   def test_run(self, mock_benchmark_run):
+    mock_benchmark_run.return_value = (
+        core.TestResult(metrics=metric_lib.Metrics()),
+        None,
+    )
     gen = MyGenerator(
         checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt1=[1, 2]),
@@ -416,6 +420,10 @@ class TestSuiteTest(parameterized.TestCase):
 
   @mock.patch.object(core.Benchmark, 'run')
   def test_run_multiple_generators(self, mock_benchmark_run):
+    mock_benchmark_run.return_value = (
+        core.TestResult(metrics=metric_lib.Metrics()),
+        None,
+    )
     gen1 = MyGenerator(
         checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt1=[1, 2]),
@@ -433,6 +441,10 @@ class TestSuiteTest(parameterized.TestCase):
 
   @mock.patch.object(core.Benchmark, 'run')
   def test_run_with_num_repeats(self, mock_benchmark_run):
+    mock_benchmark_run.return_value = (
+        core.TestResult(metrics=metric_lib.Metrics()),
+        None,
+    )
     gen = MyGenerator(
         checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt1=1),
@@ -445,9 +457,9 @@ class TestSuiteTest(parameterized.TestCase):
 
     self.assertEqual(mock_benchmark_run.call_count, 3)
     mock_benchmark_run.assert_has_calls([
-        mock.call(repeat_index=0),
-        mock.call(repeat_index=1),
-        mock.call(repeat_index=2),
+        mock.call(repeat_index=0, pytree=None, reuse_checkpoint=False),
+        mock.call(repeat_index=1, pytree=None, reuse_checkpoint=False),
+        mock.call(repeat_index=2, pytree=None, reuse_checkpoint=False),
     ])
 
   @mock.patch.object(core.Benchmark, 'run')
@@ -455,6 +467,10 @@ class TestSuiteTest(parameterized.TestCase):
   def test_run_no_benchmarks_generated(
       self, mock_logging_warning, mock_benchmark_run
   ):
+    mock_benchmark_run.return_value = (
+        core.TestResult(metrics=metric_lib.Metrics()),
+        None,
+    )
     # This generator will produce no benchmarks because opt1 is an empty list
     gen = MyGenerator(
         checkpoint_configs=[configs.CheckpointConfig(spec={})],
@@ -528,6 +544,10 @@ class TestSuiteTest(parameterized.TestCase):
   @mock.patch.object(core.Benchmark, 'run')
   @mock.patch.object(dist, 'barrier')
   def test_run_with_torch(self, mock_dist_barrier, mock_benchmark_run):
+    mock_benchmark_run.return_value = (
+        core.TestResult(metrics=metric_lib.Metrics()),
+        None,
+    )
     # Initialize torch.distributed for testing.
     os.environ.setdefault('MASTER_ADDR', 'localhost')
     os.environ.setdefault('MASTER_PORT', '12355')
@@ -542,6 +562,89 @@ class TestSuiteTest(parameterized.TestCase):
     mock_dist_barrier.assert_any_call()
 
     self.assertEqual(mock_benchmark_run.call_count, 1)
+
+  @mock.patch.object(core.Benchmark, 'run')
+  def test_run_with_reuse_checkpoint(self, mock_benchmark_run):
+    gen = MyGenerator(
+        checkpoint_configs=[configs.CheckpointConfig(path='/tmp/path')],
+        options=MyBenchmarkOptions(opt1=1),
+    )
+    # Mock return value as a tuple (TestResult, pytree)
+    fake_pytree = {'test': 1}
+    mock_benchmark_run.return_value = (
+        core.TestResult(metrics=metric_lib.Metrics()),
+        fake_pytree,
+    )
+    suite = core.TestSuite(
+        name='reuse_suite',
+        benchmarks_generators=[gen],
+        num_repeats=2,
+        reuse_checkpoint=True,
+    )
+
+    suite.run()
+
+    self.assertEqual(mock_benchmark_run.call_count, 2)
+    mock_benchmark_run.assert_has_calls([
+        mock.call(repeat_index=0, pytree=None, reuse_checkpoint=True),
+        mock.call(repeat_index=1, pytree=fake_pytree, reuse_checkpoint=True),
+    ])
+
+  @mock.patch.object(core.Benchmark, 'run')
+  def test_run_clears_cache_on_path_change(self, mock_benchmark_run):
+    gen = MyGenerator(
+        checkpoint_configs=[
+            configs.CheckpointConfig(path='/tmp/path1'),
+            configs.CheckpointConfig(path='/tmp/path2'),
+        ],
+        options=MyBenchmarkOptions(opt1=1),
+    )
+    # Mock return values
+    fake_pytree1 = {'test': 1}
+    fake_pytree2 = {'test': 2}
+    mock_benchmark_run.side_effect = [
+        (core.TestResult(metrics=metric_lib.Metrics()), fake_pytree1),
+        (core.TestResult(metrics=metric_lib.Metrics()), fake_pytree2),
+    ]
+    suite = core.TestSuite(
+        name='reuse_suite',
+        benchmarks_generators=[gen],
+        num_repeats=1,
+        reuse_checkpoint=True,
+    )
+
+    suite.run()
+
+    self.assertEqual(mock_benchmark_run.call_count, 2)
+    mock_benchmark_run.assert_has_calls([
+        mock.call(repeat_index=None, pytree=None, reuse_checkpoint=True),
+        mock.call(repeat_index=None, pytree=None, reuse_checkpoint=True),
+    ])
+
+  @mock.patch.object(core.Benchmark, 'run')
+  def test_run_no_cache_for_generated_checkpoint(self, mock_benchmark_run):
+    gen = MyGenerator(
+        checkpoint_configs=[configs.CheckpointConfig(spec={'a': 'int'})],
+        options=MyBenchmarkOptions(opt1=1),
+    )
+    mock_benchmark_run.return_value = (
+        core.TestResult(metrics=metric_lib.Metrics()),
+        {'a': 0},
+    )
+    suite = core.TestSuite(
+        name='generate_suite',
+        benchmarks_generators=[gen],
+        num_repeats=2,
+        reuse_checkpoint=True,
+    )
+
+    suite.run()
+
+    self.assertEqual(mock_benchmark_run.call_count, 2)
+    mock_benchmark_run.assert_has_calls([
+        mock.call(repeat_index=0, pytree=None, reuse_checkpoint=True),
+        mock.call(repeat_index=1, pytree=None, reuse_checkpoint=True),
+    ])
 
 
 if __name__ == '__main__':

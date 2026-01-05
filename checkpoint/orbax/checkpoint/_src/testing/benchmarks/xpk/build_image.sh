@@ -17,7 +17,7 @@ NO_CACHE_FLAG=""
 
 function print_usage() {
   echo "Usage: $0 [OPTIONS]"
-  echo "Options:"+
+  echo "Options:"
   echo "  --project PROJECT_ID    GCP Project ID"
   echo "  --pr PR_NUMBER          GitHub PR number"
   echo "  --image IMAGE_NAME      Image name (default: orbax-benchmarks)"
@@ -28,11 +28,13 @@ function print_usage() {
   echo "  --dockerfile FILE       Dockerfile path (optional)"
   echo "  --tag TAG               Image tag"
   echo "  --no-cache              Disable Docker build cache"
+  echo "  --verbose               Print every command executed (set -x)"
   echo "  --help                  Show this help"
 }
 
 # LINT.IfChange(build_image_flags)
 # Parse flags
+VERBOSE="false"
 while [[ $# -gt 0 ]]; do
   case $1 in
     --project) PROJECT_ID="$2"; shift 2 ;;
@@ -45,11 +47,16 @@ while [[ $# -gt 0 ]]; do
     --dockerfile) DOCKERFILE_PATH="$2"; shift 2 ;;
     --tag) USER_TAG_FLAG="$2"; shift 2 ;;
     --no-cache) NO_CACHE_FLAG="--no-cache"; shift 1 ;;
+    --verbose) VERBOSE="true"; shift 1 ;;
     --help) print_usage; exit 0 ;;
     *) echo "Unknown argument: $1"; print_usage; exit 1 ;;
   esac
 done
 # LINT.ThenChange(README.md:build_image_flags_table)
+
+if [[ "$VERBOSE" == "true" ]]; then
+  set -x
+fi
 
 if [[ -z "$PROJECT_ID" ]]; then
   echo "Error: Project ID not set."
@@ -134,12 +141,20 @@ build_args+=(
 build_args+=("${build_tag_args[@]}")
 build_args+=(
   "-f" "${DOCKERFILE_PATH}"
-  "."
+  "${SCRIPT_DIR}"
 )
 docker build "${build_args[@]}"
 
+echo "Deleting tags from registry..."
+for t in "${tags[@]}"; do
+  # Ensure the tag is overwritten by untagging it first.
+  echo "Deleting image ${t} if it's already existing..."
+  gcloud container images delete "${IMAGE_REPO}:${t}" || true
+done
+
 echo "Pushing image to registry..."
 for t in "${tags[@]}"; do
+  echo "Pushing tag ${t}..."
   docker push "${IMAGE_REPO}:${t}"
 done
 

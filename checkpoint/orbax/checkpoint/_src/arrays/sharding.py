@@ -139,6 +139,52 @@ def construct_maximal_shardings(
   return shardings
 
 
+def _construct_minimal_sharding(
+    sds: jax.ShapeDtypeStruct,
+    devices: Sequence[jax.Device] | None = None,
+) -> jax.sharding.Sharding:
+  """Constructs a sharding that replicates the array as much as possible."""
+  del sds
+  devices = devices or jax.devices()
+  return jax.sharding.NamedSharding(
+      mesh=jax.sharding.Mesh(devices, ('a',)),
+      spec=jax.sharding.PartitionSpec(),
+  )
+
+
+# TODO(dnlng) not being used yet
+def construct_minimal_shardings(
+    abstract_state: PyTree, devices: Sequence[jax.Device] | None = None
+) -> PyTree:
+  """Construct a sharding that replicates each array as much as possible.
+
+  This method is subject to change and should not be considered stable.
+
+  Args:
+    abstract_state: PyTree of jax.ShapeDtypeStruct.
+    devices: Devices to shard across. If None, uses all available devices.
+
+  Returns:
+    PyTree of jax.sharding.Sharding.
+  """
+  shardings = jax.tree.map(
+      lambda x: _construct_minimal_sharding(x, devices=devices), abstract_state
+  )
+
+  total_size = 0
+
+  def _calculate_sharding_hbm_consumption(
+      sds: jax.ShapeDtypeStruct, sharding: jax.sharding.Sharding
+  ):
+    nonlocal total_size
+    shard_shape = sharding.shard_shape(sds.shape)
+    total_size += np.prod(shard_shape) * sds.dtype.itemsize
+
+  jax.tree.map(_calculate_sharding_hbm_consumption, abstract_state, shardings)
+  logging.info('Expected per-device HBM consumption: %s', total_size)
+  return shardings
+
+
 def get_device_local_layout(arr: jax.Array) -> Any:
   """Returns device_local_layout of a jax.Array."""
   return (
