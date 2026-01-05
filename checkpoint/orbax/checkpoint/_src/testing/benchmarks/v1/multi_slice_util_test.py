@@ -22,22 +22,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import v1 as ocp
-from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
-from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
-from orbax.checkpoint._src.testing.benchmarks.v1 import restore_and_broadcast_benchmark
+from orbax.checkpoint._src.testing.benchmarks.v1 import multi_slice_util
 
-
-RestoreAndBroadcastBenchmarkOptions = (
-    restore_and_broadcast_benchmark.RestoreAndBroadcastBenchmarkOptions
-)
-RestoreAndBroadcastBenchmark = (
-    restore_and_broadcast_benchmark.RestoreAndBroadcastBenchmark
-)
 
 _REQUIRED_DEVICE_COUNT = 16
 
 
-class RestoreAndBroadcastBenchmarkTest(parameterized.TestCase):
+class MultiSliceUtilTest(parameterized.TestCase):
 
   def setUp(self):
     self._prev_xla_flags = os.environ.get('XLA_FLAGS')
@@ -61,28 +52,7 @@ class RestoreAndBroadcastBenchmarkTest(parameterized.TestCase):
       os.environ['XLA_FLAGS'] = self._prev_xla_flags
     super().tearDown()
 
-  @parameterized.parameters(
-      dict(
-          options=RestoreAndBroadcastBenchmarkOptions(
-              reference_checkpoint_path='ckpt_path',
-              reference_sharding_path='sharding_path',
-          ),
-          expected_len=1,
-      ),
-  )
-  def test_generate_benchmarks(self, options, expected_len):
-    generator = RestoreAndBroadcastBenchmark(
-        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
-        options=options,
-    )
-    benchmarks = generator.generate()
-    self.assertLen(benchmarks, expected_len)
-    for benchmark in benchmarks:
-      self.assertIsInstance(
-          benchmark.options, RestoreAndBroadcastBenchmarkOptions
-      )
-
-  def test_benchmark_test_fn(self):
+  def test_get_multi_slice_abstract_state(self):
     # Setup real checkpoint and sharding config
     pytree = {'a': jnp.arange(32), 'b': {'c': jnp.ones((8, 8))}}
     ref_ckpt_path = self.directory / 'ref_ckpt'
@@ -108,34 +78,30 @@ class RestoreAndBroadcastBenchmarkTest(parameterized.TestCase):
     }
     sharding_config_path = self.directory / 'sharding_config.json'
     sharding_config_path.write_text(json.dumps(sharding_config))
-
-    options = RestoreAndBroadcastBenchmarkOptions(
-        reference_checkpoint_path=str(ref_ckpt_path),
-        reference_sharding_path=str(sharding_config_path),
-    )
     global_mesh = jax.sharding.Mesh(
         np.array(jax.devices()).reshape((4, 4)), ('replica', 'model')
     )
 
-    context = benchmarks_core.TestContext(
-        pytree=None,
-        path=self.directory / 'test_run',
-        options=options,
-        mesh=global_mesh,
+    abstract_pytree = multi_slice_util.get_multi_slice_abstract_state(
+        context=ocp.Context(),
+        global_mesh=global_mesh,
+        reference_checkpoint_path=ref_ckpt_path,
+        reference_sharding_path=sharding_config_path,
     )
-    self.assertTrue(options.use_load_and_broadcast)
-    self.assertTrue(
-        options.context.array_options.loading.use_load_and_broadcast
+    self.assertEqual(
+        {'replica': 4, 'model': 4}, abstract_pytree['a'].sharding.mesh.shape
     )
-
-    generator = RestoreAndBroadcastBenchmark(
-        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
-        options=options,
+    self.assertEqual(
+        jax.sharding.PartitionSpec('model'), abstract_pytree['a'].sharding.spec
     )
-    result = generator.test_fn(context)
-    self.assertIsInstance(result, benchmarks_core.TestResult)
-    metrics = result.metrics.results
-    self.assertIn('load_time_duration', metrics)
+    self.assertEqual(
+        {'replica': 4, 'model': 4},
+        abstract_pytree['b']['c'].sharding.mesh.shape,
+    )
+    self.assertEqual(
+        jax.sharding.PartitionSpec(None, 'model'),
+        abstract_pytree['b']['c'].sharding.spec,
+    )
 
 
 if __name__ == '__main__':
