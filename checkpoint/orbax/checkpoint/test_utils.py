@@ -832,3 +832,20 @@ def is_compression_used(
 
   else:
     return read_spec['metadata']['compressor'] is not None
+
+
+def pretty_format_pytree(pytree: PyTree) -> str:
+  """Returns a string representation of a PyTree for debugging."""
+  flat_tree = tree_utils.to_flat_dict(pytree)
+  lines = []
+  for k, v in flat_tree.items():
+    if isinstance(v, jax.Array):
+      leaf_info = str(
+          jax.ShapeDtypeStruct(v.shape, v.dtype, sharding=v.sharding)
+      )
+    elif isinstance(v, np.ndarray):
+      leaf_info = f'np.ndarray(shape={v.shape}, dtype={v.dtype})'
+    else:
+      leaf_info = str(v)
+    lines.append(f'{".".join(map(str, k))}: {leaf_info}')
+  return '\n'.join(lines)
