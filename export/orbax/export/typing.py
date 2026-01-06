@@ -14,7 +14,8 @@
 
 """Common typing for export."""
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence, Set
+import dataclasses
 from typing import Any, TypeVar, Union
 import jaxtyping
 import tensorflow as tf
@@ -31,3 +32,25 @@ PyTree = jaxtyping.PyTree
 # ApplyFn take two arguments, the first one is the model_params, the second one
 # is the model_inputs.
 ApplyFn = Callable[[PyTree, PyTree], PyTree]
+
+
+@dataclasses.dataclass
+class ApplyFnInfo:
+  """Information about an apply function.
+
+  Attributes:
+    apply_fn: The apply function, which takes `model_params` and `model_inputs`
+      as arguments. `model_inputs` must be a dictionary with keys matching
+      `input_keys`. The function must return a dictionary with keys matching
+      `output_keys`.
+    input_keys: The keys of the input dict that the `apply_fn` expects. These
+      keys are also used to determine the topological ordering of the `apply_fn`
+      and other `DataProcessor`s in the pipeline.
+    output_keys: The keys of the output dict that the `apply_fn` produces. These
+      keys are also used to determine the topological ordering of the `apply_fn`
+      and other `DataProcessor`s in the pipeline.
+  """
+
+  apply_fn: ApplyFn
+  input_keys: Set[str]
+  output_keys: Set[str]

@@ -12,17 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from absl.testing import parameterized
 import jax.numpy as jnp
 import numpy as np
 from orbax.export import obm_configs
 from orbax.export import serving_config
+from orbax.export.data_processors import data_processor_base
 import tensorflow as tf
-
 
 ServingConfig = serving_config.ServingConfig
 
 
-class ServingConfigTest(tf.test.TestCase):
+class _TestDataProcessor(data_processor_base.DataProcessor):
+
+  def prepare(self):
+    pass
+
+
+class ServingConfigTest(tf.test.TestCase, parameterized.TestCase):
 
   def test_obm_kwargs_deprecation(self):
     batch_opts = obm_configs.BatchOptions(

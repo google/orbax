@@ -14,7 +14,7 @@
 
 """The data processor module for tensroflow-based pre/post-processors."""
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence, Set
 import functools
 from typing import Any, Tuple, cast
 

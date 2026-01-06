@@ -31,6 +31,23 @@ PyTree = orbax_export_typing.PyTree
 ApplyFn = orbax_export_typing.ApplyFn
 
 
+def _is_apply_fn_info(
+    apply_fn: (
+        orbax_export_typing.ApplyFn
+        | orbax_export_typing.ApplyFnInfo
+        | Mapping[str, orbax_export_typing.ApplyFn]
+        | Mapping[str, orbax_export_typing.ApplyFnInfo]
+    ),
+) -> bool:
+  if isinstance(apply_fn, orbax_export_typing.ApplyFnInfo):
+    return True
+  if isinstance(apply_fn, Mapping):
+    for v in apply_fn.values():
+      if isinstance(v, orbax_export_typing.ApplyFnInfo):
+        return True
+  return False
+
+
 class JaxModule(orbax_module_base.OrbaxModuleBase):
   """An exportable module for JAX functions and parameters.
 
@@ -41,7 +58,12 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
   def __init__(
       self,
       params: PyTree,
-      apply_fn: Union[ApplyFn, Mapping[str, ApplyFn]],
+      apply_fn: (
+          orbax_export_typing.ApplyFn
+          | orbax_export_typing.ApplyFnInfo
+          | Mapping[str, orbax_export_typing.ApplyFn]
+          | Mapping[str, orbax_export_typing.ApplyFnInfo]
+      ),
       trainable: Optional[Union[bool, PyTree]] = None,
       input_polymorphic_shape: Union[PyTree, Mapping[str, PyTree], None] = None,
       input_polymorphic_shape_symbol_values: Union[
@@ -60,10 +82,12 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
     Args:
       params: a pytree of JAX parameters or parameter specs (e.g.
         `jax.ShapeDtypeStruct`s).
-      apply_fn: A JAX ``ApplyFn`` (i.e. of signature ``apply_fn(params, x)``),
-        or a mapping of method key to ``ApplyFn``. If it is an ``ApplyFn``, it
-        will be assigned a key ``constants.DEFAULT_METHOD_KEY`` automatically,
-        which can be used to look up the TF function converted from it.
+      apply_fn: A single `ApplyFn` (taking `model_params` and `model_inputs`), a
+        single `ApplyFnInfo` object (containing `ApplyFn` and input/output
+        keys), or a mapping of method keys to `ApplyFn`s or `ApplyFnInfo`
+        objects. If it is a single ``ApplyFn`` or ``ApplyFnInfo``, it will be
+        assigned a key ``constants.DEFAULT_METHOD_KEY`` automatically, which can
+        be used to look up the TF function converted from it.
       trainable: a pytree in the same structure as ``params`` and boolean leaves
         to tell if a parameter is trainable. Alternatively, it can be a single
         boolean value to tell if all the parameters are trainable or not. By
@@ -115,8 +139,12 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
         OrbaxNativeSerializationType.
       jax2obm_options: Options for jax2obm conversion.
 
-    raises:
-      ValueError: If the export version is not supported.
+    Raises:
+      ValueError: If `jax2obm_kwargs` and `jax2obm_options` are both provided,
+        or if `input_polymorphic_shape_symbol_values` or `ApplyFnInfo` are
+        provided but `export_version` is not
+        `constants.ExportModelType.ORBAX_MODEL`, or if `export_version` is not
+        supported.
     """
     if jax2obm_kwargs is not None:
       if jax2obm_options is not None:
@@ -129,14 +157,18 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
           DeprecationWarning,
       )
     self._export_version = export_version
-    if (
-        input_polymorphic_shape_symbol_values is not None
-        and export_version != constants.ExportModelType.ORBAX_MODEL
-    ):
-      raise ValueError(
-          '`input_polymorphic_shape_symbol_values` is only supported for'
-          ' constants.ExportModelType.ORBAX_MODEL.'
-      )
+
+    if export_version != constants.ExportModelType.ORBAX_MODEL:
+      if input_polymorphic_shape_symbol_values is not None:
+        raise ValueError(
+            '`input_polymorphic_shape_symbol_values` is only supported for'
+            ' constants.ExportModelType.ORBAX_MODEL.'
+        )
+      if _is_apply_fn_info(apply_fn):
+        raise ValueError(
+            '`ApplyFnInfo` is only supported for'
+            ' constants.ExportModelType.ORBAX_MODEL.'
+        )
 
     match export_version:
       case constants.ExportModelType.TF_SAVEDMODEL:
@@ -168,8 +200,22 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
         )
 
   @property
-  def apply_fn_map(self) -> Mapping[str, ApplyFn]:
-    """Returns the apply_fn_map."""
+  def apply_fn_map(
+      self,
+  ) -> Mapping[
+      str, orbax_export_typing.ApplyFn | orbax_export_typing.ApplyFnInfo
+  ]:
+    """Returns a mapping from method keys to ApplyFn or ApplyFnInfo objects.
+
+    Each value in the mapping is either an `ApplyFn` (a callable that takes
+    model parameters and inputs) or an `ApplyFnInfo` object. `ApplyFnInfo`
+    wraps an `ApplyFn` along with its input and output keys, and is used for
+    specifying preprocessing/postprocessing dependencies when exporting to
+    `constants.ExportModelType.ORBAX_MODEL` format.
+
+    If a single `ApplyFn` or `ApplyFnInfo` was provided during initialization,
+    it is keyed by `constants.DEFAULT_METHOD_KEY`.
+    """
     return self._export_module.apply_fn_map
 
   @property
