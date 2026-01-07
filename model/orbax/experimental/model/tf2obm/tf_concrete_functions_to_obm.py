@@ -88,8 +88,8 @@ def tf_concrete_function_name_to_obm_function(
           'Both `fn` and `output_signature` are provided. Please provide only '
           'one of them.'
       )
-    input_signature = utils.get_input_signature(fn)
-    output_signature = utils.get_output_signature(fn)
+    input_signature = fn.structured_input_signature
+    output_signature = get_output_signature(fn)
 
   input_names, _, _ = _flat_input_signature(fn)
   output_names = _output_names(fn)
@@ -258,7 +258,7 @@ def _flat_input_signature(
     fn: tf.types.experimental.ConcreteFunction,
 ) -> SignatureFlat:
   """Returns the flattened input signature of the given function."""
-  leaves, tree_def = jax_tree_util.tree_flatten(utils.get_input_signature(fn))
+  leaves, tree_def = jax_tree_util.tree_flatten(fn.structured_input_signature)
   # The argument names in SavedModel's SignatureDef may not match the names in
   # the input signature due to internal name mangling, hence we're looking
   # it up in the FunctionDef.
@@ -304,12 +304,33 @@ def _output_names(
 ) -> Sequence[str]:
   """Returns the flattened output signature of the given function."""
   leaves_with_path = jax_tree_util.tree_leaves_with_path(
-      utils.get_output_signature(fn)
+      fn.structured_outputs
   )
   if not leaves_with_path:
     return []
   paths, _ = zip(*leaves_with_path)
   return [_output_name(path) for path in paths]
+
+
+def get_output_signature(
+    fn: tf.types.experimental.ConcreteFunction,
+) -> utils.TfSignature:
+  """Returns the output signature of the TF function.
+
+  Tensor names in the output signature match the output names of the TF function
+  in the TF SavedModel.
+
+  Args:
+    fn: A concrete TF function.
+  """
+  output_names_iter = iter(list(_output_names(fn)))
+
+  return jax_tree_util.tree_map(
+      lambda t: tf.TensorSpec(
+          shape=t.shape, dtype=t.dtype, name=next(output_names_iter)
+      ),
+      fn.structured_outputs,
+  )
 
 
 def to_keyword_only_fn(
