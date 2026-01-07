@@ -153,6 +153,7 @@ def get_device_memory() -> int:
       'TPU v5 lite': int(16e9),  # one core per chip with 16 GB HBM
       'TPU v5': int(96e9),  # one megacore per chip with 96 GB HBM
       'TPU v6 lite': int(32e9),  # one core per chip with 32 GB HBM
+      'TPU 7x': int(192e9),  # 192 GB HBM
       'NVIDIA H100 80GB HBM3': int(80e9),
       'NVIDIA H200': int(144e9),
       'NVIDIA B200': int(183e9),
