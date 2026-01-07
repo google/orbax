@@ -496,7 +496,7 @@ class InternalTreeMetadata:
       ).skip_deserialize
     except AttributeError as e:
       if "'int' object has no attribute 'skip_deserialize'" in str(e):
-        logging.exception(
+        logging.warning(
             'Encountered b/469067182 while reading PyTree metadata. Attempting'
             ' to load metadata again without the `value_metadata_tree`, which'
             ' may be corrupted.'
