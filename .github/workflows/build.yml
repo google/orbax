@@ -274,12 +274,13 @@ jobs:
         GCS_BUCKET_PATH: gs://orbax-benchmarks/benchmark-results/${{ github.run_id }}
         TF_FORCE_GPU_ALLOW_GROWTH: true
         XLA_PYTHON_CLIENT_PREALLOCATE: false
-        KERAS_BACKEND: "jax"
       run: |
         cd orbax/checkpoint/_src/testing
+        ls
         failed_benchmarks=""
         benchmark_configs_file="multiprocess_benchmark_configs.txt"
         echo "Running benchmarks specified in $benchmark_configs_file"
+        benchmark_configs_file_path="$PWD/$benchmark_configs_file"
         cd benchmarks
         while IFS= read -r entry || [ -n "$entry" ]; do
           if [ -n "$entry" ]; then
@@ -289,7 +290,7 @@ jobs:
               failed_benchmarks="$failed_benchmarks $entry"
             fi
           fi
-        done < "$benchmark_configs_file"
+        done < "$benchmark_configs_file_path"
         cd ../../../../..
         if [ -n "$failed_benchmarks" ]; then
           echo "The following benchmarks failed:$failed_benchmarks"

@@ -53,19 +53,21 @@ jobs:
         TF_FORCE_GPU_ALLOW_GROWTH: true
         XLA_PYTHON_CLIENT_PREALLOCATE: false
       run: |
-        cd orbax/checkpoint/_src/testing/benchmarks
+        cd orbax/checkpoint/_src/testing
         failed_benchmarks=""
         benchmark_configs_file="multiprocess_benchmark_configs.txt"
         echo "Running benchmarks specified in $benchmark_configs_file"
+        benchmark_configs_file_path="$PWD/$benchmark_configs_file"
+        cd benchmarks
         while IFS= read -r entry || [ -n "$entry" ]; do
           if [ -n "$entry" ]; then
             echo "Running benchmark for $entry"
-            if ! python run_benchmarks.py --config_file="$entry" --output_directory=$GCS_BUCKET_PATH; then
+            if ! python -c "import sys; import jax; jax.distributed.initialize(); print(jax.devices()); from absl import app; import run_benchmarks; sys.argv = ['run_benchmarks.py', '--config_file="$entry"', '--output_directory=$GCS_BUCKET_PATH']; app.run(run_benchmarks.main)"; then
               echo "Benchmark $entry failed"
               failed_benchmarks="$failed_benchmarks $entry"
             fi
           fi
-        done < "$benchmark_configs_file"
+        done < "$benchmark_configs_file_path"
         cd ../../../../..
         if [ -n "$failed_benchmarks" ]; then
           echo "The following benchmarks failed:$failed_benchmarks"
