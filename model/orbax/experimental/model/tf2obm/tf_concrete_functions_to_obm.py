@@ -394,7 +394,8 @@ def save_tf_concrete_functions(
       `tf.saved_model.experimental.TrackableResource`s that are used in
       `concrete_functions`. All TF resources the concrete functions use
       (directly or indirectly) must be present in this structure. Otherwise, an
-      "untracked resource" error will be raised.
+      "untracked resource" error will be raised. If tf.Module is passed, it will
+      be used to create the saved model.
   """
   # We are using saved_model.save(signatures=...)
   # (i.e. serving_signatures) to save concrete functions, but
@@ -408,8 +409,15 @@ def save_tf_concrete_functions(
   }
 
   tf_module = tf.Module()
-  if trackable_resources is not None:
+  if isinstance(trackable_resources, tf.Module):
+    # tf.Module may contain variables and other resources that cannot be
+    # easily accessed piecemeal. The caller can pass the tf.Module directly
+    # and it will be used to create the saved model; all nested resources
+    # will be included.
+    tf_module = trackable_resources
+  elif trackable_resources is not None:
     tf_module.resources = trackable_resources
+
   tf.saved_model.save(tf_module, path, signatures=concrete_functions)
 
 
