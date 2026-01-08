@@ -18,6 +18,7 @@ import collections
 from collections.abc import MutableMapping
 import contextlib
 import dataclasses
+import json
 import linecache  # To show the source code line
 import os
 import threading
@@ -666,17 +667,30 @@ class MetricsManager:
         else:
           tag = "error"
           writer.write_texts(step=i, texts={tag: f"<pre>{repr(error)}</pre>"})
-      # Write benchmark configs as text
+      # Write benchmark configs as json text
       if self._benchmark_options[benchmark_name]:
+        benchmark_options = self._benchmark_options[benchmark_name]
+        if dataclasses.is_dataclass(benchmark_options):
+          opt_dict = dataclasses.asdict(benchmark_options)
+        else:
+          opt_dict = benchmark_options
+
+        checkpoint_configs = self._checkpoint_configs[benchmark_name]
+        if dataclasses.is_dataclass(checkpoint_configs):
+          config_dict = dataclasses.asdict(checkpoint_configs)
+        else:
+          config_dict = checkpoint_configs
+
+        configuration = {
+            "benchmark_name": benchmark_name,
+            "benchmark_options": opt_dict,
+            "checkpoint_config": config_dict,
+        }
+
         writer.write_texts(
             step=0,
             texts={
-                "configuration": (
-                    "<pre> options:"
-                    f" {repr(self._benchmark_options[benchmark_name])} \n"
-                    " checkpoint:"
-                    f" {repr(self._checkpoint_configs[benchmark_name])}</pre>"
-                ),
+                "configuration": json.dumps(configuration),
             },
         )
       # Write Aggreagated metrics as text

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import time
 import tracemalloc
 from unittest import mock
@@ -216,27 +217,42 @@ class MetricsManagerTest(parameterized.TestCase):
     temp_dir = epath.Path(self.create_tempdir().full_path)
     manager = metric_lib.MetricsManager(name='TBSuite', num_repeats=2)
 
+    bench1_name = 'bench1'
+    bench1_opts = {'opt1': 1}
+    bench1_ckpt_config = {'ckpt1': 'path1'}
+    bench2_name = 'bench2'
+    bench2_opts = {'opt2': 2}
+    bench2_ckpt_config = None
+
     # Benchmark 'bench1', Rep 1: success
     m1 = metric_lib.Metrics()
     m1.results['op_time_duration'] = (1.0, 's')
     m1.results['op_other_metric'] = ('some_string', 'text')
     manager.add_result(
-        'bench1',
+        bench1_name,
         m1,
-        benchmark_options={'opt1': 1},
-        checkpoint_config={'ckpt1': 'path1'},
+        benchmark_options=bench1_opts,
+        checkpoint_config=bench1_ckpt_config,
     )
 
     # Benchmark 'bench1', Rep 2: failure
     m2 = metric_lib.Metrics()
     manager.add_result(
-        'bench1', m2, benchmark_options={'opt1': 1}, error=ValueError('failure')
+        bench1_name,
+        m2,
+        benchmark_options=bench1_opts,
+        error=ValueError('failure'),
     )
 
     # Add a second benchmark to ensure writers are created per benchmark
     m3 = metric_lib.Metrics()
     m3.results['loss'] = (0.5, 'none')
-    manager.add_result('bench2', m3, benchmark_options={'opt2': 2})
+    manager.add_result(
+        bench2_name,
+        m3,
+        benchmark_options=bench2_opts,
+        checkpoint_config=bench2_ckpt_config,
+    )
 
     manager.export_to_tensorboard(temp_dir)
 
@@ -247,12 +263,12 @@ class MetricsManagerTest(parameterized.TestCase):
             mock.call(
                 temp_dir,
                 just_logging=False,
-                collection='bench1',
+                collection=bench1_name,
             ),
             mock.call(
                 temp_dir,
                 just_logging=False,
-                collection='bench2',
+                collection=bench2_name,
             ),
         ],
         any_order=True,
@@ -269,28 +285,40 @@ class MetricsManagerTest(parameterized.TestCase):
     mock_writer.write_texts.assert_any_call(
         step=1, texts={'error': "<pre>ValueError('failure')</pre>"}
     )
-    # Calls for 'bench1' configuration
-    mock_writer.write_texts.assert_any_call(
-        step=0,
-        texts={
-            'configuration': (
-                "<pre> options: {'opt1': 1} \n checkpoint: {'ckpt1':"
-                " 'path1'}</pre>"
-            )
-        },
-    )
-
     # Calls for 'bench2'
     mock_writer.write_scalars.assert_any_call(
         step=0, scalars={'loss_none': 0.5}
     )
-    # Calls for 'bench2' configuration
-    mock_writer.write_texts.assert_any_call(
-        step=0,
-        texts={
-            'configuration': (
-                "<pre> options: {'opt2': 2} \n checkpoint: None</pre>"
-            )
+
+    # Check configuration texts
+    benchmark_configs = {}
+    for call in mock_writer.write_texts.call_args_list:
+      _, kwargs = call
+      if 'texts' in kwargs and 'configuration' in kwargs['texts']:
+        config_str = kwargs['texts']['configuration']
+        try:
+          config = json.loads(config_str)
+          benchmark_configs[config['benchmark_name']] = config
+        except json.JSONDecodeError:
+          self.fail(f'Configuration string is not JSON loadable: {config_str}')
+
+    self.assertLen(benchmark_configs, 2)
+    self.assertIn(bench1_name, benchmark_configs)
+    self.assertEqual(
+        benchmark_configs[bench1_name],
+        {
+            'benchmark_name': bench1_name,
+            'benchmark_options': bench1_opts,
+            'checkpoint_config': bench1_ckpt_config,
+        },
+    )
+    self.assertIn(bench2_name, benchmark_configs)
+    self.assertEqual(
+        benchmark_configs[bench2_name],
+        {
+            'benchmark_name': bench2_name,
+            'benchmark_options': bench2_opts,
+            'checkpoint_config': bench2_ckpt_config,
         },
     )
 
