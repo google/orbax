@@ -195,13 +195,14 @@ machine.
 
 For those contributing to the scripts themselves.
 
-### 1. Config Injection Strategy
+### 1. Config Upload Strategy
 We do not rely on GCS or NFS to share configs, as that introduces latency and
-consistency issues.
+consistency issues. For simplicity, configuration is uploaded directly to each
+worker via `gcloud compute tpus tpu-vm scp`. This ensures that each worker
+receives the configuration with minimal delay.
 
-*   **Method**: `Stream Injection`.
-*   **Code**: `cat local_config.yaml | ssh worker "cat > /tmp/remote_config.yaml"`
-*   **Benefit**: Zero-latency config updates. No "stale config" on remote buckets.
+*   **Method**: `SCP`.
+*   **Benefit**: Reliable file transfer managed by `gcloud`.
 
 ### 2. Smart Provisioning (`manage_tpu.sh`)
 
