@@ -86,6 +86,7 @@ class SafetensorsLayoutTest(
           np.float32,
           np.float64,
           np.bool_,
+          jax.numpy.bfloat16,
       ]
   )
   async def test_load_safetensors_checkpoint(self, dtype: np.dtype):
@@ -111,9 +112,9 @@ class SafetensorsLayoutTest(
     # Verify restored data
     # TODO(b/430651483)
     if np.issubdtype(dtype, np.floating):
-      np.testing.assert_allclose(pytree['x'], obj_to_save['x'])
+      np.testing.assert_allclose(pytree['x'], obj_to_save['x'], strict=True)
     else:
-      np.testing.assert_array_equal(pytree['x'], obj_to_save['x'])
+      np.testing.assert_array_equal(pytree['x'], obj_to_save['x'], strict=True)
     np.testing.assert_array_equal(pytree['y'], obj_to_save['y'])
 
   async def test_load_fails_with_incomplete_dtypes(self):
