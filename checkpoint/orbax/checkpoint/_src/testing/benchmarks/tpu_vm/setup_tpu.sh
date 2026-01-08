@@ -63,12 +63,12 @@ for i in $(seq 1 $max_retries); do
 done
 
 # 2. Python Setup
-echo ">>> Using System Python 3..."
+echo ">>> Setting up Python 3..."
 python3 --version
 
 # Ensure pip is up to date
 echo ">>> Upgrading pip..."
-pip install --upgrade pip
+python3 -m pip install --upgrade pip
 
 # 3. Clone/Fetch Orbax
 echo ">>> Setting up Orbax workspace at $WORK_DIR..."
@@ -106,14 +106,14 @@ echo ">>> Installing JAX (Version: $JAX_VERSION)..."
 
 if [ "$JAX_VERSION" = "newest" ]; then
     # TPU default
-    pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+    python3 -m pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 elif [ "$JAX_VERSION" = "nightly" ]; then
     # TPU nightly
-    pip install -U --pre "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html \
+    python3 -m pip install -U --pre "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html \
         --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/
 else
     # Specific version
-    pip install "jax[tpu]==${JAX_VERSION}" "jaxlib==${JAX_VERSION}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+    python3 -m pip install "jax[tpu]==${JAX_VERSION}" "jaxlib==${JAX_VERSION}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 fi
 
 # Install Orbax from source
@@ -123,11 +123,11 @@ if [ -d "checkpoint" ]; then
     cd checkpoint
 fi
 # Fix for some build isolation issues with old pip/setuptools
-pip install .
+python3 -m pip install .
 
 # Install Benchmark dependencies (from Dockerfile analysis)
 echo "Installing benchmark dependencies..."
-pip install gcsfs portpicker clu tensorflow google-cloud-logging
+python3 -m pip install gcsfs portpicker clu tensorflow google-cloud-logging
 
 echo "=== Setup Complete ==="
 echo "Orbax installed in: $WORK_DIR"
