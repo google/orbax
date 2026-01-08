@@ -77,12 +77,14 @@ class TestContext:
     path: The test directory path.
     options: The specific BenchmarkOptions for this test variant.
     mesh: The mesh used for sharding the checkpoint data.
+    local_path: The local path to store the checkpoint data.
   """
 
   pytree: Any
   path: epath.Path
   options: BenchmarkOptions  # The specific options for this test variant.
   mesh: jax.sharding.Mesh | None = None
+  local_path: epath.Path | None = None
 
 
 @dataclasses.dataclass
@@ -423,22 +425,22 @@ class TestSuite:
           )
           result = benchmark.run(repeat_index=repeat_index)
           all_results.append(result)
-          self._suite_metrics.add_result(
-              benchmark.name,
-              result.metrics,
-              benchmark_options=benchmark.options,
-              checkpoint_config=benchmark.checkpoint_config,
-              error=result.error,
-          )
+          # self._suite_metrics.add_result(
+          #     benchmark.name,
+          #     result.metrics,
+          #     benchmark_options=benchmark.options,
+          #     checkpoint_config=benchmark.checkpoint_config,
+          #     error=result.error,
+          # )
 
     if not all_results:
       logging.warning("No benchmarks were run for this suite.")
 
-    if self._output_dir is not None:
-      self._suite_metrics.export_to_tensorboard(
-          epath.Path(self._output_dir) / "tensorboard"
-      )
+    # if self._output_dir is not None:
+    #   self._suite_metrics.export_to_tensorboard(
+    #       epath.Path(self._output_dir) / "tensorboard"
+    #   )
 
-    logging.info(self._suite_metrics.generate_report())
+    # logging.info(self._suite_metrics.generate_report())
     multihost.sync_global_processes("test_suite:run_end")
     return all_results

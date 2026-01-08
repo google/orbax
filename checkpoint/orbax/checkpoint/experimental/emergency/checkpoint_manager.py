@@ -659,6 +659,11 @@ class _MultisliceCheckpointManager(
     logging.info('Retrieving all steps.')
     per_slice_local_steps = self._get_per_slice_local_steps()
     local_steps = list(set.union(*per_slice_local_steps.values()))
+    logging.info(
+        'per_slice_local_steps: %s, local_steps: %s',
+        per_slice_local_steps,
+        local_steps,
+    )
     if (
         step_lib.is_standard_name_format(self._options.step_name_format)
         and self._options.single_host_load_and_broadcast

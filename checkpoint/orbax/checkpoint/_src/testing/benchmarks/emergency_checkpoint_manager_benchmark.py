@@ -127,9 +127,9 @@ def _restore_and_validate(
   # Remove local checkpoint on secondary slice.
   if not is_in_primary_slice:
     assert (local_directory / str(step)).exists()
-  if is_in_secondary_slice:
-    (local_directory / str(step)).rename(local_directory / "backup")
-    logging.info("Removing secondary slice checkpoint at step %d", step)
+  # if is_in_secondary_slice:
+  #   (local_directory / str(step)).rename(local_directory / "backup")
+  #   logging.info("Removing secondary slice checkpoint at step %d", step)
   with metrics.measure(f"reload_first_time_{step}"):
     manager.reload()
   with metrics.measure(f"restore_{step}"):
@@ -141,13 +141,13 @@ def _restore_and_validate(
             )
         ),
     )["state"]
-  pytree_utils.log_pytree("Local Restored Pytree", restored)
+  # pytree_utils.log_pytree("Local Restored Pytree", restored)
   logging.info("Assert Local Restored Pytree")
   pytree_utils.assert_pytree_equal(pytree, restored)
 
   # Put back secondary slice local checkpoint.
   if is_in_secondary_slice:
-    (local_directory / "backup").rename(local_directory / str(step))
+  #   (local_directory / "backup").rename(local_directory / str(step))
     logging.info("Putting back secondary slice checkpoint at step %d", step)
   with metrics.measure(f"reload_second_time_{step}"):
     manager.reload()
@@ -166,11 +166,10 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
     metrics = metric_lib.Metrics()
     pytree = context.pytree
     persistent_directory = context.path / "persistent_replica_ckpt"
-    local_directory = (
-        context.path
-        / "local_replica_ckpt"
-        / f"process_{multihost.process_index()}"
-    )
+    local_path = "/mnt/ramdisk/new/ecm"
+    local_path = epath.Path(local_path)
+    local_path.mkdir(parents=True, exist_ok=True)
+    local_directory = local_path
     options = context.options
     mesh = context.mesh
     assert isinstance(options, EcmBenchmarkOptions)
@@ -200,7 +199,7 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
     with metrics.measure("create_directories"):
       if jax.process_index() == 0:
         persistent_directory.mkdir(parents=True)
-      local_directory.mkdir(parents=True)
+      local_directory.mkdir(parents=True, exist_ok=True)
       multihost.sync_global_processes("create directories")
 
     with metrics.measure("create_abstract_pytree"):
@@ -242,31 +241,48 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
         is_in_secondary_slice,
     )
 
-    with metrics.measure("train_loop"):
-      for step in range(options.train_steps):
-        logging.info("Training step %d", step)
-        with metrics.measure(f"save_{step}"):
-          manager.save(
-              step,
-              args=composite_checkpoint_handler.CompositeArgs(
-                  state=pytree_checkpoint_handler.PyTreeSaveArgs(pytree)
-              ),
-          )
-        with metrics.measure(f"wait_until_finished_{step}"):
-          manager.wait_until_finished()
+    step = manager.latest_step()
+    if step is not None:
+      logging.info("Latest step: %d", step)
 
-        if step % options.local_save_interval_steps == 0:
-          with metrics.measure(f"restore_and_validate_{step}"):
-            _restore_and_validate(
-                manager,
-                metrics,
-                pytree,
-                step,
-                local_directory,
-                is_in_primary_slice,
-                is_in_secondary_slice,
-                restore_args,
-            )
+      with metrics.measure(f"restore_and_validate_{step}"):
+        _restore_and_validate(
+            manager,
+            metrics,
+            pytree,
+            step,
+            local_directory,
+            is_in_primary_slice,
+            is_in_secondary_slice,
+            restore_args,
+        )
+
+    # with metrics.measure("train_loop"):
+    #   for step in range(options.train_steps):
+    #     logging.info("Training step %d", step)
+    #     with metrics.measure(f"save_{step}"):
+    #       manager.save(
+    #           step,
+    #           args=composite_checkpoint_handler.CompositeArgs(
+    #               state=pytree_checkpoint_handler.PyTreeSaveArgs(pytree)
+    #           ),
+    #           force=True,
+    #       )
+    #     with metrics.measure(f"wait_until_finished_{step}"):
+    #       manager.wait_until_finished()
+
+    #     if step % options.local_save_interval_steps == 0:
+    #       with metrics.measure(f"restore_and_validate_{step}"):
+    #         _restore_and_validate(
+    #             manager,
+    #             metrics,
+    #             pytree,
+    #             step,
+    #             local_directory,
+    #             is_in_primary_slice,
+    #             is_in_secondary_slice,
+    #             restore_args,
+    #         )
 
     manager.close()
     return benchmarks_core.TestResult(metrics=metrics)

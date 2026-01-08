@@ -104,6 +104,7 @@ def get_per_replica_local_steps(
   global_steps_per_process = multihost_utils.process_allgather(
       local_steps_per_process_array, tiled=False
   )
+  logging.info('global_steps_per_process=%s', global_steps_per_process)
 
   # The rest of the logic works on the gathered NumPy array.
   per_process_steps = {}
@@ -111,10 +112,11 @@ def get_per_replica_local_steps(
     per_process_steps[process_and_steps[0]] = set(
         s for s in process_and_steps[1:] if s != -1
     )
+  logging.info('per_process_steps=%s', per_process_steps)
   per_slice_steps = _common_values_per_replica(
       per_process_steps,
       global_mesh=global_mesh,
       replica_axis_index=replica_axis_index,
   )
-  logging.vlog(1, 'per_replica_steps=%s', per_slice_steps)
+  logging.info('per_replica_steps=%s', per_slice_steps)
   return per_slice_steps
