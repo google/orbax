@@ -118,63 +118,56 @@ async def _load_numpy(
 class NumpyLayout(CheckpointLayout):
   """Layout for loading NumPy checkpoints (.npz)."""
 
-  def __init__(self, path: Path):
-    self._path = path
-
-  @property
-  def path(self) -> Path:
-    """Returns the path of the NumPy checkpoint file."""
-    return self._path
-
-  def _check_zip_structure(self):
+  def _check_zip_structure(self, path: Path):
     """Sync helper to check zip file."""
     try:
-      with zipfile.ZipFile(self._path, 'r') as zf:
+      with zipfile.ZipFile(path, 'r') as zf:
         if not zf.namelist():
-          raise InvalidLayoutError(f"'{self._path}' is an empty zip archive.")
+          raise InvalidLayoutError(f"'{path}' is an empty zip archive.")
         if not any(name.endswith('.npy') for name in zf.namelist()):
           raise InvalidLayoutError(
-              f"'{self._path}' is not a valid NumPy archive "
+              f"'{path}' is not a valid NumPy archive "
               '(missing .npy files).'
           )
     except zipfile.BadZipFile as e:
-      raise InvalidLayoutError(
-          f"'{self._path}' is not a valid ZIP file."
-      ) from e
+      raise InvalidLayoutError(f"'{path}' is not a valid ZIP file.") from e
     except Exception as e:
       raise InvalidLayoutError(
-          f"Failed to read '{self._path}' as zip file: {e}"
+          f"Failed to read '{path}' as zip file: {e}"
       ) from e
 
-  async def validate(self) -> None:
+  async def validate(self, path: Path) -> None:
     """Checks if the path is a file and a valid NumPy ZIP archive."""
-    if not await async_path.is_file(self._path):
-      raise InvalidLayoutError(f'Path is not a file: {self._path}')
-    if self._path.suffix not in ['.npz']:
+    if not await async_path.is_file(path):
+      raise InvalidLayoutError(f'Path is not a file: {path}')
+    if path.suffix not in ['.npz']:
       raise InvalidLayoutError(
-          f'File {self._path} must have a .npz suffix to be loaded as a'
+          f'File {path} must have a .npz suffix to be loaded as a'
           ' NumPy checkpoint.'
       )
     try:
-      await asyncio.to_thread(self._check_zip_structure)
+      await asyncio.to_thread(self._check_zip_structure, path)
     except OSError as e:
       raise InvalidLayoutError(
-          f'Failed to validate {self._path} as NumPy checkpoint: {e}'
+          f'Failed to validate {path} as NumPy checkpoint: {e}'
       ) from e
 
-  async def validate_pytree(self, checkpointable_name: str | None) -> None:
+  async def validate_pytree(
+      self, path: Path, checkpointable_name: str | None
+  ) -> None:
     """No-op, as NumpyLayout treats the entire file as the 'pytree' item."""
     return
 
   async def metadata(
       self,
+      path: Path,
   ) -> metadata_types.CheckpointMetadata[dict[str, tree_types.PyTreeOf[Any]]]:
     """Extracts ShapeDtypeStruct metadata without loading array data."""
 
     def _read_metadata_sync():
       metadata = {}
       try:
-        with zipfile.ZipFile(self._path, 'r') as zf:
+        with zipfile.ZipFile(path, 'r') as zf:
           for name in zf.namelist():
             if not name.endswith('.npy'):
               continue
@@ -185,17 +178,13 @@ class NumpyLayout(CheckpointLayout):
                   shape=shape, dtype=dtype
               )
       except zipfile.BadZipFile as e:
-        raise InvalidLayoutError(
-            f"'{self._path}' is not a valid ZIP file."
-        ) from e
+        raise InvalidLayoutError(f"'{path}' is not a valid ZIP file.") from e
       except Exception as e:
-        raise InvalidLayoutError(
-            f'Failed to read metadata from {self._path}'
-        ) from e
+        raise InvalidLayoutError(f'Failed to read metadata from {path}') from e
       return metadata
 
     metadata_tree = await asyncio.to_thread(_read_metadata_sync)
-    stat_result = await async_path.async_stat(self._path)
+    stat_result = await async_path.async_stat(path)
     commit_timestamp_nsecs = int(stat_result.mtime * 1e9)
 
     return metadata_types.CheckpointMetadata[dict[str, Any]](
@@ -205,6 +194,7 @@ class NumpyLayout(CheckpointLayout):
 
   async def load(
       self,
+      path: Path,
       abstract_checkpointables: (
           dict[str, tree_types.PyTreeOf[jax.ShapeDtypeStruct]] | None
       ) = None,
@@ -215,4 +205,4 @@ class NumpyLayout(CheckpointLayout):
       abstract_pytree = abstract_checkpointables.get(
           checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
       )
-    return _load_numpy(self._path, abstract_pytree)
+    return _load_numpy(path, abstract_pytree)
