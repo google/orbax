@@ -163,7 +163,7 @@ class TfDataProcessorTest(googletest.TestCase):
 
     processor = tf_data_processor.TfDataProcessor(func, name='preprocessor')
     processor.prepare(
-        input_signature=(tf.TensorSpec(shape=(2, 3), dtype=tf.float32)),
+        available_tensor_specs=(tf.TensorSpec(shape=(2, 3), dtype=tf.float32)),
         bfloat16_options=converter_options_v2_pb2.ConverterOptionsV2(
             bfloat16_optimization_options=converter_options_v2_pb2.BFloat16OptimizationOptions(
                 scope=converter_options_v2_pb2.BFloat16OptimizationOptions.ALL,
