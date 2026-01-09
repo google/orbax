@@ -13,7 +13,9 @@
 # limitations under the License.
 
 """Pipeline: pre-processor + model-function + post-processor."""
-from collections.abc import Sequence
+
+import collections
+from collections.abc import Sequence, Set
 import dataclasses
 from typing import Any
 
@@ -22,3 +24,4 @@ import jax
 import jaxtyping
 from orbax.export.data_processors import data_processor_base
 from orbax.export.modules import obm_module
+import orbax.export.typing as oex_typing
