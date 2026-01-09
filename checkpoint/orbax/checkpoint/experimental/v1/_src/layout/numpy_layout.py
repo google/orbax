@@ -98,7 +98,7 @@ def _load_numpy_on_device(
 async def _load_numpy(
     path: Path,
     abstract_pytree: tree_types.PyTreeOf[jax.ShapeDtypeStruct] | None = None,
-) -> dict[str, Any]:
+) -> Any:
   """Loads numpy checkpoint as numpy arrays or sharded jax arrays."""
   npz_file = await asyncio.to_thread(np.load, path, allow_pickle=True)
   try:
@@ -112,7 +112,7 @@ async def _load_numpy(
   finally:
     npz_file.close()
 
-  return {checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: restored_pytree}
+  return restored_pytree
 
 
 class NumpyLayout(CheckpointLayout):
@@ -193,20 +193,30 @@ class NumpyLayout(CheckpointLayout):
         commit_timestamp_nsecs=commit_timestamp_nsecs,
     )
 
-  async def load(
+  async def load_pytree(
       self,
       path: Path,
-      abstract_checkpointables: (
-          dict[str, tree_types.PyTreeOf[jax.ShapeDtypeStruct]] | None
-      ) = None,
-  ) -> Awaitable[dict[str, tree_types.PyTreeOf[Any]]]:
-    """Loads a NumPy checkpoint file."""
-    abstract_pytree = None
-    if abstract_checkpointables:
-      abstract_pytree = abstract_checkpointables.get(
-          checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
-      )
-    return _load_numpy(path, abstract_pytree)
+      checkpointable_name: str | None = None,
+      abstract_pytree: Any | None = None,
+  ) -> Awaitable[tree_types.PyTreeOf[Any]]:
+    """Loads a NumPy checkpoint file.
+
+    If `abstract_pytree` is provided, it attempts to load numpy arrays as
+    sharded `jax.Arrays` onto devices.
+
+    Args:
+      path: The path to the checkpoint.
+      checkpointable_name: The name of the pytree checkpointable to load,
+        unsused in this case.
+      abstract_pytree: An optional PyTree of abstract arrays specifying sharding
+        information.
+
+    Returns:
+      An awaitable of a dictionary containing the loaded PyTree.
+    """
+    del checkpointable_name
+    load_awaitable = _load_numpy(path, abstract_pytree)
+    return load_awaitable
 
   async def save(
       self,

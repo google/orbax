@@ -89,24 +89,21 @@ class CheckpointLayout(Protocol):
     """
     ...
 
-  async def load(
+  async def load_pytree(
       self,
       path: Path,
-      abstract_checkpointables: dict[str, Any] | None = None,
-  ) -> Awaitable[dict[str, Any]]:
-    """Loads the checkpoint from the given directory.
+      checkpointable_name: str | None = None,
+      abstract_pytree: Any | None = None,
+  ) -> Awaitable[Any]:
+    """Loads a PyTree from the checkpoint.
 
     Args:
       path: The path to the checkpoint.
-      abstract_checkpointables: A dictionary of abstract checkpointables.
-        Dictionary keys represent the names of the checkpointables, while the
-        values are the abstract checkpointable objects themselves.
+      checkpointable_name: The name of the checkpointable to load.
+      abstract_pytree: The abstract PyTree structure.
 
     Returns:
-      An awaitable dictionary of checkpointables. Dictionary keys represent the
-      names of
-      the checkpointables, while the values are the checkpointable objects
-      themselves.
+      An awaitable PyTree.
     """
     ...
 
