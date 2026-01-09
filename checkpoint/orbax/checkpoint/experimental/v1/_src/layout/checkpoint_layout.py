@@ -14,6 +14,7 @@
 
 """Defines `CheckpointLayout`, a broader protocol used to save and load different checkpoint formats."""
 
+import abc
 from typing import Any, Awaitable, Protocol
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types
@@ -48,53 +49,55 @@ class CheckpointLayout(Protocol):
     delegating to the resolved handlers.
   """
 
-  @property
-  def path(self) -> Path:
-    """Returns the path of the checkpoint."""
-    ...
-
-  async def metadata(self) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
+  async def metadata(
+      self, path: Path
+  ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
     """Returns the metadata of the checkpoint.
+
+    Args:
+      path: The path to the checkpoint.
 
     Returns:
       A dictionary of metadata. Dictionary keys represent the names of the
       checkpointables, while the values are the metadata objects themselves.
     """
+
     ...
 
-  async def validate(self) -> None:
+  @abc.abstractmethod
+  async def validate(self, path: Path) -> None:
     """Validates the path, determining if it conforms to this instance.
 
-    Returns:
-      None.
+    Args:
+      path: The path to the checkpoint.
 
     Raises:
-      InvalidLayoutError: If the path does not conform to this instance.
+      InvalidLayoutError: If the path does not conform to this layout.
     """
     ...
 
-  async def validate_pytree(self, checkpointable_name: str | None) -> None:
+  @abc.abstractmethod
+  async def validate_pytree(
+      self, path: Path, checkpointable_name: str | None
+  ) -> None:
     """Validates the path as a PyTree checkpoint.
 
     Args:
-      checkpointable_name: The name of the checkpointable to load.
-
-    Returns:
-      None.
-
-    Raises:
-      InvalidLayoutError: If the path does not conform to this instance
-        as a PyTree checkpoint.
+      path: The path to the checkpoint.
+      checkpointable_name: The name of the checkpointable to load. as a PyTree
+        checkpoint.
     """
     ...
 
   async def load(
       self,
+      path: Path,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> Awaitable[dict[str, Any]]:
     """Loads the checkpoint from the given directory.
 
     Args:
+      path: The path to the checkpoint.
       abstract_checkpointables: A dictionary of abstract checkpointables.
         Dictionary keys represent the names of the checkpointables, while the
         values are the abstract checkpointable objects themselves.
