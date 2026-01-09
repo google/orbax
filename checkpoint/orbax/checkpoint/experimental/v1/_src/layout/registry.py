@@ -14,6 +14,7 @@
 
 """Registry for checkpoint layouts."""
 
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
@@ -54,8 +55,8 @@ async def get_checkpoint_layout(
       raise ValueError(f"Unsupported checkpoint layout: {layout_enum}")
 
   try:
-    layout = layout_class(path)
-    await layout.validate()
+    layout = layout_class()
+    await layout.validate(path)
     return layout
   except InvalidLayoutError as e:
     raise InvalidLayoutError(
@@ -70,30 +71,33 @@ async def get_checkpoint_layout_pytree(
     path: path_types.PathLike,
     layout_enum: CheckpointLayoutEnum,
     checkpointable_name: str | None = None,
-) -> tuple[checkpoint_layout.CheckpointLayout, str | None]:
-  """Returns the checkpoint layout and checkpointable name for the given path."""
+) -> tuple[checkpoint_layout.CheckpointLayout, path_types.Path, str | None]:
+  """Returns checkpoint layout, path, and checkpointable name for given path."""
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
   layout = await get_checkpoint_layout(path, layout_enum)
-  layout, checkpointable_name = await _try_resolve_pytree_checkpointable(
-      layout, checkpointable_name
+  layout, path, checkpointable_name = await _try_resolve_pytree_checkpointable(
+      layout, path, checkpointable_name
   )
-  await layout.validate_pytree(checkpointable_name)
-  return layout, checkpointable_name
+  await layout.validate_pytree(path, checkpointable_name)
+  return layout, path, checkpointable_name
 
 
 async def _try_resolve_pytree_checkpointable(
     layout: CheckpointLayout,
+    path: path_types.Path,
     checkpointable_name: str | None,
-) -> tuple[CheckpointLayout, str | None]:
+) -> tuple[CheckpointLayout, path_types.Path, str | None]:
   """Tries to resolve the `PyTree` checkpointable name for a given layout.
 
   Args:
     layout: The :py:class:`.CheckpointLayout` object.
+    path: The path to the checkpoint.
     checkpointable_name: An optional name for the `PyTree` checkpointable.
 
   Returns:
     A tuple containing the (potentially updated)
-    :py:class:`.CheckpointLayout`
-    and the
+    :py:class:`.CheckpointLayout`, path and the
     resolved checkpointable name.
 
   Raises:
@@ -102,41 +106,44 @@ async def _try_resolve_pytree_checkpointable(
   """
   # Selected a specific name; use it.
   if checkpointable_name is not None:
-    return layout, checkpointable_name
+    return layout, path, checkpointable_name
   # Not a v0 checkpoint; use the default name.
-  if not _is_v0_checkpoint(layout):
-    return layout, checkpointable_name
+  if not _is_v0_checkpoint(layout, path):
+    return layout, path, checkpointable_name
   # If it's a V0 checkpoint, we can try to resolve the checkpointable name from
   # the path.
   if not isinstance(layout, orbax_layout.OrbaxLayout):
     raise AssertionError(f"Expected an OrbaxLayout, but got a {type(layout)}.")
   # Option 1: It may be a direct path to the PyTree checkpointable.
   try:
-    original_path = layout.path
-    new_layout = orbax_layout.OrbaxLayout(original_path.parent)
-    await new_layout.validate_pytree(original_path.name)
-    return new_layout, original_path.name
+    original_path = path
+    new_layout = orbax_layout.OrbaxLayout()
+    await new_layout.validate_pytree(original_path.parent, original_path.name)
+    return new_layout, original_path.parent, original_path.name
   except checkpoint_layout.InvalidLayoutError:
     pass
   # Option 2: It may be a V0 checkpoint containing a PyTree checkpointable. It
   # is possible for there to be multiple, but this would be unusual, and it is
   # fine to just return the first one.
-  dir_names = [p.name for p in layout.path.iterdir() if p.is_dir()]
+  dir_names = []
+  for p in await async_path.iterdir(path):
+    if await async_path.is_dir(p):
+      dir_names.append(p.name)
   for name in dir_names:
     try:
-      await layout.validate_pytree(name)
+      await layout.validate_pytree(path, name)
     except checkpoint_layout.InvalidLayoutError:
       continue
-    return layout, name
+    return layout, path, name
   raise checkpoint_layout.InvalidLayoutError(
-      f"Detected an Orbax V0 checkpoint at {layout.path}, but failed to resolve"
+      f"Detected an Orbax V0 checkpoint at {path}, but failed to resolve"
       " a checkpointable name for the `PyTree` checkpointable. Found"
       f" subdirectory names: {dir_names}."
   )
 
 
-def _is_v0_checkpoint(layout: CheckpointLayout) -> bool:
+def _is_v0_checkpoint(layout: CheckpointLayout, path: path_types.Path) -> bool:
   return not isinstance(layout, orbax_layout.OrbaxLayout) or (
       isinstance(layout, orbax_layout.OrbaxLayout)
-      and not layout.has_indicator_file
+      and not layout.has_indicator_file(path)
   )

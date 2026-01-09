@@ -253,17 +253,11 @@ class SafetensorsLayout(CheckpointLayout):
     delegating to the resolved handlers.
   """
 
-  def __init__(self, path: Path):
-    self._path = path
-
-  @property
-  def path(self) -> Path:
-    """Returns the path of the SafeTensors checkpoint."""
-    return self._path
-
-  async def metadata(self) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
+  async def metadata(
+      self, path: Path
+  ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
     """Returns the metadata of the SafeTensors checkpoint."""
-    header, _ = await _read_safetensors_header(self._path)
+    header, _ = await _read_safetensors_header(path)
 
     metadata = {}
     for name, info in header.items():
@@ -273,7 +267,7 @@ class SafetensorsLayout(CheckpointLayout):
       metadata[name] = jax.ShapeDtypeStruct(shape=shape, dtype=dtype)
 
     custom_metadata = header.get("__metadata__")
-    commit_timestamp_nsecs = int(os.stat(self._path).st_mtime)
+    commit_timestamp_nsecs = int(os.stat(path).st_mtime)
 
     return metadata_types.CheckpointMetadata[dict[str, Any]](
         metadata={checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: metadata},
@@ -281,24 +275,24 @@ class SafetensorsLayout(CheckpointLayout):
         custom_metadata=custom_metadata,
     )
 
-  async def validate(self):
-    if (
-        await async_path.is_file(self._path)
-        and self._path.suffix == ".safetensors"
-    ):
+  async def validate(self, path: Path):
+    if await async_path.is_file(path) and path.suffix == ".safetensors":
       return
     else:
       raise InvalidLayoutError(
-          f"Failed to interpret path {self._path} as a SafeTensors checkpoint."
+          f"Failed to interpret path {path} as a SafeTensors checkpoint."
           " A SafeTensors checkpoint must be a file with the '.safetensors'"
           " suffix."
       )
 
-  async def validate_pytree(self, checkpointable_name: str | None) -> None:
+  async def validate_pytree(
+      self, path: Path, checkpointable_name: str | None
+  ) -> None:
     return
 
   async def load(
       self,
+      path: Path,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> Awaitable[dict[str, Any]]:
     abstract_pytree = None
@@ -306,4 +300,4 @@ class SafetensorsLayout(CheckpointLayout):
       abstract_pytree = abstract_checkpointables.get(
           checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
       )
-    return _load_safetensors(self._path, abstract_pytree)
+    return _load_safetensors(path, abstract_pytree)
