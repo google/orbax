@@ -137,7 +137,7 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
 
   async def test_load_orbax_checkpoint(self):
     layout = OrbaxLayout(self.orbax_path / '0')
-    restored_checkpointables_await = await layout.load()
+    restored_checkpointables_await = await layout.load_checkpointables()
     restored_checkpointables = await restored_checkpointables_await
     test_utils.assert_tree_equal(
         self, restored_checkpointables['pytree'], self.object_to_save
@@ -261,6 +261,22 @@ class V0ValidationTest(
       await OrbaxLayout(directory)._validate_pytree('state')
     else:
       await OrbaxLayout(directory)._validate_pytree(None)
+
+  @parameterized.product(checkpointable_name=['state', None])
+  async def test_load_pytree(self, checkpointable_name: str | None):
+    directory = (
+        self.directory / checkpointable_name
+        if checkpointable_name is not None
+        else self.directory
+    )
+    if checkpointable_name is None:
+      layout = OrbaxLayout(directory)
+      loaded = await (await layout.load_pytree('state', self.pytree))
+    else:
+      layout = OrbaxLayout(directory)
+      loaded = await (await layout.load_pytree(None, self.pytree))
+
+    test_utils.assert_tree_equal(self, loaded, self.pytree)
 
 
 class V1ValidationTest(
