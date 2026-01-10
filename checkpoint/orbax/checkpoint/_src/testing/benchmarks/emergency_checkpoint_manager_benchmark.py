@@ -127,9 +127,9 @@ def _restore_and_validate(
   # Remove local checkpoint on secondary slice.
   if not is_in_primary_slice:
     assert (local_directory / str(step)).exists()
-  if is_in_secondary_slice:
-    (local_directory / str(step)).rename(local_directory / "backup")
-    logging.info("Removing secondary slice checkpoint at step %d", step)
+  # if is_in_secondary_slice:
+  #   (local_directory / str(step)).rename(local_directory / "backup")
+  #   logging.info("Removing secondary slice checkpoint at step %d", step)
   with metrics.measure(f"reload_first_time_{step}"):
     manager.reload()
   with metrics.measure(f"restore_{step}"):
