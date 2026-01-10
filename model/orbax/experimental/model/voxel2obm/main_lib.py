@@ -53,11 +53,9 @@ def voxel_plan_to_obm(
   Returns:
     An `obm.SerializableFunction` representing the Voxel module.
   """
-  plan_proto = voxel_module.export_plan()
-  plan_proto_bytes = plan_proto.SerializeToString()
-
+  plan = voxel_module.export_plan()
   unstructured_data = obm.manifest_pb2.UnstructuredData(
-      inlined_bytes=plan_proto_bytes,
+      inlined_bytes=plan.SerializeToString(),
       mime_type=VOXEL_PROCESSOR_MIME_TYPE,
       version=VOXEL_PROCESSOR_VERSION,
   )

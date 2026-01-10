@@ -15,13 +15,10 @@
 """Utilities for converting Voxel signatures to OBM."""
 
 import pprint
-import numpy as np
 import jax
+import numpy as np
 from orbax.experimental.model import core as obm
-from orbax.experimental.model.voxel2obm.voxel_mock import VoxelSpec
-
-
-VoxelSignature = obm.Tree[VoxelSpec]
+from .learning.brain.experimental.jax_data.python import voxel_tensor_spec
 
 
 def _obm_to_voxel_dtype(t):
@@ -32,10 +29,12 @@ def _obm_to_voxel_dtype(t):
 
 def obm_spec_to_voxel_signature(
     spec: obm.Tree[obm.ShloTensorSpec],
-) -> VoxelSignature:
+) -> voxel_tensor_spec.VoxelSchemaTree:
   try:
     return jax.tree_util.tree_map(
-        lambda x: VoxelSpec(shape=x.shape, dtype=_obm_to_voxel_dtype(x.dtype)),
+        lambda x: voxel_tensor_spec.VoxelTensorSpec(
+            shape=x.shape, dtype=obm.shlo_dtype_to_np_dtype(x.dtype)
+        ),
         spec,
     )
   except Exception as err:
@@ -52,7 +51,7 @@ def _voxel_to_obm_dtype(t) -> obm.ShloDType:
 
 
 def voxel_signature_to_obm_spec(
-    signature: VoxelSignature,
+    signature: voxel_tensor_spec.VoxelSchemaTree,
 ) -> obm.Tree[obm.ShloTensorSpec]:
   try:
     return jax.tree_util.tree_map(
