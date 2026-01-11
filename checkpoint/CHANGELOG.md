@@ -37,6 +37,12 @@ trigger creation if it has not already been started.
 
 - Roll back earlier change altering metadata format, which was observed to cause
 breakages.
+- Fix `CompositeHandler` extraction logic for handler type strings when missing `_CHECKPOINT_METADATA`
+
+### Changed
+
+- Split v0 checkpoint format/layout logic out from `OrbaxLayout` and into
+seperate `V0Layout`.
 
 ## [0.11.29] - 2025-11-25
 
