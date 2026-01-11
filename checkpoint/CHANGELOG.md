@@ -33,10 +33,22 @@ trigger creation if it has not already been started.
 
 ## [0.11.30] - 2025-11-26
 
+### Added
+
+- Added testing to verify backwards compatibility when a checkpoint is missing
+`_CHECKPOINT_METADATA` or saving pytree directly as a checkpoint with no
+checkpointable.
+
 ### Fixed
 
 - Roll back earlier change altering metadata format, which was observed to cause
 breakages.
+- Fix `CompositeHandler` extraction logic for handler type strings when missing `_CHECKPOINT_METADATA`
+
+### Changed
+
+- Split v0 checkpoint format/layout logic out from `OrbaxLayout` and into
+seperate `V0Layout`.
 
 ## [0.11.29] - 2025-11-25
 
