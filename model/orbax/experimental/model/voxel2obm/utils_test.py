@@ -19,24 +19,10 @@ from absl.testing import parameterized
 import numpy as np
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.voxel2obm import utils
+from .learning.brain.experimental import jax_data as jd
 
 
 class UtilsTest(parameterized.TestCase):
-
-  def test_voxel_spec_init(self):
-    spec = utils.VoxelSpec(shape=(1, 2), dtype=np.int32)
-    self.assertEqual(spec.shape, (1, 2))
-    self.assertEqual(spec.dtype, np.dtype('int32'))
-
-    spec = utils.VoxelSpec(shape=(1, 2), dtype=np.dtype('float32'))
-    self.assertEqual(spec.shape, (1, 2))
-    self.assertEqual(spec.dtype, np.dtype('float32'))
-
-    with self.assertRaisesRegex(
-        ValueError,
-        """Invalid dtype: 'invalid' cannot be converted to np.dtype.""",
-    ):
-      utils.VoxelSpec(shape=(1, 2), dtype='invalid')
 
   def test_obm_spec_to_voxel_signature(self):
     obm_spec = {
@@ -45,8 +31,12 @@ class UtilsTest(parameterized.TestCase):
     }
     voxel_sig = utils.obm_spec_to_voxel_signature(obm_spec)
     expected_voxel_sig = {
-        'a': utils.VoxelSpec(shape=(1, 2), dtype=np.int32),
-        'b': utils.VoxelSpec(shape=(3,), dtype=np.float32),
+        'a': jd.VoxelTensorSpec(
+            shape=(1, 2), dtype=np.dtype(np.int32)
+        ),
+        'b': jd.VoxelTensorSpec(
+            shape=(3,), dtype=np.dtype(np.float32)
+        ),
     }
 
     self.assertEqual(voxel_sig['a'], expected_voxel_sig['a'])
@@ -54,8 +44,12 @@ class UtilsTest(parameterized.TestCase):
 
   def test_voxel_signature_to_obm_spec(self):
     voxel_sig = {
-        'a': utils.VoxelSpec(shape=(1, 2), dtype=np.int32),
-        'b': utils.VoxelSpec(shape=(3,), dtype=np.float32),
+        'a': jd.VoxelTensorSpec(
+            shape=(1, 2), dtype=np.dtype(np.int32)
+        ),
+        'b': jd.VoxelTensorSpec(
+            shape=(3,), dtype=np.dtype(np.float32)
+        ),
     }
     obm_spec = utils.voxel_signature_to_obm_spec(voxel_sig)
     expected_obm_spec = {
