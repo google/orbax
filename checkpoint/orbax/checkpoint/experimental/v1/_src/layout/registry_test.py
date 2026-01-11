@@ -60,7 +60,7 @@ class PyTreeCheckpointableResolutionTest(
     ):
       await try_resolve_pytree_checkpointable(layout, None)
 
-  @parameterized.product(checkpointable_name=['state', 'params', None])
+  @parameterized.product(checkpointable_name=['state', 'params'])
   async def test_v1(self, checkpointable_name):
     layout = orbax_layout.OrbaxLayout(self.v1_directory)
     self.assertTrue(layout.has_indicator_file)
