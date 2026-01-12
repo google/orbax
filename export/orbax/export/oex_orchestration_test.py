@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Set
 from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.export.protos import oex_orchestration_pb2
 from orbax.export import oex_orchestration
+from orbax.export import typing as oex_typing
 from orbax.export.data_processors import data_processor_base
 from orbax.export.modules import obm_module
 import tensorflow as tf
@@ -34,8 +36,30 @@ def tf_t(shape, name=None, dtype=tf.float32):
 
 class TestProcessor(data_processor_base.DataProcessor):
 
+  def __init__(
+      self,
+      name: str = "",
+      input_keys: Set[str] = frozenset(),
+      output_keys: Set[str] = frozenset(),
+  ):
+    super().__init__(name=name, input_keys=input_keys, output_keys=output_keys)
+
   def prepare(self, input_signature):
     pass
+
+
+class MockObmModule:
+
+  def __init__(self, apply_fn_map):
+    self.apply_fn_map = apply_fn_map
+
+
+def _get_apply_fn_info(input_keys, output_keys):
+  return oex_typing.ApplyFnInfo(
+      apply_fn=lambda p, x: x,
+      input_keys=input_keys,
+      output_keys=output_keys,
+  )
 
 
 class OexOrchestrationTest(parameterized.TestCase):
