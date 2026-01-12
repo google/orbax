@@ -54,6 +54,8 @@ def tf_dtype_to_obm(t: tf.DType) -> obm.ShloDType:
 
 
 def tf_tensor_spec_to_obm(spec: Any) -> obm.ShloTensorSpec:
+  """Converts a tf.TensorSpec or tf.SymbolicTensor to ShloTensorSpec."""
+
   # ConcreteFunction.structured_outputs returns `SymbolicTensor`s, not
   # `TensorSpec`s, so we need to also check for `SymbolicTensor`.
   if not (isinstance(spec, tf.TensorSpec) or tf.is_symbolic_tensor(spec)):
@@ -61,8 +63,16 @@ def tf_tensor_spec_to_obm(spec: Any) -> obm.ShloTensorSpec:
         f'Expected a tf.TensorSpec or a SymbolicTensor, got {spec} of type'
         f' {type(spec)}'
     )
+
+  if spec.shape.rank is None:
+    obm_shape = None
+  else:
+    obm_shape = tuple(spec.shape.as_list())
+
   return obm.ShloTensorSpec(
-      shape=spec.shape, dtype=tf_dtype_to_obm(spec.dtype), name=spec.name
+      shape=obm_shape,
+      dtype=tf_dtype_to_obm(spec.dtype),
+      name=spec.name,
   )
 
 
@@ -76,4 +86,3 @@ def tf_signature_to_obm_spec(tree: TfSignature) -> obm.Tree[obm.ShloTensorSpec]:
     raise ValueError(
         f'Failed to convert TF signature {tree} of type {type(tree)} to OBM.'
     ) from err
-
