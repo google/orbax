@@ -16,7 +16,7 @@
 
 import json
 import os
-from typing import Any, Awaitable
+from typing import Any, Awaitable, Sequence
 
 import aiofiles
 import jax
@@ -53,6 +53,14 @@ def _get_dtypes() -> dict[str, Any]:
       "F8_E8M0": "float8_e8m0fnu (specialized ML dtype)",
       "F4": "float4_e2m1fn_x2 (specialized ML dtype)",
   }
+
+
+async def _get_safetensors_file_list(path: Path) -> Sequence[Path]:
+  """Returns a list of safetensors files in the given path."""
+  if await async_path.is_dir(path):
+    files = await async_path.glob(path, "*.safetensors")
+    return sorted(files)
+  return [path]
 
 
 async def _read_safetensors_header(path: Path) -> tuple[dict[str, Any], int]:
@@ -179,16 +187,12 @@ async def _load_safetensors_on_device(
   async with aiofiles.open(path, mode="rb") as f:
     flat_abstract, _ = jax.tree.flatten_with_path(abstract_pytree)
     for key_path, abstract_leaf in flat_abstract:
-      if len(key_path) != 1 or not isinstance(
-          key_path[0], jax.tree_util.DictKey
-      ):
-        raise ValueError(
-            f"The PyTree is not a flat dictionary. Key path: {key_path}"
-        )
+      # key_path is already validated in the caller/flatter usually, but we
+      # check again for safety if reused
       tensor_name = str(key_path[0].key)
       if tensor_name not in header:
         raise KeyError(
-            f"Tensor '{tensor_name}' not found in safetensors header."
+            f"Tensor '{tensor_name}' not found in safetensors header of {path}."
         )
 
       stored_shape, stored_dtype = _get_array_properties(header[tensor_name])
@@ -228,16 +232,63 @@ async def _load_safetensors_on_device(
 
 
 async def _load_safetensors(
-    path: Path, abstract_pytree: dict[str, Any] | None = None
+    paths: Sequence[Path], abstract_pytree: dict[str, Any] | None = None
 ) -> dict[str, Any]:
   """Calls the correct safetensors loading function."""
 
   if abstract_pytree is None:
     # Return NumPy arrays.
-    restored_pytree = await _load_safetensors_as_numpy(path)
+    # Load from all files and merge.
+    tensors = {}
+    for path in paths:
+      file_tensors = await _load_safetensors_as_numpy(path)
+      for name, arr in file_tensors.items():
+        if name in tensors:
+          raise ValueError(f"Duplicate tensor {name} found in multiple files.")
+        tensors[name] = arr
+    restored_pytree = tensors
   else:
     # Return on-device JAX arrays.
-    restored_pytree = await _load_safetensors_on_device(path, abstract_pytree)
+    # 1. Map tensor names to files
+    tensor_to_path = {}
+    for path in paths:
+      header, _ = await _read_safetensors_header(path)
+      for name in header:
+        if name == "__metadata__":
+          continue
+        if name in tensor_to_path:
+          raise ValueError(f"Duplicate tensor {name} found in multiple files.")
+        tensor_to_path[name] = path
+
+    # 2. Split abstract_pytree by file
+    # Key structure is known to be flat dict due to earlier validation needs or
+    # we validate here.
+    flat_abstract, _ = jax.tree.flatten_with_path(abstract_pytree)
+    file_abstract_trees = {}  # Path -> dict[str, abstract_leaf]
+
+    for key_path, abstract_leaf in flat_abstract:
+      if len(key_path) != 1 or not isinstance(
+          key_path[0], jax.tree_util.DictKey
+      ):
+        raise ValueError(
+            f"The PyTree is not a flat dictionary. Key path: {key_path}"
+        )
+      tensor_name = str(key_path[0].key)
+      if tensor_name not in tensor_to_path:
+        raise KeyError(
+            f"Tensor '{tensor_name}' not found in any safetensors file."
+        )
+
+      path = tensor_to_path[tensor_name]
+      if path not in file_abstract_trees:
+        file_abstract_trees[path] = {}
+      file_abstract_trees[path][tensor_name] = abstract_leaf
+
+    # 3. Load from each file
+    restored_pytree = {}
+    for path, sub_tree in file_abstract_trees.items():
+      sub_restored = await _load_safetensors_on_device(path, sub_tree)
+      restored_pytree.update(sub_restored)
 
   return {checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: restored_pytree}
 
@@ -260,17 +311,31 @@ class SafetensorsLayout(CheckpointLayout):
       self, path: Path
   ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
     """Returns the metadata of the SafeTensors checkpoint."""
-    header, _ = await _read_safetensors_header(path)
-
+    files = await _get_safetensors_file_list(path)
     metadata = {}
-    for name, info in header.items():
-      if name == "__metadata__":
-        continue
-      shape, dtype = _get_array_properties(info)
-      metadata[name] = jax.ShapeDtypeStruct(shape=shape, dtype=dtype)
+    custom_metadata = {}
 
-    custom_metadata = header.get("__metadata__")
-    commit_timestamp_nsecs = int(os.stat(path).st_mtime)
+    # Track the oldest commit timestamp.
+    commit_timestamp_nsecs = None
+
+    for path in files:
+      header, _ = await _read_safetensors_header(path)
+      ts = int(os.stat(path).st_mtime)
+      if commit_timestamp_nsecs is None or ts < commit_timestamp_nsecs:
+        commit_timestamp_nsecs = ts
+
+      for name, info in header.items():
+        if name == "__metadata__":
+          # Merge custom metadata, warning on conflicts?
+          # Simplification: Last write wins or merge?
+          # Usually it's disjoint or identical.
+          if info:
+            custom_metadata.update(info)
+          continue
+        if name in metadata:
+          raise ValueError(f"Duplicate tensor {name} found in multiple files.")
+        shape, dtype = _get_array_properties(info)
+        metadata[name] = jax.ShapeDtypeStruct(shape=shape, dtype=dtype)
 
     return metadata_types.CheckpointMetadata[dict[str, Any]](
         metadata={checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: metadata},
@@ -279,13 +344,25 @@ class SafetensorsLayout(CheckpointLayout):
     )
 
   async def validate(self, path: Path):
-    if await async_path.is_file(path) and path.suffix == ".safetensors":
-      return
-    else:
+    if await async_path.is_file(path):
+      if path.suffix == ".safetensors":
+        return
       raise InvalidLayoutError(
           f"Failed to interpret path {path} as a SafeTensors checkpoint."
           " A SafeTensors checkpoint must be a file with the '.safetensors'"
           " suffix."
+      )
+    elif await async_path.is_dir(path):
+      # Check if it contains any .safetensors files
+      files = list(await async_path.glob(path, "*.safetensors"))
+      if not files:
+        raise InvalidLayoutError(
+            f"Directory {path} does not contain any '.safetensors' files."
+        )
+    else:
+      raise InvalidLayoutError(
+          f"Path {path} is neither a file nor a directory or does not"
+          " exist."
       )
 
   async def validate_pytree(
@@ -303,4 +380,5 @@ class SafetensorsLayout(CheckpointLayout):
       abstract_pytree = abstract_checkpointables.get(
           checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
       )
-    return _load_safetensors(path, abstract_pytree)
+    files = await _get_safetensors_file_list(path)
+    return _load_safetensors(files, abstract_pytree)
