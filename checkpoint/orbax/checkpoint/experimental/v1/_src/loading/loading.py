@@ -104,13 +104,14 @@ def load_pytree(
   logging.info('Loading checkpoint from %s.', path)
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
-  layout, checkpointable_name = asyncio.run(
+  layout, checkpointable_name, path = asyncio.run(
       layout_registry.get_checkpoint_layout_pytree(
           path, ctx.checkpoint_layout, checkpointable_name
       )
   )
   return _load_checkpointables_impl(
       layout,
+      path,
       abstract_checkpointables={
           checkpointable_name: _standardize_abstract_checkpointables(
               abstract_pytree
@@ -183,12 +184,13 @@ def load_checkpointables(
   )
 
   return _load_checkpointables_impl(
-      layout, abstract_checkpointables, start_time=start_time
+      layout, path, abstract_checkpointables, start_time=start_time
   )
 
 
 def _load_checkpointables_impl(
     layout: checkpoint_layout.CheckpointLayout,
+    path: path_types.Path,
     abstract_checkpointables: (
         dict[str, Any] | CheckpointMetadata[dict[str, Any]] | None
     ) = None,
@@ -200,6 +202,7 @@ def _load_checkpointables_impl(
   Args:
     layout: The layout to use for loading the checkpoint (Orbax, SafeTensors, or
       other).
+    path: The path to the checkpoint.
     abstract_checkpointables: A dictionary of abstract checkpointables.
       Dictionary keys represent the names of the checkpointables, while the
       values are the abstract checkpointable objects themselves.
@@ -209,9 +212,6 @@ def _load_checkpointables_impl(
     A dictionary of checkpointables. Dictionary keys represent the names of the
     checkpointables, while the values are the checkpointable objects themselves.
   """
-  if not layout.path:
-    raise ValueError('Path must not be None.')
-
   context = context_lib.get_context()
   abstract_checkpointables = _standardize_abstract_checkpointables(
       abstract_checkpointables
@@ -219,7 +219,7 @@ def _load_checkpointables_impl(
   validation.validate_abstract_checkpointables(abstract_checkpointables)
 
   async def _load() -> dict[str, Any]:
-    load_awaitable = await layout.load(abstract_checkpointables)
+    load_awaitable = await layout.load(path, abstract_checkpointables)
     result = await load_awaitable
     await multihost.sync_global_processes(
         multihost.unique_barrier_key(
@@ -233,13 +233,13 @@ def _load_checkpointables_impl(
 
   result = asyncio.run(_load())
 
-  event_tracking.record_read_event(layout.path)
+  event_tracking.record_read_event(path)
 
   duration_secs = time.time() - start_time
   logging.info(
       'Finished loading checkpoint in %.2f seconds from %s.',
       duration_secs,
-      layout.path,
+      path,
   )
   return result
 

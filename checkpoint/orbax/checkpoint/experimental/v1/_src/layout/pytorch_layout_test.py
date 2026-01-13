@@ -42,29 +42,29 @@ class PyTorchLayoutTest(
     torch.save(self._test_data, self._test_ckpt_path)
 
   async def test_validate_valid_checkpoint(self):
-    layout = PyTorchLayout(Path(self._test_ckpt_path))
-    await layout.validate()
+    layout = PyTorchLayout()
+    await layout.validate(Path(self._test_ckpt_path))
 
   async def test_validate_invalid_not_zip(self):
     bad_path = os.path.join(self.directory, 'bad.pt')
     with open(bad_path, 'w') as f:
       f.write('not a zip')
-    layout = PyTorchLayout(Path(bad_path))
+    layout = PyTorchLayout()
     with self.assertRaisesRegex(InvalidLayoutError, 'not a valid ZIP file'):
-      await layout.validate()
+      await layout.validate(Path(bad_path))
 
   async def test_validate_invalid_no_pickle(self):
     bad_path = os.path.join(self.directory, 'bad.pt')
     with zipfile.ZipFile(bad_path, 'w') as zf:
       zf.writestr('foo.txt', b'bar')
-    layout = PyTorchLayout(Path(bad_path))
+    layout = PyTorchLayout()
     with self.assertRaisesRegex(InvalidLayoutError, 'missing data.pkl'):
-      await layout.validate()
+      await layout.validate(Path(bad_path))
 
   async def test_metadata(self):
-    layout = PyTorchLayout(Path(self._test_ckpt_path))
-    await layout.validate()
-    metadata = await layout.metadata()
+    layout = PyTorchLayout()
+    await layout.validate(Path(self._test_ckpt_path))
+    metadata = await layout.metadata(Path(self._test_ckpt_path))
     self.assertIn(
         checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY, metadata.metadata
     )
@@ -85,9 +85,9 @@ class PyTorchLayoutTest(
     }
     torch.save(data, ckpt_path)
 
-    layout = PyTorchLayout(Path(ckpt_path))
-    await layout.validate()
-    metadata = await layout.metadata()
+    layout = PyTorchLayout()
+    await layout.validate(Path(ckpt_path))
+    metadata = await layout.metadata(Path(ckpt_path))
     self.assertIn(
         checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY, metadata.metadata
     )
@@ -106,9 +106,9 @@ class PyTorchLayoutTest(
     self.assertEqual(pt_metadata['c'][1].dtype, np.float16)
 
   async def test_load_numpy(self):
-    layout = PyTorchLayout(Path(self._test_ckpt_path))
-    await layout.validate()
-    restored = await (await layout.load())
+    layout = PyTorchLayout()
+    await layout.validate(Path(self._test_ckpt_path))
+    restored = await (await layout.load(Path(self._test_ckpt_path)))
     restored_pytree = restored[checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY]
     np.testing.assert_array_equal(
         restored_pytree['alice'], self._test_data['alice'].numpy()
