@@ -339,7 +339,7 @@ async def _read_array_index_and_device_put(
     strict: bool,
     dll,
     memory_kind: Optional[str],
-) -> list[jax.Array]:
+) -> tuple[list[jax.Array], int]:
   """Callback that reads an array index and places on the devices."""
   for sl in index:
     if sl.step is not None and sl.step != 1:
@@ -392,7 +392,7 @@ async def _read_array_index_and_device_put(
           device, memory_kind=memory_kind
       )
       result.append(jax.device_put(shard, Format(dll, sharding)))  # pytype: disable=wrong-arg-types
-  return result
+  return result, requested_bytes
 
 
 def _get_device_to_index_map(
@@ -401,7 +401,7 @@ def _get_device_to_index_map(
   return sharding.devices_indices_map(global_shape)
 
 
-async def read_and_create_array(
+async def _read_and_create_array(
     t: ts.TensorStore,
     *,
     global_shape: Shape,
@@ -411,8 +411,8 @@ async def read_and_create_array(
     byte_limiter: limits.ByteLimiter,
     strict: bool,
     dll,
-) -> jax.Array:
-  """Read shards from TensorStore and create a jax.Array."""
+) -> tuple[jax.Array, int]:
+  """Read shards from TensorStore, create a jax.Array and return the total bytes read."""
   local_indices_devices_map: dict[types.HashableIndex, list[jax.Device]] = (
       collections.defaultdict(list)
   )
@@ -437,8 +437,16 @@ async def read_and_create_array(
       )
       for idx, devices in local_indices_devices_map.items()
   ]
-  dbs = sum(await asyncio.gather(*read_array_coros), [])
-  return jax.make_array_from_single_device_arrays(global_shape, sharding, dbs)
+  results_with_bytes = await asyncio.gather(*read_array_coros)
+  dbs = []
+  total_bytes_read = 0
+  for result, byte_count in results_with_bytes:
+    dbs.extend(result)
+    total_bytes_read += byte_count
+  return (
+      jax.make_array_from_single_device_arrays(global_shape, sharding, dbs),
+      total_bytes_read,
+  )
 
 
 async def async_deserialize(
@@ -451,8 +459,8 @@ async def async_deserialize(
     context: Optional[ts.Context] = None,
     assume_metadata: bool = False,
     strict: bool = True,
-) -> jax.Array:
-  """Reads an array using TensorStore."""
+) -> tuple[jax.Array, int]:
+  """Reads an array using TensorStore, returns the actual IO bytes read."""
   byte_limiter = byte_limiter or limits.get_byte_limiter()
   context = context or ts_utils.get_ts_context(use_ocdbt=False)
   sharding = (
@@ -487,7 +495,7 @@ async def async_deserialize(
     jax.monitoring.record_event(
         '/jax/orbax/checkpoint/deserialize/shard_shape_changed'
     )
-  return await read_and_create_array(
+  return await _read_and_create_array(
       t,
       global_shape=global_shape,
       new_shard_shape=new_shard_shape,

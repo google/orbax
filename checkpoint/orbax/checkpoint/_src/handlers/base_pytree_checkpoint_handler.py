@@ -1077,7 +1077,7 @@ class BasePyTreeCheckpointHandler(
         tree_memory_size,
         start_time,
         '/jax/checkpoint/read/gbytes_per_sec',
-        '/jax/checkpoint/read/gbytes',
+        '/jax/checkpoint/read/gbytes',  # device memory usage
     )
     return restored_item
 

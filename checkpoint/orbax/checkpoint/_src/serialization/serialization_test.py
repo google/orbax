@@ -82,8 +82,9 @@ def deserialize(
     ])
 
   result = asyncio_utils.run_sync(_deserialize())
+  ret = [x[0] for x in result]
   test_utils.sync_global_processes('deserialization_complete')
-  return result
+  return ret
 
 
 class FutureWithSpeedbump(future.Future):
@@ -191,7 +192,7 @@ class CheckpointTest(parameterized.TestCase):
           inp_shape,
           byte_limiter=limits.LimitInFlightBytes(4_200_000),
       )
-      r.block_until_ready()
+      r[0].block_until_ready()
 
     tm.start()
     _, start_memory_usage = tm.get_traced_memory()
@@ -209,7 +210,7 @@ class CheckpointTest(parameterized.TestCase):
     # because otherwise this leads to racing condition and segfault with
     # tensorstore attempting to dealloc using tracemalloc which is already
     # destroyed.
-    asyncio_utils.run_sync(deserialize_wo_limit).block_until_ready()
+    asyncio_utils.run_sync(deserialize_wo_limit)[0].block_until_ready()
 
     _, peak_memory_usage = tm.get_traced_memory()
     # We load entire array in memory here.

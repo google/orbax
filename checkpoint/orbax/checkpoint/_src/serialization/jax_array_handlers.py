@@ -26,6 +26,7 @@ import warnings
 from absl import logging
 import humanize
 import jax
+import jax.monitoring
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src import asyncio_utils
@@ -747,8 +748,10 @@ async def _deserialize_arrays(
     shardings: Sequence[jax.sharding.Sharding],
     metadata_key: str | None,
     array_metadata_store: array_metadata_store_lib.Store | None,
+    implementation_type: str,
 ) -> Sequence[jax.Array]:
   """Deserializes arrays and applies array_metadata if available."""
+  total_start_time = time.time()
 
   async def _async_deserialize(
       infos: Sequence[types.ParamInfo],
@@ -756,7 +759,7 @@ async def _deserialize_arrays(
       shardings: Sequence[jax.sharding.Sharding],
       *,
       metadata_key: str | None,
-  ) -> list[jax.Array]:
+  ) -> tuple[list[jax.Array], int]:
     """This function contains the core TensorStore read logic from ArrayHandler.deserialize."""
     use_ocdbt = _validate_ocdbt_settings(infos)
     if not use_ocdbt:
@@ -797,10 +800,16 @@ async def _deserialize_arrays(
               strict=arg.strict if hasattr(arg, 'strict') else True,
           )
       )
-    return await asyncio.gather(*deserialize_ops)
+    results = await asyncio.gather(*deserialize_ops)
+    deserialized_arrays = []
+    total_io_bytes = 0
+    for arr, io_bytes in results:
+      deserialized_arrays.append(arr)
+      total_io_bytes += io_bytes
+    return deserialized_arrays, total_io_bytes
 
   if array_metadata_store is not None:
-    ret, array_metadatas = await asyncio.gather(
+    (ret, total_io_bytes), array_metadatas = await asyncio.gather(
         _async_deserialize(
             infos,
             args,
@@ -814,12 +823,34 @@ async def _deserialize_arrays(
     if array_metadatas:
       ret = _wrap_random_key_data(array_metadatas, infos, ret)
   else:
-    ret = await _async_deserialize(
+    ret, total_io_bytes = await _async_deserialize(
         infos,
         args,
         shardings,
         metadata_key=metadata_key,
     )
+
+  total_duration = time.time() - total_start_time
+  total_io_gbytes = total_io_bytes / (1024**3)
+  io_throughput = total_io_gbytes / total_duration if total_duration > 0 else 0
+
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/read/worker/total_duration_secs',
+      total_duration,
+      implementation_type=implementation_type,
+  )
+
+  # record total bytes read from IO
+  jax.monitoring.record_scalar(
+      '/jax/orbax/read/worker/io/gbytes',
+      total_io_gbytes,
+      implementation_type=implementation_type,
+  )
+  jax.monitoring.record_scalar(
+      '/jax/orbax/read/worker/io/throughput/gbytes_per_sec',
+      io_throughput,
+      implementation_type=implementation_type,
+  )
   return ret
 
 
@@ -829,6 +860,7 @@ def _sync_deserialize_arrays(
     shardings: Sequence[jax.sharding.Sharding],
     metadata_key: str | None,
     array_metadata_store: array_metadata_store_lib.Store | None,
+    implementation_type: str,
 ) -> Sequence[jax.Array]:
   """Deserializes arrays and applies array_metadata if available."""
 
@@ -840,6 +872,7 @@ def _sync_deserialize_arrays(
           shardings,
           metadata_key,
           array_metadata_store,
+          implementation_type=implementation_type,
       )
   )
 
@@ -1151,7 +1184,12 @@ class ArrayHandler(types.TypeHandler):
 
     if self._dispatcher is None:
       ret = await _deserialize_arrays(
-          infos, args, shardings, self._metadata_key, self._array_metadata_store
+          infos,
+          args,
+          shardings,
+          self._metadata_key,
+          self._array_metadata_store,
+          implementation_type='mcjax',
       )
     else:
       args = await self._maybe_read_metadata_and_update_restore_args(
@@ -1166,6 +1204,7 @@ class ArrayHandler(types.TypeHandler):
               'shardings': shardings,
               'metadata_key': self._metadata_key,
               'array_metadata_store': self._array_metadata_store,
+              'implementation_type': self._dispatcher.name(),
           },
       )
       jax.block_until_ready(ret)
@@ -1281,6 +1320,7 @@ async def _single_replica_deserialize_and_broadcast(
         single_replica_shardings,
         metadata_key,
         None,
+        'mcjax.SingleReplicaArrayHandler',
     )
     deserialization_elapsed_s = time.time() - start_deserialization
     jax.monitoring.record_event_duration_secs(
@@ -1332,6 +1372,7 @@ def _single_replica_deserialize_on_worker(
     args: Sequence[SingleReplicaArrayRestoreArgs],
     single_replica_shardings: Sequence[jax.sharding.Sharding],
     metadata_key: str | None,
+    implementation_type: str,
 ):
   """Deserializes a single replica on a worker."""
   return asyncio_utils.run_sync(
@@ -1341,6 +1382,7 @@ def _single_replica_deserialize_on_worker(
           single_replica_shardings,
           metadata_key,
           None,
+          implementation_type,
       )
   )
 
