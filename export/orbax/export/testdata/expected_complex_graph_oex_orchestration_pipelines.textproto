@@ -1,0 +1,205 @@
+# proto-file: //orbax/export/protos/oex_orchestration.proto
+# proto-message: Pipelines
+name_to_pipeline {
+  key: "serving_default"
+  value {
+    keyword_arguments_based: true
+    named_signature {
+      inputs {
+        named_tensor_types {
+          name: "x"
+          tensor_type {
+            shape {
+              shape_with_known_rank {
+                dimension_sizes {
+                  size: 1
+                }
+              }
+            }
+            dtype: f32
+          }
+        }
+        named_tensor_types {
+          name: "y"
+          tensor_type {
+            shape {
+              shape_with_known_rank {
+                dimension_sizes {
+                  size: 1
+                }
+              }
+            }
+            dtype: str
+          }
+        }
+      }
+      outputs {
+        named_tensor_types {
+          name: "output_post"
+          tensor_type {
+            shape {
+              shape_with_known_rank {
+                dimension_sizes {
+                  size: 1
+                }
+              }
+            }
+            dtype: str
+          }
+        }
+      }
+    }
+    pre_processor_names: "serving_default_pre"
+    model_functions {
+      model_function_name: "serving_default"
+    }
+    post_processor_names: "serving_default_post"
+    components {
+      function_name: "serving_default_pre"
+      role: ROLE_PREPROCESSOR
+      named_signature {
+        inputs {
+          named_tensor_types {
+            name: "x"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 1
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+          named_tensor_types {
+            name: "y"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 1
+                  }
+                }
+              }
+              dtype: str
+            }
+          }
+        }
+        outputs {
+          named_tensor_types {
+            name: "numeric"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 1
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+          named_tensor_types {
+            name: "string_pre"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 1
+                  }
+                }
+              }
+              dtype: str
+            }
+          }
+        }
+      }
+    }
+    components {
+      function_name: "serving_default"
+      role: ROLE_MODEL
+      named_signature {
+        inputs {
+          named_tensor_types {
+            name: "numeric"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 1
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+        }
+        outputs {
+          named_tensor_types {
+            name: "model_output"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 1
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+        }
+      }
+    }
+    components {
+      function_name: "serving_default_post"
+      role: ROLE_POSTPROCESSOR
+      named_signature {
+        inputs {
+          named_tensor_types {
+            name: "inputs_model_output"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 1
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+          named_tensor_types {
+            name: "string_pre"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 1
+                  }
+                }
+              }
+              dtype: str
+            }
+          }
+        }
+        outputs {
+          named_tensor_types {
+            name: "output_post"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 1
+                  }
+                }
+              }
+              dtype: str
+            }
+          }
+        }
+      }
+    }
+  }
+}
