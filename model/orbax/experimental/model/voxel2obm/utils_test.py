@@ -14,42 +14,27 @@
 
 """Tests for utils."""
 
+import dataclasses
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.voxel2obm import utils
-from .learning.brain.experimental import jax_data as jd
+
+
+@dataclasses.dataclass(frozen=True)
+class MockVoxelSignature:
+  dtype: np.dtype
+  shape: tuple[int, ...]
 
 
 class UtilsTest(parameterized.TestCase):
 
-  def test_obm_spec_to_voxel_signature(self):
-    obm_spec = {
-        'a': obm.ShloTensorSpec(shape=(1, 2), dtype=obm.ShloDType.i32),
-        'b': obm.ShloTensorSpec(shape=(3,), dtype=obm.ShloDType.f32),
-    }
-    voxel_sig = utils.obm_spec_to_voxel_signature(obm_spec)
-    expected_voxel_sig = {
-        'a': jd.VoxelTensorSpec(
-            shape=(1, 2), dtype=np.dtype(np.int32)
-        ),
-        'b': jd.VoxelTensorSpec(
-            shape=(3,), dtype=np.dtype(np.float32)
-        ),
-    }
-
-    self.assertEqual(voxel_sig['a'], expected_voxel_sig['a'])
-    self.assertEqual(voxel_sig['b'], expected_voxel_sig['b'])
-
   def test_voxel_signature_to_obm_spec(self):
     voxel_sig = {
-        'a': jd.VoxelTensorSpec(
-            shape=(1, 2), dtype=np.dtype(np.int32)
-        ),
-        'b': jd.VoxelTensorSpec(
-            shape=(3,), dtype=np.dtype(np.float32)
-        ),
+        'a': MockVoxelSignature(shape=(1, 2), dtype=np.dtype(np.int32)),
+        'b': MockVoxelSignature(shape=(3,), dtype=np.dtype(np.float32)),
     }
     obm_spec = utils.voxel_signature_to_obm_spec(voxel_sig)
     expected_obm_spec = {
