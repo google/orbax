@@ -48,13 +48,13 @@ class CheckpointLayout(Protocol):
     delegating to the resolved handlers.
   """
 
-  @property
-  def path(self) -> Path:
-    """Returns the path of the checkpoint."""
-    ...
-
-  async def metadata(self) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
+  async def metadata(
+      self, path: Path
+  ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
     """Returns the metadata of the checkpoint.
+
+    Args:
+      path: The path of the checkpoint.
 
     Returns:
       A dictionary of metadata. Dictionary keys represent the names of the
@@ -62,8 +62,11 @@ class CheckpointLayout(Protocol):
     """
     ...
 
-  async def validate(self) -> None:
+  async def validate(self, path: Path) -> None:
     """Validates the path, determining if it conforms to this instance.
+
+    Args:
+      path: The path of the checkpoint.
 
     Returns:
       None.
@@ -73,10 +76,13 @@ class CheckpointLayout(Protocol):
     """
     ...
 
-  async def validate_pytree(self, checkpointable_name: str | None) -> None:
+  async def validate_pytree(
+      self, path: Path, checkpointable_name: str | None
+  ) -> None:
     """Validates the path as a PyTree checkpoint.
 
     Args:
+      path: The path of the checkpoint.
       checkpointable_name: The name of the checkpointable to load.
 
     Returns:
@@ -90,11 +96,13 @@ class CheckpointLayout(Protocol):
 
   async def load(
       self,
+      path: Path,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> Awaitable[dict[str, Any]]:
     """Loads the checkpoint from the given directory.
 
     Args:
+      path: The path of the checkpoint.
       abstract_checkpointables: A dictionary of abstract checkpointables.
         Dictionary keys represent the names of the checkpointables, while the
         values are the abstract checkpointable objects themselves.
