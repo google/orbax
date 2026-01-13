@@ -16,11 +16,13 @@ import collections
 from collections.abc import Mapping
 import os
 import re
-from typing import Any, Callable
+from typing import Callable
 
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.core.python import file_utils
 from orbax.experimental.model.voxel2obm import voxel_asset_map_pb2
+
+from .learning.brain.experimental import jax_data as jd
 
 
 VOXEL_PROCESSOR_MIME_TYPE = 'application/protobuf; type=voxel.PlanProto'
@@ -35,9 +37,7 @@ VOXEL_ASSET_MAP_SUPPLEMENTAL_NAME = 'voxel_asset_map'
 
 
 def voxel_plan_to_obm(
-    # TODO(b/447200841): use the true type hint after voxel module is
-    # implemented.
-    voxel_module: Any,
+    voxel_module: jd.AbstractVoxelModule,
     input_signature: obm.Tree[obm.ShloTensorSpec],
     output_signature: obm.Tree[obm.ShloTensorSpec],
     subfolder: str = DEFAULT_VOXEL_MODULE_FOLDER,
@@ -53,11 +53,9 @@ def voxel_plan_to_obm(
   Returns:
     An `obm.SerializableFunction` representing the Voxel module.
   """
-  plan_proto = voxel_module.export_plan()
-  plan_proto_bytes = plan_proto.SerializeToString()
-
+  plan = voxel_module.export_plan()
   unstructured_data = obm.manifest_pb2.UnstructuredData(
-      inlined_bytes=plan_proto_bytes,
+      inlined_bytes=plan.SerializeToString(),
       mime_type=VOXEL_PROCESSOR_MIME_TYPE,
       version=VOXEL_PROCESSOR_VERSION,
   )
@@ -213,7 +211,7 @@ def _asset_map_to_obm_supplemental(
 
 
 def voxel_global_supplemental_closure(
-    voxel_module: Any,
+    voxel_module: jd.AbstractVoxelModule,
 ) -> Callable[[str], Mapping[str, obm.GlobalSupplemental]] | None:
   """Returns a closure for saving Voxel assets and creating supplemental data.
 
