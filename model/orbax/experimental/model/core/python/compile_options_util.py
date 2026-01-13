@@ -271,6 +271,14 @@ def parse_flag_from_string(flag_name: str, value: str) -> Any:
       ) from e
   if field.type == descriptor.FieldDescriptor.TYPE_ENUM:
     if isinstance(parsed_value, str):
+      try:
+        return field.enum_type.values_by_name[parsed_value].number
+      except KeyError as exc:
+        valid_options = list(field.enum_type.values_by_name.keys())
+        raise ValueError(
+            f"Invalid value '{parsed_value}' for flag {flag_name}. "
+            f"The value must be one of: {', '.join(valid_options)}"
+        ) from exc
       return field.enum_type.values_by_name[parsed_value].number
     # If it's already an int, assume it's the correct value.
     return parsed_value
