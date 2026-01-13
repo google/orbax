@@ -108,8 +108,7 @@ class PyTorchLayoutTest(
   async def test_load_numpy(self):
     layout = PyTorchLayout(Path(self._test_ckpt_path))
     await layout.validate()
-    restored = await (await layout.load())
-    restored_pytree = restored[checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY]
+    restored_pytree = await (await layout.load_pytree())
     np.testing.assert_array_equal(
         restored_pytree['alice'], self._test_data['alice'].numpy()
     )

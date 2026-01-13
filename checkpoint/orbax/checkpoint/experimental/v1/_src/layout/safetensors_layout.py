@@ -229,7 +229,7 @@ async def _load_safetensors_on_device(
 
 async def _load_safetensors(
     path: Path, abstract_pytree: dict[str, Any] | None = None
-) -> dict[str, Any]:
+) -> Any:
   """Calls the correct safetensors loading function."""
 
   if abstract_pytree is None:
@@ -239,7 +239,7 @@ async def _load_safetensors(
     # Return on-device JAX arrays.
     restored_pytree = await _load_safetensors_on_device(path, abstract_pytree)
 
-  return {checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: restored_pytree}
+  return restored_pytree
 
 
 class SafetensorsLayout(CheckpointLayout):
@@ -297,7 +297,16 @@ class SafetensorsLayout(CheckpointLayout):
   async def validate_pytree(self, checkpointable_name: str | None) -> None:
     return
 
-  async def load(
+  async def load_pytree(
+      self,
+      checkpointable_name: str | None = None,
+      abstract_pytree: Any | None = None,
+  ) -> Awaitable[Any]:
+    del checkpointable_name
+    load_awaitable = _load_safetensors(self._path, abstract_pytree)
+    return load_awaitable
+
+  async def load_checkpointables(
       self,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> Awaitable[dict[str, Any]]:
@@ -306,4 +315,10 @@ class SafetensorsLayout(CheckpointLayout):
       abstract_pytree = abstract_checkpointables.get(
           checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
       )
-    return _load_safetensors(self._path, abstract_pytree)
+
+    async def _loader():
+      restored_pytree = await _load_safetensors(self._path, abstract_pytree)
+      return {checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: restored_pytree}
+
+    load_awaitable = _loader()
+    return load_awaitable
