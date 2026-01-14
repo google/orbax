@@ -1,7 +1,7 @@
-model.tf2obm.tf_concrete_functions_to_obm
+model.tf2obm.converter
 ============================================================================
 
-.. currentmodule:: orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm
+.. currentmodule:: orbax.experimental.model.tf2obm.converter
 
-.. automodule:: orbax.experimental.model.tf2obm.tf_concrete_functions_to_obm
+.. automodule:: orbax.experimental.model.tf2obm.converter
   :members:
