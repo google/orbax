@@ -19,6 +19,7 @@ from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
+from orbax.checkpoint.experimental.v1._src.layout import v0_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
@@ -47,7 +48,11 @@ async def get_checkpoint_layout(
 
   match layout_enum:
     case CheckpointLayoutEnum.ORBAX:
-      layout_class = orbax_layout.OrbaxLayout
+      # This allows us to restore a v0 checkpoint with its own layout.
+      if _is_v0_checkpoint(path):
+        layout_class = v0_layout.V0Layout
+      else:
+        layout_class = orbax_layout.OrbaxLayout
     case CheckpointLayoutEnum.SAFETENSORS:
       layout_class = safetensors_layout.SafetensorsLayout
     case _:
@@ -104,21 +109,31 @@ async def _try_resolve_pytree_checkpointable(
   if checkpointable_name is not None:
     return layout, checkpointable_name
   # Not a v0 checkpoint; use the default name.
-  if not _is_v0_checkpoint(layout):
+  if not _is_v0_checkpoint(layout.path):
+    if checkpointable_name is None:
+      raise ValueError(
+          "Cannot extract pytree from top-level V1 checkpoint directory."
+      )
     return layout, checkpointable_name
   # If it's a V0 checkpoint, we can try to resolve the checkpointable name from
   # the path.
-  if not isinstance(layout, orbax_layout.OrbaxLayout):
-    raise AssertionError(f"Expected an OrbaxLayout, but got a {type(layout)}.")
-  # Option 1: It may be a direct path to the PyTree checkpointable.
+  if not isinstance(layout, (orbax_layout.OrbaxLayout, v0_layout.V0Layout)):
+    raise AssertionError(
+        f"Expected an OrbaxLayout or V0Layout, but got a {type(layout)}."
+    )
+
+  # If the path itself is a V0 PyTree checkpoint (flat structure), we can
+  # "zoom out" to the parent directory and treat the current directory as the
+  # checkpointable.
   try:
     original_path = layout.path
-    new_layout = orbax_layout.OrbaxLayout(original_path.parent)
+    new_layout = v0_layout.V0Layout(original_path.parent)
     await new_layout.validate_pytree(original_path.name)
     return new_layout, original_path.name
   except checkpoint_layout.InvalidLayoutError:
     pass
-  # Option 2: It may be a V0 checkpoint containing a PyTree checkpointable. It
+
+  # It may be a V0 checkpoint containing a PyTree checkpointable. It
   # is possible for there to be multiple, but this would be unusual, and it is
   # fine to just return the first one.
   dir_names = [p.name for p in layout.path.iterdir() if p.is_dir()]
@@ -135,8 +150,7 @@ async def _try_resolve_pytree_checkpointable(
   )
 
 
-def _is_v0_checkpoint(layout: CheckpointLayout) -> bool:
-  return not isinstance(layout, orbax_layout.OrbaxLayout) or (
-      isinstance(layout, orbax_layout.OrbaxLayout)
-      and not layout.has_indicator_file
-  )
+def _is_v0_checkpoint(path: path_types.PathLike) -> bool:
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
+  return not (path / orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE).exists()
