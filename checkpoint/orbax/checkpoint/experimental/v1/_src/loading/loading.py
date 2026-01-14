@@ -104,6 +104,7 @@ def load_pytree(
   logging.info('Loading checkpoint from %s.', path)
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
+
   layout, checkpointable_name = asyncio.run(
       layout_registry.get_checkpoint_layout_pytree(
           path, ctx.checkpoint_layout, checkpointable_name

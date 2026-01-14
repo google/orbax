@@ -25,7 +25,6 @@ from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.loading import v0_compatibility
-from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
@@ -149,24 +148,23 @@ class OrbaxLayout(CheckpointLayout):
     """Validates a checkpoint path written by `ocp.save_pytree`.
 
     Args:
-      checkpointable_name: The name of the checkpointable to load. A
-        subdirectory with this name must exist in `directory`. If None then
-        `directory` is expected to contain the checkpoint directly. Defaults to
-        `pytree`.
+      checkpointable_name: The name of the checkpointable to load. For Orbax V1,
+        a subdirectory with this name must exist in `directory`.
 
     Raises:
       FileNotFoundError: If the path does not exist, or if `pytree` is not found
         in the directory
       ValueError: If the PyTree checkpoint is malformed.
     """
-    pytree_dir = (
-        self.path
-        if checkpointable_name is None
-        else self.path / checkpointable_name
-    )
-    if checkpointable_name is not None and not await async_path.exists(
-        pytree_dir
-    ):
+    if checkpointable_name is None:
+      raise ValueError(
+          "A V1 checkpoint was saved and user is attempting to load it,"
+          " treating it as a V0 Orbax checkpoint saved directly from"
+          f" {self.path}, this is not a characteristic of V1 saved checkpoints"
+      )
+
+    pytree_dir = self.path / checkpointable_name
+    if not await async_path.exists(pytree_dir):
       subdirs = [
           d.name
           for d in await _subpaths(self.path)
@@ -181,17 +179,13 @@ class OrbaxLayout(CheckpointLayout):
           " using"
           " `ocp.load_checkpointables()`."
       )
-    if not await _has_pytree_metadata_file(pytree_dir):
-      # TODO(niketkb): Add following details to the error message:
-      # 1. we should check other available subdirectories and see if any of them
-      #   look like PyTree checkpoints, and instruct the user to consider
-      #   whether they meant to specify any of those.
-      # 2. we need to check the directory - if it contains PyTree files, suggest
-      #   loading with checkpointable_name=None
+
+    if not (pytree_dir / PYTREE_METADATA_FILE).exists():
       raise FileNotFoundError(
           f"Checkpoint path {self.path} does not contain a PyTree metadata"
           " file."
       )
+
     if not await _has_tensorstore_data_files(pytree_dir):
       logging.warning(
           "TensorStore data files not found in checkpoint path %s. This may be"
@@ -201,17 +195,13 @@ class OrbaxLayout(CheckpointLayout):
       )
 
   async def _validate(self):
-    """Validates a checkpoint directory.
+    """Validates a checkpoint directory to be a V1 Orbax checkpoint.
 
-    Must be:
+    Must fulfill all of the following:
     - Existing
-    - A directory.
-    - Not a temporary path.
-    - OR
-      - Has orbax.checkpoint indicator file.
-      - OR
-        - Has _CHECKPOINT_METADATA file.
-        - A subdirectory has _METADATA file (PyTree checkpoint).
+    - A directory
+    - Not a temporary path
+    - Has orbax.checkpoint indicator file
 
     Raises:
       FileNotFoundError: If the path does not exist.
@@ -236,33 +226,10 @@ class OrbaxLayout(CheckpointLayout):
     if ORBAX_CHECKPOINT_INDICATOR_FILE in [p.name for p in subpaths]:
       return
 
-    # Path points to a single step checkpoint with valid metadata.
-    if await async_path.exists(
-        metadata_serialization.checkpoint_metadata_file_path(self.path)
-    ):
-      return
-
-    # The path itself points to a PyTree checkpointable.
-    if await async_path.exists(self.path / PYTREE_METADATA_FILE):
-      return
-    # The path points to a directory containing at least one PyTree
-    # checkpointable.
-    for subpath in subpaths:
-      if await async_path.is_dir(subpath) and await async_path.exists(
-          subpath / PYTREE_METADATA_FILE
-      ):
-        return
-
     raise FileNotFoundError(
         f"Checkpoint path {self.path} could not be identified as a valid Orbax"
-        " checkpoint. The path must conform to one of the following"
-        " conditions:\n  - Contain the indicator file"
-        f" {ORBAX_CHECKPOINT_INDICATOR_FILE}. This should be true of all"
-        " checkpoints saved with the Orbax V1 API. If not present, the"
-        " checkpoint may have been saved with the V0 API.\n  - Contain the"
-        " _CHECKPOINT_METADATA file.\n  - Point directly to a PyTree"
-        " checkpointable (contain _METADATA file).\n  - Contain a subdirectory"
-        " which is a PyTree checkpointable (contain _METADATA file).\n"
+        " V1 checkpoint. It is missing the indicator file"
+        f" '{ORBAX_CHECKPOINT_INDICATOR_FILE}'."
     )
 
   async def validate(self):
