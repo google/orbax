@@ -108,5 +108,100 @@ name_to_pipeline {
       }
       mixed_priority_batching_policy: LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE
     }
+    components {
+      function_name: "__PRE_PROCESSOR_NAME__"
+      role: ROLE_PREPROCESSOR
+      named_signature {
+        inputs {
+          named_tensor_types {
+            name: "__INPUT_NAME__"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 28
+                  }
+                  dimension_sizes {
+                    size: 28
+                  }
+                  dimension_sizes {
+                    size: 1
+                  }
+                }
+              }
+              dtype: f64
+            }
+          }
+        }
+        outputs {
+          named_tensor_types {
+            name: "output_0"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 4
+                  }
+                  dimension_sizes {
+                    size: 28
+                  }
+                  dimension_sizes {
+                    size: 28
+                  }
+                  dimension_sizes {
+                    size: 1
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+        }
+      }
+    }
+    components {
+      function_name: "__MODEL_FUNCTION_NAME__"
+      role: ROLE_MODEL
+      weights_name: "__WEIGHTS_NAME__"
+      named_signature {
+      }
+    }
+    components {
+      function_name: "__POST_PROCESSOR_NAME__"
+      role: ROLE_POSTPROCESSOR
+      named_signature {
+        inputs {
+          named_tensor_types {
+            name: "x"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                  }
+                  dimension_sizes {
+                    size: 10
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+        }
+        outputs {
+          named_tensor_types {
+            name: "output_0"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+        }
+      }
+    }
   }
 }
