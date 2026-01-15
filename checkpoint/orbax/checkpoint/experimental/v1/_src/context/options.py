@@ -371,7 +371,11 @@ class CheckpointLayout(enum.Enum):
   Currently supported layouts are:
     ORBAX: Orbax's own layout.
     SAFETENSORS: https://huggingface.co/docs/safetensors/en/index
+    NUMPY: NumPy's own layout.
+    PYTORCH: PyTorch's own layout.
   """
 
   ORBAX = 'Orbax'
   SAFETENSORS = 'SafeTensors'
+  NUMPY = 'NumPy'
+  PYTORCH = 'PyTorch'

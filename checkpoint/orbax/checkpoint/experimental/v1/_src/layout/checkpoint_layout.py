@@ -48,6 +48,9 @@ class CheckpointLayout(Protocol):
     delegating to the resolved handlers.
   """
 
+  def __init__(self, path: Path):
+    ...
+
   @property
   def path(self) -> Path:
     """Returns the path of the checkpoint."""
@@ -104,5 +107,24 @@ class CheckpointLayout(Protocol):
       names of
       the checkpointables, while the values are the checkpointable objects
       themselves.
+    """
+    ...
+
+  async def save(
+      self,
+      path: types.PathAwaitingCreation,
+      *,
+      checkpointables: dict[str, Any],
+  ) -> Awaitable[None]:
+    """Saves the checkpoint to the given directory.
+
+    Args:
+      path: The directory to save the checkpoint to.
+      checkpointables: A dictionary of checkpointables to save. Dictionary keys
+        represent the names of the checkpointables, while the values are the
+        checkpointable objects themselves.
+
+    Returns:
+      An awaitable that completes when the save operation is finished.
     """
     ...
