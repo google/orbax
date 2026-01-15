@@ -12,17 +12,22 @@ BRANCH="main"
 JAX_VERSION="newest"
 DEVICE="tpu"
 BASE_IMAGE=""
+DOCKERFILE_PATH=""
+NO_CACHE_FLAG=""
 
 function print_usage() {
   echo "Usage: $0 [OPTIONS]"
-  echo "Options:"
+  echo "Options:"+
   echo "  --project PROJECT_ID    GCP Project ID"
   echo "  --pr PR_NUMBER          GitHub PR number"
+  echo "  --image IMAGE_NAME      Image name (default: orbax-benchmarks)"
   echo "  --branch BRANCH         GitHub branch (default: main)"
   echo "  --jax-version VERSION   JAX version: newest, nightly, or X.Y.Z (default: newest)"
   echo "  --device DEVICE         Device type: tpu, gpu, cpu (default: tpu)"
   echo "  --base-image IMAGE      Base Docker image (optional)"
+  echo "  --dockerfile FILE       Dockerfile path (optional)"
   echo "  --tag TAG               Image tag"
+  echo "  --no-cache              Disable Docker build cache"
   echo "  --help                  Show this help"
 }
 
@@ -32,11 +37,14 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --project) PROJECT_ID="$2"; shift 2 ;;
     --pr) PR_NUMBER="$2"; shift 2 ;;
+    --image) IMAGE_NAME="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
     --jax-version) JAX_VERSION="$2"; shift 2 ;;
     --device) DEVICE="$2"; shift 2 ;;
     --base-image) BASE_IMAGE="$2"; shift 2 ;;
+    --dockerfile) DOCKERFILE_PATH="$2"; shift 2 ;;
     --tag) USER_TAG_FLAG="$2"; shift 2 ;;
+    --no-cache) NO_CACHE_FLAG="--no-cache"; shift 1 ;;
     --help) print_usage; exit 0 ;;
     *) echo "Unknown argument: $1"; print_usage; exit 1 ;;
   esac
@@ -54,7 +62,9 @@ if [[ -z "$BASE_IMAGE" ]]; then
 fi
 
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
-DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
+if [[ -z "$DOCKERFILE_PATH" ]]; then
+  DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
+fi
 
 if [[ ! -f "$DOCKERFILE_PATH" ]]; then
   # Fallback: check if we are running in the source dir
@@ -110,15 +120,23 @@ done
 
 # Build with local Docker
 echo "Building with previously installed Docker..."
-docker build \
-  --build-arg BASE_IMAGE="${BASE_IMAGE}" \
-  --build-arg BRANCH="${BRANCH}" \
-  --build-arg JAX_VERSION="${JAX_VERSION}" \
-  --build-arg DEVICE="${DEVICE}" \
-  --build-arg PR_NUMBER="${PR_NUMBER}" \
-  "${build_tag_args[@]}" \
-  -f "${DOCKERFILE_PATH}" \
-  .
+declare -a build_args=()
+if [[ -n "${NO_CACHE_FLAG}" ]]; then
+  build_args+=("${NO_CACHE_FLAG}")
+fi
+build_args+=(
+  "--build-arg" "BASE_IMAGE=${BASE_IMAGE}"
+  "--build-arg" "BRANCH=${BRANCH}"
+  "--build-arg" "JAX_VERSION=${JAX_VERSION}"
+  "--build-arg" "DEVICE=${DEVICE}"
+  "--build-arg" "PR_NUMBER=${PR_NUMBER}"
+)
+build_args+=("${build_tag_args[@]}")
+build_args+=(
+  "-f" "${DOCKERFILE_PATH}"
+  "."
+)
+docker build "${build_args[@]}"
 
 echo "Pushing image to registry..."
 for t in "${tags[@]}"; do
