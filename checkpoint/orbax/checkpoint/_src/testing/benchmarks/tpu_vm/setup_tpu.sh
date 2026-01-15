@@ -63,12 +63,12 @@ for i in $(seq 1 $max_retries); do
 done
 
 # 2. Python Setup
-echo ">>> Using System Python 3..."
+echo ">>> Setting up Python 3..."
 python3 --version
 
 # Ensure pip is up to date
 echo ">>> Upgrading pip..."
-pip install --upgrade pip
+python3 -m pip install --upgrade pip
 
 # 3. Clone/Fetch Orbax
 echo ">>> Setting up Orbax workspace at $WORK_DIR..."
@@ -106,14 +106,14 @@ echo ">>> Installing JAX (Version: $JAX_VERSION)..."
 
 if [ "$JAX_VERSION" = "newest" ]; then
     # TPU default
-    pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+    python3 -m pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 elif [ "$JAX_VERSION" = "nightly" ]; then
     # TPU nightly
-    pip install -U --pre "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html \
+    python3 -m pip install -U --pre "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html \
         --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/
 else
     # Specific version
-    pip install "jax[tpu]==${JAX_VERSION}" "jaxlib==${JAX_VERSION}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+    python3 -m pip install "jax[tpu]==${JAX_VERSION}" "jaxlib==${JAX_VERSION}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 fi
 
 # Install Orbax from source
@@ -123,11 +123,38 @@ if [ -d "checkpoint" ]; then
     cd checkpoint
 fi
 # Fix for some build isolation issues with old pip/setuptools
-pip install .
+python3 -m pip install .
 
 # Install Benchmark dependencies (from Dockerfile analysis)
 echo "Installing benchmark dependencies..."
-pip install gcsfs portpicker clu tensorflow google-cloud-logging
+python3 -m pip install gcsfs portpicker clu tensorflow google-cloud-logging
 
 echo "=== Setup Complete ==="
 echo "Orbax installed in: $WORK_DIR"
+
+# 1. Define the mount point
+RAMFS_DIR="/mnt/ramdisk/new"
+sudo mkdir -p "${RAMFS_DIR}"
+
+# 2. Mount tmpfs
+if ! grep -qs " ${RAMFS_DIR} " /proc/mounts; then
+    echo ">>> Mounting tmpfs for high-performance storage..."
+    # Options:
+    #   -t tmpfs: Specifies the filesystem type as tmpfs.
+    #   -o size=32g: Sets a maximum size for the tmpfs. Adjust "32g" based on your TPU VM's RAM.
+    #                 It's crucial to leave enough RAM for the OS and your applications.
+    #   -o rw: Read-write permissions.
+    #   -o huge=always: (Optional) Encourage huge pages for potentially better performance with large files.
+    #   -o mode=1777: Standard permissions for shared temporary directories.
+    #   -o relatime: Update access times relative to modification time.
+    sudo mount -t tmpfs -o size=32g,rw,huge=always,mode=1777,relatime tmpfs "${RAMFS_DIR}"
+    echo ">>> tmpfs mounted at ${RAMFS_DIR} with size limit of 32GB."
+else
+    echo ">>> ${RAMFS_DIR} is already a mountpoint, skipping mount."
+fi
+
+# 3. Set ownership to the current user so your scripts can write to it
+sudo chown "${USER}:${USER}" "${RAMFS_DIR}"
+
+df -h "${RAMFS_DIR}"
+# --- End of additions ---
