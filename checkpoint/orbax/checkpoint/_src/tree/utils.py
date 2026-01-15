@@ -235,10 +235,15 @@ def deserialize_tree(
     result = serialized
     for key in keypath:
       key_name = get_key_name(key)
-      # Special case to support Pax.
-      if not isinstance(result, list) and key_name not in result:
-        key_name = str(key_name)
-      result = result[key_name]
+      if isinstance(key, jax.tree_util.GetAttrKey) and isinstance_of_namedtuple(
+          result
+      ):
+        result = getattr(result, key_name)
+      else:
+        # Special case to support Pax.
+        if not isinstance(result, (list, tuple)) and key_name not in result:
+          key_name = str(key_name)
+        result = result[key_name]
     return result
 
   return jax.tree_util.tree_map_with_path(
