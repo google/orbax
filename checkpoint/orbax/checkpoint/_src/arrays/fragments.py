@@ -271,8 +271,13 @@ class _ConcreteFragment(_GenericFragment[Aconcrete]):
         ' value=...)'
     )
 
-  def __array__(self) -> np.ndarray:
-    return np.asarray(self.value)
+  def __array__(
+      self,
+      dtype: np.dtype | None = None,
+      *,
+      copy: bool | None = None,
+  ) -> np.ndarray:
+    return np.asarray(self.value, dtype=dtype, copy=copy)
 
   @property
   def nbytes(self) -> int:
@@ -347,7 +352,12 @@ class _GenericFragments(Generic[_F]):
     """The total number of bytes for the fragments collected in this object."""
     return sum(f.nbytes_astype(self.dtype) for f in self.fragments)
 
-  def __array__(self) -> np.ndarray:
+  def __array__(
+      self,
+      dtype: np.dtype | None = None,
+      *,
+      copy: bool | None = None,
+  ) -> np.ndarray:
     for f in self.fragments:
       if f.value is None:
         raise ValueError(
@@ -363,12 +373,18 @@ class _GenericFragments(Generic[_F]):
       # least one fragment that covers the target shape fully (omitting the
       # fragments that have step > 1 on any dimension).
       if f.shape == self.shape:
-        return f.value  # pytype: disable=bad-return-type
+        return np.asarray(f.value, dtype=dtype, copy=copy)
+    if copy is False:  # pylint: disable=g-bool-id-comparison; None is different
+      raise ValueError(
+          'Attempt to convert Fragments to array without copying. This is'
+          ' only possible if there is a single fragment that spans the entire'
+          f' shape, but there are {len(self.fragments)} fragments.'
+      )
     if not _is_full(self):
       raise ValueError(
           f'Attempt to convert non-full Fragments to array: {self}.'
       )
-    result = np.empty(self.shape, dtype=self.dtype)
+    result = np.empty(self.shape, dtype=dtype or self.dtype)
     for f in non_degenerate_fragments:
       result[f.index] = f.value
     return result

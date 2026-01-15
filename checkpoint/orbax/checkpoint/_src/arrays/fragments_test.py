@@ -568,13 +568,64 @@ class FragmentsToArrayTest(parameterized.TestCase):
             ),
         ],
     )
-    a = np.asarray(fragments)
-    np.testing.assert_array_equal(
-        np.concatenate(
-            [np_api.full([4, 2], 88), np_api.full([4, 3], 99)], axis=1
-        ),
-        a,
+
+    expected_array = np.concatenate(
+        [np_api.full([4, 2], 88), np_api.full([4, 3], 99)], axis=1
     )
+
+    with self.subTest('with_default_dtype'):
+      np.testing.assert_array_equal(expected_array, np.asarray(fragments))
+
+    with self.subTest('with_explicit_dtype'):
+      np.testing.assert_array_equal(
+          expected_array.astype(int), np.asarray(fragments, dtype=int)
+      )
+
+    with self.subTest('with_explicit_copy'):
+      a = np.asarray(fragments, copy=True)
+      np.testing.assert_array_equal(expected_array, a)
+      self.assertIsNone(a.base)
+      self.assertFalse(any(a is f.value for f in fragments.fragments))
+
+    with self.subTest('with_explicit_no_copy'):
+      with self.assertRaisesRegex(
+          ValueError, 'Attempt to convert Fragments to array without copying'
+      ):
+        np.asarray(fragments, copy=False)
+
+  def test_full_singleton_fragments_can_be_converted_to_numpy_array(
+      self, fragments_t: ConcreteFragmentsT
+  ):
+    # There is a special case for singleton fragments so we need to
+    # exercise that separately.
+
+    fragment_t = fragments_t.FRAGMENT_T
+    np_api = fragment_t.NP_API
+    fragments = fragments_t(
+        shape=(4, 5),
+        dtype=np.dtype(np.float32),
+        fragments=[
+            fragment_t(
+                index=np.s_[0:4:1, 0:5:1], value=np_api.full([4, 5], 88)
+            ),
+        ],
+    )
+
+    with self.subTest('with_explicit_copy'):
+      a = np.asarray(fragments, copy=True)
+      np.testing.assert_array_equal(fragments.fragments[0].value, a)
+      self.assertIsNone(a.base)
+      self.assertIsNot(fragments.fragments[0].value, a)
+
+    with self.subTest('with_explicit_no_copy'):
+      a = np.asarray(fragments, copy=False)
+      if fragments_t is NpFragments:
+        self.assertIs(a, fragments.fragments[0].value)
+      elif fragments_t is JaxFragments:
+        assert (base := a.base) is not None
+        self.assertIs(base.obj, fragments.fragments[0].value)
+      else:
+        raise ValueError(f'Unexpected fragments type: {fragments_t}')
 
   def test_non_full_fragments_raises_exception(
       self, fragments_t: ConcreteFragmentsT
