@@ -209,6 +209,10 @@ def batched_serialization_requests(
     if info.skip_deserialize:
       return
 
+    if not isinstance(arg, (SaveArgs, RestoreArgs)):
+      if tree_utils.is_empty_node(arg):
+        return
+
     if isinstance(arg, RestoreArgs):
       assert isinstance(value, tree_metadata.ValueMetadataEntry), type(value)
       metadata_restore_type = value.value_type
@@ -1044,6 +1048,19 @@ class BasePyTreeCheckpointHandler(
     restore_args = tree_metadata.serialize_tree(
         restore_args, self._pytree_metadata_options
     )
+    if item is not None:
+      try:
+        value_metadata_tree_deserialized = tree_utils.deserialize_tree(
+            value_metadata_tree, item
+        )
+        restore_args_deserialized = tree_utils.deserialize_tree(
+            restore_args, item
+        )
+        value_metadata_tree = value_metadata_tree_deserialized
+        restore_args = restore_args_deserialized
+      except ValueError:
+        pass
+
     param_infos = self._get_param_infos(
         item=value_metadata_tree,
         directory=directory,
