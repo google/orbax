@@ -53,7 +53,6 @@ from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
 
-
 PyTree = Any
 TupleKey = Tuple[str, ...]
 RestoreArgs = type_handlers.RestoreArgs
@@ -815,11 +814,6 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       ValueError: `transforms` is provided without `item`.
       ValueError: `transforms` contains elements with `multi_value_fn`.
     """
-    if self._pytree_metadata_options.support_rich_types:
-      raise NotImplementedError(
-          'Restore is not supported for rich typed metadata yet. Please set'
-          ' PyTreeMetadataOptions.support_rich_types=False.'
-      )
     if not directory.exists():
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}.'
@@ -871,7 +865,23 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       raise FileNotFoundError(
           f'Requested directory for restore does not exist at {directory}'
       )
-    structure, use_zarr3_metadata = self._get_internal_metadata(directory)
+    try:
+      structure, use_zarr3_metadata = self._get_internal_metadata(directory)
+    except FileNotFoundError:
+      if item is None:
+        raise
+      # If the checkpoint doesn't have a structure file, use the item as the
+      # structure. This is for backward compatibility with checkpoints that
+      # don't have a structure file.
+      structure = jax.tree.map(
+          lambda x: tree_metadata.ValueMetadataEntry(
+              value_type=empty_values.RESTORE_TYPE_UNKNOWN,
+              skip_deserialize=False,
+          ),
+          item,
+      )
+      use_zarr3_metadata = None
+
     # `checkpoint_restore_args` has a structure relative to the checkpoint,
     # while `restore_args` remains structured relative to the output.
 
