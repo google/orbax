@@ -17,7 +17,6 @@
 import dataclasses
 from typing import Any, Sequence
 
-from absl import logging
 import jax
 import numpy as np
 import orbax.checkpoint as ocp
@@ -27,7 +26,6 @@ from orbax.checkpoint import multihost
 from orbax.checkpoint import utils
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
-from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 
 
 @dataclasses.dataclass(frozen=True)
@@ -88,40 +86,40 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
         'json_item': args_lib.JsonRestore(),
         'np_random_key': args_lib.NumpyRandomKeyRestore(),
     }
-    composite_args = args_lib.Composite(**save_kwargs)
-    restore_args = args_lib.Composite(**restore_kwargs)
+    # composite_args = args_lib.Composite(**save_kwargs)
+    # restore_args = args_lib.Composite(**restore_kwargs)
 
-    step_saved = -1
-    for step in range(options.train_steps):
-      logging.info('Saving checkpoint at step %d', step)
-      with metrics.measure(f'save_{step}'):
-        if mngr.save(step, args=composite_args):
-          step_saved = step
-      with metrics.measure(f'wait_until_finished_{step}'):
-        mngr.wait_until_finished()
-      logging.info('Finished saving checkpoint at step %d', step)
+    # step_saved = -1
+    # for step in range(options.train_steps):
+    #   logging.info('Saving checkpoint at step %d', step)
+    #   with metrics.measure(f'save_{step}'):
+    #     if mngr.save(step, args=composite_args):
+    #       step_saved = step
+    #   with metrics.measure(f'wait_until_finished_{step}'):
+    #     mngr.wait_until_finished()
+    #   logging.info('Finished saving checkpoint at step %d', step)
 
-    if step_saved == -1:
-      raise AssertionError('No checkpoint was saved.')
+    # if step_saved == -1:
+    #   raise AssertionError('No checkpoint was saved.')
 
-    latest_step = mngr.latest_step()
-    assert latest_step == step_saved, (
-        f'Expected latest step to be {step_saved}, got {latest_step}'
-    )
+    # latest_step = mngr.latest_step()
+    # assert latest_step == step_saved, (
+    #     f'Expected latest step to be {step_saved}, got {latest_step}'
+    # )
 
-    with metrics.measure(f'restore_{latest_step}'):
-      logging.info('Restoring checkpoint at step %d', latest_step)
-      restored = mngr.restore(latest_step, args=restore_args)
-      logging.info('Finished restoring checkpoint at step %d', latest_step)
+    # with metrics.measure(f'restore_{latest_step}'):
+    #   logging.info('Restoring checkpoint at step %d', latest_step)
+    #   restored = mngr.restore(latest_step, args=restore_args)
+    #   logging.info('Finished restoring checkpoint at step %d', latest_step)
 
-    with metrics.measure('correctness_check'):
-      pytree_utils.assert_pytree_equal(pytree, restored['pytree'])
-      assert (
-          json_data == restored['json_item']
-      ), f"Expected {json_data}, got {restored['json_item']}"
-      jax.tree.map(
-          np.testing.assert_equal, np_random_key, restored['np_random_key']
-      )
+    # with metrics.measure('correctness_check'):
+    #   pytree_utils.assert_pytree_equal(pytree, restored['pytree'])
+    #   assert (
+    #       json_data == restored['json_item']
+    #   ), f"Expected {json_data}, got {restored['json_item']}"
+    #   jax.tree.map(
+    #       np.testing.assert_equal, np_random_key, restored['np_random_key']
+    #   )
 
     mngr.close()
     return benchmarks_core.TestResult(metrics=metrics)

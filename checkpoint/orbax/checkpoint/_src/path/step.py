@@ -377,21 +377,27 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
   def _glob_step_paths(self, base_path: epath.PathLike) -> list[epath.Path]:
     """Returns step paths under `base_path`."""
+    logging.info('find_all 3: %s', self.step_prefix)
     base_path = epath.Path(base_path)
     # <step_prefix>_?<0 padding>?*
     if gcs_utils.is_hierarchical_namespace_enabled(base_path):
+      logging.info('find_all 4: %s', base_path.as_posix())
       logging.vlog(
           1,
           'HNS enabled. Using GCS API to list step paths at %s',
           base_path.as_posix(),
       )
       bucket_name, path_prefix = gcs_utils.parse_gcs_path(base_path)
+      logging.info('find_all 4.1: %s', bucket_name)
+      logging.info('find_all 4.2: %s', path_prefix)
       bucket = gcs_utils.get_bucket(bucket_name)
+      logging.info('find_all 4.3: %s', bucket)
       result = bucket.list_blobs(
           prefix=path_prefix,
           delimiter='/',
           include_folders_as_prefixes=True,
       )
+      logging.info('find_all 4.4: %s', result.prefixes)
       # Iterate over pages to force a fetch from the server, after which
       # `result.prefixes` will be populated.
       for _ in result.pages:
@@ -402,6 +408,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
           if folder.startswith(os.path.join(path_prefix, self.step_prefix))
       ]
     else:
+      logging.info('find_all 5: %s', self.step_prefix)
       prefix = step_prefix_with_underscore(self.step_prefix)
       return [x for x in base_path.iterdir() if x.name.startswith(prefix)]
 
@@ -529,6 +536,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps matching with name_format attributes."""
+    logging.info('find_all 1: %s', self.step_prefix)
     if not _is_valid_base_path(base_path):
       return iter([])
     # Note: the order of conjuncts is important here; we should not call
@@ -540,6 +548,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
 
     # <step_prefix>_?<0 padding>?*
     step_paths = self._glob_step_paths(base_path)
+    logging.info('find_all 6: %s', step_paths)
     return build_step_metadatas(step_paths, self._build_metadata)
 
   def find_step(self, base_path: epath.PathLike, step: int) -> Metadata:
@@ -627,6 +636,7 @@ class _CompositeNameFormat(NameFormat[Metadata]):
 
   def find_all(self, base_path: epath.PathLike) -> Iterator[Metadata]:
     """Returns metadata of all steps."""
+    logging.info('find_all 2: %s', self.read_name_formats)
     found_paths = set()
     for read_name_format in self.read_name_formats:
       for step_metadata in read_name_format.find_all(base_path):
