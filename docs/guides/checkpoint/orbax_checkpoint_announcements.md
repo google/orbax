@@ -31,9 +31,9 @@ before your program exits. This will prevent incomplete background operations
 such as deleting old checkpoints.
 
 ## 2024-02-01
-`SaveArgs.aggregate` is deprecated. Please use
- [custom TypeHandler](https://orbax.readthedocs.io/en/latest/guides/checkpoint/custom_handlers.html#typehandler)
-  or contact Orbax team to learn more. Please migrate before **August 1st, 2024**.
+`SaveArgs.aggregate` is deprecated. Please implement your own custom
+ {py:class}`TypeHandler <orbax.checkpoint.type_handlers.TypeHandler>` or contact
+ Orbax team to learn more. Please migrate before **August 1st, 2024**.
 
 ## 2024-01-18
 `CheckpointManager.save(...)` is now async by default. Make sure you call
@@ -41,8 +41,7 @@ such as deleting old checkpoints.
 Otherwise, the behavior can be disabled via the
 `CheckpointManagerOptions.enable_async_checkpointing` option.
 
-
 ## 2024-01-12
 The `CheckpointManager` API is changing. Please see the
-[migration instructions](https://orbax.readthedocs.io/en/latest/guides/checkpoint/orbax_checkpoint_101.html)
+{doc}`migration instructions </guides/checkpoint/orbax_checkpoint_101>`
 and complete your migration by **August 1st, 2024**.
