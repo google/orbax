@@ -43,29 +43,29 @@ class NumpyLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     np.savez(self.numpy_path, **self.object_to_save)
 
   async def test_valid_numpy_checkpoint(self):
-    layout = NumpyLayout(self.numpy_path)
-    await layout.validate()
+    layout = NumpyLayout()
+    await layout.validate(self.numpy_path)
 
   async def test_validate_fails_not_file(self):
-    layout = NumpyLayout(epath.Path(self.test_dir.full_path))
+    layout = NumpyLayout()
     with self.assertRaisesRegex(InvalidLayoutError, 'Path is not a file'):
-      await layout.validate()
+      await layout.validate(epath.Path(self.test_dir.full_path))
 
   async def test_validate_fails_wrong_suffix(self):
     wrong_suffix_path = (
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.txt'
     )
     wrong_suffix_path.touch()
-    layout = NumpyLayout(wrong_suffix_path)
+    layout = NumpyLayout()
     with self.assertRaisesRegex(InvalidLayoutError, 'must have a .npz suffix'):
-      await layout.validate()
+      await layout.validate(wrong_suffix_path)
 
   async def test_validate_fails_not_zip(self):
     bad_zip_path = epath.Path(self.test_dir.full_path) / 'bad_zip.npz'
     bad_zip_path.write_text('this is not a zip file')
-    layout = NumpyLayout(bad_zip_path)
+    layout = NumpyLayout()
     with self.assertRaisesRegex(InvalidLayoutError, 'is not a valid ZIP file'):
-      await layout.validate()
+      await layout.validate(bad_zip_path)
 
   @parameterized.product(
       dtype=[
@@ -92,8 +92,8 @@ class NumpyLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     np.savez(test_path, **obj_to_save)
 
     # Load the checkpoint
-    layout = NumpyLayout(test_path)
-    restore_fn = await layout.load()
+    layout = NumpyLayout()
+    restore_fn = await layout.load(test_path)
     restored_checkpointables = await restore_fn
     pytree = restored_checkpointables['pytree']
 
@@ -105,8 +105,8 @@ class NumpyLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     np.testing.assert_array_equal(pytree['y'], obj_to_save['y'])
 
   async def test_metadata(self):
-    layout = NumpyLayout(self.numpy_path)
-    metadata = await layout.metadata()
+    layout = NumpyLayout()
+    metadata = await layout.metadata(self.numpy_path)
     self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
     self.assertEqual(
         metadata.metadata,
