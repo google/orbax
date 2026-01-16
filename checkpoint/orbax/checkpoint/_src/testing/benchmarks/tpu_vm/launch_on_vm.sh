@@ -12,7 +12,7 @@ TPU_NAME=""
 ZONE="$DEFAULT_ZONE"
 PROJECT_ID="$DEFAULT_PROJECT"
 # Default output bucket (overridable)
-OUTPUT_DIR="gs://orbax-benchmarks/benchmark-results/${USER}"
+OUTPUT_DIR="gs://nikhill-test/test"
 CONFIG_FILE=""
 REPO_URL="https://github.com/google/orbax.git"
 BRANCH="main"

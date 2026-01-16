@@ -708,13 +708,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     jax.monitoring.record_event('/jax/orbax/checkpoint_manager/init')
     logging.info(
         '[process=%s][thread=%s] CheckpointManager init: checkpointers=%s,'
-        ' item_names=%s, item_handlers=%s, handler_registry=%s',
+        ' item_names=%s, item_handlers=%s, handler_registry=%s, directory=%s',
         multihost.process_index(),
         threading.current_thread().name,
         checkpointers,
         item_names,
         item_handlers,
         handler_registry,
+        directory,
     )
 
     self._options = options or CheckpointManagerOptions()
@@ -1787,8 +1788,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Returns:
       a list of CheckpointInfo, sorted by increasing step.
     """
+    logging.info('find_all 0: %s', self.directory)
     if not self.directory.exists():
       return []
+    logging.info('find_all 00: %s', self.directory)
     start = time.time()
     step_metadatas = self._step_name_format.find_all(self.directory)
 
