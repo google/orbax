@@ -77,12 +77,15 @@ class TestContext:
     path: The test directory path.
     options: The specific BenchmarkOptions for this test variant.
     mesh: The mesh used for sharding the checkpoint data.
+    repeat_index: The index of the repeat run, if this test is run multiple
+      times.
   """
 
   pytree: Any
   path: epath.Path
   options: BenchmarkOptions  # The specific options for this test variant.
   mesh: jax.sharding.Mesh | None = None
+  repeat_index: int | None = None
 
 
 @dataclasses.dataclass
@@ -171,7 +174,11 @@ class Benchmark(abc.ABC):
       multihost.sync_global_processes("benchmark:setup_pytree")
 
     context = TestContext(
-        pytree=data, path=path, options=self.options, mesh=self.mesh
+        pytree=data,
+        path=path,
+        options=self.options,
+        mesh=self.mesh,
+        repeat_index=repeat_index,
     )
 
     test_context_summary = self._build_test_context_summary(context)

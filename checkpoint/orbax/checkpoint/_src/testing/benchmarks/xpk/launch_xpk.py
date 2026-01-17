@@ -547,6 +547,7 @@ def construct_workload_command(
       f'python3 {benchmark_binary_path} '
       f'--config_file={config_file} '
       f'--output_directory={os.path.join(output_directory, run_id)} '
+      '--v=1 '
       '--alsologtostderr'
   )
 
@@ -567,6 +568,7 @@ def construct_xpk_command(
       f'--workload={workload_name}',
       f'--num-slices={_NUM_SLICES.value}',
       f'--priority={_PRIORITY.value}',
+      '--storage=test-service-lustre',
   ]
 
   if _TPU_TYPE.value is not None:

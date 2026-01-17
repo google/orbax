@@ -54,6 +54,8 @@ class MeshConfig:
         degree *across* slices (Data Center Network). This typically contains a
         single entry for the data-parallel axis.
           Example: {'data': 2}
+        If None, an ordinary device mesh will be used, rather than a hybrid
+        device mesh (intended for multi-replica workloads)
       allow_split_physical_axes: If True, we will split physical axes if
         necessary to produce the desired device mesh.
       process_is_granule: If True, treat processes as the units of the
@@ -61,6 +63,6 @@ class MeshConfig:
   """
   mesh_axes: list[str]
   ici_parallelism: dict[str, int] = dataclasses.field(default_factory=dict)
-  dcn_parallelism: dict[str, int] = dataclasses.field(default_factory=dict)
+  dcn_parallelism: dict[str, int] | None = None
   allow_split_physical_axes: bool = False
   process_is_granule: bool = False
