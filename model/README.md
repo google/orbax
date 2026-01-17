@@ -62,14 +62,14 @@ obm_apply_fn = jax2obm.convert(apply_fn, args_spec, kwargs_spec)
 Convert the TF concrete functions to OBM functions and save to disk:
 
 ```python
-obm_pre_processor = tf2obm.tf_concrete_function_name_to_obm_function(
+obm_pre_processor = tf2obm.convert_function(
     "my_tf_pre_processor", pre_processor)
-obm_post_processor = tf2obm.tf_concrete_function_name_to_obm_function(
+obm_post_processor = tf2obm.convert_function(
     "my_tf_post_processor", post_processor)
 
 
-tf2obm.save_tf_concrete_functions(
-    "path/to/my_orbax_model/tf_stuff/",
+tf2obm.save_tf_functions(
+    "path/to/my_orbax_model",
     {"my_tf_pre_processor": pre_processor,
      "my_tf_post_processor": post_processor},
     trackable_resources)
