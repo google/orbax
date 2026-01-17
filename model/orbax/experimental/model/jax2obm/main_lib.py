@@ -67,6 +67,24 @@ def jax_exported_to_shlo_fn(
           exported.out_tree,
       )
   )
+
+  def _name_leaf(path, leaf):
+    path_str_parts = []
+    for key in path:
+      if isinstance(key, jax.tree_util.DictKey):
+        path_str_parts.append(str(key.key))
+      elif isinstance(key, jax.tree_util.SequenceKey):
+        path_str_parts.append(str(key.idx))
+      elif isinstance(key, jax.tree_util.GetAttrKey):
+        path_str_parts.append(str(key.name))
+      elif isinstance(key, jax.tree_util.FlattenedIndexKey):
+        path_str_parts.append(str(key.idx))
+      else:
+        raise TypeError(f'Unknown key type: {type(key)}')
+    leaf.name = '.'.join(path_str_parts)
+    return leaf
+
+  shlo_out_sig = jax.tree_util.tree_map_with_path(_name_leaf, shlo_out_sig)
   supplemental_info_ = {}
   jax_specific_info_ = jax_specific_info.JaxSpecificInfo(
       name=exported.fun_name,
