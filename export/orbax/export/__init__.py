@@ -20,6 +20,7 @@ from orbax.export import constants
 from orbax.export import obm_configs
 from orbax.export import typing
 from orbax.export import utils
+from orbax.export.data_processors.tf_data_processor import TfDataProcessor
 from orbax.export.dtensor_utils import dtensor_initialized
 from orbax.export.dtensor_utils import get_current_dtensor_mesh
 from orbax.export.dtensor_utils import get_current_mesh
@@ -29,6 +30,7 @@ from orbax.export.dtensor_utils import maybe_enable_dtensor_export_on
 from orbax.export.dtensor_utils import shutdown_dtensor
 from orbax.export.export_manager import ExportManager
 from orbax.export.jax_module import JaxModule
+from orbax.export.obm_configs import Jax2ObmOptions
 from orbax.export.serving_config import ServingConfig
 # TODO(dinghua): remove them after we change all references to
 # utils.remove_signature_defaults.
