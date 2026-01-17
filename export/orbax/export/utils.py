@@ -18,7 +18,6 @@ from collections.abc import Mapping, Sequence
 import dataclasses
 import functools
 import inspect
-import jax.numpy as jnp
 import os
 from typing import Any, Callable, List, Optional, Tuple, Union
 
@@ -26,12 +25,12 @@ from absl import logging
 import jax
 from jax import export as jax_export
 from jax import tree_util
+import jax.numpy as jnp
 import jaxtyping
 import numpy as np
-
-from orbax.export import constants
 from orbax.export import serving_config as osc
 import tensorflow as tf
+
 # pylint: disable-next=g-direct-tensorflow-import
 
 
@@ -106,22 +105,61 @@ def remove_signature_defaults(input_signature: PyTree) -> PyTree:
   )
 
 
-def _get_defaults(input_signature: Sequence[PyTree]) -> list[PyTree]:
+def _merge_defaults(val: Any, default_tree: Any) -> Any:
+  """Deep merges user-provided `val` with `default_tree` PyTree.
+
+  If `val` is a partial PyTree (e.g. a dict missing some keys), the missing
+  parts are filled from the `default_tree` PyTree.
+
+  Args:
+    val: User-provided value or PyTree.
+    default_tree: PyTree of default values. Leaves are either default values or
+      None.
+
+  Returns:
+    The merged PyTree.
+  """
+  if default_tree is inspect.Parameter.empty:
+    return val
+
+  if isinstance(default_tree, dict):
+    if not isinstance(val, dict):
+      return val
+    merged = default_tree.copy()
+    for k, v in val.items():
+      # If key is present in val, recursively merge.
+      merged[k] = _merge_defaults(v, merged.get(k, inspect.Parameter.empty))
+    return merged
+  elif isinstance(default_tree, (list, tuple)):
+    if not isinstance(val, (list, tuple)) or len(val) != len(default_tree):
+      return val
+    merged = [_merge_defaults(v, d) for v, d in zip(val, default_tree)]
+    return type(default_tree)(merged)
+  else:
+    # Leaf node: use user value if not None, otherwise default.
+    return val if val is not None else default_tree
+
+
+def _get_defaults(input_signature: Sequence[PyTree]) -> list[Any]:
   """Returns a list of default values corresponding with each parameter."""
+
+  def _get_default_val(x):
+    if isinstance(x, TensorSpecWithDefault):
+      return x.default_val
+    elif isinstance(x, tf.TensorSpec):
+      return None
+    else:
+      return x
+
   default_values = []
   for parameter in input_signature:
-    leaves = jax.tree_util.tree_leaves(parameter)
-    if not any(isinstance(x, TensorSpecWithDefault) for x in leaves):
-      default_values.append(inspect.Parameter.empty)
+    if any(
+        isinstance(x, TensorSpecWithDefault)
+        for x in jax.tree_util.tree_leaves(parameter)
+    ):
+      default_values.append(jax.tree_util.tree_map(_get_default_val, parameter))
     else:
-      if any(isinstance(x, tf.TensorSpec) for x in leaves):
-        raise ValueError(
-            'TensorSpecWithDefault must be defined for each tensor in the'
-            ' structure for the Python arg.'
-        )
-      default_values.append(
-          jax.tree_util.tree_map(lambda x: x.default_val, parameter)
-      )
+      default_values.append(inspect.Parameter.empty)
   return default_values
 
 
@@ -134,7 +172,7 @@ def with_default_args(
   Args:
     tf_fn: the TF function.
     input_signature: the input signature. Even leaf is a tf.TensorSpec, or a
-      orbax.export.TensorSpecWithDefault if the default value is specified.
+      `orbax.export.TensorSpecWithDefault` if the default value is specified.
 
   Returns:
     A tf function with default arguments.
@@ -160,18 +198,38 @@ def with_default_args(
   ]
   py_signature_with_defaults = inspect.Signature(parameters)
 
-  # Create a fn_with_defaults that upholds py_signature_with_defaults.
+  def _cast_to_signature(val: Any, spec: tf.TensorSpec) -> Any:
+    return tf.cast(val, spec.dtype) if isinstance(spec, tf.TensorSpec) else val
+
   def fn_with_defaults(*args, **kwargs):
     bound_args = py_signature_with_defaults.bind(*args, **kwargs)
     bound_args.apply_defaults()
-    return tf_fn(*bound_args.args, **bound_args.kwargs)
+
+    for name, default_tree in zip(bound_args.arguments.keys(), default_values):
+      if default_tree is not inspect.Parameter.empty:
+        bound_args.arguments[name] = _merge_defaults(
+            bound_args.arguments[name], default_tree
+        )
+
+    new_args = (
+        jax.tree_util.tree_map(
+            lambda s, a: _cast_to_signature(a, s),
+            spec,
+            arg,
+            is_leaf=lambda x: isinstance(x, tf.TensorSpec),
+        )
+        for arg, spec in zip(bound_args.args, tf_input_signature)
+    )
+
+    return tf_fn_with_input_signature(*new_args)
 
   fn_with_defaults.__signature__ = py_signature_with_defaults
 
   # Generate a tf.function and return.
+  # We do not specify input_signature here to allow polymorphic calls from
+  # Python (e.g. with partial dicts).
   return tf.function(
       func=fn_with_defaults,
-      input_signature=tf_input_signature,
       jit_compile=False,
       autograph=False,
   )
@@ -214,12 +272,11 @@ def make_auto_batching_function(
   Requirements:
     - All input tensors must have a leading batch dimension.
     - There must be at least one primary tensor. A primary tensor is a tensor
-    whose tensor spec is either a `tf.TensorSpec` or a `TensorSpecWithDefault`
-    whose
-    is_primary attribute is True.
+      whose tensor spec is either a `tf.TensorSpec` or a `TensorSpecWithDefault`
+      whose `is_primary` attribute is True.
     - All primary tensors must have the same batch size.
     - All non-primary tensors must have a batch size of 1, or the same as the
-    primary batch size.
+      primary batch size.
 
   Example:
     >>> input_signature = (
@@ -343,8 +400,8 @@ class CallableSignatures:
       tags: Tags to identify the metagraph to load. Same as the `tags` argument
         in tf.saved_model.load.
       sess_config: (Optional.) A
-        [`ConfigProto`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/protobuf/config.proto)
-        protocol buffer with configuration options for the session.
+          [`ConfigProto`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/protobuf/config.proto)  # pylint: disable=line-too-long
+          protocol buffer with configuration options for the session.
 
     Returns:
       A mapping of signature names to the callables.
@@ -488,7 +545,7 @@ def make_e2e_inference_fn(
   Args:
     model_fn: a callable in TF context for the numeric computation.
     serving_config: a ServingConfig that defines the input sigature,
-      pre-processor and post-processor of the inference function.
+      pre-processor, and post-processor of the inference function.
 
   Returns:
     A tf.function for end-to-end inference.
@@ -507,7 +564,7 @@ def get_lowering_platforms(
 
   Args:
     native_serialization_platforms: A platform string or a sequence of platform
-      strings for native serialization (e.g., 'tpu', 'cpu'), or None.
+      strings for native serialization (e.g., 'tpu', 'cpu'), or `None`.
 
   Returns:
     A Sequence of lowering platforms provided by the user, or None.
