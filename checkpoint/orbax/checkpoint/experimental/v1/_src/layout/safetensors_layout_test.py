@@ -64,11 +64,6 @@ class SafetensorsLayoutTest(
     with self.assertRaises(InvalidLayoutError):
       await layout.validate(self.orbax_path / '0')
 
-  async def test_validate_fails_not_file(self):
-    layout = SafetensorsLayout()
-    with self.assertRaises(InvalidLayoutError):
-      await layout.validate(epath.Path(self.test_dir.full_path))
-
   async def test_validate_fails_wrong_suffix(self):
     wrong_suffix_path = (
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.txt'
@@ -151,6 +146,54 @@ class SafetensorsLayoutTest(
     self.assertEqual(metadata.custom_metadata, self.custom_metadata)
     self.assertIsInstance(metadata.commit_timestamp_nsecs, int)
     self.assertGreater(metadata.commit_timestamp_nsecs, 0)
+
+
+class SafetensorsLayoutDirectoryTest(
+    parameterized.TestCase, unittest.IsolatedAsyncioTestCase
+):
+
+  def setUp(self):
+    super().setUp()
+    self.test_dir = self.create_tempdir()
+    self.checkpoint_dir = epath.Path(self.test_dir.full_path) / 'checkpoint_dir'
+    self.checkpoint_dir.mkdir()
+
+    self.file1 = self.checkpoint_dir / 'part1.safetensors'
+    self.file2 = self.checkpoint_dir / 'part2.safetensors'
+
+    self.data1 = {'a': np.array([1, 2], dtype=np.int32)}
+    self.data2 = {'b': np.array([3.0, 4.0], dtype=np.float32)}
+
+    np_save_file(self.data1, self.file1)
+    np_save_file(self.data2, self.file2)
+
+  async def test_validate_directory(self):
+    layout = SafetensorsLayout()
+    await layout.validate(self.checkpoint_dir)
+
+  async def test_validate_directory_fails_empty(self):
+    empty_dir = epath.Path(self.test_dir.full_path) / 'empty'
+    empty_dir.mkdir()
+    layout = SafetensorsLayout()
+    with self.assertRaisesRegex(InvalidLayoutError, 'does not contain any'):
+      await layout.validate(empty_dir)
+
+  async def test_load_directory(self):
+    layout = SafetensorsLayout()
+    restore_fn = await layout.load(self.checkpoint_dir)
+    res = await restore_fn
+    pytree = res[checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY]
+    np.testing.assert_array_equal(pytree['a'], self.data1['a'])
+    np.testing.assert_array_equal(pytree['b'], self.data2['b'])
+
+  async def test_metadata_directory(self):
+    layout = SafetensorsLayout()
+    metadata = await layout.metadata(self.checkpoint_dir)
+    pytree_meta = metadata.metadata[checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY]
+    self.assertIn('a', pytree_meta)
+    self.assertIn('b', pytree_meta)
+    self.assertEqual(pytree_meta['a'].shape, (2,))
+    self.assertEqual(pytree_meta['a'].dtype, np.int32)
 
 
 if __name__ == '__main__':
