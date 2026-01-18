@@ -89,12 +89,12 @@ def pytree_metadata(
   asyncio_utils.maybe_apply_nest_asyncio()
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
-  layout, checkpointable_name, path = asyncio.run(
+  layout, checkpointable_name = asyncio.run(
       layout_registry.get_checkpoint_layout_pytree(
           path, ctx.checkpoint_layout, checkpointable_name
       )
   )
-  metadata = _checkpointables_metadata_impl(layout, path)
+  metadata = _checkpointables_metadata_impl(layout)
   return CheckpointMetadata[PyTreeMetadata](
       metadata=metadata.metadata[checkpointable_name],
       init_timestamp_nsecs=metadata.init_timestamp_nsecs,
@@ -136,18 +136,17 @@ def checkpointables_metadata(
   layout = asyncio.run(
       layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
   )
-  return _checkpointables_metadata_impl(layout, path)
+  return _checkpointables_metadata_impl(layout)
 
 
 def _checkpointables_metadata_impl(
     layout: checkpoint_layout.CheckpointLayout,
-    path: path_types.Path,
 ) -> CheckpointMetadata[dict[str, Any]]:
   """Shared implementation for checkpointables_metadata."""
 
   async def _load_metadata() -> (
       metadata_types.CheckpointMetadata[dict[str, Any]]
   ):
-    return await layout.metadata(path)
+    return await layout.metadata()
 
   return asyncio.run(_load_metadata())

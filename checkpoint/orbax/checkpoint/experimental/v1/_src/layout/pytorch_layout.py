@@ -331,51 +331,57 @@ class PyTorchLayout(CheckpointLayout):
   without calling `torch.load()`.
   """
 
-  def __init__(self):
-    pass
+  def __init__(self, path: Path):
+    self._path = path
 
-  def _check_zip_structure(self, path: Path):
+  @property
+  def path(self) -> Path:
+    """Returns the path of the PyTorch checkpoint file."""
+    return self._path
+
+  def _check_zip_structure(self):
     """Sync helper to check zip file contents."""
     try:
-      with zipfile.ZipFile(path, "r") as zf:
+      with zipfile.ZipFile(self._path, "r") as zf:
         if not any(name.endswith(_PICKLE_FILENAME) for name in zf.namelist()):
           raise InvalidLayoutError(
-              f"'{path}' is not a valid PyTorch zip archive (missing data.pkl)."
+              f"'{self._path}' is not a valid PyTorch zip archive"
+              " (missing data.pkl)."
           )
     except zipfile.BadZipFile as e:
-      raise InvalidLayoutError(f"'{path}' is not a valid ZIP file.") from e
-
-  async def validate(self, path: Path) -> None:
-    """Checks if the path is a file and a valid PyTorch ZIP archive."""
-    if not await async_path.is_file(path):
-      raise InvalidLayoutError(f"Path is not a file: {path}")
-    if path.suffix not in [".pt", ".pth"]:
       raise InvalidLayoutError(
-          f"File {path} must have a .pt or .pth suffix to be loaded as a"
+          f"'{self._path}' is not a valid ZIP file."
+      ) from e
+
+  async def validate(self) -> None:
+    """Checks if the path is a file and a valid PyTorch ZIP archive."""
+    if not await async_path.is_file(self._path):
+      raise InvalidLayoutError(f"Path is not a file: {self._path}")
+    if self._path.suffix not in [".pt", ".pth"]:
+      raise InvalidLayoutError(
+          f"File {self._path} must have a .pt or .pth suffix to be loaded as a"
           " PyTorch checkpoint."
       )
     try:
-      await asyncio.to_thread(self._check_zip_structure, path)
+      await asyncio.to_thread(self._check_zip_structure)
     except InvalidLayoutError as e:
       raise e
     except OSError as e:
       raise InvalidLayoutError(
-          f"Failed to validate {path} as PyTorch checkpoint: {e}"
+          f"Failed to validate {self._path} as PyTorch checkpoint: {e}"
       ) from e
 
-  async def validate_pytree(
-      self, path: Path, checkpointable_name: str | None
-  ) -> None:
+  async def validate_pytree(self, checkpointable_name: str | None) -> None:
     """No-op, as PyTorchLayout treats the entire file as the 'pytree' item."""
     return
 
   async def metadata(
-      self, path: Path
+      self,
   ) -> metadata_types.CheckpointMetadata[dict[str, tree_types.PyTreeOf[Any]]]:
     """Extracts ShapeDtypeStruct metadata without loading tensor data."""
-    pickle_bytes, _ = await _read_zip_contents(path)
+    pickle_bytes, _ = await _read_zip_contents(self._path)
     metadata_tree = _unpickle_metadata(pickle_bytes)
-    stat_result = await async_path.async_stat(path)
+    stat_result = await async_path.async_stat(self._path)
     commit_timestamp_nsecs = int(stat_result.mtime * 1e9)
 
     return metadata_types.CheckpointMetadata[dict[str, Any]](
@@ -385,7 +391,6 @@ class PyTorchLayout(CheckpointLayout):
 
   async def load(
       self,
-      path: Path,
       abstract_checkpointables: (
           dict[str, tree_types.PyTreeOf[jax.ShapeDtypeStruct]] | None
       ) = None,
@@ -397,7 +402,6 @@ class PyTorchLayout(CheckpointLayout):
     NumPy arrays.
 
     Args:
-      path: The path to the checkpoint file.
       abstract_checkpointables: An optional PyTree of abstract arrays specifying
         sharding information.
 
@@ -409,4 +413,4 @@ class PyTorchLayout(CheckpointLayout):
       abstract_pytree = abstract_checkpointables.get(
           checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
       )
-    return _load_pytorch(path, abstract_pytree)
+    return _load_pytorch(self._path, abstract_pytree)

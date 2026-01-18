@@ -56,26 +56,26 @@ class SafetensorsLayoutTest(
     saving.save_pytree(self.orbax_path, self.object_to_save)
 
   async def test_valid_safetensors_checkpoint(self):
-    layout = SafetensorsLayout()
-    await layout.validate(self.safetensors_path)
+    layout = SafetensorsLayout(self.safetensors_path)
+    await layout.validate()
 
   async def test_invalid_safetensors_checkpoint_orbax(self):
-    layout = SafetensorsLayout()
+    layout = SafetensorsLayout(self.orbax_path / '0')
     with self.assertRaises(InvalidLayoutError):
-      await layout.validate(self.orbax_path / '0')
+      await layout.validate()
 
   async def test_validate_fails_not_file(self):
-    layout = SafetensorsLayout()
+    layout = SafetensorsLayout(epath.Path(self.test_dir.full_path))
     with self.assertRaises(InvalidLayoutError):
-      await layout.validate(epath.Path(self.test_dir.full_path))
+      await layout.validate()
 
   async def test_validate_fails_wrong_suffix(self):
     wrong_suffix_path = (
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.txt'
     )
-    layout = SafetensorsLayout()
+    layout = SafetensorsLayout(wrong_suffix_path)
     with self.assertRaises(InvalidLayoutError):
-      await layout.validate(wrong_suffix_path)
+      await layout.validate()
 
   @parameterized.product(
       dtype=[
@@ -104,8 +104,8 @@ class SafetensorsLayoutTest(
     np_save_file(obj_to_save, test_path)
 
     # Load the checkpoint
-    layout = SafetensorsLayout()
-    restore_fn = await layout.load(test_path)
+    layout = SafetensorsLayout(test_path)
+    restore_fn = await layout.load()
     restored_checkpointables = await restore_fn
     pytree = restored_checkpointables['pytree']
 
@@ -124,7 +124,7 @@ class SafetensorsLayoutTest(
         # Intentionally missing I32: int32 for testing, which is used in the
         # test checkpoint.
     }
-    layout = SafetensorsLayout()
+    layout = SafetensorsLayout(self.safetensors_path)
     with self.assertRaises(ValueError):
       with mock.patch.object(
           safetensors_layout,
@@ -132,12 +132,12 @@ class SafetensorsLayoutTest(
           return_value=incomplete_dtypes,
           spec=True,
       ):
-        awaitable_fn = await layout.load(self.safetensors_path)
+        awaitable_fn = await layout.load()
         _ = await awaitable_fn
 
   async def test_metadata(self):
-    layout = SafetensorsLayout()
-    metadata = await layout.metadata(self.safetensors_path)
+    layout = SafetensorsLayout(self.safetensors_path)
+    metadata = await layout.metadata()
     self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
     self.assertEqual(
         metadata.metadata,
