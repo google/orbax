@@ -53,6 +53,7 @@ def jax_exported_to_shlo_fn(
       sharding.hlo_sharding_to_op_sharding(sd)
       for sd in exported.out_shardings_hlo
   ])
+  # TODO: b/476448823 - properly get the name for the input signature.
   shlo_in_sig, jax_in_sig_refinements = (
       jax_specific_info._to_shlo_spec_tree_and_refinement_tuple(
           exported.in_avals,
@@ -60,11 +61,22 @@ def jax_exported_to_shlo_fn(
           exported.in_tree,
       )
   )
+  # Since jax.ShapeDtypeStruct does not have a name field, we assign
+  # names to output tensors specs when converting them to ShloTensorSpec by
+  # passing `name_leaves=True`. This ensures that the JAX model
+  # produces a NamedSignature for its output (e.g., {'results':
+  # ShloTensorSpec(...)}), allowing downstream components (e.g., TF data
+  # processors) to reference outputs by name in keyword-based pipelines.
+  # This will prevent signature mismatches that could otherwise occur, e.g., the
+  # JAX model has the output signature like "model_output: ShloTensorSpec(...)",
+  # while the following tf data processor has the input signature like
+  # "input_model_output: ShloTensorSpec(...)".
   shlo_out_sig, jax_out_sig_refinements = (
       jax_specific_info._to_shlo_spec_tree_and_refinement_tuple(
           exported.out_avals,
           out_shardings_hlo,
           exported.out_tree,
+          name_leaves=True,
       )
   )
   supplemental_info_ = {}
