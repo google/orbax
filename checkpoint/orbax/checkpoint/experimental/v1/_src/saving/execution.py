@@ -156,11 +156,6 @@ class _SaveResponse(AsyncResponse[None]):
 
   async def _finalize_save(self):
     logging.info(
-        '[process=%s] Finalizing checkpoint on %s',
-        multihost.process_index(),
-        self._temporary_path.temporary_path.get(),
-    )
-    logging.info(
         '[process=%s] Creating directories on %s',
         multihost.process_index(),
         self._temporary_path.temporary_path.get(),
@@ -175,6 +170,11 @@ class _SaveResponse(AsyncResponse[None]):
         1,
         '[process=%s] Finished waiting for background save operations.',
         multihost.process_index(),
+    )
+    logging.info(
+        '[process=%s] Finalizing checkpoint on %s',
+        multihost.process_index(),
+        self._temporary_path.temporary_path.get(),
     )
 
     if multihost.is_primary_host(
