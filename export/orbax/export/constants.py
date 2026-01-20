@@ -79,15 +79,6 @@ DEFAULT_SUPPLEMENTAL_FILENAME = 'orchestration.pb'
 ORBAX_CHECKPOINT_MIME_TYPE = 'application/x.orbax-checkpoint'
 
 
-# obm_kwargs keys in `ServingConfig`:
-# - The batching config for the model.
-BATCH_OPTIONS = 'batch_options'
-
-# obm_kwargs keys in `ServingConfig`:
-# - The converter options for the model.
-CONVERTER_OPTIONS = 'converter_options'
-
-
 # XLA flags per platform for the model. This is a mapping from platform name to
 # a list of xla flags. This is used to set the XLA compilation options for the
 # model. If not provided, the default XLA flags for default platform (TPU) will

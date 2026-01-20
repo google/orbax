@@ -31,29 +31,6 @@ class _TestDataProcessor(data_processor_base.DataProcessor):
 
 class ServingConfigTest(tf.test.TestCase, parameterized.TestCase):
 
-  def test_obm_kwargs_deprecation(self):
-    batch_opts = obm_configs.BatchOptions(
-        batch_component=obm_configs.BatchComponent.NO_BATCHING
-    )
-    with self.assertWarnsRegex(
-        DeprecationWarning, '`obm_kwargs` is deprecated'
-    ):
-      sc = ServingConfig(
-          signature_key='f', obm_kwargs={'batch_options': batch_opts}
-      )
-    self.assertIsNotNone(sc.obm_export_options)
-    self.assertEqual(sc.obm_export_options.batch_options, batch_opts)  # pytype: disable=attribute-error
-
-  def test_obm_kwargs_and_obm_export_options_set_raise_error(self):
-    with self.assertRaisesRegex(
-        ValueError, 'Both `obm_kwargs` and `obm_export_options` are set'
-    ):
-      ServingConfig(
-          signature_key='f',
-          obm_kwargs={'batch_options': 1},
-          obm_export_options=obm_configs.ObmExportOptions(),
-      )
-
   def test_bind_tf(self):
     sc = ServingConfig(
         signature_key='f',

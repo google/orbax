@@ -17,11 +17,9 @@
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 from typing import Any, Optional, Text, Union
-import warnings
 from absl import logging
 import jax
 import jaxtyping
-from orbax.export import constants
 from orbax.export import obm_configs
 from orbax.export.data_processors import data_processor_base
 import tensorflow as tf
@@ -74,8 +72,6 @@ class ServingConfig:
   method_key: Optional[str] = None
   # Options passed to the Orbax Model export.
   obm_export_options: obm_configs.ObmExportOptions | None = None
-  # DEPRECATED: use `obm_export_options` instead.
-  obm_kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
   # When set to true, it allows a portion of the preprocessor's outputs to be
   # directly passed to the tf_postprocessor, bypassing the JAX function.
@@ -128,19 +124,6 @@ class ServingConfig:
         - `tf_preprocessor` and `preprocessors` are both set.
         - `tf_postprocessor` and `postprocessors` are both set.
     """
-    if self.obm_kwargs:
-      if self.obm_export_options is not None:
-        raise ValueError(
-            'Both `obm_kwargs` and `obm_export_options` are set. Please only'
-            ' use `obm_export_options`.'
-        )
-      warnings.warn(
-          '`obm_kwargs` is deprecated, use `obm_export_options` instead.',
-          DeprecationWarning,
-      )
-      self.obm_export_options = obm_configs.ObmExportOptions(
-          batch_options=self.obm_kwargs.get(constants.BATCH_OPTIONS),
-      )
     if not self.signature_key:
       raise ValueError('`signature_key` must be set.')
     if self.data_processors:
