@@ -400,7 +400,11 @@ def obm_functions_to_jax_function(
           manifest_function.body.stable_hlo_body.lowering_platforms
       ),
       uses_global_constants=jax_supplemental_function.uses_shape_polymorphism,
-      _get_vjp=None,
+      _get_vjp=None,  # TODO(b/476802442) Investigate if the private members
+                      # usage can be removed.
+      _has_named_shardings=False,
+      _in_named_shardings=None,
+      _out_named_shardings=None,
   )
 
   return exported
