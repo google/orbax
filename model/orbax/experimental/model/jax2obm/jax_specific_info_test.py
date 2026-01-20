@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from absl.testing import absltest
 from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
@@ -21,7 +22,25 @@ from orbax.experimental.model.jax2obm import jax_specific_info
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 from tensorflow.python.util.protobuf import compare
 from google.protobuf import text_format
-from absl.testing import absltest
+
+
+def _get_spec():
+  """Returns a dummy spec, creates a new instance each time."""
+  return obm.ShloTensorSpec(shape=(1,), dtype=obm.ShloDType.f32)
+
+
+class _CustomNode:
+
+  def __init__(self, x, y):
+    self.x = x
+    self.y = y
+
+
+jax.tree_util.register_pytree_node(
+    _CustomNode,
+    lambda node: ((node.x, node.y), None),
+    lambda _, children: _CustomNode(*children),
+)
 
 
 class JaxSpecificInfoTest(parameterized.TestCase):
@@ -169,6 +188,50 @@ class JaxSpecificInfoTest(parameterized.TestCase):
         TypeError, r'jax_dtype must be an instance of np\.dtype, but'
     ):
       jax_specific_info._to_shlo_dtype_and_refinement(jax_dtype)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='dict_and_list',
+          tree={'a': [_get_spec(), _get_spec()], 'b': {'c': _get_spec()}},
+          expected_names=['a.0', 'a.1', 'b.c'],
+      ),
+      dict(
+          testcase_name='tuple_and_nested_dict',
+          tree=(_get_spec(), {'x': _get_spec()}),
+          expected_names=['0', '1.x'],
+      ),
+      dict(
+          testcase_name='list_of_tuples',
+          tree=[(_get_spec(),), (_get_spec(), _get_spec())],
+          expected_names=['0.0', '1.0', '1.1'],
+      ),
+      dict(
+          testcase_name='custom_node',
+          tree={'node': _CustomNode(_get_spec(), _get_spec())},
+          expected_names=['node.0', 'node.1'],
+      ),
+      dict(
+          testcase_name='single_spec',
+          tree=_get_spec(),
+          expected_names=[''],
+      ),
+      dict(
+          testcase_name='list_with_one_spec',
+          tree=[_get_spec()],
+          expected_names=['0'],
+      ),
+  )
+  def test_name_leaf(self, tree, expected_names):
+    def _name_leaf_wrapper(tree):
+      return jax.tree_util.tree_map_with_path(
+          jax_specific_info._name_leaf, tree
+      )
+
+    named_tree = _name_leaf_wrapper(tree)
+    leaves, treedef = jax.tree_util.tree_flatten(named_tree)
+    self.assertEqual(treedef, jax.tree_util.tree_structure(tree))
+    self.assertLen(leaves, len(expected_names))
+    self.assertEqual([leaf.name for leaf in leaves], expected_names)
 
 
 if __name__ == '__main__':
