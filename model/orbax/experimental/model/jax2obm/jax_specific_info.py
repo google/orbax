@@ -47,6 +47,38 @@ def unzip2(
   return tuple(xs), tuple(ys)
 
 
+def _name_leaf(path, leaf):
+  """Assigns a name to a leaf node based on its PyTree path.
+
+  The name is a dot-separated string representation of the path keys.
+  This function is designed to be used with `jax.tree_util.tree_map_with_path`.
+  It modifies the `leaf` in-place by setting its `name` attribute.
+
+  Args:
+    path: A tuple of path elements (e.g., DictKey, SequenceKey) representing the
+      path to the leaf in a PyTree.
+    leaf: The leaf node to be named. It must have a `name` attribute that can be
+      set.
+
+  Returns:
+    The leaf node with its `name` attribute set to the path string.
+  """
+  path_str_parts = []
+  for key in path:
+    if isinstance(key, jax.tree_util.DictKey):
+      path_str_parts.append(str(key.key))
+    elif isinstance(key, jax.tree_util.SequenceKey):
+      path_str_parts.append(str(key.idx))
+    elif isinstance(key, jax.tree_util.GetAttrKey):
+      path_str_parts.append(str(key.name))
+    elif isinstance(key, jax.tree_util.FlattenedIndexKey):
+      path_str_parts.append(str(key.idx))
+    else:
+      raise TypeError(f"Unknown key type: {type(key)}")
+  leaf.name = ".".join(path_str_parts)
+  return leaf
+
+
 def _serialize_effect(eff: jax.core.Effect) -> str:
   """Serializes a JAX Effect to a string.
 
@@ -311,6 +343,7 @@ def _to_shlo_spec_tree_and_refinement_tuple(
     avals: Sequence[jax.core.AbstractValue],
     shardings: Sequence[Any],
     tree_def: Optional[jax.tree_util.PyTreeDef],
+    name_leaves: bool = False,
 ) -> Tuple[
     obm.Tree[obm.ShloTensorSpec], Tuple[ShapeDTypeRefinementPair, ...] | None
 ]:
@@ -329,4 +362,6 @@ def _to_shlo_spec_tree_and_refinement_tuple(
         )
     obm.tree_util.assert_tree(assert_leaf, jax_tree)
     jax_tree: obm.Tree[obm.ShloTensorSpec]
+  if name_leaves:
+    jax_tree = jax.tree_util.tree_map_with_path(_name_leaf, jax_tree)
   return jax_tree, refinements
