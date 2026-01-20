@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 import contextlib
 import importlib
 import os
+import pathlib
 from typing import Any, Callable
 from unittest import mock
 
