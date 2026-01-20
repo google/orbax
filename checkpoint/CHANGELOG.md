@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.32] - 2026-01-20
+
 ### Changed
 
 - #v1 Add a new implementation of async directory creation that starts the
