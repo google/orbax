@@ -65,6 +65,7 @@ def jax_exported_to_shlo_fn(
           exported.out_avals,
           out_shardings_hlo,
           exported.out_tree,
+          name_leaves=True,
       )
   )
   supplemental_info_ = {}
