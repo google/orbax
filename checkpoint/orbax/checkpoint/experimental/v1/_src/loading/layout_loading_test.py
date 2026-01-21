@@ -32,6 +32,7 @@ class LayoutLoadingTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.test_dir = self.create_tempdir()
+    self.test_dir_safetensors = self.create_tempdir()
     self.orbax_path = epath.Path(self.test_dir.full_path) / 'test_checkpoint'
     self.safetensors_path = (
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.safetensors'
@@ -63,7 +64,6 @@ class LayoutLoadingTest(parameterized.TestCase):
 
   @parameterized.parameters(
       (options_lib.CheckpointLayout.ORBAX,),
-      (options_lib.CheckpointLayout.SAFETENSORS,),
   )
   def test_load_bad_path_orbax_ckpt(self, layout_enum):
     # User provides a directory of Orbax checkpoints, not specific one.
@@ -74,24 +74,27 @@ class LayoutLoadingTest(parameterized.TestCase):
         )
 
   @parameterized.parameters(
-      (options_lib.CheckpointLayout.ORBAX,),
       (options_lib.CheckpointLayout.SAFETENSORS,),
   )
   def test_load_bad_path_safetensors_ckpt(self, layout_enum):
-    # User provides a directory of SafeTensors checkpoints, not a file.
-    for i in range(3):
-      tmp_path = (
-          epath.Path(self.test_dir.full_path)
-          / f'{str(i)}/test_checkpoint.safetensors'
-      )
-      tmp_path.parent.mkdir(parents=True, exist_ok=True)
-      np_save_file(self.object_to_save, tmp_path)
-      # with self.assertRaises(InvalidLayoutError):
-      with context_lib.Context(checkpoint_layout=layout_enum):
-        with self.assertRaises(InvalidLayoutError):
-          loading.load_pytree(
-              epath.Path(self.test_dir.full_path) / str(i),
-          )
+    # User provides a empty directory of SafeTensors checkpoints, not a file.
+    with context_lib.Context(checkpoint_layout=layout_enum):
+      with self.assertRaises(InvalidLayoutError):
+        loading.load_pytree(
+            epath.Path(self.test_dir_safetensors.full_path),
+        )
+
+  def test_load_safetensors_ckpt_from_dir(self):
+    safetensors_dir = epath.Path(self.test_dir_safetensors.full_path)
+    safetensors_path = safetensors_dir / 'model.safetensors'
+    np_save_file(self.object_to_save, safetensors_path)
+    with context_lib.Context(
+        checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
+    ):
+      pytree = loading.load_pytree(safetensors_dir)
+    self.assertIsInstance(pytree, dict)
+    np.testing.assert_array_equal(pytree['a'], self.object_to_save['a'])
+    np.testing.assert_allclose(pytree['b'], self.object_to_save['b'])
 
   def test_nonexistent_path(self):
     # User provides a path that does not exist.
