@@ -126,12 +126,13 @@ def _log_io_metrics(
       float('nan') if time_elapsed == 0 else float(size) / time_elapsed
   )
   logging.info(
-      '[process=%d] %s: %s/s (total gbytes: %s) (time elapsed: %s) (per-host)',
+      '[process=%d] %s: %s/s (total gbytes: %s) (time elapsed: %s s)'
+      ' (per-host)',
       multihost.process_index(),
       gbytes_per_sec_metric,
       humanize.naturalsize(bytes_per_sec, binary=True, format='%.3f'),
       humanize.naturalsize(size, binary=True),
-      humanize.naturaldelta(time_elapsed, minimum_unit='microseconds'),
+      time_elapsed,
   )
   jax.monitoring.record_scalar(
       gbytes_per_sec_metric, value=bytes_per_sec / (1024**3)
@@ -1077,7 +1078,7 @@ class BasePyTreeCheckpointHandler(
         tree_memory_size,
         start_time,
         '/jax/checkpoint/read/gbytes_per_sec',
-        '/jax/checkpoint/read/gbytes',
+        '/jax/checkpoint/read/gbytes',  # device memory usage
     )
     return restored_item
 

@@ -16,8 +16,10 @@
 
 import asyncio
 from collections.abc import AsyncIterable
+import functools
 import os
 import time
+
 from typing import Iterable, Optional
 
 from absl import logging
@@ -27,6 +29,7 @@ from orbax.checkpoint._src.path import gcs_utils
 
 
 
+@functools.lru_cache(maxsize=32)
 def get_storage_type(path: epath.Path | str) -> str:
   """Returns the storage type of the given path."""
   if isinstance(path, str):

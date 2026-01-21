@@ -82,8 +82,9 @@ def deserialize(
     ])
 
   result = asyncio_utils.run_sync(_deserialize())
+  ret = [x[0] for x in result]
   test_utils.sync_global_processes('deserialization_complete')
-  return result
+  return ret
 
 
 class FutureWithSpeedbump(future.Future):
@@ -191,7 +192,7 @@ class CheckpointTest(parameterized.TestCase):
           inp_shape,
           byte_limiter=limits.LimitInFlightBytes(4_200_000),
       )
-      r.block_until_ready()
+      r[0].block_until_ready()
 
     tm.start()
     _, start_memory_usage = tm.get_traced_memory()
@@ -209,7 +210,7 @@ class CheckpointTest(parameterized.TestCase):
     # because otherwise this leads to racing condition and segfault with
     # tensorstore attempting to dealloc using tracemalloc which is already
     # destroyed.
-    asyncio_utils.run_sync(deserialize_wo_limit).block_until_ready()
+    asyncio_utils.run_sync(deserialize_wo_limit)[0].block_until_ready()
 
     _, peak_memory_usage = tm.get_traced_memory()
     # We load entire array in memory here.
@@ -680,6 +681,28 @@ class CheckpointTest(parameterized.TestCase):
     # Array size (2048 * 4096 * 4 = 32M)
     delta = 2_000_000  # Empirically chosen wiggle room.
     self.assertLess(peak_memory_usage - start_memory_usage, 32_000_000 + delta)
+
+  def test_async_deserialize_returns_io_read_byte_size(self):
+    shape = (32, 16)
+    dtype = np.int32
+    data = np.arange(math.prod(shape), dtype=dtype).reshape(shape)
+    global_mesh = create_global_mesh((4,), 'x')
+    sharding = NamedSharding(global_mesh, P('x'))
+    arr = jax.make_array_from_callback(shape, sharding, lambda idx: data[idx])
+
+    ckpt_paths = [str(self.ckpt_dir)]
+    tspecs = jax.tree.map(serialization.get_tensorstore_spec, ckpt_paths)
+    serialize([arr], tspecs)
+
+    async def _deserialize():
+      return await serialization.async_deserialize(
+          sharding, tspecs[0], shape, dtype
+      )
+
+    restored_arr, io_read_byte_size = asyncio_utils.run_sync(_deserialize())
+
+    self.assertArraysEqual(restored_arr, data)
+    self.assertEqual(io_read_byte_size, data.nbytes)
 
 
 if __name__ == '__main__':

@@ -38,6 +38,7 @@ from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint._src.serialization import jax_array_restore_args
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import ocdbt_utils
@@ -749,6 +750,7 @@ async def _deserialize_arrays(
     array_metadata_store: array_metadata_store_lib.Store | None,
 ) -> Sequence[jax.Array]:
   """Deserializes arrays and applies array_metadata if available."""
+  total_start_time = time.time()
 
   async def _async_deserialize(
       infos: Sequence[types.ParamInfo],
@@ -756,7 +758,7 @@ async def _deserialize_arrays(
       shardings: Sequence[jax.sharding.Sharding],
       *,
       metadata_key: str | None,
-  ) -> list[jax.Array]:
+  ) -> tuple[list[jax.Array], int]:
     """This function contains the core TensorStore read logic from ArrayHandler.deserialize."""
     use_ocdbt = _validate_ocdbt_settings(infos)
     if not use_ocdbt:
@@ -797,10 +799,16 @@ async def _deserialize_arrays(
               strict=arg.strict if hasattr(arg, 'strict') else True,
           )
       )
-    return await asyncio.gather(*deserialize_ops)
+    results = await asyncio.gather(*deserialize_ops)
+    deserialized_arrays = []
+    total_io_bytes = 0
+    for arr, io_bytes in results:
+      deserialized_arrays.append(arr)
+      total_io_bytes += io_bytes
+    return deserialized_arrays, total_io_bytes
 
   if array_metadata_store is not None:
-    ret, array_metadatas = await asyncio.gather(
+    (ret, total_io_bytes), array_metadatas = await asyncio.gather(
         _async_deserialize(
             infos,
             args,
@@ -814,12 +822,48 @@ async def _deserialize_arrays(
     if array_metadatas:
       ret = _wrap_random_key_data(array_metadatas, infos, ret)
   else:
-    ret = await _async_deserialize(
+    ret, total_io_bytes = await _async_deserialize(
         infos,
         args,
         shardings,
         metadata_key=metadata_key,
     )
+
+  total_duration = time.time() - total_start_time
+  io_throughput = total_io_bytes / total_duration if total_duration > 0 else 0
+
+  storage_type = path_utils.get_storage_type(infos[0].parent_dir)
+
+  logging.info(
+      '[process=%d] %s throughput: %s/s (total gbytes: %s) (time elapsed: %s s)'
+      ' (per-host)',
+      multihost.process_index(),
+      '/jax/orbax/read/worker/io/requested',
+      humanize.naturalsize(io_throughput, binary=True, format='%.3f'),
+      humanize.naturalsize(total_io_bytes, binary=True),
+      total_duration,
+  )
+
+  # Record total duration of the read operation.  Note that for McJAX, it
+  # includes IO time and H2D transfer time.  For Pathways Remote Python,
+  # it includes only IO time.
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/read/worker/total_duration_secs',
+      total_duration,
+      storage_type=storage_type,
+  )
+
+  # record total bytes requested to be read from IO
+  jax.monitoring.record_scalar(
+      '/jax/orbax/read/worker/io/requested/gbytes',
+      total_io_bytes / (1024**3),
+      storage_type=storage_type,
+  )
+  jax.monitoring.record_scalar(
+      '/jax/orbax/read/worker/io/requested/throughput/gbytes_per_sec',
+      io_throughput / (1024**3),
+      storage_type=storage_type,
+  )
   return ret
 
 
@@ -930,6 +974,16 @@ class ArrayHandler(types.TypeHandler):
         self._use_replica_parallel,
         self._array_metadata_store,
         self._dispatcher,
+    )
+
+    jax.monitoring.record_event(
+        '/jax/orbax/array_handler/init',
+        type=self.__class__.__qualname__,
+        dispatcher=self._dispatcher.__class__.__qualname__
+        if self._dispatcher
+        else 'none',
+        use_replica_parallel=self._use_replica_parallel,
+        enable_replica_parallel_separate_folder=self._enable_replica_parallel_separate_folder,
     )
 
     if self._primary_host is None and jax.__version_info__ <= (0, 4, 25):  # pylint:disable=unreachable
@@ -1151,7 +1205,11 @@ class ArrayHandler(types.TypeHandler):
 
     if self._dispatcher is None:
       ret = await _deserialize_arrays(
-          infos, args, shardings, self._metadata_key, self._array_metadata_store
+          infos,
+          args,
+          shardings,
+          self._metadata_key,
+          self._array_metadata_store,
       )
     else:
       args = await self._maybe_read_metadata_and_update_restore_args(
