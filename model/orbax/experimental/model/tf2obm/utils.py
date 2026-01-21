@@ -53,16 +53,21 @@ def tf_dtype_to_obm(t: tf.DType) -> obm.ShloDType:
   return obm.np_dtype_to_shlo_dtype(np_dtype)
 
 
-def tf_tensor_spec_to_obm(spec: Any) -> obm.ShloTensorSpec:
-  """Converts a tf.TensorSpec or tf.SymbolicTensor to ShloTensorSpec."""
+def tf_tensor_spec_to_obm(
+    spec: tf.TensorSpec | tf.Tensor,
+) -> obm.ShloTensorSpec:
+  """Converts a tf.TensorSpec or tf.Tensor to an obm.ShloTensorSpec.
 
-  # ConcreteFunction.structured_outputs returns `SymbolicTensor`s, not
-  # `TensorSpec`s, so we need to also check for `SymbolicTensor`.
-  if not (isinstance(spec, tf.TensorSpec) or tf.is_symbolic_tensor(spec)):
-    raise ValueError(
-        f'Expected a tf.TensorSpec or a SymbolicTensor, got {spec} of type'
-        f' {type(spec)}'
-    )
+  Args:
+    spec: The tf.TensorSpec or tf.Tensor to convert.
+
+  Returns:
+    The corresponding obm.ShloTensorSpec.
+
+  Raises:
+    ValueError: If the dtype of the input spec cannot be converted to an OBM
+      ShloDType.
+  """
 
   if spec.shape.rank is None:
     obm_shape = None
