@@ -50,6 +50,7 @@ def _voxel_to_obm_dtype(t) -> obm.ShloDType:
   return obm.np_dtype_to_shlo_dtype(t)
 
 
+# TODO: b/476448823 - Add name to the output ShloTensorSpec.
 def voxel_signature_to_obm_spec(
     signature: jd.VoxelSchemaTree,
 ) -> obm.Tree[obm.ShloTensorSpec]:
