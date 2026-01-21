@@ -1,0 +1,19 @@
+suite_name: "Safetensors Load Benchmark"
+
+mesh_configs:
+  - mesh_axes: ["data"]
+    dcn_parallelism: {"data": 1}
+    allow_split_physical_axes: True
+    process_is_granule: True
+
+checkpoint_config:
+  spec:
+    small_2d: {dtype: "float32", shape: [32, 32], sharding: [null, null]}
+    medium_2d: {dtype: "float32", shape: [1024, 1024], sharding: [null, null]}
+    large_2d: {dtype: "float32", shape: [2048, 2048], sharding: [null, null]}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensors_benchmark.SafetensorsBenchmark"
+    options:
+      checkpoint_path: "gs://safetensor-kimi-test/test-model-1gb"
+      use_gs_path: True
