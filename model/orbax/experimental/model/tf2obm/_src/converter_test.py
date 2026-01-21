@@ -21,8 +21,7 @@ from absl.testing import parameterized
 import chex
 from jax import tree_util as jax_tree_util
 from orbax.experimental.model import core as obm
-from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
-from orbax.experimental.model.tf2obm import tf_concrete_functions_to_obm as tf_obm
+from orbax.experimental.model.tf2obm._src import converter
 import tensorflow as tf
 
 from tensorflow.python.util.protobuf import compare
@@ -32,6 +31,10 @@ from google.protobuf import text_format
 _T1 = tf.TensorSpec((2, 3), tf.float32)
 _T2 = tf.TensorSpec((4, 5), tf.float64)
 _T3 = tf.TensorSpec((6,), tf.float32)
+
+
+def _t(t: tf.TensorSpec, name: str):
+  return tf.TensorSpec(t.shape, t.dtype, name=name)
 
 
 @dataclasses.dataclass
@@ -61,7 +64,7 @@ def _as_output_signature(tree):
         lambda spec: tf.zeros(shape=spec.shape, dtype=spec.dtype), tree
     )
 
-  return tf_obm.get_output_signature(f.get_concrete_function())
+  return converter.get_output_signature(f.get_concrete_function())
 
 
 _INPUT_SIGNATURES = (
@@ -71,51 +74,101 @@ _INPUT_SIGNATURES = (
             (_T1, _T2, _T3),
             {},
         ),
-        (
-            (),
-            {
-                "args_0": _T1,
-                "args_1": _T2,
-                "args_2": _T3,
-            },
-        ),
+        ((
+            (
+                {
+                    "args_0": _t(_T1, "args_0"),
+                    "args_1": _t(_T2, "args_1"),
+                    "args_2": _t(_T3, "args_2"),
+                },
+            ),
+            {},
+        )),
     ),
     (
         "kwargs_only",
-        ((), {"a": _T1, "b": _T2}),
-        ((), {"a": _T1, "b": _T2}),
+        (
+            (),
+            {
+                "a": _T1,
+                "b": _T2,
+            },
+        ),
+        ((
+            (
+                {
+                    "a": _T1,
+                    "b": _T2,
+                },
+            ),
+            {},
+        )),
     ),
     (
         "positional_and_kwargs",
         ((_T1, _T2, _T3), {"a": _T1, "b": _T2, "c": _T3}),
-        (
-            (),
-            {
-                "args_0": _T1,
-                "args_1": _T2,
-                "args_2": _T3,
-                "a": _T1,
-                "b": _T2,
-                "c": _T3,
-            },
-        ),
+        ((
+            (
+                {
+                    "args_0": _T1,
+                    "args_1": _T2,
+                    "args_2": _T3,
+                    "a": _T1,
+                    "b": _T2,
+                    "c": _T3,
+                },
+            ),
+            {},
+        )),
     ),
     (
         "dict_positional_and_kwargs",
         # A nested dict passed in a positional argument
         # if flattened but TF SavedModel loses track
         # of the original key names in this case.
-        (({"a": _T1, "b": _T2},), {"c": _T3}),
-        ((), {"args_0": _T1, "args_0_1": _T2, "c": _T3}),
+        (
+            (
+                {
+                    "a": _T1,
+                    "b": _T2,
+                },
+            ),
+            {
+                "c": _T3,
+            },
+        ),
+        ((
+            (
+                {
+                    "args_0": _T1,
+                    "args_0_1": _T2,
+                    "c": _T3,
+                },
+            ),
+            {},
+        )),
     ),
     (
         "registered_dataclass",
         # Registered dataclasses are flattened.
-        ((_ChexDataclass(a=_T1, b=_T2),), {}),
         (
-            (),
-            {"args_0": _T1, "args_0_1": _T2},
+            (
+                _ChexDataclass(
+                    a=_T1,
+                    b=_T2,
+                ),
+            ),
+            {},
         ),
+        ((
+            (
+                {
+                    "args_0": _T1,
+                    "args_0_1": _T2,
+                },
+            ),
+            {},
+        )),
     ),
 )
 _OUTPUT_SIGNATURES = (
@@ -216,7 +269,7 @@ class TfConcreteFunctionsToObmTest(
 
     args, kwargs = old_input_sig
     cf = f.get_concrete_function(*args, **kwargs)
-    new_cf = tf_obm.to_keyword_only_fn(cf)
+    new_cf = converter.to_keyword_only_fn(cf).get_concrete_function()
 
     def is_spec_equiv(a, b):
       self.assertEqual(a.shape, b.shape)
@@ -229,7 +282,7 @@ class TfConcreteFunctionsToObmTest(
         is_spec_equiv,
     )
     self.assertTreeEquiv(
-        tf_obm.get_output_signature(new_cf),
+        converter.get_output_signature(new_cf),
         new_output_sig,
         is_spec_equiv,
     )
@@ -282,10 +335,7 @@ class TfConcreteFunctionsToObmTest(
 
     cf = f.get_concrete_function(_T1, _T2)
 
-    tf_obm.save_tf_concrete_functions(
-        self.create_tempdir().full_path,
-        {"f": tf_obm.to_keyword_only_fn(cf)},
-    )
+    converter.save_tf_functions(self.create_tempdir().full_path, {"f": cf})
 
     with self.assertRaisesRegex(ValueError, "Got a non-Tensor value"):
       tf.saved_model.save(
@@ -332,24 +382,22 @@ class TfConcreteFunctionsToObmTest(
     pre_processor_name_in_tf = "my_pre_processor_in_tf"
     post_processor_name_in_tf = "my_post_processor_in_tf"
 
-    pre_processor = tf_obm.tf_concrete_function_name_to_obm_function(
-        pre_processor_name_in_tf, fn=tf_pre_processor
+    pre_processor = converter.convert_function(
+        pre_processor_name_in_tf, tf_pre_processor
     )
-    post_processor = tf_obm.tf_concrete_function_name_to_obm_function(
-        post_processor_name_in_tf, fn=tf_post_processor
+    post_processor = converter.convert_function(
+        post_processor_name_in_tf, tf_post_processor
     )
-    saved_model_rel_path = "tf_saved_model/"
-    saved_model_abs_path = os.path.join(save_dir_path, saved_model_rel_path)
-    tf_global_supplemental = tf_obm.tf_saved_model_as_obm_supplemental(
-        saved_model_rel_path
-    )
-    tf_obm.save_tf_concrete_functions(
-        saved_model_abs_path,
-        {
-            pre_processor_name_in_tf: tf_pre_processor,
-            post_processor_name_in_tf: tf_post_processor,
-        },
-        (var, {"vocab": vocab}),
+    supplementals = {}
+    supplementals.update(
+        converter.save_tf_functions(
+            save_dir_path,
+            {
+                pre_processor_name_in_tf: tf_pre_processor,
+                post_processor_name_in_tf: tf_post_processor,
+            },
+            trackable_resources=(var, {"vocab": vocab}),
+        )
     )
 
     # Saves manifest.pb
@@ -366,11 +414,7 @@ class TfConcreteFunctionsToObmTest(
         save_dir_path,
         obm.SaveOptions(
             version=2,
-            supplementals={
-                tf_obm.TF_SAVED_MODEL_SUPPLEMENTAL_NAME: obm.GlobalSupplemental(
-                    tf_global_supplemental, None
-                ),
-            },
+            supplementals=supplementals,
         ),
     )
 
@@ -390,17 +434,17 @@ class TfConcreteFunctionsToObmTest(
         "__POST_PROCESSOR_NAME__": post_processor_name,
         "__POST_PROCESSOR_PATH__": post_processor_filename,
         "__TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE__": (
-            tf_obm.TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE
+            converter.TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE
         ),
         "__TF_CONCRETE_FUNCTION_HANDLE_VERSION__": (
-            tf_obm.TF_CONCRETE_FUNCTION_HANDLE_VERSION
+            converter.TF_CONCRETE_FUNCTION_HANDLE_VERSION
         ),
         "__TF_SAVED_MODEL_SUPPLEMENTAL_NAME__": (
-            tf_obm.TF_SAVED_MODEL_SUPPLEMENTAL_NAME
+            converter.TF_SAVED_MODEL_SUPPLEMENTAL_NAME
         ),
-        "__SAVED_MODEL_PATH__": saved_model_rel_path,
-        "__SAVED_MODEL_MIME_TYPE__": tf_obm.SAVED_MODEL_MIME_TYPE,
-        "__SAVED_MODEL_VERSION__": tf_obm.SAVED_MODEL_VERSION,
+        "__SAVED_MODEL_PATH__": converter.OBM_TF_SAVED_MODEL_SUB_DIR,
+        "__SAVED_MODEL_MIME_TYPE__": converter.SAVED_MODEL_MIME_TYPE,
+        "__SAVED_MODEL_VERSION__": converter.SAVED_MODEL_VERSION,
     }
     for k, v in manifest_replace_dict.items():
       expected_manifest_proto_text = expected_manifest_proto_text.replace(k, v)
@@ -415,7 +459,7 @@ class TfConcreteFunctionsToObmTest(
     )
 
     pre_processor_proto = (
-        tf_concrete_function_handle_pb2.TfConcreteFunctionHandle()
+        converter.tf_concrete_function_handle_pb2.TfConcreteFunctionHandle()
     )
     with open(os.path.join(save_dir_path, pre_processor_filename), "rb") as f:
       pre_processor_proto.ParseFromString(f.read())
@@ -426,7 +470,7 @@ class TfConcreteFunctionsToObmTest(
         """
     expected_pre_processor_proto = text_format.Parse(
         expected_pre_processor_proto_text,
-        tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(),
+        converter.tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(),
     )
     compare.assertProtoEqual(
         self,
@@ -435,7 +479,7 @@ class TfConcreteFunctionsToObmTest(
     )
 
     post_processor_proto = (
-        tf_concrete_function_handle_pb2.TfConcreteFunctionHandle()
+        converter.tf_concrete_function_handle_pb2.TfConcreteFunctionHandle()
     )
     with open(os.path.join(save_dir_path, post_processor_filename), "rb") as f:
       post_processor_proto.ParseFromString(f.read())
@@ -446,7 +490,7 @@ class TfConcreteFunctionsToObmTest(
         """
     expected_post_processor_proto = text_format.Parse(
         expected_post_processor_proto_text,
-        tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(),
+        converter.tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(),
     )
     compare.assertProtoEqual(
         self,
@@ -454,7 +498,9 @@ class TfConcreteFunctionsToObmTest(
         expected_post_processor_proto,
     )
 
-    loaded_tf_module = tf.saved_model.load(saved_model_abs_path)
+    loaded_tf_module = tf.saved_model.load(
+        os.path.join(save_dir_path, converter.OBM_TF_SAVED_MODEL_SUB_DIR)
+    )
     tf_input = (
         tf.ones(shape=input_arg_spec.shape, dtype=input_arg_spec.dtype) * 2
     )
