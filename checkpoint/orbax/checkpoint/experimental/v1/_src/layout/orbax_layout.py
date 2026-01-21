@@ -88,11 +88,11 @@ async def _has_zarray_files(path: Path) -> bool:
   return any(await asyncio.gather(*awaitables))
 
 
-async def _has_tensorstore_data_files(path: Path) -> bool:
+async def has_tensorstore_data_files(path: Path) -> bool:
   return await _has_ocdbt_manifest_file(path) or await _has_zarray_files(path)
 
 
-async def _has_pytree_metadata_file(path: Path) -> bool:
+async def has_pytree_metadata_file(path: Path) -> bool:
   return await async_path.exists(path / PYTREE_METADATA_FILE)
 
 
@@ -122,6 +122,7 @@ class OrbaxLayout(CheckpointLayout):
   async def metadata(
       self, path: Path
   ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
+    """Returns the metadata describing the Orbax checkpoint."""
     # Uses the v0 checkpointer to get v0 StepMetadata
     checkpointer, _ = v0_compatibility.get_v0_checkpointer_and_args(
         path, None, context=context_lib.get_context()
@@ -174,7 +175,7 @@ class OrbaxLayout(CheckpointLayout):
           " using"
           " `ocp.load_checkpointables()`."
       )
-    if not await _has_pytree_metadata_file(pytree_dir):
+    if not await has_pytree_metadata_file(pytree_dir):
       # TODO(niketkb): Add following details to the error message:
       # 1. we should check other available subdirectories and see if any of them
       #   look like PyTree checkpoints, and instruct the user to consider
@@ -184,7 +185,7 @@ class OrbaxLayout(CheckpointLayout):
       raise FileNotFoundError(
           f"Checkpoint path {path} does not contain a PyTree metadata file."
       )
-    if not await _has_tensorstore_data_files(pytree_dir):
+    if not await has_tensorstore_data_files(pytree_dir):
       logging.warning(
           "TensorStore data files not found in checkpoint path %s. This may be"
           " a sign of a malformed checkpoint, unless your checkpoint consists"

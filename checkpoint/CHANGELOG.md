@@ -20,6 +20,7 @@ creation scheduling, which may slow down background saving
 (but not the blocking time). The change also improves the
 `PathAwaitingCreation` interface so that any call to `await_creation` will
 trigger creation if it has not already been started.
+- Add new `OrbaxV0Layout` that will handle specific v0 checkpoint format logic.
 
 ## [0.11.31] - 2025-12-11
 
