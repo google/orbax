@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Removed `nest_asyncio` dependency and its usage, instead relying on
+  `asyncio.run_coroutine_threadsafe` to allow Orbax functions to be called from
+  within async contexts.
+
 ### Changed
 
 - #v1 Make most V1 public concrete classes final.
