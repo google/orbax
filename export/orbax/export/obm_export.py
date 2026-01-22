@@ -17,6 +17,7 @@
 from collections.abc import Callable, Mapping, Sequence
 import copy
 import dataclasses
+import functools
 import itertools
 import os
 from typing import Any, cast
@@ -47,7 +48,7 @@ class ObmExport(export_base.ExportBase):
   def __init__(
       self,
       module: jax_module.JaxModule | None,
-      cfgs: Sequence[serving_config.ServingConfig],
+      serving_configs: Sequence[serving_config.ServingConfig],
   ):
     """Initializes the ObmExport class."""
 
