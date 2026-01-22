@@ -11,6 +11,7 @@ REPO_URL="https://github.com/google/orbax.git"
 BRANCH="main"
 JAX_VERSION="newest"
 PR_NUMBER=""
+RAMFS_DIR="/mnt/ramdisk/ecm"
 
 # Parse flags
 while [[ "$#" -gt 0 ]]; do
@@ -19,6 +20,7 @@ while [[ "$#" -gt 0 ]]; do
         --branch) BRANCH="$2"; shift ;;
         --pr) PR_NUMBER="$2"; shift ;;
         --jax-version) JAX_VERSION="$2"; shift ;;
+        --ramfs-dir) RAMFS_DIR="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -127,7 +129,36 @@ pip install .
 
 # Install Benchmark dependencies (from Dockerfile analysis)
 echo "Installing benchmark dependencies..."
-pip install gcsfs portpicker clu tensorflow google-cloud-logging
+python3 -m pip install gcsfs portpicker clu tensorflow google-cloud-logging
+
+echo ">>> Setting up high-performance storage..."
+# 1. Define the mount point
+sudo mkdir -p "${RAMFS_DIR}"
+
+# 2. Mount tmpfs
+if ! grep -qs " ${RAMFS_DIR} " /proc/mounts; then
+    echo ">>> Mounting tmpfs for high-performance storage..."
+    # Options:
+    #   -t tmpfs: Specifies the filesystem type as tmpfs.
+    #   -o size=32g: Sets a maximum size for the tmpfs. Adjust "32g" based on your TPU VM's RAM.
+    #                 It's crucial to leave enough RAM for the OS and your applications.
+    #   -o rw: Read-write permissions.
+    #   -o huge=always: (Optional) Encourage huge pages for potentially better performance with large files.
+    #   -o mode=1777: Standard permissions for shared temporary directories.
+    #   -o relatime: Update access times relative to modification time.
+    sudo mount -t tmpfs -o size=32g,rw,huge=always,mode=1777,relatime tmpfs "${RAMFS_DIR}"
+    echo ">>> tmpfs mounted at ${RAMFS_DIR} with size limit of 32GB."
+else
+    echo ">>> ${RAMFS_DIR} is already a mountpoint, skipping mount."
+fi
+
+echo ">>> Deleting existing directories under ${RAMFS_DIR}..."
+sudo rm -rf "${RAMFS_DIR}/*"
+
+# 3. Set ownership to the current user so your scripts can write to it
+sudo chown "${USER}:${USER}" "${RAMFS_DIR}"
+
+df -h "${RAMFS_DIR}"
 
 echo "=== Setup Complete ==="
 echo "Orbax installed in: $WORK_DIR"

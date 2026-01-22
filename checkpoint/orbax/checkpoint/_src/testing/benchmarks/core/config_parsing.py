@@ -110,7 +110,9 @@ def _validate_config(config: Dict[str, Any]) -> None:
 
 
 def create_test_suite_from_config(
-    config_path: str, output_dir: str | None = None
+    config_path: str,
+    output_dir: str | None = None,
+    local_directory: str | None = None,
 ) -> core.TestSuite:
   """Creates a single TestSuite object from the benchmark configuration.
 
@@ -118,6 +120,8 @@ def create_test_suite_from_config(
     config_path: Path to the YAML configuration file.
     output_dir: Optional directory to store benchmark results in. If None,
       results will be stored in a temporary directory.
+    local_directory: Optional local directory for benchmark results. This is
+      used for ECM benchmarks.
 
   Returns:
     A TestSuite object containing all benchmarks generated from the config.
@@ -190,6 +194,7 @@ def create_test_suite_from_config(
         options=generator_options,
         output_dir=output_dir,
         mesh_configs=mesh_configs,
+        local_directory=local_directory,
     )
     generators.append(generator)
 
@@ -198,4 +203,5 @@ def create_test_suite_from_config(
       benchmarks_generators=generators,
       num_repeats=num_repeats,
       output_dir=output_dir,
+      local_directory=local_directory,
   )
