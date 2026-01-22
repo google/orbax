@@ -16,7 +16,6 @@
 
 import asyncio
 from typing import Any, Coroutine, TypeVar
-import nest_asyncio
 
 
 _T = TypeVar('_T')
@@ -24,13 +23,6 @@ _T = TypeVar('_T')
 
 def run_sync(
     coro: Coroutine[Any, Any, _T],
-    enable_nest_asyncio: bool = True,  # For testing.
 ) -> _T:
   """Runs a coroutine and returns the result."""
-  try:
-    asyncio.get_running_loop()  # no event loop: ~0.001s, otherwise: ~0.182s
-    if enable_nest_asyncio:
-      nest_asyncio.apply()  # patch asyncio globally in a runtime (idempotent).
-  except RuntimeError:
-    pass
   return asyncio.run(coro)

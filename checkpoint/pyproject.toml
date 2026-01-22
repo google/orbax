@@ -30,7 +30,6 @@ dependencies = [
     'numpy',
     'pyyaml',
     'tensorstore >= 0.1.74',
-    'nest_asyncio',
     'aiofiles',
     'protobuf',
     'humanize',

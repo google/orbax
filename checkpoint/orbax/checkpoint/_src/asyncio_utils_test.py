@@ -45,13 +45,6 @@ async def raise_error():
   raise ValueError("test error")
 
 
-async def with_run_sync(a_coro_fn):
-  x = asyncio_utils.run_sync(a_coro_fn())
-  y = asyncio_utils.run_sync(a_coro_fn())
-  z = asyncio_utils.run_sync(a_coro_fn())
-  return f"{x}{y}{z}"
-
-
 class AsyncioUtilsTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
@@ -156,82 +149,6 @@ class AsyncioUtilsTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, "test error"):
       asyncio_utils.run_sync(coro_fn())
 
-  @parameterized.named_parameters(
-      ["basic", partial(with_run_sync, one)],
-      ["nested_1_level", partial(with_run_sync, partial(with_run_sync, one))],
-      [
-          "nested_2_level",
-          partial(
-              with_run_sync, partial(with_run_sync, partial(with_run_sync, one))
-          ),
-      ],
-      [
-          "nested_3_level",
-          partial(
-              with_run_sync,
-              partial(
-                  with_run_sync,
-                  partial(with_run_sync, partial(with_run_sync, one)),
-              ),
-          ),
-      ],
-      [
-          "nested_4_level",
-          partial(
-              with_run_sync,
-              partial(
-                  with_run_sync,
-                  partial(
-                      with_run_sync,
-                      partial(with_run_sync, partial(with_run_sync, one)),
-                  ),
-              ),
-          ),
-      ],
-      [
-          "nested_5_level",
-          partial(
-              with_run_sync,
-              partial(
-                  with_run_sync,
-                  partial(
-                      with_run_sync,
-                      partial(
-                          with_run_sync,
-                          partial(with_run_sync, partial(with_run_sync, one)),
-                      ),
-                  ),
-              ),
-          ),
-      ],
-      [
-          "nested_6_level",
-          partial(
-              with_run_sync,
-              partial(
-                  with_run_sync,
-                  partial(
-                      with_run_sync,
-                      partial(
-                          with_run_sync,
-                          partial(
-                              with_run_sync,
-                              partial(
-                                  with_run_sync, partial(with_run_sync, one)
-                              ),
-                          ),
-                      ),
-                  ),
-              ),
-          ),
-      ],
-  )
-  def test_run_sync_nested(self, coro_fn):
-    self.assertEqual(
-        asyncio.run(coro_fn()),
-        asyncio_utils.run_sync(coro_fn()),
-    )
-
   def test_run_nested(self):
     async def with_run(a_coro_fn):
       return asyncio.run(a_coro_fn())
@@ -285,21 +202,13 @@ class AsyncioUtilsTest(parameterized.TestCase):
       )()
 
     number = 10000
-    # First run with enable_nest_asyncio=False, because nest_asyncio.apply
-    # patches asyncio globally in a runtime. There is no way to unpatch it.
-    run_time = timeit.timeit(
-        lambda: asyncio_utils.run_sync(_test(), enable_nest_asyncio=False),
-        number=number,
-    )  # ~1.604s
     run_sync_time = timeit.timeit(
-        lambda: asyncio_utils.run_sync(_test(), enable_nest_asyncio=True),
+        lambda: asyncio_utils.run_sync(_test()),
         number=number,
-    )  # ~1.5503s
+    )
     logging.info(
-        "time: run_sync_time=%s, run_time=%s, ratio=%s",
+        "time: run_sync_time=%s",
         run_sync_time,
-        run_time,
-        run_sync_time / run_time,
     )
 
 

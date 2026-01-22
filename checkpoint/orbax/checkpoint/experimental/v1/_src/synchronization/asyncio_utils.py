@@ -14,11 +14,6 @@
 
 """Helpers for asyncio usage."""
 
-import nest_asyncio
-
 
 def maybe_apply_nest_asyncio():
-  try:
-    nest_asyncio.apply()
-  except RuntimeError:
-    pass
+  pass

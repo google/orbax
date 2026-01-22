@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Removed `nest_asyncio` dependency and its usage. Orbax no longer supports
+  nested `asyncio.run` calls by default.
+
 ## [0.11.32] - 2026-01-20
 
 ### Changed
