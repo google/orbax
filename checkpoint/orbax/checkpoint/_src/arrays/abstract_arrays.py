@@ -104,7 +104,6 @@ def to_shape_dtype_struct(
     if isinstance(sharding, sharding_metadata.ShardingMetadata):
       sharding = sharding.to_jax_sharding()
     else:
-      sharding = arrays_sharding_lib.get_sharding_or_format(
-          arr, support_format=support_format
-      )
+      if support_format:
+        sharding = arrays_sharding_lib.get_sharding_or_format(arr)
     return jax.ShapeDtypeStruct(shape, dtype, sharding=sharding)
