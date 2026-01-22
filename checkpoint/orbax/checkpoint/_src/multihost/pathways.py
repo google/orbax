@@ -15,6 +15,9 @@
 """Pathways-specific multihost utilities."""
 
 import functools
+import re
+
+from absl import logging
 import jax
 
 
@@ -32,11 +35,28 @@ def worker_count(global_mesh: jax.sharding.Mesh | None) -> int:
   global_mesh = global_mesh or jax.sharding.Mesh(jax.devices(), 'x')
   devices = global_mesh.devices.flatten()
   workers = set()
+  warn = False
   for d in devices:
     attrs = []
     if hasattr(d, 'virtual_task_index'):
       attrs.append(d.virtual_task_index)
+    else:
+      # virtual_task_index is not exposed, so get it from repr.
+      if match := re.findall(r'vtask=(\d+),', repr(d)):
+        attrs.append(int(match[0]))
+      else:
+        warn = True
     if hasattr(d, 'slice_index'):
       attrs.append(d.slice_index)
+    else:
+      warn = True
     workers.add(tuple(attrs))
+
+  if warn:
+    logging.warning(
+        'Worker_count() may not be accurate, vtask or slice_index not found in'
+        ' devices: %s',
+        devices,
+    )
+
   return len(workers)

@@ -125,14 +125,15 @@ def _log_io_metrics(
   bytes_per_sec = (
       float('nan') if time_elapsed == 0 else float(size) / time_elapsed
   )
+  note = 'per-host'
   logging.info(
-      '[process=%d] %s: %s/s (total gbytes: %s) (time elapsed: %s s)'
-      ' (per-host)',
+      '[process=%d] %s: %s/s (total gbytes: %s) (time elapsed: %s s) (%s)',
       multihost.process_index(),
       gbytes_per_sec_metric,
       humanize.naturalsize(bytes_per_sec, binary=True, format='%.3f'),
       humanize.naturalsize(size, binary=True),
       time_elapsed,
+      note,
   )
   jax.monitoring.record_scalar(
       gbytes_per_sec_metric, value=bytes_per_sec / (1024**3)
@@ -710,6 +711,7 @@ class BasePyTreeCheckpointHandler(
     else:
       save_futures += commit_futures
 
+
     _log_io_metrics(
         tree_memory_size,
         start_time,
@@ -1073,6 +1075,7 @@ class BasePyTreeCheckpointHandler(
           'ts_metrics: %s',
           json.dumps(ts.experimental_collect_matching_metrics('/tensorstore/')),
       )
+
 
     _log_io_metrics(
         tree_memory_size,
