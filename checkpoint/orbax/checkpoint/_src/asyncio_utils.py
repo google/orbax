@@ -15,11 +15,17 @@
 """Provides helper async functions."""
 
 import asyncio
+import threading
 from typing import Any, Coroutine, TypeVar
-import nest_asyncio
 
 
 _T = TypeVar('_T')
+
+
+def _run_event_loop(loop: asyncio.AbstractEventLoop):
+  """Runs the event loop."""
+  loop.run_forever()
+  loop.close()
 
 
 def run_sync(
@@ -30,7 +36,17 @@ def run_sync(
   try:
     asyncio.get_running_loop()  # no event loop: ~0.001s, otherwise: ~0.182s
     if enable_nest_asyncio:
-      nest_asyncio.apply()  # patch asyncio globally in a runtime (idempotent).
+      event_loop = asyncio.new_event_loop()
+      thread = threading.Thread(
+          target=_run_event_loop, args=(event_loop,), daemon=True
+      )
+      thread.start()
+      future = asyncio.run_coroutine_threadsafe(coro, event_loop)
+      try:
+        return future.result()
+      finally:
+        event_loop.call_soon_threadsafe(event_loop.stop)
+        thread.join()
   except RuntimeError:
     pass
   return asyncio.run(coro)

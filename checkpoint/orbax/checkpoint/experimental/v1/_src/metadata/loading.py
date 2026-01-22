@@ -24,7 +24,6 @@ from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.synchronization import asyncio_utils
 
 
 CheckpointMetadata = metadata_types.CheckpointMetadata
@@ -86,7 +85,6 @@ def pytree_metadata(
   Returns:
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
-  asyncio_utils.maybe_apply_nest_asyncio()
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
   layout, checkpointable_name, path = asyncio.run(
@@ -130,7 +128,6 @@ def checkpointables_metadata(
   Returns:
     A `CheckpointMetadata[dict[str, Any]]` object.
   """
-  asyncio_utils.maybe_apply_nest_asyncio()
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
   layout = asyncio.run(
