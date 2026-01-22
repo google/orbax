@@ -69,20 +69,12 @@ def make_jax_exported_creator(
     ] = (),
 ):
   """Calls jax_export.export and returns a callable that returns Exported."""
-  native_serialization_platforms = None
   if platforms:
-    if not isinstance(platforms, (list, tuple)) or not all(
-        isinstance(p, int) and p in obm.manifest_pb2.Platform.values()
-        for p in platforms
-    ):
-      raise ValueError(
-          "native_serialization_platforms must be a sequence "
-          "containing a Platform enum type."
-          f"Got: {platforms}"
-      )
     native_serialization_platforms = tuple(
         obm.manifest_pb2.Platform.Name(p).lower() for p in platforms
     )
+  else:
+    native_serialization_platforms = None
 
   return jax_export.export(
       fun_jax,
