@@ -27,6 +27,7 @@ dependencies = [
     'jaxtyping',
     'numpy',
     'protobuf',
+    'openxla-pjrt-cpu',
     "orbax-checkpoint >=0.9.0"
 ]
 
