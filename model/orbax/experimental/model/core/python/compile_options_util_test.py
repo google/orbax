@@ -37,7 +37,7 @@ def _get_expected_proto_from_tpu_comp_env(field_str: str, proto_str: str):
 
 XLA_FLAGS_DICT = {
     'xla_jf_rematerialization_percent_shared_memory_limit': '99',
-    'xla_tpu_allocate_scoped_vmem_at_same_offset': 'false',
+    'xla_enable_profiler': 'false',
     'xla_tpu_alternate_memory_benefit_scaling_factor_for_large_buffers': (
         'NO_SCALE'
     ),
@@ -48,7 +48,7 @@ XLA_FLAGS_DICT = {
 
 EXPECTED_ENV = tpu_comp_env_pb2.TpuCompilationEnvironment(
     xla_jf_rematerialization_percent_shared_memory_limit=99,
-    xla_tpu_allocate_scoped_vmem_at_same_offset=False,
+    xla_enable_profiler=False,
     xla_tpu_alternate_memory_benefit_scaling_factor_for_large_buffers=(
         'NO_SCALE'
     ),
@@ -131,7 +131,7 @@ class CompileOptionsUtilTest(parameterized.TestCase):
     self.assertEqual(
         env.xla_jf_rematerialization_percent_shared_memory_limit, 99
     )
-    self.assertEqual(env.xla_tpu_allocate_scoped_vmem_at_same_offset, False)
+    self.assertEqual(env.xla_enable_profiler, False)
     self.assertEqual(
         env.xla_tpu_alternate_memory_benefit_scaling_factor_for_large_buffers,
         'NO_SCALE',
@@ -146,6 +146,17 @@ class CompileOptionsUtilTest(parameterized.TestCase):
 
     # Value that should not be overridden.
     self.assertEqual(env.xla_tpu_wait_n_cycles_before_program_termination, 1234)
+
+  def test_merge_flags_into_compile_options_deprecated_flag(self):
+    xla_flags = {'xla_tpu_enable_experimental_fusion_cost_model': 'true'}
+    env = tpu_comp_env_pb2.TpuCompilationEnvironment()
+    with self.assertRaisesRegex(
+        ValueError,
+        r'\[DEPRECATED_XLA_TPU_FLAG_USE\] TpuCompilationEnvironment has'
+        r' deprecated fields in use:'
+        r' xla_tpu_enable_experimental_fusion_cost_model',
+    ):
+      compile_options_util._merge_flags_into_compile_options(xla_flags, env)
 
   @parameterized.named_parameters(
       dict(
@@ -184,14 +195,14 @@ class CompileOptionsUtilTest(parameterized.TestCase):
   def test_generate_tpu_compilation_env_invalid_flag_format(self):
     with self.assertRaisesRegex(
         ValueError,
-        'Flag xla_tpu_allocate_scoped_vmem_at_same_offset: false does not start'
+        'Flag xla_enable_profiler: false does not start'
         " with '--'. All flags must be in the format of"
         ' --flag_name=flag_value.',
     ):
       compile_options_util._generate_tpu_compilation_env(
           xla_flags_overrides=[
               '--xla_tpu_memory_bound_loop_optimizer_options=enabled:false',
-              'xla_tpu_allocate_scoped_vmem_at_same_offset: false',
+              'xla_enable_profiler: false',
           ]
       )
 

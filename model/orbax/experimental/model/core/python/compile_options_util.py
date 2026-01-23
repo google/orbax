@@ -27,9 +27,9 @@ from orbax.experimental.model.core.protos import manifest_pb2
 from .google.protobuf import any_pb2
 from .platforms.xla.service.jellyfish import tpu_compilation_environment_pb2 as tpu_comp_env_pb2
 from .platforms.xla.service.jellyfish.python import tpu_compilation_environment as tpu_comp_env
-from tensorflow.compiler.xla import xla_data_pb2
-from tensorflow.compiler.xla import xla_pb2
-from tensorflow.compiler.xla.pjrt.proto import compile_options_pb2
+from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
+from tensorflow.compiler.xla import xla_pb2  # pylint: disable=g-direct-tensorflow-import
+from tensorflow.compiler.xla.pjrt.proto import compile_options_pb2  # pylint: disable=g-direct-tensorflow-import
 
 # A mapping between XLAflag names and protobuf field names.
 _XLA_FLAG_TO_FIELD_MAP = {
@@ -41,7 +41,25 @@ _XLA_FLAG_TO_FIELD_MAP = {
 def _generate_tpu_compilation_env(
     xla_flags_overrides: Sequence[str] | None = None,
 ) -> xla_pb2.CompilationEnvironmentsProto:
-  """Generates the TPU compilation environment."""
+  """Generates the TPU compilation environment.
+
+  It starts with default TPU compilation environment settings and overrides them
+  with any flags provided in `xla_flags_overrides`.
+
+  Args:
+    xla_flags_overrides: A sequence of strings, where each string is an XLA flag
+      in the format '--flag_name=flag_value'. These flags override default TPU
+      compilation settings.
+
+  Returns:
+    An `xla_pb2.CompilationEnvironmentsProto` containing the TPU compilation
+    environment.
+
+  Raises:
+    ValueError: If a flag in `xla_flags_overrides` is malformed (e.g., does
+      not start with '--') or if a flag is deprecated.
+    ValueError: If a flag in `xla_flags_overrides` is deprecated.
+  """
   # Get default TPU compilation environment.
   tpu_compilation_env_str = tpu_comp_env.create_default_tpu_comp_env()
   env = tpu_comp_env_pb2.TpuCompilationEnvironment.FromString(
@@ -249,8 +267,8 @@ def parse_flag_from_string(flag_name: str, value: str) -> Any:
   """
   try:
     flag_holder = flags.FLAGS[flag_name]
-  except KeyError:
-    raise ValueError(f'Flag not found: {flag_name}')
+  except KeyError as exc:
+    raise ValueError(f'Flag not found: {flag_name}') from exc
 
   parsed_value = flag_holder.parser.parse(value)
   field = get_field_for_flag(flag_name)
@@ -296,10 +314,19 @@ def _merge_flags_into_compile_options(
       will be parsed and merged into the `env` proto.
     env: The TpuCompilationEnvironment proto to merge the flags into. This proto
       will be modified in place.
+
+  Raises:
+    ValueError: If a flag is deprecated.
   """
   env_override = tpu_comp_env_pb2.TpuCompilationEnvironment()
   for flag_name, value in xla_flags.items():
     field_descriptor = get_field_for_flag(flag_name)
+    if field_descriptor.GetOptions().deprecated:
+      raise ValueError(
+          '[DEPRECATED_XLA_TPU_FLAG_USE] TpuCompilationEnvironment has'
+          f' deprecated fields in use: {flag_name}'
+      )
+
     parsed_value = parse_flag_from_string(flag_name, value)
     if field_descriptor.type == descriptor.FieldDescriptor.TYPE_MESSAGE:
       # For message types, we need to copy the parsed message.
