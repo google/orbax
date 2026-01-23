@@ -15,3 +15,4 @@
 # pylint: disable=missing-module-docstring
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
 from orbax.experimental.model.tf2obm.converter import *
+from orbax.experimental.model.tf2obm.utils import *
