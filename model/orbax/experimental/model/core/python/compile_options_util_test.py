@@ -127,7 +127,7 @@ class CompileOptionsUtilTest(parameterized.TestCase):
     env.xla_tpu_wait_n_cycles_before_program_termination = 1234
 
     # Merge the flags into the environment.
-    compile_options_util.merge_flags_into_compile_options(xla_flags, env)
+    compile_options_util._merge_flags_into_compile_options(xla_flags, env)
     self.assertEqual(
         env.xla_jf_rematerialization_percent_shared_memory_limit, 99
     )
@@ -162,7 +162,7 @@ class CompileOptionsUtilTest(parameterized.TestCase):
   def test_generate_tpu_compilation_env(
       self, xla_flags_overrides, expected_env
   ):
-    env = compile_options_util.generate_tpu_compilation_env(
+    env = compile_options_util._generate_tpu_compilation_env(
         xla_flags_overrides=xla_flags_overrides
     )
     self.assertLen(env.environments, 1)
@@ -188,7 +188,7 @@ class CompileOptionsUtilTest(parameterized.TestCase):
         " with '--'. All flags must be in the format of"
         ' --flag_name=flag_value.',
     ):
-      compile_options_util.generate_tpu_compilation_env(
+      compile_options_util._generate_tpu_compilation_env(
           xla_flags_overrides=[
               '--xla_tpu_memory_bound_loop_optimizer_options=enabled:false',
               'xla_tpu_allocate_scoped_vmem_at_same_offset: false',
@@ -287,19 +287,6 @@ class CompileOptionsUtilTest(parameterized.TestCase):
       compile_options_util.generate_xla_compile_options(
           native_serialization_platforms=['invalid'],
           xla_flags_per_platform={},
-      )
-
-  def test_generate_xla_compile_options_invalid_xla_flags_platform(self):
-    with self.assertRaisesRegex(
-        ValueError,
-        'Platform "invalid" is not a valid platform. Valid platforms are:'
-        r" \['cpu', 'cuda', 'platform_unspecified', 'rocm', 'tpu'\]",
-    ):
-      compile_options_util.generate_xla_compile_options(
-          native_serialization_platforms=['cpu'],
-          xla_flags_per_platform={
-              'invalid': [f'--{k}={v}' for k, v in XLA_FLAGS_DICT.items()]
-          },
       )
 
   def test_generate_xla_compile_options_xla_flags_platform_not_in_native_serialization_platforms(

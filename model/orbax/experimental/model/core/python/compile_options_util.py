@@ -38,7 +38,7 @@ _XLA_FLAG_TO_FIELD_MAP = {
 }
 
 
-def generate_tpu_compilation_env(
+def _generate_tpu_compilation_env(
     xla_flags_overrides: Sequence[str] | None = None,
 ) -> xla_pb2.CompilationEnvironmentsProto:
   """Generates the TPU compilation environment."""
@@ -58,7 +58,7 @@ def generate_tpu_compilation_env(
         )
       flag_name, flag_value = flag[2:].split('=', 1)
       parsed_flags[flag_name] = flag_value
-    merge_flags_into_compile_options(parsed_flags, env)
+    _merge_flags_into_compile_options(parsed_flags, env)
 
   # Pack the TPU compilation environment into a compilation env proto.
   any_proto = any_pb2.Any()
@@ -68,7 +68,7 @@ def generate_tpu_compilation_env(
   return compilation_env_proto
 
 
-def generate_compilation_options(
+def _generate_compilation_options(
     compile_environment: xla_pb2.CompilationEnvironmentsProto | None = None,
     jax_mesh: jax.sharding.Mesh | None = None,
 ) -> compile_options_pb2.CompileOptionsProto:
@@ -170,11 +170,6 @@ def generate_xla_compile_options(
     logging.info('Setting XLA flags per platform: %s', xla_flags_per_platform)
     # validate XLA flags provided are for a provided platform.
     for xla_platform in xla_flags_per_platform.keys():
-      if xla_platform.lower() not in valid_platforms:
-        raise ValueError(
-            f'Platform "{xla_platform}" is not a valid platform. Valid'
-            f' platforms are: {sorted(list(valid_platforms))}'
-        )
       if xla_platform.lower() not in platforms:
         raise ValueError(
             f'Platform "{xla_platform}" used for XLA flags is not provided in'
@@ -188,11 +183,11 @@ def generate_xla_compile_options(
         _validate_xla_flags_setting(xla_flags_overrides, persist_xla_flags)
       else:
         xla_flags_overrides = None
-      compile_environment = generate_tpu_compilation_env(xla_flags_overrides)
+      compile_environment = _generate_tpu_compilation_env(xla_flags_overrides)
     else:
       compile_environment = None
     compile_options_map.map[platform.lower()].CopyFrom(
-        generate_compilation_options(compile_environment, jax_mesh)
+        _generate_compilation_options(compile_environment, jax_mesh)
     )
   if not persist_xla_flags:
     for compile_options in compile_options_map.map.values():
@@ -290,7 +285,7 @@ def parse_flag_from_string(flag_name: str, value: str) -> Any:
   return parsed_value
 
 
-def merge_flags_into_compile_options(
+def _merge_flags_into_compile_options(
     xla_flags: Mapping[str, str],
     env: tpu_comp_env_pb2.TpuCompilationEnvironment,
 ):
