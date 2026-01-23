@@ -25,8 +25,10 @@ Should be implemented as::
 """
 
 import asyncio
+import contextlib
 import os
-from typing import Any, Iterator
+from typing import Any, AsyncIterator, Iterator
+
 from etils import epath
 
 
@@ -109,3 +111,40 @@ async def glob(path: epath.Path, pattern: str) -> Iterator[epath.Path]:
 
 async def unlink(path: epath.Path, missing_ok: bool = False):
   return await asyncio.to_thread(path.unlink, missing_ok=missing_ok)
+
+
+class AsyncFile:
+  """Async wrapper for file operations."""
+
+  def __init__(self, f: Any):
+    self._f = f
+
+  async def read(self, n: int = -1) -> bytes | str:
+    return await asyncio.to_thread(self._f.read, n)
+
+  async def seek(self, offset: int, whence: int = 0) -> int:
+    return await asyncio.to_thread(self._f.seek, offset, whence)
+
+  async def tell(self) -> int:
+    return await asyncio.to_thread(self._f.tell)
+
+  async def write(self, data: Any) -> int:
+    return await asyncio.to_thread(self._f.write, data)
+
+  async def flush(self) -> None:
+    return await asyncio.to_thread(self._f.flush)
+
+  async def close(self) -> None:
+    return await asyncio.to_thread(self._f.close)
+
+
+@contextlib.asynccontextmanager
+async def open_file(
+    path: epath.Path, mode: str = 'rb'
+) -> AsyncIterator[AsyncFile]:
+  """Async context manager for opening files."""
+  f = await asyncio.to_thread(path.open, mode=mode)
+  try:
+    yield AsyncFile(f)
+  finally:
+    await asyncio.to_thread(f.close)

@@ -16,10 +16,8 @@
 
 import collections
 import json
-import os
-from typing import Any, Awaitable, Sequence
+from typing import Any, Awaitable, Sequence, cast
 
-import aiofiles
 import jax
 import numpy as np
 from orbax.checkpoint._src.arrays import numpy_utils
@@ -67,13 +65,13 @@ async def _get_safetensors_file_list(path: Path) -> Sequence[Path]:
 
 async def _read_safetensors_header(path: Path) -> tuple[dict[str, Any], int]:
   """Reads a safetensors file header, returning the header and data start offset."""
-  async with aiofiles.open(path, mode="rb") as f:
-    header_size_bytes = await f.read(HEADER_NUM_BYTES)  # pytype: disable=attribute-error
+  async with async_path.open_file(path, mode="rb") as f:
+    header_size_bytes = await f.read(HEADER_NUM_BYTES)
     if not header_size_bytes:
       raise ValueError("Could not read header size from safetensors file.")
 
     header_size = int.from_bytes(header_size_bytes, byteorder="little")
-    header_bytes = await f.read(header_size)  # pytype: disable=attribute-error
+    header_bytes = await f.read(header_size)
     if len(header_bytes) != header_size:
       raise ValueError("Could not read header content from safetensors file.")
 
@@ -94,7 +92,7 @@ def _get_array_properties(info: dict[str, Any]) -> tuple[tuple[int, ...], Any]:
 
 
 async def _read_non_contiguous_slice(
-    f: aiofiles.threadpool.binary.AsyncBufferedIOBase,
+    f: async_path.AsyncFile,
     idx: tuple[slice, ...],
     stored_shape: tuple[int, ...],
     stored_dtype: np.dtype,
@@ -120,9 +118,9 @@ async def _read_non_contiguous_slice(
   """
   # Handle 0-d scalar case
   if not idx:
-    await f.seek(tensor_file_offset)  # pytype: disable=attribute-error
+    await f.seek(tensor_file_offset)
     num_bytes = np.dtype(stored_dtype).itemsize
-    scalar_bytes = await f.read(num_bytes)  # pytype: disable=attribute-error
+    scalar_bytes = await f.read(num_bytes)
     # Reshape to () to create a 0-D NumPy array.
     return np.frombuffer(scalar_bytes, dtype=stored_dtype).reshape(())
 
@@ -143,8 +141,8 @@ async def _read_non_contiguous_slice(
     if dim == len(stored_shape) - 1:
       start = base_offset + s.start * global_strides[dim]
       num_bytes = (s.stop - s.start) * itemsize
-      await f.seek(tensor_file_offset + start)  # pytype: disable=attribute-error
-      return await f.read(num_bytes)  # pytype: disable=attribute-error
+      await f.seek(tensor_file_offset + start)
+      return cast(bytes, await f.read(num_bytes))
 
     # For all other dimensions, iterate through the indices
     # of the slice and make a recursive call for the next dimension.
@@ -166,9 +164,9 @@ async def _load_safetensors_as_numpy(path: Path) -> dict[str, np.ndarray]:
   """Loads tensors from a safetensors file into host NumPy arrays."""
   header, data_start_offset = await _read_safetensors_header(path)
   tensors = {}
-  async with aiofiles.open(path, mode="rb") as f:
-    await f.seek(data_start_offset)  # pytype: disable=attribute-error
-    data_bytes = await f.read()  # pytype: disable=attribute-error
+  async with async_path.open_file(path, mode="rb") as f:
+    await f.seek(data_start_offset)
+    data_bytes = await f.read()
   for name, info in header.items():
     if name == "__metadata__":
       continue
@@ -186,7 +184,7 @@ async def _load_safetensors_on_device(
   """Loads tensors from a safetensors file into on-device JAX arrays."""
   header, data_start_offset = await _read_safetensors_header(path)
   restored_pytree = {}
-  async with aiofiles.open(path, mode="rb") as f:
+  async with async_path.open_file(path, mode="rb") as f:
     for tensor_name, abstract_leaf in abstract_pytree.items():
       if tensor_name not in header:
         raise KeyError(
@@ -337,7 +335,8 @@ class SafetensorsLayout(CheckpointLayout):
 
     for path in files:
       header, _ = await _read_safetensors_header(path)
-      ts = int(os.stat(path).st_mtime)
+      stat = await async_path.async_stat(path)
+      ts = int(stat.mtime)
       if commit_timestamp_nsecs is None or ts > commit_timestamp_nsecs:
         commit_timestamp_nsecs = ts
 
