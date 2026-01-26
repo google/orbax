@@ -404,6 +404,10 @@ class BasePyTreeCheckpointHandler(
       enable_pinned_host_transfer = jax.default_backend() == 'gpu'
     self._enable_pinned_host_transfer = enable_pinned_host_transfer
     self._is_prioritized_key_fn = is_prioritized_key_fn
+    if self._is_prioritized_key_fn:
+      jax.monitoring.record_event(
+          '/jax/orbax/pytree_checkpoint_handler/init/prioritized_key_fn'
+      )
 
     jax.monitoring.record_event(
         '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
