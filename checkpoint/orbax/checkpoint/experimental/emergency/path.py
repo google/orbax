@@ -15,14 +15,63 @@
 """Path utilities for emergency checkpointing."""
 
 import collections
+import json
+from typing import Any
 from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import step as step_lib
+
+
+def sync_global_data(
+    local_data: dict[str, Any],
+) -> list[dict[str, Any]]:
+  """Exchanges arbitrary JSON-serializable data with all hosts.
+
+  Args:
+    local_data: A dictionary of JSON-serializable data.
+
+  Returns:
+    A list of dictionaries containing the data from all hosts.
+  """
+  # 1. Serialize
+  json_str = json.dumps(local_data)
+  local_bytes = np.frombuffer(json_str.encode('utf-8'), dtype=np.uint8)
+  local_len = jnp.array([len(local_bytes)], dtype=jnp.int32)
+
+  # 2. Exchange Lengths
+  all_lens = multihost_utils.process_allgather(local_len, tiled=False)
+  max_len = int(jnp.max(all_lens))
+
+  # 3. Pad to Max Length
+  padded_bytes = np.zeros(max_len, dtype=np.uint8)
+  padded_bytes[: len(local_bytes)] = local_bytes
+  padded_bytes_jax = jnp.array(padded_bytes)
+
+  # 4. Exchange Data
+  all_padded_data = multihost_utils.process_allgather(
+      padded_bytes_jax, tiled=False
+  )
+
+  # 5. Decode
+  global_data = []
+  all_padded_data_np = np.array(all_padded_data)
+  # process_allgather with tiled=False concatenates results into a 1D array.
+  # Reshape to (num_processes, max_len) for indexing.
+  all_padded_data_np = all_padded_data_np.reshape(jax.process_count(), -1)
+
+  for i in range(len(all_lens)):
+    length = int(all_lens[i])
+    valid_bytes = all_padded_data_np[i, :length]
+    data_str = valid_bytes.tobytes().decode('utf-8')
+    global_data.append(json.loads(data_str))
+
+  return global_data
 
 
 def _common_values_per_replica(
@@ -90,27 +139,15 @@ def get_per_replica_local_steps(
       local_directory,
   )
 
-  num_local_steps = len(local_steps)
-  max_num_local_steps = multihost.global_max([num_local_steps])[0]
-  # Pad the local steps so all hosts have an array of the same length.
-  padded_local_steps = list(local_steps) + [-1] * (
-      max_num_local_steps - num_local_steps
+  all_processes_data = sync_global_data(
+      {
+          'process_id': multihost.process_index(),
+          'steps': list(local_steps),
+      },
   )
-  local_steps_per_process_array = np.array(
-      [multihost.process_index()] + padded_local_steps, dtype=np.int32
-  )
-
-  # Use all_gather to collect the arrays from every host.
-  global_steps_per_process = multihost_utils.process_allgather(
-      local_steps_per_process_array, tiled=False
-  )
-
-  # The rest of the logic works on the gathered NumPy array.
   per_process_steps = {}
-  for process_and_steps in global_steps_per_process:
-    per_process_steps[process_and_steps[0]] = set(
-        s for s in process_and_steps[1:] if s != -1
-    )
+  for data in all_processes_data:
+    per_process_steps[data['process_id']] = set(data['steps'])
   per_slice_steps = _common_values_per_replica(
       per_process_steps,
       global_mesh=global_mesh,
