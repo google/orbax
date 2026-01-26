@@ -1,0 +1,169 @@
+# proto-file: orbax/export/protos/oex_orchestration.proto
+# proto-message: Pipelines
+
+name_to_pipeline {
+  key: "__SIGNATURE_KEY__"
+  value {
+    signature {
+      input {
+        tuple {
+          elements {
+            tuple {
+              elements {
+                leaf {
+                  tensor_type {
+                    shape {
+                      shape_with_known_rank {
+                        dimension_sizes {
+                          size: 2
+                        }
+                        dimension_sizes {
+                          size: 2
+                        }
+                      }
+                    }
+                    dtype: f32
+                  }
+                }
+              }
+            }
+          }
+          elements {
+            dict {
+            }
+          }
+        }
+      }
+      output {
+        dict {
+          string_to_type {
+            key: "a"
+            value {
+              leaf {
+                tensor_type {
+                  shape {
+                    shape_with_known_rank {
+                      dimension_sizes {
+                        size: 2
+                      }
+                      dimension_sizes {
+                        size: 2
+                      }
+                    }
+                  }
+                  dtype: f32
+                }
+              }
+            }
+          }
+          string_to_type {
+            key: "b"
+            value {
+              dict {
+                string_to_type {
+                  key: "c"
+                  value {
+                    leaf {
+                      tensor_type {
+                        shape {
+                          shape_with_known_rank {
+                            dimension_sizes {
+                              size: 2
+                            }
+                            dimension_sizes {
+                              size: 2
+                            }
+                          }
+                        }
+                        dtype: f32
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    named_signature {
+      outputs {
+        named_tensor_types {
+          name: "a"
+          tensor_type {
+            shape {
+              shape_with_known_rank {
+                dimension_sizes {
+                  size: 2
+                }
+                dimension_sizes {
+                  size: 2
+                }
+              }
+            }
+            dtype: f32
+          }
+        }
+        named_tensor_types {
+          name: "b.c"
+          tensor_type {
+            shape {
+              shape_with_known_rank {
+                dimension_sizes {
+                  size: 2
+                }
+                dimension_sizes {
+                  size: 2
+                }
+              }
+            }
+            dtype: f32
+          }
+        }
+      }
+    }
+    model_functions {
+      model_function_name: "__MODEL_FUNCTION_NAME__"
+    }
+    components {
+      function_name: "__MODEL_FUNCTION_NAME__"
+      role: ROLE_MODEL
+      named_signature {
+        outputs {
+          named_tensor_types {
+            name: "a"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 2
+                  }
+                  dimension_sizes {
+                    size: 2
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+          named_tensor_types {
+            name: "b.c"
+            tensor_type {
+              shape {
+                shape_with_known_rank {
+                  dimension_sizes {
+                    size: 2
+                  }
+                  dimension_sizes {
+                    size: 2
+                  }
+                }
+              }
+              dtype: f32
+            }
+          }
+        }
+      }
+    }
+  }
+}
