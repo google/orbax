@@ -219,9 +219,9 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
     return self._export_module.apply_fn_map
 
   @property
-  def model_params(self) -> PyTree:
+  def model_params_spec(self) -> PyTree:
     """Returns the model parameters."""
-    return self._export_module.model_params
+    return self._export_module.model_params_spec
 
   @property
   def model_param_names(self) -> Sequence[str]:
@@ -233,7 +233,7 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
 
     param_names_tree = jax.tree_util.tree_map_with_path(
         lambda path, _: jax.tree_util.keystr(path, simple=True, separator='.'),
-        self.model_params,
+        self.model_params_spec,
     )
 
     return jax.tree.leaves(param_names_tree)

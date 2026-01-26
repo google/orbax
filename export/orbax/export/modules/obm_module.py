@@ -104,10 +104,10 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
 
     if enable_bf16_optimization:
       mapped_apply_fn = utils.to_bfloat16(apply_fn)
-      self._params_args_spec = utils.to_bfloat16(params)
+      self._params_spec = utils.to_bfloat16(params)
     else:
       mapped_apply_fn = apply_fn
-      self._params_args_spec = params
+      self._params_spec = params
     (
         self._apply_fn_map,
         self.input_polymorphic_shape_map,
@@ -335,9 +335,9 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     return constants.ExportModelType.ORBAX_MODEL
 
   @property
-  def model_params(self) -> PyTree:
+  def model_params_spec(self) -> PyTree:
     """Returns the model parameter specs."""
-    return self._params_args_spec
+    return self._params_spec
 
   def obm_module_to_jax_exported_map(
       self,

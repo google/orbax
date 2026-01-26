@@ -379,9 +379,9 @@ class ObmModuleTest(parameterized.TestCase):
 
     expected_dtype = jnp.bfloat16 if enable_bf16_optimization else jnp.float32
     with self.subTest('test_weights_w_dtype'):
-      self.assertEqual(module.model_params['w'].dtype, expected_dtype)
+      self.assertEqual(module.model_params_spec['w'].dtype, expected_dtype)
     with self.subTest('test_weights_b_dtype'):
-      self.assertEqual(module.model_params['b'].dtype, expected_dtype)
+      self.assertEqual(module.model_params_spec['b'].dtype, expected_dtype)
 
 
 if __name__ == '__main__':

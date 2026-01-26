@@ -160,7 +160,7 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
     )
 
     self.assertEqual(
-        jax_module.model_params,
+        jax_module.model_params_spec,
         params,
     )
     x = jax.random.normal(key_x, shape=(8, 1))
@@ -193,7 +193,7 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
     )
 
     self.assertEqual(
-        jax_module.model_params,
+        jax_module.model_params_spec,
         {'w': jnp.array([4, 5, 6]), 'b': jnp.array([4])},
     )
 
