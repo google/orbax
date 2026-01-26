@@ -160,6 +160,7 @@ JAX on TPU.
 | `--jax-version` | `newest` | `newest`, `nightly`, or `x.y.z`. | **Debugging**. Use `nightly` to test bleeding-edge JAX features. |
 | `--device` | `tpu` | `tpu`, `gpu`, `cpu`. | **Multi-Hardware**. When testing on GPU or CP/Local validation. |
 | `--base-image` | `python:3.11...` | Base Docker Image. | **Advanced**. If you need custom drivers or non-standard OS libs. |
+| `--no-cache` | `N/A` | Disable Docker build cache for all layers. | **Debugging**. Force rebuild of all layers from scratch. |
 
 ---
 <!-- LINT.ThenChange(build_image.sh:build_image_flags) -->
@@ -233,6 +234,10 @@ the complexities of cluster management and config propagation.
 | `--cpu_limit` | `None` | (Advanced) CPU limit for the cluster (e.g., `112`). |
 | `--memory_limit` | `None` | (Advanced) Memory limit for the cluster (e.g., `192Gi`). |
 | `--device_type` | `None` | **GPU Support**: Specify device type (e.g., `h100-mega-80gb-8`). |
+| `--create_vertex_tensorboard` | `False` | Create a Vertex AI Tensorboard instance. |
+| `--tensorboard_region` | `None` | Region for Vertex AI Tensorboard. |
+| `--tensorboard_name` | `None` | Name for Vertex AI Tensorboard. |
+| `--xpk_path` | `xpk` | Path to xpk binary or command. |
 
 #### 💰 Capacity & Scheduling
 | Flag | Default | Description |
@@ -254,6 +259,10 @@ the complexities of cluster management and config propagation.
 | `--env_file` | `None` | Path to file with env vars. |
 | `--ramdisk_directory` | `None` | Mount a ramdisk at this path (e.g., `/tmp/ramdisk`). |
 | `--sa` | `None` | Kubernetes Service Account to run as. |
+| `--storage` | `None` | Storage type to use for the workload (e.g., `test-service-lustre`). |
+| `--benchmark_binary_path` | `/app/...` | Path to the benchmark runner script within the Docker image. |
+| `--use_vertex_tensorboard` | `False` | Use Vertex AI Tensorboard for the workload. |
+| `--experiment_name` | `None` | Name of the Vertex AI experiment. |
 
 #### 🔌 Networking & Security
 | Flag | Default | Description |
@@ -269,6 +278,7 @@ the complexities of cluster management and config propagation.
 | `--restart_on_user_code_failure` | `False` | **Critical**: If True, K8s restarts job on app crash. Default `False` helps debug crashes. |
 | `--enable_ops_agent` | `False` | Install Google Cloud Ops Agent for system metrics. |
 | `--debug_dump_gcs` | `None` | GCS path to dump XLA debug artifacts. |
+| `--v_level` | `None` | Verbosity level for the benchmark binary (e.g., `1`). |
 
 #### 🔁 Lifecycle & Automation
 | Flag | Default | Description |

@@ -252,6 +252,11 @@ _RAMDISK_DIRECTORY = flags.DEFINE_string(
     None,
     'Directory to mount a ramdisk (e.g., /tmp/ramdisk).',
 )
+_STORAGE = flags.DEFINE_string(
+    'storage',
+    None,
+    'Storage type to use for the workload (e.g., test-service-lustre).',
+)
 _XPK_PATH = flags.DEFINE_string(
     'xpk_path', 'xpk', 'Path to xpk binary or command.'
 )
@@ -260,6 +265,9 @@ _SKIP_PREFLIGHT_CHECKS = flags.DEFINE_boolean(
 )
 _VERBOSE = flags.DEFINE_boolean(
     'verbose', False, 'If True, show logs from XPK commands.'
+)
+_V_LEVEL = flags.DEFINE_integer(
+    'v_level', None, 'Verbosity level for the benchmark binary (e.g., 1).'
 )
 
 # --- Pathways Flags ---
@@ -529,6 +537,7 @@ def construct_workload_command(
     run_id: str,
     enable_pathways: bool,
     benchmark_binary_path: str,
+    v_level: int | None,
 ) -> str:
   """Constructs the command to run inside the workload."""
   # Environment variables
@@ -543,12 +552,16 @@ def construct_workload_command(
 
   env_cmd = ' && '.join(env_vars) + ' && ' if env_vars else ''
 
-  python_cmd = (
-      f'python3 {benchmark_binary_path} '
-      f'--config_file={config_file} '
-      f'--output_directory={os.path.join(output_directory, run_id)} '
-      '--alsologtostderr'
-  )
+  python_args = [
+      f'python3 {benchmark_binary_path}',
+      f'--config_file={config_file}',
+      f'--output_directory={os.path.join(output_directory, run_id)}',
+      '--alsologtostderr',
+  ]
+  if v_level is not None:
+    python_args.append(f'--v={v_level}')
+
+  python_cmd = ' '.join(python_args)
 
   return f'{env_cmd}{python_cmd}'
 
@@ -569,6 +582,8 @@ def construct_xpk_command(
       f'--priority={_PRIORITY.value}',
   ]
 
+  if _STORAGE.value is not None:
+    base_cmd.append(f'--storage={_STORAGE.value}')
   if _TPU_TYPE.value is not None:
     base_cmd.append(f'--tpu-type={_TPU_TYPE.value}')
   if _DEVICE_TYPE.value is not None:
@@ -730,6 +745,7 @@ def main(argv: Sequence[str]) -> None:
       run_id=run_id,
       enable_pathways=_ENABLE_PATHWAYS.value,
       benchmark_binary_path=_BENCHMARK_BINARY_PATH.value,
+      v_level=_V_LEVEL.value,
   )
   xpk_cmd = construct_xpk_command(workload_name, workload_cmd)
 
