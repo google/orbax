@@ -25,25 +25,38 @@ class DeviceAssignment:
   Attributes:
     id: The device id.
     coords: The device coordinates.
-    core_on_chip: The core on chip. If not set, the device is assumed to be a
-      single-core device.
+    core_on_chip: The core on chip.
   """
 
   id: int
   coords: Sequence[int] | None = None
   core_on_chip: int | None = None
 
+  def __post_init__(self):
+    if (self.coords is None) != (self.core_on_chip is None):
+      raise ValueError(
+          "coords and core_on_chip should be either both set or both None,  but"
+          f" got coords: {self.coords} and core_on_chip: {self.core_on_chip}."
+      )
 
-def jax_mesh_to_obm_device_assignment_by_coords(
-    jax_mesh: jax.sharding.Mesh,
+
+def mesh_to_device_assignment(
+    mesh: jax.sharding.Mesh,
 ) -> Sequence[DeviceAssignment]:
-  """Converts `jax.sharding.Mesh` to a sequence of `DeviceAssignment`s."""
+  """Returns a list of DeviceAssignment objects for each device in the mesh.
 
-  def spec_for_device(d):
+  Args:
+    mesh: A jax.sharding.Mesh object.
+
+  Returns:
+    A list of DeviceAssignment objects, one for each device in the mesh.
+  """
+
+  def _to_assignment(d):
     if d.platform == "tpu":
       return DeviceAssignment(
           id=d.id, coords=d.coords, core_on_chip=d.core_on_chip
       )
     return DeviceAssignment(id=d.id)
 
-  return [spec_for_device(d) for d in jax_mesh.devices.flat]
+  return [_to_assignment(d) for d in mesh.devices.flat]

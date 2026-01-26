@@ -16,7 +16,7 @@ import os
 from absl.testing import absltest
 import jax
 from jax.experimental import mesh_utils
-from jax.experimental.topologies import get_topology_desc
+from jax.experimental import topologies as jax_topologies
 import numpy as np
 from orbax.experimental.model.core.python import device_assignment
 from .testing.pybase import parameterized
@@ -26,7 +26,7 @@ class DeviceAssignmentTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(
-          testcase_name='with_all_fields',
+          testcase_name='id_with_coords_and_core_on_chip',
           assignment=device_assignment.DeviceAssignment(
               id=5, coords=(1, 2), core_on_chip=3
           ),
@@ -35,43 +35,44 @@ class DeviceAssignmentTest(parameterized.TestCase):
           expected_core_on_chip=3,
       ),
       dict(
-          testcase_name='with_defaults',
+          testcase_name='id_only',
           assignment=device_assignment.DeviceAssignment(id=0),
           expected_id=0,
           expected_coords=None,
           expected_core_on_chip=None,
       ),
   )
-  def test_device_assignment(
+  def test_mesh_to_assignment_returns_expected(
       self, assignment, expected_id, expected_coords, expected_core_on_chip
   ):
     self.assertEqual(assignment.id, expected_id)
     self.assertEqual(assignment.coords, expected_coords)
     self.assertEqual(assignment.core_on_chip, expected_core_on_chip)
 
-  def test_jax_mesh_to_obm_device_assignment_by_coords_cpu(self):
+  def test_mesh_to_assignment_for_cpu_returns_id_only(self):
     def _create_mesh() -> jax.sharding.Mesh:
       os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
       devices = mesh_utils.create_device_mesh((2, 2, 2))
       return jax.sharding.Mesh(devices, ('b', 'x', 'y'))
 
     mesh = _create_mesh()
-    result = device_assignment.jax_mesh_to_obm_device_assignment_by_coords(mesh)
+    result = device_assignment.mesh_to_device_assignment(mesh)
 
     expected = [
         device_assignment.DeviceAssignment(id=i, coords=None, core_on_chip=None)
         for i in range(8)
     ]
-
     self.assertEqual(result, expected)
 
-  def test_jax_mesh_to_obm_device_assignment_by_coords_tpu(self):
+  def test_mesh_to_assignment_for_tpu_returns_expected(self):
     def _create_mesh() -> jax.sharding.Mesh:
-      devices = np.array(get_topology_desc('df=4x2').devices).reshape(4, 4)
+      devices = np.array(
+          jax_topologies.get_topology_desc('df=4x2').devices
+      ).reshape(4, 4)
       return jax.sharding.Mesh(devices, ('x', 'y'))
 
     mesh = _create_mesh()
-    result = device_assignment.jax_mesh_to_obm_device_assignment_by_coords(mesh)
+    result = device_assignment.mesh_to_device_assignment(mesh)
 
     expected = [
         device_assignment.DeviceAssignment(
@@ -125,6 +126,19 @@ class DeviceAssignmentTest(parameterized.TestCase):
     ]
 
     self.assertEqual(result, expected)
+
+  def test_mesh_to_assignment_fails_validation(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        'coords and core_on_chip should be either both set or both None',
+    ):
+      device_assignment.DeviceAssignment(id=0, coords=(1, 2))
+
+    with self.assertRaisesRegex(
+        ValueError,
+        'coords and core_on_chip should be either both set or both None',
+    ):
+      device_assignment.DeviceAssignment(id=0, core_on_chip=1)
 
 
 if __name__ == '__main__':
