@@ -21,7 +21,7 @@ from typing import Any, Dict, NamedTuple, Tuple
 from jax import tree_util as jax_tree_util
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
-from orbax.experimental.model.tf2obm import utils
+from orbax.experimental.model.tf2obm._src import utils
 import tensorflow as tf
 
 from .learning.brain.contrib.tpu_modeling.inference_converter_v2 import converter_options_v2_pb2
@@ -40,13 +40,10 @@ SAVED_MODEL_VERSION = '1.0'
 _OUTPUT_NAME_PREFIX = 'output'
 
 
-def is_pair(tree: utils.TfSignature) -> bool:
-  return isinstance(tree, Sequence) and len(tree) == 2
-
-
-def is_args_kwargs_pattern(tree: utils.TfSignature) -> bool:
+def _is_args_kwargs_pattern(tree: utils.TfSignature) -> bool:
   return (
-      is_pair(tree)
+      isinstance(tree, Sequence)
+      and len(tree) == 2
       and isinstance(tree[0], Sequence)
       and isinstance(tree[1], dict)
   )
@@ -206,7 +203,7 @@ def _to_args_kwargs_pattern(
   Raises:
     ValueError: if the tree cannot be converted to the '(args, kwargs)' pattern.
   """
-  if is_args_kwargs_pattern(tree):
+  if _is_args_kwargs_pattern(tree):
     return tree[0], tree[1]
   elif isinstance(tree, Sequence):
     return tree, {}
@@ -423,5 +420,5 @@ def save_tf_functions(
   return {
       TF_SAVED_MODEL_SUPPLEMENTAL_NAME: obm.GlobalSupplemental(
           tf_saved_model_as_obm_supplemental(tf_saved_model_sub_dir)
-      ),
+      )
   }

@@ -15,7 +15,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.experimental.model import core as obm
-from orbax.experimental.model.tf2obm import utils
+from orbax.experimental.model.tf2obm._src import utils
 import tensorflow as tf
 
 
