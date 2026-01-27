@@ -15,8 +15,9 @@
 """Class `JaxSpecificInfo` and its companions."""
 
 # pylint: disable=g-importing-member
+from collections.abc import Iterable, Sequence
 import dataclasses
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, TypeVar
+from typing import Any, TypeVar
 
 import jax
 # Somehow JAX requires this import to make `jax.export` available.
@@ -29,7 +30,6 @@ from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import DTypeRefinemen
 from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import ShapeDTypeRefinement
 from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import ShapeDTypeRefinements
 from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import ShapeRefinement
-
 
 T1 = TypeVar("T1")
 T2 = TypeVar("T2")
@@ -45,6 +45,48 @@ def unzip2(
     xs.append(x)
     ys.append(y)
   return tuple(xs), tuple(ys)
+
+
+def _name_leaf(
+    path: jax.tree_util.KeyPath, leaf: obm.ShloTensorSpec
+) -> obm.ShloTensorSpec:
+  """Assigns a name to a leaf node in-place based on its PyTree path.
+
+  The name is a dot-separated string representation of the path keys, extracted
+  from dictionary keys, sequence indices, or attribute names. This function is
+  designed to be used as the transform function in
+  `jax.tree_util.tree_map_with_path`.
+
+  The `leaf` argument's `name` attribute is modified in-place.
+
+  Args:
+    path: A tuple of path elements (e.g., DictKey, SequenceKey, GetAttrKey)
+      provided by `tree_map_with_path`, representing the path to the leaf in a
+      PyTree.
+    leaf: The leaf node to be named. It must have a `name` attribute that can be
+      set.
+
+  Returns:
+    The leaf node with its `name` attribute set to the dot-separated path
+    string.
+
+  Raises:
+    TypeError: If an unknown key type is encountered in the path.
+  """
+  path_str_parts = []
+  for key in path:
+    if isinstance(key, jax.tree_util.DictKey):
+      path_str_parts.append(str(key.key))
+    elif isinstance(key, jax.tree_util.SequenceKey):
+      path_str_parts.append(str(key.idx))
+    elif isinstance(key, jax.tree_util.GetAttrKey):
+      path_str_parts.append(str(key.name))
+    elif isinstance(key, jax.tree_util.FlattenedIndexKey):
+      path_str_parts.append(str(key.key))
+    else:
+      raise TypeError(f"Unknown key type: {type(key)}")
+  leaf.name = ".".join(path_str_parts)
+  return leaf
 
 
 def _serialize_effect(eff: jax.core.Effect) -> str:
@@ -101,7 +143,7 @@ def _serialize_disabled_safety_check(
   return proto
 
 
-ShapeDTypeRefinementPair = Tuple[ShapeRefinement | None, DTypeRefinement | None]
+ShapeDTypeRefinementPair = tuple[ShapeRefinement | None, DTypeRefinement | None]
 
 
 def _is_useful_refinement_pair(refinement: ShapeDTypeRefinementPair) -> bool:
@@ -200,9 +242,10 @@ class JaxSpecificInfo(obm.ShloFunctionSupplementalInfo):
         ext_name="pb",
     )
 
+
 def _to_shlo_shape_and_refinement(
     jax_shape: Sequence[Any],
-) -> Tuple[obm.ShloShape, ShapeRefinement | None]:
+) -> tuple[obm.ShloShape, ShapeRefinement | None]:
   """Gets a `ShloShape` and a `ShapeRefinement` from a JAX shape.
 
   Args:
@@ -213,8 +256,8 @@ def _to_shlo_shape_and_refinement(
     `ShapeRefinement` will be `None` if no refinement is needed
     (i.e. all the dimensions are integers).
   """
-  shlo_dim_sizes: List[obm.ShloDimSize] = []
-  dim_refinements: List[str | None] = []
+  shlo_dim_sizes: list[obm.ShloDimSize] = []
+  dim_refinements: list[str | None] = []
   for dim in jax_shape:
     if dim is None:
       shlo_dim = None
@@ -248,7 +291,7 @@ _shlo_dtype_for_float0 = obm.ShloDType.bool
 
 def _to_shlo_dtype_and_refinement(
     jax_dtype: np.dtype[Any],
-) -> Tuple[obm.ShloDType, DTypeRefinement | None]:
+) -> tuple[obm.ShloDType, DTypeRefinement | None]:
   if jax_dtype == jax.numpy.int4:
     return obm.ShloDType.i4, None
   if jax_dtype == jax.numpy.uint4:
@@ -267,7 +310,7 @@ def _to_shlo_dtype_and_refinement(
 
 def _to_shlo_tensor_spec_and_refinement(
     aval: jax.core.AbstractValue, sharding_: Any
-) -> Tuple[obm.ShloTensorSpec, ShapeDTypeRefinementPair]:
+) -> tuple[obm.ShloTensorSpec, ShapeDTypeRefinementPair]:
   """Gets a `ShloTensorSpec` and a `ShapeDTypeRefinement` from a `ShapedArray`.
 
   Args:
@@ -290,8 +333,8 @@ def _to_shlo_tensor_spec_and_refinement(
 
 def _to_flat_shlo_specs_and_refinements(
     avals: Sequence[jax.core.AbstractValue], shardings: Sequence[Any]
-) -> Tuple[
-    Tuple[obm.ShloTensorSpec, ...], Tuple[ShapeDTypeRefinementPair, ...] | None
+) -> tuple[
+    tuple[obm.ShloTensorSpec, ...], tuple[ShapeDTypeRefinementPair, ...] | None
 ]:
   """Converts a sequence of avals to a tuple of ShloTensorSpecs."""
   specs_and_refinements = tuple(
@@ -310,9 +353,10 @@ def _to_flat_shlo_specs_and_refinements(
 def _to_shlo_spec_tree_and_refinement_tuple(
     avals: Sequence[jax.core.AbstractValue],
     shardings: Sequence[Any],
-    tree_def: Optional[jax.tree_util.PyTreeDef],
-) -> Tuple[
-    obm.Tree[obm.ShloTensorSpec], Tuple[ShapeDTypeRefinementPair, ...] | None
+    tree_def: jax.tree_util.PyTreeDef | None,
+    name_leaves: bool = False,
+) -> tuple[
+    obm.Tree[obm.ShloTensorSpec], tuple[ShapeDTypeRefinementPair, ...] | None
 ]:
   """Converts a sequence of avals to a tree of ShloTensorSpecs."""
   flat, refinements = _to_flat_shlo_specs_and_refinements(avals, shardings)
@@ -329,4 +373,6 @@ def _to_shlo_spec_tree_and_refinement_tuple(
         )
     obm.tree_util.assert_tree(assert_leaf, jax_tree)
     jax_tree: obm.Tree[obm.ShloTensorSpec]
+  if name_leaves:
+    jax_tree = jax.tree_util.tree_map_with_path(_name_leaf, jax_tree)
   return jax_tree, refinements
