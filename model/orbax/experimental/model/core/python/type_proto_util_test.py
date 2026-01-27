@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import textwrap
+
+from absl.testing import absltest
 from absl.testing import parameterized
+from google.protobuf import text_format
 from orbax.experimental.model.core.protos import type_pb2
 from orbax.experimental.model.core.python import test_utils
 from orbax.experimental.model.core.python import type_proto_util
@@ -21,8 +25,7 @@ from orbax.experimental.model.core.python.function import ShloDType
 from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.tree_util import Tree
 
-from google.protobuf import text_format
-from absl.testing import absltest
+from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
 # TODO(wangpeng): Replace all "manifest" with "type_proto" in this file.
 
 
@@ -87,10 +90,78 @@ class RoundtripBetweenShloShapeAndManifestShapeTest(parameterized.TestCase):
       self.assertEqual(result_shlo_shape, tuple(shlo_shape))
 
 
+class ShloTensorSpecToManifestTensorTypeTest(
+    test_utils.ObmTestCase, parameterized.TestCase
+):
+
+  def test_converts_spec(self):
+    sharding_str = textwrap.dedent("""
+      type: OTHER
+      tile_assignment_dimensions: [2, 2]
+      iota_reshape_dims: [4]
+      iota_transpose_perm: [0]
+    """)
+    sharding = text_format.Parse(sharding_str, xla_data_pb2.OpSharding())
+    layout_str = textwrap.dedent("""
+      minor_to_major: [1, 0]
+    """)
+    layout = text_format.Parse(layout_str, xla_data_pb2.LayoutProto())
+    spec = ShloTensorSpec(
+        shape=(4, 2), dtype=ShloDType.f32, sharding=sharding, layout=layout
+    )
+
+    tensor_type_proto = (
+        type_proto_util.shlo_tensor_spec_to_manifest_tensor_type(spec)
+    )
+
+    expected_proto = text_format.Parse(
+        textwrap.dedent("""
+        shape: {
+          shape_with_known_rank: {
+            dimension_sizes: { size: 4 }
+            dimension_sizes: { size: 2 }
+          }
+        }
+        dtype: f32
+        """),
+        type_pb2.TensorType(),
+    )
+    expected_proto.sharding.CopyFrom(sharding)
+    expected_proto.layout.CopyFrom(layout)
+    self.assertEqual(tensor_type_proto, expected_proto)
+
+  def test_converts_spec_without_sharding_and_layout(self):
+    spec = ShloTensorSpec(
+        shape=(4, 2), dtype=ShloDType.f32, sharding=None, layout=None
+    )
+
+    tensor_type_proto = (
+        type_proto_util.shlo_tensor_spec_to_manifest_tensor_type(spec)
+    )
+
+    expected_proto = text_format.Parse(
+        textwrap.dedent("""
+        shape: {
+          shape_with_known_rank: {
+            dimension_sizes: {
+              size: 4
+            }
+            dimension_sizes: {
+              size: 2
+            }
+          }
+        }
+        dtype: f32
+        """),
+        type_pb2.TensorType(),
+    )
+    self.assertEqual(tensor_type_proto, expected_proto)
+
+
 class ManifestTypeToShloTensorSpecTreeTest(test_utils.ObmTestCase):
 
   def test_manifest_type_to_shlo_tensor_spec_tree(self):
-    manifest_type_proto_str = """
+    manifest_type_proto_str = textwrap.dedent("""
       tuple {
         elements {
           tuple {
@@ -187,7 +258,7 @@ class ManifestTypeToShloTensorSpecTreeTest(test_utils.ObmTestCase):
           }
         }
       }
-    """
+    """)
 
     manifest_type = text_format.Parse(manifest_type_proto_str, type_pb2.Type())
 

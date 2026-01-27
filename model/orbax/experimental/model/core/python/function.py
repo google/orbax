@@ -25,6 +25,7 @@ from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-ten
 
 
 Sharding: TypeAlias = xla_data_pb2.OpSharding
+Layout: TypeAlias = xla_data_pb2.LayoutProto
 ShloDimSize: TypeAlias = Optional[int]
 ShloShape: TypeAlias = Optional[Sequence[ShloDimSize]]
 
@@ -95,10 +96,19 @@ def shlo_dtype_to_np_dtype(dtype: ShloDType) -> np.dtype[Any]:
 @dataclasses.dataclass
 class ShloTensorSpec:
 
+  """A specification for the shape, dtype, sharding, and layout of a StableHLO tensor.
+
+  Attributes:
+    shape: The shape of the tensor.
+    dtype: The dtype of the tensor.
+    sharding: The sharding of the tensor. None means unspecified sharding.
+    layout: The layout of the tensor. None means the default layout is used.
+    name: The name of the tensor.
+  """
   shape: ShloShape
   dtype: ShloDType
-  # None means unspecified sharding
   sharding: Sharding | None = None
+  layout: Layout | None = None
   name: str| None = None
 
 

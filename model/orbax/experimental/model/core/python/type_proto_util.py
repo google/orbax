@@ -85,6 +85,8 @@ def shlo_tensor_spec_to_manifest_tensor_type(
   manifest_spec.dtype = shlo_dtype_to_manifest_dtype(spec.dtype)
   if spec.sharding:
     manifest_spec.sharding.CopyFrom(spec.sharding)
+  if spec.layout:
+    manifest_spec.layout.CopyFrom(spec.layout)
   return manifest_spec
 
 

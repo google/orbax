@@ -55,6 +55,7 @@ message LeafType {
 
 message TokenType {}
 
+// Next ID: 5
 message TensorType {
   Shape shape = 1;
   DType dtype = 2;
@@ -62,6 +63,8 @@ message TensorType {
   // TODO(b/349877692): Replace `xla.OpSharding`
   // with a sharding annotation language that has stability guarantees.
   optional xla.OpSharding sharding = 3;
+
+  optional xla.LayoutProto layout = 4;
 }
 
 message Shape {
