@@ -26,7 +26,6 @@ from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.tree_util import Tree
 
 from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
-# TODO(wangpeng): Replace all "manifest" with "type_proto" in this file.
 
 
 class RoundtripBetweenShloShapeAndManifestShapeTest(parameterized.TestCase):
@@ -68,26 +67,20 @@ class RoundtripBetweenShloShapeAndManifestShapeTest(parameterized.TestCase):
           ),
       ])
   )
-  def test_roundtrip(
-      self, shlo_shape, manifest_shape_proto_text
-  ):
-    # One way conversion.
-    result_manifest_shape = type_proto_util.shlo_shape_to_manifest_shape(
-        shlo_shape
-    )
-    expected_manifest_shape = text_format.Parse(
-        manifest_shape_proto_text, type_pb2.Shape()
-    )
-    self.assertEqual(result_manifest_shape, expected_manifest_shape)
+  def test_roundtrip(self, shlo_shape, shape_proto_text):
+    # Converts to proto
+    shape_proto = type_proto_util.shlo_shape_to_manifest_shape(shlo_shape)
+    expected_shape_proto = text_format.Parse(shape_proto_text, type_pb2.Shape())
+    self.assertEqual(shape_proto, expected_shape_proto)
 
-    # The other way conversion.
-    result_shlo_shape = type_proto_util.manifest_shape_to_shlo_shape(
-        expected_manifest_shape
+    # Converts back to shlo shape.
+    parsed_shlo_shape = type_proto_util.manifest_shape_to_shlo_shape(
+        expected_shape_proto
     )
     if shlo_shape is None:
-      self.assertIsNone(result_shlo_shape)
+      self.assertIsNone(parsed_shlo_shape)
     else:
-      self.assertEqual(result_shlo_shape, tuple(shlo_shape))
+      self.assertEqual(parsed_shlo_shape, tuple(shlo_shape))
 
 
 class ShloTensorSpecToManifestTensorTypeTest(
@@ -161,7 +154,7 @@ class ShloTensorSpecToManifestTensorTypeTest(
 class ManifestTypeToShloTensorSpecTreeTest(test_utils.ObmTestCase):
 
   def test_manifest_type_to_shlo_tensor_spec_tree(self):
-    manifest_type_proto_str = textwrap.dedent("""
+    type_proto_str = textwrap.dedent("""
       tuple {
         elements {
           tuple {
@@ -260,10 +253,10 @@ class ManifestTypeToShloTensorSpecTreeTest(test_utils.ObmTestCase):
       }
     """)
 
-    manifest_type = text_format.Parse(manifest_type_proto_str, type_pb2.Type())
+    type_proto = text_format.Parse(type_proto_str, type_pb2.Type())
 
     shlo_tensor_spec_tree = (
-        type_proto_util.manifest_type_to_shlo_tensor_spec_pytree(manifest_type)
+        type_proto_util.manifest_type_to_shlo_tensor_spec_pytree(type_proto)
     )
 
     a_sharding = Sharding()
