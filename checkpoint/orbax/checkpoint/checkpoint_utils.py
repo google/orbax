@@ -525,7 +525,9 @@ def construct_restore_args(
   ) -> type_handlers.RestoreArgs:
     if isinstance(value, jax.ShapeDtypeStruct):
       if sharding is None:
-        return type_handlers.RestoreArgs(dtype=value.dtype)
+        return type_handlers.RestoreArgs(
+            restore_type=np.ndarray, dtype=value.dtype
+        )
       else:
         return _array_restore_args(value, sharding, value.dtype)
     elif isinstance(value, value_metadata.Metadata):
@@ -561,13 +563,9 @@ def construct_restore_args(
       raise ValueError(f'Unsupported type: {type(value)}')
 
   def _get_sharding_or_layout(value):
-    if support_layout:
-      return arrays_sharding_lib.get_sharding_or_format(value)
-    else:
-      if hasattr(value, 'sharding'):
-        return value.sharding
-      else:
-        return None
+    return arrays_sharding_lib.get_sharding_or_format(
+        value, support_format=support_layout
+    )
 
   def _return_key_data(value):
     # replace jax.random.key with underneath jax.Array
