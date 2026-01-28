@@ -231,14 +231,23 @@ def deserialize_tree(
 ) -> PyTree:
   """Deserializes a PyTree to the same structure as `target`."""
 
-  def _reconstruct_from_keypath(keypath, _):
+  def _reconstruct_from_keypath(keypath, x):
+    del x
     result = serialized
     for key in keypath:
-      key_name = get_key_name(key)
-      # Special case to support Pax.
-      if not isinstance(result, list) and key_name not in result:
-        key_name = str(key_name)
-      result = result[key_name]
+      if isinstance(key, jax.tree_util.SequenceKey):
+        result = result[key.idx]
+      elif isinstance(key, jax.tree_util.DictKey):
+        result = result[key.key]
+      elif isinstance(key, jax.tree_util.GetAttrKey):
+        if isinstance_of_namedtuple(result):
+          result = getattr(result, key.name)
+        else:
+          result = result[key.name]
+      elif isinstance(key, jax.tree_util.FlattenedIndexKey):
+        result = result[key.key]
+      else:
+        raise ValueError(f'Unsupported KeyEntry: {type(key)}: "{key}"')
     return result
 
   return jax.tree_util.tree_map_with_path(
