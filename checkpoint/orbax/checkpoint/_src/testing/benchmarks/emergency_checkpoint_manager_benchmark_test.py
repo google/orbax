@@ -92,6 +92,7 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
     }
     mock_checkpoint_manager = mock_checkpoint_manager_cls.return_value
     mock_checkpoint_manager.restore.return_value = {'state': pytree}
+    mock_checkpoint_manager.latest_step.return_value = None
     test_dir = os.path.join(self.create_tempdir().full_path, 'test_test_fn')
     os.makedirs(test_dir, exist_ok=True)
     context = benchmarks_core.TestContext(

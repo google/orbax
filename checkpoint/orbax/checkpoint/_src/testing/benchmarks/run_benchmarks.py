@@ -45,6 +45,11 @@ _OUTPUT_DIRECTORY = flags.DEFINE_string(
     'Output directory for benchmark results.',
     required=True,
 )
+_LOCAL_DIRECTORY = flags.DEFINE_string(
+    'local_directory',
+    None,
+    'Local directory for benchmark results. This is used for ECM benchmarks.',
+)
 _ENABLE_HLO_DUMP = flags.DEFINE_bool(
     'enable_hlo_dump',
     False,
@@ -95,12 +100,16 @@ def _configure_hlo_dump(output_directory: str):
   logging.info('Set XLA_FLAGS for HLO dump: %s', new_xla_flags)
 
 
-def _run_benchmarks(config_file: str, output_directory: str) -> None:
+def _run_benchmarks(
+    config_file: str, output_directory: str, local_directory: str | None = None
+) -> None:
   """Runs Orbax checkpoint benchmarks based on a generator class and a config file.
 
   Args:
     config_file: Path to the YAML configuration file.
     output_directory: Directory to store benchmark results in.
+    local_directory: Local directory for benchmark results. This is used for ECM
+      benchmarks.
 
   Raises:
     RuntimeError: If any benchmark test fails.
@@ -118,7 +127,9 @@ def _run_benchmarks(config_file: str, output_directory: str) -> None:
 
   try:
     test_suite = config_parsing.create_test_suite_from_config(
-        config_file, output_dir=output_directory
+        config_file,
+        output_dir=output_directory,
+        local_directory=local_directory,
     )
   except Exception as e:
     logging.error('Failed to create test suite from config: %s', e)
@@ -164,7 +175,9 @@ def main(argv: List[str]) -> None:
   jax.config.update('jax_enable_x64', True)
   logging.info('Set jax_enable_x64=True')
 
-  _run_benchmarks(_CONFIG_FILE.value, _OUTPUT_DIRECTORY.value)
+  _run_benchmarks(
+      _CONFIG_FILE.value, _OUTPUT_DIRECTORY.value, _LOCAL_DIRECTORY.value
+  )
 
   logging.info('run_benchmarks.py finished.')
 
