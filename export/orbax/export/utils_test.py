@@ -141,20 +141,103 @@ class UtilsTest(tf.test.TestCase, parameterized.TestCase):
     ):
       utils.with_default_args(lambda x, y: x + y, input_signature)
 
-  def test_missing_default(self):
-    input_signature = [[
-        TensorSpecWithDefault(
-            tf.TensorSpec([None], tf.int32),
-            np.asarray([1, 2]),
+  def test_mixed_defaults(self):
+    input_signature = [{
+        'a': tf.TensorSpec((), tf.int32, name='a'),
+        'b': TensorSpecWithDefault(
+            tf.TensorSpec((), tf.int32, name='b'),
+            np.array(10, dtype=np.int32),
         ),
-        tf.TensorSpec([None], tf.int32),
-    ]]
-    with self.assertRaisesRegex(
-        ValueError,
-        'TensorSpecWithDefault must be defined for each tensor in the structure'
-        ' for the Python arg',
-    ):
-      utils.with_default_args(lambda x: x[0] + x[1], input_signature)
+    }]
+
+    def my_fn(inputs):
+      return inputs['a'] + inputs['b']
+
+    tf_fn = utils.with_default_args(my_fn, input_signature)
+    self.assertEqual(tf_fn({'a': 1, 'b': 2}).numpy(), 3)
+    self.assertEqual(tf_fn({'a': 1}).numpy(), 11)
+
+  def test_mixed_defaults_nested_dict(self):
+    input_signature = [{
+        'x': {
+            'a': tf.TensorSpec((), tf.int32, name='a'),
+            'b': TensorSpecWithDefault(
+                tf.TensorSpec((), tf.int32, name='b'),
+                np.array(10, dtype=np.int32),
+            ),
+        }
+    }]
+
+    def my_fn(inputs):
+      return inputs['x']['a'] + inputs['x']['b']
+
+    tf_fn = utils.with_default_args(my_fn, input_signature)
+    # Provided 'b'
+    self.assertEqual(tf_fn({'x': {'a': 1, 'b': 2}}).numpy(), 3)
+    # Default 'b'
+    self.assertEqual(tf_fn({'x': {'a': 1}}).numpy(), 11)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='all_provided',
+          args=(1, {'a': 2, 'b': 3}, 4),
+          expected=1 + 2 + 3 + 4,
+      ),
+      dict(
+          testcase_name='default_y',
+          args=(1, {'a': 2, 'b': 3}),
+          expected=1 + 2 + 3 + 100,
+      ),
+      dict(
+          testcase_name='default_b_and_y',
+          args=(1, {'a': 2}),
+          expected=1 + 2 + 10 + 100,
+      ),
+  )
+  def test_mixed_defaults_multiple_args(self, args, expected):
+    input_signature = [
+        tf.TensorSpec((), tf.int32, name='x'),
+        {
+            'a': tf.TensorSpec((), tf.int32, name='a'),
+            'b': TensorSpecWithDefault(
+                tf.TensorSpec((), tf.int32, name='b'),
+                np.array(10, dtype=np.int32),
+            ),
+        },
+        TensorSpecWithDefault(
+            tf.TensorSpec((), tf.int32, name='y'),
+            np.array(100, dtype=np.int32),
+        ),
+    ]
+
+    def my_fn(x, d, y):
+      return x + d['a'] + d['b'] + y
+
+    tf_fn = utils.with_default_args(my_fn, input_signature)
+    self.assertEqual(tf_fn(*args).numpy(), expected)
+
+  @parameterized.named_parameters(
+      dict(testcase_name='no_args', args={}, expected=3),
+      dict(testcase_name='partial_dict', args={'a': 10}, expected=12),
+      dict(testcase_name='full_dict', args={'a': 10, 'b': 20}, expected=30),
+  )
+  def test_mixed_defaults_all_leaves_have_defaults(self, args, expected):
+    input_signature = [{
+        'a': TensorSpecWithDefault(
+            tf.TensorSpec((), tf.int32, name='a'),
+            np.array(1, dtype=np.int32),
+        ),
+        'b': TensorSpecWithDefault(
+            tf.TensorSpec((), tf.int32, name='b'),
+            np.array(2, dtype=np.int32),
+        ),
+    }]
+
+    def my_fn(d):
+      return d['a'] + d['b']
+
+    tf_fn = utils.with_default_args(my_fn, input_signature)
+    self.assertEqual(tf_fn(args).numpy(), expected)
 
   def test_with_default_args_nested(self):
     def f(required_arg, optional_args):
