@@ -599,7 +599,7 @@ class CheckpointerTestBase:
         )
         self.assertIsNone(metadata.item_metadata['other'])
 
-    async def test_save_with_failing_array_metadata_store_in_finalize(self):
+    def test_save_with_failing_array_metadata_store_in_finalize(self):
       """ArrayMetadata validation in CheckpointHandler.finalize()."""
 
       class IncompleteArrayMetadataSerializer(
@@ -662,7 +662,9 @@ class CheckpointerTestBase:
             'ArrayMetadata Store contains different number of params',
         ):
           array_metadata_validator.maybe_raise_error()
-      self.assertIsNotNone(await array_metadata_store.read(self.directory))
+      self.assertIsNotNone(
+          asyncio_utils.run_sync(array_metadata_store.read(self.directory))
+      )
 
     def test_partial_restore_with_placeholder(self):
       """Basic save and restore test."""
