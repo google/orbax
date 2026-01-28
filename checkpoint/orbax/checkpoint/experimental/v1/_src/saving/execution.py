@@ -34,6 +34,7 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+from orbax.checkpoint.experimental.v1._src.layout import registry
 from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -263,9 +264,9 @@ async def _run_blocking_save(
         context=context,
     )
 
-  handler = composite_handler.CompositeHandler(
-      context.checkpointables_options.registry
-  )
+  layout_enum = context.checkpoint_layout
+  layout_class = registry.get_layout_class(layout_enum)
+  layout = layout_class()
   if (
       partial_save
       or not context.async_options.create_directories_asynchronously
@@ -283,8 +284,9 @@ async def _run_blocking_save(
     )
 
   # Delegate to the handler to get the background awaitable.
-  background_awaitable = await handler.save(
-      temporary_path.path_awaiting_creation, checkpointables
+  background_awaitable = await layout.save(
+      path=temporary_path.path_awaiting_creation,
+      checkpointables=checkpointables,
   )
   # Log write event for the final path.
   event_tracking.record_write_event(temporary_path.temporary_path.get_final())

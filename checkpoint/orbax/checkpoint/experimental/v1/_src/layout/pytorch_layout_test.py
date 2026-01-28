@@ -14,6 +14,7 @@
 
 import os
 import unittest
+from unittest import mock
 import zipfile
 
 from absl.testing import absltest
@@ -116,6 +117,12 @@ class PyTorchLayoutTest(
     np.testing.assert_array_equal(
         restored_pytree['bob'], self._test_data['bob'].numpy()
     )
+
+  async def test_save_raises_not_implemented(self):
+    layout = PyTorchLayout()
+    mock_path = mock.Mock(spec=types.PathAwaitingCreation)
+    with self.assertRaises(NotImplementedError):
+      await layout.save(mock_path, checkpointables={})
 
 
 if __name__ == '__main__':

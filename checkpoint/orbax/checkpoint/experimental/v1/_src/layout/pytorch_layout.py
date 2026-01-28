@@ -410,3 +410,16 @@ class PyTorchLayout(CheckpointLayout):
           checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
       )
     return _load_pytorch(path, abstract_pytree)
+
+  async def save(
+      self,
+      path: path_types.PathAwaitingCreation,
+      *,
+      checkpointables: dict[str, Any],
+  ) -> Awaitable[None]:
+    """Saves the checkpoint to the given directory."""
+    # Saving to PyTorch format requires replicating torch.save behavior without
+    # depending on torch, which is highly complex. It requires knowledge of
+    # PyTorch's pickle format, including tensor reconstruction via
+    # _rebuild_tensor_v2 and storage serialization via persistent_id.
+    raise NotImplementedError("Saving to PyTorch format is not supported yet.")

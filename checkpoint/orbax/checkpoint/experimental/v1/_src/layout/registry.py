@@ -17,13 +17,32 @@
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+from orbax.checkpoint.experimental.v1._src.layout import numpy_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
+from orbax.checkpoint.experimental.v1._src.layout import pytorch_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 CheckpointLayout = checkpoint_layout.CheckpointLayout
 CheckpointLayoutEnum = options_lib.CheckpointLayout
+
+
+def get_layout_class(
+    layout_enum: CheckpointLayoutEnum,
+) -> type[CheckpointLayout]:
+  """Returns the layout class for the given layout enum."""
+  match layout_enum:
+    case CheckpointLayoutEnum.ORBAX:
+      return orbax_layout.OrbaxLayout
+    case CheckpointLayoutEnum.SAFETENSORS:
+      return safetensors_layout.SafetensorsLayout
+    case CheckpointLayoutEnum.NUMPY:
+      return numpy_layout.NumpyLayout
+    case CheckpointLayoutEnum.PYTORCH:
+      return pytorch_layout.PyTorchLayout
+    case _:
+      raise ValueError(f"Unsupported checkpoint layout: {layout_enum}")
 
 
 async def get_checkpoint_layout(
@@ -45,13 +64,7 @@ async def get_checkpoint_layout(
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
 
-  match layout_enum:
-    case CheckpointLayoutEnum.ORBAX:
-      layout_class = orbax_layout.OrbaxLayout
-    case CheckpointLayoutEnum.SAFETENSORS:
-      layout_class = safetensors_layout.SafetensorsLayout
-    case _:
-      raise ValueError(f"Unsupported checkpoint layout: {layout_enum}")
+  layout_class = get_layout_class(layout_enum)
 
   try:
     layout = layout_class()

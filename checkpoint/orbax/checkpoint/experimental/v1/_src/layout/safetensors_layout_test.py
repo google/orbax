@@ -22,6 +22,7 @@ import numpy as np
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
+from orbax.checkpoint.experimental.v1._src.path import types
 from orbax.checkpoint.experimental.v1._src.saving import saving
 import safetensors.numpy
 
@@ -146,6 +147,12 @@ class SafetensorsLayoutTest(
     self.assertEqual(metadata.custom_metadata, self.custom_metadata)
     self.assertIsInstance(metadata.commit_timestamp_nsecs, int)
     self.assertGreater(metadata.commit_timestamp_nsecs, 0)
+
+  async def test_save_raises_not_implemented(self):
+    layout = SafetensorsLayout()
+    mock_path = mock.Mock(spec=types.PathAwaitingCreation)
+    with self.assertRaises(NotImplementedError):
+      await layout.save(mock_path, checkpointables={})
 
 
 class SafetensorsLayoutDirectoryTest(

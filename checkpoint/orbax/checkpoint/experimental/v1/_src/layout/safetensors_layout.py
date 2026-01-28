@@ -397,3 +397,14 @@ class SafetensorsLayout(CheckpointLayout):
       )
     files = await _get_safetensors_file_list(path)
     return _load_safetensors(files, abstract_pytree)
+
+  async def save(
+      self,
+      path: types.PathAwaitingCreation,
+      *,
+      checkpointables: dict[str, Any],
+  ) -> Awaitable[None]:
+    """Saves the checkpoint to the given directory."""
+    raise NotImplementedError(
+        "Saving to Safetensors format is not supported yet."
+    )
