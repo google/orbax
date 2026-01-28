@@ -181,6 +181,8 @@ machine.
 | `--pr` | GitHub PR ID (e.g., `123`). | **Reviewing**. Fetch code from a specific PR. |
 | `--repo-url` | Custom Fork URL. | **Forks**. Testing from your own fork. |
 | `--jax-version` | JAX version (default: `newest`). | **Regression Testing**. Test `nightly` vs `newest`. |
+| `--ramfs-dir` | Local path to save checkpoints. | **ECM Testing**. Testing restore from local. |
+| `--restore` | ECM testing to restore after restart | **ECM Testing**. Run the experiment twice, will restore the data before save. |
 
 ### 🛠️ Diagnostics
 | Flag | Description | When to use? |
