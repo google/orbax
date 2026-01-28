@@ -97,7 +97,7 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
   PyTreeCheckpointHandler with various configurations.
   """
 
-  def _clear_pytree(self, pytree: Any) -> Any:
+  def clear_pytree(self, pytree: Any) -> Any:
     """Clears the pytree to free up memory."""
     return jax.tree.map(
         lambda x: x.delete() if isinstance(x, jax.Array) else None, pytree
@@ -174,7 +174,7 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
         assert hasattr(checkpointer, "wait_until_finished")
         checkpointer.wait_until_finished()
 
-    context.pytree = self._clear_pytree(context.pytree)
+    context.pytree = self.clear_pytree(context.pytree)
 
     with metrics.measure("restore", metrics_to_measure):
       restored_pytree = checkpointer.restore(
@@ -185,7 +185,7 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
           ),
       )
 
-    self._clear_pytree(restored_pytree)
+    self.clear_pytree(restored_pytree)
 
     checkpointer.close()
     return benchmarks_core.TestResult(metrics=metrics)
