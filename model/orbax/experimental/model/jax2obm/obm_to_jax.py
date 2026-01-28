@@ -276,7 +276,7 @@ def _restore_spec(
         f"Field `{supplemental_field}` is not a valid supplemental field."
         f" Allowed values are: {allowed_supplemental_fields}."
     )
-  shlo_tensor_spec_pytree = obm.manifest_type_to_shlo_tensor_spec_pytree(
+  shlo_tensor_spec_pytree = obm.from_type_proto(
       getattr(manifest_signature, signature_field)
   )
   shlo_tensor_spec_list, treedef = jax.tree.flatten(shlo_tensor_spec_pytree)

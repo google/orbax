@@ -45,7 +45,7 @@ from orbax.experimental.model.core.python.shlo_function import ShloFunction
 from orbax.experimental.model.core.python.shlo_function import ShloFunctionSupplementalInfo
 from orbax.experimental.model.core.python.test_utils import ObmTestCase
 from orbax.experimental.model.core.python.tree_util import Tree
-from orbax.experimental.model.core.python.type_proto_util import manifest_type_to_shlo_tensor_spec_pytree
+from orbax.experimental.model.core.python.type_proto_util import from_type_proto
 from orbax.experimental.model.core.python.type_proto_util import to_function_signature_proto
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredData
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredDataWithExtName

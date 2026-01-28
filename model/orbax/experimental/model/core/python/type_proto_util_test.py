@@ -69,14 +69,12 @@ class RoundtripBetweenShloShapeAndManifestShapeTest(parameterized.TestCase):
   )
   def test_roundtrip(self, shlo_shape, shape_proto_text):
     # Converts to proto
-    shape_proto = type_proto_util.shlo_shape_to_manifest_shape(shlo_shape)
+    shape_proto = type_proto_util.to_shape_proto(shlo_shape)
     expected_shape_proto = text_format.Parse(shape_proto_text, type_pb2.Shape())
     self.assertEqual(shape_proto, expected_shape_proto)
 
     # Converts back to shlo shape.
-    parsed_shlo_shape = type_proto_util.manifest_shape_to_shlo_shape(
-        expected_shape_proto
-    )
+    parsed_shlo_shape = type_proto_util.from_shape_proto(expected_shape_proto)
     if shlo_shape is None:
       self.assertIsNone(parsed_shlo_shape)
     else:
@@ -103,9 +101,7 @@ class ShloTensorSpecToManifestTensorTypeTest(
         shape=(4, 2), dtype=ShloDType.f32, sharding=sharding, layout=layout
     )
 
-    tensor_type_proto = (
-        type_proto_util.shlo_tensor_spec_to_manifest_tensor_type(spec)
-    )
+    tensor_type_proto = type_proto_util.to_tensor_type(spec)
 
     expected_proto = text_format.Parse(
         textwrap.dedent("""
@@ -128,9 +124,7 @@ class ShloTensorSpecToManifestTensorTypeTest(
         shape=(4, 2), dtype=ShloDType.f32, sharding=None, layout=None
     )
 
-    tensor_type_proto = (
-        type_proto_util.shlo_tensor_spec_to_manifest_tensor_type(spec)
-    )
+    tensor_type_proto = type_proto_util.to_tensor_type(spec)
 
     expected_proto = text_format.Parse(
         textwrap.dedent("""
@@ -255,9 +249,7 @@ class ManifestTypeToShloTensorSpecTreeTest(test_utils.ObmTestCase):
 
     type_proto = text_format.Parse(type_proto_str, type_pb2.Type())
 
-    shlo_tensor_spec_tree = (
-        type_proto_util.manifest_type_to_shlo_tensor_spec_pytree(type_proto)
-    )
+    shlo_tensor_spec_tree = type_proto_util.from_type_proto(type_proto)
 
     a_sharding = Sharding()
     a_sharding.type = Sharding.OTHER
@@ -321,7 +313,7 @@ class ShloTensorSpecPyTreeToManifestTypeTest(
   )
   def test_unsupported_leaf_type_raises_error(self, value, regex):
     with self.assertRaisesRegex(ValueError, regex):
-      type_proto_util.shlo_tensor_spec_pytree_to_manifest_type(value)  # pytype: disable=wrong-arg-types
+      type_proto_util.to_type_proto(value)  # pytype: disable=wrong-arg-types
 
 
 if __name__ == "__main__":

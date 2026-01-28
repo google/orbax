@@ -44,7 +44,7 @@ _SHLO_DTYPE_TO_MANIFEST_DTYPE: dict[ShloDType, type_pb2.DType] = {
 }
 
 
-def shlo_dtype_to_manifest_dtype(shlo_dtype: ShloDType) -> type_pb2.DType:
+def to_dtype_proto(shlo_dtype: ShloDType) -> type_pb2.DType:
   return _SHLO_DTYPE_TO_MANIFEST_DTYPE[shlo_dtype]
 
 
@@ -53,14 +53,14 @@ _MANIFEST_DTYPE_TO_SHLO_DTYPE = {
 }
 
 
-def manifest_dtype_to_shlo_dtype(
+def from_dtype_proto(
     manifest_dtype: type_pb2.DType,
 ) -> ShloDType:
   """Converts manifest DType to ShloDType."""
   return _MANIFEST_DTYPE_TO_SHLO_DTYPE[manifest_dtype]
 
 
-def shlo_shape_to_manifest_shape(
+def to_shape_proto(
     shape: ShloShape,
 ) -> type_pb2.Shape:
   """Converts `ShloShape` to manifest `Shape`."""
@@ -76,13 +76,13 @@ def shlo_shape_to_manifest_shape(
   return shape_proto
 
 
-def shlo_tensor_spec_to_manifest_tensor_type(
+def to_tensor_type(
     spec: ShloTensorSpec,
 ) -> type_pb2.TensorType:
   """Converts ShloTensorSpec to manifest TensorType."""
   manifest_spec = type_pb2.TensorType()
-  manifest_spec.shape.CopyFrom(shlo_shape_to_manifest_shape(spec.shape))
-  manifest_spec.dtype = shlo_dtype_to_manifest_dtype(spec.dtype)
+  manifest_spec.shape.CopyFrom(to_shape_proto(spec.shape))
+  manifest_spec.dtype = to_dtype_proto(spec.dtype)
   if spec.sharding:
     manifest_spec.sharding.CopyFrom(spec.sharding)
   if spec.layout:
@@ -91,15 +91,13 @@ def shlo_tensor_spec_to_manifest_tensor_type(
 
 
 # TODO(b/356174487): Add more support for ordered structures.
-def shlo_tensor_spec_pytree_to_manifest_type(
+def to_type_proto(
     tree: Tree[ShloTensorSpec],
 ) -> type_pb2.Type:
   """Recursively translates a PyTree of ShloTensorSpecs to manifest Type."""
   result = type_pb2.Type()
   if isinstance(tree, ShloTensorSpec):
-    result.leaf.tensor_type.CopyFrom(
-        shlo_tensor_spec_to_manifest_tensor_type(tree)
-    )
+    result.leaf.tensor_type.CopyFrom(to_tensor_type(tree))
   elif tree is None:
     result.none.SetInParent()
   # list/tuple/dict can be empty, but we still want to record the type, so we
@@ -107,18 +105,16 @@ def shlo_tensor_spec_pytree_to_manifest_type(
   elif isinstance(tree, list):
     result.list.SetInParent()
     for x in tree:
-      result.list.elements.append(shlo_tensor_spec_pytree_to_manifest_type(x))
+      result.list.elements.append(to_type_proto(x))
   elif isinstance(tree, tuple):
     result.tuple.SetInParent()
     for x in tree:
-      result.tuple.elements.append(shlo_tensor_spec_pytree_to_manifest_type(x))
+      result.tuple.elements.append(to_type_proto(x))
   elif isinstance(tree, dict):
     tree: dict[str, Tree[ShloTensorSpec]]
     result.dict.SetInParent()
     for key, value in tree.items():
-      result.dict.string_to_type[key].CopyFrom(
-          shlo_tensor_spec_pytree_to_manifest_type(value)
-      )
+      result.dict.string_to_type[key].CopyFrom(to_type_proto(value))
   else:
     # TODO: b/444497750 - Now we flattern the tree as list, but the custom
     # pytree node sometime can be respresented as other structures, like dict,
@@ -131,7 +127,7 @@ def shlo_tensor_spec_pytree_to_manifest_type(
       raise ValueError(f"Unsupported tree type: {type(tree)}")
     result.list.SetInParent()
     for x in leaves:
-      result.list.elements.append(shlo_tensor_spec_pytree_to_manifest_type(x))
+      result.list.elements.append(to_type_proto(x))
   return result
 
 
@@ -140,16 +136,12 @@ def to_function_signature_proto(
     output_signature: Tree[ShloTensorSpec],
 ) -> type_pb2.FunctionSignature:
   signature = type_pb2.FunctionSignature()
-  signature.input.CopyFrom(
-      shlo_tensor_spec_pytree_to_manifest_type(input_signature)
-  )
-  signature.output.CopyFrom(
-      shlo_tensor_spec_pytree_to_manifest_type(output_signature)
-  )
+  signature.input.CopyFrom(to_type_proto(input_signature))
+  signature.output.CopyFrom(to_type_proto(output_signature))
   return signature
 
 
-def manifest_shape_to_shlo_shape(
+def from_shape_proto(
     shape: type_pb2.Shape,
 ) -> ShloShape:
   """Converts manifest `Shape` to `ShloShape`."""
@@ -161,7 +153,7 @@ def manifest_shape_to_shlo_shape(
   return None
 
 
-def manifest_tensor_type_to_shlo_tensor_spec(
+def from_tensor_type_proto(
     manifest_tensor_type: type_pb2.TensorType,
 ) -> ShloTensorSpec:
   """Converts manifest `TensorType` to `ShloTensorSpec`."""
@@ -171,38 +163,32 @@ def manifest_tensor_type_to_shlo_tensor_spec(
       else None
   )
   return ShloTensorSpec(
-      shape=manifest_shape_to_shlo_shape(manifest_tensor_type.shape),
-      dtype=manifest_dtype_to_shlo_dtype(manifest_tensor_type.dtype),
+      shape=from_shape_proto(manifest_tensor_type.shape),
+      dtype=from_dtype_proto(manifest_tensor_type.dtype),
       sharding=sharding,
   )
 
 
-def manifest_type_to_shlo_tensor_spec_pytree(
+def from_type_proto(
     manifest_type: type_pb2.Type,
 ) -> Tree[ShloTensorSpec]:
   """Recursively translates manifest `Type` to a PyTree of `ShloTensorSpec`s."""
   if manifest_type.HasField("leaf"):
     if manifest_type.leaf.HasField("tensor_type"):
-      return manifest_tensor_type_to_shlo_tensor_spec(
-          manifest_type.leaf.tensor_type
-      )
+      return from_tensor_type_proto(manifest_type.leaf.tensor_type)
     elif manifest_type.leaf.HasField("token_type"):
       raise NotImplementedError("TokenType is not supported yet")
   elif manifest_type.HasField("none"):
     return None
   elif manifest_type.HasField("list"):
-    return [
-        manifest_type_to_shlo_tensor_spec_pytree(element)
-        for element in manifest_type.list.elements
-    ]
+    return [from_type_proto(element) for element in manifest_type.list.elements]
   elif manifest_type.HasField("tuple"):
     return tuple(
-        manifest_type_to_shlo_tensor_spec_pytree(element)
-        for element in manifest_type.tuple.elements
+        from_type_proto(element) for element in manifest_type.tuple.elements
     )
   elif manifest_type.HasField("dict"):
     return {
-        key: manifest_type_to_shlo_tensor_spec_pytree(value)
+        key: from_type_proto(value)
         for key, value in manifest_type.dict.string_to_type.items()
     }
   else:
