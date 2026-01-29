@@ -307,6 +307,8 @@ class Jax2ObmOptions:
       overriding default XLA flags used by the serving runtime.
     enable_bf16_optimization: If set to True, float32 weights are converted to
       bfloat16 to save memory.
+    enable_auto_layout: If set to True, automatically generate the optimal
+      layout for model parameters to improve serving performance.
   """
 
   # TODO: b/448900820 - Consider constraint the type to the proto enums.
@@ -323,6 +325,7 @@ class Jax2ObmOptions:
   jax_mesh: jax.sharding.Mesh | None = None
   persist_xla_flags: bool = True
   enable_bf16_optimization: bool = False
+  enable_auto_layout: bool = False
 
 
 @dataclasses.dataclass(kw_only=True)

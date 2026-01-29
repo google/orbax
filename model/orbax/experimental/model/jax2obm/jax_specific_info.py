@@ -74,7 +74,7 @@ def _to_xla_layout_proto(
     layout_proto.tiles.extend(
         xla_data_pb2.TileProto(dimensions=tile) for tile in layout.tiling
     )
-    layout_proto.sub_byte_element_size_in_bits = sub_byte_size
+    layout_proto.element_size_in_bits = sub_byte_size
   return layout_proto
 
 

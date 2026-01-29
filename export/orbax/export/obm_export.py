@@ -25,6 +25,7 @@ from typing import Any, cast
 from absl import logging
 import jax
 from jax import export as jax_export
+from jax.experimental import layout as jax_layout
 import jaxtyping
 from orbax.export import config
 from orbax.export import constants
@@ -40,7 +41,6 @@ import tensorflow as tf
 
 
 _obm_export_config = config.config
-
 
 class ObmExport(export_base.ExportBase):
   """Defines the save and load methods for exporting a model using Orbax Model export."""

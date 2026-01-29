@@ -44,7 +44,6 @@ def jax_exported_to_shlo_fn(
         obm.manifest_pb2.CompileOptionsProtoMap | None
     model_param_names: Sequence[str] | None = None,
     *,
-    model_params_layout: Sequence[jax_layout.Layout] | None = None,
     model_inputs_layout: Sequence[jax_layout.Layout] | None = None,
 ) -> obm.ShloFunction:
   """Converts a `jax.export.Exported` to an Orbax Model `ShloFunction`.
@@ -59,8 +58,6 @@ def jax_exported_to_shlo_fn(
       dot-separated key path format (e.g. "params.key.subkey"). If provided,
       only these parameters will be loaded from the checkpoint when the function
       is executed.
-    model_params_layout: Optional. A sequence of `jax_layout.Layout` objects
-      specifying the layouts for the model parameters.
     model_inputs_layout: Optional. A sequence of `jax_layout.Layout` objects
       specifying the layouts for the model inputs.
 
@@ -81,7 +78,7 @@ def jax_exported_to_shlo_fn(
       jax_specific_info._to_shlo_spec_tree_and_refinement_tuple(
           exported.in_avals,
           in_shardings_hlo,
-          None,
+          model_inputs_layout,
           exported.in_tree,
       )
   )
@@ -147,7 +144,6 @@ def convert(
         jax_export.DisabledSafetyCheck
     ] = (),
     model_param_names: Sequence[str] | None = None,
-    model_params_layout: Sequence[jax_layout.Layout] | None = None,
     model_inputs_layout: Sequence[jax_layout.Layout] | None = None,
 ) -> obm.ShloFunction:
   """Converts a JAX function to an Orbax Model `ShloFunction`.
@@ -184,10 +180,8 @@ def convert(
       dot-separated key path format (e.g. "params.key.subkey"). If provided,
       only these parameters will be loaded from the checkpoint when the function
       is executed.
-    model_params_layout: Optinal. A list of `jax_layout.Layout` objects
-      specifying the layouts for the model parameters.
     model_inputs_layout: Optional. A sequence of `jax_layout.Layout` objects
-      specifying the layouts for the model inputs.
+      specifying the layouts for the model inputs (weights and user inputs)
 
   Returns:
     An Orbax Model `ShloFunction`.
@@ -207,7 +201,6 @@ def convert(
   return jax_exported_to_shlo_fn(
       exported,
       model_param_names=model_param_names,
-      model_params_layout=model_params_layout,
       model_inputs_layout=model_inputs_layout,
   )
 
