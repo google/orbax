@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- #v1 Deleted `CompositeHandler` and refactored its functionality directly into
+  `OrbaxLayout` internal handler resolution logic.
+
 ## [0.11.33] - 2025-02-17
 
 ### Added
@@ -31,6 +36,9 @@ devices anyway.
 `load_checkpointables()` each with their own dedicated loading logic
 - Refactor v0 Pytree validation and metadata resolution and add `OrbaxV0Layout`
 tests
+- Refactor logic for handler resolution and loading checkpointables for
+`OrbaxLayout` and `OrbaxV0Layout`, adding additional fallback capabilities for
+non-standard checkpoint formats.
 
 ## [0.11.32] - 2026-01-20
 

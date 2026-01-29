@@ -392,6 +392,16 @@ def _get_possible_handlers(
   return possible_handlers
 
 
+def get_registered_handler_by_name(
+    registry: CheckpointableHandlerRegistry,
+    name: str,
+) -> CheckpointableHandler | None:
+  """Returns the handler for the given name if registered."""
+  if registry.has(name):
+    return _construct_handler_instance(name, registry.get(name))
+  return None
+
+
 def resolve_handler_for_save(
     registry: CheckpointableHandlerRegistry,
     checkpointable: Any,
@@ -444,7 +454,7 @@ def resolve_handler_for_load(
     abstract_checkpointable: Any | None,
     *,
     name: str,
-    handler_typestr: str,
+    handler_typestr: str | None = None,
 ) -> CheckpointableHandler:
   """Resolves a :py:class:`~.v1.handlers.CheckpointableHandler` for loading.
 
@@ -471,7 +481,9 @@ def resolve_handler_for_load(
     abstract_checkpointable: An abstract checkpointable to resolve.
     name: The name of the checkpointable.
     handler_typestr: A :py:class:`~.v1.handlers.CheckpointableHandler` typestr
-      to guide resolution.
+      to guide resolution. We allow a None value for handler_typestr as its
+      possible to find the last registered handler given a specified
+      abstract_checkpointable.
 
   Returns:
     A :py:class:`~.v1.handlers.CheckpointableHandler` instance.
@@ -492,15 +504,16 @@ def resolve_handler_for_load(
       handler_types.typestr(type(handler)) for handler in possible_handlers
   ]
 
-  try:
-    idx = possible_handler_typestrs.index(handler_typestr)
-    return possible_handlers[idx]
-  except ValueError:
-    logging.warning(
-        'No handler found for typestr %s. The checkpointable may be restored'
-        ' with different handler logic than was used for saving.',
-        handler_typestr,
-    )
+  if handler_typestr:
+    try:
+      idx = possible_handler_typestrs.index(handler_typestr)
+      return possible_handlers[idx]
+    except ValueError:
+      logging.warning(
+          'No handler found for typestr %s. The checkpointable may be restored'
+          ' with different handler logic than was used for saving.',
+          handler_typestr,
+      )
 
-  # Prefer the first handler in the absence of any other information.
+  # Prefer the last handler in the absence of any other information.
   return possible_handlers[-1]

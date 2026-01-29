@@ -25,7 +25,7 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
-from orbax.checkpoint.experimental.v1._src.loading import v0_compatibility as v0_loading_utils
+from orbax.checkpoint.experimental.v1._src.loading import loading
 from orbax.checkpoint.experimental.v1._src.metadata import loading as metadata_loading
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import step as path_step_lib
@@ -444,17 +444,10 @@ class Checkpointer(epy.ContextManager):
   ) -> dict[str, Any]:
     """Loads a set of checkpointables at the given step."""
     step = self._resolve_existing_checkpoint(step).step
-    checkpointer, args = v0_loading_utils.get_v0_checkpointer_and_args(
+    return  loading.load_checkpointables(
         self.directory / self._step_name_format.build_name(step),
         abstract_checkpointables,
-        context=context_lib.get_context(),
     )
-    self._manager._checkpointer = checkpointer  # pylint: disable=protected-access
-    restored = self._manager.restore(
-        step,
-        args=args,
-    )
-    return {k: v for k, v in zip(restored.keys(), restored.values())}
 
   def load_pytree_async(
       self,
