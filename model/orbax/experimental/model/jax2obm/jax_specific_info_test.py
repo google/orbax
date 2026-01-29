@@ -15,6 +15,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
+from jax.experimental import layout as jax_layout
 import jax.numpy as jnp
 import numpy as np
 from orbax.experimental.model import core as obm
@@ -22,6 +23,7 @@ from orbax.experimental.model.jax2obm import jax_specific_info
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 from tensorflow.python.util.protobuf import compare
 from google.protobuf import text_format
+from tensorflow.compiler.xla import xla_data_pb2
 
 
 def _get_spec():
@@ -242,21 +244,55 @@ class JaxSpecificInfoTest(parameterized.TestCase):
         'b': [jax.core.ShapedArray((2,), jnp.int32)],
     }
     avals, tree_def = jax.tree_util.tree_flatten(avals_tree)
-    shardings = [None] * len(avals)
+    shardings = [
+        xla_data_pb2.OpSharding(
+            type=xla_data_pb2.OpSharding.OTHER,
+            tile_assignment_dimensions=[1],
+            iota_reshape_dims=[0],
+            iota_transpose_perm=[0],
+        ),
+        xla_data_pb2.OpSharding(
+            type=xla_data_pb2.OpSharding.OTHER,
+            tile_assignment_dimensions=[1],
+            iota_reshape_dims=[0],
+            iota_transpose_perm=[0],
+        ),
+    ]
+    layouts = [
+        jax_layout.Layout(major_to_minor=(0,)),
+        jax_layout.Layout(major_to_minor=(0,)),
+    ]
 
-    jax_tree, refinements = (
+    shlo_tensor_specs, refinements = (
         jax_specific_info._to_shlo_spec_tree_and_refinement_tuple(
-            avals, shardings, tree_def, name_leaves=True
+            avals, shardings, layouts, tree_def, name_leaves=True
         )
     )
     with self.subTest('check_refinements'):
       self.assertIsNone(refinements)
     with self.subTest('check_jax_tree_leaves_names'):
-      self.assertIsInstance(jax_tree, dict)
-      self.assertCountEqual(jax_tree.keys(), ['a', 'b'])
-      self.assertEqual(jax_tree['a'].name, 'a')
-      self.assertIsInstance(jax_tree['b'], list)
-      self.assertEqual(jax_tree['b'][0].name, 'b.0')
+      self.assertIsInstance(shlo_tensor_specs, dict)
+      self.assertCountEqual(shlo_tensor_specs.keys(), ['a', 'b'])
+      self.assertEqual(shlo_tensor_specs['a'].name, 'a')
+      self.assertEqual(
+          shlo_tensor_specs['a'].sharding,
+          shardings[0],
+      )
+      self.assertEqual(
+          shlo_tensor_specs['a'].layout.minor_to_major,
+          [0],
+      )
+      self.assertIsInstance(shlo_tensor_specs['b'], list)
+      self.assertEqual(shlo_tensor_specs['b'][0].name, 'b.0')
+      self.assertEqual(
+          shlo_tensor_specs['b'][0].sharding,
+          shardings[1],
+      )
+      self.assertEqual(
+          shlo_tensor_specs['b'][0].layout.minor_to_major,
+          [0],
+      )
+      print(shlo_tensor_specs)
 
 
 if __name__ == '__main__':

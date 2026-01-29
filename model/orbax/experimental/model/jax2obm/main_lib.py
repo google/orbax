@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, Sequence
 
 import jax
 from jax import export as jax_export
+from jax.experimental import layout as jax_layout
 import numpy as np
 import orbax.checkpoint as ocp
 from orbax.experimental.model import core as obm
@@ -42,8 +43,30 @@ def jax_exported_to_shlo_fn(
     xla_compile_options_per_platform: (
         obm.manifest_pb2.CompileOptionsProtoMap | None
     model_param_names: Sequence[str] | None = None,
+    *,
+    model_params_layout: Sequence[jax_layout.Layout] | None = None,
+    model_inputs_layout: Sequence[jax_layout.Layout] | None = None,
 ) -> obm.ShloFunction:
-  """Converts a `jax.export.Exported` to an Orbax Model `ShloFunction`."""
+  """Converts a `jax.export.Exported` to an Orbax Model `ShloFunction`.
+
+  Args:
+    exported: The `jax.export.Exported` object.
+    xla_compile_options_per_platform: XLA compile options to be saved in the
+      model artifact, to ensure XLA compilation consistency and reproducibility
+      between export time and serving time. Each map entry corresponds to a
+      platform type (e.g. TPU, GPU, etc.).
+    model_param_names: Optional. A list of the model parameter names in the
+      dot-separated key path format (e.g. "params.key.subkey"). If provided,
+      only these parameters will be loaded from the checkpoint when the function
+      is executed.
+    model_params_layout: Optional. A sequence of `jax_layout.Layout` objects
+      specifying the layouts for the model parameters.
+    model_inputs_layout: Optional. A sequence of `jax_layout.Layout` objects
+      specifying the layouts for the model inputs.
+
+  Returns:
+    An Orbax Model `ShloFunction`.
+  """
 
   in_shardings_hlo = tuple([
       sharding.hlo_sharding_to_op_sharding(sd)
@@ -58,6 +81,7 @@ def jax_exported_to_shlo_fn(
       jax_specific_info._to_shlo_spec_tree_and_refinement_tuple(
           exported.in_avals,
           in_shardings_hlo,
+          None,
           exported.in_tree,
       )
   )
@@ -75,6 +99,7 @@ def jax_exported_to_shlo_fn(
       jax_specific_info._to_shlo_spec_tree_and_refinement_tuple(
           exported.out_avals,
           out_shardings_hlo,
+          None,
           exported.out_tree,
           name_leaves=True,
       )
@@ -122,6 +147,8 @@ def convert(
         jax_export.DisabledSafetyCheck
     ] = (),
     model_param_names: Sequence[str] | None = None,
+    model_params_layout: Sequence[jax_layout.Layout] | None = None,
+    model_inputs_layout: Sequence[jax_layout.Layout] | None = None,
 ) -> obm.ShloFunction:
   """Converts a JAX function to an Orbax Model `ShloFunction`.
 
@@ -157,6 +184,10 @@ def convert(
       dot-separated key path format (e.g. "params.key.subkey"). If provided,
       only these parameters will be loaded from the checkpoint when the function
       is executed.
+    model_params_layout: Optinal. A list of `jax_layout.Layout` objects
+      specifying the layouts for the model parameters.
+    model_inputs_layout: Optional. A sequence of `jax_layout.Layout` objects
+      specifying the layouts for the model inputs.
 
   Returns:
     An Orbax Model `ShloFunction`.
@@ -176,6 +207,8 @@ def convert(
   return jax_exported_to_shlo_fn(
       exported,
       model_param_names=model_param_names,
+      model_params_layout=model_params_layout,
+      model_inputs_layout=model_inputs_layout,
   )
 
 

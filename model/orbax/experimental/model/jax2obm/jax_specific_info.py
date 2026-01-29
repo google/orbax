@@ -22,6 +22,8 @@ from typing import Any, TypeVar
 import jax
 # Somehow JAX requires this import to make `jax.export` available.
 from jax import export  # pylint: disable=unused-import
+from jax.experimental import layout as jax_layout
+import jax.numpy as jnp
 import numpy as np
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
@@ -30,6 +32,8 @@ from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import DTypeRefinemen
 from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import ShapeDTypeRefinement
 from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import ShapeDTypeRefinements
 from orbax.experimental.model.jax2obm.jax_supplemental_pb2 import ShapeRefinement
+
+from tensorflow.compiler.xla import xla_data_pb2
 
 T1 = TypeVar("T1")
 T2 = TypeVar("T2")
@@ -45,6 +49,33 @@ def unzip2(
     xs.append(x)
     ys.append(y)
   return tuple(xs), tuple(ys)
+
+
+# This function is adapted from the non-public
+# `jax._src.layout.Layout._to_xla_layout`. Since there are no plans to make the
+# original API public, the logic is replicated here.
+def _to_xla_layout_proto(
+    layout: jax_layout.Layout,
+    dtype: jnp.dtype,
+) -> xla_data_pb2.LayoutProto:
+  """Converts a `jax.layout.Layout` to an `xla_data_pb2.LayoutProto`."""
+  if layout.tiling is None:
+    layout_proto = xla_data_pb2.LayoutProto()
+    layout_proto.minor_to_major.extend(layout.major_to_minor[::-1])
+  else:
+    if layout.sub_byte_element_size_in_bits != 0:
+      sub_byte_size = layout.sub_byte_element_size_in_bits
+    elif jnp.issubdtype(dtype, np.integer):
+      sub_byte_size = jnp.iinfo(dtype).bits if jnp.iinfo(dtype).bits < 8 else 0
+    else:
+      sub_byte_size = 0
+    layout_proto = xla_data_pb2.LayoutProto()
+    layout_proto.minor_to_major.extend(layout.major_to_minor[::-1])
+    layout_proto.tiles.extend(
+        xla_data_pb2.TileProto(dimensions=tile) for tile in layout.tiling
+    )
+    layout_proto.sub_byte_element_size_in_bits = sub_byte_size
+  return layout_proto
 
 
 def _name_leaf(
@@ -309,13 +340,16 @@ def _to_shlo_dtype_and_refinement(
 
 
 def _to_shlo_tensor_spec_and_refinement(
-    aval: jax.core.AbstractValue, sharding_: Any
+    aval: jax.core.AbstractValue,
+    sharding: Any,
+    layout: jax_layout.Layout | None = None,
 ) -> tuple[obm.ShloTensorSpec, ShapeDTypeRefinementPair]:
   """Gets a `ShloTensorSpec` and a `ShapeDTypeRefinement` from a `ShapedArray`.
 
   Args:
     aval: a JAX `ShapedArray`.
-    sharding_: the sharding of the `ShapedArray`.
+    sharding: the sharding of the `ShapedArray`.
+    layout: the layout of the tensor.
 
   Returns:
     A `ShloTensorSpec` and a `ShapeDTypeRefinement`.
@@ -323,16 +357,22 @@ def _to_shlo_tensor_spec_and_refinement(
   assert isinstance(aval, jax.core.ShapedArray)
   shlo_shape, shape_refinement = _to_shlo_shape_and_refinement(aval.shape)
   shlo_dtype, dtype_refinement = _to_shlo_dtype_and_refinement(aval.dtype)
+  xla_layout_proto = (
+      _to_xla_layout_proto(layout, aval.dtype) if layout is not None else None
+  )
   spec = obm.ShloTensorSpec(
       shape=shlo_shape,
       dtype=shlo_dtype,
-      sharding=sharding_,
+      sharding=sharding,
+      layout=xla_layout_proto,
   )
   return spec, (shape_refinement, dtype_refinement)
 
 
 def _to_flat_shlo_specs_and_refinements(
-    avals: Sequence[jax.core.AbstractValue], shardings: Sequence[Any]
+    avals: Sequence[jax.core.AbstractValue],
+    shardings: Sequence[Any],
+    layouts: Sequence[jax_layout.Layout] | None = None,
 ) -> tuple[
     tuple[obm.ShloTensorSpec, ...], tuple[ShapeDTypeRefinementPair, ...] | None
 ]:
@@ -342,6 +382,7 @@ def _to_flat_shlo_specs_and_refinements(
           _to_shlo_tensor_spec_and_refinement,
           avals,
           shardings,
+          layouts if layouts is not None else [None] * len(avals),
       )
   )
   specs, refinements = unzip2(specs_and_refinements)
@@ -353,13 +394,16 @@ def _to_flat_shlo_specs_and_refinements(
 def _to_shlo_spec_tree_and_refinement_tuple(
     avals: Sequence[jax.core.AbstractValue],
     shardings: Sequence[Any],
-    tree_def: jax.tree_util.PyTreeDef | None,
+    layouts: Sequence[jax_layout.Layout] | None = None,
+    tree_def: jax.tree_util.PyTreeDef | None = None,
     name_leaves: bool = False,
 ) -> tuple[
     obm.Tree[obm.ShloTensorSpec], tuple[ShapeDTypeRefinementPair, ...] | None
 ]:
   """Converts a sequence of avals to a tree of ShloTensorSpecs."""
-  flat, refinements = _to_flat_shlo_specs_and_refinements(avals, shardings)
+  flat, refinements = _to_flat_shlo_specs_and_refinements(
+      avals, shardings, layouts
+  )
   if tree_def is None:
     flat: obm.Tree[obm.ShloTensorSpec]  # a tuple is also a tree
     jax_tree = flat
