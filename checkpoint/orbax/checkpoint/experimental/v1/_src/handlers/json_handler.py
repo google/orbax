@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import typing
 from typing import Any, Awaitable
 
 from orbax.checkpoint._src.path import async_path
@@ -39,6 +40,7 @@ def _get_supported_filenames(filename: str | None = None) -> list[str]:
   return [filename, _DATA_FILENAME, 'metadata']
 
 
+@typing.final
 class JsonHandler(CheckpointableHandler[JsonType, None]):
   """An implementation of :py:class:`.CheckpointableHandler` for Json."""
 
@@ -102,7 +104,30 @@ class JsonHandler(CheckpointableHandler[JsonType, None]):
     return None
 
 
-class MetricsHandler(JsonHandler):
+@typing.final
+class MetricsHandler(CheckpointableHandler[JsonType, None]):
+  """An implementation of :py:class:`.CheckpointableHandler` for JSON metrics."""
 
   def __init__(self):
-    super().__init__(filename='metrics')
+    self._handler = JsonHandler(filename='metrics')
+
+  async def save(
+      self, directory: path_types.PathAwaitingCreation, checkpointable: JsonType
+  ) -> Awaitable[None]:
+    return await self._handler.save(directory, checkpointable)
+
+  async def load(
+      self,
+      directory: path_types.Path,
+      abstract_checkpointable: None = None,
+  ) -> Awaitable[JsonType]:
+    return await self._handler.load(directory)
+
+  async def metadata(self, directory: path_types.Path) -> None:
+    return await self._handler.metadata(directory)
+
+  def is_handleable(self, checkpointable: Any) -> bool:
+    return self._handler.is_handleable(checkpointable)
+
+  def is_abstract_handleable(self, abstract_checkpointable: Any) -> bool | None:
+    return self._handler.is_abstract_handleable(abstract_checkpointable)

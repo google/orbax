@@ -15,6 +15,7 @@
 """Define types for :py:class:`.LeafHandler`."""
 
 import dataclasses
+import typing
 from typing import Any, Awaitable, Generic, Protocol, Sequence, Tuple, Type, TypeVar
 
 import jax
@@ -95,7 +96,8 @@ def is_placeholder(value: Any) -> bool:
   return value is PLACEHOLDER
 
 
-@dataclasses.dataclass
+@typing.final
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class SerializationParam(Generic[Leaf]):
   keypath: tree_types.PyTreeKeyPath
   value: Leaf
@@ -105,14 +107,16 @@ class SerializationParam(Generic[Leaf]):
     return tree_utils.param_name_from_keypath(self.keypath)
 
 
-@dataclasses.dataclass
+@typing.final
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class SerializationContext:
   parent_dir: path_types.PathAwaitingCreation
   ts_context: ts.Context | None = None
   byte_limiter: limits.LimitInFlightBytes | None = None
 
 
-@dataclasses.dataclass
+@typing.final
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class DeserializationParam(Generic[AbstractLeaf]):
   keypath: tree_types.PyTreeKeyPath
   value: AbstractLeaf | Type[AbstractLeaf] | None = None
@@ -122,7 +126,8 @@ class DeserializationParam(Generic[AbstractLeaf]):
     return tree_utils.param_name_from_keypath(self.keypath)
 
 
-@dataclasses.dataclass
+@typing.final
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class DeserializationContext:
   parent_dir: path_types.Path
   ocdbt_checkpoint: bool

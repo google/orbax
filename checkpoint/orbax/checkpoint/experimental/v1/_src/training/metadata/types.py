@@ -17,6 +17,7 @@
 import dataclasses
 import datetime
 import pprint
+import typing
 from typing import TypeVar
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -25,6 +26,7 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 CheckpointableMetadataT = TypeVar('CheckpointableMetadataT')
 
 
+@typing.final
 class CheckpointMetadata(
     metadata_types.CheckpointMetadata[CheckpointableMetadataT]
 ):
@@ -84,6 +86,7 @@ class CheckpointMetadata(
     }
 
 
+@typing.final
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class RootMetadata:
   """Metadata of a sequence of checkpoint at root level (contains all steps).

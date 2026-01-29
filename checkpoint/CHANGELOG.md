@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- #v1 Make most V1 public concrete classes final.
+
 ## [0.11.32] - 2026-01-20
 
 ### Changed

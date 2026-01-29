@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 import contextvars
+import typing
 
 from absl import logging
 from etils import epy
@@ -39,6 +40,7 @@ def get_context(default: Context | None = None) -> Context:
   return _CONTEXT.get(default)
 
 
+@typing.final
 class Context(epy.ContextManager):
   """Context for customized checkpointing.
 

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import typing
 from typing import Any, Iterable, Sequence
 
 from absl import logging
@@ -67,6 +68,7 @@ def _resolve_integer_step(
   return step.step
 
 
+@typing.final
 class Checkpointer(epy.ContextManager):
   """An object that manages a sequence of checkpoints in a training loop."""
 

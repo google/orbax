@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import typing
 from typing import Any, Awaitable, Sequence, get_args
 
 from absl import logging
@@ -208,6 +209,7 @@ async def _async_futures(commit_futures: Sequence[future.Future]):
   await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
 
 
+@typing.final
 class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
   """An implementation of :py:class:`.CheckpointableHandler` for PyTrees."""
 

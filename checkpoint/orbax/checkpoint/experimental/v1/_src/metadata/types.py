@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import pprint
+import typing
 from typing import Any, Generic, TypeAlias, TypeVar
 
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -38,6 +39,7 @@ parameter metadatas.
 """
 
 
+@typing.final
 class CheckpointMetadata(Generic[CheckpointableMetadataT]):
   """Represents complete metadata describing a checkpoint.
 

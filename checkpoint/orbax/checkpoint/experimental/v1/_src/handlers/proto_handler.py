@@ -15,6 +15,7 @@
 """ProtoHandler class."""
 
 import inspect
+import typing
 from typing import Any, Awaitable, Type
 
 from google.protobuf import message
@@ -29,6 +30,7 @@ from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 _DEFAULT_FILENAME = "proto.pbtxt"
 
 
+@typing.final
 class ProtoHandler(
     handler_types.CheckpointableHandler[message.Message, Type[message.Message]]
 ):
