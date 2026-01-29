@@ -11,6 +11,13 @@ mesh_configs:
   - mesh_axes: ["data", "model", "tensor", "fsdp"]
     ici_parallelism: {"data": 1, "model": 1}
     dcn_parallelism: {"data": 4, "model": 1}
+  - mesh_axes: ["data", "model", "tensor", "fsdp"]
+    ici_parallelism: {"data": 1, "model": 4}
+    dcn_parallelism: {"data": 2, "model": 1}
+  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+    ici_parallelism: {"fsdp": 8, "tensor": 1, "data": 2}
+    dcn_parallelism: {"data": 2}
+    allow_split_physical_axes: true
 
 checkpoint_config:
   spec:

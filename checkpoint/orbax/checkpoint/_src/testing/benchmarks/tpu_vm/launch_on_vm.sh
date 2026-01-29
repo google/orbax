@@ -20,6 +20,7 @@ PR_NUMBER=""
 JAX_VERSION="newest"
 CUSTOM_COMMAND=""
 SETUP_SCRIPT=""
+RAMFS_DIR="/mnt/ramdisk/tests"
 
 
 # --- Helper Functions (Common) ---
@@ -34,6 +35,7 @@ usage() {
     echo "  --project PROJECT    GCP Project ID (default: $DEFAULT_PROJECT)"
     echo "  --setup-script FILE  Path to setup script (optional). If provided, setup is run."
     echo "  --update             Run 'git pull' (fetch/checkout) on workers to update code."
+    echo "  --restore            Restore with a new process for ECM testing."
     echo "  --repo-url URL       Git repo URL for setup (optional)"
     echo "  --branch BRANCH      Git branch/ref for setup (optional)"
     echo "  --pr NUMBER          GitHub PR number to setup/update (overrides --branch)"
@@ -243,7 +245,8 @@ build_run_command() {
                python3 \"\$script\" \
                --config_file=$remote_config \
                --alsologtostderr \
-               --output_directory=$OUTPUT_DIR"
+               --output_directory=$OUTPUT_DIR \
+               --local_directory=$RAMFS_DIR"
     echo "$cmd"
 }
 
@@ -258,6 +261,7 @@ while [[ "$#" -gt 0 ]]; do
         --output-dir) OUTPUT_DIR="$2"; shift ;;
         --setup-script) SETUP_SCRIPT="$2"; shift ;;
         --update) DO_UPDATE=true ;;
+        --restore) DO_RESTORE=true ;;
         --repo-url) REPO_URL="$2"; shift ;;
         --branch) BRANCH="$2"; shift ;;
         --pr) PR_NUMBER="$2"; shift ;;
@@ -276,8 +280,8 @@ if [ -z "$TPU_NAME" ]; then
     usage
 fi
 
-if [ -z "$CONFIG_FILE" ] && [ -z "$CUSTOM_COMMAND" ] && [ -z "$SETUP_SCRIPT" ] && [ "$DO_UPDATE" != true ] && [ "$DISCOVER_ONLY" != true ]; then
-    echo "Error: Must specify --config, --command, --setup-script, --update, or --discover-only."
+if [ -z "$CONFIG_FILE" ] && [ -z "$CUSTOM_COMMAND" ] && [ -z "$SETUP_SCRIPT" ] && [ "$DO_UPDATE" != true ] && [ "$DO_RESTORE" != true ] && [ "$DISCOVER_ONLY" != true ]; then
+    echo "Error: Must specify --config, --command, --setup-script, --update, --restore, or --discover-only."
     usage
 fi
 

@@ -79,6 +79,7 @@ class TestContext:
     mesh: The mesh used for sharding the checkpoint data.
     repeat_index: The index of the repeat run, if this test is run multiple
       times.
+    local_path: The local path to store the checkpoint data.
   """
 
   pytree: Any
@@ -86,6 +87,7 @@ class TestContext:
   options: BenchmarkOptions  # The specific options for this test variant.
   mesh: jax.sharding.Mesh | None = None
   repeat_index: int | None = None
+  local_path: epath.Path | None = None
 
 
 @dataclasses.dataclass
@@ -113,6 +115,7 @@ class Benchmark(abc.ABC):
       name: str,
       output_dir: str | None = None,
       mesh: jax.sharding.Mesh | None = None,
+      local_directory: str | None = None,
   ):
     self.test_fn = test_fn
     self.checkpoint_config = checkpoint_config
@@ -120,6 +123,7 @@ class Benchmark(abc.ABC):
     self.mesh = mesh
     self.name = name
     self.output_dir = output_dir
+    self.local_directory = local_directory
 
   def _build_test_context_summary(self, context: TestContext) -> str:
     """Builds a string summary of the test context."""
@@ -179,6 +183,7 @@ class Benchmark(abc.ABC):
         options=self.options,
         mesh=self.mesh,
         repeat_index=repeat_index,
+        local_path=self.local_directory,
     )
 
     test_context_summary = self._build_test_context_summary(context)
@@ -243,6 +248,7 @@ class BenchmarksGenerator(abc.ABC):
       options: BenchmarkOptions,
       output_dir: str | None = None,
       mesh_configs: Sequence[configs.MeshConfig] | None = None,
+      local_directory: str | None = None,
   ):
     """Initializes the generator.
 
@@ -253,6 +259,7 @@ class BenchmarksGenerator(abc.ABC):
         output_dir: The directory to store the benchmark results in.
         mesh_configs: The mesh configurations, shared across all generated
           benchmarks. If None, no mesh will be created.
+        local_directory: The local directory to store the benchmark results in.
     """
     if self.options_class is None:
       raise TypeError(
@@ -270,6 +277,7 @@ class BenchmarksGenerator(abc.ABC):
     self._mesh_configs = mesh_configs
     self._options = options
     self._output_dir = output_dir
+    self._local_directory = local_directory
 
   @abc.abstractmethod
   def test_fn(self, test_context: TestContext) -> TestResult:
@@ -368,6 +376,7 @@ class BenchmarksGenerator(abc.ABC):
           options=test_config_options,
           output_dir=self._output_dir,
           mesh=mesh,
+          local_directory=self._local_directory,
       )
       benchmarks.append(benchmark_obj)
 
@@ -384,12 +393,14 @@ class TestSuite:
       output_dir: str | None = None,
       skip_incompatible_mesh_configs: bool = True,
       num_repeats: int = 1,
+      local_directory: str | None = None,
   ):
     self._name = name
     self._benchmarks_generators = benchmarks_generators
     self._skip_incompatible_mesh_configs = skip_incompatible_mesh_configs
     self._num_repeats = num_repeats
     self._output_dir = output_dir
+    self._local_directory = local_directory
     self._suite_metrics = metric_lib.MetricsManager(
         name=name, num_repeats=num_repeats
     )
