@@ -21,6 +21,7 @@ import types
 from absl import logging
 import jax
 import numpy as np
+from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.serialization import jax_array_handlers
 from orbax.checkpoint._src.serialization import pathways_types
@@ -39,6 +40,10 @@ def _get_array_hander_with_dispatcher(
     **kwargs,
 ) -> type_handlers.ArrayHandler:
   """Returns the Pathways ArrayHandler."""
+  # Inject default array_metadata_store if not provided
+  if 'array_metadata_store' not in kwargs:
+    logging.warn('Array Metadata Store not specified, setting to default Store')
+    kwargs['array_metadata_store'] = array_metadata_store_lib.Store()
   if use_single_replica_array_handler:
     logging.info('Using SingleReplicaArrayHandler')
     return jax_array_handlers.SingleReplicaArrayHandler(
