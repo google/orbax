@@ -30,11 +30,14 @@ class CheckpointConfig:
       spec: A dictionary defining the structure and type of the PyTree to be
         generated. Example: { 'params': { 'dtype': 'float32', 'shape': [1024,
         1024], 'sharding': ['data', 'model']  # PartitionSpec }, 'step': 'int' }
+      is_replicated: If True, the checkpoint will be generated with replicated
+        shardings. Default is False.
   """
 
   path: str | None = None
   random_seed: int = 0
   spec: dict[str, Any] = dataclasses.field(default_factory=dict)
+  is_replicated: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
