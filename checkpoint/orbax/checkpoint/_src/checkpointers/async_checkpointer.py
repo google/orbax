@@ -14,10 +14,11 @@
 
 """AsyncCheckpointer."""
 
+import asyncio
 import sys
 import threading
 import time
-from typing import Any, Callable, Optional, Sequence, Type
+from typing import Any, Callable, Optional, Sequence, Type, Union
 
 from absl import logging
 from etils import epath
@@ -43,6 +44,52 @@ BarrierSyncFn = multihost.BarrierSyncFn
 _DIRECTORY_CREATION_SIGNALS = [
     synchronization.HandlerAwaitableSignal.STEP_DIRECTORY_CREATION
 ]
+
+
+def _prepare_handler_directory(
+    handler: async_checkpoint_handler.AsyncCheckpointHandler,
+    tmpdir: atomicity_types.TemporaryPath,
+    commit_future: Optional[future.Future],
+    create_async: bool,
+) -> Union[epath.Path, 'asyncio.Future[epath.Path]']:
+  """Prepares the directory argument for the handler's async_save method.
+
+  For handlers that support futures (FutureAwareAsyncCheckpointHandler), returns
+  an asyncio.Future that resolves to the path. For legacy handlers, returns the
+  path directly.
+
+  Args:
+    handler: The checkpoint handler.
+    tmpdir: The temporary path object.
+    commit_future: The Orbax future from directory creation, or None if
+      directories were created synchronously.
+    create_async: Whether directories are being created asynchronously.
+
+  Returns:
+    Either an epath.Path (for legacy handlers) or asyncio.Future[epath.Path]
+    (for future-aware handlers).
+  """
+  if isinstance(
+      handler,
+      async_checkpoint_handler.FutureAwareAsyncCheckpointHandler,
+  ):
+    # Future-aware handlers always receive a future
+    if create_async and commit_future is not None:
+      # Pass an asyncio Task that resolves after directory creation
+      async def await_directory_creation():
+        await asyncio.to_thread(commit_future.result)
+        return tmpdir.get()
+
+      return asyncio.create_task(await_directory_creation())
+    else:
+      # Directory already exists - return already-resolved future
+      async def get_resolved_path():
+        return tmpdir.get()
+
+      return asyncio.create_task(get_resolved_path())
+  else:
+    # Legacy handlers receive the path directly
+    return tmpdir.get()
 
 
 def _on_commit_callback(
@@ -303,7 +350,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   instructions.
   """
 
-  _handler: async_checkpoint_handler.AsyncCheckpointHandler
+  _handler: (
+      async_checkpoint_handler.AsyncCheckpointHandler
+      | async_checkpoint_handler.FutureAwareAsyncCheckpointHandler
+  )
 
   # Options mirror checkpoint_manager.AsyncOptions.
   def __init__(
@@ -484,8 +534,15 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     ckpt_args = checkpointer.construct_checkpoint_args(
         self._handler, True, *args, **kwargs
     )
+    # Prepare the directory argument for the handler (path or future)
+    handler_directory = _prepare_handler_directory(
+        self._handler,
+        tmpdir,
+        commit_ops[0] if commit_ops else None,
+        self._create_directories_asynchronously,
+    )
     commit_ops.extend(
-        await self._handler.async_save(tmpdir.get(), args=ckpt_args) or []
+        await self._handler.async_save(handler_directory, args=ckpt_args) or []
     )
     commit_ops, _ = jax.tree.flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
