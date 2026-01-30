@@ -297,7 +297,25 @@ Server (TPU Manager).*
 | `--enable_pathways` | `False` | Enable Pathways backend (Single-Controller). |
 | `--pathways_server_image` | `...:latest` | Pathways server image (manages TPU chips). |
 | `--pathways_proxy_image` | `...:latest` | Pathways proxy image (bridges user code to server). |
+
+> NOTE: To run a Pathways benchmark, you must use `--enable_pathways`. If
+> cluster doesn't exist, `launch_xpk` will automatically create a
+> Pathways-compatible cluster. If you are reusing an existing cluster, ensure it
+> was created as a Pathways cluster.
 <!-- LINT.ThenChange(launch_xpk.py:launch_xpk_flags) -->
+
+### Pathways Launch Example
+
+```bash
+python3 launch_xpk.py \
+  --cluster_name orbax-pathways-dev \
+  --tpu_type v5litepod-16 \
+  --zone us-west1-c \
+  --config_file ... \
+  --docker_image ... \
+  --output_directory... \
+  --enable_pathways
+```
 
 
 ---

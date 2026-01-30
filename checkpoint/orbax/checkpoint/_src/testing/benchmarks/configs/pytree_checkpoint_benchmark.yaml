@@ -1,11 +1,16 @@
 # The name for the entire test suite run.
 suite_name: "PyTreeCheckpointer Performance Matrix"
 
-mesh_config:
-  mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
-  # DCN: Across processes assuming 4 processes.
-  dcn_parallelism: {"tensor": 2, "data": 2}
-  process_is_granule: True
+mesh_configs:
+  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+    # DCN: Across processes assuming 4 processes.
+    dcn_parallelism: {"tensor": 1, "data": 2}
+    ici_parallelism: {"tensor": 4, "data": 1}
+    process_is_granule: True
+  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+    # DCN: Across processes assuming 4 processes.
+    dcn_parallelism: {"tensor": 1, "data": 1}
+    ici_parallelism: {"tensor": 16, "data": 1}
 
 # The checkpoint configuration, shared across all generated benchmarks.
 checkpoint_config:

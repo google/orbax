@@ -280,12 +280,12 @@ _ENABLE_PATHWAYS = flags.DEFINE_boolean(
 )
 _PATHWAYS_SERVER_IMAGE = flags.DEFINE_string(
     'pathways_server_image',
-    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/server:2025-10-03',
+    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/server:latest',
     'Pathways server image (manages TPU chips).',
 )
 _PATHWAYS_PROXY_IMAGE = flags.DEFINE_string(
     'pathways_proxy_image',
-    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/proxy_server:2025-10-03',
+    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/proxy_server:latest',
     'Pathways proxy image (bridges user code to server).',
 )
 # LINT.ThenChange(README.md:launch_xpk_flags_table)
@@ -562,6 +562,12 @@ def construct_workload_command(
     python_args.append(f'--v={v_level}')
 
   python_cmd = ' '.join(python_args)
+  if enable_pathways:
+    python_cmd = (
+        'python3 -c "import pathwaysutils;'
+        ' pathwaysutils.initialize()" && '
+        + python_cmd
+    )
 
   return f'{env_cmd}{python_cmd}'
 
@@ -628,7 +634,7 @@ def construct_xpk_command(
     image_args = [
         f'--server-image={_PATHWAYS_SERVER_IMAGE.value}',
         f'--proxy-server-image={_PATHWAYS_PROXY_IMAGE.value}',
-        f'--colocated-python-sidecar-image={_DOCKER_IMAGE.value}',
+        f'--docker-image={_DOCKER_IMAGE.value}'
     ]
 
   else:
@@ -668,7 +674,7 @@ def print_summary(
       '',
       (
           f'  📄 {Console.BOLD}Logs:{Console.RESET}      '
-          f' https://console.cloud.google.com/logs/query;query=resource.labels.pod_name:"{workload_name}"?project={project}'
+          f' https://console.cloud.google.com/logs/query;query=resource.labels.pod_name:"{workload_name}"%0Aresource.labels.container_name:"jax-tpu"?project={project}'
       ),
       (
           f'  📦 {Console.BOLD}Artifacts:{Console.RESET} '
@@ -718,14 +724,20 @@ def main(argv: Sequence[str]) -> None:
   if _WORKLOAD_NAME.value is not None:
     workload_name = _WORKLOAD_NAME.value
   else:
-    base_name, _ = os.path.splitext(os.path.basename(_CONFIG_FILE.value))
-    # XPK requires workload name < 40 chars.
-    # Format: orbax-{base_name}-{timestamp}
-    # timestamp (15) + orbax- (6) + separators (1) = 22 chars.
-    # Max base_name = 40 - 22 = 18 chars. We use 15 to be safe.
-    if len(base_name) > 15:
-      base_name = base_name[:15]
-    workload_name = f'orbax-{base_name}-{timestamp}'.replace('_', '-').lower()
+    if _ENABLE_PATHWAYS.value:
+      # XPK for pathways requires workload name < 25 chars.
+      # Format: orbax-{timestamp}
+      # timestamp (15) + orbax- (6) + separators (1) = 22 chars.
+      workload_name = f'orbax-{timestamp}'.replace('_', '-').lower()
+    else:
+      base_name, _ = os.path.splitext(os.path.basename(_CONFIG_FILE.value))
+      # XPK requires workload name < 40 chars.
+      # Format: orbax-{base_name}-{timestamp}
+      # timestamp (15) + orbax- (6) + separators (1) = 22 chars.
+      # Max base_name = 40 - 22 = 18 chars. We use 15 to be safe.
+      if len(base_name) > 5:
+        base_name = base_name[:5]
+      workload_name = f'orbax-{base_name}-{timestamp}'.replace('_', '-').lower()
 
   Console.print_info(f'Workload: {workload_name}')
   Console.print_info(f'Run ID:   {run_id}')
