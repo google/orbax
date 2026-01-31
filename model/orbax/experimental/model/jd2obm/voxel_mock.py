@@ -87,3 +87,11 @@ class VoxelModule:
     plan_proto = mock.Mock()
     plan_proto.SerializeToString.return_value = b'test plan'
     return plan_proto
+
+
+# Define `__all__` to explicitly declare the public API of this module.
+# This controls what `from jd2obm import *` imports and helps linters.
+__all__ = [
+    'VoxelSpec',
+    'VoxelModule',
+]

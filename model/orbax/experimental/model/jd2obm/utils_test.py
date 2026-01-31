@@ -20,7 +20,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
 from orbax.experimental.model import core as obm
-from orbax.experimental.model.voxel2obm import utils
+from orbax.experimental.model.jd2obm import utils
 
 
 @dataclasses.dataclass(frozen=True)

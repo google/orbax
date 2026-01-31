@@ -12,4 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from orbax.experimental.model.voxel2obm.main_lib import *
+from orbax.experimental.model.jd2obm.main_lib import *
+from orbax.experimental.model.jd2obm.utils import *
+from orbax.experimental.model.jd2obm import voxel_asset_map_pb2
+from orbax.experimental.model.jd2obm.voxel_mock import *

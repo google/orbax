@@ -20,7 +20,7 @@ from typing import Callable, Any
 
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.core.python import file_utils
-from orbax.experimental.model.voxel2obm import voxel_asset_map_pb2
+from orbax.experimental.model.jd2obm import voxel_asset_map_pb2
 
 
 VOXEL_PROCESSOR_MIME_TYPE = 'application/protobuf; type=voxel.PlanProto'
@@ -242,3 +242,11 @@ def voxel_global_supplemental_closure(
     }
 
   return save_and_create_global_supplemental
+
+
+# Define `__all__` to explicitly declare the public API of this module.
+# This controls what `from jd2obm import *` imports and helps linters.
+__all__ = [
+    'voxel_plan_to_obm',
+    'voxel_global_supplemental_closure'
+]

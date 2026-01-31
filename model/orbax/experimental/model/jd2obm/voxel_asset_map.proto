@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package orbax_model_voxel_assets_map;
 
+option java_multiple_files = true;
+
 // Defines a map from original asset paths to their new locations within the
 // saved model. This is used by the Voxel plan loader to correctly locate and
 // load assets.

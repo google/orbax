@@ -18,9 +18,9 @@ import os
 
 from absl.testing import absltest
 from orbax.experimental.model import core as obm
-from orbax.experimental.model.voxel2obm import main_lib
-from orbax.experimental.model.voxel2obm import voxel_asset_map_pb2
-from orbax.experimental.model.voxel2obm import voxel_mock
+from orbax.experimental.model.jd2obm import main_lib
+from orbax.experimental.model.jd2obm import voxel_asset_map_pb2
+from orbax.experimental.model.jd2obm import voxel_mock
 
 
 class MainLibTest(absltest.TestCase):

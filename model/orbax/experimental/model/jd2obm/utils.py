@@ -51,3 +51,8 @@ def voxel_signature_to_obm_spec(
         'Failed to convert voxel signature of type'
         f' {type(signature)} to OBM:\n{pprint.pformat(signature)}'
     ) from err
+
+
+# Define `__all__` to explicitly declare the public API of this module.
+# This controls what `from jd2obm import *` imports and helps linters.
+__all__ = ['voxel_signature_to_obm_spec']
