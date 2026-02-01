@@ -39,7 +39,6 @@ from orbax.checkpoint.experimental.v1._src.metadata import serialization as meta
 from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import path_utils as saving_path_utils
-from orbax.checkpoint.experimental.v1._src.synchronization import asyncio_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
@@ -377,7 +376,6 @@ def save_checkpointables_impl(
   """See caller docstrings."""
   start_time = time.time()
   event_tracking.record_save_start(path, async_origin=async_origin)
-  asyncio_utils.maybe_apply_nest_asyncio()
   # Ensure the operation ID is incremented as soon as possible. This must be
   # done uniquely for each save operation.
   asyncio.run(context_lib.synchronize_next_operation_id())
