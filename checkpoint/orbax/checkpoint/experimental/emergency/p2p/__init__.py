@@ -12,18 +12,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared constants for P2P checkpointing."""
-
-# Directory names
-P2P_RESTORE_DIR_NAME = 'p2p_restore'
-STATE_SUBDIR = 'state'
-DATA_ITER_KEY = 'data_iter'
-PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
-
-# Tuning for high-throughput networks (16MB buffers)
-SOCKET_BUFFER_SIZE = 16 * 1024 * 1024
-CHUNK_SIZE = 1024 * 1024
-
-# Timeouts
-CONNECT_TIMEOUT_SECONDS = 5
-TRANSFER_TIMEOUT_SECONDS = 60

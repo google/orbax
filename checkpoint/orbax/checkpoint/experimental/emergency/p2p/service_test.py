@@ -14,6 +14,7 @@
 
 """Unit tests for P2PNode service."""
 
+import functools
 import threading
 from unittest import mock
 
@@ -31,11 +32,13 @@ class NodeHandlerTest(absltest.TestCase):
         service.P2PNode, instance=True
     )
     mock_server = mock.Mock(spec=service._ThreadingTCPServer)
-    mock_server.service = self.mock_node_service
     # Mock handle during __init__ because BaseRequestHandler calls it.
     with mock.patch.object(service.NodeHandler, 'handle'):
       self.handler = service.NodeHandler(
-          self.mock_request, ('client_addr', 1234), mock_server
+          self.mock_request,
+          ('client_addr', 1234),
+          mock_server,
+          service=self.mock_node_service,
       )
 
   @mock.patch.object(service.protocol, 'optimize_socket', autospec=True)
@@ -104,7 +107,7 @@ class P2PNodeTest(absltest.TestCase):
         mock.patch.object(
             service.socket,
             'getaddrinfo',
-            return_value=[(0, 0, 0, '', ('127.0.0.1', 0))],
+            return_value=[(service.socket.AF_INET, 0, 0, '', ('127.0.0.1', 0))],
         )
     )
 
@@ -115,10 +118,40 @@ class P2PNodeTest(absltest.TestCase):
     self.assertEqual(self.node.port, 12345)
     self.assertEqual(self.node.directory, self.temp_dir)
     self.assertEqual(self.node.process_index, 0)
-    self.mock_server_cls.assert_called_once_with(
-        ('0.0.0.0', 0), service.NodeHandler
+    self.mock_server_cls.assert_called_once()
+    args, _ = self.mock_server_cls.call_args
+    self.assertEqual(args[0], ('0.0.0.0', 0))
+    self.assertIsInstance(args[1], functools.partial)
+    self.assertEqual(args[1].func, service.NodeHandler)
+    self.assertEqual(args[1].keywords, {'service': self.node})
+
+  @mock.patch.object(threading, 'Thread', autospec=True)
+  def test_ipv6_init_and_properties(self, mock_thread):
+    self.mock_server_cls.reset_mock()
+    self.mock_getaddrinfo.return_value = [(
+        service.socket.AF_INET6,
+        0,
+        0,
+        '',
+        ('::1', 0),
+    )]
+    node = service.P2PNode(directory=self.temp_dir)
+    self.assertEqual(node.ip, '::1')
+    self.mock_server_cls.assert_called_once()
+    args, _ = self.mock_server_cls.call_args
+    self.assertEqual(args[0], ('::', 0))
+    node.start()
+    mock_thread.assert_called_once_with(
+        target=node.server.serve_forever, daemon=True
     )
-    self.assertEqual(self.mock_server.service, self.node)
+    mock_thread.return_value.start.assert_called_once()
+    self.assertEqual(node._thread, mock_thread.return_value)
+
+    node.stop()
+    self.mock_server.shutdown.assert_called_once()
+    self.mock_server.server_close.assert_called_once()
+    mock_thread.return_value.join.assert_called_once()
+    self.assertIsNone(node._thread)
 
   @mock.patch.object(threading, 'Thread', autospec=True)
   def test_start_stop(self, mock_thread):
