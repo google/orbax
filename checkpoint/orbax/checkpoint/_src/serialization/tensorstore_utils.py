@@ -636,7 +636,7 @@ async def assert_parameter_files_exist(
 
 
 # TS functions
-def _get_json_tspec(
+async def _get_json_tspec(
     info: types.ParamInfo,
     use_ocdbt: bool,
     *,
@@ -645,10 +645,9 @@ def _get_json_tspec(
     raise_array_data_missing_error: bool = True,
 ) -> dict[str, Any]:
   """Gets Tensorstore spec in JSON format."""
-  if info.name is None or info.parent_dir is None:
-    raise ValueError('Must provide info.name and info.parent_dir.')
-  parent_dir = info.parent_dir
-  assert parent_dir is not None
+  if info.name is None:
+    raise ValueError('Must provide info.name.')
+  parent_dir = await info.get_parent_dir()
   directory = parent_dir.as_posix()
   kvstore_tspec = build_kvstore_tspec(
       directory,
@@ -672,14 +671,14 @@ def _get_json_tspec(
 
 # TODO: b/354139177 - Rename this to `build_array_tspec_read`.
 # Keep the existing name for backward compatibility but mark as deprecated.
-def get_json_tspec_read(
+async def get_json_tspec_read(
     info: types.ParamInfo,
     use_ocdbt: bool,
     metadata_key: str | None = None,
     raise_array_data_missing_error: bool = True,
 ) -> dict[str, Any]:
   """Gets Tensorstore spec for reading."""
-  return _get_json_tspec(
+  return await _get_json_tspec(
       info,
       use_ocdbt=use_ocdbt,
       metadata_key=metadata_key,
@@ -689,7 +688,7 @@ def get_json_tspec_read(
 
 # TODO: b/354139177 - Replace usages of this with `build_array_tspec_write`
 # and remove it.
-def get_json_tspec_write(
+async def get_json_tspec_write(
     info: types.ParamInfo,
     use_ocdbt: bool,
     global_shape: tuple[int, ...],
@@ -700,7 +699,7 @@ def get_json_tspec_write(
     arg: types.SaveArgs | None = None,
 ) -> dict[str, Any]:
   """Gets Tensorstore spec for writing."""
-  tspec = _get_json_tspec(
+  tspec = await _get_json_tspec(
       info,
       use_ocdbt=use_ocdbt,
       process_index=process_index,
@@ -739,7 +738,7 @@ def get_json_tspec_write(
   return tspec
 
 
-def build_array_read_spec(
+async def build_array_read_spec(
     info: types.ParamInfo,
     *,
     use_ocdbt: bool,
@@ -748,10 +747,11 @@ def build_array_read_spec(
     target_dtype: DType | None = None,
 ) -> ArrayReadSpec:
   """Gets ArrayReadSpec for reading."""
-  if info.name is None or info.parent_dir is None:
-    raise ValueError('Must provide info.name and info.parent_dir.')
+  if info.name is None:
+    raise ValueError('Must provide info.name.')
+  parent_dir = await info.get_parent_dir()
   return ArrayReadSpec(
-      directory=info.parent_dir.as_posix(),
+      directory=parent_dir.as_posix(),
       relative_array_filename=info.name,
       use_zarr3=info.use_zarr3,
       use_ocdbt=use_ocdbt,
@@ -761,7 +761,7 @@ def build_array_read_spec(
   )
 
 
-def build_array_write_spec(
+async def build_array_write_spec(
     info: types.ParamInfo,
     arg: types.SaveArgs | None = None,
     *,
@@ -775,10 +775,9 @@ def build_array_write_spec(
     ext_metadata: dict[str, Any] | None = None,
 ) -> ArrayWriteSpec:
   """Gets ArrayWriteSpec for writing."""
-  if info.name is None or info.parent_dir is None:
-    raise ValueError('Must provide info.name and info.parent_dir.')
-  parent_dir = info.parent_dir
-  assert parent_dir is not None
+  if info.name is None:
+    raise ValueError('Must provide info.name.')
+  parent_dir = await info.get_parent_dir()
   directory = parent_dir.as_posix()
 
   return ArrayWriteSpec(
