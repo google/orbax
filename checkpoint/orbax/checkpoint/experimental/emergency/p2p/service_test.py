@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -331,6 +331,28 @@ class P2PNodeTest(absltest.TestCase):
 
     final_dir = self.temp_dir / service.constants.P2P_RESTORE_DIR_NAME / '1'
     mock_move.assert_called_once_with(str(stage_dir / '1'), str(final_dir))
+    mock_rmtree.assert_called_with(str(stage_dir), ignore_errors=True)
+
+  @mock.patch.object(service.shutil, 'rmtree', autospec=True)
+  @mock.patch.object(service.shutil, 'move', autospec=True)
+  @mock.patch.object(service.time, 'time', autospec=True)
+  @mock.patch.object(service.protocol.TCPClient, 'request', autospec=True)
+  @mock.patch.object(service.protocol.TCPClient, 'download', autospec=True)
+  def test_fetch_shard_from_peer_exception_cleanup(
+      self,
+      mock_download,
+      mock_request,
+      unused_mock_time,
+      unused_mock_move,
+      mock_rmtree,
+  ):
+    """Tests that stage_dir is cleaned up if an exception occurs."""
+    mock_request.return_value = [{'rel_path': '1/file1', 'size': 10}]
+    mock_download.side_effect = OSError('Download failed')
+
+    self.assertFalse(self.node.fetch_shard_from_peer('peer', 123, 1, 10))
+
+    stage_dir = self.temp_dir / 'stage_1_10'
     mock_rmtree.assert_called_with(str(stage_dir), ignore_errors=True)
 
 

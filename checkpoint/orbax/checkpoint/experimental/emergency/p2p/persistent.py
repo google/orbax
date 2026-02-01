@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,6 +29,8 @@ from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
+from orbax.checkpoint.experimental.emergency.p2p import constants
+from orbax.checkpoint.experimental.emergency.p2p import utils
 
 _PRIMARY_REPLICA_ID = 0
 PyTree = Any
@@ -115,15 +117,22 @@ class PersistentCheckpointManager:
         enable_async_checkpointing=True,
     )
 
+    item_handlers = dict(state=_create_persistent_handler(mp_options))
+    if utils.pygrain() is not None:
+      item_handlers['data_iter'] = utils.pygrain().PyGrainCheckpointHandler()
+
     self._manager = checkpoint_manager.CheckpointManager(
         self._directory,
         options=internal_options,
-        item_handlers=dict(state=_create_persistent_handler(mp_options)),
+        item_handlers=item_handlers,
     )
 
   @property
   def directory(self) -> epath.Path:
     return self._directory
+
+  def latest_step(self) -> int | None:
+    return self._manager.latest_step()
 
   def save(
       self,
@@ -166,8 +175,11 @@ class PersistentCheckpointManager:
             abstract_state, sharding_tree
         ),
     )
+    restore_kwargs = {'state': restore_args_obj}
+    if constants.DATA_ITER_KEY in args:
+      restore_kwargs[constants.DATA_ITER_KEY] = args.data_iter
     return self._manager.restore(
-        step, args=p2p_args_lib.Composite(state=restore_args_obj)
+        step, args=p2p_args_lib.Composite(**restore_kwargs)
     )
 
   def delete(self, step: int):

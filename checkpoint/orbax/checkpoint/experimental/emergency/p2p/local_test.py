@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -102,9 +102,13 @@ class LocalCheckpointManagerTest(absltest.TestCase):
     )
     manager.wait_until_finished()
 
-    restored = manager.restore(1)
+    restored = manager.restore(
+        1, args=p2p_args_lib.Composite(state=args_lib.PyTreeRestore())
+    )
 
-    jax.tree_util.tree_map(np.testing.assert_array_equal, state, restored.state)
+    jax.tree_util.tree_map(
+        np.testing.assert_array_equal, state, restored['state']
+    )
     manager.close()
 
 
